@@ -10,18 +10,9 @@ namespace LivePhotoBox.Protocols.Cleaning;
 /// </summary>
 public sealed record ProtocolCleanRequest
 {
-    private readonly SourceMediaFacts? _explicitSourceFacts;
-
     public required ExtractedMediaBundle ExtractedBundle { get; init; }
 
-    public SourceMediaFacts SourceFacts
-    {
-        get => _explicitSourceFacts ?? ExtractedBundle.SourceFacts;
-        init
-        {
-            _explicitSourceFacts = value;
-        }
-    }
+    public SourceMediaFacts SourceFacts => ExtractedBundle.SourceFacts;
 
     public PreservationPolicy PreservationPolicy { get; init; } = PreservationPolicy.BestEffort;
 }
@@ -60,6 +51,7 @@ public sealed record PlannedCleanupAction
     public required MediaArtifactKind ArtifactRole { get; init; }
     public required ResidueStructureKind StructureKind { get; init; }
     public required string Selector { get; init; }
+    public string? ExpectedSemantic { get; init; }
     public ResidueRemovalMode RemovalMode { get; init; } = ResidueRemovalMode.Delete;
     public string? ExpectedFingerprint { get; init; }
     public bool IsMandatory { get; init; } = true;
@@ -174,6 +166,18 @@ public class CleanerException : Exception
     }
 }
 
+public enum CleanerTransactionState
+{
+    Initial,
+    Staging,
+    Validated,
+    Committing,
+    Committed,
+    RollingBack,
+    RolledBack,
+    RollbackFailed
+}
+
 /// <summary>
 /// Result of source protocol cleaning operation.
 /// </summary>
@@ -189,6 +193,7 @@ public sealed record ProtocolCleanResult
     public ProtocolCleanupPlan? CleanupPlan { get; init; }
     public CleanerFailureCategory? FailureCategory { get; init; }
     public CleanerFailureStage? FailureStage { get; init; }
+    public CleanerTransactionState? TransactionState { get; init; }
     public TimeSpan Duration { get; init; }
     public string? ErrorMessage { get; init; }
 }

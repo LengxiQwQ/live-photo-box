@@ -26,14 +26,36 @@ static void add_fact(
     std::vector<lpb_removed_protocol_fact>& out_facts,
     const char* proto,
     const char* comp,
-    const char* desc)
+    const char* desc,
+    const char* residue_id = "",
+    lpb_media_artifact_kind role = LPB_ARTIFACT_PRIMARY_IMAGE,
+    lpb_residue_structure_kind structure_kind = LPB_RESIDUE_SEF_ENTRY,
+    const char* op = "Removed",
+    const char* after = "Removed")
 {
     lpb_removed_protocol_fact fact{};
     fact.struct_size = sizeof(lpb_removed_protocol_fact);
-    strncpy_s(fact.protocol_name, proto, _TRUNCATE);
-    strncpy_s(fact.component, comp, _TRUNCATE);
-    strncpy_s(fact.description, desc, _TRUNCATE);
+    strncpy_s(fact.protocol_name, proto ? proto : "", _TRUNCATE);
+    strncpy_s(fact.component, comp ? comp : "", _TRUNCATE);
+    strncpy_s(fact.description, desc ? desc : "", _TRUNCATE);
+    strncpy_s(fact.residue_id, residue_id ? residue_id : "", _TRUNCATE);
+    fact.artifact_role = role;
+    fact.structure_kind = structure_kind;
+    strncpy_s(fact.operation, op ? op : "Removed", _TRUNCATE);
+    strncpy_s(fact.after_status, after ? after : "Removed", _TRUNCATE);
     out_facts.push_back(fact);
+}
+
+static bool is_action_authorized(
+    const lpb_cleanup_action* actions,
+    size_t action_count,
+    std::string_view residue_id)
+{
+    if (!actions) return true;
+    for (size_t i = 0; i < action_count; ++i) {
+        if (residue_id == actions[i].residue_id) return true;
+    }
+    return false;
 }
 
 static size_t find_jpeg_eoi(const std::vector<uint8_t>& data, size_t max_search) {
@@ -121,6 +143,8 @@ lpb_result clean_samsung_sef_jpeg(
     lpb_context* context,
     const std::string& input_path,
     const std::string& output_path,
+    const lpb_cleanup_action* actions,
+    size_t action_count,
     std::vector<lpb_removed_protocol_fact>& out_facts)
 {
     auto p_in = utf8_to_path(input_path.c_str());
@@ -215,12 +239,30 @@ lpb_result clean_samsung_sef_jpeg(
                             parsed_sef = false;
                             break;
                         }
-                        had_motion_photo = true;
+                        if (is_action_authorized(actions, action_count, "samsung-jpeg-sef-0a30")) {
+                            had_motion_photo = true;
+                        } else {
+                            SefEntry retained{};
+                            retained.prefix = prefix;
+                            retained.marker = marker;
+                            retained.payload.assign(data.data() + payload_pos, data.data() + payload_pos + size);
+                            retained_entries.push_back(std::move(retained));
+                        }
                     } else if (marker == 0x0A31) {
                         if (prefix != 0 || name_size != 19 || size < 31 ||
                             std::memcmp(data.data() + payload_pos + 8, "MotionPhoto_Version", 19) != 0) {
                             parsed_sef = false;
                             break;
+                        }
+                        if (is_action_authorized(actions, action_count, "samsung-jpeg-sef-0a31")) {
+                            add_fact(out_facts, "Samsung", "SEF Trailer", "Removed 0x0A31 MotionPhoto_Version from SEF",
+                                "samsung-jpeg-sef-0a31", LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_SEF_ENTRY);
+                        } else {
+                            SefEntry retained{};
+                            retained.prefix = prefix;
+                            retained.marker = marker;
+                            retained.payload.assign(data.data() + payload_pos, data.data() + payload_pos + size);
+                            retained_entries.push_back(std::move(retained));
                         }
                     } else {
                         SefEntry retained{};
@@ -232,7 +274,8 @@ lpb_result clean_samsung_sef_jpeg(
                     max_payload_offset = std::max(max_payload_offset, static_cast<size_t>(offset));
                 }
                 if (parsed_sef && had_motion_photo) {
-                    add_fact(out_facts, "Samsung", "SEF Trailer", "Removed 0x0A30 MotionPhoto_Data from SEF");
+                    add_fact(out_facts, "Samsung", "SEF Trailer", "Removed 0x0A30 MotionPhoto_Data from SEF",
+                        "samsung-jpeg-sef-0a30", LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_SEF_ENTRY);
                     const size_t payload_start = actual_sefh >= max_payload_offset ? actual_sefh - max_payload_offset : actual_sefh;
                     eoi = find_jpeg_eoi(data, payload_start);
                     if (eoi < 2 || eoi > payload_start || data[eoi - 2] != 0xFF || data[eoi - 1] != 0xD9) {
@@ -244,7 +287,7 @@ lpb_result clean_samsung_sef_jpeg(
         }
     }
 
-    if (!parsed_sef || !had_motion_photo) {
+    if (!parsed_sef) {
         set_error(context, "Samsung SEF trailer is missing or malformed.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
@@ -256,7 +299,7 @@ lpb_result clean_samsung_sef_jpeg(
     const std::string xmp_str = extract_jpeg_xmp(data);
     if (!xmp_str.empty()) {
         std::string cleaned_xmp;
-        if (clean_xmp_metadata(xmp_str, LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG, cleaned_xmp, out_facts)) {
+        if (clean_xmp_metadata_with_plan(xmp_str, LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG, actions, action_count, cleaned_xmp, out_facts)) {
             std::vector<uint8_t> out_buf(data.size() + cleaned_xmp.size() + 4096);
             size_t written = 0;
             if (lpb_jpeg_inject_xmp(context, data.data(), data.size(), reinterpret_cast<const uint8_t*>(cleaned_xmp.data()), cleaned_xmp.size(), out_buf.data(), out_buf.size(), &written) == LPB_RESULT_OK && written > 0) {

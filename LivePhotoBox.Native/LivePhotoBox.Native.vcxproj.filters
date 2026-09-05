@@ -42,6 +42,9 @@
     <ClInclude Include="src\containers\isobmff.h">
       <Filter>src\containers</Filter>
     </ClInclude>
+    <ClInclude Include="src\containers\mp4_strip.h">
+      <Filter>src\containers</Filter>
+    </ClInclude>
     <ClInclude Include="src\foundation\internal.h">
       <Filter>src\foundation</Filter>
     </ClInclude>

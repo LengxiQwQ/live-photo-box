@@ -61,7 +61,6 @@ public sealed class NeutralMediaService : INeutralMediaService
         // 3. Clean source Live/Motion Photo protocol
         ProtocolCleanResult cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            SourceFacts = facts,
             ExtractedBundle = extracted,
             PreservationPolicy = preservationPolicy
         }, workspace, cancellationToken).ConfigureAwait(false);

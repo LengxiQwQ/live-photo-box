@@ -73,10 +73,46 @@ internal unsafe struct NativeSourceMediaFacts
 }
 
 [StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeConfirmedResidue
+{
+    public uint StructSize;
+    public fixed byte ResidueId[64];
+    public int OwnerProtocol;
+    public int ArtifactRole;
+    public int StructureKind;
+    public fixed byte Selector[128];
+    public fixed byte ExpectedSemantic[64];
+    public fixed byte ExpectedFingerprint[64];
+    public int CoordinateSpace;
+    public int RemovalMode;
+    public int RequiredAfterExtraction;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeCleanupAction
+{
+    public uint StructSize;
+    public fixed byte ResidueId[64];
+    public int ArtifactRole;
+    public int StructureKind;
+    public fixed byte Selector[128];
+    public fixed byte ExpectedSemantic[64];
+    public fixed byte ExpectedFingerprint[64];
+    public int RemovalMode;
+    public int IsMandatory;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 internal unsafe struct NativeRemovedProtocolFact
 {
     public uint StructSize;
     public fixed byte ProtocolName[64];
     public fixed byte Component[64];
     public fixed byte Description[128];
+    public fixed byte ResidueId[64];
+    public int ArtifactRole;
+    public int StructureKind;
+    public fixed byte Operation[64];
+    public fixed byte BeforeFingerprint[64];
+    public fixed byte AfterStatus[64];
 }

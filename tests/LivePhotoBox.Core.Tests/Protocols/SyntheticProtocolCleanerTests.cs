@@ -30,7 +30,6 @@ public sealed class SyntheticProtocolCleanerTests
         var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            SourceFacts = facts,
             ExtractedBundle = extracted
         }, ws);
 
@@ -57,7 +56,6 @@ public sealed class SyntheticProtocolCleanerTests
         var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            SourceFacts = facts,
             ExtractedBundle = extracted
         }, ws);
 
@@ -84,7 +82,6 @@ public sealed class SyntheticProtocolCleanerTests
         var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            SourceFacts = facts,
             ExtractedBundle = extracted
         }, ws);
 
@@ -113,7 +110,6 @@ public sealed class SyntheticProtocolCleanerTests
         var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            SourceFacts = facts,
             ExtractedBundle = extracted
         }, ws);
 
@@ -140,7 +136,6 @@ public sealed class SyntheticProtocolCleanerTests
         var extracted = await _extractor.ExtractAsync(facts, imgPath, vidPath, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            SourceFacts = facts,
             ExtractedBundle = extracted
         }, ws);
 
@@ -171,7 +166,6 @@ public sealed class SyntheticProtocolCleanerTests
         var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            SourceFacts = facts,
             ExtractedBundle = extracted
         }, ws);
 
@@ -199,7 +193,6 @@ public sealed class SyntheticProtocolCleanerTests
         var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            SourceFacts = facts,
             ExtractedBundle = extracted
         }, ws);
 
@@ -224,7 +217,6 @@ public sealed class SyntheticProtocolCleanerTests
         var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            SourceFacts = facts,
             ExtractedBundle = extracted
         }, ws);
 
@@ -252,7 +244,6 @@ public sealed class SyntheticProtocolCleanerTests
         var extracted = await _extractor.ExtractAsync(facts, imgPath, movPath, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            SourceFacts = facts,
             ExtractedBundle = extracted
         }, ws);
 
@@ -278,7 +269,6 @@ public sealed class SyntheticProtocolCleanerTests
         var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult1 = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            SourceFacts = facts,
             ExtractedBundle = extracted
         }, ws);
 
@@ -291,7 +281,6 @@ public sealed class SyntheticProtocolCleanerTests
         var extracted2 = await _extractor.ExtractAsync(recheckFacts, cleanResult1.CleanedImage.Path, null, ws);
         var cleanResult2 = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            SourceFacts = recheckFacts,
             ExtractedBundle = extracted2
         }, ws);
 
@@ -316,7 +305,6 @@ public sealed class SyntheticProtocolCleanerTests
         var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            SourceFacts = facts,
             ExtractedBundle = extracted
         }, ws);
 
@@ -340,7 +328,6 @@ public sealed class SyntheticProtocolCleanerTests
         var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
         var result = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            SourceFacts = facts,
             ExtractedBundle = extracted
         }, ws);
 
@@ -366,7 +353,6 @@ public sealed class SyntheticProtocolCleanerTests
         var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
         var result = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            SourceFacts = facts,
             ExtractedBundle = extracted
         }, ws);
 

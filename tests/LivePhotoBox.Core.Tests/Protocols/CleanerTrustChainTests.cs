@@ -102,34 +102,21 @@ public sealed class CleanerTrustChainTests
 
 
     [Fact]
-    public async Task Clean_FailsWhenExplicitSourceFactsMismatchBundleFacts()
+    public void CleanRequest_GuaranteesSourceFactsDerivedSolelyFromExtractedBundle()
     {
-        using var workspace = new MediaWorkspace();
-        var cleaner = new SourceProtocolCleaner();
-
-        string imgPath = workspace.AllocateFilePath("test-img", ".jpg");
-        await File.WriteAllBytesAsync(imgPath, new byte[] { 0xFF, 0xD8, 0xFF, 0xD9 });
-
-        var factsA = new SourceMediaFacts
+        var facts = new SourceMediaFacts
         {
-            Protocol = SourceProtocol.OppoLivePhoto,
+            Protocol = SourceProtocol.SamsungMotionPhotoJpeg,
             PrimarySha256 = "SHA_AAA",
-            PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = 4, IsPresent = true }
-        };
-
-        var factsB = new SourceMediaFacts
-        {
-            Protocol = SourceProtocol.VivoLivePhoto,
-            PrimarySha256 = "SHA_BBB",
             PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = 4, IsPresent = true }
         };
 
         var bundle = new ExtractedMediaBundle
         {
-            SourceFacts = factsA,
+            SourceFacts = facts,
             PrimaryImage = new MediaArtifact
             {
-                Path = imgPath,
+                Path = "test.jpg",
                 Kind = MediaArtifactKind.PrimaryImage,
                 MimeType = "image/jpeg",
                 ImageContainer = ImageContainer.Jpeg,
@@ -138,15 +125,12 @@ public sealed class CleanerTrustChainTests
             }
         };
 
-        var result = await cleaner.CleanAsync(new ProtocolCleanRequest
+        var request = new ProtocolCleanRequest
         {
-            ExtractedBundle = bundle,
-            SourceFacts = factsB // Mismatched facts!
-        }, workspace);
+            ExtractedBundle = bundle
+        };
 
-        Assert.False(result.Success);
-        Assert.Equal(CleanerFailureCategory.ArtifactFactMismatch, result.FailureCategory);
-        Assert.Equal(CleanerFailureStage.Preflight, result.FailureStage);
+        Assert.Same(bundle.SourceFacts, request.SourceFacts);
     }
 
     [Fact]

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
@@ -20,10 +21,20 @@ namespace LivePhotoBox.Protocols.Cleaning;
 public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
 {
     private readonly ISourceInspector _inspector;
+    private readonly Func<SourceMediaFacts, IReadOnlyList<PlannedCleanupAction>, string, string?, string?, string?, CancellationToken, Task<IReadOnlyList<RemovedProtocolFact>>> _cleanInvoker;
 
-    public SourceProtocolCleaner(ISourceInspector? inspector = null)
+    /// <summary>
+    /// Test seam for deterministic fault injection and mid-operation cancellation in tests.
+    /// Only active when set by test fixtures; in production this is null.
+    /// </summary>
+    public Func<CleanerFailureStage, string?, Task>? FaultInjectionHook { get; set; }
+
+    public SourceProtocolCleaner(
+        ISourceInspector? inspector = null,
+        Func<SourceMediaFacts, IReadOnlyList<PlannedCleanupAction>, string, string?, string?, string?, CancellationToken, Task<IReadOnlyList<RemovedProtocolFact>>>? cleanInvoker = null)
     {
         _inspector = inspector ?? new SourceInspector();
+        _cleanInvoker = cleanInvoker ?? NativeCleanService.CleanSourceProtocolAsync;
     }
 
     public async Task<ProtocolCleanResult> CleanAsync(
@@ -37,14 +48,16 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         cancellationToken.ThrowIfCancellationRequested();
 
         var sw = Stopwatch.StartNew();
-        string? stagingDir = null;
-        var publishedPaths = new List<string>();
+        var journal = new CleanerTransactionJournal();
+        var currentProtocol = SourceProtocol.Unknown;
 
         try
         {
             // -------------------------------------------------------------
             // Step 1: Preflight & Bundle Provenance
             // -------------------------------------------------------------
+            if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Preflight, null).ConfigureAwait(false);
+
             var bundle = request.ExtractedBundle
                 ?? throw new CleanerException(
                     CleanerFailureCategory.ArtifactFactMismatch,
@@ -59,6 +72,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     SourceProtocol.Unknown,
                     "SourceMediaFacts is missing from ExtractedMediaBundle.");
 
+            currentProtocol = facts.Protocol;
+
             if (facts.Protocol == SourceProtocol.Unknown)
             {
                 throw new CleanerException(
@@ -66,21 +81,6 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     CleanerFailureStage.Preflight,
                     SourceProtocol.Unknown,
                     "Cannot clean source with Unknown protocol.");
-            }
-
-            if (request.SourceFacts != null && !ReferenceEquals(request.SourceFacts, facts))
-            {
-                if (request.SourceFacts.Protocol != facts.Protocol ||
-                    request.SourceFacts.PrimarySha256 != facts.PrimarySha256 ||
-                    request.SourceFacts.SecondarySha256 != facts.SecondarySha256 ||
-                    request.SourceFacts.PairingIdentifier != facts.PairingIdentifier)
-                {
-                    throw new CleanerException(
-                        CleanerFailureCategory.ArtifactFactMismatch,
-                        CleanerFailureStage.Preflight,
-                        facts.Protocol,
-                        "Supplied request.SourceFacts does not match ExtractedBundle.SourceFacts.");
-                }
             }
 
             if (bundle.PrimaryImage == null || !File.Exists(bundle.PrimaryImage.Path))
@@ -116,6 +116,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             // -------------------------------------------------------------
             // Step 2: Verify P2 Artifact Identity
             // -------------------------------------------------------------
+            if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.ArtifactVerification, null).ConfigureAwait(false);
+
             await VerifyArtifactIntegrityAsync(bundle.PrimaryImage, "PrimaryImage", facts.Protocol, cancellationToken).ConfigureAwait(false);
             if (bundle.MotionVideo != null)
             {
@@ -134,13 +136,10 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 return await ExecuteNonLiveNoOpAsync(bundle, workspace, sw, cancellationToken).ConfigureAwait(false);
             }
 
+            if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Authorization, null).ConfigureAwait(false);
+
             var authorizations = facts.ConfirmedResidues;
             if (authorizations == null || authorizations.Count == 0)
-            {
-                authorizations = CleanupAuthorizationAuthority.ResolveAuthorizations(facts);
-            }
-
-            if (authorizations.Count == 0)
             {
                 throw new CleanerException(
                     CleanerFailureCategory.CleanupAuthorizationMissing,
@@ -152,6 +151,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             // -------------------------------------------------------------
             // Step 4: Build Immutable Cleanup Plan
             // -------------------------------------------------------------
+            if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Planning, null).ConfigureAwait(false);
+
             var planActions = new List<PlannedCleanupAction>();
             foreach (var residue in authorizations)
             {
@@ -161,6 +162,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     ArtifactRole = residue.ArtifactRole,
                     StructureKind = residue.StructureKind,
                     Selector = residue.Selector,
+                    ExpectedSemantic = residue.ExpectedSemantic,
                     RemovalMode = residue.RemovalMode,
                     ExpectedFingerprint = residue.ExpectedFingerprint,
                     IsMandatory = residue.RequiredAfterExtraction
@@ -177,9 +179,13 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             // Step 5: Stage Clean (Isolated Workspace)
             // -------------------------------------------------------------
             cancellationToken.ThrowIfCancellationRequested();
+            journal.SetState(CleanerTransactionState.Staging);
 
-            stagingDir = Path.Combine(workspace.RootDirectory, "staging_" + Guid.NewGuid().ToString("N"));
+            string stagingDir = Path.Combine(workspace.RootDirectory, "staging_" + Guid.NewGuid().ToString("N"));
+            journal.StagingDir = stagingDir;
             Directory.CreateDirectory(stagingDir);
+
+            if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Staging, "BeforeNative").ConfigureAwait(false);
 
             string imgExt = bundle.PrimaryImage.ImageContainer == ImageContainer.Heic ? ".heic" : ".jpg";
             string stagedImgPath = Path.Combine(stagingDir, "stage-img" + imgExt);
@@ -191,8 +197,9 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 stagedVidPath = Path.Combine(stagingDir, "stage-vid" + vidExt);
             }
 
-            var removedFacts = await NativeCleanService.CleanSourceProtocolAsync(
-                facts with { ConfirmedResidues = authorizations },
+            var removedFacts = await _cleanInvoker(
+                facts,
+                cleanupPlan.Actions,
                 bundle.PrimaryImage.Path,
                 bundle.MotionVideo?.Path,
                 stagedImgPath,
@@ -207,18 +214,42 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     facts.Protocol,
                     "Cleaned staged image was not generated.");
             }
-            if (stagedVidPath != null && !File.Exists(stagedVidPath))
+            if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Staging, "ImageStaged").ConfigureAwait(false);
+
+            if (stagedVidPath != null)
             {
-                throw new CleanerException(
-                    CleanerFailureCategory.OutputCreateFailed,
-                    CleanerFailureStage.Staging,
-                    facts.Protocol,
-                    "Cleaned staged video was not generated.");
+                if (!File.Exists(stagedVidPath))
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.OutputCreateFailed,
+                        CleanerFailureStage.Staging,
+                        facts.Protocol,
+                        "Cleaned staged video was not generated.");
+                }
+                if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Staging, "VideoStaged").ConfigureAwait(false);
+            }
+
+            // -------------------------------------------------------------
+            // Step 5.5: Destructive Authority Reconciliation Gate
+            // -------------------------------------------------------------
+            var authorizedResidueIds = new HashSet<string>(cleanupPlan.Actions.Select(a => a.ResidueId), StringComparer.Ordinal);
+            foreach (var fact in removedFacts)
+            {
+                if (string.IsNullOrEmpty(fact.ResidueId) || !authorizedResidueIds.Contains(fact.ResidueId))
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.RemovalWouldTouchUnknownData,
+                        CleanerFailureStage.Staging,
+                        facts.Protocol,
+                        $"Native cleaner performed unauthorized removal: ResidueId='{fact.ResidueId}', Component='{fact.Component}', Desc='{fact.Description}'. All mutations must be authorized by CleanupPlan.");
+                }
             }
 
             // -------------------------------------------------------------
             // Step 6: Preservation Diff
             // -------------------------------------------------------------
+            if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.PreservationDiff, null).ConfigureAwait(false);
+
             var preservationReport = await MetadataPreservationVerifier.VerifyAsync(
                 bundle, stagedImgPath, stagedVidPath, cancellationToken).ConfigureAwait(false);
 
@@ -235,6 +266,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             // -------------------------------------------------------------
             // Step 7: Structural & Media Validation
             // -------------------------------------------------------------
+            if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.MediaValidation, null).ConfigureAwait(false);
+
             long stagedImgLen = new FileInfo(stagedImgPath).Length;
             if (stagedImgLen == 0)
             {
@@ -261,28 +294,64 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             // -------------------------------------------------------------
             // Step 8: Source Inspector Post-clean Gate
             // -------------------------------------------------------------
-            bool isDualSource = facts.MotionVideo is { IsPresent: true, SourceIndex: 1 };
-            var recheckFacts = await _inspector.InspectAsync(
-                stagedImgPath,
-                isDualSource ? stagedVidPath : null,
-                cancellationToken).ConfigureAwait(false);
+            if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.PostCleanInspection, "BeforeInspect").ConfigureAwait(false);
 
-            if (recheckFacts.Protocol != SourceProtocol.NonLive ||
-                recheckFacts.MotionVideo != null ||
-                recheckFacts.ProtocolTailLength != 0 ||
-                recheckFacts.PairingIdentifier != null)
+            bool isDualSource = facts.MotionVideo is { IsPresent: true, SourceIndex: 1 };
+
+            // 8.1 Inspect cleaned image individually
+            var imgRecheckFacts = await _inspector.InspectAsync(stagedImgPath, null, cancellationToken).ConfigureAwait(false);
+            if (imgRecheckFacts.Protocol != SourceProtocol.NonLive ||
+                imgRecheckFacts.MotionVideo != null ||
+                imgRecheckFacts.ProtocolTailLength != 0 ||
+                imgRecheckFacts.PairingIdentifier != null)
             {
                 throw new CleanerException(
                     CleanerFailureCategory.ProtocolStillDetected,
                     CleanerFailureStage.PostCleanInspection,
                     facts.Protocol,
-                    $"Post-clean inspection failed: artifact still recognized as {recheckFacts.Protocol}.");
+                    $"Post-clean inspection failed: image artifact still recognized as {imgRecheckFacts.Protocol} (PairingId='{imgRecheckFacts.PairingIdentifier}').",
+                    MediaArtifactKind.PrimaryImage);
+            }
+
+            // 8.2 Inspect cleaned video individually if present
+            if (stagedVidPath != null)
+            {
+                var vidRecheckFacts = await _inspector.InspectAsync(stagedVidPath, null, cancellationToken).ConfigureAwait(false);
+                if (vidRecheckFacts.Protocol != SourceProtocol.NonLive ||
+                    vidRecheckFacts.ProtocolTailLength != 0 ||
+                    (isDualSource && vidRecheckFacts.PairingIdentifier != null) ||
+                    (vidRecheckFacts.PairingIdentifier != null && vidRecheckFacts.PairingIdentifier == imgRecheckFacts.PairingIdentifier))
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.ProtocolStillDetected,
+                        CleanerFailureStage.PostCleanInspection,
+                        facts.Protocol,
+                        $"Post-clean inspection failed: video artifact still recognized as {vidRecheckFacts.Protocol} (PairingId='{vidRecheckFacts.PairingIdentifier}').",
+                        MediaArtifactKind.MotionVideo);
+                }
+            }
+
+            // 8.3 Inspect combined pair if dual source
+            if (isDualSource && stagedVidPath != null)
+            {
+                var pairRecheckFacts = await _inspector.InspectAsync(stagedImgPath, stagedVidPath, cancellationToken).ConfigureAwait(false);
+                if (pairRecheckFacts.Protocol != SourceProtocol.NonLive ||
+                    pairRecheckFacts.PairingIdentifier != null)
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.ProtocolStillDetected,
+                        CleanerFailureStage.PostCleanInspection,
+                        facts.Protocol,
+                        $"Post-clean bundle inspection failed: pair still recognized as {pairRecheckFacts.Protocol} (PairingId='{pairRecheckFacts.PairingIdentifier}').");
+                }
             }
 
             // -------------------------------------------------------------
             // Step 9: Bundle Transaction Commit
             // -------------------------------------------------------------
-            // Short, non-interruptible commit zone
+            journal.SetState(CleanerTransactionState.Validated);
+            if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Commit, "BeforePublish").ConfigureAwait(false);
+
             string cleanImgPath = workspace.AllocateFilePath("clean-img", imgExt);
             string? cleanVidPath = null;
             if (stagedVidPath != null)
@@ -291,16 +360,21 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 cleanVidPath = workspace.AllocateFilePath("clean-vid", vidExt);
             }
 
+            journal.SetState(CleanerTransactionState.Committing);
             try
             {
                 File.Move(stagedImgPath, cleanImgPath, overwrite: true);
-                publishedPaths.Add(cleanImgPath);
+                journal.PublishedPaths.Add(cleanImgPath);
+
+                if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Commit, "ImagePublished").ConfigureAwait(false);
 
                 if (stagedVidPath != null && cleanVidPath != null)
                 {
                     File.Move(stagedVidPath, cleanVidPath, overwrite: true);
-                    publishedPaths.Add(cleanVidPath);
+                    journal.PublishedPaths.Add(cleanVidPath);
                 }
+
+                journal.SetState(CleanerTransactionState.Committed);
             }
             catch (Exception ex)
             {
@@ -313,8 +387,11 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             }
             finally
             {
-                TryDeleteDirectory(stagingDir);
-                stagingDir = null;
+                if (journal.State == CleanerTransactionState.Committed)
+                {
+                    TryDeleteDirectory(stagingDir);
+                    journal.StagingDir = null;
+                }
             }
 
             // -------------------------------------------------------------
@@ -358,25 +435,55 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 PreservationOutcome = preservationReport.OverallOutcome,
                 PreservationReport = preservationReport,
                 CleanupPlan = cleanupPlan,
+                TransactionState = journal.State,
                 Duration = sw.Elapsed
             };
         }
         catch (OperationCanceledException)
         {
             sw.Stop();
-            RollbackTransaction(stagingDir, publishedPaths);
+            try
+            {
+                journal.Rollback(FaultInjectionHook, currentProtocol);
+            }
+            catch (CleanerException rbEx)
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.RollbackFailed,
+                    CleanerFailureStage.Rollback,
+                    currentProtocol,
+                    $"Cancellation was requested but rollback failed: {rbEx.Message}",
+                    innerException: rbEx);
+            }
             throw;
         }
         catch (CleanerException ex)
         {
             sw.Stop();
-            RollbackTransaction(stagingDir, publishedPaths);
+            try
+            {
+                journal.Rollback(FaultInjectionHook, currentProtocol);
+            }
+            catch (CleanerException rbEx)
+            {
+                return new ProtocolCleanResult
+                {
+                    Success = false,
+                    ErrorMessage = $"Original error ({ex.Category}): {ex.Message}. Critical rollback failure: {rbEx.Message}",
+                    FailureCategory = CleanerFailureCategory.RollbackFailed,
+                    FailureStage = CleanerFailureStage.Rollback,
+                    TransactionState = CleanerTransactionState.RollbackFailed,
+                    PreservationOutcome = PreservationOutcome.PartiallyPreserved,
+                    Duration = sw.Elapsed
+                };
+            }
             return new ProtocolCleanResult
             {
                 Success = false,
                 ErrorMessage = ex.Message,
                 FailureCategory = ex.Category,
                 FailureStage = ex.Stage,
+                TransactionState = journal.State,
                 PreservationOutcome = PreservationOutcome.PartiallyPreserved,
                 Duration = sw.Elapsed
             };
@@ -384,13 +491,30 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         catch (Exception ex)
         {
             sw.Stop();
-            RollbackTransaction(stagingDir, publishedPaths);
+            try
+            {
+                journal.Rollback(FaultInjectionHook, currentProtocol);
+            }
+            catch (CleanerException rbEx)
+            {
+                return new ProtocolCleanResult
+                {
+                    Success = false,
+                    ErrorMessage = $"Original error: {ex.Message}. Critical rollback failure: {rbEx.Message}",
+                    FailureCategory = CleanerFailureCategory.RollbackFailed,
+                    FailureStage = CleanerFailureStage.Rollback,
+                    TransactionState = CleanerTransactionState.RollbackFailed,
+                    PreservationOutcome = PreservationOutcome.PartiallyPreserved,
+                    Duration = sw.Elapsed
+                };
+            }
             return new ProtocolCleanResult
             {
                 Success = false,
                 ErrorMessage = ex.Message,
                 FailureCategory = CleanerFailureCategory.None,
                 FailureStage = CleanerFailureStage.Preflight,
+                TransactionState = journal.State,
                 PreservationOutcome = PreservationOutcome.PartiallyPreserved,
                 Duration = sw.Elapsed
             };
@@ -507,27 +631,71 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 Protocol = SourceProtocol.NonLive,
                 Actions = []
             },
+            TransactionState = CleanerTransactionState.Committed,
             Duration = sw.Elapsed
         };
     }
 
-    private static void RollbackTransaction(string? stagingDir, List<string> publishedPaths)
+    private sealed class CleanerTransactionJournal
     {
-        TryDeleteDirectory(stagingDir);
+        public CleanerTransactionState State { get; private set; } = CleanerTransactionState.Initial;
+        public string? StagingDir { get; set; }
+        public List<string> PublishedPaths { get; } = [];
+        public List<Exception> RollbackExceptions { get; } = [];
 
-        foreach (var path in publishedPaths)
+        public void SetState(CleanerTransactionState state) => State = state;
+
+        public void Rollback(Func<CleanerFailureStage, string?, Task>? faultHook, SourceProtocol protocol)
         {
-            try
+            State = CleanerTransactionState.RollingBack;
+            RollbackExceptions.Clear();
+
+            // 1. Delete published artifacts
+            foreach (var path in PublishedPaths)
             {
-                if (File.Exists(path))
+                try
                 {
-                    File.Delete(path);
+                    faultHook?.Invoke(CleanerFailureStage.Rollback, path).GetAwaiter().GetResult();
+                    if (File.Exists(path))
+                    {
+                        File.Delete(path);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    RollbackExceptions.Add(new IOException($"Failed to rollback published artifact '{path}': {ex.Message}", ex));
                 }
             }
-            catch
+
+            // 2. Delete staging directory
+            if (!string.IsNullOrEmpty(StagingDir))
             {
-                // Best-effort rollback
+                try
+                {
+                    faultHook?.Invoke(CleanerFailureStage.Rollback, StagingDir).GetAwaiter().GetResult();
+                    if (Directory.Exists(StagingDir))
+                    {
+                        Directory.Delete(StagingDir, recursive: true);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    RollbackExceptions.Add(new IOException($"Failed to rollback staging directory '{StagingDir}': {ex.Message}", ex));
+                }
             }
+
+            if (RollbackExceptions.Count > 0)
+            {
+                State = CleanerTransactionState.RollbackFailed;
+                throw new CleanerException(
+                    CleanerFailureCategory.RollbackFailed,
+                    CleanerFailureStage.Rollback,
+                    protocol,
+                    $"Rollback failed to clean up transient artifacts: {string.Join("; ", RollbackExceptions.Select(e => e.Message))}",
+                    innerException: new AggregateException(RollbackExceptions));
+            }
+
+            State = CleanerTransactionState.RolledBack;
         }
     }
 
@@ -541,9 +709,9 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 Directory.Delete(dir, recursive: true);
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // Best-effort cleanup
+            System.Diagnostics.Debug.WriteLine($"Failed to delete staging directory '{dir}': {ex.Message}");
         }
     }
 }

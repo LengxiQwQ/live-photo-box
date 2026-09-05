@@ -303,20 +303,76 @@ static bool item_is_motion(const parsed_element& element, lpb_source_protocol pr
     return false;
 }
 
-static void add_fact(std::vector<lpb_removed_protocol_fact>& out_facts,
-    const char* proto, const char* component, const char* description)
+
+static const char* protocol_name_str(lpb_source_protocol p) noexcept {
+    switch (p) {
+    case LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO: return "Apple";
+    case LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1: return "GoogleMicroVideo";
+    case LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2: return "GoogleMotionPhoto";
+    case LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO: return "OPPO";
+    case LPB_SOURCE_PROTOCOL_VIVO_X300: return "vivo";
+    case LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL: return "vivo";
+    case LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG: return "Samsung";
+    case LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC: return "Samsung";
+    case LPB_SOURCE_PROTOCOL_HUAWEI_MOVING_PHOTO: return "Huawei";
+    case LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO: return "Honor";
+    default: return "Source protocol";
+    }
+}
+
+static const lpb_cleanup_action* find_xmp_attribute_action(
+    std::string_view name,
+    std::string_view uri,
+    lpb_source_protocol protocol,
+    const lpb_cleanup_action* actions,
+    size_t action_count) noexcept
 {
-    lpb_removed_protocol_fact fact{};
-    fact.struct_size = sizeof(lpb_removed_protocol_fact);
-    strncpy_s(fact.protocol_name, proto, _TRUNCATE);
-    strncpy_s(fact.component, component, _TRUNCATE);
-    strncpy_s(fact.description, description, _TRUNCATE);
-    out_facts.push_back(fact);
+    if (!is_protocol_attribute(name, uri, protocol)) return nullptr;
+    if (!actions || action_count == 0) return nullptr;
+    const std::string_view local = local_name(name);
+    for (size_t i = 0; i < action_count; ++i) {
+        const auto& a = actions[i];
+        if (a.artifact_role == LPB_ARTIFACT_PRIMARY_IMAGE && a.structure_kind == LPB_RESIDUE_XMP_PROPERTY) {
+            std::string_view sel(a.selector);
+            std::string_view sel_local = local_name(sel);
+            if (equals_icase(local, sel_local) || equals_icase(name, sel)) {
+                return &a;
+            }
+        }
+    }
+    return nullptr;
+}
+
+static const lpb_cleanup_action* find_motion_item_action(
+    const parsed_element& element,
+    lpb_source_protocol protocol,
+    const lpb_cleanup_action* actions,
+    size_t action_count) noexcept
+{
+    if (!item_is_motion(element, protocol)) return nullptr;
+    if (!actions || action_count == 0) return nullptr;
+    for (size_t i = 0; i < action_count; ++i) {
+        const auto& a = actions[i];
+        if (a.artifact_role == LPB_ARTIFACT_PRIMARY_IMAGE && a.structure_kind == LPB_RESIDUE_XMP_CONTAINER_ITEM) {
+            std::string_view sel(a.selector);
+            if (sel.find("MotionPhoto") != std::string_view::npos ||
+                equals_icase(a.residue_id, "google-v2-container-item-motionphoto") ||
+                equals_icase(a.residue_id, "oppo-container-item-motionphoto") ||
+                equals_icase(a.residue_id, "samsung-heic-container-item-motionphoto") ||
+                equals_icase(a.residue_id, "samsung-jpeg-container-item-motionphoto")) {
+                return &a;
+            }
+        }
+    }
+    return nullptr;
 }
 
 static bool find_motion_ranges(std::string_view xml,
     lpb_source_protocol protocol,
-    std::vector<std::pair<size_t, size_t>>& ranges) noexcept
+    const lpb_cleanup_action* actions,
+    size_t action_count,
+    std::vector<std::pair<size_t, size_t>>& ranges,
+    std::vector<lpb_cleanup_action>& matched_actions) noexcept
 {
     std::vector<parsed_element> elements;
     if (!parse_xml_elements(xml, elements)) return false;
@@ -324,6 +380,11 @@ static bool find_motion_ranges(std::string_view xml,
     for (const auto& element : elements)
     {
         if (!item_is_motion(element, protocol)) continue;
+        const lpb_cleanup_action* matched_act = nullptr;
+        if (actions && action_count > 0) {
+            matched_act = find_motion_item_action(element, protocol, actions, action_count);
+            if (!matched_act) continue;
+        }
 
         size_t start = element.start;
         size_t end = element.end;
@@ -342,15 +403,20 @@ static bool find_motion_ranges(std::string_view xml,
             }
         }
         ranges.push_back({ start, end });
+        if (matched_act) {
+            matched_actions.push_back(*matched_act);
+        }
     }
     return true;
 }
 
 } // namespace
 
-bool clean_xmp_metadata(
+bool clean_xmp_metadata_with_plan(
     const std::string& input_xmp,
     lpb_source_protocol protocol,
+    const lpb_cleanup_action* actions,
+    size_t action_count,
     std::string& output_xmp,
     std::vector<lpb_removed_protocol_fact>& out_facts)
 {
@@ -358,29 +424,57 @@ bool clean_xmp_metadata(
     const std::string_view xml(input_xmp);
 
     std::vector<std::pair<size_t, size_t>> motion_ranges;
-    if (!find_motion_ranges(xml, protocol, motion_ranges)) return false;
+    std::vector<lpb_cleanup_action> matched_motion_actions;
+    if (!find_motion_ranges(xml, protocol, actions, action_count, motion_ranges, matched_motion_actions)) return false;
 
-    // Rebuild start tags while dropping only exact protocol attributes. Values
-    // and text nodes are copied byte-for-byte, so words such as MotionPhoto in
-    // a normal caption cannot trigger a destructive edit.
     std::string cleaned;
     cleaned.reserve(xml.size());
     std::vector<parsed_element> elements;
     if (!parse_xml_elements(xml, elements)) return false;
     size_t p = 0;
     bool removed_attribute = false;
+    std::vector<lpb_removed_protocol_fact> attr_facts;
+
     for (const auto& element : elements)
     {
         cleaned.append(xml.substr(p, element.start - p));
         size_t cursor = element.start;
         for (const auto& attr : element.attributes)
         {
-            if (is_protocol_attribute(attr.name,
-                namespace_uri_for_name(attr.name, element.bindings, true), protocol))
+            bool should_remove = false;
+            const lpb_cleanup_action* matched_act = nullptr;
+            if (actions && action_count > 0) {
+                matched_act = find_xmp_attribute_action(attr.name,
+                    namespace_uri_for_name(attr.name, element.bindings, true), protocol, actions, action_count);
+                if (matched_act) should_remove = true;
+            } else {
+                should_remove = is_protocol_attribute(attr.name,
+                    namespace_uri_for_name(attr.name, element.bindings, true), protocol);
+            }
+
+            if (should_remove)
             {
                 cleaned.append(xml.substr(cursor, attr.start - cursor));
                 cursor = attr.end;
                 removed_attribute = true;
+
+                lpb_removed_protocol_fact fact{};
+                fact.struct_size = sizeof(lpb_removed_protocol_fact);
+                strncpy_s(fact.protocol_name, protocol_name_str(protocol), _TRUNCATE);
+                strncpy_s(fact.component, "XMP attributes", _TRUNCATE);
+                std::string desc = std::string("Removed ").append(attr.name);
+                strncpy_s(fact.description, desc.c_str(), _TRUNCATE);
+                if (matched_act) {
+                    strncpy_s(fact.residue_id, matched_act->residue_id, _TRUNCATE);
+                    fact.artifact_role = matched_act->artifact_role;
+                    fact.structure_kind = matched_act->structure_kind;
+                } else {
+                    fact.artifact_role = LPB_ARTIFACT_PRIMARY_IMAGE;
+                    fact.structure_kind = LPB_RESIDUE_XMP_PROPERTY;
+                }
+                strncpy_s(fact.operation, "Removed", _TRUNCATE);
+                strncpy_s(fact.after_status, "Removed", _TRUNCATE);
+                attr_facts.push_back(fact);
             }
         }
         cleaned.append(xml.substr(cursor, element.start_tag_end - cursor));
@@ -388,12 +482,11 @@ bool clean_xmp_metadata(
     }
     cleaned.append(xml.substr(p));
 
-    // Attribute removal changes offsets. Re-discover motion item ranges on the
-    // rebuilt XML before applying them; never use stale string-search offsets.
     if (!motion_ranges.empty())
     {
         std::vector<std::pair<size_t, size_t>> final_ranges;
-        if (!find_motion_ranges(cleaned, protocol, final_ranges)) return false;
+        std::vector<lpb_cleanup_action> final_motion_acts;
+        if (!find_motion_ranges(cleaned, protocol, actions, action_count, final_ranges, final_motion_acts)) return false;
         std::sort(final_ranges.begin(), final_ranges.end());
         final_ranges.erase(std::unique(final_ranges.begin(), final_ranges.end()), final_ranges.end());
 
@@ -413,9 +506,46 @@ bool clean_xmp_metadata(
     if (!removed_attribute && motion_ranges.empty()) return false;
     if (cleaned == input_xmp) return false;
     output_xmp = std::move(cleaned);
-    if (removed_attribute) add_fact(out_facts, "Source protocol", "XMP attributes", "Removed validated Live/Motion Photo attributes");
-    if (!motion_ranges.empty()) add_fact(out_facts, "Source protocol", "XMP Container Directory", "Removed validated motion-video item");
+
+    out_facts.insert(out_facts.end(), attr_facts.begin(), attr_facts.end());
+    if (!motion_ranges.empty()) {
+        if (!matched_motion_actions.empty()) {
+            for (const auto& ma : matched_motion_actions) {
+                lpb_removed_protocol_fact fact{};
+                fact.struct_size = sizeof(lpb_removed_protocol_fact);
+                strncpy_s(fact.protocol_name, protocol_name_str(protocol), _TRUNCATE);
+                strncpy_s(fact.component, "XMP Container Directory", _TRUNCATE);
+                strncpy_s(fact.description, "Removed validated motion-video item", _TRUNCATE);
+                strncpy_s(fact.residue_id, ma.residue_id, _TRUNCATE);
+                fact.artifact_role = ma.artifact_role;
+                fact.structure_kind = ma.structure_kind;
+                strncpy_s(fact.operation, "Removed", _TRUNCATE);
+                strncpy_s(fact.after_status, "Removed", _TRUNCATE);
+                out_facts.push_back(fact);
+            }
+        } else {
+            lpb_removed_protocol_fact fact{};
+            fact.struct_size = sizeof(lpb_removed_protocol_fact);
+            strncpy_s(fact.protocol_name, protocol_name_str(protocol), _TRUNCATE);
+            strncpy_s(fact.component, "XMP Container Directory", _TRUNCATE);
+            strncpy_s(fact.description, "Removed validated motion-video item", _TRUNCATE);
+            fact.artifact_role = LPB_ARTIFACT_PRIMARY_IMAGE;
+            fact.structure_kind = LPB_RESIDUE_XMP_CONTAINER_ITEM;
+            strncpy_s(fact.operation, "Removed", _TRUNCATE);
+            strncpy_s(fact.after_status, "Removed", _TRUNCATE);
+            out_facts.push_back(fact);
+        }
+    }
     return true;
+}
+
+bool clean_xmp_metadata(
+    const std::string& input_xmp,
+    lpb_source_protocol protocol,
+    std::string& output_xmp,
+    std::vector<lpb_removed_protocol_fact>& out_facts)
+{
+    return clean_xmp_metadata_with_plan(input_xmp, protocol, nullptr, 0, output_xmp, out_facts);
 }
 
 } // namespace lpb::protocols::clean

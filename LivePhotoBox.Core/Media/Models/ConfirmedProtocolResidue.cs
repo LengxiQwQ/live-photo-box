@@ -332,9 +332,59 @@ public static class CleanupAuthorizationAuthority
                     CoordinateSpace = CoordinateSpace.StructuredSelector,
                     RemovalMode = ResidueRemovalMode.Delete
                 });
+                list.Add(new ConfirmedProtocolResidue
+                {
+                    Id = "google-v2-xmp-motionphoto",
+                    OwnerProtocol = SourceProtocol.OppoLivePhoto,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhoto",
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = ResidueRemovalMode.Delete
+                });
+                list.Add(new ConfirmedProtocolResidue
+                {
+                    Id = "google-v2-xmp-version",
+                    OwnerProtocol = SourceProtocol.OppoLivePhoto,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhotoVersion",
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = ResidueRemovalMode.Delete
+                });
+                list.Add(new ConfirmedProtocolResidue
+                {
+                    Id = "google-v2-xmp-pts",
+                    OwnerProtocol = SourceProtocol.OppoLivePhoto,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhotoPresentationTimestampUs",
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = ResidueRemovalMode.Delete
+                });
                 break;
 
             case SourceProtocol.VivoLivePhoto:
+                list.Add(new ConfirmedProtocolResidue
+                {
+                    Id = "google-v2-xmp-motionphoto",
+                    OwnerProtocol = SourceProtocol.VivoLivePhoto,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhoto",
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = ResidueRemovalMode.Delete
+                });
+                list.Add(new ConfirmedProtocolResidue
+                {
+                    Id = "google-v2-xmp-version",
+                    OwnerProtocol = SourceProtocol.VivoLivePhoto,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhotoVersion",
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = ResidueRemovalMode.Delete
+                });
                 list.Add(new ConfirmedProtocolResidue
                 {
                     Id = "vivo-xmp-version",
@@ -453,6 +503,36 @@ public static class CleanupAuthorizationAuthority
                     CoordinateSpace = CoordinateSpace.StructuredSelector,
                     RemovalMode = ResidueRemovalMode.Delete
                 });
+                list.Add(new ConfirmedProtocolResidue
+                {
+                    Id = "samsung-jpeg-xmp-version",
+                    OwnerProtocol = SourceProtocol.SamsungMotionPhotoJpeg,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhotoVersion",
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = ResidueRemovalMode.Delete
+                });
+                list.Add(new ConfirmedProtocolResidue
+                {
+                    Id = "samsung-jpeg-xmp-pts",
+                    OwnerProtocol = SourceProtocol.SamsungMotionPhotoJpeg,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhotoPresentationTimestampUs",
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = ResidueRemovalMode.Delete
+                });
+                list.Add(new ConfirmedProtocolResidue
+                {
+                    Id = "samsung-jpeg-container-item-motionphoto",
+                    OwnerProtocol = SourceProtocol.SamsungMotionPhotoJpeg,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpContainerItem,
+                    Selector = "Item:Semantic=MotionPhoto",
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = ResidueRemovalMode.Delete
+                });
                 break;
 
             case SourceProtocol.SamsungMotionPhotoHeic:
@@ -488,6 +568,26 @@ public static class CleanupAuthorizationAuthority
                 });
                 list.Add(new ConfirmedProtocolResidue
                 {
+                    Id = "samsung-heic-xmp-version",
+                    OwnerProtocol = SourceProtocol.SamsungMotionPhotoHeic,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhotoVersion",
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = ResidueRemovalMode.Delete
+                });
+                list.Add(new ConfirmedProtocolResidue
+                {
+                    Id = "samsung-heic-xmp-pts",
+                    OwnerProtocol = SourceProtocol.SamsungMotionPhotoHeic,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhotoPresentationTimestampUs",
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = ResidueRemovalMode.Delete
+                });
+                list.Add(new ConfirmedProtocolResidue
+                {
                     Id = "samsung-heic-container-item-motionphoto",
                     OwnerProtocol = SourceProtocol.SamsungMotionPhotoHeic,
                     ArtifactRole = MediaArtifactKind.PrimaryImage,
@@ -500,6 +600,21 @@ public static class CleanupAuthorizationAuthority
 
             case SourceProtocol.HuaweiMovingPhoto:
             case SourceProtocol.HonorMovingPhoto:
+                if (facts.ProtocolTailLength > 0)
+                {
+                    list.Add(new ConfirmedProtocolResidue
+                    {
+                        Id = "huawei-img-tail-live",
+                        OwnerProtocol = facts.Protocol,
+                        ArtifactRole = MediaArtifactKind.PrimaryImage,
+                        StructureKind = ResidueStructureKind.ProtocolTailRange,
+                        Selector = "tail:LIVE_",
+                        ExpectedSemantic = "LiveTail",
+                        CoordinateSpace = CoordinateSpace.OriginalSourceRange,
+                        RemovalMode = ResidueRemovalMode.Delete,
+                        RequiredAfterExtraction = false
+                    });
+                }
                 list.Add(new ConfirmedProtocolResidue
                 {
                     Id = "huawei-vid-mdta-openharmony",
@@ -508,7 +623,8 @@ public static class CleanupAuthorizationAuthority
                     StructureKind = ResidueStructureKind.QuickTimeMdtaKey,
                     Selector = "com.openharmony.movingphoto",
                     CoordinateSpace = CoordinateSpace.StructuredSelector,
-                    RemovalMode = ResidueRemovalMode.Delete
+                    RemovalMode = ResidueRemovalMode.Delete,
+                    RequiredAfterExtraction = false
                 });
                 list.Add(new ConfirmedProtocolResidue
                 {
@@ -518,7 +634,8 @@ public static class CleanupAuthorizationAuthority
                     StructureKind = ResidueStructureKind.QuickTimeMdtaKey,
                     Selector = "com.huawei.movingphoto",
                     CoordinateSpace = CoordinateSpace.StructuredSelector,
-                    RemovalMode = ResidueRemovalMode.Delete
+                    RemovalMode = ResidueRemovalMode.Delete,
+                    RequiredAfterExtraction = false
                 });
                 list.Add(new ConfirmedProtocolResidue
                 {
@@ -528,7 +645,8 @@ public static class CleanupAuthorizationAuthority
                     StructureKind = ResidueStructureKind.QuickTimeMdtaKey,
                     Selector = "com.openharmony.covertime",
                     CoordinateSpace = CoordinateSpace.StructuredSelector,
-                    RemovalMode = ResidueRemovalMode.Delete
+                    RemovalMode = ResidueRemovalMode.Delete,
+                    RequiredAfterExtraction = false
                 });
                 list.Add(new ConfirmedProtocolResidue
                 {
@@ -538,7 +656,8 @@ public static class CleanupAuthorizationAuthority
                     StructureKind = ResidueStructureKind.QuickTimeMetadataTrack,
                     Selector = "com.openharmony.timed_metadata.movingphoto",
                     CoordinateSpace = CoordinateSpace.StructuredSelector,
-                    RemovalMode = ResidueRemovalMode.Delete
+                    RemovalMode = ResidueRemovalMode.Delete,
+                    RequiredAfterExtraction = false
                 });
                 break;
         }

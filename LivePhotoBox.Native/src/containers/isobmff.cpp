@@ -64,7 +64,7 @@ bool is_valid_isobmff_media_range(
     return position == end && saw_ftyp && saw_mdat && saw_moov;
 }
 
-bool is_type(const std::vector<uint8_t>& data, size_t offset, const char* type) noexcept
+bool is_type(std::span<const uint8_t> data, size_t offset, const char* type) noexcept
 {
     binary_reader reader(data);
     if (!reader.try_seek(offset) || reader.remaining() < 8) return false;
@@ -76,7 +76,7 @@ bool is_type(const std::vector<uint8_t>& data, size_t offset, const char* type) 
 }
 
 size_t find_child_box(
-    const std::vector<uint8_t>& data,
+    std::span<const uint8_t> data,
     size_t start,
     size_t end,
     const char* type) noexcept
@@ -101,7 +101,7 @@ size_t find_child_box(
     return std::numeric_limits<size_t>::max();
 }
 
-size_t find_top_level_box(const std::vector<uint8_t>& data, const char* type) noexcept
+size_t find_top_level_box(std::span<const uint8_t> data, const char* type) noexcept
 {
     return find_child_box(data, 0, data.size(), type);
 }

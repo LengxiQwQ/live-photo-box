@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -36,10 +37,50 @@ public static class NativeMediaService
                     Timing = new NativeTimingFacts { StructSize = checked((uint)sizeof(NativeTimingFacts)) }
                 };
 
-                NativeResult res = NativeMethods.InspectMedia(ctx.Handle, primaryPath, secondaryPath, ref nativeFacts);
-                ctx.ThrowIfFailed(res);
+                Span<NativeConfirmedResidue> residuesBuf = stackalloc NativeConfirmedResidue[64];
+                fixed (NativeConfirmedResidue* pResidues = residuesBuf)
+                {
+                    for (int i = 0; i < residuesBuf.Length; i++)
+                    {
+                        pResidues[i].StructSize = checked((uint)sizeof(NativeConfirmedResidue));
+                    }
 
-                return MapFromNativeFacts(nativeFacts);
+                    NativeResult res = NativeMethods.InspectMediaWithResidues(
+                        ctx.Handle,
+                        primaryPath,
+                        secondaryPath,
+                        ref nativeFacts,
+                        pResidues,
+                        (nuint)residuesBuf.Length,
+                        out nuint outResiduesCount);
+                    ctx.ThrowIfFailed(res);
+
+                    var residuesList = new List<ConfirmedProtocolResidue>();
+                    int count = Math.Min((int)outResiduesCount, residuesBuf.Length);
+                    for (int i = 0; i < count; i++)
+                    {
+                        string resId = ReadFixedUtf8String(pResidues[i].ResidueId, 64);
+                        string selector = ReadFixedUtf8String(pResidues[i].Selector, 128);
+                        string semantic = ReadFixedUtf8String(pResidues[i].ExpectedSemantic, 64);
+                        string fingerprint = ReadFixedUtf8String(pResidues[i].ExpectedFingerprint, 64);
+
+                        residuesList.Add(new ConfirmedProtocolResidue
+                        {
+                            Id = resId,
+                            OwnerProtocol = (SourceProtocol)pResidues[i].OwnerProtocol,
+                            ArtifactRole = (MediaArtifactKind)pResidues[i].ArtifactRole,
+                            StructureKind = (ResidueStructureKind)pResidues[i].StructureKind,
+                            Selector = selector,
+                            ExpectedSemantic = string.IsNullOrEmpty(semantic) ? null : semantic,
+                            ExpectedFingerprint = string.IsNullOrEmpty(fingerprint) ? null : fingerprint,
+                            CoordinateSpace = (CoordinateSpace)pResidues[i].CoordinateSpace,
+                            RemovalMode = (ResidueRemovalMode)pResidues[i].RemovalMode,
+                            RequiredAfterExtraction = pResidues[i].RequiredAfterExtraction != 0
+                        });
+                    }
+
+                    return MapFromNativeFacts(nativeFacts, residuesList);
+                }
             }
         }, cancellationToken);
     }
@@ -197,7 +238,9 @@ public static class NativeMediaService
         }, cancellationToken);
     }
 
-    internal static unsafe SourceMediaFacts MapFromNativeFacts(in NativeSourceMediaFacts native)
+    internal static unsafe SourceMediaFacts MapFromNativeFacts(
+        in NativeSourceMediaFacts native,
+        IReadOnlyList<ConfirmedProtocolResidue>? confirmedResidues = null)
     {
         string? pairingId = null;
         fixed (byte* p = native.PairingIdentifier)
@@ -234,7 +277,7 @@ public static class NativeMediaService
             secondaryShaHex = Convert.ToHexString(secondarySha);
         }
 
-        var facts = new SourceMediaFacts
+        return new SourceMediaFacts
         {
             Protocol = (SourceProtocol)native.Protocol,
             PrimarySha256 = primaryShaHex,
@@ -265,13 +308,16 @@ public static class NativeMediaService
             },
             ProtocolTailOffset = checked((long)native.ProtocolTailRange.Offset),
             ProtocolTailLength = checked((long)native.ProtocolTailRange.Length),
-            PairingIdentifier = pairingId
+            PairingIdentifier = pairingId,
+            ConfirmedResidues = confirmedResidues ?? Array.Empty<ConfirmedProtocolResidue>()
         };
+    }
 
-        return facts with
-        {
-            ConfirmedResidues = CleanupAuthorizationAuthority.ResolveAuthorizations(facts)
-        };
+    internal static unsafe string ReadFixedUtf8String(byte* ptr, int maxLen)
+    {
+        int len = 0;
+        while (len < maxLen && ptr[len] != 0) len++;
+        return len > 0 ? Encoding.UTF8.GetString(ptr, len) : string.Empty;
     }
 
     private static VideoFacts MapFromNativeVideoFacts(in NativeVideoItemFacts native)

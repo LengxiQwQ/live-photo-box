@@ -15,6 +15,18 @@ internal static partial class NativeMethods
         string? secondaryPath,
         ref NativeSourceMediaFacts outFacts);
 
+    [LibraryImport(LibraryName, EntryPoint = "lpb_inspect_media_with_residues", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static unsafe partial NativeResult InspectMediaWithResidues(
+        nint context,
+        string primaryPath,
+        string? secondaryPath,
+        ref NativeSourceMediaFacts outFacts,
+        NativeConfirmedResidue* outResidues,
+        nuint residuesCapacity,
+        out nuint outResiduesCount);
+
     [LibraryImport(LibraryName, EntryPoint = "lpb_extract_media", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

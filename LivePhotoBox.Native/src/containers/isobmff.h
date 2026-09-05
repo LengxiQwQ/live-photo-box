@@ -25,15 +25,17 @@ bool is_valid_isobmff_media_range(
     uint64_t offset,
     uint64_t length) noexcept;
 
-bool is_type(const std::vector<uint8_t>& data, size_t offset, const char* type) noexcept;
+#include <span>
+
+bool is_type(std::span<const uint8_t> data, size_t offset, const char* type) noexcept;
 
 size_t find_child_box(
-    const std::vector<uint8_t>& data,
+    std::span<const uint8_t> data,
     size_t start,
     size_t end,
     const char* type) noexcept;
 
-size_t find_top_level_box(const std::vector<uint8_t>& data, const char* type) noexcept;
+size_t find_top_level_box(std::span<const uint8_t> data, const char* type) noexcept;
 
 bool adjust_trak_chunk_offsets(
     std::vector<uint8_t>& data,

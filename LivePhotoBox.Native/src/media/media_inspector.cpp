@@ -1207,14 +1207,121 @@ static bool is_valid_mov_container(const uint8_t* data, size_t size) noexcept {
     return pos == size;
 }
 
+static bool contains_text(const std::vector<uint8_t>& data, std::string_view value)
+{
+    if (value.empty() || data.size() < value.size()) return false;
+    const auto* begin = data.data();
+    const auto* end = begin + data.size();
+    return std::search(begin, end, value.begin(), value.end()) != end;
+}
+
+static bool contains_text_in_moov(const std::vector<uint8_t>& data, std::string_view value)
+{
+    if (value.empty()) return false;
+    const size_t moov = find_top_level_box(data, "moov");
+    if (moov == std::numeric_limits<size_t>::max() || moov + 8 > data.size()) return false;
+    const uint32_t moov_size = read_be32(data.data() + moov);
+    if (moov_size < 8 || moov_size > data.size() - moov) return false;
+    const auto begin = data.begin() + static_cast<std::ptrdiff_t>(moov);
+    const auto end = begin + moov_size;
+    return std::search(begin, end, value.begin(), value.end()) != end;
+}
+
+static bool apple_makernote_has_tag(const uint8_t* data, size_t start, size_t end, uint16_t target_tag) {
+    if (!data || start > end || end - start < 30) return false;
+    const char signature[] = "Apple iOS\0";
+    for (size_t p = start; p + 16 <= end; ++p) {
+        if (std::memcmp(data + p, signature, 10) != 0 || data[p + 10] != 0 || data[p + 11] != 1 ||
+            data[p + 12] != 'M' || data[p + 13] != 'M') continue;
+        const uint16_t count = read_be16u(data + p + 14);
+        if (count == 0 || count > 64 || count > (end - p - 16) / 12) continue;
+        const size_t entries = p + 16;
+        for (uint16_t i = 0; i < count; ++i) {
+            const size_t entry = entries + static_cast<size_t>(i) * 12;
+            const uint16_t tag = read_be16u(data + entry);
+            if (tag == target_tag) return true;
+        }
+    }
+    return false;
+}
+
+static bool apple_image_has_tag(lpb_context* context, const std::vector<uint8_t>& data,
+    lpb_image_container container, uint16_t tag) {
+    if (container == LPB_IMAGE_CONTAINER_JPEG && data.size() >= 2 && data[0] == 0xFF && data[1] == 0xD8) {
+        size_t p = 2;
+        while (p + 2 <= data.size()) {
+            if (data[p++] != 0xFF) return false;
+            while (p < data.size() && data[p] == 0xFF) ++p;
+            if (p >= data.size()) return false;
+            const uint8_t marker = data[p++];
+            if (marker == 0xDA || marker == 0xD9) break;
+            if (marker == 0x00 || (marker >= 0xD0 && marker <= 0xD7)) continue;
+            if (p + 2 > data.size()) return false;
+            const size_t segment_length = (static_cast<size_t>(data[p]) << 8) | data[p + 1];
+            if (segment_length < 2 || segment_length - 2 > data.size() - (p + 2)) return false;
+            const size_t payload = p + 2;
+            const size_t payload_size = segment_length - 2;
+            if (marker == 0xE1 && payload_size >= 6 && std::memcmp(data.data() + payload, "Exif\0\0", 6) == 0) {
+                if (apple_makernote_has_tag(data.data(), payload + 6, payload + payload_size, tag)) {
+                    return true;
+                }
+            }
+            p = payload + payload_size;
+        }
+        return false;
+    }
+    if (container == LPB_IMAGE_CONTAINER_HEIC) {
+        uint64_t offset = 0, length = 0;
+        if (lpb_heif_locate_exif_item(context, data.data(), data.size(), &offset, &length) != LPB_RESULT_OK ||
+            offset > data.size() || length > data.size() - static_cast<size_t>(offset)) return false;
+        return apple_makernote_has_tag(data.data(), static_cast<size_t>(offset),
+            static_cast<size_t>(offset + length), tag);
+    }
+    return false;
+}
+
+static void add_residue(
+    std::vector<lpb_confirmed_residue>* out_residues,
+    const char* id,
+    lpb_source_protocol owner_protocol,
+    lpb_media_artifact_kind artifact_role,
+    lpb_residue_structure_kind structure_kind,
+    const char* selector,
+    const char* expected_semantic = "",
+    const char* expected_fingerprint = "",
+    lpb_coordinate_space coordinate_space = LPB_COORD_STRUCTURED_SELECTOR,
+    lpb_residue_removal_mode removal_mode = LPB_REMOVAL_DELETE,
+    int32_t required_after_extraction = 1)
+{
+    if (!out_residues) return;
+    lpb_confirmed_residue r{};
+    r.struct_size = sizeof(lpb_confirmed_residue);
+    strncpy_s(r.residue_id, id, _TRUNCATE);
+    r.owner_protocol = owner_protocol;
+    r.artifact_role = artifact_role;
+    r.structure_kind = structure_kind;
+    strncpy_s(r.selector, selector, _TRUNCATE);
+    if (expected_semantic) strncpy_s(r.expected_semantic, expected_semantic, _TRUNCATE);
+    if (expected_fingerprint) strncpy_s(r.expected_fingerprint, expected_fingerprint, _TRUNCATE);
+    r.coordinate_space = coordinate_space;
+    r.removal_mode = removal_mode;
+    r.required_after_extraction = required_after_extraction;
+    out_residues->push_back(r);
+}
+
 lpb_result inspect_source(
     lpb_context* context,
     const char* primary_path,
     const char* secondary_path,
-    lpb_source_media_facts* out_facts) noexcept
+    lpb_source_media_facts* out_facts,
+    std::vector<lpb_confirmed_residue>* out_residues) noexcept
 {
     if (!context || !primary_path || !out_facts) {
         return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (out_residues) {
+        out_residues->clear();
     }
 
     if (out_facts->struct_size < sizeof(lpb_source_media_facts)) {
@@ -1320,6 +1427,51 @@ lpb_result inspect_source(
                 out_facts->motion_video.file_range.length = secondary_size;
                 out_facts->motion_video.source_index = 1;
                 strncpy_s(out_facts->pairing_identifier, image_content_id.c_str(), _TRUNCATE);
+
+                if (out_residues) {
+                    add_residue(out_residues, "apple-img-makernote-0011", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG, "0x0011", "ContentIdentifier", "",
+                        LPB_COORD_STRUCTURED_SELECTOR, LPB_REMOVAL_REBUILD_CONTAINER, 1);
+                    if (apple_image_has_tag(context, primary_data, img_cont, 0x0017)) {
+                        add_residue(out_residues, "apple-img-makernote-0017", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG, "0x0017", "LivePhotoEntry17", "",
+                            LPB_COORD_STRUCTURED_SELECTOR, LPB_REMOVAL_REBUILD_CONTAINER, 1);
+                    }
+                    if (apple_image_has_tag(context, primary_data, img_cont, 0x0025)) {
+                        add_residue(out_residues, "apple-img-makernote-0025", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG, "0x0025", "LivePhotoEntry25", "",
+                            LPB_COORD_STRUCTURED_SELECTOR, LPB_REMOVAL_REBUILD_CONTAINER, 1);
+                    }
+                    if (apple_image_has_tag(context, primary_data, img_cont, 0x002b)) {
+                        add_residue(out_residues, "apple-img-makernote-002b", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG, "0x002b", "LivePhotoEntry2B", "",
+                            LPB_COORD_STRUCTURED_SELECTOR, LPB_REMOVAL_REBUILD_CONTAINER, 1);
+                    }
+                    if (contains_text(sec_data, "com.apple.quicktime.content.identifier")) {
+                        add_residue(out_residues, "apple-vid-mdta-cid", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.apple.quicktime.content.identifier", "ContentIdentifier");
+                    }
+                    if (contains_text(sec_data, "com.apple.quicktime.live-photo")) {
+                        add_residue(out_residues, "apple-vid-mdta-livephoto", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.apple.quicktime.live-photo", "LivePhotoKey");
+                    }
+                    if (contains_text_in_moov(sec_data, "com.apple.quicktime.live-photo-info")) {
+                        add_residue(out_residues, "apple-vid-track-livephoto-info", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.apple.quicktime.live-photo-info", "LivePhotoInfoTrack");
+                    }
+                    if (contains_text_in_moov(sec_data, "com.apple.quicktime.still-image-time")) {
+                        add_residue(out_residues, "apple-vid-track-still-image-time", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.apple.quicktime.still-image-time", "StillImageTimeTrack");
+                    }
+                    if (contains_text_in_moov(sec_data, "com.apple.quicktime.live-photo-still-image-transform")) {
+                        add_residue(out_residues, "apple-vid-track-transform", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.apple.quicktime.live-photo-still-image-transform", "StillImageTransformTrack");
+                    }
+                    if (contains_text_in_moov(sec_data, "com.apple.quicktime.live-photo-still-image-transform-reference-dimensions")) {
+                        add_residue(out_residues, "apple-vid-track-reference-dimensions", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.apple.quicktime.live-photo-still-image-transform-reference-dimensions", "TransformReferenceDimensionsTrack");
+                    }
+                }
                 return LPB_RESULT_OK;
             } else {
                 set_error(context, "Apple Live Photo dual-file pairing identifier mismatch.");
@@ -1361,6 +1513,25 @@ lpb_result inspect_source(
                     out_facts->protocol_tail_range.length = primary_size - jpeg_end;
                 }
                 strncpy_s(out_facts->pairing_identifier, vivo_image_id.c_str(), _TRUNCATE);
+
+                if (out_residues) {
+                    if (contains_text(sec_data, "vivoMediaExtInfo")) {
+                        add_residue(out_residues, "vivo-legacy-vid-uuid", LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_UUID_BOX, "vivoMediaExtInfo");
+                    }
+                    if (contains_text(sec_data, "com.android.camera.livephoto")) {
+                        add_residue(out_residues, "vivo-legacy-vid-mdta-livephoto", LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.android.camera.livephoto");
+                    }
+                    if (contains_text(sec_data, "com.android.camera.imageTime")) {
+                        add_residue(out_residues, "vivo-legacy-vid-mdta-imagetime", LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.android.camera.imageTime");
+                    }
+                    if (contains_text(sec_data, "com.vivo.gallery.livePhoto")) {
+                        add_residue(out_residues, "vivo-legacy-vid-mdta-gallery", LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.vivo.gallery.livePhoto");
+                    }
+                }
                 return LPB_RESULT_OK;
             } else {
                 set_error(context, "Vivo legacy dual-file pairing identifier mismatch.");
@@ -1428,6 +1599,27 @@ lpb_result inspect_source(
             out_facts->protocol_tail_range.length = primary_size - video_end;
         }
         out_facts->timing.cover_timestamp_us = huawei_cover_time_us;
+
+        if (out_residues) {
+            const auto p = out_facts->protocol;
+            if (out_facts->protocol_tail_range.length > 0) {
+                add_residue(out_residues, "huawei-img-tail-live", p,
+                    LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_PROTOCOL_TAIL_RANGE, "tail:LIVE_", "LiveTail", "",
+                    LPB_COORD_ORIGINAL_SOURCE_RANGE, LPB_REMOVAL_DELETE, 0);
+            }
+            add_residue(out_residues, "huawei-vid-mdta-openharmony", p,
+                LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.openharmony.movingphoto", "", "",
+                LPB_COORD_STRUCTURED_SELECTOR, LPB_REMOVAL_DELETE, 0);
+            add_residue(out_residues, "huawei-vid-mdta-huawei", p,
+                LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.huawei.movingphoto", "", "",
+                LPB_COORD_STRUCTURED_SELECTOR, LPB_REMOVAL_DELETE, 0);
+            add_residue(out_residues, "huawei-vid-mdta-covertime", p,
+                LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.openharmony.covertime", "", "",
+                LPB_COORD_STRUCTURED_SELECTOR, LPB_REMOVAL_DELETE, 0);
+            add_residue(out_residues, "huawei-vid-track-movingphoto", p,
+                LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.openharmony.timed_metadata.movingphoto", "", "",
+                LPB_COORD_STRUCTURED_SELECTOR, LPB_REMOVAL_DELETE, 0);
+        }
         return LPB_RESULT_OK;
     } else if (primary_data.size() >= 20 &&
                std::memcmp(primary_data.data() + primary_data.size() - 20, "LIVE_", 5) == 0) {
@@ -1451,6 +1643,34 @@ lpb_result inspect_source(
             out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
             out_facts->motion_video.file_range.offset = sef_vid_off;
             out_facts->motion_video.file_range.length = sef_vid_len;
+
+            if (out_residues) {
+                add_residue(out_residues, "samsung-jpeg-sef-0a30", LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG,
+                    LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_SEF_ENTRY, "0x0A30:MotionPhoto_Data", "MotionPhoto_Data", "",
+                    LPB_COORD_STRUCTURED_SELECTOR, LPB_REMOVAL_REBUILD_CONTAINER, 1);
+                add_residue(out_residues, "samsung-jpeg-sef-0a31", LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG,
+                    LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_SEF_ENTRY, "0x0A31:MotionPhoto_Version", "MotionPhoto_Version", "",
+                    LPB_COORD_STRUCTURED_SELECTOR, LPB_REMOVAL_REBUILD_CONTAINER, 1);
+                std::string xmp_s = extract_xmp_string(context, primary_data, img_cont);
+                if (xmp_s.find("MotionPhoto") != std::string::npos) {
+                    add_residue(out_residues, "samsung-jpeg-xmp-motionphoto", LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG,
+                        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MotionPhoto");
+                    if (xmp_s.find("MotionPhotoVersion") != std::string::npos) {
+                        add_residue(out_residues, "samsung-jpeg-xmp-version", LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG,
+                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MotionPhotoVersion");
+                    }
+                    if (xmp_s.find("MotionPhotoPresentationTimestampUs") != std::string::npos) {
+                        add_residue(out_residues, "samsung-jpeg-xmp-pts", LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG,
+                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MotionPhotoPresentationTimestampUs");
+                    }
+                    if (xmp_s.find("Semantic=\"MotionPhoto\"") != std::string::npos ||
+                        xmp_s.find("Semantic='MotionPhoto'") != std::string::npos ||
+                        xmp_s.find(":Semantic>MotionPhoto<") != std::string::npos) {
+                        add_residue(out_residues, "samsung-jpeg-container-item-motionphoto", LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG,
+                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_CONTAINER_ITEM, "Item:Semantic=MotionPhoto");
+                    }
+                }
+            }
             return LPB_RESULT_OK;
         }
     }
@@ -1481,6 +1701,32 @@ lpb_result inspect_source(
             out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
             out_facts->motion_video.file_range.offset = heic_vid_off;
             out_facts->motion_video.file_range.length = heic_vid_len;
+
+            if (out_residues) {
+                add_residue(out_residues, "samsung-heic-box-mpvd", LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC,
+                    LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_ISOBMFF_BOX, "mpvd");
+                add_residue(out_residues, "samsung-heic-box-sefd-motion", LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC,
+                    LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_ISOBMFF_BOX, "sefd:0x0A30");
+                std::string xmp_s = extract_xmp_string(context, primary_data, img_cont);
+                if (xmp_s.find("MotionPhoto") != std::string::npos) {
+                    add_residue(out_residues, "samsung-heic-xmp-motionphoto", LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC,
+                        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MotionPhoto");
+                    if (xmp_s.find("MotionPhotoVersion") != std::string::npos) {
+                        add_residue(out_residues, "samsung-heic-xmp-version", LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC,
+                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MotionPhotoVersion");
+                    }
+                    if (xmp_s.find("MotionPhotoPresentationTimestampUs") != std::string::npos) {
+                        add_residue(out_residues, "samsung-heic-xmp-pts", LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC,
+                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MotionPhotoPresentationTimestampUs");
+                    }
+                    if (xmp_s.find("Semantic=\"MotionPhoto\"") != std::string::npos ||
+                        xmp_s.find("Semantic='MotionPhoto'") != std::string::npos ||
+                        xmp_s.find(":Semantic>MotionPhoto<") != std::string::npos) {
+                        add_residue(out_residues, "samsung-heic-container-item-motionphoto", LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC,
+                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_CONTAINER_ITEM, "Item:Semantic=MotionPhoto");
+                    }
+                }
+            }
             return LPB_RESULT_OK;
         }
     }
@@ -1549,6 +1795,37 @@ lpb_result inspect_source(
             int64_t cover_time = 0;
             if (get_global_attribute_i64(nodes, google_camera_namespace, "MotionPhotoPresentationTimestampUs", cover_time) > 0) {
                 out_facts->timing.cover_timestamp_us = cover_time;
+            }
+
+            if (out_residues) {
+                if (has_attribute_name_in_nodes(nodes, google_camera_namespace, "MotionPhoto")) {
+                    add_residue(out_residues, "google-v2-xmp-motionphoto", LPB_SOURCE_PROTOCOL_VIVO_X300,
+                        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MotionPhoto");
+                }
+                if (has_attribute_name_in_nodes(nodes, google_camera_namespace, "MotionPhotoVersion")) {
+                    add_residue(out_residues, "google-v2-xmp-version", LPB_SOURCE_PROTOCOL_VIVO_X300,
+                        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MotionPhotoVersion");
+                }
+                add_residue(out_residues, "vivo-xmp-version", LPB_SOURCE_PROTOCOL_VIVO_X300,
+                    LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "VMotionPhotoVersion");
+                if (has_attribute_name_in_nodes(nodes, vivo_camera_namespace, "VMotionPhotoSource")) {
+                    add_residue(out_residues, "vivo-xmp-source", LPB_SOURCE_PROTOCOL_VIVO_X300,
+                        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "VMotionPhotoSource");
+                }
+                if (has_attribute_name_in_nodes(nodes, vivo_camera_namespace, "VMotionPhotoFlags")) {
+                    add_residue(out_residues, "vivo-xmp-flags", LPB_SOURCE_PROTOCOL_VIVO_X300,
+                        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "VMotionPhotoFlags");
+                }
+                if (has_attribute_name_in_nodes(nodes, vivo_camera_namespace, "VMediaKitVersion")) {
+                    add_residue(out_residues, "vivo-xmp-mediakit", LPB_SOURCE_PROTOCOL_VIVO_X300,
+                        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "VMediaKitVersion");
+                }
+                if (has_attribute_name_in_nodes(nodes, google_camera_namespace, "MotionPhotoPresentationTimestampUs")) {
+                    add_residue(out_residues, "google-v2-xmp-pts", LPB_SOURCE_PROTOCOL_VIVO_X300,
+                        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MotionPhotoPresentationTimestampUs");
+                }
+                add_residue(out_residues, "google-v2-container-item-motionphoto", LPB_SOURCE_PROTOCOL_VIVO_X300,
+                    LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_CONTAINER_ITEM, "Item:Semantic=MotionPhoto");
             }
             return LPB_RESULT_OK;
         }
@@ -1751,6 +2028,37 @@ lpb_result inspect_source(
             if (get_global_attribute_i64(nodes, oppo_camera_namespace, "MotionPhotoPrimaryPresentationTimestampUs", cover_time) > 0 ||
                 get_global_attribute_i64(nodes, google_camera_namespace, "MotionPhotoPresentationTimestampUs", cover_time) > 0) {
                 out_facts->timing.cover_timestamp_us = cover_time;
+            }
+
+            if (out_residues) {
+                add_residue(out_residues, "oppo-xmp-version", LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO,
+                    LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "OLivePhotoVersion");
+                add_residue(out_residues, "oppo-xmp-videolength", LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO,
+                    LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "VideoLength");
+                add_residue(out_residues, "oppo-xmp-owner", LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO,
+                    LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "MotionPhotoOwner");
+                if (has_attribute_name_in_nodes(nodes, oppo_camera_namespace, "MotionPhotoPrimaryPresentationTimestampUs")) {
+                    add_residue(out_residues, "oppo-xmp-pts", LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO,
+                        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "MotionPhotoPrimaryPresentationTimestampUs");
+                }
+                if (has_attribute_name_in_nodes(nodes, google_camera_namespace, "MotionPhotoPresentationTimestampUs")) {
+                    add_residue(out_residues, "google-v2-xmp-pts", LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO,
+                        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MotionPhotoPresentationTimestampUs");
+                }
+                if (has_attribute_name_in_nodes(nodes, oppo_camera_namespace, "MotionPhotoEnable")) {
+                    add_residue(out_residues, "oppo-xmp-enable", LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO,
+                        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "MotionPhotoEnable");
+                }
+                add_residue(out_residues, "oppo-container-item-motionphoto", LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO,
+                    LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_CONTAINER_ITEM, "Item:Semantic=MotionPhoto");
+                if (has_attribute_name_in_nodes(nodes, google_camera_namespace, "MotionPhoto")) {
+                    add_residue(out_residues, "google-v2-xmp-motionphoto", LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO,
+                        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MotionPhoto");
+                }
+                if (has_attribute_name_in_nodes(nodes, google_camera_namespace, "MotionPhotoVersion")) {
+                    add_residue(out_residues, "google-v2-xmp-version", LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO,
+                        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MotionPhotoVersion");
+                }
             }
             return LPB_RESULT_OK;
         }
@@ -1961,6 +2269,19 @@ lpb_result inspect_source(
             if (get_global_attribute_i64(nodes, google_camera_namespace, "MotionPhotoPresentationTimestampUs", cover_time) > 0) {
                 out_facts->timing.cover_timestamp_us = cover_time;
             }
+
+            if (out_residues) {
+                add_residue(out_residues, "google-v2-xmp-motionphoto", LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2,
+                    LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MotionPhoto");
+                add_residue(out_residues, "google-v2-xmp-version", LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2,
+                    LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MotionPhotoVersion");
+                if (has_attribute_name_in_nodes(nodes, google_camera_namespace, "MotionPhotoPresentationTimestampUs")) {
+                    add_residue(out_residues, "google-v2-xmp-pts", LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2,
+                        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MotionPhotoPresentationTimestampUs");
+                }
+                add_residue(out_residues, "google-v2-container-item-motionphoto", LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2,
+                    LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_CONTAINER_ITEM, "Item:Semantic=MotionPhoto");
+            }
             return LPB_RESULT_OK;
         }
 
@@ -2027,6 +2348,19 @@ lpb_result inspect_source(
             int64_t cover_time = 0;
             if (get_global_attribute_i64(nodes, google_camera_namespace, "MicroVideoPresentationTimestampUs", cover_time) > 0) {
                 out_facts->timing.cover_timestamp_us = cover_time;
+            }
+
+            if (out_residues) {
+                add_residue(out_residues, "google-v1-xmp-microvideo", LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1,
+                    LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MicroVideo");
+                add_residue(out_residues, "google-v1-xmp-version", LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1,
+                    LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MicroVideoVersion");
+                add_residue(out_residues, "google-v1-xmp-offset", LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1,
+                    LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MicroVideoOffset");
+                if (has_attribute_name_in_nodes(nodes, google_camera_namespace, "MicroVideoPresentationTimestampUs")) {
+                    add_residue(out_residues, "google-v1-xmp-pts", LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1,
+                        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_XMP_PROPERTY, "GCamera:MicroVideoPresentationTimestampUs");
+                }
             }
             return LPB_RESULT_OK;
         }

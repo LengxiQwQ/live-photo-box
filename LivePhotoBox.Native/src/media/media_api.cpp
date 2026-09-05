@@ -20,6 +20,34 @@ LPB_API lpb_result LPB_CALL lpb_inspect_media(
     return inspect_source(context, primary_path, secondary_path, out_facts);
 }
 
+LPB_API lpb_result LPB_CALL lpb_inspect_media_with_residues(
+    lpb_context* context,
+    const char* primary_path,
+    const char* secondary_path,
+    lpb_source_media_facts* out_facts,
+    lpb_confirmed_residue* out_residues,
+    size_t residues_capacity,
+    size_t* out_residues_count)
+{
+    std::vector<lpb_confirmed_residue> residues;
+    lpb_result res = inspect_source(context, primary_path, secondary_path, out_facts, &residues);
+    if (res != LPB_RESULT_OK) return res;
+
+    if (residues.size() > residues_capacity) {
+        if (out_residues_count) *out_residues_count = residues.size();
+        set_error(context, "The supplied residues buffer is too small.");
+        return LPB_RESULT_BUFFER_TOO_SMALL;
+    }
+
+    if (out_residues && residues_capacity > 0) {
+        for (size_t i = 0; i < residues.size(); ++i) {
+            out_residues[i] = residues[i];
+        }
+    }
+    if (out_residues_count) *out_residues_count = residues.size();
+    return LPB_RESULT_OK;
+}
+
 LPB_API lpb_result LPB_CALL lpb_extract_media(
     lpb_context* context,
     const char* primary_path,
@@ -82,6 +110,26 @@ LPB_API lpb_result LPB_CALL lpb_clean_source_protocol(
     size_t* out_facts_count)
 {
     return clean_source_protocol(context, facts, input_image_path, input_video_path, output_image_path, output_video_path, out_facts, facts_capacity, out_facts_count);
+}
+
+LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_plan(
+    lpb_context* context,
+    const lpb_source_media_facts* facts,
+    const lpb_cleanup_action* actions,
+    size_t action_count,
+    const char* input_image_path,
+    const char* input_video_path,
+    const char* output_image_path,
+    const char* output_video_path,
+    lpb_removed_protocol_fact* out_facts,
+    size_t facts_capacity,
+    size_t* out_facts_count)
+{
+    return clean_source_protocol_with_plan(
+        context, facts, actions, action_count,
+        input_image_path, input_video_path,
+        output_image_path, output_video_path,
+        out_facts, facts_capacity, out_facts_count);
 }
 
 LPB_API lpb_result LPB_CALL lpb_probe_video(

@@ -7,6 +7,7 @@
 #include "binary/binary_io.h"
 #include "metadata/jpeg.h"
 #include "containers/isobmff.h"
+#include "containers/mp4_strip.h"
 
 #include <fstream>
 #include <filesystem>
@@ -29,14 +30,36 @@ static void add_fact(
     std::vector<lpb_removed_protocol_fact>& out_facts,
     const char* proto,
     const char* comp,
-    const char* desc)
+    const char* desc,
+    const char* residue_id = "",
+    lpb_media_artifact_kind role = LPB_ARTIFACT_PRIMARY_IMAGE,
+    lpb_residue_structure_kind structure_kind = LPB_RESIDUE_XMP_PROPERTY,
+    const char* op = "Removed",
+    const char* after = "Removed")
 {
     lpb_removed_protocol_fact fact{};
     fact.struct_size = sizeof(lpb_removed_protocol_fact);
-    strncpy_s(fact.protocol_name, proto, _TRUNCATE);
-    strncpy_s(fact.component, comp, _TRUNCATE);
-    strncpy_s(fact.description, desc, _TRUNCATE);
+    strncpy_s(fact.protocol_name, proto ? proto : "", _TRUNCATE);
+    strncpy_s(fact.component, comp ? comp : "", _TRUNCATE);
+    strncpy_s(fact.description, desc ? desc : "", _TRUNCATE);
+    strncpy_s(fact.residue_id, residue_id ? residue_id : "", _TRUNCATE);
+    fact.artifact_role = role;
+    fact.structure_kind = structure_kind;
+    strncpy_s(fact.operation, op ? op : "Removed", _TRUNCATE);
+    strncpy_s(fact.after_status, after ? after : "Removed", _TRUNCATE);
     out_facts.push_back(fact);
+}
+
+static bool is_action_authorized(
+    const lpb_cleanup_action* actions,
+    size_t action_count,
+    std::string_view residue_id)
+{
+    if (!actions) return true;
+    for (size_t i = 0; i < action_count; ++i) {
+        if (residue_id == actions[i].residue_id) return true;
+    }
+    return false;
 }
 
 static bool read_file_binary(const std::string& path, std::vector<uint8_t>& out_data) {
@@ -77,29 +100,7 @@ static bool write_file_binary(const std::string& path, const std::vector<uint8_t
     return true;
 }
 
-static bool contains_text(const std::vector<uint8_t>& data, std::string_view value)
-{
-    if (value.empty() || data.size() < value.size()) return false;
-    const auto* begin = data.data();
-    const auto* end = begin + data.size();
-    return std::search(begin, end, value.begin(), value.end()) != end;
-}
 
-// Apple MOV metadata samples remain byte-packed in mdat after their metadata
-// tracks are removed.  Validation must inspect the owning moov structure, not
-// search the entire file, or those now-unreferenced sample bytes look like
-// live-photo metadata and cause a false cleaning failure.
-static bool contains_text_in_moov(const std::vector<uint8_t>& data, std::string_view value)
-{
-    if (value.empty()) return false;
-    const size_t moov = find_top_level_box(data, "moov");
-    if (moov == std::numeric_limits<size_t>::max() || moov + 8 > data.size()) return false;
-    const uint32_t moov_size = read_be32(data.data() + moov);
-    if (moov_size < 8 || moov_size > data.size() - moov) return false;
-    const auto begin = data.begin() + static_cast<std::ptrdiff_t>(moov);
-    const auto end = begin + moov_size;
-    return std::search(begin, end, value.begin(), value.end()) != end;
-}
 
 static lpb_result fast_file_copy(lpb_context* context, const char* in_path, const char* out_path) {
     if (!in_path || !out_path) return LPB_RESULT_INVALID_ARGUMENT;
@@ -222,6 +223,8 @@ static lpb_result clean_jpeg_xmp(
     const std::string& in_path,
     const std::string& out_path,
     lpb_source_protocol protocol,
+    const lpb_cleanup_action* actions,
+    size_t action_count,
     bool require_protocol_xmp,
     std::vector<lpb_removed_protocol_fact>& out_facts)
 {
@@ -242,7 +245,7 @@ static lpb_result clean_jpeg_xmp(
 
     std::string cleaned_xmp;
     std::vector<lpb_removed_protocol_fact> operation_facts;
-    if (!protocols::clean::clean_xmp_metadata(xmp, protocol, cleaned_xmp, operation_facts)) {
+    if (!protocols::clean::clean_xmp_metadata_with_plan(xmp, protocol, actions, action_count, cleaned_xmp, operation_facts)) {
         if (require_protocol_xmp) {
             set_error(context, "Protocol XMP was malformed or contained no validated removable fields.");
             return LPB_RESULT_INVALID_ARGUMENT;
@@ -264,7 +267,7 @@ static lpb_result clean_jpeg_xmp(
     const std::string verify_xmp = extract_xmp_string(out_buf);
     std::string residual;
     std::vector<lpb_removed_protocol_fact> residual_facts;
-    if (protocols::clean::clean_xmp_metadata(verify_xmp, protocol, residual, residual_facts)) {
+    if (protocols::clean::clean_xmp_metadata_with_plan(verify_xmp, protocol, actions, action_count, residual, residual_facts)) {
         set_error(context, "Cleaned JPEG still contains validated Live/Motion Photo XMP fields.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
@@ -283,6 +286,8 @@ static lpb_result clean_apple_image(
     lpb_context* context,
     const std::string& in_path,
     const std::string& out_path,
+    const lpb_cleanup_action* actions,
+    size_t action_count,
     std::vector<lpb_removed_protocol_fact>& out_facts)
 {
     std::vector<uint8_t> data;
@@ -291,20 +296,42 @@ static lpb_result clean_apple_image(
         return LPB_RESULT_INTERNAL_ERROR;
     }
 
-    const std::vector<uint8_t> before_makernote = data;
-    lpb_result res = lpb_apple_strip_live_photo_entries(context, data.data(), data.size());
-    if (res == LPB_RESULT_OK) {
-        if (data != before_makernote) {
-            add_fact(out_facts, "Apple", "MakerNote Live Tags", "Removed 0x0011/0x0017/0x0025/0x002b MakerNote Live Photo tags");
+    const bool should_strip_mn = is_action_authorized(actions, action_count, "apple-img-makernote-0011") ||
+        is_action_authorized(actions, action_count, "apple-img-makernote-0017") ||
+        is_action_authorized(actions, action_count, "apple-img-makernote-0025") ||
+        is_action_authorized(actions, action_count, "apple-img-makernote-002b");
+
+    if (should_strip_mn) {
+        const std::vector<uint8_t> before_makernote = data;
+        lpb_result res = lpb_apple_strip_live_photo_entries(context, data.data(), data.size());
+        if (res == LPB_RESULT_OK) {
+            if (data != before_makernote) {
+                if (is_action_authorized(actions, action_count, "apple-img-makernote-0011")) {
+                    add_fact(out_facts, "Apple", "MakerNote Live Tags", "Removed 0x0011 MakerNote Live Photo tag",
+                        "apple-img-makernote-0011", LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG);
+                }
+                if (is_action_authorized(actions, action_count, "apple-img-makernote-0017")) {
+                    add_fact(out_facts, "Apple", "MakerNote Live Tags", "Removed 0x0017 MakerNote Live Photo tag",
+                        "apple-img-makernote-0017", LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG);
+                }
+                if (is_action_authorized(actions, action_count, "apple-img-makernote-0025")) {
+                    add_fact(out_facts, "Apple", "MakerNote Live Tags", "Removed 0x0025 MakerNote Live Photo tag",
+                        "apple-img-makernote-0025", LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG);
+                }
+                if (is_action_authorized(actions, action_count, "apple-img-makernote-002b")) {
+                    add_fact(out_facts, "Apple", "MakerNote Live Tags", "Removed 0x002b MakerNote Live Photo tag",
+                        "apple-img-makernote-002b", LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG);
+                }
+            }
+        } else {
+            return res;
         }
-    } else {
-        return res;
     }
 
     std::string xmp = extract_xmp_string(data);
     if (!xmp.empty()) {
         std::string cleaned_xmp;
-        if (protocols::clean::clean_xmp_metadata(xmp, LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO, cleaned_xmp, out_facts)) {
+        if (protocols::clean::clean_xmp_metadata_with_plan(xmp, LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO, actions, action_count, cleaned_xmp, out_facts)) {
             if (data.size() > 2 && data[0] == 0xFF && data[1] == 0xD8) {
                 std::vector<uint8_t> out_buf(data.size() + cleaned_xmp.size() + 4096);
                 size_t written = 0;
@@ -332,68 +359,65 @@ static lpb_result clean_apple_video(
     lpb_context* context,
     const std::string& in_path,
     const std::string& out_path,
+    const lpb_cleanup_action* actions,
+    size_t action_count,
     std::vector<lpb_removed_protocol_fact>& out_facts)
 {
-    std::vector<uint8_t> data;
-    if (!read_file_binary(in_path, data)) {
-        set_error(context, "Failed to read Apple video for cleaning.");
-        return LPB_RESULT_INTERNAL_ERROR;
+    const bool should_strip_cid = is_action_authorized(actions, action_count, "apple-vid-mdta-cid");
+    const bool should_strip_livephoto = is_action_authorized(actions, action_count, "apple-vid-mdta-livephoto");
+
+    std::vector<const char*> track_patterns;
+    std::vector<std::pair<const char*, const char*>> track_residues;
+    if (is_action_authorized(actions, action_count, "apple-vid-track-livephoto-info")) {
+        track_patterns.push_back("com.apple.quicktime.live-photo-info");
+        track_residues.push_back({"apple-vid-track-livephoto-info", "Removed com.apple.quicktime.live-photo-info track"});
+    }
+    if (is_action_authorized(actions, action_count, "apple-vid-track-still-image-time")) {
+        track_patterns.push_back("com.apple.quicktime.still-image-time");
+        track_residues.push_back({"apple-vid-track-still-image-time", "Removed com.apple.quicktime.still-image-time track"});
+    }
+    if (is_action_authorized(actions, action_count, "apple-vid-track-transform")) {
+        track_patterns.push_back("com.apple.quicktime.live-photo-still-image-transform");
+        track_residues.push_back({"apple-vid-track-transform", "Removed com.apple.quicktime.live-photo-still-image-transform track"});
+    }
+    if (is_action_authorized(actions, action_count, "apple-vid-track-reference-dimensions")) {
+        track_patterns.push_back("com.apple.quicktime.live-photo-still-image-transform-reference-dimensions");
+        track_residues.push_back({"apple-vid-track-reference-dimensions", "Removed com.apple.quicktime.live-photo-still-image-transform-reference-dimensions track"});
     }
 
-    const bool had_mdta = contains_text(data, "com.apple.quicktime.content.identifier") ||
-        contains_text(data, "com.apple.quicktime.live-photo");
-    const char* starts[] = {
-        "com.apple.quicktime.content.identifier",
-        "com.apple.quicktime.live-photo"
-    };
-    std::vector<uint8_t> out_a(data.size() + 4096);
-    size_t written_a = 0;
-    lpb_result strip_mdta = lpb_mp4_strip_mdta_keys(context, data.data(), data.size(), starts, 2, nullptr, 0, nullptr, 0, out_a.data(), out_a.size(), &written_a);
-    if (strip_mdta != LPB_RESULT_OK) return strip_mdta;
-    if (written_a > 0) {
-        out_a.resize(written_a);
-        data = std::move(out_a);
-        add_fact(out_facts, "Apple", "QuickTime MDTA Keys", "Removed com.apple.quicktime.content.identifier and live-photo keys");
+    if (!should_strip_cid && !should_strip_livephoto && track_patterns.empty()) {
+        return fast_file_copy(context, in_path.c_str(), out_path.c_str());
     }
 
-    // Remove only Apple Live Photo metadata tracks.  A plain "mebx" match
-    // would also remove unrelated QuickTime metadata such as the video
-    // orientation track.
-    const char* track_patterns[] = {
-        "com.apple.quicktime.live-photo-info",
-        "com.apple.quicktime.still-image-time",
-        "com.apple.quicktime.live-photo-still-image-transform",
-        "com.apple.quicktime.live-photo-still-image-transform-reference-dimensions"
-    };
-    std::vector<uint8_t> out_b(data.size() + 4096);
-    size_t written_b = 0;
-    const bool had_tracks = contains_text_in_moov(data, track_patterns[0]) ||
-        contains_text_in_moov(data, track_patterns[1]) ||
-        contains_text_in_moov(data, track_patterns[2]) ||
-        contains_text_in_moov(data, track_patterns[3]);
-    lpb_result strip_tracks = lpb_mp4_strip_stsd_tracks(
-        context, data.data(), data.size(), track_patterns, 4,
-        out_b.data(), out_b.size(), &written_b);
-    if (strip_tracks != LPB_RESULT_OK) return strip_tracks;
-    if (written_b > 0) {
-        out_b.resize(written_b);
-        data = std::move(out_b);
-        add_fact(out_facts, "Apple", "QuickTime Live Photo Tracks", "Removed Apple Live Photo metadata tracks");
-    }
+    std::vector<const char*> starts;
+    if (should_strip_cid) starts.push_back("com.apple.quicktime.content.identifier");
+    if (should_strip_livephoto) starts.push_back("com.apple.quicktime.live-photo");
 
-    if ((had_mdta && (contains_text_in_moov(data, "com.apple.quicktime.content.identifier") ||
-        contains_text_in_moov(data, "com.apple.quicktime.live-photo"))) ||
-        (had_tracks && (contains_text_in_moov(data, track_patterns[0]) ||
-        contains_text_in_moov(data, track_patterns[1]) ||
-        contains_text_in_moov(data, track_patterns[2]) ||
-        contains_text_in_moov(data, track_patterns[3])))) {
-        set_error(context, "Cleaned Apple MOV still contains Live Photo metadata.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
+    lpb::containers::Mp4StripSpec spec{};
+    spec.mdta_starts = starts.data();
+    spec.mdta_starts_count = starts.size();
+    spec.track_patterns = track_patterns.data();
+    spec.track_patterns_count = track_patterns.size();
 
-    if (!write_file_binary(out_path, data)) {
-        set_error(context, "Failed to write cleaned Apple video.");
-        return LPB_RESULT_INTERNAL_ERROR;
+    lpb::containers::Mp4StripOutcome outcome{};
+    lpb_result res = lpb::containers::stream_clean_mp4_file(context, in_path, out_path, spec, outcome);
+    if (res != LPB_RESULT_OK) return res;
+
+    if (outcome.mdta_removed) {
+        if (should_strip_cid) {
+            add_fact(out_facts, "Apple", "QuickTime MDTA Keys", "Removed com.apple.quicktime.content.identifier key",
+                "apple-vid-mdta-cid", LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY);
+        }
+        if (should_strip_livephoto) {
+            add_fact(out_facts, "Apple", "QuickTime MDTA Keys", "Removed com.apple.quicktime.live-photo key",
+                "apple-vid-mdta-livephoto", LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY);
+        }
+    }
+    if (outcome.track_removed) {
+        for (const auto& tr : track_residues) {
+            add_fact(out_facts, "Apple", "QuickTime Live Photo Tracks", tr.second,
+                tr.first, LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK);
+        }
     }
     return LPB_RESULT_OK;
 }
@@ -402,52 +426,57 @@ static lpb_result clean_vivo_legacy_video(
     lpb_context* context,
     const std::string& in_path,
     const std::string& out_path,
+    const lpb_cleanup_action* actions,
+    size_t action_count,
     std::vector<lpb_removed_protocol_fact>& out_facts)
 {
-    std::vector<uint8_t> data;
-    if (!read_file_binary(in_path, data)) {
-        set_error(context, "Failed to read vivo legacy video for cleaning.");
-        return LPB_RESULT_INTERNAL_ERROR;
+    const bool strip_uuid = is_action_authorized(actions, action_count, "vivo-legacy-vid-uuid");
+    const bool strip_mdta_lp = is_action_authorized(actions, action_count, "vivo-legacy-vid-mdta-livephoto");
+    const bool strip_mdta_it = is_action_authorized(actions, action_count, "vivo-legacy-vid-mdta-imagetime");
+    const bool strip_mdta_gallery = is_action_authorized(actions, action_count, "vivo-legacy-vid-mdta-gallery");
+
+    if (!strip_uuid && !strip_mdta_lp && !strip_mdta_it && !strip_mdta_gallery) {
+        return fast_file_copy(context, in_path.c_str(), out_path.c_str());
     }
 
     const uint8_t vivo_uuid[16] = {
         0x76, 0x69, 0x76, 0x6F, 0x4D, 0x65, 0x64, 0x69,
         0x61, 0x45, 0x78, 0x74, 0x49, 0x6E, 0x66, 0x6F
     };
-    const bool had_vivo_uuid = contains_text(data, "vivoMediaExtInfo");
-    std::vector<uint8_t> out_u(data.size() + 4096);
-    size_t written_u = 0;
-    lpb_result strip_uuid = lpb_mp4_strip_uuid_box(context, data.data(), data.size(), vivo_uuid, out_u.data(), out_u.size(), &written_u);
-    if (strip_uuid != LPB_RESULT_OK) return strip_uuid;
-    if (written_u > 0) {
-        out_u.resize(written_u);
-        data = std::move(out_u);
-        add_fact(out_facts, "vivo", "MP4 UUID Box", "Removed vivoMediaExtInfo UUID box");
+
+    std::vector<const char*> starts;
+    std::vector<std::pair<const char*, const char*>> mdta_residues;
+    if (strip_mdta_lp) {
+        starts.push_back("com.android.camera.livephoto");
+        mdta_residues.push_back({"vivo-legacy-vid-mdta-livephoto", "Removed com.android.camera.livephoto MDTA key"});
+    }
+    if (strip_mdta_it) {
+        starts.push_back("com.android.camera.imageTime");
+        mdta_residues.push_back({"vivo-legacy-vid-mdta-imagetime", "Removed com.android.camera.imageTime MDTA key"});
+    }
+    if (strip_mdta_gallery) {
+        starts.push_back("com.vivo.gallery.livePhoto");
+        mdta_residues.push_back({"vivo-legacy-vid-mdta-gallery", "Removed com.vivo.gallery.livePhoto MDTA key"});
     }
 
-    const char* starts[] = {
-        "com.android.camera.livephoto",
-        "com.android.camera.imageTime",
-        "com.vivo.gallery.livePhoto"
-    };
-    std::vector<uint8_t> out_a(data.size() + 4096);
-    size_t written_a = 0;
-    lpb_result strip_mdta = lpb_mp4_strip_mdta_keys(context, data.data(), data.size(), starts, 3, nullptr, 0, nullptr, 0, out_a.data(), out_a.size(), &written_a);
-    if (strip_mdta != LPB_RESULT_OK) return strip_mdta;
-    if (written_a > 0) {
-        out_a.resize(written_a);
-        data = std::move(out_a);
-        add_fact(out_facts, "vivo", "QuickTime MDTA Keys", "Removed com.android.camera.livephoto and livePhoto MDTA keys");
-    }
+    lpb::containers::Mp4StripSpec spec{};
+    if (strip_uuid) spec.strip_uuid_16 = vivo_uuid;
+    spec.mdta_starts = starts.data();
+    spec.mdta_starts_count = starts.size();
 
-    if (had_vivo_uuid && contains_text(data, "vivoMediaExtInfo")) {
-        set_error(context, "Cleaned vivo video still contains its protocol UUID.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
+    lpb::containers::Mp4StripOutcome outcome{};
+    lpb_result res = lpb::containers::stream_clean_mp4_file(context, in_path, out_path, spec, outcome);
+    if (res != LPB_RESULT_OK) return res;
 
-    if (!write_file_binary(out_path, data)) {
-        set_error(context, "Failed to write cleaned vivo legacy video.");
-        return LPB_RESULT_INTERNAL_ERROR;
+    if (outcome.uuid_removed && strip_uuid) {
+        add_fact(out_facts, "vivo", "MP4 UUID Box", "Removed vivoMediaExtInfo UUID box",
+            "vivo-legacy-vid-uuid", LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_UUID_BOX);
+    }
+    if (outcome.mdta_removed) {
+        for (const auto& r : mdta_residues) {
+            add_fact(out_facts, "vivo", "QuickTime MDTA Keys", r.second,
+                r.first, LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY);
+        }
     }
     return LPB_RESULT_OK;
 }
@@ -456,61 +485,184 @@ static lpb_result clean_huawei_video(
     lpb_context* context,
     const std::string& in_path,
     const std::string& out_path,
+    const lpb_cleanup_action* actions,
+    size_t action_count,
     std::vector<lpb_removed_protocol_fact>& out_facts)
 {
-    std::vector<uint8_t> data;
-    if (!read_file_binary(in_path, data)) {
-        set_error(context, "Failed to read Huawei video for cleaning.");
-        return LPB_RESULT_INTERNAL_ERROR;
+    const bool strip_openharmony = is_action_authorized(actions, action_count, "huawei-vid-mdta-openharmony");
+    const bool strip_huawei = is_action_authorized(actions, action_count, "huawei-vid-mdta-huawei");
+    const bool strip_covertime = is_action_authorized(actions, action_count, "huawei-vid-mdta-covertime");
+    const bool strip_track = is_action_authorized(actions, action_count, "huawei-vid-track-movingphoto");
+
+    if (!strip_openharmony && !strip_huawei && !strip_covertime && !strip_track) {
+        return fast_file_copy(context, in_path.c_str(), out_path.c_str());
     }
 
-    const bool had_huawei_metadata = contains_text(data, "com.openharmony.movingphoto") ||
-        contains_text(data, "com.huawei.movingphoto") || contains_text(data, "com.openharmony.covertime");
-    const char* starts[] = {
-        "com.openharmony.movingphoto",
-        "com.huawei.movingphoto"
-    };
-    const char* contains[] = { "com.openharmony.covertime" };
-    std::vector<uint8_t> out_a(data.size() + 4096);
-    size_t written_a = 0;
-    lpb_result strip_mdta = lpb_mp4_strip_mdta_keys(context, data.data(), data.size(), starts, 2, contains, 1, nullptr, 0, out_a.data(), out_a.size(), &written_a);
-    if (strip_mdta != LPB_RESULT_OK) return strip_mdta;
-    if (written_a > 0) {
-        out_a.resize(written_a);
-        data = std::move(out_a);
-        add_fact(out_facts, "Huawei", "QuickTime MDTA Keys", "Removed com.openharmony.movingphoto and covertime keys");
+    std::vector<const char*> starts;
+    std::vector<const char*> contains;
+    std::vector<std::pair<const char*, const char*>> mdta_residues;
+    if (strip_openharmony) {
+        starts.push_back("com.openharmony.movingphoto");
+        mdta_residues.push_back({"huawei-vid-mdta-openharmony", "Removed com.openharmony.movingphoto key"});
+    }
+    if (strip_huawei) {
+        starts.push_back("com.huawei.movingphoto");
+        mdta_residues.push_back({"huawei-vid-mdta-huawei", "Removed com.huawei.movingphoto key"});
+    }
+    if (strip_covertime) {
+        contains.push_back("com.openharmony.covertime");
+        mdta_residues.push_back({"huawei-vid-mdta-covertime", "Removed com.openharmony.covertime key"});
     }
 
-    const char* track_patterns[] = {
-        "com.openharmony.timed_metadata.movingphoto"
-    };
-    std::vector<uint8_t> out_b(data.size() + 4096);
-    size_t written_b = 0;
-    lpb_result strip_tracks = lpb_mp4_strip_stsd_tracks(
-        context, data.data(), data.size(), track_patterns, 1,
-        out_b.data(), out_b.size(), &written_b);
-    if (strip_tracks != LPB_RESULT_OK) return strip_tracks;
-    if (written_b > 0) {
-        out_b.resize(written_b);
-        data = std::move(out_b);
-        add_fact(out_facts, "Huawei", "Moving Photo metadata track", "Removed the validated movingphoto timed-metadata track");
+    std::vector<const char*> track_patterns;
+    if (strip_track) {
+        track_patterns.push_back("com.openharmony.timed_metadata.movingphoto");
     }
 
-    if (had_huawei_metadata && (contains_text(data, "com.openharmony.movingphoto") ||
-        contains_text(data, "com.huawei.movingphoto") || contains_text(data, "com.openharmony.covertime"))) {
-        set_error(context, contains_text(data, "com.openharmony.covertime")
-            ? "Cleaned Huawei video still contains com.openharmony.covertime metadata."
-            : (contains_text(data, "com.huawei.movingphoto")
-                ? "Cleaned Huawei video still contains com.huawei.movingphoto metadata."
-                : "Cleaned Huawei video still contains com.openharmony.movingphoto metadata."));
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
+    lpb::containers::Mp4StripSpec spec{};
+    spec.mdta_starts = starts.data();
+    spec.mdta_starts_count = starts.size();
+    spec.mdta_contains = contains.data();
+    spec.mdta_contains_count = contains.size();
+    spec.track_patterns = track_patterns.data();
+    spec.track_patterns_count = track_patterns.size();
 
-    if (!write_file_binary(out_path, data)) {
-        set_error(context, "Failed to write cleaned Huawei video.");
-        return LPB_RESULT_INTERNAL_ERROR;
+    lpb::containers::Mp4StripOutcome outcome{};
+    lpb_result res = lpb::containers::stream_clean_mp4_file(context, in_path, out_path, spec, outcome);
+    if (res != LPB_RESULT_OK) return res;
+
+    if (outcome.mdta_removed) {
+        for (const auto& r : mdta_residues) {
+            add_fact(out_facts, "Huawei", "QuickTime MDTA Keys", r.second,
+                r.first, LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY);
+        }
+    }
+    if (outcome.track_removed && strip_track) {
+        add_fact(out_facts, "Huawei", "Moving Photo metadata track", "Removed the validated movingphoto timed-metadata track",
+            "huawei-vid-track-movingphoto", LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK);
     }
     return LPB_RESULT_OK;
+}
+
+lpb_result clean_source_protocol_with_plan(
+    lpb_context* context,
+    const lpb_source_media_facts* facts,
+    const lpb_cleanup_action* actions,
+    size_t action_count,
+    const char* input_image_path,
+    const char* input_video_path,
+    const char* output_image_path,
+    const char* output_video_path,
+    lpb_removed_protocol_fact* out_facts,
+    size_t facts_capacity,
+    size_t* out_facts_count)
+{
+    if (!context || !facts || !input_image_path || !output_image_path) {
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (!actions || action_count == 0) {
+        set_error(context, "No cleanup actions authorized in plan.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (paths_alias(input_image_path, output_image_path) ||
+        (input_video_path && output_image_path && paths_alias(input_video_path, output_image_path)) ||
+        (input_image_path && output_video_path && paths_alias(input_image_path, output_video_path)) ||
+        (input_video_path && output_video_path && paths_alias(input_video_path, output_video_path)) ||
+        (output_image_path && output_video_path && paths_alias(output_image_path, output_video_path))) {
+        set_error(context, "Cleaning outputs must not overwrite source files or each other.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (facts_capacity > 0 && !out_facts) {
+        set_error(context, "A facts buffer is required when facts_capacity is non-zero.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (out_facts_count) *out_facts_count = 0;
+
+    try {
+        std::vector<lpb_removed_protocol_fact> removed_facts;
+        lpb_result res = LPB_RESULT_OK;
+
+        switch (facts->protocol) {
+        case LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO:
+            res = clean_apple_image(context, input_image_path, output_image_path, actions, action_count, removed_facts);
+            if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
+                res = clean_apple_video(context, input_video_path, output_video_path, actions, action_count, removed_facts);
+            }
+            break;
+
+        case LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1:
+        case LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2:
+        case LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO:
+        case LPB_SOURCE_PROTOCOL_VIVO_X300:
+            res = clean_jpeg_xmp(context, input_image_path, output_image_path,
+                static_cast<lpb_source_protocol>(facts->protocol), actions, action_count, true, removed_facts);
+            if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
+                res = fast_file_copy(context, input_video_path, output_video_path);
+            }
+            break;
+
+        case LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL:
+            res = fast_file_copy(context, input_image_path, output_image_path);
+            if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
+                res = clean_vivo_legacy_video(context, input_video_path, output_video_path, actions, action_count, removed_facts);
+            }
+            break;
+
+        case LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG:
+            res = protocols::clean::clean_samsung_sef_jpeg(context, input_image_path, output_image_path, actions, action_count, removed_facts);
+            if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
+                res = fast_file_copy(context, input_video_path, output_video_path);
+            }
+            break;
+
+        case LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC:
+            res = protocols::clean::clean_samsung_heic(context, input_image_path, output_image_path, actions, action_count, removed_facts);
+            if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
+                res = fast_file_copy(context, input_video_path, output_video_path);
+            }
+            break;
+
+        case LPB_SOURCE_PROTOCOL_HUAWEI_MOVING_PHOTO:
+        case LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO:
+            res = fast_file_copy(context, input_image_path, output_image_path);
+            if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
+                res = clean_huawei_video(context, input_video_path, output_video_path, actions, action_count, removed_facts);
+            }
+            break;
+
+        case LPB_SOURCE_PROTOCOL_NON_LIVE:
+        default:
+            res = fast_file_copy(context, input_image_path, output_image_path);
+            if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
+                res = fast_file_copy(context, input_video_path, output_video_path);
+            }
+            break;
+        }
+
+        if (res == LPB_RESULT_OK && removed_facts.size() > facts_capacity) {
+            std::error_code ec;
+            fs::remove(utf8_to_path(output_image_path), ec);
+            if (output_video_path) fs::remove(utf8_to_path(output_video_path), ec);
+            if (out_facts_count) *out_facts_count = removed_facts.size();
+            set_error(context, "The supplied protocol-fact buffer is too small.");
+            return LPB_RESULT_BUFFER_TOO_SMALL;
+        }
+        if (res == LPB_RESULT_OK && out_facts && facts_capacity > 0) {
+            for (size_t i = 0; i < removed_facts.size(); i++) {
+                out_facts[i] = removed_facts[i];
+            }
+            if (out_facts_count) *out_facts_count = removed_facts.size();
+        }
+        return res;
+    }
+    catch (const std::exception& ex) {
+        set_error(context, ex.what());
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    catch (...) {
+        set_error(context, "Unhandled native exception during source protocol cleaning.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
 }
 
 lpb_result clean_source_protocol(
@@ -545,83 +697,62 @@ lpb_result clean_source_protocol(
         std::vector<lpb_removed_protocol_fact> removed_facts;
         lpb_result res = LPB_RESULT_OK;
 
-    switch (facts->protocol) {
-    case LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO:
-        res = clean_apple_image(context, input_image_path, output_image_path, removed_facts);
-        if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-            res = clean_apple_video(context, input_video_path, output_video_path, removed_facts);
-        }
-        break;
+        switch (facts->protocol) {
+        case LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO:
+            res = clean_apple_image(context, input_image_path, output_image_path, nullptr, 0, removed_facts);
+            if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
+                res = clean_apple_video(context, input_video_path, output_video_path, nullptr, 0, removed_facts);
+            }
+            break;
 
-    case LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1:
-        res = clean_jpeg_xmp(context, input_image_path, output_image_path,
-            static_cast<lpb_source_protocol>(facts->protocol), true, removed_facts);
-        if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-            res = fast_file_copy(context, input_video_path, output_video_path);
-        }
-        break;
+        case LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1:
+        case LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2:
+        case LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO:
+        case LPB_SOURCE_PROTOCOL_VIVO_X300:
+            res = clean_jpeg_xmp(context, input_image_path, output_image_path,
+                static_cast<lpb_source_protocol>(facts->protocol), nullptr, 0, true, removed_facts);
+            if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
+                res = fast_file_copy(context, input_video_path, output_video_path);
+            }
+            break;
 
-    case LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2:
-        res = clean_jpeg_xmp(context, input_image_path, output_image_path,
-            static_cast<lpb_source_protocol>(facts->protocol), true, removed_facts);
-        if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-            res = fast_file_copy(context, input_video_path, output_video_path);
-        }
-        break;
+        case LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL:
+            res = fast_file_copy(context, input_image_path, output_image_path);
+            if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
+                res = clean_vivo_legacy_video(context, input_video_path, output_video_path, nullptr, 0, removed_facts);
+            }
+            break;
 
-    case LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO:
-        res = clean_jpeg_xmp(context, input_image_path, output_image_path,
-            static_cast<lpb_source_protocol>(facts->protocol), true, removed_facts);
-        if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-            res = fast_file_copy(context, input_video_path, output_video_path);
-        }
-        break;
+        case LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG:
+            res = protocols::clean::clean_samsung_sef_jpeg(context, input_image_path, output_image_path, nullptr, 0, removed_facts);
+            if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
+                res = fast_file_copy(context, input_video_path, output_video_path);
+            }
+            break;
 
-    case LPB_SOURCE_PROTOCOL_VIVO_X300:
-        res = clean_jpeg_xmp(context, input_image_path, output_image_path,
-            static_cast<lpb_source_protocol>(facts->protocol), true, removed_facts);
-        if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-            res = fast_file_copy(context, input_video_path, output_video_path);
-        }
-        break;
+        case LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC:
+            res = protocols::clean::clean_samsung_heic(context, input_image_path, output_image_path, nullptr, 0, removed_facts);
+            if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
+                res = fast_file_copy(context, input_video_path, output_video_path);
+            }
+            break;
 
-    case LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL:
-        res = fast_file_copy(context, input_image_path, output_image_path);
-        if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-            res = clean_vivo_legacy_video(context, input_video_path, output_video_path, removed_facts);
-        }
-        break;
+        case LPB_SOURCE_PROTOCOL_HUAWEI_MOVING_PHOTO:
+        case LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO:
+            res = fast_file_copy(context, input_image_path, output_image_path);
+            if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
+                res = clean_huawei_video(context, input_video_path, output_video_path, nullptr, 0, removed_facts);
+            }
+            break;
 
-    case LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG:
-        res = protocols::clean::clean_samsung_sef_jpeg(context, input_image_path, output_image_path, removed_facts);
-        if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-            res = fast_file_copy(context, input_video_path, output_video_path);
+        case LPB_SOURCE_PROTOCOL_NON_LIVE:
+        default:
+            res = fast_file_copy(context, input_image_path, output_image_path);
+            if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
+                res = fast_file_copy(context, input_video_path, output_video_path);
+            }
+            break;
         }
-        break;
-
-    case LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC:
-        res = protocols::clean::clean_samsung_heic(context, input_image_path, output_image_path, removed_facts);
-        if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-            res = fast_file_copy(context, input_video_path, output_video_path);
-        }
-        break;
-
-    case LPB_SOURCE_PROTOCOL_HUAWEI_MOVING_PHOTO:
-    case LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO:
-        res = fast_file_copy(context, input_image_path, output_image_path);
-        if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-            res = clean_huawei_video(context, input_video_path, output_video_path, removed_facts);
-        }
-        break;
-
-    case LPB_SOURCE_PROTOCOL_NON_LIVE:
-    default:
-        res = fast_file_copy(context, input_image_path, output_image_path);
-        if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-            res = fast_file_copy(context, input_video_path, output_video_path);
-        }
-        break;
-    }
 
         if (res == LPB_RESULT_OK && removed_facts.size() > facts_capacity) {
             std::error_code ec;

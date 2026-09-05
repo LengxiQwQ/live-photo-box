@@ -15,6 +15,7 @@ public static class NativeCleanService
 {
     public static Task<IReadOnlyList<RemovedProtocolFact>> CleanSourceProtocolAsync(
         SourceMediaFacts facts,
+        IReadOnlyList<PlannedCleanupAction> actions,
         string inputImagePath,
         string? inputVideoPath,
         string? outputImagePath,
@@ -28,9 +29,29 @@ public static class NativeCleanService
             using var ctx = NativeContext.Create(cancellationToken);
             NativeSourceMediaFacts nativeFacts = NativeMediaService.MapToNativeFacts(facts);
 
-            Span<NativeRemovedProtocolFact> factsBuf = stackalloc NativeRemovedProtocolFact[64];
+            int actionCount = actions?.Count ?? 0;
+            Span<NativeCleanupAction> actionsBuf = actionCount > 0 ? stackalloc NativeCleanupAction[actionCount] : default;
             unsafe
             {
+                for (int i = 0; i < actionCount; i++)
+                {
+                    actionsBuf[i].StructSize = (uint)sizeof(NativeCleanupAction);
+                    fixed (byte* pId = actionsBuf[i].ResidueId)
+                        WriteFixedUtf8String(pId, 64, actions![i].ResidueId);
+                    actionsBuf[i].ArtifactRole = (int)actions![i].ArtifactRole;
+                    actionsBuf[i].StructureKind = (int)actions![i].StructureKind;
+                    fixed (byte* pSel = actionsBuf[i].Selector)
+                        WriteFixedUtf8String(pSel, 128, actions[i].Selector);
+                    fixed (byte* pSem = actionsBuf[i].ExpectedSemantic)
+                        WriteFixedUtf8String(pSem, 64, actions[i].ExpectedSemantic);
+                    fixed (byte* pFp = actionsBuf[i].ExpectedFingerprint)
+                        WriteFixedUtf8String(pFp, 64, actions[i].ExpectedFingerprint);
+                    actionsBuf[i].RemovalMode = (int)actions[i].RemovalMode;
+                    actionsBuf[i].IsMandatory = actions[i].IsMandatory ? 1 : 0;
+                }
+
+                Span<NativeRemovedProtocolFact> factsBuf = stackalloc NativeRemovedProtocolFact[64];
+                fixed (NativeCleanupAction* pActions = actionsBuf)
                 fixed (NativeRemovedProtocolFact* pFacts = factsBuf)
                 {
                     for (int i = 0; i < factsBuf.Length; i++)
@@ -38,9 +59,11 @@ public static class NativeCleanService
                         pFacts[i].StructSize = (uint)sizeof(NativeRemovedProtocolFact);
                     }
 
-                    NativeResult res = NativeMethods.CleanSourceProtocol(
+                    NativeResult res = NativeMethods.CleanSourceProtocolWithPlan(
                         ctx.Handle,
                         in nativeFacts,
+                        pActions,
+                        (nuint)actionCount,
                         inputImagePath,
                         inputVideoPath,
                         outputImagePath,
@@ -58,37 +81,22 @@ public static class NativeCleanService
                         string proto = ReadFixedUtf8String(pFacts[i].ProtocolName, 64);
                         string comp = ReadFixedUtf8String(pFacts[i].Component, 64);
                         string desc = ReadFixedUtf8String(pFacts[i].Description, 128);
-
-                        string? matchedResidueId = null;
-                        MediaArtifactKind? matchedRole = null;
-                        ResidueStructureKind? matchedKind = null;
-
-                        if (facts.ConfirmedResidues != null)
-                        {
-                            foreach (var resItem in facts.ConfirmedResidues)
-                            {
-                                if (desc.Contains(resItem.Selector, StringComparison.OrdinalIgnoreCase) ||
-                                    comp.Contains(resItem.Selector, StringComparison.OrdinalIgnoreCase) ||
-                                    (resItem.ExpectedSemantic != null && desc.Contains(resItem.ExpectedSemantic, StringComparison.OrdinalIgnoreCase)))
-                                {
-                                    matchedResidueId = resItem.Id;
-                                    matchedRole = resItem.ArtifactRole;
-                                    matchedKind = resItem.StructureKind;
-                                    break;
-                                }
-                            }
-                        }
+                        string residueId = ReadFixedUtf8String(pFacts[i].ResidueId, 64);
+                        string op = ReadFixedUtf8String(pFacts[i].Operation, 64);
+                        string beforeFp = ReadFixedUtf8String(pFacts[i].BeforeFingerprint, 64);
+                        string afterSt = ReadFixedUtf8String(pFacts[i].AfterStatus, 64);
 
                         factsList.Add(new RemovedProtocolFact
                         {
                             ProtocolName = string.IsNullOrEmpty(proto) ? facts.Protocol.ToString() : proto,
                             Component = comp,
                             Description = desc,
-                            ResidueId = matchedResidueId,
-                            ArtifactRole = matchedRole,
-                            StructureKind = matchedKind,
-                            Operation = "Strip",
-                            AfterStatus = "Removed"
+                            ResidueId = string.IsNullOrEmpty(residueId) ? null : residueId,
+                            ArtifactRole = (MediaArtifactKind)pFacts[i].ArtifactRole,
+                            StructureKind = (ResidueStructureKind)pFacts[i].StructureKind,
+                            Operation = string.IsNullOrEmpty(op) ? "Strip" : op,
+                            BeforeFingerprint = string.IsNullOrEmpty(beforeFp) ? null : beforeFp,
+                            AfterStatus = string.IsNullOrEmpty(afterSt) ? "Removed" : afterSt
                         });
                     }
 
@@ -96,6 +104,46 @@ public static class NativeCleanService
                 }
             }
         }, cancellationToken);
+    }
+
+    public static Task<IReadOnlyList<RemovedProtocolFact>> CleanSourceProtocolAsync(
+        SourceMediaFacts facts,
+        string inputImagePath,
+        string? inputVideoPath,
+        string? outputImagePath,
+        string? outputVideoPath,
+        CancellationToken cancellationToken = default)
+    {
+        var actions = new List<PlannedCleanupAction>();
+        if (facts.ConfirmedResidues != null)
+        {
+            foreach (var r in facts.ConfirmedResidues)
+            {
+                actions.Add(new PlannedCleanupAction
+                {
+                    ResidueId = r.Id,
+                    ArtifactRole = r.ArtifactRole,
+                    StructureKind = r.StructureKind,
+                    Selector = r.Selector,
+                    ExpectedSemantic = r.ExpectedSemantic,
+                    RemovalMode = r.RemovalMode,
+                    ExpectedFingerprint = r.ExpectedFingerprint,
+                    IsMandatory = r.RequiredAfterExtraction
+                });
+            }
+        }
+        return CleanSourceProtocolAsync(facts, actions, inputImagePath, inputVideoPath, outputImagePath, outputVideoPath, cancellationToken);
+    }
+
+    private static unsafe void WriteFixedUtf8String(byte* ptr, int maxLen, string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            ptr[0] = 0;
+            return;
+        }
+        int written = Encoding.UTF8.GetBytes(value, new Span<byte>(ptr, maxLen - 1));
+        ptr[written] = 0;
     }
 
     private static unsafe string ReadFixedUtf8String(byte* ptr, int maxLen)

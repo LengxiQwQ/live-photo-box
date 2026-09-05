@@ -542,24 +542,113 @@ LPB_API lpb_result LPB_CALL lpb_transcode_video(
     char* out_encoder_used,
     size_t encoder_buf_len);
 
-typedef struct lpb_removed_protocol_fact {
+typedef enum lpb_media_artifact_kind
+{
+    LPB_ARTIFACT_PRIMARY_IMAGE = 0,
+    LPB_ARTIFACT_MOTION_VIDEO = 1,
+    LPB_ARTIFACT_GAIN_MAP = 2,
+    LPB_ARTIFACT_AUXILIARY_ITEM = 3
+} lpb_media_artifact_kind;
+
+typedef enum lpb_residue_structure_kind
+{
+    LPB_RESIDUE_XMP_PROPERTY = 0,
+    LPB_RESIDUE_XMP_CONTAINER_ITEM = 1,
+    LPB_RESIDUE_EXIF_MAKERNOTE_TAG = 2,
+    LPB_RESIDUE_QUICKTIME_MDTA_KEY = 3,
+    LPB_RESIDUE_QUICKTIME_METADATA_TRACK = 4,
+    LPB_RESIDUE_ISOBMFF_BOX = 5,
+    LPB_RESIDUE_HEIF_ITEM = 6,
+    LPB_RESIDUE_HEIF_PROPERTY = 7,
+    LPB_RESIDUE_SEF_ENTRY = 8,
+    LPB_RESIDUE_PROTOCOL_TAIL_RANGE = 9,
+    LPB_RESIDUE_UUID_BOX = 10
+} lpb_residue_structure_kind;
+
+typedef enum lpb_coordinate_space
+{
+    LPB_COORD_ORIGINAL_SOURCE_RANGE = 0,
+    LPB_COORD_EXTRACTED_ARTIFACT_RANGE = 1,
+    LPB_COORD_STRUCTURED_SELECTOR = 2
+} lpb_coordinate_space;
+
+typedef enum lpb_residue_removal_mode
+{
+    LPB_REMOVAL_DELETE = 0,
+    LPB_REMOVAL_ZERO_FILL = 1,
+    LPB_REMOVAL_REBUILD_CONTAINER = 2
+} lpb_residue_removal_mode;
+
+typedef struct lpb_confirmed_residue
+{
+    uint32_t struct_size;
+    char residue_id[64];
+    lpb_source_protocol owner_protocol;
+    int32_t artifact_role;
+    int32_t structure_kind;
+    char selector[128];
+    char expected_semantic[64];
+    char expected_fingerprint[64];
+    int32_t coordinate_space;
+    int32_t removal_mode;
+    int32_t required_after_extraction;
+} lpb_confirmed_residue;
+
+LPB_API lpb_result LPB_CALL lpb_inspect_media_with_residues(
+    lpb_context* context,
+    const char* primary_path,
+    const char* secondary_path,
+    lpb_source_media_facts* out_facts,
+    lpb_confirmed_residue* out_residues,
+    size_t residues_capacity,
+    size_t* out_residues_count);
+
+typedef struct lpb_cleanup_action
+{
+    uint32_t struct_size;
+    char residue_id[64];
+    int32_t artifact_role;
+    int32_t structure_kind;
+    char selector[128];
+    char expected_semantic[64];
+    char expected_fingerprint[64];
+    int32_t removal_mode;
+    int32_t is_mandatory;
+} lpb_cleanup_action;
+
+typedef struct lpb_removed_protocol_fact
+{
     uint32_t struct_size;
     char protocol_name[64];
     char component[64];
     char description[128];
+    char residue_id[64];
+    int32_t artifact_role;
+    int32_t structure_kind;
+    char operation[64];
+    char before_fingerprint[64];
+    char after_status[64];
 } lpb_removed_protocol_fact;
 
 /*
  * Strips vendor-specific Live/Motion Photo protocol metadata and container markers
- * from extracted media artifacts.
- * facts: source media facts identified during inspection.
- * input_image_path: extracted primary image.
- * input_video_path: extracted motion video (optional).
- * output_image_path: clean protocol-free image output.
- * output_video_path: clean protocol-free video output (optional).
- * out_facts: array of structured removed protocol facts.
- * facts_capacity: capacity of out_facts array.
- * out_facts_count: number of facts actually written.
+ * from extracted media artifacts according to an explicit plan.
+ */
+LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_plan(
+    lpb_context* context,
+    const lpb_source_media_facts* facts,
+    const lpb_cleanup_action* actions,
+    size_t action_count,
+    const char* input_image_path,
+    const char* input_video_path,
+    const char* output_image_path,
+    const char* output_video_path,
+    lpb_removed_protocol_fact* out_facts,
+    size_t facts_capacity,
+    size_t* out_facts_count);
+
+/*
+ * Legacy wrapper: strips vendor-specific Live/Motion Photo protocol metadata.
  */
 LPB_API lpb_result LPB_CALL lpb_clean_source_protocol(
     lpb_context* context,
@@ -581,6 +670,9 @@ static_assert(sizeof(lpb_video_item_facts) == 80, "lpb_video_item_facts size mis
 static_assert(sizeof(lpb_gainmap_item_facts) == 32, "lpb_gainmap_item_facts size mismatch");
 static_assert(sizeof(lpb_timing_facts) == 32, "lpb_timing_facts size mismatch");
 static_assert(sizeof(lpb_source_media_facts) == 408, "lpb_source_media_facts size mismatch");
+static_assert(sizeof(lpb_confirmed_residue) == 348, "lpb_confirmed_residue size mismatch");
+static_assert(sizeof(lpb_cleanup_action) == 340, "lpb_cleanup_action size mismatch");
+static_assert(sizeof(lpb_removed_protocol_fact) == 524, "lpb_removed_protocol_fact size mismatch");
 static_assert(offsetof(lpb_video_item_facts, source_index) == 72, "lpb_video_item_facts.source_index offset mismatch");
 static_assert(offsetof(lpb_source_media_facts, primary_sha256) == 336, "lpb_source_media_facts.primary_sha256 offset mismatch");
 static_assert(offsetof(lpb_source_media_facts, secondary_sha256) == 368, "lpb_source_media_facts.secondary_sha256 offset mismatch");
