@@ -25,12 +25,18 @@ using namespace_binding = std::pair<std::string_view, std::string_view>;
 struct xmp_attribute {
     std::string_view name;
     std::string_view value;
+    std::string_view resolved_uri;
 };
 
-struct xmp_element {
-    std::string_view name;
+static constexpr size_t k_no_parent = std::numeric_limits<size_t>::max();
+
+struct xmp_node {
+    size_t node_index{0};
+    size_t parent_index{k_no_parent};
+    std::string_view tag_name;
+    std::string_view resolved_uri;
     std::vector<xmp_attribute> attributes;
-    std::vector<namespace_binding> bindings;
+    std::vector<size_t> children;
 };
 
 static constexpr std::string_view google_camera_namespace = "http://ns.google.com/photos/1.0/camera/";
@@ -38,6 +44,7 @@ static constexpr std::string_view google_container_namespace = "http://ns.google
 static constexpr std::string_view google_item_namespace = "http://ns.google.com/photos/1.0/container/item/";
 static constexpr std::string_view oppo_camera_namespace = "http://ns.oplus.com/photos/1.0/camera/";
 static constexpr std::string_view vivo_camera_namespace = "http://ns.vivo.com/photos/1.0/camera/";
+static constexpr std::string_view rdf_namespace = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 
 static bool is_xml_name_char(char c) noexcept {
     return std::isalnum(static_cast<unsigned char>(c)) != 0 ||
@@ -123,14 +130,30 @@ static bool parse_start_tag(std::string_view xml, size_t start, size_t end,
         const size_t value_start = p;
         while (p < end && xml[p] != quote) ++p;
         if (p >= end) return false;
-        attributes.push_back({ attr_name, xml.substr(value_start, p - value_start) });
+        for (const auto& existing : attributes) {
+            if (existing.name == attr_name) return false; // duplicate attribute rejected
+        }
+        attributes.push_back({ attr_name, xml.substr(value_start, p - value_start), {} });
         ++p;
     }
     return true;
 }
 
-static bool scan_xmp_elements(std::string_view xml, std::vector<xmp_element>& elements) {
+static bool parse_close_tag(std::string_view xml, size_t start, size_t end, std::string_view& tag_name) noexcept {
+    if (start >= end || xml[start] != '<' || start + 2 >= end || xml[start + 1] != '/') return false;
+    size_t p = start + 2;
+    while (p < end && std::isspace(static_cast<unsigned char>(xml[p]))) ++p;
+    const size_t name_start = p;
+    while (p < end && is_xml_name_char(xml[p])) ++p;
+    if (p == name_start) return false;
+    tag_name = xml.substr(name_start, p - name_start);
+    while (p < end && std::isspace(static_cast<unsigned char>(xml[p]))) ++p;
+    return p < end && xml[p] == '>';
+}
+
+static bool scan_xmp_tree(std::string_view xml, std::vector<xmp_node>& nodes) {
     std::vector<std::vector<namespace_binding>> scopes;
+    std::vector<size_t> open_stack;
     size_t p = 0;
     while ((p = xml.find('<', p)) != std::string_view::npos) {
         if (xml.substr(p, 4) == "<!--") {
@@ -148,8 +171,14 @@ static bool scan_xmp_elements(std::string_view xml, std::vector<xmp_element>& el
 
         size_t tag_end = 0;
         if (!find_tag_end(xml, p, tag_end)) return false;
+
         if (p + 1 < xml.size() && xml[p + 1] == '/') {
-            if (scopes.empty()) return false;
+            std::string_view closing_name;
+            if (!parse_close_tag(xml, p, tag_end, closing_name)) return false;
+            if (open_stack.empty()) return false;
+            const size_t top_idx = open_stack.back();
+            if (nodes[top_idx].tag_name != closing_name) return false; // Mismatched closing tag
+            open_stack.pop_back();
             scopes.pop_back();
             p = tag_end;
             continue;
@@ -157,10 +186,7 @@ static bool scan_xmp_elements(std::string_view xml, std::vector<xmp_element>& el
 
         std::string_view tag_name;
         std::vector<xmp_attribute> attributes;
-        if (!parse_start_tag(xml, p, tag_end, tag_name, attributes)) {
-            p = tag_end;
-            continue;
-        }
+        if (!parse_start_tag(xml, p, tag_end, tag_name, attributes)) return false;
 
         std::vector<namespace_binding> bindings = scopes.empty() ?
             std::vector<namespace_binding>{} : scopes.back();
@@ -172,105 +198,220 @@ static bool scan_xmp_elements(std::string_view xml, std::vector<xmp_element>& el
             }
         }
 
-        elements.push_back({ tag_name, std::move(attributes), bindings });
+        const std::string_view tag_uri = namespace_uri_for_name(tag_name, bindings, false);
+        for (auto& attr : attributes) {
+            attr.resolved_uri = namespace_uri_for_name(attr.name, bindings, true);
+        }
+
+        const size_t new_idx = nodes.size();
+        const size_t parent_idx = open_stack.empty() ? k_no_parent : open_stack.back();
+        nodes.push_back({ new_idx, parent_idx, tag_name, tag_uri, std::move(attributes), {} });
+        if (parent_idx != k_no_parent) {
+            nodes[parent_idx].children.push_back(new_idx);
+        }
+
         const bool self_closing = tag_end >= 2 && xml[tag_end - 2] == '/';
-        if (!self_closing) scopes.push_back(std::move(bindings));
+        if (!self_closing) {
+            open_stack.push_back(new_idx);
+            scopes.push_back(std::move(bindings));
+        }
         p = tag_end;
     }
-    return scopes.empty();
+    return open_stack.empty() && scopes.empty();
 }
 
-static bool element_is(const xmp_element& element, std::string_view uri,
-    std::string_view local) noexcept {
-    return local_name(element.name) == local &&
-        namespace_uri_for_name(element.name, element.bindings, false) == uri;
+static bool parse_u64_exact(std::string_view sv, uint64_t& out_val) noexcept {
+    if (sv.empty()) return false;
+    const char* first = sv.data();
+    const char* last = first + sv.size();
+    auto res = std::from_chars(first, last, out_val, 10);
+    return res.ec == std::errc{} && res.ptr == last;
 }
 
-static bool get_attribute_u64(const xmp_element& element, std::string_view uri,
-    std::string_view local, uint64_t& out_value) {
-    for (const auto& attribute : element.attributes) {
-        if (local_name(attribute.name) != local ||
-            namespace_uri_for_name(attribute.name, element.bindings, true) != uri) continue;
-        const char* first = attribute.value.data();
-        const char* last = first + attribute.value.size();
-        auto parsed = std::from_chars(first, last, out_value, 10);
-        return parsed.ec == std::errc{} && parsed.ptr == last;
-    }
-    return false;
+static bool parse_i64_exact(std::string_view sv, int64_t& out_val) noexcept {
+    if (sv.empty()) return false;
+    const char* first = sv.data();
+    const char* last = first + sv.size();
+    auto res = std::from_chars(first, last, out_val, 10);
+    return res.ec == std::errc{} && res.ptr == last;
 }
 
-static bool get_attribute_string(const xmp_element& element, std::string_view uri,
-    std::string_view local, std::string_view expected) noexcept {
-    for (const auto& attribute : element.attributes) {
-        if (local_name(attribute.name) == local &&
-            namespace_uri_for_name(attribute.name, element.bindings, true) == uri &&
-            attribute.value == expected) return true;
-    }
-    return false;
+static bool node_is(const xmp_node& node, std::string_view uri, std::string_view local) noexcept {
+    return local_name(node.tag_name) == local && node.resolved_uri == uri;
 }
 
-static const xmp_element* find_motion_item(const std::vector<xmp_element>& elements,
-    uint64_t& out_length, lpb_video_container& out_container) {
-    size_t item_count = 0;
-    size_t primary_count = 0;
-    size_t primary_index = 0;
-    size_t motion_count = 0;
-    size_t motion_index = 0;
-    const xmp_element* motion = nullptr;
-    for (const auto& element : elements) {
-        if (!element_is(element, google_container_namespace, "Item")) continue;
-        const size_t current_index = item_count++;
-        if (get_attribute_string(element, google_item_namespace, "Semantic", "Primary")) {
-            ++primary_count;
-            primary_index = current_index;
+static bool get_node_attribute_value(const xmp_node& node, std::string_view uri,
+    std::string_view local, std::string_view& out_value) noexcept {
+    for (const auto& attr : node.attributes) {
+        if (local_name(attr.name) == local && attr.resolved_uri == uri) {
+            out_value = attr.value;
+            return true;
         }
-        if (!get_attribute_string(element, google_item_namespace, "Semantic", "MotionPhoto")) continue;
-        ++motion_count;
-        motion_index = current_index;
-        motion = &element;
-        if (!get_attribute_u64(element, google_item_namespace, "Length", out_length) || out_length == 0) return nullptr;
-        if (get_attribute_string(element, google_item_namespace, "Mime", "video/quicktime"))
-            out_container = LPB_VIDEO_CONTAINER_MOV;
-        else if (get_attribute_string(element, google_item_namespace, "Mime", "video/mp4"))
-            out_container = LPB_VIDEO_CONTAINER_MP4;
-        else
-            return nullptr;
     }
-    // Auxiliary Container:Item records are legal after the motion item in
-    // vendor variants.  The decisive structural checks are one Primary at
-    // index zero and exactly one semantically named MotionPhoto item.
-    if (motion == nullptr || primary_count != 1 || primary_index != 0 || motion_count != 1)
-        return nullptr;
-    return motion;
+    return false;
 }
 
-static bool has_protocol_attribute(const std::vector<xmp_element>& elements,
-    std::string_view uri, std::string_view local) {
-    for (const auto& element : elements) {
-        for (const auto& attribute : element.attributes) {
-            if (local_name(attribute.name) == local &&
-                namespace_uri_for_name(attribute.name, element.bindings, true) == uri) {
-                return true;
+static bool get_node_attribute_u64(const xmp_node& node, std::string_view uri,
+    std::string_view local, uint64_t& out_value) noexcept {
+    std::string_view val;
+    return get_node_attribute_value(node, uri, local, val) && parse_u64_exact(val, out_value);
+}
+
+static bool has_attribute_name_in_nodes(const std::vector<xmp_node>& nodes,
+    std::string_view uri, std::string_view local) noexcept {
+    for (const auto& node : nodes) {
+        for (const auto& attr : node.attributes) {
+            if (local_name(attr.name) == local && attr.resolved_uri == uri) return true;
+        }
+    }
+    return false;
+}
+
+static int get_global_attribute_u64(const std::vector<xmp_node>& nodes,
+    std::string_view uri, std::string_view local, uint64_t& out_value) noexcept {
+    bool found = false;
+    uint64_t current = 0;
+    for (const auto& node : nodes) {
+        for (const auto& attr : node.attributes) {
+            if (local_name(attr.name) == local && attr.resolved_uri == uri) {
+                uint64_t val = 0;
+                if (!parse_u64_exact(attr.value, val)) return -1;
+                if (!found) {
+                    found = true;
+                    current = val;
+                } else if (current != val) {
+                    return -1;
+                }
             }
         }
     }
-    return false;
+    if (found) {
+        out_value = current;
+        return 1;
+    }
+    return 0;
 }
 
-static bool has_attribute_value(const std::vector<xmp_element>& elements,
-    std::string_view uri, std::string_view local, std::string_view expected) {
-    for (const auto& element : elements) {
-        if (get_attribute_string(element, uri, local, expected)) return true;
+static int get_global_attribute_i64(const std::vector<xmp_node>& nodes,
+    std::string_view uri, std::string_view local, int64_t& out_value) noexcept {
+    bool found = false;
+    int64_t current = 0;
+    for (const auto& node : nodes) {
+        for (const auto& attr : node.attributes) {
+            if (local_name(attr.name) == local && attr.resolved_uri == uri) {
+                int64_t val = 0;
+                if (!parse_i64_exact(attr.value, val)) return -1;
+                if (!found) {
+                    found = true;
+                    current = val;
+                } else if (current != val) {
+                    return -1;
+                }
+            }
+        }
     }
-    return false;
+    if (found) {
+        out_value = current;
+        return 1;
+    }
+    return 0;
 }
 
-static bool get_first_attribute_u64(const std::vector<xmp_element>& elements,
-    std::string_view uri, std::string_view local, uint64_t& out_value) {
-    for (const auto& element : elements) {
-        if (get_attribute_u64(element, uri, local, out_value)) return true;
+static int get_global_attribute_string(const std::vector<xmp_node>& nodes,
+    std::string_view uri, std::string_view local, std::string_view& out_value) noexcept {
+    bool found = false;
+    std::string_view current;
+    for (const auto& node : nodes) {
+        for (const auto& attr : node.attributes) {
+            if (local_name(attr.name) == local && attr.resolved_uri == uri) {
+                if (!found) {
+                    found = true;
+                    current = attr.value;
+                } else if (current != attr.value) {
+                    return -1;
+                }
+            }
+        }
     }
-    return false;
+    if (found) {
+        out_value = current;
+        return 1;
+    }
+    return 0;
+}
+
+struct container_item_info {
+    std::string_view semantic;
+    std::string_view mime;
+    uint64_t length{0};
+    uint64_t padding{0};
+    bool has_length{false};
+    bool has_padding{false};
+    size_t node_index{0};
+};
+
+struct container_directory_info {
+    size_t directory_node_index{k_no_parent};
+    size_t seq_node_index{k_no_parent};
+    std::vector<container_item_info> items;
+};
+
+static bool find_container_directory(const std::vector<xmp_node>& nodes,
+    container_directory_info& out_dir) {
+    out_dir = {};
+    const xmp_node* dir_node = nullptr;
+    for (const auto& node : nodes) {
+        if (node_is(node, google_container_namespace, "Directory")) {
+            if (dir_node != nullptr) return false;
+            dir_node = &node;
+        }
+    }
+    if (!dir_node) return false;
+    out_dir.directory_node_index = dir_node->node_index;
+
+    const xmp_node* seq_node = nullptr;
+    for (size_t child_idx : dir_node->children) {
+        if (child_idx < nodes.size() && node_is(nodes[child_idx], rdf_namespace, "Seq")) {
+            if (seq_node != nullptr) return false;
+            seq_node = &nodes[child_idx];
+        }
+    }
+    if (!seq_node) return false;
+    out_dir.seq_node_index = seq_node->node_index;
+
+    for (size_t seq_item_idx : seq_node->children) {
+        if (seq_item_idx >= nodes.size()) continue;
+        const xmp_node& seq_item = nodes[seq_item_idx];
+
+        const xmp_node* item_node = nullptr;
+        if (node_is(seq_item, google_container_namespace, "Item")) {
+            item_node = &seq_item;
+        } else if (node_is(seq_item, rdf_namespace, "li")) {
+            for (size_t li_child_idx : seq_item.children) {
+                if (li_child_idx < nodes.size() && node_is(nodes[li_child_idx], google_container_namespace, "Item")) {
+                    item_node = &nodes[li_child_idx];
+                    break;
+                }
+            }
+            if (!item_node) {
+                if (has_attribute_name_in_nodes({ seq_item }, google_item_namespace, "Semantic") ||
+                    has_attribute_name_in_nodes({ seq_item }, google_item_namespace, "Mime")) {
+                    item_node = &seq_item;
+                }
+            }
+        }
+        if (!item_node) continue;
+
+        container_item_info info{};
+        info.node_index = item_node->node_index;
+        get_node_attribute_value(*item_node, google_item_namespace, "Semantic", info.semantic);
+        get_node_attribute_value(*item_node, google_item_namespace, "Mime", info.mime);
+        info.has_length = get_node_attribute_u64(*item_node, google_item_namespace, "Length", info.length);
+        info.has_padding = get_node_attribute_u64(*item_node, google_item_namespace, "Padding", info.padding);
+        out_dir.items.push_back(info);
+    }
+
+    return !out_dir.items.empty();
 }
 
 } // namespace
@@ -446,6 +587,65 @@ static bool find_jpeg_end(const std::vector<uint8_t>& data, uint64_t& out_end) n
     return false;
 }
 
+static bool is_valid_jpeg_media_range(
+    const uint8_t* data,
+    size_t total_size,
+    uint64_t offset,
+    uint64_t length) noexcept
+{
+    if (!data || offset > total_size || length < 4 || length > total_size - static_cast<size_t>(offset)) return false;
+    const size_t start = static_cast<size_t>(offset);
+    const size_t end = start + static_cast<size_t>(length);
+    if (data[start] != 0xFF || data[start + 1] != 0xD8) return false;
+
+    size_t pos = start + 2;
+    while (pos + 1 < end)
+    {
+        if (data[pos] != 0xFF) return false;
+        while (pos < end && data[pos] == 0xFF) ++pos;
+        if (pos >= end) return false;
+        uint8_t marker = data[pos++];
+        if (marker == 0x00 || marker == 0xFF || (marker >= 0xD0 && marker <= 0xD7)) return false;
+        if (marker == 0xD9)
+        {
+            while (pos < end && (data[pos] == 0x00 || data[pos] == 0xFF)) ++pos;
+            return pos == end;
+        }
+        if (marker == 0xDA)
+        {
+            if (pos + 2 > end) return false;
+            const size_t len = (static_cast<size_t>(data[pos]) << 8) | data[pos + 1];
+            if (len < 2 || len > end - pos) return false;
+            pos += len;
+            while (pos + 1 < end)
+            {
+                if (data[pos] == 0xFF)
+                {
+                    const uint8_t scan_marker = data[pos + 1];
+                    if (scan_marker == 0xD9)
+                    {
+                        pos += 2;
+                        while (pos < end && (data[pos] == 0x00 || data[pos] == 0xFF)) ++pos;
+                        return pos == end;
+                    }
+                    if (scan_marker == 0x00 || (scan_marker >= 0xD0 && scan_marker <= 0xD7))
+                    {
+                        pos += 2;
+                        continue;
+                    }
+                }
+                ++pos;
+            }
+            return false;
+        }
+        if (pos + 2 > end) return false;
+        const size_t len = (static_cast<size_t>(data[pos]) << 8) | data[pos + 1];
+        if (len < 2 || len > end - pos) return false;
+        pos += len;
+    }
+    return false;
+}
+
 static bool check_huawei_moving_photo(
     const std::vector<uint8_t>& data,
     uint64_t file_size,
@@ -516,13 +716,24 @@ static bool check_huawei_moving_photo(
     return false;
 }
 
-static bool check_samsung_sef_jpeg(
+static int check_samsung_sef_jpeg(
     lpb_context* context,
     const std::vector<uint8_t>& data,
     uint64_t& out_video_offset,
     uint64_t& out_video_len)
 {
-    return lpb_samsung_sef_parse(context, data.data(), data.size(), &out_video_offset, &out_video_len) == LPB_RESULT_OK;
+    lpb_result res = lpb_samsung_sef_parse(context, data.data(), data.size(), &out_video_offset, &out_video_len);
+    if (res == LPB_RESULT_OK) {
+        return 1;
+    }
+    if (context != nullptr) {
+        std::scoped_lock lock(context->error_mutex);
+        if (context->last_error == "MotionPhoto_Data entry not found in SEF.") {
+            context->last_error.clear();
+            return 0;
+        }
+    }
+    return -1;
 }
 
 static bool check_samsung_sef_heic(
@@ -626,7 +837,7 @@ static bool check_samsung_sef_heic(
 }
 
 static bool check_vivo_x300(
-    const std::vector<xmp_element>& elements,
+    const std::vector<xmp_node>& nodes,
     uint64_t file_size,
     uint64_t& out_primary_len,
     uint64_t& out_gm_offset,
@@ -634,69 +845,53 @@ static bool check_vivo_x300(
     uint64_t& out_video_offset,
     uint64_t& out_video_len)
 {
-    lpb_video_container video_container = LPB_VIDEO_CONTAINER_MP4;
-    if (has_protocol_attribute(elements, vivo_camera_namespace, "VMotionPhotoVersion") &&
-        find_motion_item(elements, out_video_len, video_container) != nullptr) {
-        // Resolve by semantic name, not merely by the last two positive
-        // lengths.  Auxiliary items may be inserted by camera firmware.
-        uint64_t motion_length = 0;
+    if (!has_attribute_name_in_nodes(nodes, vivo_camera_namespace, "VMotionPhotoVersion")) {
+        return false;
+    }
+
+    container_directory_info dir;
+    if (!find_container_directory(nodes, dir) || dir.items.empty()) {
+        return false;
+    }
+
+    uint64_t motion_length = 0;
     uint64_t gainmap_length = 0;
-    size_t item_index = 0;
     size_t motion_index = 0;
     size_t gainmap_index = 0;
     size_t primary_count = 0;
-        size_t gainmap_count = 0;
-        for (const auto& element : elements) {
-            if (!element_is(element, google_container_namespace, "Item")) continue;
-            if (get_attribute_string(element, google_item_namespace, "Semantic", "Primary")) ++primary_count;
-            uint64_t len = 0;
-            if (get_attribute_string(element, google_item_namespace, "Semantic", "GainMap")) {
-                ++gainmap_count;
-                if (!get_attribute_u64(element, google_item_namespace, "Length", len)) return false;
-                gainmap_length = len; gainmap_index = item_index;
-            } else if (get_attribute_string(element, google_item_namespace, "Semantic", "MotionPhoto")) {
-                if (!get_attribute_u64(element, google_item_namespace, "Length", len)) return false;
-                motion_length = len; motion_index = item_index;
-            }
-            ++item_index;
-        }
+    size_t gainmap_count = 0;
+    size_t motion_count = 0;
 
-        if (primary_count == 1 && gainmap_count == 1 && motion_length > 0 && gainmap_length > 0 &&
-            motion_index == item_index - 1 && gainmap_index + 1 == motion_index &&
-            gainmap_length <= file_size && motion_length <= file_size - gainmap_length &&
-            gainmap_length + motion_length < file_size) {
-                out_video_len = motion_length;
-                out_video_offset = file_size - motion_length;
-                out_gm_len = gainmap_length;
-                out_gm_offset = out_video_offset - gainmap_length;
-                out_primary_len = out_gm_offset;
-                return true;
+    for (size_t i = 0; i < dir.items.size(); ++i) {
+        const auto& item = dir.items[i];
+        if (item.semantic == "Primary") {
+            ++primary_count;
+        } else if (item.semantic == "GainMap") {
+            ++gainmap_count;
+            if (!item.has_length || item.length == 0) return false;
+            gainmap_length = item.length;
+            gainmap_index = i;
+        } else if (item.semantic == "MotionPhoto") {
+            ++motion_count;
+            if (!item.has_length || item.length == 0) return false;
+            motion_length = item.length;
+            motion_index = i;
         }
     }
-    return false;
-}
 
-static bool has_apple_live_makernote_tag(const uint8_t* data, size_t size) {
-    if (size < 30) return false;
-    const uint8_t sig[] = {'A','p','p','l','e',' ','i','O','S','\0'};
-    for (size_t i = 0; i <= size - 16; i++) {
-        if (data[i] == 'A' && data[i+1] == 'p' && std::memcmp(data + i, sig, 10) == 0 &&
-            data[i+10] == 0x00 && data[i+11] == 0x01 && data[i+12] == 'M' && data[i+13] == 'M') {
-            size_t mnStart = i;
-            if (mnStart + 16 > size) return false;
-            uint16_t entry_count = (static_cast<uint16_t>(data[mnStart + 14]) << 8) | data[mnStart + 15];
-            if (entry_count == 0 || entry_count > 64) continue;
-            size_t entriesStart = mnStart + 16;
-            for (uint16_t j = 0; j < entry_count; j++) {
-                size_t e = entriesStart + j * 12;
-                if (e + 2 > size) break;
-                uint16_t tag = (static_cast<uint16_t>(data[e]) << 8) | data[e + 1];
-                if (tag == 0x0011 || tag == 0x0017 || tag == 0x0025 || tag == 0x002b) {
-                    return true;
-                }
-            }
-        }
+    if (primary_count == 1 && gainmap_count == 1 && motion_count == 1 &&
+        motion_length > 0 && gainmap_length > 0 &&
+        motion_index == dir.items.size() - 1 && gainmap_index + 1 == motion_index &&
+        gainmap_length <= file_size && motion_length <= file_size - gainmap_length &&
+        gainmap_length + motion_length < file_size) {
+        out_video_len = motion_length;
+        out_video_offset = file_size - motion_length;
+        out_gm_len = gainmap_length;
+        out_gm_offset = out_video_offset - gainmap_length;
+        out_primary_len = out_gm_offset;
+        return true;
     }
+
     return false;
 }
 
@@ -709,9 +904,11 @@ static bool looks_like_uuid(std::string_view value) noexcept {
     return true;
 }
 
-static bool extract_apple_cid_from_makernote(const uint8_t* data, size_t start, size_t end, std::string& out) {
+static bool extract_apple_cid_from_makernote(const uint8_t* data, size_t start, size_t end, std::string& out, bool& out_has_conflict) {
+    out_has_conflict = false;
     if (!data || start > end || end - start < 30) return false;
     const char signature[] = "Apple iOS\0";
+    std::string found_cid;
     for (size_t p = start; p + 16 <= end; ++p) {
         if (std::memcmp(data + p, signature, 10) != 0 || data[p + 10] != 0 || data[p + 11] != 1 ||
             data[p + 12] != 'M' || data[p + 13] != 'M') continue;
@@ -728,14 +925,25 @@ static bool extract_apple_cid_from_makernote(const uint8_t* data, size_t start, 
             if (length == 0 || relative > note_end - p || length > note_end - p - relative) continue;
             std::string_view id(reinterpret_cast<const char*>(data + p + relative), length);
             if (!id.empty() && id.back() == '\0') id.remove_suffix(1);
-            if (looks_like_uuid(id)) { out.assign(id); return true; }
+            if (looks_like_uuid(id)) {
+                if (!found_cid.empty() && found_cid != id) {
+                    out_has_conflict = true;
+                    return false;
+                }
+                found_cid.assign(id);
+            }
         }
+    }
+    if (!found_cid.empty()) {
+        out = found_cid;
+        return true;
     }
     return false;
 }
 
 static bool extract_apple_cid_from_image(lpb_context* context, const std::vector<uint8_t>& data,
-    lpb_image_container container, std::string& out) {
+    lpb_image_container container, std::string& out, bool& out_has_conflict) {
+    out_has_conflict = false;
     if (container == LPB_IMAGE_CONTAINER_JPEG && data.size() >= 2 && data[0] == 0xFF && data[1] == 0xD8) {
         size_t p = 2;
         while (p + 2 <= data.size()) {
@@ -750,8 +958,12 @@ static bool extract_apple_cid_from_image(lpb_context* context, const std::vector
             if (segment_length < 2 || segment_length - 2 > data.size() - (p + 2)) return false;
             const size_t payload = p + 2;
             const size_t payload_size = segment_length - 2;
-            if (marker == 0xE1 && payload_size >= 6 && std::memcmp(data.data() + payload, "Exif\0\0", 6) == 0 &&
-                extract_apple_cid_from_makernote(data.data(), payload + 6, payload + payload_size, out)) return true;
+            if (marker == 0xE1 && payload_size >= 6 && std::memcmp(data.data() + payload, "Exif\0\0", 6) == 0) {
+                if (extract_apple_cid_from_makernote(data.data(), payload + 6, payload + payload_size, out, out_has_conflict)) {
+                    return true;
+                }
+                if (out_has_conflict) return false;
+            }
             p = payload + payload_size;
         }
         return false;
@@ -761,7 +973,7 @@ static bool extract_apple_cid_from_image(lpb_context* context, const std::vector
         if (lpb_heif_locate_exif_item(context, data.data(), data.size(), &offset, &length) != LPB_RESULT_OK ||
             offset > data.size() || length > data.size() - static_cast<size_t>(offset)) return false;
         return extract_apple_cid_from_makernote(data.data(), static_cast<size_t>(offset),
-            static_cast<size_t>(offset + length), out);
+            static_cast<size_t>(offset + length), out, out_has_conflict);
     }
     return false;
 }
@@ -819,10 +1031,6 @@ static bool extract_apple_cid_from_video(lpb_context* context, const std::vector
     if (moov.size == 0) { set_error(context, "Apple MOV moov box was not found."); return false; }
     const size_t moov_end = moov_start + moov.size;
 
-    // Apple stores the key names in `keys` and their values in indexed `ilst`
-    // entries. Resolve the key index and then read only the corresponding
-    // bounded `data` box; a text hit in mdat or another metadata value is not
-    // sufficient evidence of pairing.
     size_t meta_start = 0;
     isobmff_box_header meta{};
     p = moov_start + moov.header_size;
@@ -874,6 +1082,7 @@ static bool extract_apple_cid_from_video(lpb_context* context, const std::vector
     p = ilst_start + ilst.header_size;
     const size_t ilst_end = ilst_start + ilst.size;
     uint32_t item_count_seen = 0;
+    std::string found_id;
     while (p < ilst_end) {
         isobmff_box_header item{};
         if (!try_read_box_header(data.data(), p, ilst_end, item) || item.size < item.header_size + 8) { set_error(context, "Apple MOV ilst entry is malformed."); return false; }
@@ -890,10 +1099,17 @@ static bool extract_apple_cid_from_video(lpb_context* context, const std::vector
             std::string_view value(reinterpret_cast<const char*>(data.data() + value_start), value_end - value_start);
             while (!value.empty() && value.back() == '\0') value.remove_suffix(1);
             if (!looks_like_uuid(value)) { set_error(context, "Apple MOV content identifier value is not a UUID."); return false; }
-            out.assign(value);
-            return true;
+            if (!found_id.empty() && found_id != value) {
+                set_error(context, "Apple MOV contains conflicting content identifiers.");
+                return false;
+            }
+            found_id.assign(value);
         }
         p += item.size;
+    }
+    if (!found_id.empty()) {
+        out = found_id;
+        return true;
     }
     char diagnostic[160]{};
     snprintf(diagnostic, sizeof(diagnostic), "Apple MOV content identifier ilst value was not found (key=%u, items=%u).", content_key_index, item_count_seen);
@@ -901,54 +1117,31 @@ static bool extract_apple_cid_from_video(lpb_context* context, const std::vector
     return false;
 }
 
-static bool has_structural_box_type(
-    const std::vector<uint8_t>& data, size_t start, size_t end, const char* wanted) noexcept
-{
-    if (start > end || end > data.size()) return false;
-    size_t pos = start;
-    while (pos < end) {
+static bool is_valid_heic_container(const uint8_t* data, size_t size) noexcept {
+    if (!data || size < 12) return false;
+    size_t pos = 0;
+    bool saw_ftyp = false;
+    while (pos + 8 <= size) {
         isobmff_box_header box{};
-        if (!try_read_box_header(data.data(), pos, end, box)) return false;
-        const uint8_t* type = data.data() + pos + 4;
-        if (std::memcmp(type, wanted, 4) == 0) return true;
-
-        const bool is_container = std::memcmp(type, "moov", 4) == 0 ||
-            std::memcmp(type, "trak", 4) == 0 || std::memcmp(type, "mdia", 4) == 0 ||
-            std::memcmp(type, "minf", 4) == 0 || std::memcmp(type, "stbl", 4) == 0 ||
-            std::memcmp(type, "stsd", 4) == 0 || std::memcmp(type, "udta", 4) == 0 ||
-            std::memcmp(type, "meta", 4) == 0 || std::memcmp(type, "dinf", 4) == 0 ||
-            std::memcmp(type, "edts", 4) == 0;
-        if (is_container) {
-            size_t child_start = pos + box.header_size;
-            const size_t full_box_bytes = std::memcmp(type, "meta", 4) == 0 ? 4 :
-                (std::memcmp(type, "stsd", 4) == 0 ? 8 : 0);
-            if (box.size < box.header_size + full_box_bytes) return false;
-            child_start += full_box_bytes;
-            if (child_start < pos + box.size &&
-                has_structural_box_type(data, child_start, pos + box.size, wanted)) return true;
+        if (!try_read_box_header(data, pos, size, box)) return false;
+        if (pos == 0) {
+            if (std::memcmp(data + pos + 4, "ftyp", 4) != 0) return false;
+            saw_ftyp = true;
         }
         pos += box.size;
     }
-    return pos == end;
+    return pos == size && saw_ftyp;
 }
 
-static bool has_structural_apple_mebx(const std::vector<uint8_t>& data) noexcept
-{
+static bool is_valid_mov_container(const uint8_t* data, size_t size) noexcept {
+    if (!data || size < 8) return false;
     size_t pos = 0;
-    size_t moov_start = std::numeric_limits<size_t>::max();
-    size_t moov_end = 0;
-    while (pos < data.size()) {
+    while (pos + 8 <= size) {
         isobmff_box_header box{};
-        if (!try_read_box_header(data.data(), pos, data.size(), box)) return false;
-        if (std::memcmp(data.data() + pos + 4, "moov", 4) == 0) {
-            if (moov_start != std::numeric_limits<size_t>::max()) return false;
-            moov_start = pos;
-            moov_end = pos + box.size;
-        }
+        if (!try_read_box_header(data, pos, size, box)) return false;
         pos += box.size;
     }
-    return pos == data.size() && moov_start != std::numeric_limits<size_t>::max() &&
-        has_structural_box_type(data, moov_start + 8, moov_end, "mebx");
+    return pos == size;
 }
 
 lpb_result inspect_source(
@@ -991,15 +1184,64 @@ lpb_result inspect_source(
     if (secondary_path && std::strlen(secondary_path) > 0) {
         auto sec_data = read_file_bytes(secondary_path);
         uint64_t secondary_size = sec_data.size();
+        if (secondary_size == 0) {
+            set_error(context, "Secondary file is empty or does not exist.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         lpb_video_container sec_vid_cont = detect_video_container(sec_data);
+        if (sec_vid_cont == LPB_VIDEO_CONTAINER_UNKNOWN) {
+            set_error(context, "Secondary file is not a supported video container.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
 
-        if (sec_vid_cont != LPB_VIDEO_CONTAINER_UNKNOWN && secondary_size > 0) {
-            std::string vivo_image_id;
-            std::string vivo_video_id;
+        // 1. Check Apple Live Photo Dual-File
+        std::string image_content_id;
+        std::string video_content_id;
+        bool image_has_conflict = false;
+        const bool image_id_ok = extract_apple_cid_from_image(context, primary_data, img_cont, image_content_id, image_has_conflict);
+        if (image_has_conflict) {
+            set_error(context, "Apple image contains conflicting ContentIdentifiers in MakerNote.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        const bool video_id_ok = extract_apple_cid_from_video(context, sec_data, video_content_id);
+
+        if (image_id_ok && video_id_ok) {
+            if (image_content_id == video_content_id) {
+                out_facts->protocol = LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO;
+                out_facts->motion_video.is_present = 1;
+                out_facts->motion_video.container = sec_vid_cont;
+                out_facts->motion_video.file_range.offset = 0;
+                out_facts->motion_video.file_range.length = secondary_size;
+                strncpy_s(out_facts->pairing_identifier, image_content_id.c_str(), _TRUNCATE);
+                return LPB_RESULT_OK;
+            } else {
+                set_error(context, "Apple Live Photo dual-file pairing identifier mismatch.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+        }
+        if (image_id_ok && !video_id_ok) {
+            set_error(context, "Apple Live Photo dual-file pairing mismatch: missing ContentIdentifier on secondary video.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if (!image_id_ok && video_id_ok) {
+            set_error(context, "Apple Live Photo dual-file pairing mismatch: missing ContentIdentifier on primary image.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+
+        // 2. Check Vivo Legacy Dual-File
+        std::string vivo_image_id;
+        std::string vivo_video_id;
+        const bool vivo_img_ok = has_jpeg_end && extract_vivo_id_from_image(primary_data, jpeg_end, vivo_image_id);
+        const bool vivo_vid_ok = extract_vivo_id_from_video(sec_data, vivo_video_id);
+
+        if (vivo_img_ok && vivo_vid_ok) {
             const bool secondary_structurally_valid = sec_vid_cont != LPB_VIDEO_CONTAINER_MP4 ||
                 is_valid_isobmff_media_range(sec_data.data(), sec_data.size(), 0, sec_data.size());
-            if (secondary_structurally_valid && has_jpeg_end && extract_vivo_id_from_image(primary_data, jpeg_end, vivo_image_id) &&
-                extract_vivo_id_from_video(sec_data, vivo_video_id) && vivo_image_id == vivo_video_id) {
+            if (!secondary_structurally_valid) {
+                set_error(context, "Vivo legacy secondary video is not a valid ISO-BMFF container.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (vivo_image_id == vivo_video_id) {
                 out_facts->protocol = LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL;
                 out_facts->motion_video.is_present = 1;
                 out_facts->motion_video.container = sec_vid_cont;
@@ -1010,238 +1252,411 @@ lpb_result inspect_source(
                     out_facts->protocol_tail_range.offset = jpeg_end;
                     out_facts->protocol_tail_range.length = primary_size - jpeg_end;
                 }
-                // Pairing has already validated the complete secondary box
-                // range and matched both IDs. Do not make recognition depend
-                // on the optional deep stream probe (vendor vivo MOV/MP4
-                // metadata can be valid but outside the probe's scope).
                 strncpy_s(out_facts->pairing_identifier, vivo_image_id.c_str(), _TRUNCATE);
                 return LPB_RESULT_OK;
-            }
-
-            std::string image_content_id;
-            std::string video_content_id;
-            const bool image_id_ok = extract_apple_cid_from_image(context, primary_data, img_cont, image_content_id);
-            const bool video_id_ok = extract_apple_cid_from_video(context, sec_data, video_content_id);
-            const bool same_named_legacy_candidate = !image_id_ok && !video_id_ok &&
-                fs::path(primary_path).stem() == fs::path(secondary_path).stem() &&
-                has_apple_live_makernote_tag(primary_data.data(), primary_data.size()) &&
-                has_structural_apple_mebx(sec_data);
-            if ((image_id_ok && video_id_ok && image_content_id == video_content_id) || same_named_legacy_candidate) {
-                out_facts->protocol = LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO;
-                out_facts->motion_video.is_present = 1;
-                out_facts->motion_video.container = sec_vid_cont;
-                out_facts->motion_video.file_range.offset = 0;
-                out_facts->motion_video.file_range.length = secondary_size;
-                // Apple pairing is established from the bounded ContentIdentifier
-                // metadata above; stream details are populated by the caller when
-                // needed and are not part of pairing validation.
-                if (image_id_ok && video_id_ok) strncpy_s(out_facts->pairing_identifier, image_content_id.c_str(), _TRUNCATE);
-                return LPB_RESULT_OK;
-            }
-        }
-    }
-
-    // Single file checks
-    std::string xmp = extract_xmp_string(context, primary_data, img_cont);
-    std::vector<xmp_element> xmp_elements;
-    if (!xmp.empty() && !scan_xmp_elements(xmp, xmp_elements)) {
-        xmp_elements.clear();
-    }
-
-    // 1. Check vivo X300+ 3-item container
-    uint64_t pri_len = 0, gm_off = 0, gm_len = 0, vid_off = 0, vid_len = 0;
-    if (!xmp_elements.empty() && check_vivo_x300(xmp_elements, primary_size, pri_len, gm_off, gm_len, vid_off, vid_len) &&
-        is_valid_isobmff_media_range(primary_data.data(), primary_data.size(), vid_off, vid_len) &&
-        gm_off <= primary_data.size() && gm_len <= primary_data.size() - static_cast<size_t>(gm_off) &&
-        gm_len >= 2 && primary_data[static_cast<size_t>(gm_off)] == 0xFF &&
-        primary_data[static_cast<size_t>(gm_off) + 1] == 0xD8) {
-        out_facts->protocol = LPB_SOURCE_PROTOCOL_VIVO_X300;
-        out_facts->primary_image.file_range.offset = 0;
-        out_facts->primary_image.file_range.length = gm_off > 0 ? gm_off : (has_jpeg_end ? jpeg_end : primary_size);
-
-        out_facts->gain_map.is_present = 1;
-        out_facts->gain_map.container = LPB_IMAGE_CONTAINER_JPEG;
-        out_facts->gain_map.file_range.offset = gm_off;
-        out_facts->gain_map.file_range.length = gm_len;
-
-        out_facts->motion_video.is_present = 1;
-        out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
-        out_facts->motion_video.file_range.offset = vid_off;
-        out_facts->motion_video.file_range.length = vid_len;
-        return LPB_RESULT_OK;
-    }
-
-    // 2. Check Samsung JPEG (SEF Trailer)
-    if (img_cont == LPB_IMAGE_CONTAINER_JPEG && check_samsung_sef_jpeg(context, primary_data, vid_off, vid_len)) {
-        out_facts->protocol = LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG;
-        out_facts->primary_image.file_range.offset = 0;
-        // Samsung's SEF directory and payload are part of the inspected
-        // source artifact.  The SEF cleaner needs the complete JPEG trailer
-        // to validate and rebuild it; do not pre-truncate it in extraction.
-        out_facts->primary_image.file_range.length = primary_size;
-
-        out_facts->motion_video.is_present = 1;
-        out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
-        out_facts->motion_video.file_range.offset = vid_off;
-        out_facts->motion_video.file_range.length = vid_len;
-        return LPB_RESULT_OK;
-    }
-
-    // 3. Check Samsung HEIC (mpvd box)
-    if (img_cont == LPB_IMAGE_CONTAINER_HEIC && check_samsung_sef_heic(primary_data, vid_off, vid_len)) {
-        out_facts->protocol = LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC;
-        out_facts->primary_image.file_range.offset = 0;
-        // mpvd is an ISOBMFF box in the HEIF source.  Keep the complete
-        // container for the structural HEIF cleaner; a byte-range cut would
-        // make the remaining meta/item references unverifiable.
-        out_facts->primary_image.file_range.length = primary_size;
-
-        out_facts->motion_video.is_present = 1;
-        out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
-        out_facts->motion_video.file_range.offset = vid_off;
-        out_facts->motion_video.file_range.length = vid_len;
-        return LPB_RESULT_OK;
-    }
-
-    // 4. Check Huawei / Honor Moving Photo
-    int64_t cover_time_us = 0;
-    bool is_honor = false;
-    if (check_huawei_moving_photo(primary_data, primary_size, vid_off, vid_len, cover_time_us, is_honor)) {
-        out_facts->protocol = is_honor ? LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO : LPB_SOURCE_PROTOCOL_HUAWEI_MOVING_PHOTO;
-        out_facts->primary_image.file_range.offset = 0;
-        // Huawei/Honor stores [image][MP4][60-byte LIVE trailer].  The image
-        // range is therefore the validated start of the embedded MP4.
-        out_facts->primary_image.file_range.length = vid_off;
-        out_facts->motion_video.is_present = 1;
-        out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
-        out_facts->motion_video.file_range.offset = vid_off;
-        out_facts->motion_video.file_range.length = vid_len;
-        const uint64_t video_end = vid_off + vid_len;
-        if (video_end < primary_size) {
-            out_facts->protocol_tail_range.offset = video_end;
-            out_facts->protocol_tail_range.length = primary_size - video_end;
-        }
-        out_facts->timing.cover_timestamp_us = cover_time_us;
-        return LPB_RESULT_OK;
-    }
-
-    // 5. Check OPPO / OnePlus O-Live (XMP OpCamera:VideoLength)
-    uint64_t op_vid_len = 0;
-    if (!xmp_elements.empty() &&
-        get_first_attribute_u64(xmp_elements, oppo_camera_namespace, "VideoLength", op_vid_len) && op_vid_len > 0) {
-        // OPPO's VideoLength describes the trailing video range directly;
-        // unlike Google/Vivo it does not require a Container:Directory item.
-        const uint64_t item_len = op_vid_len;
-        uint64_t video_offset = item_len <= primary_size ? primary_size - item_len : 0;
-        if (item_len > primary_size || !is_valid_isobmff_media_range(
-                primary_data.data(), primary_data.size(), video_offset, item_len)) {
-            // OPPO files may append a private trailer after the MP4 while
-            // VideoLength still describes only the complete MP4. Resolve the
-            // real ftyp boundary by structural validation, never by a bare
-            // string hit or by accepting a mid-box offset.
-            video_offset = 0;
-            bool found = false;
-            const uint64_t latest_start = item_len <= primary_size ? primary_size - item_len : 0;
-            for (size_t candidate = 0; item_len <= primary_size && candidate + 8 <= primary_data.size() &&
-                static_cast<uint64_t>(candidate) <= latest_start; ++candidate) {
-                if (primary_data[candidate + 4] != 'f' || primary_data[candidate + 5] != 't' ||
-                    primary_data[candidate + 6] != 'y' || primary_data[candidate + 7] != 'p') continue;
-                if (is_valid_isobmff_media_range(primary_data.data(), primary_data.size(), candidate, item_len)) {
-                    video_offset = candidate;
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) {
-                set_error(context, "OPPO video range does not contain a structurally valid ISO-BMFF video.");
+            } else {
+                set_error(context, "Vivo legacy dual-file pairing identifier mismatch.");
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
         }
-
-        out_facts->protocol = LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO;
-        out_facts->motion_video.is_present = 1;
-        out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
-        if (item_len == 0 || item_len > primary_size || op_vid_len > item_len) {
-            set_error(context, "OPPO protocol item length is outside the source file.");
+        if (vivo_img_ok && !vivo_vid_ok) {
+            set_error(context, "Vivo legacy dual-file pairing mismatch: missing pairing identifier on secondary video.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
-        out_facts->motion_video.file_range.offset = video_offset;
-        out_facts->motion_video.file_range.length = op_vid_len;
+        if (!vivo_img_ok && vivo_vid_ok) {
+            set_error(context, "Vivo legacy dual-file pairing mismatch: missing pairing identifier on primary image.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+
+        // If neither file contains Apple or Vivo pairing identity,
+        // and both containers are structurally valid, this is a non-live pair.
+        if (!image_id_ok && !video_id_ok && !vivo_img_ok && !vivo_vid_ok) {
+            if (img_cont == LPB_IMAGE_CONTAINER_JPEG && !has_jpeg_end) {
+                set_error(context, "Primary image is a malformed or truncated JPEG.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (img_cont == LPB_IMAGE_CONTAINER_HEIC && !is_valid_heic_container(primary_data.data(), primary_data.size())) {
+                set_error(context, "Primary image is a malformed HEIC container.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (sec_vid_cont == LPB_VIDEO_CONTAINER_MP4 && !is_valid_isobmff_media_range(sec_data.data(), sec_data.size(), 0, sec_data.size())) {
+                set_error(context, "Secondary video is a malformed MP4 video.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (sec_vid_cont == LPB_VIDEO_CONTAINER_MOV && !is_valid_mov_container(sec_data.data(), sec_data.size())) {
+                set_error(context, "Secondary video is a malformed MOV video.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
+            out_facts->protocol = LPB_SOURCE_PROTOCOL_NON_LIVE;
+            out_facts->primary_image.is_present = 1;
+            out_facts->primary_image.file_range.offset = 0;
+            out_facts->primary_image.file_range.length = primary_size;
+            out_facts->protocol_tail_range.offset = 0;
+            out_facts->protocol_tail_range.length = 0;
+            return LPB_RESULT_OK;
+        }
+
+        set_error(context, "Dual-file inputs do not form a recognized live photo pair.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    // Single file checks
+    // 1. Huawei / Honor Moving Photo (ends with LIVE_)
+    int64_t huawei_cover_time_us = 0;
+    bool is_honor = false;
+    uint64_t huawei_vid_off = 0, huawei_vid_len = 0;
+    if (check_huawei_moving_photo(primary_data, primary_size, huawei_vid_off, huawei_vid_len, huawei_cover_time_us, is_honor)) {
+        out_facts->protocol = is_honor ? LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO : LPB_SOURCE_PROTOCOL_HUAWEI_MOVING_PHOTO;
         out_facts->primary_image.file_range.offset = 0;
-        out_facts->primary_image.file_range.length = out_facts->motion_video.file_range.offset;
-        const uint64_t video_end = out_facts->motion_video.file_range.offset + op_vid_len;
+        out_facts->primary_image.file_range.length = huawei_vid_off;
+        out_facts->motion_video.is_present = 1;
+        out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
+        out_facts->motion_video.file_range.offset = huawei_vid_off;
+        out_facts->motion_video.file_range.length = huawei_vid_len;
+        const uint64_t video_end = huawei_vid_off + huawei_vid_len;
         if (video_end < primary_size) {
             out_facts->protocol_tail_range.offset = video_end;
             out_facts->protocol_tail_range.length = primary_size - video_end;
         }
+        out_facts->timing.cover_timestamp_us = huawei_cover_time_us;
         return LPB_RESULT_OK;
+    } else if (primary_data.size() >= 20 &&
+               std::memcmp(primary_data.data() + primary_data.size() - 20, "LIVE_", 5) == 0) {
+        set_error(context, "Huawei/Honor Moving Photo trailer is malformed or video range is corrupt.");
+        return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    // 6. Check Google Motion Photo V2 / Xiaomi (Container:Directory)
-    uint64_t mp_vid_len = 0;
-    lpb_video_container motion_video_container = LPB_VIDEO_CONTAINER_MP4;
-    if (!xmp_elements.empty() &&
-        has_attribute_value(xmp_elements, google_camera_namespace, "MotionPhoto", "1") &&
-        find_motion_item(xmp_elements, mp_vid_len, motion_video_container) != nullptr &&
-        mp_vid_len < primary_size &&
-        is_valid_isobmff_media_range(primary_data.data(), primary_data.size(), primary_size - mp_vid_len, mp_vid_len)) {
-        out_facts->protocol = LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2;
-        out_facts->motion_video.is_present = 1;
-        out_facts->motion_video.container = motion_video_container;
-        out_facts->motion_video.file_range.offset = primary_size - mp_vid_len;
-        out_facts->motion_video.file_range.length = mp_vid_len;
+    // 2. Samsung JPEG (SEFT Trailer)
+    if (img_cont == LPB_IMAGE_CONTAINER_JPEG && primary_data.size() >= 8 &&
+        std::memcmp(primary_data.data() + primary_data.size() - 4, "SEFT", 4) == 0) {
+        uint64_t sef_vid_off = 0, sef_vid_len = 0;
+        int sef_res = check_samsung_sef_jpeg(context, primary_data, sef_vid_off, sef_vid_len);
+        if (sef_res < 0) {
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if (sef_res > 0) {
+            out_facts->protocol = LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG;
+            out_facts->primary_image.file_range.offset = 0;
+            out_facts->primary_image.file_range.length = primary_size;
+            out_facts->motion_video.is_present = 1;
+            out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
+            out_facts->motion_video.file_range.offset = sef_vid_off;
+            out_facts->motion_video.file_range.length = sef_vid_len;
+            return LPB_RESULT_OK;
+        }
+    }
 
-        // GainMap is only accepted as a second, correctly namespaced item.
-        for (const auto& element : xmp_elements) {
-            uint64_t g_len = 0;
-            if (!element_is(element, google_container_namespace, "Item") ||
-                !get_attribute_string(element, google_item_namespace, "Semantic", "GainMap") ||
-                !get_attribute_u64(element, google_item_namespace, "Length", g_len) ||
-                g_len == 0 || g_len >= out_facts->motion_video.file_range.offset) continue;
+    // 3. Samsung HEIC (sefd box)
+    if (img_cont == LPB_IMAGE_CONTAINER_HEIC) {
+        bool has_sefd_box = false;
+        size_t bpos = 0;
+        while (bpos + 8 <= primary_data.size()) {
+            isobmff_box_header bh{};
+            if (!try_read_box_header(primary_data.data(), bpos, primary_data.size(), bh)) break;
+            if (std::memcmp(primary_data.data() + bpos + 4, "sefd", 4) == 0) {
+                has_sefd_box = true;
+                break;
+            }
+            bpos += bh.size;
+        }
+        if (has_sefd_box) {
+            uint64_t heic_vid_off = 0, heic_vid_len = 0;
+            if (!check_samsung_sef_heic(primary_data, heic_vid_off, heic_vid_len)) {
+                set_error(context, "Samsung HEIC sefd box or SEF directory is malformed.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            out_facts->protocol = LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC;
+            out_facts->primary_image.file_range.offset = 0;
+            out_facts->primary_image.file_range.length = primary_size;
+            out_facts->motion_video.is_present = 1;
+            out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
+            out_facts->motion_video.file_range.offset = heic_vid_off;
+            out_facts->motion_video.file_range.length = heic_vid_len;
+            return LPB_RESULT_OK;
+        }
+    }
+
+    // 4. XMP-based protocols
+    std::string xmp = extract_xmp_string(context, primary_data, img_cont);
+    std::vector<xmp_node> nodes;
+    bool xmp_parsed = false;
+    if (!xmp.empty()) {
+        xmp_parsed = scan_xmp_tree(xmp, nodes);
+        if (!xmp_parsed) {
+            if (xmp.find("MotionPhoto") != std::string::npos ||
+                xmp.find("VideoLength") != std::string::npos ||
+                xmp.find("MicroVideoOffset") != std::string::npos ||
+                xmp.find("VMotionPhotoVersion") != std::string::npos) {
+                set_error(context, "Source image contains malformed or unparseable Live Photo XMP.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+        }
+    }
+
+    if (xmp_parsed && !nodes.empty()) {
+        // Vivo X300+
+        if (has_attribute_name_in_nodes(nodes, vivo_camera_namespace, "VMotionPhotoVersion")) {
+            uint64_t pri_len = 0, gm_off = 0, gm_len = 0, vid_off = 0, vid_len = 0;
+            if (!check_vivo_x300(nodes, primary_size, pri_len, gm_off, gm_len, vid_off, vid_len)) {
+                set_error(context, "Vivo X300+ XMP contains invalid or missing container directory.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (!is_valid_jpeg_media_range(primary_data.data(), primary_data.size(), gm_off, gm_len)) {
+                set_error(context, "Vivo X300+ GainMap range is not a valid JPEG.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (!is_valid_isobmff_media_range(primary_data.data(), primary_data.size(), vid_off, vid_len)) {
+                set_error(context, "Vivo X300+ video range is not a valid ISO-BMFF MP4.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            out_facts->protocol = LPB_SOURCE_PROTOCOL_VIVO_X300;
+            out_facts->primary_image.file_range.offset = 0;
+            out_facts->primary_image.file_range.length = gm_off > 0 ? gm_off : (has_jpeg_end ? jpeg_end : primary_size);
             out_facts->gain_map.is_present = 1;
             out_facts->gain_map.container = LPB_IMAGE_CONTAINER_JPEG;
-            out_facts->gain_map.file_range.offset = out_facts->motion_video.file_range.offset - g_len;
-            out_facts->gain_map.file_range.length = g_len;
-            out_facts->primary_image.file_range.length = out_facts->gain_map.file_range.offset;
+            out_facts->gain_map.file_range.offset = gm_off;
+            out_facts->gain_map.file_range.length = gm_len;
+            out_facts->motion_video.is_present = 1;
+            out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
+            out_facts->motion_video.file_range.offset = vid_off;
+            out_facts->motion_video.file_range.length = vid_len;
             return LPB_RESULT_OK;
         }
 
-        out_facts->primary_image.file_range.offset = 0;
-        out_facts->primary_image.file_range.length = out_facts->motion_video.file_range.offset;
-        return LPB_RESULT_OK;
+        // OPPO / OnePlus Live Photo
+        if (has_attribute_name_in_nodes(nodes, oppo_camera_namespace, "VideoLength")) {
+            uint64_t op_vid_len = 0;
+            int op_res = get_global_attribute_u64(nodes, oppo_camera_namespace, "VideoLength", op_vid_len);
+            if (op_res <= 0 || op_vid_len == 0) {
+                set_error(context, "OPPO VideoLength attribute is missing, malformed, conflicting, or zero.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            container_directory_info dir;
+            uint64_t motion_item_len = 0;
+            if (find_container_directory(nodes, dir)) {
+                for (const auto& item : dir.items) {
+                    if (item.semantic == "MotionPhoto" && item.has_length) {
+                        motion_item_len = item.length;
+                        break;
+                    }
+                }
+            }
+            uint64_t video_offset = 0;
+            if (motion_item_len > 0) {
+                if (motion_item_len > primary_size || op_vid_len > motion_item_len) {
+                    set_error(context, "OPPO container directory MotionPhoto item length exceeds file size or is smaller than VideoLength.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                video_offset = primary_size - motion_item_len;
+            } else {
+                if (op_vid_len > primary_size) {
+                    set_error(context, "OPPO VideoLength exceeds file size.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                video_offset = primary_size - op_vid_len;
+            }
+            if (!is_valid_isobmff_media_range(primary_data.data(), primary_data.size(), video_offset, op_vid_len)) {
+                set_error(context, "OPPO video range is not a valid ISO-BMFF MP4.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            out_facts->protocol = LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO;
+            out_facts->motion_video.is_present = 1;
+            out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
+            out_facts->motion_video.file_range.offset = video_offset;
+            out_facts->motion_video.file_range.length = op_vid_len;
+            out_facts->primary_image.file_range.offset = 0;
+            out_facts->primary_image.file_range.length = video_offset;
+            const uint64_t video_end = video_offset + op_vid_len;
+            if (video_end < primary_size) {
+                out_facts->protocol_tail_range.offset = video_end;
+                out_facts->protocol_tail_range.length = primary_size - video_end;
+            }
+            return LPB_RESULT_OK;
+        }
+
+        // Google Motion Photo V2 / Xiaomi
+        std::string_view mp_val;
+        int mp_res = get_global_attribute_string(nodes, google_camera_namespace, "MotionPhoto", mp_val);
+        if (mp_res < 0) {
+            set_error(context, "Conflicting or malformed MotionPhoto attributes in XMP.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if (mp_res > 0 && mp_val == "1") {
+            container_directory_info dir;
+            if (!find_container_directory(nodes, dir) || dir.items.empty()) {
+                set_error(context, "Google Motion Photo V2 has MotionPhoto=1 but missing or malformed Container:Directory.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            const container_item_info* motion_item = nullptr;
+            const container_item_info* gainmap_item = nullptr;
+            for (const auto& item : dir.items) {
+                if (item.semantic == "MotionPhoto") {
+                    if (motion_item != nullptr) {
+                        set_error(context, "Google Motion Photo V2 has duplicate MotionPhoto items.");
+                        return LPB_RESULT_INVALID_ARGUMENT;
+                    }
+                    motion_item = &item;
+                } else if (item.semantic == "GainMap") {
+                    gainmap_item = &item;
+                }
+            }
+            if (!motion_item || !motion_item->has_length || motion_item->length == 0) {
+                set_error(context, "Google Motion Photo V2 missing MotionPhoto item or length.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            const uint64_t mp_vid_len = motion_item->length;
+            if (mp_vid_len >= primary_size) {
+                set_error(context, "Google Motion Photo V2 video length exceeds file size.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            const uint64_t vid_offset = primary_size - mp_vid_len;
+            if (!is_valid_isobmff_media_range(primary_data.data(), primary_data.size(), vid_offset, mp_vid_len)) {
+                set_error(context, "Google Motion Photo V2 video range is not a valid ISO-BMFF container.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
+            out_facts->protocol = LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2;
+            out_facts->motion_video.is_present = 1;
+            out_facts->motion_video.container = (motion_item->mime == "video/quicktime") ? LPB_VIDEO_CONTAINER_MOV : LPB_VIDEO_CONTAINER_MP4;
+            out_facts->motion_video.file_range.offset = vid_offset;
+            out_facts->motion_video.file_range.length = mp_vid_len;
+
+            if (gainmap_item && gainmap_item->has_length && gainmap_item->length > 0) {
+                const uint64_t gm_len = gainmap_item->length;
+                if (gm_len >= vid_offset) {
+                    set_error(context, "Google Motion Photo V2 GainMap length exceeds image offset.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                const uint64_t gm_offset = vid_offset - gm_len;
+                if (!is_valid_jpeg_media_range(primary_data.data(), primary_data.size(), gm_offset, gm_len)) {
+                    set_error(context, "Google Motion Photo V2 GainMap range is not a valid JPEG.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                out_facts->gain_map.is_present = 1;
+                out_facts->gain_map.container = LPB_IMAGE_CONTAINER_JPEG;
+                out_facts->gain_map.file_range.offset = gm_offset;
+                out_facts->gain_map.file_range.length = gm_len;
+                out_facts->primary_image.file_range.length = gm_offset;
+            } else {
+                out_facts->primary_image.file_range.length = vid_offset;
+            }
+
+            int64_t cover_time = 0;
+            if (get_global_attribute_i64(nodes, google_camera_namespace, "MotionPhotoPresentationTimestampUs", cover_time) > 0) {
+                out_facts->timing.cover_timestamp_us = cover_time;
+            }
+            return LPB_RESULT_OK;
+        }
+
+        // Google MicroVideo V1
+        uint64_t mv_offset = 0;
+        int mv_res = get_global_attribute_u64(nodes, google_camera_namespace, "MicroVideoOffset", mv_offset);
+        if (mv_res < 0) {
+            set_error(context, "Conflicting or malformed MicroVideoOffset attribute in XMP.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if (mv_res > 0) {
+            if (mv_offset == 0 || mv_offset >= primary_size) {
+                set_error(context, "Google MicroVideo V1 offset is zero or exceeds file size.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            const uint64_t vid_offset = primary_size - mv_offset;
+            if (!is_valid_isobmff_media_range(primary_data.data(), primary_data.size(), vid_offset, mv_offset)) {
+                set_error(context, "Google MicroVideo V1 video range is not a valid ISO-BMFF container.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            out_facts->protocol = LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1;
+            out_facts->motion_video.is_present = 1;
+            out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
+            out_facts->motion_video.file_range.offset = vid_offset;
+            out_facts->motion_video.file_range.length = mv_offset;
+            out_facts->primary_image.file_range.offset = 0;
+            out_facts->primary_image.file_range.length = vid_offset;
+            int64_t cover_time = 0;
+            if (get_global_attribute_i64(nodes, google_camera_namespace, "MicroVideoPresentationTimestampUs", cover_time) > 0) {
+                out_facts->timing.cover_timestamp_us = cover_time;
+            }
+            return LPB_RESULT_OK;
+        }
     }
 
-    // 7. Check Google MicroVideo V1 (GCamera:MicroVideoOffset)
-    uint64_t mv_offset = 0;
-    if (!xmp_elements.empty() &&
-        get_first_attribute_u64(xmp_elements, google_camera_namespace, "MicroVideoOffset", mv_offset) &&
-        mv_offset > 0 && mv_offset < primary_size &&
-        is_valid_isobmff_media_range(primary_data.data(), primary_data.size(), primary_size - mv_offset, mv_offset)) {
-        out_facts->protocol = LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1;
-        out_facts->motion_video.is_present = 1;
-        out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
-        out_facts->motion_video.file_range.offset = primary_size - mv_offset;
-        out_facts->motion_video.file_range.length = mv_offset;
-
-        out_facts->primary_image.file_range.offset = 0;
-        out_facts->primary_image.file_range.length = out_facts->motion_video.file_range.offset;
-        return LPB_RESULT_OK;
-    }
-
-    // 8. Non-Live Media fallback
-    out_facts->protocol = LPB_SOURCE_PROTOCOL_NON_LIVE;
+    // 5. Single-member Apple CID or Vivo ID check
     if (img_cont != LPB_IMAGE_CONTAINER_UNKNOWN) {
+        std::string apple_cid;
+        bool has_mn_conflict = false;
+        if (extract_apple_cid_from_image(context, primary_data, img_cont, apple_cid, has_mn_conflict)) {
+            strncpy_s(out_facts->pairing_identifier, apple_cid.c_str(), _TRUNCATE);
+        } else if (has_mn_conflict) {
+            set_error(context, "Apple image contains conflicting ContentIdentifiers in MakerNote.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+
+        std::string vivo_id;
+        if (has_jpeg_end && extract_vivo_id_from_image(primary_data, jpeg_end, vivo_id)) {
+            strncpy_s(out_facts->pairing_identifier, vivo_id.c_str(), _TRUNCATE);
+        }
+    } else if (vid_cont != LPB_VIDEO_CONTAINER_UNKNOWN) {
+        std::string apple_cid;
+        if (extract_apple_cid_from_video(context, primary_data, apple_cid)) {
+            strncpy_s(out_facts->pairing_identifier, apple_cid.c_str(), _TRUNCATE);
+        }
+        std::string vivo_id;
+        if (extract_vivo_id_from_video(primary_data, vivo_id)) {
+            strncpy_s(out_facts->pairing_identifier, vivo_id.c_str(), _TRUNCATE);
+        }
+    }
+
+    // 6. Non-Live validation
+    if (img_cont == LPB_IMAGE_CONTAINER_JPEG) {
+        if (!has_jpeg_end) {
+            set_error(context, "Primary file is a malformed or truncated JPEG.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        out_facts->protocol = LPB_SOURCE_PROTOCOL_NON_LIVE;
         out_facts->primary_image.is_present = 1;
         out_facts->primary_image.file_range.offset = 0;
         out_facts->primary_image.file_range.length = primary_size;
-    } else if (vid_cont != LPB_VIDEO_CONTAINER_UNKNOWN) {
+        out_facts->protocol_tail_range.offset = 0;
+        out_facts->protocol_tail_range.length = 0;
+        return LPB_RESULT_OK;
+    }
+
+    if (img_cont == LPB_IMAGE_CONTAINER_HEIC) {
+        if (!is_valid_heic_container(primary_data.data(), primary_data.size())) {
+            set_error(context, "Primary file is a malformed HEIC container.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        out_facts->protocol = LPB_SOURCE_PROTOCOL_NON_LIVE;
+        out_facts->primary_image.is_present = 1;
+        out_facts->primary_image.file_range.offset = 0;
+        out_facts->primary_image.file_range.length = primary_size;
+        return LPB_RESULT_OK;
+    }
+
+    if (vid_cont != LPB_VIDEO_CONTAINER_UNKNOWN) {
+        if (vid_cont == LPB_VIDEO_CONTAINER_MP4) {
+            if (!is_valid_isobmff_media_range(primary_data.data(), primary_data.size(), 0, primary_size)) {
+                set_error(context, "Primary file is a malformed MP4 video.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+        } else if (vid_cont == LPB_VIDEO_CONTAINER_MOV) {
+            if (!is_valid_mov_container(primary_data.data(), primary_data.size())) {
+                set_error(context, "Primary file is a malformed MOV video.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+        }
+        out_facts->protocol = LPB_SOURCE_PROTOCOL_NON_LIVE;
         out_facts->motion_video.is_present = 1;
         out_facts->motion_video.container = vid_cont;
         out_facts->motion_video.file_range.offset = 0;
         out_facts->motion_video.file_range.length = primary_size;
+        return LPB_RESULT_OK;
     }
 
-    return LPB_RESULT_OK;
+    set_error(context, "Primary file format is unrecognized or unsupported.");
+    out_facts->protocol = LPB_SOURCE_PROTOCOL_UNKNOWN;
+    return LPB_RESULT_INVALID_ARGUMENT;
 }
 
 } // namespace lpb::media

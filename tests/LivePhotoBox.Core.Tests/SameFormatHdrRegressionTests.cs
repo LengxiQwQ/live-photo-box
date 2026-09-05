@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 using Xunit;
+using LivePhotoBox.Core.Tests.Protocols;
 
 namespace LivePhotoBox.Core.Tests;
 
@@ -98,7 +99,7 @@ public sealed class SameFormatHdrRegressionTests
     {
         string outputDir = CreateTempDirectory();
         string source = Path.Combine(outputDir, "synthetic_v2.jpg");
-        byte[] sampleBytes = await File.ReadAllBytesAsync(ResolveSample("苹果-双文件.JPG"));
+        byte[] sampleBytes = SyntheticProtocolFixtures.CreateMinimalJpeg();
         byte[] videoBytes = await File.ReadAllBytesAsync(ResolveSample("vivo双文件.mp4"));
         string xmp =
             "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\">" +

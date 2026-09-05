@@ -23,6 +23,14 @@ internal static class SyntheticProtocolFixtures
         0xFF, 0xD9 // EOI
     ];
 
+    public static byte[] CreateMinimalJpeg()
+    {
+        using var ms = new MemoryStream();
+        ms.Write(MinimalJpegHeader);
+        ms.Write(MinimalJpegBody);
+        return ms.ToArray();
+    }
+
     public static byte[] CreateJpegWithApp1(byte[] app1Payload)
     {
         using var ms = new MemoryStream();

@@ -305,6 +305,182 @@ public sealed class SourceInspectorTests
         }
     }
 
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Inspect_AppleDualFileMismatch_ThrowsInvalidArgument()
+    {
+        string img = ResolveSample("苹果双文件.HEIC");
+        string mov = ResolveSample("苹果-双文件.MOV");
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(img, mov));
+        Assert.Contains("pairing identifier mismatch", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Inspect_AppleSingleHeic_PopulatesPairingIdentifierAndReportsNonLive()
+    {
+        string img = ResolveSample("苹果双文件.HEIC");
+        var inspector = new SourceInspector();
+        var facts = await inspector.InspectAsync(img);
+
+        Assert.Equal(SourceProtocol.NonLive, facts.Protocol);
+        Assert.NotNull(facts.PairingIdentifier);
+        Assert.Equal("0BCBD05C-F9F4-4D99-A40D-96D3C6CA8F9C", facts.PairingIdentifier);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Inspect_AppleSingleMov_PopulatesPairingIdentifierAndReportsNonLive()
+    {
+        string mov = ResolveSample("苹果双文件.MOV");
+        var inspector = new SourceInspector();
+        var facts = await inspector.InspectAsync(mov);
+
+        Assert.Equal(SourceProtocol.NonLive, facts.Protocol);
+        Assert.NotNull(facts.PairingIdentifier);
+        Assert.Equal("0BCBD05C-F9F4-4D99-A40D-96D3C6CA8F9C", facts.PairingIdentifier);
+    }
+
+    [Fact]
+    public async Task Inspect_MalformedXmp_UnclosedTag_ThrowsInvalidArgument()
+    {
+        using var ws = new LivePhotoBox.Media.Workspace.MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("malformed_xmp", ".jpg");
+        string badXmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\"><GCamera:MotionPhoto>1<unclosed></rdf:Description></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = SyntheticProtocolFixtures.CreateJpegWithXmp(badXmp);
+        await File.WriteAllBytesAsync(inputPath, jpeg);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("Live Photo XMP", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_ConflictingXmpAttributes_ThrowsInvalidArgument()
+    {
+        using var ws = new LivePhotoBox.Media.Workspace.MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("conflicting_xmp", ".jpg");
+        string confXmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" GCamera:MotionPhoto=\"1\"/><rdf:Description xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" GCamera:MotionPhoto=\"0\"/></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = SyntheticProtocolFixtures.CreateJpegWithXmp(confXmp);
+        await File.WriteAllBytesAsync(inputPath, jpeg);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("Conflicting or malformed MotionPhoto attributes", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Inspect_HuaweiCorruptedTrailer_ThrowsInvalidArgument()
+    {
+        string sample = ResolveSample("华为-Mate80.jpg");
+        byte[] bytes = await File.ReadAllBytesAsync(sample);
+        for (int i = bytes.Length - 15; i < bytes.Length; i++)
+        {
+            bytes[i] = (byte)'X';
+        }
+
+        using var ws = new LivePhotoBox.Media.Workspace.MediaWorkspace();
+        string corruptPath = ws.AllocateFilePath("huawei_corrupt", ".jpg");
+        await File.WriteAllBytesAsync(corruptPath, bytes);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(corruptPath));
+        Assert.Contains("Huawei/Honor Moving Photo trailer is malformed", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Inspect_SamsungCorruptedSef_ThrowsInvalidArgument()
+    {
+        string sample = ResolveSample("三星.jpg");
+        byte[] bytes = await File.ReadAllBytesAsync(sample);
+        bytes[^8] = 0xFF;
+        bytes[^7] = 0xFF;
+        bytes[^6] = 0xFF;
+        bytes[^5] = 0x7F;
+
+        using var ws = new LivePhotoBox.Media.Workspace.MediaWorkspace();
+        string corruptPath = ws.AllocateFilePath("samsung_corrupt", ".jpg");
+        await File.WriteAllBytesAsync(corruptPath, bytes);
+
+        var inspector = new SourceInspector();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(corruptPath));
+    }
+
+    [Fact]
+    public async Task Inspect_TruncatedJpeg_ThrowsInvalidArgument()
+    {
+        using var ws = new LivePhotoBox.Media.Workspace.MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("truncated", ".jpg");
+        await File.WriteAllBytesAsync(inputPath, [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46]);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("malformed or truncated JPEG", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Inspect_OnePlusVendorTail_IdentifiesOffsetAndTailRange()
+    {
+        string sample = ResolveSample("一加.jpg");
+        var inspector = new SourceInspector();
+        var facts = await inspector.InspectAsync(sample);
+
+        Assert.Equal(SourceProtocol.OppoLivePhoto, facts.Protocol);
+        Assert.NotNull(facts.MotionVideo);
+        Assert.True(facts.ProtocolTailLength > 0);
+        long fileSize = new FileInfo(sample).Length;
+        Assert.Equal(fileSize, facts.MotionVideo.ByteOffset + facts.MotionVideo.ByteLength + facts.ProtocolTailLength);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Inspect_All17RealSamples_NeverMutateSha()
+    {
+        string[] allSampleNames = [
+            "oppo.jpg",
+            "vivo.jpg",
+            "vivo双文件.jpg",
+            "vivo双文件.mp4",
+            "一加-改了封面照片.jpg",
+            "一加.jpg",
+            "三星.heic",
+            "三星.jpg",
+            "华为-Mate80.jpg",
+            "华为Mate80.heic",
+            "小米.jpg",
+            "红米老款-GV1.JPG",
+            "苹果-双文件.JPG",
+            "苹果-双文件.MOV",
+            "苹果双文件.HEIC",
+            "苹果双文件.MOV",
+            "荣耀.jpg"
+        ];
+
+        var inspector = new SourceInspector();
+        foreach (var name in allSampleNames)
+        {
+            string path = ResolveSample(name);
+            string shaBefore = await ComputeSha256Async(path);
+
+            try
+            {
+                await inspector.InspectAsync(path);
+            }
+            catch
+            {
+                // Single file inspect
+            }
+
+            string shaAfter = await ComputeSha256Async(path);
+            Assert.Equal(shaBefore, shaAfter);
+        }
+    }
+
     private static async Task<string> ComputeSha256Async(string filePath)
     {
         using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 64 * 1024, useAsync: true);
