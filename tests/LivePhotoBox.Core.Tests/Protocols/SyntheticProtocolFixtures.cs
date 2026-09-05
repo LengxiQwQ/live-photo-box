@@ -143,6 +143,89 @@ internal static class SyntheticProtocolFixtures
         fs.Write(dummyMp4);
     }
 
+    public static void CreateOppoWrongMotionMimeJpeg(string outputPath)
+    {
+        byte[] dummyMp4 = CreateMinimalMp4();
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:OpCamera=\"http://ns.oplus.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\" OpCamera:OLivePhotoVersion=\"2\" OpCamera:VideoLength=\"{dummyMp4.Length}\" OpCamera:MotionPhotoOwner=\"oplus\"><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"Primary\" Item:Length=\"0\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/avi\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" Item:Padding=\"0\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = CreateJpegWithXmp(xmp);
+
+        using var fs = File.Create(outputPath);
+        fs.Write(jpeg);
+        fs.Write(dummyMp4);
+    }
+
+    public static void CreateOppoWrongPrimaryMimeJpeg(string outputPath)
+    {
+        byte[] dummyMp4 = CreateMinimalMp4();
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:OpCamera=\"http://ns.oplus.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\" OpCamera:OLivePhotoVersion=\"2\" OpCamera:VideoLength=\"{dummyMp4.Length}\" OpCamera:MotionPhotoOwner=\"oplus\"><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/png\" Item:Semantic=\"Primary\" Item:Length=\"0\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" Item:Padding=\"0\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = CreateJpegWithXmp(xmp);
+
+        using var fs = File.Create(outputPath);
+        fs.Write(jpeg);
+        fs.Write(dummyMp4);
+    }
+
+    public static void CreateOppoWrongGainMapMimeJpeg(string outputPath)
+    {
+        byte[] dummyMp4 = CreateMinimalMp4();
+        byte[] dummyGainMap = [0xFF, 0xD8, 0xFF, 0xD9];
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:OpCamera=\"http://ns.oplus.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\" OpCamera:OLivePhotoVersion=\"2\" OpCamera:VideoLength=\"{dummyMp4.Length}\" OpCamera:MotionPhotoOwner=\"oplus\"><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"Primary\" Item:Length=\"0\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/png\" Item:Semantic=\"GainMap\" Item:Length=\"{dummyGainMap.Length}\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" Item:Padding=\"0\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = CreateJpegWithXmp(xmp);
+
+        using var fs = File.Create(outputPath);
+        fs.Write(jpeg);
+        fs.Write(dummyGainMap);
+        fs.Write(dummyMp4);
+    }
+
+    public static void CreateOppoGainMapMissingLengthJpeg(string outputPath)
+    {
+        byte[] dummyMp4 = CreateMinimalMp4();
+        byte[] dummyGainMap = [0xFF, 0xD8, 0xFF, 0xD9];
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:OpCamera=\"http://ns.oplus.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\" OpCamera:OLivePhotoVersion=\"2\" OpCamera:VideoLength=\"{dummyMp4.Length}\" OpCamera:MotionPhotoOwner=\"oplus\"><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"Primary\" Item:Length=\"0\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"GainMap\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" Item:Padding=\"0\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = CreateJpegWithXmp(xmp);
+
+        using var fs = File.Create(outputPath);
+        fs.Write(jpeg);
+        fs.Write(dummyGainMap);
+        fs.Write(dummyMp4);
+    }
+
+    public static void CreateOppoGainMapZeroLengthJpeg(string outputPath)
+    {
+        byte[] dummyMp4 = CreateMinimalMp4();
+        byte[] dummyGainMap = [0xFF, 0xD8, 0xFF, 0xD9];
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:OpCamera=\"http://ns.oplus.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\" OpCamera:OLivePhotoVersion=\"2\" OpCamera:VideoLength=\"{dummyMp4.Length}\" OpCamera:MotionPhotoOwner=\"oplus\"><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"Primary\" Item:Length=\"0\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"GainMap\" Item:Length=\"0\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" Item:Padding=\"0\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = CreateJpegWithXmp(xmp);
+
+        using var fs = File.Create(outputPath);
+        fs.Write(jpeg);
+        fs.Write(dummyGainMap);
+        fs.Write(dummyMp4);
+    }
+
+    public static void CreateOppoUnsupportedVersionJpeg(string outputPath)
+    {
+        byte[] dummyMp4 = CreateMinimalMp4();
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:OpCamera=\"http://ns.oplus.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\" OpCamera:OLivePhotoVersion=\"99\" OpCamera:VideoLength=\"{dummyMp4.Length}\" OpCamera:MotionPhotoOwner=\"oplus\"><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"Primary\" Item:Length=\"0\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" Item:Padding=\"0\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = CreateJpegWithXmp(xmp);
+
+        using var fs = File.Create(outputPath);
+        fs.Write(jpeg);
+        fs.Write(dummyMp4);
+    }
+
+    public static void CreateOppoConflictingVersionJpeg(string outputPath)
+    {
+        byte[] dummyMp4 = CreateMinimalMp4();
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:OpCamera=\"http://ns.oplus.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\" OpCamera:OLivePhotoVersion=\"1\" OpCamera:VideoLength=\"{dummyMp4.Length}\" OpCamera:MotionPhotoOwner=\"oplus\"><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"Primary\" Item:Length=\"0\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" Item:Padding=\"0\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description><rdf:Description rdf:about=\"\" xmlns:OpCamera=\"http://ns.oplus.com/photos/1.0/camera/\" OpCamera:OLivePhotoVersion=\"2\" /></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = CreateJpegWithXmp(xmp);
+
+        using var fs = File.Create(outputPath);
+        fs.Write(jpeg);
+        fs.Write(dummyMp4);
+    }
+
     public static void CreateGoogleV1JpegMissingMicroVideo(string outputPath)
     {
         byte[] dummyMp4 = CreateMinimalMp4();
@@ -269,7 +352,117 @@ internal static class SyntheticProtocolFixtures
         fs.Write(dummyMp4);
     }
 
+    public static void CreateGoogleV2JpegMissingPrimaryMime(string outputPath)
+    {
+        byte[] dummyMp4 = CreateMinimalMp4();
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\"><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Semantic=\"Primary\" Item:Length=\"0\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" Item:Padding=\"0\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = CreateJpegWithXmp(xmp);
+
+        using var fs = File.Create(outputPath);
+        fs.Write(jpeg);
+        fs.Write(dummyMp4);
+    }
+
+    public static void CreateGoogleV2JpegWrongPrimaryMime(string outputPath)
+    {
+        byte[] dummyMp4 = CreateMinimalMp4();
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\"><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/png\" Item:Semantic=\"Primary\" Item:Length=\"0\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" Item:Padding=\"0\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = CreateJpegWithXmp(xmp);
+
+        using var fs = File.Create(outputPath);
+        fs.Write(jpeg);
+        fs.Write(dummyMp4);
+    }
+
+    public static void CreateGoogleV2JpegNonzeroPadding(string outputPath)
+    {
+        byte[] dummyMp4 = CreateMinimalMp4();
+        byte[] padding = new byte[16];
+
+        string template = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\"><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"Primary\" Item:Length=\"{0:D6}\" Item:Padding=\"16\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"" + dummyMp4.Length + "\" Item:Padding=\"0\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+
+        byte[] pass1 = CreateJpegWithXmp(string.Format(template, 0));
+        byte[] jpeg = CreateJpegWithXmp(string.Format(template, pass1.Length));
+
+        using var fs = File.Create(outputPath);
+        fs.Write(jpeg);
+        fs.Write(padding);
+        fs.Write(dummyMp4);
+    }
+
+    public static void CreateGoogleV2JpegMalformedPadding(string outputPath)
+    {
+        byte[] dummyMp4 = CreateMinimalMp4();
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\"><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"Primary\" Item:Length=\"0\" Item:Padding=\"invalid_pad\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" Item:Padding=\"0\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = CreateJpegWithXmp(xmp);
+
+        using var fs = File.Create(outputPath);
+        fs.Write(jpeg);
+        fs.Write(dummyMp4);
+    }
+
+    public static void CreateGoogleV2HeicCandidate(string outputPath)
+    {
+        using var ms = new MemoryStream();
+        byte[] ftypPayload = Encoding.ASCII.GetBytes("mif1\0\0\0\0mif1heic");
+        WriteBox(ms, "ftyp", ftypPayload);
+
+        string xmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\"><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/heic\" Item:Semantic=\"Primary\" Item:Length=\"0\" Item:Padding=\"0\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+        byte[] xmpBytes = Encoding.UTF8.GetBytes(xmp);
+
+        using var infeMs = new MemoryStream();
+        WriteBe16(infeMs, 1);
+        WriteBe16(infeMs, 0);
+        infeMs.Write(Encoding.ASCII.GetBytes("mime"));
+        infeMs.WriteByte(0);
+        infeMs.Write(Encoding.ASCII.GetBytes("application/rdf+xml\0"));
+        byte[] infeBytes = BuildFullBox("infe", 2, 0, infeMs.ToArray());
+
+        using var iinfMs = new MemoryStream();
+        WriteBe16(iinfMs, 1);
+        iinfMs.Write(infeBytes);
+        byte[] iinfBytes = BuildFullBox("iinf", 0, 0, iinfMs.ToArray());
+
+        using var hdlrMs = new MemoryStream();
+        WriteBe32(hdlrMs, 0);
+        hdlrMs.Write(Encoding.ASCII.GetBytes("pict"));
+        hdlrMs.Write(new byte[12]);
+        hdlrMs.WriteByte(0);
+        byte[] hdlrBytes = BuildFullBox("hdlr", 0, 0, hdlrMs.ToArray());
+
+        byte[] ilocDummy = BuildIlocBox(0, (uint)xmpBytes.Length);
+        int metaBodyLen = hdlrBytes.Length + iinfBytes.Length + ilocDummy.Length;
+        int metaBoxLen = 12 + metaBodyLen;
+        uint xmpOffset = (uint)(ms.Length + metaBoxLen);
+
+        byte[] ilocReal = BuildIlocBox(xmpOffset, (uint)xmpBytes.Length);
+
+        using var metaInnerMs = new MemoryStream();
+        metaInnerMs.Write(hdlrBytes);
+        metaInnerMs.Write(iinfBytes);
+        metaInnerMs.Write(ilocReal);
+
+        byte[] metaBytes = BuildFullBox("meta", 0, 0, metaInnerMs.ToArray());
+        ms.Write(metaBytes);
+        ms.Write(xmpBytes);
+
+        File.WriteAllBytes(outputPath, ms.ToArray());
+    }
+
     public static void CreateVivoX300MissingVersionJpeg(string outputPath)
+    {
+        byte[] dummyGainMap = [0xFF, 0xD8, 0xFF, 0xD9];
+        byte[] dummyMp4 = CreateMinimalMp4();
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:VCamera=\"http://ns.vivo.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" VCamera:VMotionPhotoFlags=\"0\"><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"Primary\" Item:Length=\"0\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"GainMap\" Item:Length=\"{dummyGainMap.Length}\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" Item:Padding=\"0\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = CreateJpegWithXmp(xmp);
+
+        using var fs = File.Create(outputPath);
+        fs.Write(jpeg);
+        fs.Write(dummyGainMap);
+        fs.Write(dummyMp4);
+    }
+
+    public static void CreateVivoX300UnsupportedVersionJpeg(string outputPath)
     {
         byte[] dummyGainMap = [0xFF, 0xD8, 0xFF, 0xD9];
         byte[] dummyMp4 = CreateMinimalMp4();
@@ -694,5 +887,38 @@ internal static class SyntheticProtocolFixtures
         s.WriteByte((byte)((val >> 8) & 0xFF));
         s.WriteByte((byte)((val >> 16) & 0xFF));
         s.WriteByte((byte)(val >> 24));
+    }
+
+    private static void WriteFullBox(Stream s, string type, byte version, uint flags, byte[] payload)
+    {
+        uint size = (uint)(payload.Length + 12);
+        WriteBe32(s, size);
+        s.Write(Encoding.UTF8.GetBytes(type));
+        s.WriteByte(version);
+        s.WriteByte((byte)((flags >> 16) & 0xFF));
+        s.WriteByte((byte)((flags >> 8) & 0xFF));
+        s.WriteByte((byte)(flags & 0xFF));
+        s.Write(payload);
+    }
+
+    private static byte[] BuildFullBox(string type, byte version, uint flags, byte[] payload)
+    {
+        using var ms = new MemoryStream();
+        WriteFullBox(ms, type, version, flags, payload);
+        return ms.ToArray();
+    }
+
+    private static byte[] BuildIlocBox(uint offset, uint length)
+    {
+        using var ms = new MemoryStream();
+        ms.WriteByte(0x44); // offset_size = 4, length_size = 4
+        ms.WriteByte(0x00); // base_offset_size = 0, index_size = 0
+        WriteBe16(ms, 1);   // item_count = 1
+        WriteBe16(ms, 1);   // item_id = 1
+        WriteBe16(ms, 0);   // data_reference_index = 0
+        WriteBe16(ms, 1);   // extent_count = 1
+        WriteBe32(ms, offset);
+        WriteBe32(ms, length);
+        return BuildFullBox("iloc", 0, 0, ms.ToArray());
     }
 }

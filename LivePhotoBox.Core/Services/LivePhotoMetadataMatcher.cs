@@ -159,15 +159,30 @@ namespace LivePhotoBox.Services
                     && !string.IsNullOrWhiteSpace(vidCid)
                     && cidToImage.TryGetValue(vidCid, out var matchedImgPath))
                 {
-                    pairs.Add(new MetadataPair
+                    try
                     {
-                        ImagePath = matchedImgPath,
-                        VideoPath = vidPath,
-                        Source = MatchSource.ContentIdentifier
-                    });
-                    remainingImages.Remove(matchedImgPath);
-                    remainingVideos.Remove(vidPath);
-                    cidToImage.Remove(vidCid);
+                        SourceMediaFacts dualFacts = await inspector.InspectAsync(matchedImgPath, vidPath, token).ConfigureAwait(false);
+                        if (dualFacts.Protocol == SourceProtocol.AppleLivePhoto)
+                        {
+                            pairs.Add(new MetadataPair
+                            {
+                                ImagePath = matchedImgPath,
+                                VideoPath = vidPath,
+                                Source = MatchSource.ContentIdentifier
+                            });
+                            remainingImages.Remove(matchedImgPath);
+                            remainingVideos.Remove(vidPath);
+                            cidToImage.Remove(vidCid);
+                        }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        throw;
+                    }
+                    catch
+                    {
+                        // Candidate dual file did not validate as Apple Live Photo, skip pairing as ContentIdentifier
+                    }
                 }
             }
 
