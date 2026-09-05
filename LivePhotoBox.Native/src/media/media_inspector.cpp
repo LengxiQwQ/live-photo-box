@@ -1918,8 +1918,8 @@ lpb_result inspect_source(
                         return LPB_RESULT_INVALID_ARGUMENT;
                     }
                 } else {
-                    if (pri_len > next_resource_offset) {
-                        set_error(context, "Google Motion Photo V2 Primary JPEG boundary exceeds next resource offset.");
+                    if (pri_len != next_resource_offset) {
+                        set_error(context, "Google Motion Photo V2 contains undeclared bytes between Primary JPEG and next resource.");
                         return LPB_RESULT_INVALID_ARGUMENT;
                     }
                 }

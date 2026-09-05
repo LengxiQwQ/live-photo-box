@@ -832,6 +832,30 @@ public sealed class SourceInspectorTests
     }
 
     [Fact]
+    public async Task Inspect_GoogleV2_UndeclaredGapToMotionPhoto_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("googlev2_gap_mp", ".jpg");
+        SyntheticProtocolFixtures.CreateGoogleV2JpegUndeclaredGapToMotionPhoto(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("undeclared bytes", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Inspect_GoogleV2_UndeclaredGapToGainMap_ThrowsInvalidArgument()
+    {
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("googlev2_gap_gm", ".jpg");
+        SyntheticProtocolFixtures.CreateGoogleV2JpegUndeclaredGapToGainMap(inputPath);
+
+        var inspector = new SourceInspector();
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => inspector.InspectAsync(inputPath));
+        Assert.Contains("undeclared bytes", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Inspect_Oppo_WrongMotionMime_ThrowsInvalidArgument()
     {
         using var ws = new MediaWorkspace();
