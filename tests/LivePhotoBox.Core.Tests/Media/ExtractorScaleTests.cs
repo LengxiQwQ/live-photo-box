@@ -75,8 +75,7 @@ public sealed partial class ExtractorScaleTests
             // Mark file as sparse so NTFS doesn't actually allocate 4.5 GB of disk blocks
             if (!DeviceIoControl(fs.SafeFileHandle, FSCTL_SET_SPARSE, nint.Zero, 0, nint.Zero, 0, out _, nint.Zero))
             {
-                // If the volume doesn't support sparse files, skip
-                return;
+                throw Xunit.Sdk.SkipException.ForSkip("The current volume does not support NTFS sparse files.");
             }
 
             fs.SetLength(totalLogicalSize);
@@ -89,6 +88,9 @@ public sealed partial class ExtractorScaleTests
 
             await fs.FlushAsync();
         }
+
+        using var workspace = new MediaWorkspace();
+        string sparseSha = await workspace.ComputeFileSha256Async(sparsePath);
 
         var facts = new SourceMediaFacts
         {
@@ -107,10 +109,10 @@ public sealed partial class ExtractorScaleTests
                 ByteOffset = vidOffset,
                 ByteLength = vidLen,
                 SourceIndex = 0
-            }
+            },
+            PrimarySha256 = sparseSha
         };
 
-        using var workspace = new MediaWorkspace();
         var extractor = new SourceExtractor();
 
         var bundle = await extractor.ExtractAsync(facts, sparsePath, null, workspace);

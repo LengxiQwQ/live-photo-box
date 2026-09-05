@@ -87,7 +87,8 @@ public sealed class ExtractorExactnessTests
                 SourceIndex = 0
             },
             ProtocolTailOffset = 3072,
-            ProtocolTailLength = 1024
+            ProtocolTailLength = 1024,
+            PrimarySha256 = Convert.ToHexString(SHA256.HashData(sourceBytes))
         };
 
         using var workspace = new MediaWorkspace();
@@ -179,7 +180,8 @@ public sealed class ExtractorExactnessTests
                 ByteOffset = vidOffset,
                 ByteLength = vidLen,
                 SourceIndex = 0
-            }
+            },
+            PrimarySha256 = Convert.ToHexString(SHA256.HashData(sourceBytes))
         };
 
         using var workspace = new MediaWorkspace();
@@ -242,7 +244,8 @@ public sealed class ExtractorExactnessTests
                 ByteOffset = vidOffset,
                 ByteLength = vidLen,
                 SourceIndex = 0
-            }
+            },
+            PrimarySha256 = Convert.ToHexString(SHA256.HashData(data))
         };
 
         using var workspace = new MediaWorkspace();

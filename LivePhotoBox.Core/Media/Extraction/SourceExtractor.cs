@@ -125,34 +125,125 @@ public sealed class SourceExtractor : ISourceExtractor
             ValidateRange(facts.ProtocolTailOffset, facts.ProtocolTailLength, primaryFileLength, "protocol trailer", primaryPath, null);
         }
 
-        string beforePrimarySha = await workspace.ComputeFileSha256Async(primaryPath, cancellationToken).ConfigureAwait(false);
-        if (!string.IsNullOrWhiteSpace(facts.PrimarySha256))
+        if (string.IsNullOrWhiteSpace(facts.PrimarySha256))
         {
-            bool isAllZero = true;
-            for (int i = 0; i < facts.PrimarySha256.Length; i++)
+            throw new ExtractionException(
+                ExtractionFailureCategory.InvalidFacts,
+                "Primary source snapshot SHA-256 is required and cannot be empty.",
+                artifactKind: MediaArtifactKind.PrimaryImage,
+                sourcePath: primaryPath);
+        }
+
+        byte[] primShaBytes;
+        try
+        {
+            primShaBytes = Convert.FromHexString(facts.PrimarySha256.Trim());
+        }
+        catch (FormatException ex)
+        {
+            throw new ExtractionException(
+                ExtractionFailureCategory.InvalidFacts,
+                $"Primary source snapshot SHA-256 is malformed: '{facts.PrimarySha256}'.",
+                artifactKind: MediaArtifactKind.PrimaryImage,
+                sourcePath: primaryPath,
+                innerException: ex);
+        }
+
+        if (primShaBytes.Length != 32)
+        {
+            throw new ExtractionException(
+                ExtractionFailureCategory.InvalidFacts,
+                $"Primary source snapshot SHA-256 must be 32 bytes (64 hex characters), got {primShaBytes.Length} bytes.",
+                artifactKind: MediaArtifactKind.PrimaryImage,
+                sourcePath: primaryPath);
+        }
+
+        bool isAllZero = true;
+        for (int i = 0; i < 32; i++)
+        {
+            if (primShaBytes[i] != 0) { isAllZero = false; break; }
+        }
+        if (isAllZero)
+        {
+            throw new ExtractionException(
+                ExtractionFailureCategory.InvalidFacts,
+                "Primary source snapshot SHA-256 cannot be all zeroes.",
+                artifactKind: MediaArtifactKind.PrimaryImage,
+                sourcePath: primaryPath);
+        }
+
+        string beforePrimarySha = await workspace.ComputeFileSha256Async(primaryPath, cancellationToken).ConfigureAwait(false);
+        if (!string.Equals(facts.PrimarySha256.Trim(), beforePrimarySha, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ExtractionException(
+                ExtractionFailureCategory.SourceChanged,
+                $"Source media file '{primaryPath}' was modified after inspection: SHA-256 mismatch.",
+                sourcePath: primaryPath);
+        }
+
+        string? beforeSecondarySha = null;
+        if (videoSource == secondaryPath && secondaryPath != null)
+        {
+            if (string.IsNullOrWhiteSpace(facts.SecondarySha256))
             {
-                if (facts.PrimarySha256[i] != '0') { isAllZero = false; break; }
+                throw new ExtractionException(
+                    ExtractionFailureCategory.InvalidFacts,
+                    "Secondary source snapshot SHA-256 is required when motion video resides in secondary source.",
+                    artifactKind: MediaArtifactKind.MotionVideo,
+                    sourcePath: secondaryPath);
             }
-            if (!isAllZero && !string.Equals(facts.PrimarySha256.Trim(), beforePrimarySha, StringComparison.OrdinalIgnoreCase))
+
+            byte[] secShaBytes;
+            try
+            {
+                secShaBytes = Convert.FromHexString(facts.SecondarySha256.Trim());
+            }
+            catch (FormatException ex)
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.InvalidFacts,
+                    $"Secondary source snapshot SHA-256 is malformed: '{facts.SecondarySha256}'.",
+                    artifactKind: MediaArtifactKind.MotionVideo,
+                    sourcePath: secondaryPath,
+                    innerException: ex);
+            }
+
+            if (secShaBytes.Length != 32)
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.InvalidFacts,
+                    $"Secondary source snapshot SHA-256 must be 32 bytes (64 hex characters), got {secShaBytes.Length} bytes.",
+                    artifactKind: MediaArtifactKind.MotionVideo,
+                    sourcePath: secondaryPath);
+            }
+
+            bool secIsAllZero = true;
+            for (int i = 0; i < 32; i++)
+            {
+                if (secShaBytes[i] != 0) { secIsAllZero = false; break; }
+            }
+            if (secIsAllZero)
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.InvalidFacts,
+                    "Secondary source snapshot SHA-256 cannot be all zeroes.",
+                    artifactKind: MediaArtifactKind.MotionVideo,
+                    sourcePath: secondaryPath);
+            }
+
+            beforeSecondarySha = await workspace.ComputeFileSha256Async(secondaryPath, cancellationToken).ConfigureAwait(false);
+            if (!string.Equals(facts.SecondarySha256.Trim(), beforeSecondarySha, StringComparison.OrdinalIgnoreCase))
             {
                 throw new ExtractionException(
                     ExtractionFailureCategory.SourceChanged,
-                    $"Source media file '{primaryPath}' was modified after inspection: SHA-256 mismatch.",
-                    sourcePath: primaryPath);
+                    $"Secondary source file '{secondaryPath}' was modified after inspection: SHA-256 mismatch.",
+                    sourcePath: secondaryPath);
             }
         }
-
-        string? beforeSecondarySha = (secondaryPath != null && File.Exists(secondaryPath))
-            ? await workspace.ComputeFileSha256Async(secondaryPath, cancellationToken).ConfigureAwait(false)
-            : null;
-        if (!string.IsNullOrWhiteSpace(facts.SecondarySha256) && secondaryPath != null && beforeSecondarySha != null)
+        else if (!string.IsNullOrWhiteSpace(facts.SecondarySha256) && secondaryPath != null && File.Exists(secondaryPath))
         {
-            bool isAllZero = true;
-            for (int i = 0; i < facts.SecondarySha256.Length; i++)
-            {
-                if (facts.SecondarySha256[i] != '0') { isAllZero = false; break; }
-            }
-            if (!isAllZero && !string.Equals(facts.SecondarySha256.Trim(), beforeSecondarySha, StringComparison.OrdinalIgnoreCase))
+            beforeSecondarySha = await workspace.ComputeFileSha256Async(secondaryPath, cancellationToken).ConfigureAwait(false);
+            if (!string.Equals(facts.SecondarySha256.Trim(), beforeSecondarySha, StringComparison.OrdinalIgnoreCase))
             {
                 throw new ExtractionException(
                     ExtractionFailureCategory.SourceChanged,
@@ -270,7 +361,7 @@ public sealed class SourceExtractor : ISourceExtractor
             }
 
             var extractedFacts = new List<RemovedProtocolFact>();
-            if (facts.MotionVideo is { IsPresent: true } && secondaryPath == null)
+            if (facts.MotionVideo is { IsPresent: true, SourceIndex: 0 })
             {
                 extractedFacts.Add(new RemovedProtocolFact
                 {
@@ -310,12 +401,39 @@ public sealed class SourceExtractor : ISourceExtractor
                 ExtractedProtocolFacts = extractedFacts
             };
         }
-        catch
+        catch (Exception ex)
         {
-            // Operation-level rollback: clean up any allocated outputs on error
-            try { if (File.Exists(outputImagePath)) File.Delete(outputImagePath); } catch { }
-            if (outputVideoPath != null) { try { if (File.Exists(outputVideoPath)) File.Delete(outputVideoPath); } catch { } }
-            if (outputGainmapPath != null) { try { if (File.Exists(outputGainmapPath)) File.Delete(outputGainmapPath); } catch { } }
+            // If Native failed, Native already rolled back its staged/published outputs.
+            // If post-Native validation in C# failed, delete published outputs and surface CleanupFailed if deletion fails.
+            string? cleanupFailedFile = null;
+            Exception? cleanupError = null;
+
+            if (File.Exists(outputImagePath))
+            {
+                try { File.Delete(outputImagePath); }
+                catch (Exception delEx) { cleanupFailedFile ??= outputImagePath; cleanupError ??= delEx; }
+            }
+            if (outputVideoPath != null && File.Exists(outputVideoPath))
+            {
+                try { File.Delete(outputVideoPath); }
+                catch (Exception delEx) { cleanupFailedFile ??= outputVideoPath; cleanupError ??= delEx; }
+            }
+            if (outputGainmapPath != null && File.Exists(outputGainmapPath))
+            {
+                try { File.Delete(outputGainmapPath); }
+                catch (Exception delEx) { cleanupFailedFile ??= outputGainmapPath; cleanupError ??= delEx; }
+            }
+
+            if (cleanupFailedFile != null)
+            {
+                ExtractionFailureCategory origCat = (ex is ExtractionException ee) ? ee.Category : ExtractionFailureCategory.InternalError;
+                throw new ExtractionException(
+                    ExtractionFailureCategory.CleanupFailed,
+                    $"Post-extraction cleanup failed: unable to delete artifact '{cleanupFailedFile}'. Original error: {ex.Message}",
+                    innerException: cleanupError,
+                    originalCategory: origCat);
+            }
+
             throw;
         }
     }

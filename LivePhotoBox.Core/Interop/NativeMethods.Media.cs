@@ -1,3 +1,4 @@
+using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
@@ -77,13 +78,32 @@ internal static partial class NativeMethods
         ulong triggerAfterBytes,
         nint callback,
         nint userData);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_test_sha256_buffer")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static unsafe partial NativeResult TestSha256Buffer(
+        byte* data,
+        nuint length,
+        byte* outHash);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_test_sha256_file", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static unsafe partial NativeResult TestSha256File(
+        nint fileHandle,
+        byte* outHash);
 }
 
+[Flags]
 internal enum NativeExtractorFault
 {
     None = 0,
     DiskFull = 1,
     WriteFail = 2,
     PublishFail = 3,
-    ShortRead = 4
+    ShortRead = 4,
+    FlushDiskFull = 5,
+    FlushWriteFail = 6,
+    CleanupFail = 0x80
 }

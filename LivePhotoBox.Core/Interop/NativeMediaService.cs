@@ -309,37 +309,97 @@ public static class NativeMediaService
             }
         };
 
-        if (!string.IsNullOrWhiteSpace(facts.PrimarySha256))
+        if (string.IsNullOrWhiteSpace(facts.PrimarySha256))
         {
-            try
-            {
-                byte[] sha = Convert.FromHexString(facts.PrimarySha256.Trim());
-                if (sha.Length == 32)
-                {
-                    for (int i = 0; i < 32; i++)
-                    {
-                        native.PrimarySha256[i] = sha[i];
-                    }
-                }
-            }
-            catch (FormatException) { }
+            throw new LivePhotoBox.Media.Extraction.ExtractionException(
+                LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidFacts,
+                "Primary source snapshot SHA-256 is required and cannot be empty.");
+        }
+
+        byte[] primSha;
+        try
+        {
+            primSha = Convert.FromHexString(facts.PrimarySha256.Trim());
+        }
+        catch (FormatException ex)
+        {
+            throw new LivePhotoBox.Media.Extraction.ExtractionException(
+                LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidFacts,
+                $"Primary source snapshot SHA-256 is malformed: '{facts.PrimarySha256}'.",
+                innerException: ex);
+        }
+
+        if (primSha.Length != 32)
+        {
+            throw new LivePhotoBox.Media.Extraction.ExtractionException(
+                LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidFacts,
+                $"Primary source snapshot SHA-256 must be 32 bytes (64 hex characters), got {primSha.Length} bytes.");
+        }
+
+        bool primIsAllZero = true;
+        for (int i = 0; i < 32; i++)
+        {
+            if (primSha[i] != 0) { primIsAllZero = false; break; }
+        }
+        if (primIsAllZero)
+        {
+            throw new LivePhotoBox.Media.Extraction.ExtractionException(
+                LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidFacts,
+                "Primary source snapshot SHA-256 cannot be all zeroes.");
+        }
+
+        for (int i = 0; i < 32; i++)
+        {
+            native.PrimarySha256[i] = primSha[i];
+        }
+
+        bool requiresSecondary = facts.MotionVideo is { IsPresent: true, SourceIndex: 1 };
+        if (requiresSecondary && string.IsNullOrWhiteSpace(facts.SecondarySha256))
+        {
+            throw new LivePhotoBox.Media.Extraction.ExtractionException(
+                LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidFacts,
+                "Secondary source snapshot SHA-256 is required when motion video resides in secondary source.");
         }
 
         if (!string.IsNullOrWhiteSpace(facts.SecondarySha256))
         {
+            byte[] secSha;
             try
             {
-                byte[] sha = Convert.FromHexString(facts.SecondarySha256.Trim());
-                if (sha.Length == 32)
-                {
-                    native.HasSecondarySource = 1;
-                    for (int i = 0; i < 32; i++)
-                    {
-                        native.SecondarySha256[i] = sha[i];
-                    }
-                }
+                secSha = Convert.FromHexString(facts.SecondarySha256.Trim());
             }
-            catch (FormatException) { }
+            catch (FormatException ex)
+            {
+                throw new LivePhotoBox.Media.Extraction.ExtractionException(
+                    LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidFacts,
+                    $"Secondary source snapshot SHA-256 is malformed: '{facts.SecondarySha256}'.",
+                    innerException: ex);
+            }
+
+            if (secSha.Length != 32)
+            {
+                throw new LivePhotoBox.Media.Extraction.ExtractionException(
+                    LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidFacts,
+                    $"Secondary source snapshot SHA-256 must be 32 bytes (64 hex characters), got {secSha.Length} bytes.");
+            }
+
+            bool secIsAllZero = true;
+            for (int i = 0; i < 32; i++)
+            {
+                if (secSha[i] != 0) { secIsAllZero = false; break; }
+            }
+            if (secIsAllZero)
+            {
+                throw new LivePhotoBox.Media.Extraction.ExtractionException(
+                    LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidFacts,
+                    "Secondary source snapshot SHA-256 cannot be all zeroes.");
+            }
+
+            native.HasSecondarySource = 1;
+            for (int i = 0; i < 32; i++)
+            {
+                native.SecondarySha256[i] = secSha[i];
+            }
         }
 
         if (!string.IsNullOrEmpty(facts.PairingIdentifier))
@@ -353,6 +413,7 @@ public static class NativeMediaService
             native.PairingIdentifier[copyLen] = 0;
         }
 
+        native.MotionVideo.StructSize = checked((uint)sizeof(NativeVideoItemFacts));
         if (facts.MotionVideo != null)
         {
             native.MotionVideo = new NativeVideoItemFacts
@@ -376,6 +437,7 @@ public static class NativeMediaService
             };
         }
 
+        native.GainMap.StructSize = checked((uint)sizeof(NativeGainMapItemFacts));
         if (facts.GainMap != null)
         {
             native.GainMap = new NativeGainMapItemFacts

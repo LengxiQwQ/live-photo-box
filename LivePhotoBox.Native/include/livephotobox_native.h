@@ -464,7 +464,10 @@ typedef enum lpb_extractor_fault
     LPB_EXTRACTOR_FAULT_DISK_FULL = 1,
     LPB_EXTRACTOR_FAULT_WRITE_FAIL = 2,
     LPB_EXTRACTOR_FAULT_PUBLISH_FAIL = 3,
-    LPB_EXTRACTOR_FAULT_SHORT_READ = 4
+    LPB_EXTRACTOR_FAULT_SHORT_READ = 4,
+    LPB_EXTRACTOR_FAULT_FLUSH_DISK_FULL = 5,
+    LPB_EXTRACTOR_FAULT_FLUSH_WRITE_FAIL = 6,
+    LPB_EXTRACTOR_FAULT_CLEANUP_FAIL = 0x80
 } lpb_extractor_fault;
 
 typedef void(LPB_CALL* lpb_extractor_step_callback)(
@@ -480,6 +483,17 @@ LPB_API lpb_result LPB_CALL lpb_test_set_extractor_fault(
     uint64_t trigger_after_bytes,
     lpb_extractor_step_callback callback,
     void* user_data);
+
+/* Test-only helper to verify native SHA-256 implementation against standard test vectors */
+LPB_API lpb_result LPB_CALL lpb_test_sha256_buffer(
+    const uint8_t* data,
+    size_t length,
+    uint8_t out_hash[32]);
+
+/* Test-only helper to verify native SHA-256 streaming file hashing and error handling */
+LPB_API lpb_result LPB_CALL lpb_test_sha256_file(
+    void* file_handle,
+    uint8_t out_hash[32]);
 
 /*
  * Probes a video file natively (ISOBMFF box tree traversal: moov/trak/stsd/tkhd/stts/mvhd)
@@ -560,5 +574,16 @@ LPB_API lpb_result LPB_CALL lpb_clean_source_protocol(
 
 #ifdef __cplusplus
 }
+
+static_assert(sizeof(lpb_media_range) == 16, "lpb_media_range size mismatch");
+static_assert(sizeof(lpb_image_item_facts) == 40, "lpb_image_item_facts size mismatch");
+static_assert(sizeof(lpb_video_item_facts) == 80, "lpb_video_item_facts size mismatch");
+static_assert(sizeof(lpb_gainmap_item_facts) == 32, "lpb_gainmap_item_facts size mismatch");
+static_assert(sizeof(lpb_timing_facts) == 32, "lpb_timing_facts size mismatch");
+static_assert(sizeof(lpb_source_media_facts) == 408, "lpb_source_media_facts size mismatch");
+static_assert(offsetof(lpb_video_item_facts, source_index) == 72, "lpb_video_item_facts.source_index offset mismatch");
+static_assert(offsetof(lpb_source_media_facts, primary_sha256) == 336, "lpb_source_media_facts.primary_sha256 offset mismatch");
+static_assert(offsetof(lpb_source_media_facts, secondary_sha256) == 368, "lpb_source_media_facts.secondary_sha256 offset mismatch");
+static_assert(offsetof(lpb_source_media_facts, has_secondary_source) == 400, "lpb_source_media_facts.has_secondary_source offset mismatch");
 #endif
 #endif

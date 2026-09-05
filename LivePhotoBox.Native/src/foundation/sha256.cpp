@@ -176,7 +176,18 @@ bool sha256_file(HANDLE file_handle, uint8_t out_hash[32]) noexcept {
     std::vector<uint8_t> buffer(64 * 1024);
     DWORD bytes_read = 0;
 
-    while (ReadFile(file_handle, buffer.data(), static_cast<DWORD>(buffer.size()), &bytes_read, NULL) && bytes_read > 0) {
+    while (true) {
+        BOOL ok = ReadFile(file_handle, buffer.data(), static_cast<DWORD>(buffer.size()), &bytes_read, NULL);
+        if (!ok) {
+            DWORD err = GetLastError();
+            SetFilePointerEx(file_handle, orig_pos, NULL, FILE_BEGIN);
+            SetLastError(err);
+            return false;
+        }
+        if (bytes_read == 0) {
+            // EOF reached successfully
+            break;
+        }
         ctx.update(buffer.data(), bytes_read);
     }
 

@@ -59,6 +59,17 @@ std::filesystem::path utf8_to_path(const char* utf8_str) noexcept
     return std::filesystem::path(wstr);
 }
 
+std::string path_to_utf8(const std::filesystem::path& path) noexcept
+{
+    const std::wstring& wstr = path.wstring();
+    if (wstr.empty()) return {};
+    int ulen = WideCharToMultiByte(CP_UTF8, 0, wstr.data(), static_cast<int>(wstr.size()), nullptr, 0, nullptr, nullptr);
+    if (ulen <= 0) return {};
+    std::string ustr(ulen, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wstr.data(), static_cast<int>(wstr.size()), ustr.data(), ulen, nullptr, nullptr);
+    return ustr;
+}
+
 bool paths_alias(const char* first, const char* second) noexcept
 {
     try
@@ -82,7 +93,7 @@ bool paths_alias(const char* first, const char* second) noexcept
     }
     catch (...)
     {
-        return false;
+        return true; // Fail closed: cannot prove paths are distinct
     }
 }
 

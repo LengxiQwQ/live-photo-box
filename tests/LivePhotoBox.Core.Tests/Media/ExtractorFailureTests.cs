@@ -30,7 +30,8 @@ public sealed class ExtractorFailureTests
         var facts = new SourceMediaFacts
         {
             Protocol = SourceProtocol.GoogleMicroVideoV1,
-            PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Jpeg, ByteOffset = -1, ByteLength = 512 }
+            PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Jpeg, ByteOffset = -1, ByteLength = 512 },
+            PrimarySha256 = beforeSha
         };
 
         using var workspace = new MediaWorkspace();
@@ -55,7 +56,8 @@ public sealed class ExtractorFailureTests
         var facts = new SourceMediaFacts
         {
             Protocol = SourceProtocol.GoogleMicroVideoV1,
-            PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Jpeg, ByteOffset = 0, ByteLength = -500 }
+            PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Jpeg, ByteOffset = 0, ByteLength = -500 },
+            PrimarySha256 = beforeSha
         };
 
         using var workspace = new MediaWorkspace();
@@ -80,7 +82,8 @@ public sealed class ExtractorFailureTests
         var facts = new SourceMediaFacts
         {
             Protocol = SourceProtocol.GoogleMicroVideoV1,
-            PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Jpeg, ByteOffset = 0, ByteLength = 0 }
+            PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Jpeg, ByteOffset = 0, ByteLength = 0 },
+            PrimarySha256 = beforeSha
         };
 
         using var workspace = new MediaWorkspace();
@@ -105,7 +108,8 @@ public sealed class ExtractorFailureTests
         var facts = new SourceMediaFacts
         {
             Protocol = SourceProtocol.GoogleMicroVideoV1,
-            PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Jpeg, ByteOffset = 500, ByteLength = 1000 }
+            PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Jpeg, ByteOffset = 500, ByteLength = 1000 },
+            PrimarySha256 = beforeSha
         };
 
         using var workspace = new MediaWorkspace();
@@ -130,7 +134,8 @@ public sealed class ExtractorFailureTests
         var facts = new SourceMediaFacts
         {
             Protocol = SourceProtocol.GoogleMicroVideoV1,
-            PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Jpeg, ByteOffset = long.MaxValue - 10, ByteLength = 100 }
+            PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Jpeg, ByteOffset = long.MaxValue - 10, ByteLength = 100 },
+            PrimarySha256 = beforeSha
         };
 
         using var workspace = new MediaWorkspace();
@@ -156,7 +161,9 @@ public sealed class ExtractorFailureTests
         {
             Protocol = SourceProtocol.AppleLivePhoto,
             PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Heic, ByteOffset = 0, ByteLength = 1024 },
-            MotionVideo = new VideoFacts { IsPresent = true, Container = VideoContainer.Mov, ByteOffset = 0, ByteLength = 1024, SourceIndex = 1 }
+            MotionVideo = new VideoFacts { IsPresent = true, Container = VideoContainer.Mov, ByteOffset = 0, ByteLength = 1024, SourceIndex = 1 },
+            PrimarySha256 = beforeSha,
+            SecondarySha256 = new string('b', 64)
         };
 
         using var workspace = new MediaWorkspace();
@@ -180,7 +187,8 @@ public sealed class ExtractorFailureTests
         var facts = new SourceMediaFacts
         {
             Protocol = SourceProtocol.GoogleMicroVideoV1,
-            PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Unknown, ByteOffset = 0, ByteLength = 512 }
+            PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Unknown, ByteOffset = 0, ByteLength = 512 },
+            PrimarySha256 = new string('a', 64)
         };
 
         using var workspace = new MediaWorkspace();
@@ -204,7 +212,8 @@ public sealed class ExtractorFailureTests
         var facts = new SourceMediaFacts
         {
             Protocol = SourceProtocol.GoogleMicroVideoV1,
-            PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Jpeg, ByteOffset = 0, ByteLength = 1024 }
+            PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Jpeg, ByteOffset = 0, ByteLength = 1024 },
+            PrimarySha256 = beforeSha
         };
 
         // Directly call NativeMediaService with output path identical to primary source path

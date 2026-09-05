@@ -87,13 +87,52 @@ internal sealed class NativeContext : IDisposable
     public void ThrowIfFailed(NativeResult res)
     {
         if (res == NativeResult.Ok) return;
-        if (res == NativeResult.Cancelled || _cancellationToken.IsCancellationRequested)
-        {
-            throw new OperationCanceledException(_cancellationToken);
-        }
+
         string? msg = GetLastError();
         if (!string.IsNullOrWhiteSpace(msg))
         {
+            if (msg.StartsWith("[CleanupFailed]", StringComparison.OrdinalIgnoreCase))
+            {
+                LivePhotoBox.Media.Extraction.ExtractionFailureCategory? origCat = null;
+                Exception? inner = null;
+                if (msg.Contains("Original failure: [DiskFull]", StringComparison.OrdinalIgnoreCase))
+                {
+                    origCat = LivePhotoBox.Media.Extraction.ExtractionFailureCategory.DiskFull;
+                    inner = new LivePhotoBox.Media.Extraction.ExtractionException(origCat.Value, "Disk full occurred prior to rollback failure.");
+                }
+                else if (msg.Contains("Original failure: [OutputWriteFailed]", StringComparison.OrdinalIgnoreCase))
+                {
+                    origCat = LivePhotoBox.Media.Extraction.ExtractionFailureCategory.OutputWriteFailed;
+                    inner = new LivePhotoBox.Media.Extraction.ExtractionException(origCat.Value, "Output write failed prior to rollback failure.");
+                }
+                else if (msg.Contains("Original failure: [OutputPublishFailed]", StringComparison.OrdinalIgnoreCase))
+                {
+                    origCat = LivePhotoBox.Media.Extraction.ExtractionFailureCategory.OutputPublishFailed;
+                    inner = new LivePhotoBox.Media.Extraction.ExtractionException(origCat.Value, "Output publish failed prior to rollback failure.");
+                }
+                else if (msg.Contains("Original failure: [SourceRangeUnreadable]", StringComparison.OrdinalIgnoreCase))
+                {
+                    origCat = LivePhotoBox.Media.Extraction.ExtractionFailureCategory.SourceRangeUnreadable;
+                    inner = new LivePhotoBox.Media.Extraction.ExtractionException(origCat.Value, "Source range became unreadable prior to rollback failure.");
+                }
+                else if (msg.Contains("Original failure: [Cancelled]", StringComparison.OrdinalIgnoreCase))
+                {
+                    origCat = LivePhotoBox.Media.Extraction.ExtractionFailureCategory.Cancelled;
+                    inner = new OperationCanceledException("Operation was cancelled prior to rollback failure.", _cancellationToken);
+                }
+
+                throw new LivePhotoBox.Media.Extraction.ExtractionException(
+                    LivePhotoBox.Media.Extraction.ExtractionFailureCategory.CleanupFailed,
+                    msg,
+                    innerException: inner,
+                    originalCategory: origCat);
+            }
+
+            if (res == NativeResult.Cancelled || _cancellationToken.IsCancellationRequested || msg.StartsWith("[Cancelled]", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new OperationCanceledException(msg, _cancellationToken);
+            }
+
             if (msg.StartsWith("[DiskFull]", StringComparison.OrdinalIgnoreCase))
                 throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.DiskFull, msg);
             if (msg.StartsWith("[SourceRangeUnreadable]", StringComparison.OrdinalIgnoreCase))
@@ -110,10 +149,11 @@ internal sealed class NativeContext : IDisposable
                 throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidAlias, msg);
             if (msg.StartsWith("[SourceChanged]", StringComparison.OrdinalIgnoreCase))
                 throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.SourceChanged, msg);
-            if (msg.StartsWith("[CleanupFailed]", StringComparison.OrdinalIgnoreCase))
-                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.CleanupFailed, msg);
-            if (msg.StartsWith("[Cancelled]", StringComparison.OrdinalIgnoreCase))
-                throw new OperationCanceledException(msg, _cancellationToken);
+        }
+
+        if (res == NativeResult.Cancelled || _cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(_cancellationToken);
         }
 
         throw new InvalidOperationException(string.IsNullOrWhiteSpace(msg)

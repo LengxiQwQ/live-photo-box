@@ -155,6 +155,14 @@ public sealed class ExtractorRealSampleTests
                 Assert.Equal(0xFF, gmHeader[0]);
                 Assert.Equal(0xD8, gmHeader[1]);
             }
+
+            await AssertImageDecodableAndDimensionsMatchAsync(bundle.GainMap.Path, new ImageFacts
+            {
+                Container = gmFacts.Container,
+                ByteOffset = gmFacts.ByteOffset,
+                ByteLength = gmFacts.ByteLength,
+                IsPresent = true
+            });
         }
 
         // 5. Workspace Cleanliness
@@ -246,7 +254,7 @@ public sealed class ExtractorRealSampleTests
                 Assert.True(dimsMatch, $"Decoded dimensions {decoder.PixelWidth}x{decoder.PixelHeight} do not match facts {facts.Width}x{facts.Height}");
             }
         }
-        catch (COMException)
+        catch (COMException) when (facts.Container == ImageContainer.Heic)
         {
             // System without HEVC/HEIC codec installed; container and facts checked
             Assert.True(facts.Width > 0 && facts.Height > 0);

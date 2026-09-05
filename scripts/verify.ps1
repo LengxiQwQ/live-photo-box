@@ -21,6 +21,17 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# Ensure local tool locations (e.g. WinGet Links, Python) are available in PATH
+$toolPaths = @(
+    "$env:LOCALAPPDATA\Microsoft\WinGet\Links",
+    "$env:LOCALAPPDATA\Programs\Python\Python314"
+)
+foreach ($p in $toolPaths) {
+    if ((Test-Path -LiteralPath $p) -and (($env:PATH -split ';') -notcontains $p)) {
+        $env:PATH = "$p;$env:PATH"
+    }
+}
+
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $solutionPath = Join-Path $projectRoot 'Live Photo Box.sln'
 $nativeBuildScript = Join-Path $projectRoot 'scripts\native\build-native.ps1'
@@ -176,8 +187,17 @@ try {
 
     if ($Scope -eq 'Release') {
         Write-Host 'The CLI integration test uses only the ignored cli-integration-test/ workspace.' -ForegroundColor DarkGray
+        $pythonCmd = if (Get-Command python -ErrorAction SilentlyContinue) {
+            'python'
+        }
+        elseif (Get-Command py -ErrorAction SilentlyContinue) {
+            'py'
+        }
+        else {
+            throw "Python executable ('python' or 'py') was not found on PATH."
+        }
         Invoke-VerificationStep -Name 'Run CLI real-sample integration tests' -Action {
-            & python $cliIntegrationScript
+            & $pythonCmd $cliIntegrationScript --phases split
         }
     }
 

@@ -4,6 +4,7 @@
 #include "media/video_converter.h"
 #include "media/media_cleaner.h"
 #include "foundation/internal.h"
+#include "foundation/sha256.h"
 
 using namespace lpb;
 using namespace lpb::media;
@@ -45,6 +46,27 @@ LPB_API lpb_result LPB_CALL lpb_test_set_extractor_fault(
     context->extractor_hook.trigger_after_bytes = trigger_after_bytes;
     context->extractor_hook.step_callback = callback;
     context->extractor_hook.callback_user_data = user_data;
+    return LPB_RESULT_OK;
+}
+
+LPB_API lpb_result LPB_CALL lpb_test_sha256_buffer(
+    const uint8_t* data,
+    size_t length,
+    uint8_t out_hash[32])
+{
+    if (!out_hash || (!data && length > 0)) return LPB_RESULT_INVALID_ARGUMENT;
+    lpb::crypto::sha256_buffer(data, length, out_hash);
+    return LPB_RESULT_OK;
+}
+
+LPB_API lpb_result LPB_CALL lpb_test_sha256_file(
+    void* file_handle,
+    uint8_t out_hash[32])
+{
+    if (!file_handle || file_handle == INVALID_HANDLE_VALUE || !out_hash) return LPB_RESULT_INVALID_ARGUMENT;
+    if (!lpb::crypto::sha256_file(static_cast<HANDLE>(file_handle), out_hash)) {
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
     return LPB_RESULT_OK;
 }
 

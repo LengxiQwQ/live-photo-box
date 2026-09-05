@@ -46,7 +46,8 @@ REPORT_PATH = TEST_ROOT / "test-report.md"
 # Used strictly by this offline test script to independently verify output artifacts.
 # These are NOT product runtime dependencies of Live Photo Box.
 EXIFTOOL = shutil.which("exiftool") or r"C:\Software\exiftool\exiftool.exe"
-FFPROBE = shutil.which("ffprobe") or "ffprobe"
+_winget_ffprobe = Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft" / "WinGet" / "Links" / "ffprobe.exe"
+FFPROBE = shutil.which("ffprobe") or (str(_winget_ffprobe) if _winget_ffprobe.exists() else "ffprobe")
 
 # ── Test input definitions ─────────────────────────────────────
 

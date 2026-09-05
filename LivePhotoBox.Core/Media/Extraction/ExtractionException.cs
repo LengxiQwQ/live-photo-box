@@ -10,6 +10,7 @@ namespace LivePhotoBox.Media.Extraction;
 public sealed class ExtractionException : InvalidOperationException
 {
     public ExtractionFailureCategory Category { get; }
+    public ExtractionFailureCategory? OriginalCategory { get; }
     public MediaArtifactKind? ArtifactKind { get; }
     public string? SourcePath { get; }
     public long? Offset { get; }
@@ -24,10 +25,12 @@ public sealed class ExtractionException : InvalidOperationException
         long? offset = null,
         long? length = null,
         string? technicalReason = null,
-        Exception? innerException = null)
+        Exception? innerException = null,
+        ExtractionFailureCategory? originalCategory = null)
         : base(message, innerException)
     {
         Category = category;
+        OriginalCategory = originalCategory;
         ArtifactKind = artifactKind;
         SourcePath = sourcePath;
         Offset = offset;
