@@ -174,5 +174,151 @@ LPB_API lpb_result LPB_CALL lpb_transcode_video(
     return transcode_video_file(context, input_video_path, output_video_path, target_container, target_codec, crf, out_encoder_used, encoder_buf_len);
 }
 
+LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
+    lpb_context* context,
+    const char* primary_jpeg_path,
+    const char* gainmap_jpeg_path,
+    const char* output_path)
+{
+    if (!context || !primary_jpeg_path || !gainmap_jpeg_path || !output_path) {
+        if (context) set_error(context, "Invalid arguments for GainMap JPEG reassembly.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
+        set_error(context, "GainMap reassembly cancelled.");
+        return LPB_RESULT_CANCELLED;
+    }
+
+    if (paths_alias(primary_jpeg_path, output_path) || paths_alias(gainmap_jpeg_path, output_path)) {
+        set_error(context, "Output path must not match input paths.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    auto p_primary = utf8_to_path(primary_jpeg_path);
+    auto p_gainmap = utf8_to_path(gainmap_jpeg_path);
+    auto p_output = utf8_to_path(output_path);
+
+    HANDLE h_primary = CreateFileW(
+        p_primary.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ,
+        NULL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL);
+    if (h_primary == INVALID_HANDLE_VALUE) {
+        set_error(context, "Failed to open primary JPEG file.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    uint8_t magic[2]{};
+    DWORD bytes_read = 0;
+    if (!ReadFile(h_primary, magic, 2, &bytes_read, NULL) || bytes_read < 2 || magic[0] != 0xFF || magic[1] != 0xD8) {
+        CloseHandle(h_primary);
+        set_error(context, "Primary image is not a valid JPEG file (missing SOI marker).");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    SetFilePointer(h_primary, 0, NULL, FILE_BEGIN);
+
+    HANDLE h_gainmap = CreateFileW(
+        p_gainmap.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ,
+        NULL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL);
+    if (h_gainmap == INVALID_HANDLE_VALUE) {
+        CloseHandle(h_primary);
+        set_error(context, "Failed to open gainmap JPEG file.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    bytes_read = 0;
+    if (!ReadFile(h_gainmap, magic, 2, &bytes_read, NULL) || bytes_read < 2 || magic[0] != 0xFF || magic[1] != 0xD8) {
+        CloseHandle(h_primary);
+        CloseHandle(h_gainmap);
+        set_error(context, "GainMap image is not a valid JPEG file (missing SOI marker).");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    SetFilePointer(h_gainmap, 0, NULL, FILE_BEGIN);
+
+    HANDLE h_out = CreateFileW(
+        p_output.c_str(),
+        GENERIC_WRITE,
+        0,
+        NULL,
+        CREATE_NEW,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL);
+    if (h_out == INVALID_HANDLE_VALUE) {
+        DWORD err = GetLastError();
+        CloseHandle(h_primary);
+        CloseHandle(h_gainmap);
+        if (err == ERROR_FILE_EXISTS || err == ERROR_ALREADY_EXISTS) {
+            set_error(context, "Output file already exists.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        set_error(context, "Failed to create output file for GainMap reassembly.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+
+    std::vector<uint8_t> buffer(64 * 1024);
+    bool failed = false;
+    bool cancelled = false;
+
+    while (ReadFile(h_primary, buffer.data(), static_cast<DWORD>(buffer.size()), &bytes_read, NULL) && bytes_read > 0) {
+        if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
+            failed = true;
+            cancelled = true;
+            break;
+        }
+        DWORD bytes_written = 0;
+        if (!WriteFile(h_out, buffer.data(), bytes_read, &bytes_written, NULL) || bytes_written != bytes_read) {
+            failed = true;
+            break;
+        }
+    }
+
+    if (!failed) {
+        while (ReadFile(h_gainmap, buffer.data(), static_cast<DWORD>(buffer.size()), &bytes_read, NULL) && bytes_read > 0) {
+            if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
+                failed = true;
+                cancelled = true;
+                break;
+            }
+            DWORD bytes_written = 0;
+            if (!WriteFile(h_out, buffer.data(), bytes_read, &bytes_written, NULL) || bytes_written != bytes_read) {
+                failed = true;
+                break;
+            }
+        }
+    }
+
+    if (!failed) {
+        if (!FlushFileBuffers(h_out)) {
+            failed = true;
+        }
+    }
+
+    CloseHandle(h_primary);
+    CloseHandle(h_gainmap);
+    CloseHandle(h_out);
+
+    if (failed) {
+        DeleteFileW(p_output.c_str());
+        if (cancelled) {
+            set_error(context, "GainMap reassembly cancelled.");
+            return LPB_RESULT_CANCELLED;
+        }
+        set_error(context, "Failed during GainMap JPEG reassembly write.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+
+    return LPB_RESULT_OK;
 }
+
+}
+
 

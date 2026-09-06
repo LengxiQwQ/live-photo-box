@@ -10,7 +10,6 @@ using System.Threading.Tasks;
 using System.Xml.Linq;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Models;
-using LivePhotoBox.Services.Protocols;
 
 namespace LivePhotoBox.Protocols.Cleaning;
 
@@ -1120,20 +1119,12 @@ public static class MetadataPreservationVerifier
 
     public static bool TryLocateHeicExifItem(byte[] data, out long offset, out long length, out string? error)
     {
-        if (NativeHeifBoxParser.TryLocateExifItem(data, out offset, out length, out error))
-        {
-            return true;
-        }
-        return HeifBoxParser.TryLocateExifItem(data, out offset, out length, out error);
+        return NativeHeifBoxParser.TryLocateExifItem(data, out offset, out length, out error);
     }
 
     public static bool TryLocateHeicXmpItem(byte[] data, out long offset, out long length, out string? error)
     {
-        if (NativeHeifBoxParser.TryLocateXmpItem(data, out offset, out length, out error))
-        {
-            return true;
-        }
-        return HeifBoxParser.TryLocateXmpItem(data, out offset, out length, out error);
+        return NativeHeifBoxParser.TryLocateXmpItem(data, out offset, out length, out error);
     }
 
     public static byte[]? ExtractTiff(byte[] data, string path)

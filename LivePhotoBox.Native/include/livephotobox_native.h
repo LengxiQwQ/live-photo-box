@@ -572,6 +572,15 @@ LPB_API lpb_result LPB_CALL lpb_transcode_video(
     char* out_encoder_used,
     size_t encoder_buf_len);
 
+/// Reassemble a JPEG primary image with an appended GainMap JPEG into a single
+/// multi-picture JPEG file. Validates JPEG magic bytes on both inputs before
+/// writing. Fails closed if either input is invalid or output cannot be written.
+LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
+    lpb_context* context,
+    const char* primary_jpeg_path,
+    const char* gainmap_jpeg_path,
+    const char* output_path);
+
 typedef enum lpb_media_artifact_kind
 {
     LPB_ARTIFACT_PRIMARY_IMAGE = 0,

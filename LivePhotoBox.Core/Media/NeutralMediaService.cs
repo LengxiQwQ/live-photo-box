@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Extraction;
 using LivePhotoBox.Media.Image;
 using LivePhotoBox.Media.Inspection;
@@ -259,26 +260,12 @@ public sealed class NeutralMediaService : INeutralMediaService
             throw new FileNotFoundException("Cleaned GainMap was not found.", gainMap.Path);
 
         string outputPath = workspace.AllocateFilePath("neutral-img-gainmap", ".jpg");
-        await using (var output = new FileStream(
-            outputPath, FileMode.CreateNew, FileAccess.Write, FileShare.None,
-            bufferSize: 128 * 1024, useAsync: true))
-        {
-            await using (FileStream primary = new(
-                primaryImage.Path, FileMode.Open, FileAccess.Read, FileShare.Read,
-                bufferSize: 128 * 1024, useAsync: true))
-            {
-                await primary.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
-            }
-
-            await using (FileStream map = new(
-                gainMap.Path, FileMode.Open, FileAccess.Read, FileShare.Read,
-                bufferSize: 128 * 1024, useAsync: true))
-            {
-                await map.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
-            }
-
-            await output.FlushAsync(cancellationToken).ConfigureAwait(false);
-        }
+        
+        await Interop.NativeMediaService.ReassembleJpegGainMapAsync(
+            primaryImage.Path,
+            gainMap.Path,
+            outputPath,
+            cancellationToken).ConfigureAwait(false);
 
         return primaryImage with
         {

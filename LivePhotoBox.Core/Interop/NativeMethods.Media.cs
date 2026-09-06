@@ -113,6 +113,15 @@ internal static partial class NativeMethods
     internal static unsafe partial NativeResult TestSha256File(
         nint fileHandle,
         byte* outHash);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_reassemble_jpeg_gainmap", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult lpb_reassemble_jpeg_gainmap(
+        nint context,
+        string primaryJpegPath,
+        string gainmapJpegPath,
+        string outputPath);
 }
 
 [Flags]

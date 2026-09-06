@@ -521,4 +521,23 @@ public static class NativeMediaService
 
         return native;
     }
+
+    public static Task ReassembleJpegGainMapAsync(
+        string primaryJpegPath,
+        string gainmapJpegPath,
+        string outputPath,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.Run(() =>
+        {
+            using var ctx = NativeContext.Create(cancellationToken);
+            NativeResult res = NativeMethods.lpb_reassemble_jpeg_gainmap(
+                ctx.Handle,
+                primaryJpegPath,
+                gainmapJpegPath,
+                outputPath);
+            ctx.ThrowIfFailed(res);
+        }, cancellationToken);
+    }
 }

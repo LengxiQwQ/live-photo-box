@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using LivePhotoBox.Interop;
+using LivePhotoBox.Media;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Protocols.Cleaning;
 using Xunit;
@@ -148,8 +151,168 @@ public class CleanerBoundaryArchitectureTests
         return false;
     }
 
+    [Fact]
+    public void TargetedPostCleanVerifier_HasNoBinaryParsingMethods()
+    {
+        var type = typeof(TargetedPostCleanVerifier);
+        var methods = type.GetMethods(
+            BindingFlags.Public | BindingFlags.NonPublic |
+            BindingFlags.Instance | BindingFlags.Static |
+            BindingFlags.DeclaredOnly);
+        
+        var forbiddenNames = new[] 
+        { 
+            "CheckQuickTime", "CheckXmpProperty", "ParseXmp", 
+            "ParseMakerNote", "ParseApple", "ParseGoogle", "ParseSamsung"
+        };
+        
+        foreach (var method in methods)
+        {
+            foreach (var forbidden in forbiddenNames)
+            {
+                Assert.False(
+                    method.Name.Contains(forbidden, StringComparison.OrdinalIgnoreCase),
+                    $"TargetedPostCleanVerifier still contains C# protocol truth method '{method.Name}'. "
+                    + "Post-clean verification must delegate to ISourceInspector (Native).");
+            }
+        }
+    }
+
+    [Fact]
+    public void TargetedPostCleanVerifier_VerifyMethod_DoesNotUseBinaryParsing()
+    {
+        var type = typeof(TargetedPostCleanVerifier);
+        var methods = type.GetMethods(
+            BindingFlags.Public | BindingFlags.NonPublic |
+            BindingFlags.Instance | BindingFlags.Static |
+            BindingFlags.DeclaredOnly);
+        
+        // Protocol-truth binary types that must NOT appear in TargetedPostCleanVerifier
+        var forbiddenTypes = new Type[]
+        {
+            typeof(System.Buffers.Binary.BinaryPrimitives),
+            typeof(System.Xml.Linq.XDocument),
+            typeof(System.Xml.Linq.XNamespace),
+        };
+        
+        foreach (var method in methods)
+        {
+            var referencedTypes = GetReferencedTypesInMethod(method).ToList();
+            foreach (var forbidden in forbiddenTypes)
+            {
+                Assert.False(
+                    referencedTypes.Contains(forbidden),
+                    $"TargetedPostCleanVerifier.{method.Name} references {forbidden.FullName}. "
+                    + "This indicates C# binary/XML parsing for protocol truth. "
+                    + "Post-clean protocol verification must use ISourceInspector (Native).");
+            }
+        }
+    }
+
+    [Fact]
+    public void MetadataPreservationVerifier_HeifLocation_DoesNotUseHeifBoxParserFallback()
+    {
+        var type = typeof(MetadataPreservationVerifier);
+        var methodsToCheck = new[] { "TryLocateHeicExifItem", "TryLocateHeicXmpItem" };
+        
+        // Get HeifBoxParser type - it's internal so use assembly lookup
+        var coreAssembly = typeof(MetadataPreservationVerifier).Assembly;
+        var heifBoxParserType = coreAssembly.GetType("LivePhotoBox.Services.Protocols.HeifBoxParser", throwOnError: false);
+        if (heifBoxParserType == null)
+        {
+            // If HeifBoxParser was removed entirely, test trivially passes
+            return;
+        }
+        
+        foreach (var methodName in methodsToCheck)
+        {
+            var method = type.GetMethod(methodName,
+                BindingFlags.Public | BindingFlags.Static | BindingFlags.NonPublic);
+            Assert.NotNull(method);
+            
+            var referencedTypes = GetReferencedTypesInMethod(method).ToList();
+            Assert.False(
+                referencedTypes.Contains(heifBoxParserType),
+                $"MetadataPreservationVerifier.{methodName} still references HeifBoxParser. "
+                + "This is a silent C# fallback that violates Native Data Plane authority. "
+                + "TryLocateHeicExifItem/XmpItem must use NativeHeifBoxParser only (fail closed on failure).");
+        }
+    }
+
+    [Fact]
+    public void HeifBoxParser_IsUsedOnlyInKnownLegacyTargetWriters()
+    {
+        var coreAssembly = typeof(SourceProtocolCleaner).Assembly;
+        var heifBoxParserType = coreAssembly.GetType("LivePhotoBox.Services.Protocols.HeifBoxParser", throwOnError: false);
+        if (heifBoxParserType == null) return; // If removed, test passes
+        
+        var allTypes = coreAssembly.GetTypes();
+        
+        // Only these pre-existing P9 Target Writers are allowed to use HeifBoxParser
+        var allowedUsers = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "LivePhotoBox.Services.Protocols.AppleMakerNoteWriter",
+            "LivePhotoBox.Services.Protocols.HeifAuxImageWriter",
+            "LivePhotoBox.Services.Protocols.HeifBoxParser",
+        };
+        
+        foreach (var type in allTypes)
+        {
+            if (allowedUsers.Contains(type.FullName ?? "")) continue;
+            if (type.FullName != null && type.FullName.StartsWith("LivePhotoBox.Services.Protocols.AppleMakerNoteWriter+")) continue;
+            if (type.FullName != null && type.FullName.StartsWith("LivePhotoBox.Services.Protocols.HeifAuxImageWriter+")) continue;
+            
+            var methods = type.GetMethods(
+                BindingFlags.Public | BindingFlags.NonPublic |
+                BindingFlags.Instance | BindingFlags.Static |
+                BindingFlags.DeclaredOnly);
+            
+            foreach (var method in methods)
+            {
+                var referencedTypes = GetReferencedTypesInMethod(method);
+                Assert.False(
+                    referencedTypes.Contains(heifBoxParserType),
+                    $"Type '{type.FullName}' method '{method.Name}' uses HeifBoxParser. "
+                    + "HeifBoxParser is restricted to pre-existing P9 Target Writers (AppleMakerNoteWriter, HeifAuxImageWriter). "
+                    + "New preservation/verification/pipeline code must use NativeHeifBoxParser instead.");
+            }
+        }
+    }
+
+    [Fact]
+    public void NeutralMediaService_GainMapReassembly_UsesNativeMediaService()
+    {
+        var neutralType = typeof(NeutralMediaService);
+        var nativeMediaServiceType = typeof(NativeMediaService);
+        
+        // Find the private ReassembleJpegGainMapAsync method
+        var reassembleMethod = neutralType.GetMethod(
+            "ReassembleJpegGainMapAsync",
+            BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance);
+        Assert.NotNull(reassembleMethod);
+        
+        var referencedTypes = GetReferencedTypesInMethod(reassembleMethod).ToList();
+        Assert.True(
+            referencedTypes.Contains(nativeMediaServiceType),
+            "NeutralMediaService.ReassembleJpegGainMapAsync must call NativeMediaService for GainMap reassembly. "
+            + "Raw C# byte-append (FileStream.CopyToAsync) is not acceptable as the production GainMap join path.");
+    }
+
     private static IEnumerable<Type> GetReferencedTypesInMethod(MethodInfo method)
     {
+        var asyncAttr = method.GetCustomAttribute<AsyncStateMachineAttribute>();
+        if (asyncAttr != null)
+        {
+            var moveNext = asyncAttr.StateMachineType.GetMethod("MoveNext", BindingFlags.NonPublic | BindingFlags.Instance);
+            if (moveNext != null)
+            {
+                foreach (var t in GetReferencedTypesInMethod(moveNext))
+                {
+                    yield return t;
+                }
+            }
+        }
+
         var body = method.GetMethodBody();
         if (body == null) yield break;
 
