@@ -131,6 +131,14 @@
     "2026-09-03": {
       "count": 93,
       "uniques": 37
+    },
+    "2026-09-04": {
+      "count": 75,
+      "uniques": 16
+    },
+    "2026-09-05": {
+      "count": 109,
+      "uniques": 21
     }
   },
   "clones": {
@@ -265,6 +273,14 @@
     "2026-09-03": {
       "count": 42,
       "uniques": 15
+    },
+    "2026-09-04": {
+      "count": 158,
+      "uniques": 48
+    },
+    "2026-09-05": {
+      "count": 274,
+      "uniques": 35
     }
   },
   "referrer_snapshots": [
@@ -2529,6 +2545,61 @@
         {
           "referrer": "fosswin.com",
           "count": 1,
+          "uniques": 1
+        }
+      ]
+    },
+    {
+      "fetched_at": "2026-09-06T07:07:41Z",
+      "referrers": [
+        {
+          "referrer": "github.com",
+          "count": 594,
+          "uniques": 45
+        },
+        {
+          "referrer": "Google",
+          "count": 79,
+          "uniques": 50
+        },
+        {
+          "referrer": "Bing",
+          "count": 69,
+          "uniques": 34
+        },
+        {
+          "referrer": "chatgpt.com",
+          "count": 37,
+          "uniques": 17
+        },
+        {
+          "referrer": "noisedh.cn",
+          "count": 15,
+          "uniques": 2
+        },
+        {
+          "referrer": "t.co",
+          "count": 13,
+          "uniques": 4
+        },
+        {
+          "referrer": "doubao.com",
+          "count": 10,
+          "uniques": 6
+        },
+        {
+          "referrer": "yandex.ru",
+          "count": 3,
+          "uniques": 2
+        },
+        {
+          "referrer": "duck.ai",
+          "count": 2,
+          "uniques": 1
+        },
+        {
+          "referrer": "linkedin.com",
+          "count": 2,
           "uniques": 1
         }
       ]
@@ -5589,6 +5660,71 @@
           "uniques": 2
         }
       ]
+    },
+    {
+      "fetched_at": "2026-09-06T07:07:41Z",
+      "paths": [
+        {
+          "path": "/LengxiQwQ/live-photo-box",
+          "title": "Overview",
+          "count": 687,
+          "uniques": 155
+        },
+        {
+          "path": "/lengxiqwq/live-photo-box/releases",
+          "title": "/releases",
+          "count": 119,
+          "uniques": 44
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/releases",
+          "title": "/releases",
+          "count": 65,
+          "uniques": 29
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/releases/tag/v2.2.1",
+          "title": "/releases/tag/v2.2.1",
+          "count": 53,
+          "uniques": 28
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/blob/master/README.zh-CN.md",
+          "title": "/blob/master/README.zh-CN.md",
+          "count": 41,
+          "uniques": 31
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/tree/master",
+          "title": "/tree/master",
+          "count": 22,
+          "uniques": 3
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/stargazers",
+          "title": "/stargazers",
+          "count": 20,
+          "uniques": 1
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/issues",
+          "title": "/issues",
+          "count": 19,
+          "uniques": 10
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/commits/master",
+          "title": "/commits/master",
+          "count": 16,
+          "uniques": 2
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/releases/tag/v2.2.0",
+          "title": "/releases/tag/v2.2.0",
+          "count": 13,
+          "uniques": 8
+        }
+      ]
     }
   ],
   "repo_meta_snapshots": [
@@ -6014,7 +6150,16 @@
       "open_issues": 0,
       "network": 2,
       "pushed_at": "2026-09-05T06:50:14Z"
+    },
+    {
+      "fetched_at": "2026-09-06T07:07:41Z",
+      "stars": 33,
+      "forks": 2,
+      "watchers": 1,
+      "open_issues": 0,
+      "network": 2,
+      "pushed_at": "2026-09-05T21:20:51Z"
     }
   ],
-  "updated_at": "2026-09-05T06:56:21Z"
+  "updated_at": "2026-09-06T07:07:41Z"
 }
