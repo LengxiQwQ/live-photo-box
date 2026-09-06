@@ -544,16 +544,36 @@ public static class MetadataPreservationVerifier
         bool hdrFailed = false;
         string hdrFailReason = "";
 
-        // Check A: HEIC auxl item payload
-        string? preAuxSha = ExtractHeicAuxlItemSha256(preBytes);
-        string? postAuxSha = ExtractHeicAuxlItemSha256(postBytes);
-        if (preAuxSha != null)
+        // Check A: HEIC auxl item relationship and payload
+        HeicAuxRelationSnapshot? preAuxRel = ExtractHeicAuxRelationSnapshot(preBytes);
+        if (preAuxRel != null)
         {
             hasHdrIndicator = true;
-            if (postAuxSha == null || !string.Equals(preAuxSha, postAuxSha, StringComparison.OrdinalIgnoreCase))
+            HeicAuxRelationSnapshot? postAuxRel = ExtractHeicAuxRelationSnapshot(postBytes);
+            if (postAuxRel == null)
             {
                 hdrFailed = true;
-                hdrFailReason = $"HEIC GainMap auxl payload altered or dropped (pre: {preAuxSha}, post: {postAuxSha}).";
+                hdrFailReason = "HEIC GainMap auxl relationship or auxiliary item was dropped after cleaning.";
+            }
+            else if (preAuxRel.PrimaryItemId != postAuxRel.PrimaryItemId)
+            {
+                hdrFailed = true;
+                hdrFailReason = $"HEIC GainMap primary item ID mismatch (pre: {preAuxRel.PrimaryItemId}, post: {postAuxRel.PrimaryItemId}).";
+            }
+            else if (preAuxRel.AuxiliaryItemId != postAuxRel.AuxiliaryItemId)
+            {
+                hdrFailed = true;
+                hdrFailReason = $"HEIC GainMap auxiliary item ID mismatch (pre: {preAuxRel.AuxiliaryItemId}, post: {postAuxRel.AuxiliaryItemId}).";
+            }
+            else if (preAuxRel.FromItemId != postAuxRel.FromItemId || preAuxRel.ToItemId != postAuxRel.ToItemId)
+            {
+                hdrFailed = true;
+                hdrFailReason = $"HEIC GainMap auxl association direction/IDs tampered (pre: {preAuxRel.FromItemId}->{preAuxRel.ToItemId}, post: {postAuxRel.FromItemId}->{postAuxRel.ToItemId}).";
+            }
+            else if (!string.Equals(preAuxRel.AuxiliaryPayloadSha256, postAuxRel.AuxiliaryPayloadSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                hdrFailed = true;
+                hdrFailReason = $"HEIC GainMap auxl payload altered (pre: {preAuxRel.AuxiliaryPayloadSha256}, post: {postAuxRel.AuxiliaryPayloadSha256}).";
             }
         }
 
@@ -1624,10 +1644,13 @@ public static class MetadataPreservationVerifier
         return null;
     }
 
-    public static uint? ExtractHeicAuxlItemId(byte[] data)
+    public static HeicAuxRelationSnapshot? ExtractHeicAuxRelationSnapshot(byte[] data)
     {
         if (data == null || data.Length < 16) return null;
-        uint? primaryId = ExtractHeicPrimaryItemId(data);
+        uint? primaryIdOpt = ExtractHeicPrimaryItemId(data);
+        if (primaryIdOpt == null) return null;
+        uint primaryId = primaryIdOpt.Value;
+
         for (int i = 0; i <= data.Length - 16; i++)
         {
             if (data[i + 4] == 'i' && data[i + 5] == 'r' && data[i + 6] == 'e' && data[i + 7] == 'f')
@@ -1647,19 +1670,61 @@ public static class MetadataPreservationVerifier
                         {
                             uint fromId = (uint)((data[p + 8] << 8) | data[p + 9]);
                             ushort refCount = (ushort)((data[p + 10] << 8) | data[p + 11]);
-                            uint toId = (uint)((data[p + 12] << 8) | data[p + 13]);
-                            if (refCount > 0 && fromId == primaryId)
-                                return toId;
-                            return fromId;
+                            for (int r = 0; r < refCount && p + 14 + r * 2 <= irefEnd; r++)
+                            {
+                                uint toId = (uint)((data[p + 12 + r * 2] << 8) | data[p + 13 + r * 2]);
+                                uint auxItemId;
+                                if (fromId == primaryId)
+                                {
+                                    auxItemId = toId;
+                                }
+                                else if (toId == primaryId)
+                                {
+                                    auxItemId = fromId;
+                                }
+                                else
+                                {
+                                    continue;
+                                }
+
+                                byte[]? payload = ExtractHeicItemPayload(data, auxItemId);
+                                if (payload != null)
+                                {
+                                    using var sha = SHA256.Create();
+                                    string payloadSha = Convert.ToHexString(sha.ComputeHash(payload));
+                                    return new HeicAuxRelationSnapshot(primaryId, auxItemId, fromId, toId, payloadSha);
+                                }
+                            }
                         }
                         else if (ver != 0 && p + 18 <= irefEnd)
                         {
                             uint fromId = ((uint)data[p + 8] << 24) | ((uint)data[p + 9] << 16) | ((uint)data[p + 10] << 8) | data[p + 11];
                             ushort refCount = (ushort)((data[p + 12] << 8) | data[p + 13]);
-                            uint toId = ((uint)data[p + 14] << 24) | ((uint)data[p + 15] << 16) | ((uint)data[p + 16] << 8) | data[p + 17];
-                            if (refCount > 0 && fromId == primaryId)
-                                return toId;
-                            return fromId;
+                            for (int r = 0; r < refCount && p + 18 + r * 4 <= irefEnd; r++)
+                            {
+                                uint toId = ((uint)data[p + 14 + r * 4] << 24) | ((uint)data[p + 15 + r * 4] << 16) | ((uint)data[p + 16 + r * 4] << 8) | data[p + 17 + r * 4];
+                                uint auxItemId;
+                                if (fromId == primaryId)
+                                {
+                                    auxItemId = toId;
+                                }
+                                else if (toId == primaryId)
+                                {
+                                    auxItemId = fromId;
+                                }
+                                else
+                                {
+                                    continue;
+                                }
+
+                                byte[]? payload = ExtractHeicItemPayload(data, auxItemId);
+                                if (payload != null)
+                                {
+                                    using var sha = SHA256.Create();
+                                    string payloadSha = Convert.ToHexString(sha.ComputeHash(payload));
+                                    return new HeicAuxRelationSnapshot(primaryId, auxItemId, fromId, toId, payloadSha);
+                                }
+                            }
                         }
                     }
                     p += (int)boxSize;
@@ -1669,14 +1734,14 @@ public static class MetadataPreservationVerifier
         return null;
     }
 
+    public static uint? ExtractHeicAuxlItemId(byte[] data)
+    {
+        return ExtractHeicAuxRelationSnapshot(data)?.AuxiliaryItemId;
+    }
+
     public static string? ExtractHeicAuxlItemSha256(byte[] data)
     {
-        uint? auxId = ExtractHeicAuxlItemId(data);
-        if (auxId == null) return null;
-        byte[]? payload = ExtractHeicItemPayload(data, auxId.Value);
-        if (payload == null) return null;
-        using var sha = SHA256.Create();
-        return Convert.ToHexString(sha.ComputeHash(payload));
+        return ExtractHeicAuxRelationSnapshot(data)?.AuxiliaryPayloadSha256;
     }
 
     public static async Task<string?> ExtractMdatPayloadSha256Async(string filePath, CancellationToken cancellationToken)
@@ -1849,3 +1914,10 @@ public static class MetadataPreservationVerifier
 
     #endregion
 }
+
+public sealed record HeicAuxRelationSnapshot(
+    uint PrimaryItemId,
+    uint AuxiliaryItemId,
+    uint FromItemId,
+    uint ToItemId,
+    string AuxiliaryPayloadSha256);

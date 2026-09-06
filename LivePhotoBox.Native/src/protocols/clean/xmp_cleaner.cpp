@@ -1,4 +1,5 @@
 #include "xmp_cleaner.h"
+#include "media/media_cleaner.h"
 #include "foundation/residue_fingerprint.h"
 
 #include <algorithm>
@@ -229,22 +230,117 @@ static std::string_view namespace_uri_for_name(std::string_view name,
     return {};
 }
 
-static bool is_google_camera_attribute(std::string_view local, lpb_source_protocol protocol) noexcept
+struct canonical_xmp_attribute_identity
 {
-    if (protocol == LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1)
+    std::string_view residue_id{};
+    std::string_view selector{};
+};
+
+static canonical_xmp_attribute_identity get_canonical_xmp_attribute_identity(
+    std::string_view name,
+    std::string_view uri,
+    lpb_source_protocol protocol) noexcept
+{
+    const std::string_view local = local_name(name);
+
+    if (protocol == LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1 && uri == google_camera_namespace)
     {
-        return equals_icase(local, "MicroVideo") ||
-            equals_icase(local, "MicroVideoVersion") ||
-            equals_icase(local, "MicroVideoOffset") ||
-            equals_icase(local, "MicroVideoPresentationTimestampUs");
+        if (equals_icase(local, "MicroVideo")) return { "google-v1-xmp-microvideo", "GCamera:MicroVideo" };
+        if (equals_icase(local, "MicroVideoVersion")) return { "google-v1-xmp-version", "GCamera:MicroVideoVersion" };
+        if (equals_icase(local, "MicroVideoOffset")) return { "google-v1-xmp-offset", "GCamera:MicroVideoOffset" };
+        if (equals_icase(local, "MicroVideoPresentationTimestampUs")) return { "google-v1-xmp-pts", "GCamera:MicroVideoPresentationTimestampUs" };
+        return {};
     }
 
-    return equals_icase(local, "MotionPhoto") ||
-        equals_icase(local, "MotionPhotoVersion") ||
-        equals_icase(local, "MotionPhotoPresentationTimestampUs") ||
-        equals_icase(local, "MotionPhotoPrimaryPresentationTimestampUs") ||
-        equals_icase(local, "MotionPhotoOwner") ||
-        equals_icase(local, "MotionPhotoEnable");
+    if (protocol == LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2 && uri == google_camera_namespace)
+    {
+        if (equals_icase(local, "MotionPhoto")) return { "google-v2-xmp-motionphoto", "GCamera:MotionPhoto" };
+        if (equals_icase(local, "MotionPhotoVersion")) return { "google-v2-xmp-version", "GCamera:MotionPhotoVersion" };
+        if (equals_icase(local, "MotionPhotoPresentationTimestampUs")) return { "google-v2-xmp-pts", "GCamera:MotionPhotoPresentationTimestampUs" };
+        return {};
+    }
+
+    if (protocol == LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG && uri == google_camera_namespace)
+    {
+        if (equals_icase(local, "MotionPhoto")) return { "samsung-jpeg-xmp-motionphoto", "GCamera:MotionPhoto" };
+        if (equals_icase(local, "MotionPhotoVersion")) return { "samsung-jpeg-xmp-version", "GCamera:MotionPhotoVersion" };
+        if (equals_icase(local, "MotionPhotoPresentationTimestampUs")) return { "samsung-jpeg-xmp-pts", "GCamera:MotionPhotoPresentationTimestampUs" };
+        return {};
+    }
+
+    if (protocol == LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC && uri == google_camera_namespace)
+    {
+        if (equals_icase(local, "MotionPhoto")) return { "samsung-heic-xmp-motionphoto", "GCamera:MotionPhoto" };
+        if (equals_icase(local, "MotionPhotoVersion")) return { "samsung-heic-xmp-version", "GCamera:MotionPhotoVersion" };
+        if (equals_icase(local, "MotionPhotoPresentationTimestampUs")) return { "samsung-heic-xmp-pts", "GCamera:MotionPhotoPresentationTimestampUs" };
+        return {};
+    }
+
+    if (protocol == LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO)
+    {
+        if (uri == oppo_camera_namespace)
+        {
+            if (equals_icase(local, "OLivePhotoVersion")) return { "oppo-xmp-version", "OLivePhotoVersion" };
+            if (equals_icase(local, "VideoLength")) return { "oppo-xmp-videolength", "VideoLength" };
+            if (equals_icase(local, "MotionPhotoOwner")) return { "oppo-xmp-owner", "MotionPhotoOwner" };
+            if (equals_icase(local, "MotionPhotoPrimaryPresentationTimestampUs")) return { "oppo-xmp-pts", "MotionPhotoPrimaryPresentationTimestampUs" };
+            if (equals_icase(local, "MotionPhotoEnable")) return { "oppo-xmp-enable", "MotionPhotoEnable" };
+        }
+        if (uri == google_camera_namespace)
+        {
+            if (equals_icase(local, "MotionPhoto")) return { "google-v2-xmp-motionphoto", "GCamera:MotionPhoto" };
+            if (equals_icase(local, "MotionPhotoVersion")) return { "google-v2-xmp-version", "GCamera:MotionPhotoVersion" };
+            if (equals_icase(local, "MotionPhotoPresentationTimestampUs")) return { "google-v2-xmp-pts", "GCamera:MotionPhotoPresentationTimestampUs" };
+        }
+        return {};
+    }
+
+    if (protocol == LPB_SOURCE_PROTOCOL_VIVO_X300 || protocol == LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL)
+    {
+        if (uri == vivo_camera_namespace)
+        {
+            if (equals_icase(local, "VMotionPhotoVersion")) return { "vivo-xmp-version", "VMotionPhotoVersion" };
+            if (equals_icase(local, "VMotionPhotoSource")) return { "vivo-xmp-source", "VMotionPhotoSource" };
+            if (equals_icase(local, "VMotionPhotoFlags")) return { "vivo-xmp-flags", "VMotionPhotoFlags" };
+            if (equals_icase(local, "VMediaKitVersion")) return { "vivo-xmp-mediakit", "VMediaKitVersion" };
+        }
+        if (uri == google_camera_namespace)
+        {
+            if (equals_icase(local, "MotionPhoto")) return { "google-v2-xmp-motionphoto", "GCamera:MotionPhoto" };
+            if (equals_icase(local, "MotionPhotoVersion")) return { "google-v2-xmp-version", "GCamera:MotionPhotoVersion" };
+            if (equals_icase(local, "MotionPhotoPresentationTimestampUs")) return { "google-v2-xmp-pts", "GCamera:MotionPhotoPresentationTimestampUs" };
+        }
+        return {};
+    }
+
+    return {};
+}
+
+struct canonical_xmp_container_item_identity
+{
+    std::string_view residue_id{};
+    std::string_view selector{};
+};
+
+static canonical_xmp_container_item_identity get_canonical_motion_item_identity(
+    lpb_source_protocol protocol) noexcept
+{
+    switch (protocol)
+    {
+    case LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2:
+        return { "google-v2-container-item-motionphoto", "Item:Semantic=MotionPhoto" };
+    case LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG:
+        return { "samsung-jpeg-container-item-motionphoto", "Item:Semantic=MotionPhoto" };
+    case LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC:
+        return { "samsung-heic-container-item-motionphoto", "Item:Semantic=MotionPhoto" };
+    case LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO:
+        return { "oppo-container-item-motionphoto", "Item:Semantic=MotionPhoto" };
+    case LPB_SOURCE_PROTOCOL_VIVO_X300:
+    case LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL:
+        return { "google-v2-container-item-motionphoto", "Item:Semantic=MotionPhoto" };
+    default:
+        return {};
+    }
 }
 
 static bool is_container_protocol(lpb_source_protocol protocol) noexcept
@@ -259,39 +355,7 @@ static bool is_container_protocol(lpb_source_protocol protocol) noexcept
 static bool is_protocol_attribute(std::string_view name,
     std::string_view uri, lpb_source_protocol protocol) noexcept
 {
-    const std::string_view local = local_name(name);
-    if (uri == google_camera_namespace &&
-        (protocol == LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1 ||
-         protocol == LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2 ||
-         protocol == LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO ||
-         protocol == LPB_SOURCE_PROTOCOL_VIVO_X300 ||
-         protocol == LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG ||
-         protocol == LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC))
-    {
-        return is_google_camera_attribute(local, protocol);
-    }
-
-    if (protocol == LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO && uri == oppo_camera_namespace)
-    {
-        return equals_icase(local, "OLivePhotoVersion") ||
-            equals_icase(local, "VideoLength") ||
-            equals_icase(local, "MotionPhotoOwner") ||
-            equals_icase(local, "MotionPhotoPrimaryPresentationTimestampUs") ||
-            equals_icase(local, "MotionPhotoEnable");
-    }
-
-    if ((protocol == LPB_SOURCE_PROTOCOL_VIVO_X300 ||
-         protocol == LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL) && uri == vivo_camera_namespace)
-    {
-        return equals_icase(local, "VMotionPhotoVersion") ||
-            equals_icase(local, "VMotionPhotoSource") ||
-            equals_icase(local, "VMotionPhotoFlags") ||
-            equals_icase(local, "VMediaKitVersion");
-    }
-
-    // Apple Live Photo pairing is stored in MakerNote / QuickTime metadata,
-    // not an arbitrary XMP ContentIdentifier attribute.
-    return false;
+    return !get_canonical_xmp_attribute_identity(name, uri, protocol).residue_id.empty();
 }
 
 static bool item_is_motion(const parsed_element& element, lpb_source_protocol protocol) noexcept
@@ -308,7 +372,6 @@ static bool item_is_motion(const parsed_element& element, lpb_source_protocol pr
     }
     return false;
 }
-
 
 static const char* protocol_name_str(lpb_source_protocol p) noexcept {
     switch (p) {
@@ -333,22 +396,18 @@ static const lpb_cleanup_action* find_xmp_attribute_action(
     const lpb_cleanup_action* actions,
     size_t action_count) noexcept
 {
-    if (!is_protocol_attribute(name, uri, protocol)) return nullptr;
+    const auto canon = get_canonical_xmp_attribute_identity(name, uri, protocol);
+    if (canon.residue_id.empty()) return nullptr;
     if (!actions || action_count == 0) return nullptr;
-    const std::string_view local = local_name(name);
-    for (size_t i = 0; i < action_count; ++i) {
-        const auto& a = actions[i];
-        if (a.artifact_role == LPB_ARTIFACT_PRIMARY_IMAGE &&
-            a.structure_kind == LPB_RESIDUE_XMP_PROPERTY &&
-            a.removal_mode == LPB_REMOVAL_DELETE) {
-            std::string_view sel(a.selector);
-            std::string_view sel_local = local_name(sel);
-            if (equals_icase(local, sel_local) || equals_icase(name, sel)) {
-                return &a;
-            }
-        }
-    }
-    return nullptr;
+
+    return lpb::media::find_authorized_action(
+        actions,
+        action_count,
+        canon.residue_id,
+        LPB_ARTIFACT_PRIMARY_IMAGE,
+        LPB_RESIDUE_XMP_PROPERTY,
+        canon.selector,
+        LPB_REMOVAL_DELETE);
 }
 
 static const lpb_cleanup_action* find_motion_item_action(
@@ -358,19 +417,18 @@ static const lpb_cleanup_action* find_motion_item_action(
     size_t action_count) noexcept
 {
     if (!item_is_motion(element, protocol)) return nullptr;
+    const auto canon = get_canonical_motion_item_identity(protocol);
+    if (canon.residue_id.empty()) return nullptr;
     if (!actions || action_count == 0) return nullptr;
-    for (size_t i = 0; i < action_count; ++i) {
-        const auto& a = actions[i];
-        if (a.artifact_role == LPB_ARTIFACT_PRIMARY_IMAGE &&
-            a.structure_kind == LPB_RESIDUE_XMP_CONTAINER_ITEM &&
-            a.removal_mode == LPB_REMOVAL_DELETE) {
-            std::string_view sel(a.selector);
-            if (sel.find("MotionPhoto") != std::string_view::npos) {
-                return &a;
-            }
-        }
-    }
-    return nullptr;
+
+    return lpb::media::find_authorized_action(
+        actions,
+        action_count,
+        canon.residue_id,
+        LPB_ARTIFACT_PRIMARY_IMAGE,
+        LPB_RESIDUE_XMP_CONTAINER_ITEM,
+        canon.selector,
+        LPB_REMOVAL_DELETE);
 }
 
 static bool find_motion_ranges(std::string_view xml,

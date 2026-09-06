@@ -1082,4 +1082,251 @@ public sealed class CleanerTrustChainTests
         Assert.Null(result.CleanedImage);
         Assert.Null(result.CleanedVideo);
     }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Clean_NativeAdversarial_MachineAuthority_RejectsWrongResidueId()
+    {
+        string primaryPath = ResolveSample("oppo.jpg");
+        using var workspace = new MediaWorkspace();
+        var inspector = new SourceInspector();
+        var facts = await inspector.InspectAsync(primaryPath);
+
+        string tempImage = workspace.AllocateFilePath("test-adversarial-wrong-residue", ".jpg");
+        File.Copy(primaryPath, tempImage, overwrite: true);
+        string cleanedImage = workspace.AllocateFilePath("test-adversarial-wrong-residue-cleaned", ".jpg");
+
+        // Tamper the ResidueId of google-v2-xmp-motionphoto to an unauthorized bogus ID
+        var actions = facts.ConfirmedResidues
+            .Select(r => new PlannedCleanupAction
+            {
+                ResidueId = r.Id == "google-v2-xmp-motionphoto" ? "adversarial-fake-residue-id" : r.Id,
+                ArtifactRole = r.ArtifactRole,
+                StructureKind = r.StructureKind,
+                Selector = r.Selector,
+                RemovalMode = r.RemovalMode,
+                ExpectedFingerprint = r.ExpectedFingerprint,
+                ExpectedSemantic = r.ExpectedSemantic,
+                IsMandatory = true
+            })
+            .ToList();
+
+        var removedFacts = await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
+            facts, actions, tempImage, null, cleanedImage, null);
+
+        // Native must NOT have removed google-v2-xmp-motionphoto under the fake residue id
+        Assert.DoesNotContain(removedFacts, f => f.ResidueId == "google-v2-xmp-motionphoto");
+        Assert.DoesNotContain(removedFacts, f => f.ResidueId == "adversarial-fake-residue-id");
+
+        // The cleaned file must still contain GCamera:MotionPhoto because authorization for it failed
+        string text = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(cleanedImage));
+        Assert.Contains("GCamera:MotionPhoto", text);
+
+        // Furthermore, if all actions are tampered with wrong residue IDs, native must reject completely
+        var allWrongActions = facts.ConfirmedResidues
+            .Select(r => new PlannedCleanupAction
+            {
+                ResidueId = "wrong-" + r.Id,
+                ArtifactRole = r.ArtifactRole,
+                StructureKind = r.StructureKind,
+                Selector = r.Selector,
+                RemovalMode = r.RemovalMode,
+                ExpectedFingerprint = r.ExpectedFingerprint,
+                ExpectedSemantic = r.ExpectedSemantic,
+                IsMandatory = true
+            })
+            .ToList();
+
+        await Assert.ThrowsAnyAsync<Exception>(async () =>
+        {
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
+                facts, allWrongActions, tempImage, null, workspace.AllocateFilePath("all-wrong-out", ".jpg"), null);
+        });
+    }
+
+    [Fact]
+    public async Task Clean_Native_Xmp_CustomNamespaceSameLocalName_PreservedIntact()
+    {
+        using var workspace = new MediaWorkspace();
+        string tempImage = workspace.AllocateFilePath("test-custom-ns", ".jpg");
+        string cleanedImage = workspace.AllocateFilePath("test-custom-ns-cleaned", ".jpg");
+
+        byte[] standardXmp = Encoding.UTF8.GetBytes(
+            "http://ns.adobe.com/xap/1.0/\0<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:custom=\"http://example.com/custom/\" GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\" custom:MotionPhoto=\"KeepThisCustomProperty\" /></rdf:RDF></x:xmpmeta>");
+
+        using var ms = new MemoryStream();
+        ms.Write([0xFF, 0xD8]); // SOI
+        ms.Write([0xFF, 0xE1]);
+        int len1 = standardXmp.Length + 2;
+        ms.WriteByte((byte)(len1 >> 8)); ms.WriteByte((byte)(len1 & 0xFF));
+        ms.Write(standardXmp);
+        ms.Write([0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x7F, 0xFF, 0x00, 0x00, 0xFF, 0xD9]);
+        byte[] fullJpeg = ms.ToArray();
+        await File.WriteAllBytesAsync(tempImage, fullJpeg);
+
+        using var sha = SHA256.Create();
+        string imgSha = Convert.ToHexString(sha.ComputeHash(fullJpeg));
+
+        var facts = new SourceMediaFacts
+        {
+            Protocol = SourceProtocol.GoogleMotionPhotoV2,
+            PrimarySha256 = imgSha,
+            PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
+        };
+
+        var actions = new List<PlannedCleanupAction>
+        {
+            new PlannedCleanupAction
+            {
+                ResidueId = "google-v2-xmp-motionphoto",
+                ArtifactRole = MediaArtifactKind.PrimaryImage,
+                StructureKind = ResidueStructureKind.XmpProperty,
+                Selector = "GCamera:MotionPhoto",
+                RemovalMode = ResidueRemovalMode.Delete,
+                IsMandatory = true
+            },
+            new PlannedCleanupAction
+            {
+                ResidueId = "google-v2-xmp-version",
+                ArtifactRole = MediaArtifactKind.PrimaryImage,
+                StructureKind = ResidueStructureKind.XmpProperty,
+                Selector = "GCamera:MotionPhotoVersion",
+                RemovalMode = ResidueRemovalMode.Delete,
+                IsMandatory = true
+            }
+        };
+
+        var removedFacts = await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
+            facts, actions, tempImage, null, cleanedImage, null);
+
+        Assert.Contains(removedFacts, f => f.ResidueId == "google-v2-xmp-motionphoto");
+        Assert.Contains(removedFacts, f => f.ResidueId == "google-v2-xmp-version");
+
+        string cleanedText = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(cleanedImage));
+        Assert.DoesNotContain("GCamera:MotionPhoto=", cleanedText);
+        Assert.DoesNotContain("GCamera:MotionPhotoVersion=", cleanedText);
+        Assert.Contains("KeepThisCustomProperty", cleanedText);
+        Assert.Contains("custom:MotionPhoto", cleanedText);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Verifier_Adversarial_HeicGainMapAssociationTamperFailsClosed()
+    {
+        string samplePath = ResolveSample("三星.heic");
+        using var workspace = new MediaWorkspace();
+        byte[] rawBytes = await File.ReadAllBytesAsync(samplePath);
+
+        var snapshot = MetadataPreservationVerifier.ExtractHeicAuxRelationSnapshot(rawBytes);
+        Assert.NotNull(snapshot);
+        Assert.Equal((uint)49, snapshot.PrimaryItemId);
+        Assert.Equal((uint)55, snapshot.AuxiliaryItemId);
+        Assert.Equal((uint)55, snapshot.FromItemId);
+        Assert.Equal((uint)49, snapshot.ToItemId);
+
+        using var sha = SHA256.Create();
+        string origSha = Convert.ToHexString(sha.ComputeHash(rawBytes));
+
+        string copyPath = workspace.AllocateFilePath("samsung-untampered", ".heic");
+        await File.WriteAllBytesAsync(copyPath, rawBytes);
+
+        var bundle = new ExtractedMediaBundle
+        {
+            SourceFacts = new SourceMediaFacts
+            {
+                Protocol = SourceProtocol.SamsungMotionPhotoHeic,
+                PrimarySha256 = origSha,
+                PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = rawBytes.Length, IsPresent = true }
+            },
+            PrimaryImage = new MediaArtifact
+            {
+                Path = copyPath,
+                Kind = MediaArtifactKind.PrimaryImage,
+                MimeType = "image/heic",
+                ImageContainer = ImageContainer.Heic,
+                ByteLength = rawBytes.Length,
+                Sha256 = origSha
+            }
+        };
+
+        // Untampered must pass
+        var untamperedReport = await MetadataPreservationVerifier.VerifyAsync(bundle, copyPath, null);
+        var hdrUntampered = untamperedReport.Items.First(i => i.Name == "Hdr");
+        Assert.Equal(PreservationCheckStatus.VerifiedPreserved, hdrUntampered.Status);
+
+        // Now tamper the auxl reference in iref while keeping the item 55 payload bytes 100% identical
+        byte[] tamperedBytes = (byte[])rawBytes.Clone();
+        int auxlPos = -1;
+        for (int i = 0; i <= tamperedBytes.Length - 14; i++)
+        {
+            if (tamperedBytes[i + 4] == 'a' && tamperedBytes[i + 5] == 'u' && tamperedBytes[i + 6] == 'x' && tamperedBytes[i + 7] == 'l')
+            {
+                auxlPos = i;
+                break;
+            }
+        }
+        Assert.True(auxlPos >= 0);
+
+        // In三星.heic, auxl box has ver 0: from_id at auxlPos+8 (55), to_id at auxlPos+12 (49).
+        // Tamper to_id from 49 to 50:
+        tamperedBytes[auxlPos + 13] = 50;
+
+        string tamperedPath = workspace.AllocateFilePath("samsung-tampered-auxl", ".heic");
+        await File.WriteAllBytesAsync(tamperedPath, tamperedBytes);
+
+        // Verifier must detect the tampered association and fail closed
+        var tamperedReport = await MetadataPreservationVerifier.VerifyAsync(bundle, tamperedPath, null);
+        var hdrTampered = tamperedReport.Items.First(i => i.Name == "Hdr");
+        Assert.Equal(PreservationCheckStatus.Failed, hdrTampered.Status);
+        Assert.NotEqual(PreservationOutcome.Preserved, tamperedReport.OverallOutcome);
+    }
+
+    [Fact]
+    public async Task Verifier_Adversarial_GainMapSubstringOnly_IsNotVerifiedPreserved()
+    {
+        using var workspace = new MediaWorkspace();
+        string imgPath = workspace.AllocateFilePath("substring-gainmap", ".jpg");
+
+        // JPEG containing plain text "GainMap" and "hdrgm" in dummy scan / comment bytes,
+        // but without any structured XMP properties or HEIC auxl box.
+        byte[] plainGainMapBytes = "GainMap and hdrgm plain text without structured metadata"u8.ToArray();
+        using var ms = new MemoryStream();
+        ms.Write([0xFF, 0xD8]); // SOI
+        ms.Write([0xFF, 0xFE]); // COM marker
+        int comLen = plainGainMapBytes.Length + 2;
+        ms.WriteByte((byte)(comLen >> 8)); ms.WriteByte((byte)(comLen & 0xFF));
+        ms.Write(plainGainMapBytes);
+        ms.Write([0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x7F, 0xFF, 0x00, 0x00, 0xFF, 0xD9]);
+        byte[] fullJpeg = ms.ToArray();
+        await File.WriteAllBytesAsync(imgPath, fullJpeg);
+
+        using var sha = SHA256.Create();
+        string imgSha = Convert.ToHexString(sha.ComputeHash(fullJpeg));
+
+        var bundle = new ExtractedMediaBundle
+        {
+            SourceFacts = new SourceMediaFacts
+            {
+                Protocol = SourceProtocol.NonLive,
+                PrimarySha256 = imgSha,
+                PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
+            },
+            PrimaryImage = new MediaArtifact
+            {
+                Path = imgPath,
+                Kind = MediaArtifactKind.PrimaryImage,
+                MimeType = "image/jpeg",
+                ImageContainer = ImageContainer.Jpeg,
+                ByteLength = fullJpeg.Length,
+                Sha256 = imgSha
+            }
+        };
+
+        var report = await MetadataPreservationVerifier.VerifyAsync(bundle, imgPath, null);
+        var hdrItem = report.Items.First(i => i.Name == "Hdr");
+
+        // Must NOT grant VerifiedPreserved based on substring alone
+        Assert.NotEqual(PreservationCheckStatus.VerifiedPreserved, hdrItem.Status);
+        Assert.Equal(PreservationCheckStatus.NotApplicable, hdrItem.Status);
+    }
 }
