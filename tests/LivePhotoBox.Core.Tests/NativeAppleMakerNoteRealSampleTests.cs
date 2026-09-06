@@ -91,13 +91,7 @@ public sealed class NativeAppleMakerNoteRealSampleTests
         }
     }
 
-    private static string ResolveSample(string fileName)
-    {
-        string path = Path.Combine(AppContext.BaseDirectory, "samples", fileName);
-        if (!File.Exists(path))
-            throw new FileNotFoundException($"Sample not found: {path}");
-        return path;
-    }
+    private static string ResolveSample(string fileName) => TestSampleResolver.ResolveSample(fileName);
 
     private static string? FindExifToolOnPath()
     {

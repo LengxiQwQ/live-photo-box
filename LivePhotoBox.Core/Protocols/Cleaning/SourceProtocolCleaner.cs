@@ -21,7 +21,7 @@ namespace LivePhotoBox.Protocols.Cleaning;
 public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
 {
     private readonly ISourceInspector _inspector;
-    private readonly Func<SourceMediaFacts, IReadOnlyList<PlannedCleanupAction>, string, string?, string?, string?, CancellationToken, Task<IReadOnlyList<RemovedProtocolFact>>> _cleanInvoker;
+    private readonly Func<SourceMediaFacts, IReadOnlyList<PlannedCleanupAction>, IReadOnlyList<PlannedArtifactTarget>?, string, string?, string?, string?, CancellationToken, Task<IReadOnlyList<RemovedProtocolFact>>> _cleanInvoker;
 
     /// <summary>
     /// Test seam for deterministic fault injection and mid-operation cancellation in tests.
@@ -32,6 +32,22 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
     public SourceProtocolCleaner(
         ISourceInspector? inspector = null,
         Func<SourceMediaFacts, IReadOnlyList<PlannedCleanupAction>, string, string?, string?, string?, CancellationToken, Task<IReadOnlyList<RemovedProtocolFact>>>? cleanInvoker = null)
+    {
+        _inspector = inspector ?? new SourceInspector();
+        if (cleanInvoker != null)
+        {
+            _cleanInvoker = (facts, actions, targets, inImg, inVid, outImg, outVid, ct) =>
+                cleanInvoker(facts, actions, inImg, inVid, outImg, outVid, ct);
+        }
+        else
+        {
+            _cleanInvoker = NativeCleanService.CleanSourceProtocolAsync;
+        }
+    }
+
+    public SourceProtocolCleaner(
+        ISourceInspector inspector,
+        Func<SourceMediaFacts, IReadOnlyList<PlannedCleanupAction>, IReadOnlyList<PlannedArtifactTarget>?, string, string?, string?, string?, CancellationToken, Task<IReadOnlyList<RemovedProtocolFact>>> cleanInvoker)
     {
         _inspector = inspector ?? new SourceInspector();
         _cleanInvoker = cleanInvoker ?? NativeCleanService.CleanSourceProtocolAsync;
@@ -157,6 +173,24 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             var plannedResidueIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (var residue in authorizations)
             {
+                if (residue.OwnerProtocol != facts.Protocol)
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.CleanupAuthorizationMissing,
+                        CleanerFailureStage.Planning,
+                        facts.Protocol,
+                        $"Residue '{residue.Id}' has mismatched OwnerProtocol: expected '{facts.Protocol}', actual '{residue.OwnerProtocol}'.");
+                }
+
+                if (residue.RequiredAfterExtraction && string.IsNullOrEmpty(residue.ExpectedFingerprint))
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.StructureChanged,
+                        CleanerFailureStage.Planning,
+                        facts.Protocol,
+                        $"Mandatory destructive residue '{residue.Id}' is missing ExpectedFingerprint.");
+                }
+
                 if (!plannedResidueIds.Add(residue.Id))
                 {
                     throw new CleanerException(
@@ -169,6 +203,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 planActions.Add(new PlannedCleanupAction
                 {
                     ResidueId = residue.Id,
+                    OwnerProtocol = residue.OwnerProtocol,
                     ArtifactRole = residue.ArtifactRole,
                     StructureKind = residue.StructureKind,
                     Selector = residue.Selector,
@@ -179,10 +214,30 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 });
             }
 
+            var targets = new List<PlannedArtifactTarget>
+            {
+                new PlannedArtifactTarget
+                {
+                    Role = MediaArtifactKind.PrimaryImage,
+                    ExpectedByteLength = bundle.PrimaryImage.ByteLength,
+                    ExpectedSha256 = bundle.PrimaryImage.Sha256 ?? string.Empty
+                }
+            };
+            if (bundle.MotionVideo != null)
+            {
+                targets.Add(new PlannedArtifactTarget
+                {
+                    Role = MediaArtifactKind.MotionVideo,
+                    ExpectedByteLength = bundle.MotionVideo.ByteLength,
+                    ExpectedSha256 = bundle.MotionVideo.Sha256 ?? string.Empty
+                });
+            }
+
             var cleanupPlan = new ProtocolCleanupPlan
             {
                 Protocol = facts.Protocol,
-                Actions = planActions
+                Actions = planActions,
+                ArtifactTargets = targets
             };
 
             // -------------------------------------------------------------
@@ -213,11 +268,16 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 removedFacts = await _cleanInvoker(
                     facts,
                     cleanupPlan.Actions,
+                    cleanupPlan.ArtifactTargets,
                     bundle.PrimaryImage.Path,
                     bundle.MotionVideo?.Path,
                     stagedImgPath,
                     stagedVidPath,
                     cancellationToken).ConfigureAwait(false);
+            }
+            catch (CleanerException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -711,7 +771,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             CleanupPlan = new ProtocolCleanupPlan
             {
                 Protocol = SourceProtocol.NonLive,
-                Actions = []
+                Actions = [],
+                ArtifactTargets = []
             },
             TransactionState = CleanerTransactionState.Committed,
             Duration = sw.Elapsed

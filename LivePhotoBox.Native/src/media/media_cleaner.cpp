@@ -5,6 +5,7 @@
 #include "protocols/clean/jpeg_structure_cleaner.h"
 #include "protocols/apple.h"
 #include "foundation/residue_fingerprint.h"
+#include "foundation/sha256.h"
 #include "foundation/internal.h"
 #include "binary/binary_io.h"
 #include "metadata/jpeg.h"
@@ -19,6 +20,7 @@
 #include <limits>
 #include <random>
 #include <string_view>
+#include <unordered_set>
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -57,20 +59,25 @@ static void add_fact(
 const lpb_cleanup_action* find_authorized_action(
     const lpb_cleanup_action* actions,
     size_t action_count,
+    lpb_source_protocol expected_protocol,
     std::string_view residue_id,
     lpb_media_artifact_kind expected_role,
     lpb_residue_structure_kind expected_kind,
     std::string_view expected_selector,
+    std::string_view expected_semantic,
     int32_t expected_removal_mode)
 {
     if (!actions || action_count == 0 || residue_id.empty()) return nullptr;
     for (size_t i = 0; i < action_count; ++i) {
         const auto& a = actions[i];
         if (residue_id == a.residue_id) {
+            if (a.owner_protocol != expected_protocol) return nullptr;
             if (a.artifact_role != expected_role) return nullptr;
             if (a.structure_kind != expected_kind) return nullptr;
             if (!expected_selector.empty() && expected_selector != a.selector) return nullptr;
+            if (!expected_semantic.empty() && expected_semantic != a.expected_semantic) return nullptr;
             if (expected_removal_mode >= 0 && a.removal_mode != expected_removal_mode) return nullptr;
+            if (a.expected_fingerprint[0] == '\0') return nullptr;
             return &a;
         }
     }
@@ -314,50 +321,58 @@ static lpb_result clean_apple_image(
     lpb_image_container img_cont = (data.size() >= 2 && data[0] == 0xFF && data[1] == 0xD8) ? LPB_IMAGE_CONTAINER_JPEG : LPB_IMAGE_CONTAINER_HEIC;
     std::vector<uint16_t> authorized_mn_tags;
     std::string fp_0011, fp_0017, fp_0025, fp_002b;
-    const auto* act_0011 = find_authorized_action(actions, action_count, "apple-img-makernote-0011",
-        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG, "0x0011", LPB_REMOVAL_REBUILD_CONTAINER);
-    const auto* act_0017 = find_authorized_action(actions, action_count, "apple-img-makernote-0017",
-        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG, "0x0017", LPB_REMOVAL_REBUILD_CONTAINER);
-    const auto* act_0025 = find_authorized_action(actions, action_count, "apple-img-makernote-0025",
-        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG, "0x0025", LPB_REMOVAL_REBUILD_CONTAINER);
-    const auto* act_002b = find_authorized_action(actions, action_count, "apple-img-makernote-002b",
-        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG, "0x002b", LPB_REMOVAL_REBUILD_CONTAINER);
+    const auto* act_0011 = find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO, "apple-img-makernote-0011",
+        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG, "0x0011", "ContentIdentifier", LPB_REMOVAL_REBUILD_CONTAINER);
+    const auto* act_0017 = find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO, "apple-img-makernote-0017",
+        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG, "0x0017", "LivePhotoEntry17", LPB_REMOVAL_REBUILD_CONTAINER);
+    const auto* act_0025 = find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO, "apple-img-makernote-0025",
+        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG, "0x0025", "LivePhotoEntry25", LPB_REMOVAL_REBUILD_CONTAINER);
+    const auto* act_002b = find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO, "apple-img-makernote-002b",
+        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG, "0x002b", "LivePhotoEntry2B", LPB_REMOVAL_REBUILD_CONTAINER);
 
     if (act_0011) {
-        if (lpb::protocols::apple::apple_image_get_tag_fingerprint(context, data, img_cont, 0x0011, fp_0011)) {
-            if (act_0011->expected_fingerprint[0] != '\0' && fp_0011 != act_0011->expected_fingerprint) {
-                set_error(context, "Residue fingerprint mismatch for apple-img-makernote-0011.");
-                return LPB_RESULT_INVALID_ARGUMENT;
-            }
-            authorized_mn_tags.push_back(0x0011);
+        if (!lpb::protocols::apple::apple_image_get_tag_fingerprint(context, data, img_cont, 0x0011, fp_0011)) {
+            set_error(context, "Failed to compute residue fingerprint for apple-img-makernote-0011.");
+            return LPB_RESULT_INVALID_ARGUMENT;
         }
+        if (act_0011->expected_fingerprint[0] == '\0' || fp_0011 != act_0011->expected_fingerprint) {
+            set_error(context, "Residue fingerprint missing or mismatch for apple-img-makernote-0011.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        authorized_mn_tags.push_back(0x0011);
     }
     if (act_0017) {
-        if (lpb::protocols::apple::apple_image_get_tag_fingerprint(context, data, img_cont, 0x0017, fp_0017)) {
-            if (act_0017->expected_fingerprint[0] != '\0' && fp_0017 != act_0017->expected_fingerprint) {
-                set_error(context, "Residue fingerprint mismatch for apple-img-makernote-0017.");
-                return LPB_RESULT_INVALID_ARGUMENT;
-            }
-            authorized_mn_tags.push_back(0x0017);
+        if (!lpb::protocols::apple::apple_image_get_tag_fingerprint(context, data, img_cont, 0x0017, fp_0017)) {
+            set_error(context, "Failed to compute residue fingerprint for apple-img-makernote-0017.");
+            return LPB_RESULT_INVALID_ARGUMENT;
         }
+        if (act_0017->expected_fingerprint[0] == '\0' || fp_0017 != act_0017->expected_fingerprint) {
+            set_error(context, "Residue fingerprint missing or mismatch for apple-img-makernote-0017.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        authorized_mn_tags.push_back(0x0017);
     }
     if (act_0025) {
-        if (lpb::protocols::apple::apple_image_get_tag_fingerprint(context, data, img_cont, 0x0025, fp_0025)) {
-            if (act_0025->expected_fingerprint[0] != '\0' && fp_0025 != act_0025->expected_fingerprint) {
-                set_error(context, "Residue fingerprint mismatch for apple-img-makernote-0025.");
-                return LPB_RESULT_INVALID_ARGUMENT;
-            }
-            authorized_mn_tags.push_back(0x0025);
+        if (!lpb::protocols::apple::apple_image_get_tag_fingerprint(context, data, img_cont, 0x0025, fp_0025)) {
+            set_error(context, "Failed to compute residue fingerprint for apple-img-makernote-0025.");
+            return LPB_RESULT_INVALID_ARGUMENT;
         }
+        if (act_0025->expected_fingerprint[0] == '\0' || fp_0025 != act_0025->expected_fingerprint) {
+            set_error(context, "Residue fingerprint missing or mismatch for apple-img-makernote-0025.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        authorized_mn_tags.push_back(0x0025);
     }
     if (act_002b) {
-        if (lpb::protocols::apple::apple_image_get_tag_fingerprint(context, data, img_cont, 0x002b, fp_002b)) {
-            if (act_002b->expected_fingerprint[0] != '\0' && fp_002b != act_002b->expected_fingerprint) {
-                set_error(context, "Residue fingerprint mismatch for apple-img-makernote-002b.");
-                return LPB_RESULT_INVALID_ARGUMENT;
-            }
-            authorized_mn_tags.push_back(0x002b);
+        if (!lpb::protocols::apple::apple_image_get_tag_fingerprint(context, data, img_cont, 0x002b, fp_002b)) {
+            set_error(context, "Failed to compute residue fingerprint for apple-img-makernote-002b.");
+            return LPB_RESULT_INVALID_ARGUMENT;
         }
+        if (act_002b->expected_fingerprint[0] == '\0' || fp_002b != act_002b->expected_fingerprint) {
+            set_error(context, "Residue fingerprint missing or mismatch for apple-img-makernote-002b.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        authorized_mn_tags.push_back(0x002b);
     }
 
     if (!authorized_mn_tags.empty()) {
@@ -432,30 +447,30 @@ static lpb_result clean_apple_video(
     size_t action_count,
     std::vector<lpb_removed_protocol_fact>& out_facts)
 {
-    const bool should_strip_cid = find_authorized_action(actions, action_count, "apple-vid-mdta-cid",
-        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.apple.quicktime.content.identifier", LPB_REMOVAL_DELETE) != nullptr;
-    const bool should_strip_livephoto = find_authorized_action(actions, action_count, "apple-vid-mdta-livephoto",
-        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.apple.quicktime.live-photo", LPB_REMOVAL_DELETE) != nullptr;
+    const bool should_strip_cid = find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO, "apple-vid-mdta-cid",
+        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.apple.quicktime.content.identifier", "ContentIdentifier", LPB_REMOVAL_DELETE) != nullptr;
+    const bool should_strip_livephoto = find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO, "apple-vid-mdta-livephoto",
+        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.apple.quicktime.live-photo", "LivePhotoKey", LPB_REMOVAL_DELETE) != nullptr;
 
     std::vector<const char*> track_patterns;
     std::vector<std::pair<const char*, const char*>> track_residues;
-    if (find_authorized_action(actions, action_count, "apple-vid-track-livephoto-info",
-            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.apple.quicktime.live-photo-info", LPB_REMOVAL_DELETE)) {
+    if (find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO, "apple-vid-track-livephoto-info",
+            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.apple.quicktime.live-photo-info", "LivePhotoInfoTrack", LPB_REMOVAL_DELETE)) {
         track_patterns.push_back("com.apple.quicktime.live-photo-info");
         track_residues.push_back({"apple-vid-track-livephoto-info", "Removed com.apple.quicktime.live-photo-info track"});
     }
-    if (find_authorized_action(actions, action_count, "apple-vid-track-still-image-time",
-            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.apple.quicktime.still-image-time", LPB_REMOVAL_DELETE)) {
+    if (find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO, "apple-vid-track-still-image-time",
+            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.apple.quicktime.still-image-time", "StillImageTimeTrack", LPB_REMOVAL_DELETE)) {
         track_patterns.push_back("com.apple.quicktime.still-image-time");
         track_residues.push_back({"apple-vid-track-still-image-time", "Removed com.apple.quicktime.still-image-time track"});
     }
-    if (find_authorized_action(actions, action_count, "apple-vid-track-transform",
-            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.apple.quicktime.live-photo-still-image-transform", LPB_REMOVAL_DELETE)) {
+    if (find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO, "apple-vid-track-transform",
+            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.apple.quicktime.live-photo-still-image-transform", "StillImageTransformTrack", LPB_REMOVAL_DELETE)) {
         track_patterns.push_back("com.apple.quicktime.live-photo-still-image-transform");
         track_residues.push_back({"apple-vid-track-transform", "Removed com.apple.quicktime.live-photo-still-image-transform track"});
     }
-    if (find_authorized_action(actions, action_count, "apple-vid-track-reference-dimensions",
-            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.apple.quicktime.live-photo-still-image-transform-reference-dimensions", LPB_REMOVAL_DELETE)) {
+    if (find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO, "apple-vid-track-reference-dimensions",
+            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.apple.quicktime.live-photo-still-image-transform-reference-dimensions", "TransformReferenceDimensionsTrack", LPB_REMOVAL_DELETE)) {
         track_patterns.push_back("com.apple.quicktime.live-photo-still-image-transform-reference-dimensions");
         track_residues.push_back({"apple-vid-track-reference-dimensions", "Removed com.apple.quicktime.live-photo-still-image-transform-reference-dimensions track"});
     }
@@ -476,6 +491,7 @@ static lpb_result clean_apple_video(
     }
 
     lpb::containers::Mp4StripSpec spec{};
+    spec.expected_protocol = LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO;
     spec.mdta_starts = starts.data();
     spec.mdta_starts_count = starts.size();
     spec.track_patterns = track_patterns.data();
@@ -516,14 +532,14 @@ static lpb_result clean_vivo_legacy_video(
     size_t action_count,
     std::vector<lpb_removed_protocol_fact>& out_facts)
 {
-    const auto* act_uuid = find_authorized_action(actions, action_count, "vivo-legacy-vid-uuid",
-        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_UUID_BOX, "vivoMediaExtInfo", LPB_REMOVAL_DELETE);
-    const auto* act_lp = find_authorized_action(actions, action_count, "vivo-legacy-vid-mdta-livephoto",
-        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.android.camera.livephoto", LPB_REMOVAL_DELETE);
-    const auto* act_it = find_authorized_action(actions, action_count, "vivo-legacy-vid-mdta-imagetime",
-        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.android.camera.imageTime", LPB_REMOVAL_DELETE);
-    const auto* act_gallery = find_authorized_action(actions, action_count, "vivo-legacy-vid-mdta-gallery",
-        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.vivo.gallery.livePhoto", LPB_REMOVAL_DELETE);
+    const auto* act_uuid = find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL, "vivo-legacy-vid-uuid",
+        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_UUID_BOX, "vivoMediaExtInfo", "vivoMediaExtInfo", LPB_REMOVAL_DELETE);
+    const auto* act_lp = find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL, "vivo-legacy-vid-mdta-livephoto",
+        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.android.camera.livephoto", "com.android.camera.livephoto", LPB_REMOVAL_DELETE);
+    const auto* act_it = find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL, "vivo-legacy-vid-mdta-imagetime",
+        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.android.camera.imageTime", "com.android.camera.imageTime", LPB_REMOVAL_DELETE);
+    const auto* act_gallery = find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL, "vivo-legacy-vid-mdta-gallery",
+        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.vivo.gallery.livePhoto", "com.vivo.gallery.livePhoto", LPB_REMOVAL_DELETE);
 
     if (!act_uuid && !act_lp && !act_it && !act_gallery) {
         return fast_file_copy(context, in_path.c_str(), out_path.c_str());
@@ -550,6 +566,7 @@ static lpb_result clean_vivo_legacy_video(
     }
 
     lpb::containers::Mp4StripSpec spec{};
+    spec.expected_protocol = LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL;
     if (act_uuid) spec.strip_uuid_16 = vivo_uuid;
     spec.mdta_starts = starts.data();
     spec.mdta_starts_count = starts.size();
@@ -581,18 +598,19 @@ static lpb_result clean_huawei_video(
     lpb_context* context,
     const std::string& in_path,
     const std::string& out_path,
+    lpb_source_protocol protocol,
     const lpb_cleanup_action* actions,
     size_t action_count,
     std::vector<lpb_removed_protocol_fact>& out_facts)
 {
-    const auto* act_openharmony = find_authorized_action(actions, action_count, "huawei-vid-mdta-openharmony",
-        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.openharmony.movingphoto", LPB_REMOVAL_DELETE);
-    const auto* act_huawei = find_authorized_action(actions, action_count, "huawei-vid-mdta-huawei",
-        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.huawei.movingphoto", LPB_REMOVAL_DELETE);
-    const auto* act_covertime = find_authorized_action(actions, action_count, "huawei-vid-mdta-covertime",
-        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.openharmony.covertime", LPB_REMOVAL_DELETE);
-    const auto* act_track = find_authorized_action(actions, action_count, "huawei-vid-track-movingphoto",
-        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.openharmony.timed_metadata.movingphoto", LPB_REMOVAL_DELETE);
+    const auto* act_openharmony = find_authorized_action(actions, action_count, protocol, "huawei-vid-mdta-openharmony",
+        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.openharmony.movingphoto", "com.openharmony.movingphoto", LPB_REMOVAL_DELETE);
+    const auto* act_huawei = find_authorized_action(actions, action_count, protocol, "huawei-vid-mdta-huawei",
+        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.huawei.movingphoto", "com.huawei.movingphoto", LPB_REMOVAL_DELETE);
+    const auto* act_covertime = find_authorized_action(actions, action_count, protocol, "huawei-vid-mdta-covertime",
+        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.openharmony.covertime", "com.openharmony.covertime", LPB_REMOVAL_DELETE);
+    const auto* act_track = find_authorized_action(actions, action_count, protocol, "huawei-vid-track-movingphoto",
+        LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.openharmony.timed_metadata.movingphoto", "com.openharmony.timed_metadata.movingphoto", LPB_REMOVAL_DELETE);
 
     if (!act_openharmony && !act_huawei && !act_covertime && !act_track) {
         return fast_file_copy(context, in_path.c_str(), out_path.c_str());
@@ -622,6 +640,7 @@ static lpb_result clean_huawei_video(
     }
 
     lpb::containers::Mp4StripSpec spec{};
+    spec.expected_protocol = protocol;
     spec.mdta_starts = starts.data();
     spec.mdta_starts_count = starts.size();
     spec.mdta_contains = contains.data();
@@ -635,18 +654,19 @@ static lpb_result clean_huawei_video(
     lpb_result res = lpb::containers::stream_clean_mp4_file(context, in_path, out_path, spec, outcome);
     if (res != LPB_RESULT_OK) return res;
 
+    const char* proto_str = protocol == LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO ? "Honor" : "Huawei";
     if (outcome.mdta_removed) {
         for (size_t i = 0; i < starts_residues.size(); ++i) {
             if (i < outcome.mdta_starts_matched.size() && outcome.mdta_starts_matched[i]) {
                 const char* fp = i < outcome.mdta_starts_fingerprints.size() ? outcome.mdta_starts_fingerprints[i].c_str() : "";
-                add_fact(out_facts, "Huawei", "QuickTime MDTA Keys", starts_residues[i].second,
+                add_fact(out_facts, proto_str, "QuickTime MDTA Keys", starts_residues[i].second,
                     starts_residues[i].first, LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "Removed", "Removed", fp);
             }
         }
         for (size_t i = 0; i < contains_residues.size(); ++i) {
             if (i < outcome.mdta_contains_matched.size() && outcome.mdta_contains_matched[i]) {
                 const char* fp = i < outcome.mdta_contains_fingerprints.size() ? outcome.mdta_contains_fingerprints[i].c_str() : "";
-                add_fact(out_facts, "Huawei", "QuickTime MDTA Keys", contains_residues[i].second,
+                add_fact(out_facts, proto_str, "QuickTime MDTA Keys", contains_residues[i].second,
                     contains_residues[i].first, LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "Removed", "Removed", fp);
             }
         }
@@ -654,7 +674,7 @@ static lpb_result clean_huawei_video(
     if (outcome.track_removed && act_track) {
         if (!outcome.track_patterns_matched.empty() && outcome.track_patterns_matched[0]) {
             const char* fp = !outcome.track_fingerprints.empty() ? outcome.track_fingerprints[0].c_str() : "";
-            add_fact(out_facts, "Huawei", "Moving Photo metadata track", "Removed the validated movingphoto timed-metadata track",
+            add_fact(out_facts, proto_str, "Moving Photo metadata track", "Removed the validated movingphoto timed-metadata track",
                 "huawei-vid-track-movingphoto", LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "Removed", "Removed", fp);
         }
     }
@@ -666,6 +686,8 @@ lpb_result clean_source_protocol_with_plan(
     const lpb_source_media_facts* facts,
     const lpb_cleanup_action* actions,
     size_t action_count,
+    const lpb_cleanup_artifact_binding* targets,
+    size_t target_count,
     const char* input_image_path,
     const char* input_video_path,
     const char* output_image_path,
@@ -681,6 +703,85 @@ lpb_result clean_source_protocol_with_plan(
         set_error(context, "No cleanup actions authorized in plan.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
+
+    if (!targets || target_count == 0) {
+        set_error(context, "No artifact snapshot targets provided for TOCTOU verification.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    const lpb_cleanup_artifact_binding* primary_target = nullptr;
+    const lpb_cleanup_artifact_binding* video_target = nullptr;
+    for (size_t i = 0; i < target_count; ++i) {
+        if (targets[i].artifact_role == LPB_ARTIFACT_PRIMARY_IMAGE) {
+            primary_target = &targets[i];
+        } else if (targets[i].artifact_role == LPB_ARTIFACT_MOTION_VIDEO) {
+            video_target = &targets[i];
+        }
+    }
+
+    if (!primary_target) {
+        set_error(context, "Primary image artifact snapshot target is required.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    std::error_code ec;
+    auto img_p = utf8_to_path(input_image_path);
+    auto img_size = fs::file_size(img_p, ec);
+    if (ec || static_cast<uint64_t>(img_size) != primary_target->expected_length) {
+        set_error(context, "TOCTOU check failed: input image artifact length mismatch.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (primary_target->has_expected_sha256) {
+        uint8_t actual_sha[32]{};
+        if (!lpb::crypto::sha256_path(img_p.c_str(), actual_sha) ||
+            std::memcmp(actual_sha, primary_target->expected_sha256, 32) != 0) {
+            set_error(context, "TOCTOU check failed: input image artifact SHA-256 mismatch.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+    }
+
+    if (input_video_path) {
+        if (!video_target) {
+            set_error(context, "Motion video artifact snapshot target is required when video input is provided.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        auto vid_p = utf8_to_path(input_video_path);
+        auto vid_size = fs::file_size(vid_p, ec);
+        if (ec || static_cast<uint64_t>(vid_size) != video_target->expected_length) {
+            set_error(context, "TOCTOU check failed: input video artifact length mismatch.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if (video_target->has_expected_sha256) {
+            uint8_t actual_sha[32]{};
+            if (!lpb::crypto::sha256_path(vid_p.c_str(), actual_sha) ||
+                std::memcmp(actual_sha, video_target->expected_sha256, 32) != 0) {
+                set_error(context, "TOCTOU check failed: input video artifact SHA-256 mismatch.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+        }
+    }
+
+    std::unordered_set<std::string_view> seen_residues;
+    for (size_t i = 0; i < action_count; ++i) {
+        const auto& a = actions[i];
+        if (a.owner_protocol != facts->protocol) {
+            set_error(context, "Action owner protocol mismatch with detected source protocol.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if (a.residue_id[0] == '\0') {
+            set_error(context, "Action residue_id must not be empty.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if (!seen_residues.insert(a.residue_id).second) {
+            set_error(context, "Duplicate residue_id in cleanup actions.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if (a.is_mandatory && a.expected_fingerprint[0] == '\0') {
+            set_error(context, "Mandatory action must specify non-empty expected_fingerprint.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+    }
+
     if (paths_alias(input_image_path, output_image_path) ||
         (input_video_path && output_image_path && paths_alias(input_video_path, output_image_path)) ||
         (input_image_path && output_video_path && paths_alias(input_image_path, output_video_path)) ||
@@ -743,7 +844,8 @@ lpb_result clean_source_protocol_with_plan(
         case LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO:
             res = fast_file_copy(context, input_image_path, output_image_path);
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-                res = clean_huawei_video(context, input_video_path, output_video_path, actions, action_count, removed_facts);
+                res = clean_huawei_video(context, input_video_path, output_video_path,
+                    static_cast<lpb_source_protocol>(facts->protocol), actions, action_count, removed_facts);
             }
             break;
 
@@ -757,7 +859,7 @@ lpb_result clean_source_protocol_with_plan(
         }
 
         if (res == LPB_RESULT_OK && removed_facts.size() > facts_capacity) {
-            std::error_code ec;
+            ec.clear();
             fs::remove(utf8_to_path(output_image_path), ec);
             if (output_video_path) fs::remove(utf8_to_path(output_video_path), ec);
             if (out_facts_count) *out_facts_count = removed_facts.size();
@@ -781,21 +883,5 @@ lpb_result clean_source_protocol_with_plan(
         return LPB_RESULT_INTERNAL_ERROR;
     }
 }
-
-lpb_result clean_source_protocol(
-    lpb_context* context,
-    const lpb_source_media_facts* /*facts*/,
-    const char* /*input_image_path*/,
-    const char* /*input_video_path*/,
-    const char* /*output_image_path*/,
-    const char* /*output_video_path*/,
-    lpb_removed_protocol_fact* /*out_facts*/,
-    size_t /*facts_capacity*/,
-    size_t* out_facts_count)
-{
-    if (out_facts_count) *out_facts_count = 0;
-    set_error(context, "Unplanned source protocol cleaning is forbidden. A CleanupPlan with authorized actions must be provided via lpb_clean_source_protocol_with_plan.");
-    return LPB_RESULT_INVALID_ARGUMENT;
-}
-
 } // namespace lpb::media
+

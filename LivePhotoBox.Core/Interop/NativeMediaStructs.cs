@@ -93,6 +93,7 @@ internal unsafe struct NativeCleanupAction
 {
     public uint StructSize;
     public fixed byte ResidueId[64];
+    public int OwnerProtocol;
     public int ArtifactRole;
     public int StructureKind;
     public fixed byte Selector[128];
@@ -100,6 +101,17 @@ internal unsafe struct NativeCleanupAction
     public fixed byte ExpectedFingerprint[64];
     public int RemovalMode;
     public int IsMandatory;
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal unsafe struct NativeCleanupArtifactBinding
+{
+    public uint StructSize;
+    public int ArtifactRole;
+    public ulong ExpectedLength;
+    public fixed byte ExpectedSha256[32];
+    public int HasExpectedSha256;
+    public int Reserved;
 }
 
 [StructLayout(LayoutKind.Sequential)]

@@ -48,6 +48,7 @@ public sealed record RemovedProtocolFact
 public sealed record PlannedCleanupAction
 {
     public required string ResidueId { get; init; }
+    public required SourceProtocol OwnerProtocol { get; init; }
     public required MediaArtifactKind ArtifactRole { get; init; }
     public required ResidueStructureKind StructureKind { get; init; }
     public required string Selector { get; init; }
@@ -57,6 +58,13 @@ public sealed record PlannedCleanupAction
     public bool IsMandatory { get; init; } = true;
 }
 
+public sealed record PlannedArtifactTarget
+{
+    public required MediaArtifactKind Role { get; init; }
+    public required long ExpectedByteLength { get; init; }
+    public required string ExpectedSha256 { get; init; }
+}
+
 /// <summary>
 /// Immutable plan generated and validated before any destructive mutations occur.
 /// </summary>
@@ -64,6 +72,13 @@ public sealed record ProtocolCleanupPlan
 {
     public required SourceProtocol Protocol { get; init; }
     public required IReadOnlyList<PlannedCleanupAction> Actions { get; init; }
+    public required IReadOnlyList<PlannedArtifactTarget> ArtifactTargets { get; init; }
+    public long PrimaryArtifactLength => PrimaryTarget?.ExpectedByteLength ?? 0;
+    public string PrimaryArtifactSha256 => PrimaryTarget?.ExpectedSha256 ?? "";
+    public long? SecondaryArtifactLength => VideoTarget?.ExpectedByteLength;
+    public string? SecondaryArtifactSha256 => VideoTarget?.ExpectedSha256;
+    public PlannedArtifactTarget? PrimaryTarget => System.Linq.Enumerable.FirstOrDefault(ArtifactTargets, t => t.Role == MediaArtifactKind.PrimaryImage);
+    public PlannedArtifactTarget? VideoTarget => System.Linq.Enumerable.FirstOrDefault(ArtifactTargets, t => t.Role == MediaArtifactKind.MotionVideo);
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
 
@@ -198,6 +213,14 @@ public sealed record ProtocolCleanResult
     public string? ErrorMessage { get; init; }
 }
 
+public enum GainMapRepresentation
+{
+    None,
+    Embedded,
+    Detached,
+    Both
+}
+
 /// <summary>
 /// Manifest describing an individual neutral media artifact.
 /// </summary>
@@ -211,6 +234,7 @@ public sealed record NeutralArtifactManifest
     public VideoContainer VideoContainer { get; init; } = VideoContainer.Unknown;
     public VideoCodec VideoCodec { get; init; } = VideoCodec.Unknown;
     public PreservationOutcome PreservationOutcome { get; init; }
+    public GainMapRepresentation GainMapRepresentation { get; init; } = GainMapRepresentation.None;
 }
 
 /// <summary>
@@ -223,6 +247,7 @@ public sealed record NeutralMediaBundle
     public required MediaArtifact PrimaryImage { get; init; }
     public MediaArtifact? MotionVideo { get; init; }
     public MediaArtifact? GainMap { get; init; }
+    public GainMapRepresentation GainMapRepresentation { get; init; } = GainMapRepresentation.None;
     public required SourceMediaFacts SourceProvenance { get; init; }
     public required IReadOnlyList<RemovedProtocolFact> RemovedProtocolFacts { get; init; }
     public required IReadOnlyList<NeutralArtifactManifest> Manifest { get; init; }

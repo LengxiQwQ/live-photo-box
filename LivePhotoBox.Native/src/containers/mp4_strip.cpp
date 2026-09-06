@@ -245,7 +245,8 @@ static bool rebuild_moov_without_matching_tracks(
     std::vector<bool>* out_matched = nullptr,
     std::vector<std::string>* out_fps = nullptr,
     const lpb_cleanup_action* actions = nullptr,
-    size_t action_count = 0)
+    size_t action_count = 0,
+    lpb_source_protocol expected_protocol = LPB_SOURCE_PROTOCOL_UNKNOWN)
 {
     out_modified = false;
     const size_t missing = std::numeric_limits<size_t>::max();
@@ -310,9 +311,15 @@ static bool rebuild_moov_without_matching_tracks(
                                                 actions[a].structure_kind == LPB_RESIDUE_QUICKTIME_METADATA_TRACK &&
                                                 actions[a].selector == std::string_view(key_fragments[i]))
                                             {
-                                                if (actions[a].expected_fingerprint[0] != '\0' && fp != actions[a].expected_fingerprint)
+                                                if (expected_protocol != LPB_SOURCE_PROTOCOL_UNKNOWN &&
+                                                    actions[a].owner_protocol != expected_protocol)
                                                 {
-                                                    set_error(context, "Residue fingerprint mismatch for metadata track.");
+                                                    set_error(context, "Residue owner protocol mismatch for metadata track.");
+                                                    return false;
+                                                }
+                                                if (actions[a].expected_fingerprint[0] == '\0' || fp != actions[a].expected_fingerprint)
+                                                {
+                                                    set_error(context, "Residue fingerprint missing or mismatch for metadata track.");
                                                     return false;
                                                 }
                                                 authorized = true;
@@ -324,6 +331,11 @@ static bool rebuild_moov_without_matching_tracks(
                                             set_error(context, "Unauthorized removal of metadata track.");
                                             return false;
                                         }
+                                    }
+                                    else if (expected_protocol != LPB_SOURCE_PROTOCOL_UNKNOWN)
+                                    {
+                                        set_error(context, "Unauthorized removal of metadata track: missing action authority.");
+                                        return false;
                                     }
                                     found = true;
                                     if (out_matched && i < out_matched->size()) (*out_matched)[i] = true;
@@ -395,7 +407,8 @@ static bool rebuild_moov_without_matching_mdta_keys(
     std::vector<std::string>* out_starts_fps = nullptr,
     std::vector<std::string>* out_contains_fps = nullptr,
     const lpb_cleanup_action* actions = nullptr,
-    size_t action_count = 0)
+    size_t action_count = 0,
+    lpb_source_protocol expected_protocol = LPB_SOURCE_PROTOCOL_UNKNOWN)
 {
     out_modified = false;
     if (data.size() < 8 || !is_type(data, 0, "moov")) return false;
@@ -523,8 +536,13 @@ static bool rebuild_moov_without_matching_mdta_keys(
                         if (actions[a].artifact_role == LPB_ARTIFACT_MOTION_VIDEO &&
                             actions[a].structure_kind == LPB_RESIDUE_QUICKTIME_MDTA_KEY &&
                             (name == actions[a].selector || starts_with_icase(name, actions[a].selector))) {
-                            if (actions[a].expected_fingerprint[0] != '\0' && fp != actions[a].expected_fingerprint) {
-                                set_error(context, "Residue fingerprint mismatch for mdta key.");
+                            if (expected_protocol != LPB_SOURCE_PROTOCOL_UNKNOWN &&
+                                actions[a].owner_protocol != expected_protocol) {
+                                set_error(context, "Residue owner protocol mismatch for mdta key.");
+                                return false;
+                            }
+                            if (actions[a].expected_fingerprint[0] == '\0' || fp != actions[a].expected_fingerprint) {
+                                set_error(context, "Residue fingerprint missing or mismatch for mdta key.");
                                 return false;
                             }
                             authorized = true;
@@ -535,6 +553,9 @@ static bool rebuild_moov_without_matching_mdta_keys(
                         set_error(context, "Unauthorized removal of mdta key.");
                         return false;
                     }
+                } else if (expected_protocol != LPB_SOURCE_PROTOCOL_UNKNOWN) {
+                    set_error(context, "Unauthorized removal of mdta key: missing action authority.");
+                    return false;
                 }
                 should_remove = true;
                 if (out_starts_matched && k < out_starts_matched->size()) (*out_starts_matched)[k] = true;
@@ -550,8 +571,13 @@ static bool rebuild_moov_without_matching_mdta_keys(
                         if (actions[a].artifact_role == LPB_ARTIFACT_MOTION_VIDEO &&
                             actions[a].structure_kind == LPB_RESIDUE_QUICKTIME_MDTA_KEY &&
                             (name == actions[a].selector || contains_icase(name, actions[a].selector))) {
-                            if (actions[a].expected_fingerprint[0] != '\0' && fp != actions[a].expected_fingerprint) {
-                                set_error(context, "Residue fingerprint mismatch for mdta key.");
+                            if (expected_protocol != LPB_SOURCE_PROTOCOL_UNKNOWN &&
+                                actions[a].owner_protocol != expected_protocol) {
+                                set_error(context, "Residue owner protocol mismatch for mdta key.");
+                                return false;
+                            }
+                            if (actions[a].expected_fingerprint[0] == '\0' || fp != actions[a].expected_fingerprint) {
+                                set_error(context, "Residue fingerprint missing or mismatch for mdta key.");
                                 return false;
                             }
                             authorized = true;
@@ -562,6 +588,9 @@ static bool rebuild_moov_without_matching_mdta_keys(
                         set_error(context, "Unauthorized removal of mdta key.");
                         return false;
                     }
+                } else if (expected_protocol != LPB_SOURCE_PROTOCOL_UNKNOWN) {
+                    set_error(context, "Unauthorized removal of mdta key: missing action authority.");
+                    return false;
                 }
                 should_remove = true;
                 if (out_contains_matched && k < out_contains_matched->size()) (*out_contains_matched)[k] = true;
@@ -944,8 +973,13 @@ lpb_result stream_clean_mp4_file(
                     for (size_t a = 0; a < spec.action_count; ++a) {
                         if (spec.actions[a].artifact_role == LPB_ARTIFACT_MOTION_VIDEO &&
                             spec.actions[a].structure_kind == LPB_RESIDUE_UUID_BOX) {
-                            if (spec.actions[a].expected_fingerprint[0] != '\0' && ufp != spec.actions[a].expected_fingerprint) {
-                                set_error(context, "Residue fingerprint mismatch for uuid box.");
+                            if (spec.expected_protocol != LPB_SOURCE_PROTOCOL_UNKNOWN &&
+                                spec.actions[a].owner_protocol != spec.expected_protocol) {
+                                set_error(context, "Residue owner protocol mismatch for uuid box.");
+                                return LPB_RESULT_INVALID_ARGUMENT;
+                            }
+                            if (spec.actions[a].expected_fingerprint[0] == '\0' || ufp != spec.actions[a].expected_fingerprint) {
+                                set_error(context, "Residue fingerprint missing or mismatch for uuid box.");
                                 return LPB_RESULT_INVALID_ARGUMENT;
                             }
                             authorized = true;
@@ -956,6 +990,9 @@ lpb_result stream_clean_mp4_file(
                         set_error(context, "Unauthorized removal of uuid box.");
                         return LPB_RESULT_INVALID_ARGUMENT;
                     }
+                } else if (spec.expected_protocol != LPB_SOURCE_PROTOCOL_UNKNOWN) {
+                    set_error(context, "Unauthorized removal of uuid box: missing action authority.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
                 }
                 outcome.uuid_fingerprint = ufp;
                 b.is_target_uuid = true;
@@ -1006,7 +1043,7 @@ lpb_result stream_clean_mp4_file(
                     nullptr, 0, new_moov, modified,
                     &outcome.mdta_starts_matched, &outcome.mdta_contains_matched,
                     &outcome.mdta_starts_fingerprints, &outcome.mdta_contains_fingerprints,
-                    spec.actions, spec.action_count)) {
+                    spec.actions, spec.action_count, spec.expected_protocol)) {
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
             if (modified) {
@@ -1022,7 +1059,7 @@ lpb_result stream_clean_mp4_file(
             if (!rebuild_moov_without_matching_tracks(context, moov_data,
                     spec.track_patterns, spec.track_patterns_count,
                     new_moov, modified, &outcome.track_patterns_matched,
-                    &outcome.track_fingerprints, spec.actions, spec.action_count)) {
+                    &outcome.track_fingerprints, spec.actions, spec.action_count, spec.expected_protocol)) {
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
             if (modified) {

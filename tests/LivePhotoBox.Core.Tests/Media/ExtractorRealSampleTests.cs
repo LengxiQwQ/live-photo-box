@@ -15,21 +15,7 @@ namespace LivePhotoBox.Core.Tests.Media;
 
 public sealed class ExtractorRealSampleTests
 {
-    private static string ResolveSample(string fileName)
-    {
-        string[] candidates = [
-            Path.Combine(AppContext.BaseDirectory, "samples", fileName),
-            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "designs", "各个机型测试", fileName),
-            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "designs", "各个机型测试", fileName),
-            Path.Combine(AppContext.BaseDirectory, "designs", "各个机型测试", fileName)
-        ];
-        foreach (var c in candidates)
-        {
-            string full = Path.GetFullPath(c);
-            if (File.Exists(full)) return full;
-        }
-        throw new FileNotFoundException($"Sample not found: {fileName}");
-    }
+    private static string ResolveSample(string fileName) => TestSampleResolver.ResolveSample(fileName);
 
     private static async Task<string> ComputeFileSha256Async(string filePath)
     {

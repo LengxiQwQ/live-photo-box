@@ -13,6 +13,8 @@ internal static partial class NativeMethods
         in NativeSourceMediaFacts facts,
         NativeCleanupAction* actions,
         nuint actionCount,
+        NativeCleanupArtifactBinding* targets,
+        nuint targetCount,
         string inputImagePath,
         string? inputVideoPath,
         string? outputImagePath,

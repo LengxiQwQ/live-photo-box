@@ -3,6 +3,7 @@ using System.IO;
 using System.Threading.Tasks;
 using LivePhotoBox.Media;
 using LivePhotoBox.Media.Models;
+using LivePhotoBox.Protocols.Cleaning;
 using LivePhotoBox.Media.Workspace;
 using Xunit;
 
@@ -10,19 +11,7 @@ namespace LivePhotoBox.Core.Tests.Media;
 
 public sealed class NeutralMediaServiceTests
 {
-    private static string ResolveSample(string filename)
-    {
-        string dir = AppContext.BaseDirectory;
-        while (!string.IsNullOrEmpty(dir))
-        {
-            string candidate = Path.Combine(dir, "designs", "各个机型测试", filename);
-            if (File.Exists(candidate)) return candidate;
-            string? parent = Directory.GetParent(dir)?.FullName;
-            if (parent == null || parent == dir) break;
-            dir = parent;
-        }
-        throw new FileNotFoundException($"Sample file '{filename}' not found.");
-    }
+    private static string ResolveSample(string filename) => TestSampleResolver.ResolveSample(filename);
 
     [Fact]
     [Trait("Category", "RealSamples")]
@@ -111,5 +100,31 @@ public sealed class NeutralMediaServiceTests
         }
 
         Assert.True(jpegCount >= 2, "Neutral JPEG must retain the primary and GainMap JPEG payloads.");
+
+        // Downstream ownership contract: must be unambiguously declared as Embedded
+        Assert.Equal(GainMapRepresentation.Embedded, bundle.GainMapRepresentation);
+        var primaryManifest = Assert.Single(bundle.Manifest, x => x.Role == "PrimaryImage");
+        Assert.Equal(GainMapRepresentation.Embedded, primaryManifest.GainMapRepresentation);
+        var gainMapManifest = Assert.Single(bundle.Manifest, x => x.Role == "GainMap");
+        Assert.Equal(GainMapRepresentation.Embedded, gainMapManifest.GainMapRepresentation);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task CreateNeutralBundle_NonGainMap_HasNoneGainMapRepresentation()
+    {
+        string primary = ResolveSample("苹果-双文件.JPG");
+        string video = ResolveSample("苹果-双文件.MOV");
+        using var workspace = new MediaWorkspace();
+
+        var service = new NeutralMediaService();
+        var bundle = await service.CreateNeutralBundleAsync(primary, video, workspace);
+
+        Assert.NotNull(bundle);
+        Assert.Null(bundle.GainMap);
+        Assert.Equal(GainMapRepresentation.None, bundle.GainMapRepresentation);
+
+        var primaryManifest = Assert.Single(bundle.Manifest, x => x.Role == "PrimaryImage");
+        Assert.Equal(GainMapRepresentation.None, primaryManifest.GainMapRepresentation);
     }
 }

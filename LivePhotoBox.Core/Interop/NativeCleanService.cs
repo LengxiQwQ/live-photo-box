@@ -11,11 +11,51 @@ namespace LivePhotoBox.Interop;
 /// <summary>
 /// Thin control plane service that invokes LivePhotoBox.Native execution plane protocol cleaning operations.
 /// </summary>
-public static class NativeCleanService
+internal static class NativeCleanService
 {
-    public static Task<IReadOnlyList<RemovedProtocolFact>> CleanSourceProtocolAsync(
+    internal static Task<IReadOnlyList<RemovedProtocolFact>> CleanSourceProtocolAsync(
         SourceMediaFacts facts,
         IReadOnlyList<PlannedCleanupAction> actions,
+        string inputImagePath,
+        string? inputVideoPath,
+        string? outputImagePath,
+        string? outputVideoPath,
+        CancellationToken cancellationToken = default)
+    {
+        var targets = new List<PlannedArtifactTarget>();
+        if (System.IO.File.Exists(inputImagePath))
+        {
+            var fi = new System.IO.FileInfo(inputImagePath);
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            using var stream = System.IO.File.OpenRead(inputImagePath);
+            string hash = Convert.ToHexString(sha.ComputeHash(stream));
+            targets.Add(new PlannedArtifactTarget
+            {
+                Role = MediaArtifactKind.PrimaryImage,
+                ExpectedByteLength = fi.Length,
+                ExpectedSha256 = hash
+            });
+        }
+        if (!string.IsNullOrEmpty(inputVideoPath) && System.IO.File.Exists(inputVideoPath))
+        {
+            var fi = new System.IO.FileInfo(inputVideoPath);
+            using var sha = System.Security.Cryptography.SHA256.Create();
+            using var stream = System.IO.File.OpenRead(inputVideoPath);
+            string hash = Convert.ToHexString(sha.ComputeHash(stream));
+            targets.Add(new PlannedArtifactTarget
+            {
+                Role = MediaArtifactKind.MotionVideo,
+                ExpectedByteLength = fi.Length,
+                ExpectedSha256 = hash
+            });
+        }
+        return CleanSourceProtocolAsync(facts, actions, targets, inputImagePath, inputVideoPath, outputImagePath, outputVideoPath, cancellationToken);
+    }
+
+    internal static Task<IReadOnlyList<RemovedProtocolFact>> CleanSourceProtocolAsync(
+        SourceMediaFacts facts,
+        IReadOnlyList<PlannedCleanupAction> actions,
+        IReadOnlyList<PlannedArtifactTarget>? targets,
         string inputImagePath,
         string? inputVideoPath,
         string? outputImagePath,
@@ -31,6 +71,10 @@ public static class NativeCleanService
 
             int actionCount = actions?.Count ?? 0;
             Span<NativeCleanupAction> actionsBuf = actionCount > 0 ? stackalloc NativeCleanupAction[actionCount] : default;
+
+            int targetCount = targets?.Count ?? 0;
+            Span<NativeCleanupArtifactBinding> targetsBuf = targetCount > 0 ? stackalloc NativeCleanupArtifactBinding[targetCount] : default;
+
             unsafe
             {
                 for (int i = 0; i < actionCount; i++)
@@ -38,8 +82,9 @@ public static class NativeCleanService
                     actionsBuf[i].StructSize = (uint)sizeof(NativeCleanupAction);
                     fixed (byte* pId = actionsBuf[i].ResidueId)
                         WriteFixedUtf8String(pId, 64, actions![i].ResidueId);
-                    actionsBuf[i].ArtifactRole = (int)actions![i].ArtifactRole;
-                    actionsBuf[i].StructureKind = (int)actions![i].StructureKind;
+                    actionsBuf[i].OwnerProtocol = (int)actions[i].OwnerProtocol;
+                    actionsBuf[i].ArtifactRole = (int)actions[i].ArtifactRole;
+                    actionsBuf[i].StructureKind = (int)actions[i].StructureKind;
                     fixed (byte* pSel = actionsBuf[i].Selector)
                         WriteFixedUtf8String(pSel, 128, actions[i].Selector);
                     fixed (byte* pSem = actionsBuf[i].ExpectedSemantic)
@@ -50,8 +95,25 @@ public static class NativeCleanService
                     actionsBuf[i].IsMandatory = actions[i].IsMandatory ? 1 : 0;
                 }
 
+                for (int i = 0; i < targetCount; i++)
+                {
+                    targetsBuf[i].StructSize = (uint)sizeof(NativeCleanupArtifactBinding);
+                    targetsBuf[i].ArtifactRole = (int)targets![i].Role;
+                    targetsBuf[i].ExpectedLength = (ulong)targets[i].ExpectedByteLength;
+                    if (!string.IsNullOrEmpty(targets[i].ExpectedSha256))
+                    {
+                        byte[] hashBytes = Convert.FromHexString(targets[i].ExpectedSha256);
+                        fixed (byte* pSha = targetsBuf[i].ExpectedSha256)
+                        {
+                            System.Runtime.InteropServices.Marshal.Copy(hashBytes, 0, (nint)pSha, Math.Min(32, hashBytes.Length));
+                        }
+                        targetsBuf[i].HasExpectedSha256 = 1;
+                    }
+                }
+
                 Span<NativeRemovedProtocolFact> factsBuf = stackalloc NativeRemovedProtocolFact[64];
                 fixed (NativeCleanupAction* pActions = actionsBuf)
+                fixed (NativeCleanupArtifactBinding* pTargets = targetsBuf)
                 fixed (NativeRemovedProtocolFact* pFacts = factsBuf)
                 {
                     for (int i = 0; i < factsBuf.Length; i++)
@@ -64,6 +126,8 @@ public static class NativeCleanService
                         in nativeFacts,
                         pActions,
                         (nuint)actionCount,
+                        pTargets,
+                        (nuint)targetCount,
                         inputImagePath,
                         inputVideoPath,
                         outputImagePath,
@@ -72,7 +136,19 @@ public static class NativeCleanService
                         (nuint)factsBuf.Length,
                         out nuint outCount);
 
-                    ctx.ThrowIfFailed(res);
+                    if (res != NativeResult.Ok)
+                    {
+                        string? msg = ctx.GetLastError();
+                        if (msg != null && msg.Contains("TOCTOU", StringComparison.OrdinalIgnoreCase))
+                        {
+                            throw new CleanerException(
+                                CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                                CleanerFailureStage.Staging,
+                                facts.Protocol,
+                                msg);
+                        }
+                        ctx.ThrowIfFailed(res);
+                    }
 
                     var factsList = new List<RemovedProtocolFact>();
                     int count = Math.Min((int)outCount, factsBuf.Length);
@@ -104,35 +180,6 @@ public static class NativeCleanService
                 }
             }
         }, cancellationToken);
-    }
-
-    public static Task<IReadOnlyList<RemovedProtocolFact>> CleanSourceProtocolAsync(
-        SourceMediaFacts facts,
-        string inputImagePath,
-        string? inputVideoPath,
-        string? outputImagePath,
-        string? outputVideoPath,
-        CancellationToken cancellationToken = default)
-    {
-        var actions = new List<PlannedCleanupAction>();
-        if (facts.ConfirmedResidues != null)
-        {
-            foreach (var r in facts.ConfirmedResidues)
-            {
-                actions.Add(new PlannedCleanupAction
-                {
-                    ResidueId = r.Id,
-                    ArtifactRole = r.ArtifactRole,
-                    StructureKind = r.StructureKind,
-                    Selector = r.Selector,
-                    ExpectedSemantic = r.ExpectedSemantic,
-                    RemovalMode = r.RemovalMode,
-                    ExpectedFingerprint = r.ExpectedFingerprint,
-                    IsMandatory = r.RequiredAfterExtraction
-                });
-            }
-        }
-        return CleanSourceProtocolAsync(facts, actions, inputImagePath, inputVideoPath, outputImagePath, outputVideoPath, cancellationToken);
     }
 
     private static unsafe void WriteFixedUtf8String(byte* ptr, int maxLen, string? value)

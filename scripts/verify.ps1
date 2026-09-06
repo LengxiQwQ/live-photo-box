@@ -38,8 +38,9 @@ $nativeBuildScript = Join-Path $projectRoot 'scripts\native\build-native.ps1'
 $coreTests = Join-Path $projectRoot 'tests\LivePhotoBox.Core.Tests\LivePhotoBox.Core.Tests.csproj'
 $cliTests = Join-Path $projectRoot 'tests\LivePhotoBox.CLI.Tests\LivePhotoBox.CLI.Tests.csproj'
 $cliIntegrationScript = Join-Path $projectRoot 'scripts\testing\run-cli-integration-test.py'
+$fixtureSetupScript = Join-Path $projectRoot 'scripts\testing\setup-test-fixtures.ps1'
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-$realSampleTestFilter = if ($env:CI -eq 'true') { 'Category!=RealSamples' } else { $null }
+$realSampleTestFilter = $null
 $ciTrackedProjects = @(
     'LivePhotoBox\LivePhotoBox.csproj',
     'LivePhotoBox.CLI\LivePhotoBox.CLI.csproj',
@@ -82,6 +83,10 @@ try {
         else {
             & dotnet restore $solutionPath --nologo
         }
+    }
+
+    Invoke-VerificationStep -Name 'Setup and verify test fixtures' -Action {
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $fixtureSetupScript
     }
 
     Invoke-VerificationStep -Name "Build Native ($Configuration x64) and run ABI smoke tests" -Action {

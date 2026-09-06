@@ -10,6 +10,7 @@
 namespace lpb::containers {
 
 struct Mp4StripSpec {
+    lpb_source_protocol expected_protocol = LPB_SOURCE_PROTOCOL_UNKNOWN;
     const uint8_t* strip_uuid_16 = nullptr;
     const char* const* mdta_starts = nullptr;
     size_t mdta_starts_count = 0;

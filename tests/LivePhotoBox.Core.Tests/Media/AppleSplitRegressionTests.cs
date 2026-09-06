@@ -129,18 +129,5 @@ public sealed class AppleSplitRegressionTests
         }
     }
 
-    private static string ResolveSample(string fileName)
-    {
-        string directory = AppContext.BaseDirectory;
-        while (!string.IsNullOrEmpty(directory))
-        {
-            string candidate = Path.Combine(directory, "designs", "各个机型测试", fileName);
-            if (File.Exists(candidate)) return candidate;
-            string? parent = Directory.GetParent(directory)?.FullName;
-            if (parent == null || parent == directory) break;
-            directory = parent;
-        }
-
-        throw new FileNotFoundException($"Sample file '{fileName}' not found.");
-    }
+    private static string ResolveSample(string fileName) => TestSampleResolver.ResolveSample(fileName);
 }

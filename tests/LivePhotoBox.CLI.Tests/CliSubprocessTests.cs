@@ -50,9 +50,8 @@ public sealed class CliSubprocessTests
     [Trait("Category", "RealSamples")]
     public async Task RebuiltSplitExportsOnlyCleanNeutralMediaShapes()
     {
-        string repositoryRoot = FindRepositoryRoot();
         string directory = CreateTempDirectory("lpb_cli_rebuilt_conversion_");
-        string sourcePath = Path.Combine(repositoryRoot, "designs", "各个机型测试", "oppo.jpg");
+        string sourcePath = ResolveSample("oppo.jpg");
         string outputDirectory = Path.Combine(directory, "split");
         string settingsPath = Path.Combine(directory, "rebuilt-settings.json");
         string sourceHash = await ComputeSha256Async(sourcePath);
@@ -206,6 +205,26 @@ public sealed class CliSubprocessTests
             directory = directory.Parent;
         }
         throw new DirectoryNotFoundException("Could not locate the Live Photo Box repository root.");
+    }
+
+    private static string ResolveSample(string filename)
+    {
+        string? envDir = Environment.GetEnvironmentVariable("LIVEPHOTOBOX_TEST_SAMPLES_DIR");
+        if (!string.IsNullOrEmpty(envDir) && Directory.Exists(envDir))
+        {
+            string candidate = Path.Combine(envDir, filename);
+            if (File.Exists(candidate)) return candidate;
+        }
+
+        string root = FindRepositoryRoot();
+        string p1 = Path.Combine(root, "designs", "各个机型测试", filename);
+        if (File.Exists(p1)) return p1;
+        string p2 = Path.Combine(root, "tests", "fixtures", "realsamples", filename);
+        if (File.Exists(p2)) return p2;
+        string p3 = Path.Combine(root, "samples", filename);
+        if (File.Exists(p3)) return p3;
+
+        throw new FileNotFoundException($"Real sample fixture '{filename}' not found.", filename);
     }
 
     private static string CreateTempDirectory(string prefix)

@@ -79,6 +79,7 @@ public sealed class NeutralMediaService : INeutralMediaService
         // a JPEG neutral artifact leaves this workspace, restore that
         // standard representation; otherwise the retained hdrgm/Container
         // metadata would point at bytes that are no longer in the artifact.
+        bool gainMapEmbeddedInPrimary = false;
         if (cleanResult.CleanedGainMap != null
             && finalImage.ImageContainer == ImageContainer.Jpeg
             && (requirement == null || requirement.ImageContainer != ImageContainer.Heic))
@@ -86,6 +87,7 @@ public sealed class NeutralMediaService : INeutralMediaService
             finalImage = await ReassembleJpegGainMapAsync(
                 finalImage, cleanResult.CleanedGainMap, workspace, cancellationToken)
                 .ConfigureAwait(false);
+            gainMapEmbeddedInPrimary = true;
         }
 
         PreservationOutcome imageOutcome = cleanResult.PreservationOutcome;
@@ -172,7 +174,13 @@ public sealed class NeutralMediaService : INeutralMediaService
                 $"Neutral media validation failed: Inspector reported {neutralFacts.Protocol} for the cleaned image.");
         }
 
-        // 5. Build Artifact Manifest with truthful outcomes
+        // 5. Build Artifact Manifest with truthful outcomes and unambiguous GainMap ownership
+        GainMapRepresentation gainMapRep = GainMapRepresentation.None;
+        if (cleanResult.CleanedGainMap != null)
+        {
+            gainMapRep = gainMapEmbeddedInPrimary ? GainMapRepresentation.Embedded : GainMapRepresentation.Detached;
+        }
+
         var manifest = new List<NeutralArtifactManifest>
         {
             new NeutralArtifactManifest
@@ -182,7 +190,8 @@ public sealed class NeutralMediaService : INeutralMediaService
                 Sha256 = finalImage.Sha256 ?? await workspace.ComputeFileSha256Async(finalImage.Path, cancellationToken).ConfigureAwait(false),
                 ByteLength = finalImage.ByteLength > 0 ? finalImage.ByteLength : new FileInfo(finalImage.Path).Length,
                 ImageContainer = finalImage.ImageContainer,
-                PreservationOutcome = imageOutcome
+                PreservationOutcome = imageOutcome,
+                GainMapRepresentation = gainMapEmbeddedInPrimary ? GainMapRepresentation.Embedded : GainMapRepresentation.None
             }
         };
 
@@ -196,7 +205,8 @@ public sealed class NeutralMediaService : INeutralMediaService
                 ByteLength = finalVideo.ByteLength > 0 ? finalVideo.ByteLength : new FileInfo(finalVideo.Path).Length,
                 VideoContainer = finalVideo.VideoContainer,
                 VideoCodec = finalVideo.VideoCodec,
-                PreservationOutcome = videoOutcome
+                PreservationOutcome = videoOutcome,
+                GainMapRepresentation = GainMapRepresentation.None
             });
         }
 
@@ -209,7 +219,8 @@ public sealed class NeutralMediaService : INeutralMediaService
                 Sha256 = cleanResult.CleanedGainMap.Sha256 ?? await workspace.ComputeFileSha256Async(cleanResult.CleanedGainMap.Path, cancellationToken).ConfigureAwait(false),
                 ByteLength = cleanResult.CleanedGainMap.ByteLength > 0 ? cleanResult.CleanedGainMap.ByteLength : new FileInfo(cleanResult.CleanedGainMap.Path).Length,
                 ImageContainer = cleanResult.CleanedGainMap.ImageContainer,
-                PreservationOutcome = cleanResult.PreservationOutcome
+                PreservationOutcome = cleanResult.PreservationOutcome,
+                GainMapRepresentation = gainMapEmbeddedInPrimary ? GainMapRepresentation.Embedded : GainMapRepresentation.Detached
             });
         }
 
@@ -218,6 +229,7 @@ public sealed class NeutralMediaService : INeutralMediaService
             PrimaryImage = finalImage,
             MotionVideo = finalVideo,
             GainMap = cleanResult.CleanedGainMap,
+            GainMapRepresentation = gainMapRep,
             SourceProvenance = facts,
             RemovedProtocolFacts = [.. extracted.ExtractedProtocolFacts, .. cleanResult.RemovedFacts],
             Manifest = manifest,

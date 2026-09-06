@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.IO;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
@@ -16,19 +17,7 @@ namespace LivePhotoBox.Core.Tests.Protocols;
 
 public sealed class CleanerTrustChainTests
 {
-    private static string ResolveSample(string filename)
-    {
-        string dir = AppContext.BaseDirectory;
-        while (!string.IsNullOrEmpty(dir))
-        {
-            string candidate = Path.Combine(dir, "designs", "各个机型测试", filename);
-            if (File.Exists(candidate)) return candidate;
-            string? parent = Directory.GetParent(dir)?.FullName;
-            if (parent == null || parent == dir) break;
-            dir = parent;
-        }
-        throw new FileNotFoundException($"Sample file '{filename}' not found.");
-    }
+    private static string ResolveSample(string filename) => TestSampleResolver.ResolveSample(filename);
 
     [Fact]
     public async Task Clean_FailsWhenSourceFactsIsMissing()
@@ -435,6 +424,8 @@ public sealed class CleanerTrustChainTests
             ArtifactRole = MediaArtifactKind.PrimaryImage,
             StructureKind = ResidueStructureKind.ExifMakerNoteTag,
             Selector = "0xFFFF",
+            ExpectedSemantic = "FakeTag",
+            ExpectedFingerprint = "0123456789abcdef0123456789abcdef",
             RequiredAfterExtraction = true
         });
 
@@ -1101,6 +1092,7 @@ public sealed class CleanerTrustChainTests
             .Select(r => new PlannedCleanupAction
             {
                 ResidueId = r.Id == "google-v2-xmp-motionphoto" ? "adversarial-fake-residue-id" : r.Id,
+                OwnerProtocol = facts.Protocol,
                 ArtifactRole = r.ArtifactRole,
                 StructureKind = r.StructureKind,
                 Selector = r.Selector,
@@ -1127,6 +1119,7 @@ public sealed class CleanerTrustChainTests
             .Select(r => new PlannedCleanupAction
             {
                 ResidueId = "wrong-" + r.Id,
+                OwnerProtocol = facts.Protocol,
                 ArtifactRole = r.ArtifactRole,
                 StructureKind = r.StructureKind,
                 Selector = r.Selector,
@@ -1179,19 +1172,25 @@ public sealed class CleanerTrustChainTests
             new PlannedCleanupAction
             {
                 ResidueId = "google-v2-xmp-motionphoto",
+                OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
                 ArtifactRole = MediaArtifactKind.PrimaryImage,
                 StructureKind = ResidueStructureKind.XmpProperty,
                 Selector = "GCamera:MotionPhoto",
                 RemovalMode = ResidueRemovalMode.Delete,
+                ExpectedSemantic = "MotionPhoto",
+                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
                 IsMandatory = true
             },
             new PlannedCleanupAction
             {
                 ResidueId = "google-v2-xmp-version",
+                OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
                 ArtifactRole = MediaArtifactKind.PrimaryImage,
                 StructureKind = ResidueStructureKind.XmpProperty,
                 Selector = "GCamera:MotionPhotoVersion",
                 RemovalMode = ResidueRemovalMode.Delete,
+                ExpectedSemantic = "MotionPhotoVersion",
+                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhotoVersion", "1"),
                 IsMandatory = true
             }
         };
@@ -1207,6 +1206,379 @@ public sealed class CleanerTrustChainTests
         Assert.DoesNotContain("GCamera:MotionPhotoVersion=", cleanedText);
         Assert.Contains("KeepThisCustomProperty", cleanedText);
         Assert.Contains("custom:MotionPhoto", cleanedText);
+    }
+
+    [Fact]
+    public async Task Clean_Native_RejectsForeignOwnerProtocol()
+    {
+        using var workspace = new MediaWorkspace();
+        string tempImage = workspace.AllocateFilePath("test-foreign-proto", ".jpg");
+        string cleanedImage = workspace.AllocateFilePath("test-foreign-proto-cleaned", ".jpg");
+
+        byte[] standardXmp = Encoding.UTF8.GetBytes(
+            "http://ns.adobe.com/xap/1.0/\0<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" GCamera:MotionPhoto=\"1\" /></rdf:RDF></x:xmpmeta>");
+
+        using var ms = new MemoryStream();
+        ms.Write([0xFF, 0xD8]);
+        ms.Write([0xFF, 0xE1]);
+        int len1 = standardXmp.Length + 2;
+        ms.WriteByte((byte)(len1 >> 8)); ms.WriteByte((byte)(len1 & 0xFF));
+        ms.Write(standardXmp);
+        ms.Write([0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x7F, 0xFF, 0x00, 0x00, 0xFF, 0xD9]);
+        byte[] fullJpeg = ms.ToArray();
+        await File.WriteAllBytesAsync(tempImage, fullJpeg);
+
+        using var sha = SHA256.Create();
+        string imgSha = Convert.ToHexString(sha.ComputeHash(fullJpeg));
+
+        var facts = new SourceMediaFacts
+        {
+            Protocol = SourceProtocol.GoogleMotionPhotoV2,
+            PrimarySha256 = imgSha,
+            PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
+        };
+
+        // Pass an action with foreign OwnerProtocol (Samsung instead of Google)
+        var actions = new List<PlannedCleanupAction>
+        {
+            new PlannedCleanupAction
+            {
+                ResidueId = "google-v2-xmp-motionphoto",
+                OwnerProtocol = SourceProtocol.SamsungMotionPhotoJpeg, // Foreign!
+                ArtifactRole = MediaArtifactKind.PrimaryImage,
+                StructureKind = ResidueStructureKind.XmpProperty,
+                Selector = "GCamera:MotionPhoto",
+                RemovalMode = ResidueRemovalMode.Delete,
+                ExpectedSemantic = "MotionPhoto",
+                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                IsMandatory = true
+            }
+        };
+
+        await Assert.ThrowsAnyAsync<Exception>(async () =>
+        {
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
+                facts, actions, tempImage, null, cleanedImage, null);
+        });
+    }
+
+    [Fact]
+    public async Task Clean_Native_RejectsDuplicateResidueId()
+    {
+        using var workspace = new MediaWorkspace();
+        string tempImage = workspace.AllocateFilePath("test-dup-residue", ".jpg");
+        string cleanedImage = workspace.AllocateFilePath("test-dup-residue-cleaned", ".jpg");
+
+        byte[] standardXmp = Encoding.UTF8.GetBytes(
+            "http://ns.adobe.com/xap/1.0/\0<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" GCamera:MotionPhoto=\"1\" /></rdf:RDF></x:xmpmeta>");
+
+        using var ms = new MemoryStream();
+        ms.Write([0xFF, 0xD8]);
+        ms.Write([0xFF, 0xE1]);
+        int len1 = standardXmp.Length + 2;
+        ms.WriteByte((byte)(len1 >> 8)); ms.WriteByte((byte)(len1 & 0xFF));
+        ms.Write(standardXmp);
+        ms.Write([0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x7F, 0xFF, 0x00, 0x00, 0xFF, 0xD9]);
+        byte[] fullJpeg = ms.ToArray();
+        await File.WriteAllBytesAsync(tempImage, fullJpeg);
+
+        using var sha = SHA256.Create();
+        string imgSha = Convert.ToHexString(sha.ComputeHash(fullJpeg));
+
+        var facts = new SourceMediaFacts
+        {
+            Protocol = SourceProtocol.GoogleMotionPhotoV2,
+            PrimarySha256 = imgSha,
+            PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
+        };
+
+        // Duplicate action with same ResidueId
+        var actions = new List<PlannedCleanupAction>
+        {
+            new PlannedCleanupAction
+            {
+                ResidueId = "google-v2-xmp-motionphoto",
+                OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
+                ArtifactRole = MediaArtifactKind.PrimaryImage,
+                StructureKind = ResidueStructureKind.XmpProperty,
+                Selector = "GCamera:MotionPhoto",
+                RemovalMode = ResidueRemovalMode.Delete,
+                ExpectedSemantic = "MotionPhoto",
+                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                IsMandatory = true
+            },
+            new PlannedCleanupAction
+            {
+                ResidueId = "google-v2-xmp-motionphoto", // Duplicate!
+                OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
+                ArtifactRole = MediaArtifactKind.PrimaryImage,
+                StructureKind = ResidueStructureKind.XmpProperty,
+                Selector = "GCamera:MotionPhoto",
+                RemovalMode = ResidueRemovalMode.Delete,
+                ExpectedSemantic = "MotionPhoto",
+                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                IsMandatory = true
+            }
+        };
+
+        await Assert.ThrowsAnyAsync<Exception>(async () =>
+        {
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
+                facts, actions, tempImage, null, cleanedImage, null);
+        });
+    }
+
+    [Fact]
+    public async Task Clean_Planner_RejectsOwnerProtocolMismatch()
+    {
+        using var workspace = new MediaWorkspace();
+        string imgPath = workspace.AllocateFilePath("apple", ".jpg");
+        string movPath = workspace.AllocateFilePath("apple", ".mov");
+        SyntheticProtocolFixtures.CreateAppleJpeg(imgPath);
+        SyntheticProtocolFixtures.CreateAppleMov(movPath);
+
+        var inspector = new SourceInspector();
+        var extractor = new SourceExtractor();
+        var cleaner = new SourceProtocolCleaner();
+
+        var facts = await inspector.InspectAsync(imgPath, movPath);
+        var extracted = await extractor.ExtractAsync(facts, imgPath, movPath, workspace);
+
+        // Tamper one confirmed residue to have foreign OwnerProtocol
+        var list = new List<ConfirmedProtocolResidue>();
+        foreach (var r in facts.ConfirmedResidues)
+        {
+            list.Add(r with { OwnerProtocol = SourceProtocol.HuaweiMovingPhoto });
+        }
+
+        var tamperedFacts = facts with { ConfirmedResidues = list };
+        var tamperedBundle = extracted with { SourceFacts = tamperedFacts };
+
+        var result = await cleaner.CleanAsync(new ProtocolCleanRequest
+        {
+            ExtractedBundle = tamperedBundle
+        }, workspace);
+
+        Assert.False(result.Success);
+        Assert.Equal(CleanerFailureCategory.CleanupAuthorizationMissing, result.FailureCategory);
+        Assert.Equal(CleanerFailureStage.Planning, result.FailureStage);
+    }
+
+    [Fact]
+    public async Task Clean_Native_RejectsEmptyOrMissingArtifactTargets()
+    {
+        using var workspace = new MediaWorkspace();
+        string tempImage = workspace.AllocateFilePath("test-no-targets", ".jpg");
+        string cleanedImage = workspace.AllocateFilePath("test-no-targets-cleaned", ".jpg");
+
+        byte[] standardXmp = Encoding.UTF8.GetBytes(
+            "http://ns.adobe.com/xap/1.0/\0<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" GCamera:MotionPhoto=\"1\" /></rdf:RDF></x:xmpmeta>");
+
+        using var ms = new MemoryStream();
+        ms.Write([0xFF, 0xD8]);
+        ms.Write([0xFF, 0xE1]);
+        int len1 = standardXmp.Length + 2;
+        ms.WriteByte((byte)(len1 >> 8)); ms.WriteByte((byte)(len1 & 0xFF));
+        ms.Write(standardXmp);
+        ms.Write([0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x7F, 0xFF, 0x00, 0x00, 0xFF, 0xD9]);
+        byte[] fullJpeg = ms.ToArray();
+        await File.WriteAllBytesAsync(tempImage, fullJpeg);
+
+        var facts = new SourceMediaFacts
+        {
+            Protocol = SourceProtocol.GoogleMotionPhotoV2,
+            PrimarySha256 = Convert.ToHexString(SHA256.HashData(fullJpeg)),
+            PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
+        };
+
+        var actions = new List<PlannedCleanupAction>
+        {
+            new PlannedCleanupAction
+            {
+                ResidueId = "google-v2-xmp-motionphoto",
+                OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
+                ArtifactRole = MediaArtifactKind.PrimaryImage,
+                StructureKind = ResidueStructureKind.XmpProperty,
+                Selector = "GCamera:MotionPhoto",
+                RemovalMode = ResidueRemovalMode.Delete,
+                ExpectedSemantic = "MotionPhoto",
+                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                IsMandatory = true
+            }
+        };
+
+        // Pass empty targets list -> native must fail closed
+        await Assert.ThrowsAnyAsync<Exception>(async () =>
+        {
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
+                facts, actions, new List<PlannedArtifactTarget>(), tempImage, null, cleanedImage, null);
+        });
+    }
+
+    [Fact]
+    public async Task Clean_Native_TOCTOU_FailsWhenImageAlteredBeforeClean()
+    {
+        using var workspace = new MediaWorkspace();
+        string tempImage = workspace.AllocateFilePath("test-toctou-img", ".jpg");
+        string cleanedImage = workspace.AllocateFilePath("test-toctou-img-cleaned", ".jpg");
+
+        byte[] standardXmp = Encoding.UTF8.GetBytes(
+            "http://ns.adobe.com/xap/1.0/\0<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" GCamera:MotionPhoto=\"1\" /></rdf:RDF></x:xmpmeta>");
+
+        using var ms = new MemoryStream();
+        ms.Write([0xFF, 0xD8]);
+        ms.Write([0xFF, 0xE1]);
+        int len1 = standardXmp.Length + 2;
+        ms.WriteByte((byte)(len1 >> 8)); ms.WriteByte((byte)(len1 & 0xFF));
+        ms.Write(standardXmp);
+        ms.Write([0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x7F, 0xFF, 0x00, 0x00, 0xFF, 0xD9]);
+        byte[] fullJpeg = ms.ToArray();
+        await File.WriteAllBytesAsync(tempImage, fullJpeg);
+
+        string originalSha = Convert.ToHexString(SHA256.HashData(fullJpeg));
+
+        var facts = new SourceMediaFacts
+        {
+            Protocol = SourceProtocol.GoogleMotionPhotoV2,
+            PrimarySha256 = originalSha,
+            PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
+        };
+
+        var actions = new List<PlannedCleanupAction>
+        {
+            new PlannedCleanupAction
+            {
+                ResidueId = "google-v2-xmp-motionphoto",
+                OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
+                ArtifactRole = MediaArtifactKind.PrimaryImage,
+                StructureKind = ResidueStructureKind.XmpProperty,
+                Selector = "GCamera:MotionPhoto",
+                RemovalMode = ResidueRemovalMode.Delete,
+                ExpectedSemantic = "MotionPhoto",
+                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                IsMandatory = true
+            }
+        };
+
+        var targets = new List<PlannedArtifactTarget>
+        {
+            new PlannedArtifactTarget
+            {
+                Role = MediaArtifactKind.PrimaryImage,
+                ExpectedByteLength = fullJpeg.Length,
+                ExpectedSha256 = originalSha
+            }
+        };
+
+        // Adversarial tampering: alter 1 byte in the file without changing its length!
+        byte[] tamperedJpeg = (byte[])fullJpeg.Clone();
+        tamperedJpeg[^3] ^= 0x42; // flip bits in the payload
+        await File.WriteAllBytesAsync(tempImage, tamperedJpeg);
+
+        var ex = await Assert.ThrowsAsync<CleanerException>(async () =>
+        {
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
+                facts, actions, targets, tempImage, null, cleanedImage, null);
+        });
+
+        Assert.Equal(CleanerFailureCategory.ArtifactChangedSinceExtraction, ex.Category);
+        Assert.False(File.Exists(cleanedImage));
+    }
+
+    [Fact]
+    public async Task Clean_Native_TOCTOU_FailsWhenVideoAlteredBeforeClean()
+    {
+        using var workspace = new MediaWorkspace();
+        string tempImage = workspace.AllocateFilePath("test-toctou-vid", ".jpg");
+        string tempVideo = workspace.AllocateFilePath("test-toctou-vid", ".mov");
+        string cleanedImage = workspace.AllocateFilePath("test-toctou-vid-cleaned", ".jpg");
+        string cleanedVideo = workspace.AllocateFilePath("test-toctou-vid-cleaned", ".mov");
+
+        SyntheticProtocolFixtures.CreateAppleJpeg(tempImage);
+        SyntheticProtocolFixtures.CreateAppleMov(tempVideo);
+
+        byte[] origImgBytes = await File.ReadAllBytesAsync(tempImage);
+        byte[] origVidBytes = await File.ReadAllBytesAsync(tempVideo);
+
+        string origImgSha = Convert.ToHexString(SHA256.HashData(origImgBytes));
+        string origVidSha = Convert.ToHexString(SHA256.HashData(origVidBytes));
+
+        var inspector = new SourceInspector();
+        var facts = await inspector.InspectAsync(tempImage, tempVideo);
+
+        var actions = facts.ConfirmedResidues.Select(r => new PlannedCleanupAction
+        {
+            ResidueId = r.Id,
+            OwnerProtocol = facts.Protocol,
+            ArtifactRole = r.ArtifactRole,
+            StructureKind = r.StructureKind,
+            Selector = r.Selector,
+            RemovalMode = r.RemovalMode,
+            ExpectedSemantic = r.ExpectedSemantic ?? "",
+            ExpectedFingerprint = r.ExpectedFingerprint,
+            IsMandatory = true
+        }).ToList();
+
+        var targets = new List<PlannedArtifactTarget>
+        {
+            new PlannedArtifactTarget
+            {
+                Role = MediaArtifactKind.PrimaryImage,
+                ExpectedByteLength = origImgBytes.Length,
+                ExpectedSha256 = origImgSha
+            },
+            new PlannedArtifactTarget
+            {
+                Role = MediaArtifactKind.MotionVideo,
+                ExpectedByteLength = origVidBytes.Length,
+                ExpectedSha256 = origVidSha
+            }
+        };
+
+        // Adversarial tampering: alter 1 byte in video file
+        byte[] tamperedVid = (byte[])origVidBytes.Clone();
+        tamperedVid[10] ^= 0x55;
+        await File.WriteAllBytesAsync(tempVideo, tamperedVid);
+
+        var ex = await Assert.ThrowsAsync<CleanerException>(async () =>
+        {
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
+                facts, actions, targets, tempImage, tempVideo, cleanedImage, cleanedVideo);
+        });
+
+        Assert.Equal(CleanerFailureCategory.ArtifactChangedSinceExtraction, ex.Category);
+        Assert.False(File.Exists(cleanedImage));
+        Assert.False(File.Exists(cleanedVideo));
+    }
+
+    [Fact]
+    public async Task Clean_Orchestrator_TOCTOU_FailsWhenArtifactChangedBetweenExtractionAndCleaning()
+    {
+        using var workspace = new MediaWorkspace();
+        string imgPath = workspace.AllocateFilePath("apple", ".jpg");
+        string movPath = workspace.AllocateFilePath("apple", ".mov");
+        SyntheticProtocolFixtures.CreateAppleJpeg(imgPath);
+        SyntheticProtocolFixtures.CreateAppleMov(movPath);
+
+        var inspector = new SourceInspector();
+        var extractor = new SourceExtractor();
+        var cleaner = new SourceProtocolCleaner();
+
+        var facts = await inspector.InspectAsync(imgPath, movPath);
+        var extracted = await extractor.ExtractAsync(facts, imgPath, movPath, workspace);
+
+        // Adversarial TOCTOU tampering: modify extracted primary image on disk between extraction and cleaning!
+        byte[] imgBytes = await File.ReadAllBytesAsync(extracted.PrimaryImage.Path);
+        imgBytes[20] ^= 0x77;
+        await File.WriteAllBytesAsync(extracted.PrimaryImage.Path, imgBytes);
+
+        var result = await cleaner.CleanAsync(new ProtocolCleanRequest
+        {
+            ExtractedBundle = extracted
+        }, workspace);
+
+        Assert.False(result.Success);
+        Assert.Equal(CleanerFailureCategory.ArtifactChangedSinceExtraction, result.FailureCategory);
     }
 
     [Fact]
@@ -1328,5 +1700,139 @@ public sealed class CleanerTrustChainTests
         // Must NOT grant VerifiedPreserved based on substring alone
         Assert.NotEqual(PreservationCheckStatus.VerifiedPreserved, hdrItem.Status);
         Assert.Equal(PreservationCheckStatus.NotApplicable, hdrItem.Status);
+    }
+
+    [Fact]
+    public async Task Verifier_DetachedGainMap_ReportsSemanticallyPreserved_NotVerifiedPreserved()
+    {
+        using var workspace = new MediaWorkspace();
+        string imgPath = workspace.AllocateFilePath("test-primary", ".jpg");
+        string gmPath = workspace.AllocateFilePath("test-gainmap", ".jpg");
+
+        byte[] plainJpeg = [0xFF, 0xD8, 0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x7F, 0xFF, 0x00, 0x00, 0xFF, 0xD9];
+        await File.WriteAllBytesAsync(imgPath, plainJpeg);
+        await File.WriteAllBytesAsync(gmPath, plainJpeg);
+
+        using var sha = SHA256.Create();
+        string imgSha = Convert.ToHexString(sha.ComputeHash(plainJpeg));
+
+        var bundle = new ExtractedMediaBundle
+        {
+            SourceFacts = new SourceMediaFacts
+            {
+                Protocol = SourceProtocol.NonLive,
+                PrimarySha256 = imgSha,
+                PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = plainJpeg.Length, IsPresent = true }
+            },
+            PrimaryImage = new MediaArtifact
+            {
+                Path = imgPath,
+                Kind = MediaArtifactKind.PrimaryImage,
+                MimeType = "image/jpeg",
+                ImageContainer = ImageContainer.Jpeg,
+                ByteLength = plainJpeg.Length,
+                Sha256 = imgSha
+            },
+            GainMap = new MediaArtifact
+            {
+                Path = gmPath,
+                Kind = MediaArtifactKind.GainMap,
+                MimeType = "image/jpeg",
+                ImageContainer = ImageContainer.Jpeg,
+                ByteLength = plainJpeg.Length,
+                Sha256 = imgSha
+            }
+        };
+
+        var report = await MetadataPreservationVerifier.VerifyAsync(bundle, imgPath, null);
+        var hdrItem = report.Items.First(i => i.Name == "Hdr");
+
+        // Detached GainMap must report SemanticallyPreserved, NOT VerifiedPreserved
+        Assert.Equal(PreservationCheckStatus.SemanticallyPreserved, hdrItem.Status);
+        Assert.NotEqual(PreservationCheckStatus.VerifiedPreserved, hdrItem.Status);
+        Assert.Contains("detached artifact", hdrItem.Details);
+
+        var gmItem = report.Items.First(i => i.Name == "GainMap");
+        Assert.Equal(PreservationCheckStatus.VerifiedPreserved, gmItem.Status);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Verifier_HeifAuthoritativeBoxParsing_IgnoresPayloadNoiseInMdat()
+    {
+        string samplePath = ResolveSample("三星.heic");
+        byte[] rawBytes = await File.ReadAllBytesAsync(samplePath);
+
+        var baselineSnapshot = MetadataPreservationVerifier.ExtractHeicAuxRelationSnapshot(rawBytes);
+        Assert.NotNull(baselineSnapshot);
+
+        // Find the mdat box in rawBytes and append fake "auxl", "pitm", "iloc", "iref" strings inside mdat
+        byte[] noisyBytes = (byte[])rawBytes.Clone();
+        int mdatPos = -1;
+        for (int i = 0; i <= noisyBytes.Length - 8; i++)
+        {
+            if (noisyBytes[i + 4] == 'm' && noisyBytes[i + 5] == 'd' && noisyBytes[i + 6] == 'a' && noisyBytes[i + 7] == 't')
+            {
+                mdatPos = i;
+                break;
+            }
+        }
+        Assert.True(mdatPos >= 0);
+
+        // Inject fake box signatures into mdat payload area (offset mdatPos + 100)
+        byte[] fakeBoxes = "....auxl....pitm....iloc....iref"u8.ToArray();
+        Buffer.BlockCopy(fakeBoxes, 0, noisyBytes, mdatPos + 100, fakeBoxes.Length);
+
+        // Authoritative parsing must ignore payload noise and return exact same baseline items
+        var noisySnapshot = MetadataPreservationVerifier.ExtractHeicAuxRelationSnapshot(noisyBytes);
+        Assert.NotNull(noisySnapshot);
+        Assert.Equal(baselineSnapshot.PrimaryItemId, noisySnapshot.PrimaryItemId);
+        Assert.Equal(baselineSnapshot.AuxiliaryItemId, noisySnapshot.AuxiliaryItemId);
+        Assert.Equal(baselineSnapshot.FromItemId, noisySnapshot.FromItemId);
+        Assert.Equal(baselineSnapshot.ToItemId, noisySnapshot.ToItemId);
+        Assert.Equal(MetadataPreservationVerifier.ExtractHeicPrimaryItemId(rawBytes), MetadataPreservationVerifier.ExtractHeicPrimaryItemId(noisyBytes));
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Verifier_HeifAuthoritativeBoxParsing_RejectsShadowIref()
+    {
+        string samplePath = ResolveSample("三星.heic");
+        byte[] rawBytes = await File.ReadAllBytesAsync(samplePath);
+
+        // Find meta box and iref box
+        int metaPos = -1;
+        int irefPos = -1;
+        for (int i = 0; i <= rawBytes.Length - 8; i++)
+        {
+            if (rawBytes[i + 4] == 'm' && rawBytes[i + 5] == 'e' && rawBytes[i + 6] == 't' && rawBytes[i + 7] == 'a')
+                metaPos = i;
+            if (rawBytes[i + 4] == 'i' && rawBytes[i + 5] == 'r' && rawBytes[i + 6] == 'e' && rawBytes[i + 7] == 'f')
+                irefPos = i;
+        }
+        Assert.True(metaPos >= 0 && irefPos >= 0);
+
+        uint irefSize = BinaryPrimitives.ReadUInt32BigEndian(rawBytes.AsSpan(irefPos, 4));
+
+        // Duplicate iref box inside meta: expand meta by irefSize and insert duplicate iref
+        byte[] tamperedBytes = new byte[rawBytes.Length + irefSize];
+        int irefEnd = irefPos + (int)irefSize;
+        Buffer.BlockCopy(rawBytes, 0, tamperedBytes, 0, irefEnd);
+        Buffer.BlockCopy(rawBytes, irefPos, tamperedBytes, irefEnd, (int)irefSize);
+        Buffer.BlockCopy(rawBytes, irefEnd, tamperedBytes, irefEnd + (int)irefSize, rawBytes.Length - irefEnd);
+
+        uint metaSize = BinaryPrimitives.ReadUInt32BigEndian(tamperedBytes.AsSpan(metaPos, 4));
+        BinaryPrimitives.WriteUInt32BigEndian(tamperedBytes.AsSpan(metaPos, 4), metaSize + irefSize);
+
+        // Authoritative parser must reject shadow/duplicate iref box and fail closed
+        var snapshot = MetadataPreservationVerifier.ExtractHeicAuxRelationSnapshot(tamperedBytes);
+        Assert.Null(snapshot);
+    }
+
+    private static string ComputeXmpPropertyFingerprint(string uri, string localName, string value)
+    {
+        string canonical = $"{uri}:{localName}={value}";
+        byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(canonical));
+        return Convert.ToHexString(hash[..16]).ToLowerInvariant();
     }
 }

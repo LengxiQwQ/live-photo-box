@@ -98,25 +98,14 @@ LPB_API lpb_result LPB_CALL lpb_test_sha256_file(
     return LPB_RESULT_OK;
 }
 
-LPB_API lpb_result LPB_CALL lpb_clean_source_protocol(
-    lpb_context* context,
-    const lpb_source_media_facts* facts,
-    const char* input_image_path,
-    const char* input_video_path,
-    const char* output_image_path,
-    const char* output_video_path,
-    lpb_removed_protocol_fact* out_facts,
-    size_t facts_capacity,
-    size_t* out_facts_count)
-{
-    return clean_source_protocol(context, facts, input_image_path, input_video_path, output_image_path, output_video_path, out_facts, facts_capacity, out_facts_count);
-}
 
 LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_plan(
     lpb_context* context,
     const lpb_source_media_facts* facts,
     const lpb_cleanup_action* actions,
     size_t action_count,
+    const lpb_cleanup_artifact_binding* targets,
+    size_t target_count,
     const char* input_image_path,
     const char* input_video_path,
     const char* output_image_path,
@@ -127,6 +116,7 @@ LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_plan(
 {
     return clean_source_protocol_with_plan(
         context, facts, actions, action_count,
+        targets, target_count,
         input_image_path, input_video_path,
         output_image_path, output_video_path,
         out_facts, facts_capacity, out_facts_count);

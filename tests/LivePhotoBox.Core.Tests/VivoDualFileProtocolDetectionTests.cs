@@ -162,9 +162,7 @@ public sealed class VivoDualFileProtocolDetectionTests
 
     private static string ResolveSample(params string[] pathParts)
     {
-        string path = Path.Combine([AppContext.BaseDirectory, "samples", .. pathParts]);
-        if (!File.Exists(path))
-            throw new FileNotFoundException($"Sample not found: {path}");
-        return path;
+        string filename = Path.Combine(pathParts);
+        return TestSampleResolver.ResolveSample(filename);
     }
 }

@@ -236,10 +236,10 @@ lpb_result clean_samsung_heic(
     isobmff_box_header sefd_box{};
     uint64_t video_offset = 0;
     uint64_t video_length = 0;
-    const auto* act_mpvd = lpb::media::find_authorized_action(actions, action_count, "samsung-heic-box-mpvd",
-        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_ISOBMFF_BOX, "mpvd", LPB_REMOVAL_DELETE);
-    const auto* act_sefd = lpb::media::find_authorized_action(actions, action_count, "samsung-heic-box-sefd-motion",
-        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_ISOBMFF_BOX, "sefd", LPB_REMOVAL_DELETE);
+    const auto* act_mpvd = lpb::media::find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC, "samsung-heic-box-mpvd",
+        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_ISOBMFF_BOX, "mpvd", "mpvd", LPB_REMOVAL_DELETE);
+    const auto* act_sefd = lpb::media::find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC, "samsung-heic-box-sefd-motion",
+        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_ISOBMFF_BOX, "sefd", "sefd", LPB_REMOVAL_DELETE);
     const bool should_remove_mpvd = (act_mpvd != nullptr);
     const bool should_remove_sefd = (act_sefd != nullptr);
     std::string fp_mpvd_matched, fp_sefd_matched;
@@ -262,8 +262,8 @@ lpb_result clean_samsung_heic(
                 if (act_mpvd) {
                     std::string fp = lpb::crypto::compute_isobmff_box_fingerprint(
                         "mpvd", box.size, input.data() + offset, box.size);
-                    if (act_mpvd->expected_fingerprint[0] != '\0' && fp != act_mpvd->expected_fingerprint) {
-                        set_error(context, "Residue fingerprint mismatch for samsung-heic-box-mpvd.");
+                    if (act_mpvd->expected_fingerprint[0] == '\0' || fp != act_mpvd->expected_fingerprint) {
+                        set_error(context, "Residue fingerprint missing or mismatch for samsung-heic-box-mpvd.");
                         return LPB_RESULT_INVALID_ARGUMENT;
                     }
                     fp_mpvd_matched = std::move(fp);
@@ -290,8 +290,8 @@ lpb_result clean_samsung_heic(
                             if (act_sefd) {
                                 std::string fp = lpb::crypto::compute_isobmff_box_fingerprint(
                                     "sefd", nested.size, input.data() + nested_pos, nested.size);
-                                if (act_sefd->expected_fingerprint[0] != '\0' && fp != act_sefd->expected_fingerprint) {
-                                    set_error(context, "Residue fingerprint mismatch for samsung-heic-box-sefd-motion.");
+                                if (act_sefd->expected_fingerprint[0] == '\0' || fp != act_sefd->expected_fingerprint) {
+                                    set_error(context, "Residue fingerprint missing or mismatch for samsung-heic-box-sefd-motion.");
                                     return LPB_RESULT_INVALID_ARGUMENT;
                                 }
                                 fp_sefd_matched = std::move(fp);
@@ -325,8 +325,8 @@ lpb_result clean_samsung_heic(
                 if (act_sefd) {
                     std::string fp = lpb::crypto::compute_isobmff_box_fingerprint(
                         "sefd", box.size, input.data() + offset, box.size);
-                    if (act_sefd->expected_fingerprint[0] != '\0' && fp != act_sefd->expected_fingerprint) {
-                        set_error(context, "Residue fingerprint mismatch for samsung-heic-box-sefd-motion.");
+                    if (act_sefd->expected_fingerprint[0] == '\0' || fp != act_sefd->expected_fingerprint) {
+                        set_error(context, "Residue fingerprint missing or mismatch for samsung-heic-box-sefd-motion.");
                         return LPB_RESULT_INVALID_ARGUMENT;
                     }
                     fp_sefd_matched = std::move(fp);

@@ -15,19 +15,7 @@ namespace LivePhotoBox.Core.Tests.Protocols;
 
 public sealed class SourceProtocolCleanerTests
 {
-    private static string ResolveSample(string filename)
-    {
-        string dir = AppContext.BaseDirectory;
-        while (!string.IsNullOrEmpty(dir))
-        {
-            string candidate = Path.Combine(dir, "designs", "各个机型测试", filename);
-            if (File.Exists(candidate)) return candidate;
-            string? parent = Directory.GetParent(dir)?.FullName;
-            if (parent == null || parent == dir) break;
-            dir = parent;
-        }
-        throw new FileNotFoundException($"Sample file '{filename}' not found.");
-    }
+    private static string ResolveSample(string filename) => TestSampleResolver.ResolveSample(filename);
 
     private static string ComputeSha256(string path)
     {
@@ -265,12 +253,14 @@ public sealed class SourceProtocolCleanerTests
             .Select(r => new PlannedCleanupAction
             {
                 ResidueId = r.Id,
+                OwnerProtocol = facts.Protocol,
                 ArtifactRole = r.ArtifactRole,
                 StructureKind = r.StructureKind,
                 Selector = r.Selector,
                 RemovalMode = r.RemovalMode,
                 IsMandatory = true,
-                ExpectedSemantic = "Adversarial test"
+                ExpectedSemantic = r.ExpectedSemantic ?? "",
+                ExpectedFingerprint = r.ExpectedFingerprint
             })
             .ToList();
 

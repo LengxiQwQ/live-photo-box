@@ -234,6 +234,7 @@ struct canonical_xmp_attribute_identity
 {
     std::string_view residue_id{};
     std::string_view selector{};
+    std::string_view semantic{};
 };
 
 static canonical_xmp_attribute_identity get_canonical_xmp_attribute_identity(
@@ -245,34 +246,34 @@ static canonical_xmp_attribute_identity get_canonical_xmp_attribute_identity(
 
     if (protocol == LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1 && uri == google_camera_namespace)
     {
-        if (equals_icase(local, "MicroVideo")) return { "google-v1-xmp-microvideo", "GCamera:MicroVideo" };
-        if (equals_icase(local, "MicroVideoVersion")) return { "google-v1-xmp-version", "GCamera:MicroVideoVersion" };
-        if (equals_icase(local, "MicroVideoOffset")) return { "google-v1-xmp-offset", "GCamera:MicroVideoOffset" };
-        if (equals_icase(local, "MicroVideoPresentationTimestampUs")) return { "google-v1-xmp-pts", "GCamera:MicroVideoPresentationTimestampUs" };
+        if (equals_icase(local, "MicroVideo")) return { "google-v1-xmp-microvideo", "GCamera:MicroVideo", "MicroVideo" };
+        if (equals_icase(local, "MicroVideoVersion")) return { "google-v1-xmp-version", "GCamera:MicroVideoVersion", "MicroVideoVersion" };
+        if (equals_icase(local, "MicroVideoOffset")) return { "google-v1-xmp-offset", "GCamera:MicroVideoOffset", "MicroVideoOffset" };
+        if (equals_icase(local, "MicroVideoPresentationTimestampUs")) return { "google-v1-xmp-pts", "GCamera:MicroVideoPresentationTimestampUs", "MicroVideoPresentationTimestampUs" };
         return {};
     }
 
     if (protocol == LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2 && uri == google_camera_namespace)
     {
-        if (equals_icase(local, "MotionPhoto")) return { "google-v2-xmp-motionphoto", "GCamera:MotionPhoto" };
-        if (equals_icase(local, "MotionPhotoVersion")) return { "google-v2-xmp-version", "GCamera:MotionPhotoVersion" };
-        if (equals_icase(local, "MotionPhotoPresentationTimestampUs")) return { "google-v2-xmp-pts", "GCamera:MotionPhotoPresentationTimestampUs" };
+        if (equals_icase(local, "MotionPhoto")) return { "google-v2-xmp-motionphoto", "GCamera:MotionPhoto", "MotionPhoto" };
+        if (equals_icase(local, "MotionPhotoVersion")) return { "google-v2-xmp-version", "GCamera:MotionPhotoVersion", "MotionPhotoVersion" };
+        if (equals_icase(local, "MotionPhotoPresentationTimestampUs")) return { "google-v2-xmp-pts", "GCamera:MotionPhotoPresentationTimestampUs", "MotionPhotoPresentationTimestampUs" };
         return {};
     }
 
     if (protocol == LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG && uri == google_camera_namespace)
     {
-        if (equals_icase(local, "MotionPhoto")) return { "samsung-jpeg-xmp-motionphoto", "GCamera:MotionPhoto" };
-        if (equals_icase(local, "MotionPhotoVersion")) return { "samsung-jpeg-xmp-version", "GCamera:MotionPhotoVersion" };
-        if (equals_icase(local, "MotionPhotoPresentationTimestampUs")) return { "samsung-jpeg-xmp-pts", "GCamera:MotionPhotoPresentationTimestampUs" };
+        if (equals_icase(local, "MotionPhoto")) return { "samsung-jpeg-xmp-motionphoto", "GCamera:MotionPhoto", "MotionPhoto" };
+        if (equals_icase(local, "MotionPhotoVersion")) return { "samsung-jpeg-xmp-version", "GCamera:MotionPhotoVersion", "MotionPhotoVersion" };
+        if (equals_icase(local, "MotionPhotoPresentationTimestampUs")) return { "samsung-jpeg-xmp-pts", "GCamera:MotionPhotoPresentationTimestampUs", "MotionPhotoPresentationTimestampUs" };
         return {};
     }
 
     if (protocol == LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC && uri == google_camera_namespace)
     {
-        if (equals_icase(local, "MotionPhoto")) return { "samsung-heic-xmp-motionphoto", "GCamera:MotionPhoto" };
-        if (equals_icase(local, "MotionPhotoVersion")) return { "samsung-heic-xmp-version", "GCamera:MotionPhotoVersion" };
-        if (equals_icase(local, "MotionPhotoPresentationTimestampUs")) return { "samsung-heic-xmp-pts", "GCamera:MotionPhotoPresentationTimestampUs" };
+        if (equals_icase(local, "MotionPhoto")) return { "samsung-heic-xmp-motionphoto", "GCamera:MotionPhoto", "MotionPhoto" };
+        if (equals_icase(local, "MotionPhotoVersion")) return { "samsung-heic-xmp-version", "GCamera:MotionPhotoVersion", "MotionPhotoVersion" };
+        if (equals_icase(local, "MotionPhotoPresentationTimestampUs")) return { "samsung-heic-xmp-pts", "GCamera:MotionPhotoPresentationTimestampUs", "MotionPhotoPresentationTimestampUs" };
         return {};
     }
 
@@ -280,17 +281,17 @@ static canonical_xmp_attribute_identity get_canonical_xmp_attribute_identity(
     {
         if (uri == oppo_camera_namespace)
         {
-            if (equals_icase(local, "OLivePhotoVersion")) return { "oppo-xmp-version", "OLivePhotoVersion" };
-            if (equals_icase(local, "VideoLength")) return { "oppo-xmp-videolength", "VideoLength" };
-            if (equals_icase(local, "MotionPhotoOwner")) return { "oppo-xmp-owner", "MotionPhotoOwner" };
-            if (equals_icase(local, "MotionPhotoPrimaryPresentationTimestampUs")) return { "oppo-xmp-pts", "MotionPhotoPrimaryPresentationTimestampUs" };
-            if (equals_icase(local, "MotionPhotoEnable")) return { "oppo-xmp-enable", "MotionPhotoEnable" };
+            if (equals_icase(local, "OLivePhotoVersion")) return { "oppo-xmp-version", "OLivePhotoVersion", "OLivePhotoVersion" };
+            if (equals_icase(local, "VideoLength")) return { "oppo-xmp-videolength", "VideoLength", "VideoLength" };
+            if (equals_icase(local, "MotionPhotoOwner")) return { "oppo-xmp-owner", "MotionPhotoOwner", "MotionPhotoOwner" };
+            if (equals_icase(local, "MotionPhotoPrimaryPresentationTimestampUs")) return { "oppo-xmp-pts", "MotionPhotoPrimaryPresentationTimestampUs", "MotionPhotoPrimaryPresentationTimestampUs" };
+            if (equals_icase(local, "MotionPhotoEnable")) return { "oppo-xmp-enable", "MotionPhotoEnable", "MotionPhotoEnable" };
         }
         if (uri == google_camera_namespace)
         {
-            if (equals_icase(local, "MotionPhoto")) return { "google-v2-xmp-motionphoto", "GCamera:MotionPhoto" };
-            if (equals_icase(local, "MotionPhotoVersion")) return { "google-v2-xmp-version", "GCamera:MotionPhotoVersion" };
-            if (equals_icase(local, "MotionPhotoPresentationTimestampUs")) return { "google-v2-xmp-pts", "GCamera:MotionPhotoPresentationTimestampUs" };
+            if (equals_icase(local, "MotionPhoto")) return { "google-v2-xmp-motionphoto", "GCamera:MotionPhoto", "MotionPhoto" };
+            if (equals_icase(local, "MotionPhotoVersion")) return { "google-v2-xmp-version", "GCamera:MotionPhotoVersion", "MotionPhotoVersion" };
+            if (equals_icase(local, "MotionPhotoPresentationTimestampUs")) return { "google-v2-xmp-pts", "GCamera:MotionPhotoPresentationTimestampUs", "MotionPhotoPresentationTimestampUs" };
         }
         return {};
     }
@@ -299,16 +300,16 @@ static canonical_xmp_attribute_identity get_canonical_xmp_attribute_identity(
     {
         if (uri == vivo_camera_namespace)
         {
-            if (equals_icase(local, "VMotionPhotoVersion")) return { "vivo-xmp-version", "VMotionPhotoVersion" };
-            if (equals_icase(local, "VMotionPhotoSource")) return { "vivo-xmp-source", "VMotionPhotoSource" };
-            if (equals_icase(local, "VMotionPhotoFlags")) return { "vivo-xmp-flags", "VMotionPhotoFlags" };
-            if (equals_icase(local, "VMediaKitVersion")) return { "vivo-xmp-mediakit", "VMediaKitVersion" };
+            if (equals_icase(local, "VMotionPhotoVersion")) return { "vivo-xmp-version", "VMotionPhotoVersion", "VMotionPhotoVersion" };
+            if (equals_icase(local, "VMotionPhotoSource")) return { "vivo-xmp-source", "VMotionPhotoSource", "VMotionPhotoSource" };
+            if (equals_icase(local, "VMotionPhotoFlags")) return { "vivo-xmp-flags", "VMotionPhotoFlags", "VMotionPhotoFlags" };
+            if (equals_icase(local, "VMediaKitVersion")) return { "vivo-xmp-mediakit", "VMediaKitVersion", "VMediaKitVersion" };
         }
         if (uri == google_camera_namespace)
         {
-            if (equals_icase(local, "MotionPhoto")) return { "google-v2-xmp-motionphoto", "GCamera:MotionPhoto" };
-            if (equals_icase(local, "MotionPhotoVersion")) return { "google-v2-xmp-version", "GCamera:MotionPhotoVersion" };
-            if (equals_icase(local, "MotionPhotoPresentationTimestampUs")) return { "google-v2-xmp-pts", "GCamera:MotionPhotoPresentationTimestampUs" };
+            if (equals_icase(local, "MotionPhoto")) return { "google-v2-xmp-motionphoto", "GCamera:MotionPhoto", "MotionPhoto" };
+            if (equals_icase(local, "MotionPhotoVersion")) return { "google-v2-xmp-version", "GCamera:MotionPhotoVersion", "MotionPhotoVersion" };
+            if (equals_icase(local, "MotionPhotoPresentationTimestampUs")) return { "google-v2-xmp-pts", "GCamera:MotionPhotoPresentationTimestampUs", "MotionPhotoPresentationTimestampUs" };
         }
         return {};
     }
@@ -320,6 +321,7 @@ struct canonical_xmp_container_item_identity
 {
     std::string_view residue_id{};
     std::string_view selector{};
+    std::string_view semantic{};
 };
 
 static canonical_xmp_container_item_identity get_canonical_motion_item_identity(
@@ -328,16 +330,16 @@ static canonical_xmp_container_item_identity get_canonical_motion_item_identity(
     switch (protocol)
     {
     case LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2:
-        return { "google-v2-container-item-motionphoto", "Item:Semantic=MotionPhoto" };
+        return { "google-v2-container-item-motionphoto", "Item:Semantic=MotionPhoto", "MotionPhoto" };
     case LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG:
-        return { "samsung-jpeg-container-item-motionphoto", "Item:Semantic=MotionPhoto" };
+        return { "samsung-jpeg-container-item-motionphoto", "Item:Semantic=MotionPhoto", "MotionPhoto" };
     case LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC:
-        return { "samsung-heic-container-item-motionphoto", "Item:Semantic=MotionPhoto" };
+        return { "samsung-heic-container-item-motionphoto", "Item:Semantic=MotionPhoto", "MotionPhoto" };
     case LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO:
-        return { "oppo-container-item-motionphoto", "Item:Semantic=MotionPhoto" };
+        return { "oppo-container-item-motionphoto", "Item:Semantic=MotionPhoto", "MotionPhoto" };
     case LPB_SOURCE_PROTOCOL_VIVO_X300:
     case LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL:
-        return { "google-v2-container-item-motionphoto", "Item:Semantic=MotionPhoto" };
+        return { "google-v2-container-item-motionphoto", "Item:Semantic=MotionPhoto", "MotionPhoto" };
     default:
         return {};
     }
@@ -403,10 +405,12 @@ static const lpb_cleanup_action* find_xmp_attribute_action(
     return lpb::media::find_authorized_action(
         actions,
         action_count,
+        protocol,
         canon.residue_id,
         LPB_ARTIFACT_PRIMARY_IMAGE,
         LPB_RESIDUE_XMP_PROPERTY,
         canon.selector,
+        canon.semantic,
         LPB_REMOVAL_DELETE);
 }
 
@@ -424,10 +428,12 @@ static const lpb_cleanup_action* find_motion_item_action(
     return lpb::media::find_authorized_action(
         actions,
         action_count,
+        protocol,
         canon.residue_id,
         LPB_ARTIFACT_PRIMARY_IMAGE,
         LPB_RESIDUE_XMP_CONTAINER_ITEM,
         canon.selector,
+        canon.semantic,
         LPB_REMOVAL_DELETE);
 }
 
@@ -466,10 +472,8 @@ static bool find_motion_ranges(std::string_view xml,
             }
         }
         std::string item_fp = lpb::crypto::compute_xmp_container_item_fingerprint(sem, mime, len, pad, has_pad);
-        if (matched_act && matched_act->expected_fingerprint[0] != '\0') {
-            if (item_fp != matched_act->expected_fingerprint) {
-                return false;
-            }
+        if (!matched_act || matched_act->expected_fingerprint[0] == '\0' || item_fp != matched_act->expected_fingerprint) {
+            return false;
         }
 
         size_t start = element.start;
@@ -544,10 +548,8 @@ bool clean_xmp_metadata_with_plan(
             {
                 std::string_view attr_uri = namespace_uri_for_name(attr.name, element.bindings, true);
                 std::string prop_fp = lpb::crypto::compute_xmp_property_fingerprint(attr_uri, local_name(attr.name), attr.value);
-                if (matched_act && matched_act->expected_fingerprint[0] != '\0') {
-                    if (prop_fp != matched_act->expected_fingerprint) {
-                        return false;
-                    }
+                if (!matched_act || matched_act->expected_fingerprint[0] == '\0' || prop_fp != matched_act->expected_fingerprint) {
+                    return false;
                 }
 
                 cleaned.append(xml.substr(cursor, attr.start - cursor));

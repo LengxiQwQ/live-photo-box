@@ -233,13 +233,13 @@ lpb_result clean_samsung_sef_jpeg(
                             parsed_sef = false;
                             break;
                         }
-                        const auto* act_0a30 = lpb::media::find_authorized_action(actions, action_count, "samsung-jpeg-sef-0a30",
-                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_SEF_ENTRY, "0x0A30:MotionPhoto_Data", LPB_REMOVAL_REBUILD_CONTAINER);
+                        const auto* act_0a30 = lpb::media::find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG, "samsung-jpeg-sef-0a30",
+                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_SEF_ENTRY, "0x0A30:MotionPhoto_Data", "MotionPhoto_Data", LPB_REMOVAL_REBUILD_CONTAINER);
                         if (act_0a30) {
                             std::string fp = lpb::crypto::compute_samsung_sef_entry_fingerprint(
                                 0x0A30, "MotionPhoto_Data", size - 24, data.data() + payload_pos + 24, size - 24);
-                            if (act_0a30->expected_fingerprint[0] != '\0' && fp != act_0a30->expected_fingerprint) {
-                                set_error(context, "Residue fingerprint mismatch for samsung-jpeg-sef-0a30.");
+                            if (act_0a30->expected_fingerprint[0] == '\0' || fp != act_0a30->expected_fingerprint) {
+                                set_error(context, "Residue fingerprint missing or mismatch for samsung-jpeg-sef-0a30.");
                                 return LPB_RESULT_INVALID_ARGUMENT;
                             }
                             had_motion_photo = true;
@@ -257,13 +257,13 @@ lpb_result clean_samsung_sef_jpeg(
                             parsed_sef = false;
                             break;
                         }
-                        const auto* act_0a31 = lpb::media::find_authorized_action(actions, action_count, "samsung-jpeg-sef-0a31",
-                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_SEF_ENTRY, "0x0A31:MotionPhoto_Version", LPB_REMOVAL_REBUILD_CONTAINER);
+                        const auto* act_0a31 = lpb::media::find_authorized_action(actions, action_count, LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG, "samsung-jpeg-sef-0a31",
+                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_SEF_ENTRY, "0x0A31:MotionPhoto_Version", "MotionPhoto_Version", LPB_REMOVAL_REBUILD_CONTAINER);
                         if (act_0a31) {
                             std::string fp = lpb::crypto::compute_samsung_sef_entry_fingerprint(
                                 0x0A31, "MotionPhoto_Version", size - 8, data.data() + payload_pos + 8, size - 8);
-                            if (act_0a31->expected_fingerprint[0] != '\0' && fp != act_0a31->expected_fingerprint) {
-                                set_error(context, "Residue fingerprint mismatch for samsung-jpeg-sef-0a31.");
+                            if (act_0a31->expected_fingerprint[0] == '\0' || fp != act_0a31->expected_fingerprint) {
+                                set_error(context, "Residue fingerprint missing or mismatch for samsung-jpeg-sef-0a31.");
                                 return LPB_RESULT_INVALID_ARGUMENT;
                             }
                             add_fact(out_facts, "Samsung", "SEF Trailer", "Removed 0x0A31 MotionPhoto_Version from SEF",
