@@ -109,6 +109,7 @@ internal static class NativeCleanService
                         WriteFixedUtf8String(pSem, 64, actions[i].ExpectedSemantic);
                     fixed (byte* pFp = actionsBuf[i].ExpectedFingerprint)
                         WriteFixedUtf8String(pFp, 64, actions[i].ExpectedFingerprint);
+                    actionsBuf[i].CoordinateSpace = (int)actions[i].CoordinateSpace;
                     actionsBuf[i].RemovalMode = (int)actions[i].RemovalMode;
                     actionsBuf[i].IsMandatory = actions[i].IsMandatory ? 1 : 0;
                 }
@@ -166,6 +167,14 @@ internal static class NativeCleanService
                         {
                             throw new CleanerException(
                                 CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                                CleanerFailureStage.Staging,
+                                facts.Protocol,
+                                msg);
+                        }
+                        if (msg != null && (msg.Contains("Duplicate", StringComparison.OrdinalIgnoreCase) || msg.Contains("artifact target", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            throw new CleanerException(
+                                CleanerFailureCategory.AuthorizedResidueAmbiguous,
                                 CleanerFailureStage.Staging,
                                 facts.Protocol,
                                 msg);

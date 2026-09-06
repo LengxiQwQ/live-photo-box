@@ -53,6 +53,7 @@ public sealed record PlannedCleanupAction
     public required ResidueStructureKind StructureKind { get; init; }
     public required string Selector { get; init; }
     public string? ExpectedSemantic { get; init; }
+    public CoordinateSpace CoordinateSpace { get; init; } = CoordinateSpace.StructuredSelector;
     public ResidueRemovalMode RemovalMode { get; init; } = ResidueRemovalMode.Delete;
     public string? ExpectedFingerprint { get; init; }
     public bool IsMandatory { get; init; } = true;

@@ -643,6 +643,7 @@ typedef struct lpb_cleanup_action
     char selector[128];
     char expected_semantic[64];
     char expected_fingerprint[64];
+    int32_t coordinate_space;
     int32_t removal_mode;
     int32_t is_mandatory;
 } lpb_cleanup_action;
@@ -701,9 +702,12 @@ static_assert(sizeof(lpb_gainmap_item_facts) == 32, "lpb_gainmap_item_facts size
 static_assert(sizeof(lpb_timing_facts) == 32, "lpb_timing_facts size mismatch");
 static_assert(sizeof(lpb_source_media_facts) == 408, "lpb_source_media_facts size mismatch");
 static_assert(sizeof(lpb_confirmed_residue) == 348, "lpb_confirmed_residue size mismatch");
-static_assert(sizeof(lpb_cleanup_action) == 344, "lpb_cleanup_action size mismatch");
+static_assert(sizeof(lpb_cleanup_action) == 348, "lpb_cleanup_action size mismatch");
 static_assert(sizeof(lpb_cleanup_artifact_binding) == 56, "lpb_cleanup_artifact_binding size mismatch");
 static_assert(sizeof(lpb_removed_protocol_fact) == 524, "lpb_removed_protocol_fact size mismatch");
+static_assert(offsetof(lpb_cleanup_action, coordinate_space) == 336, "lpb_cleanup_action.coordinate_space offset mismatch");
+static_assert(offsetof(lpb_cleanup_action, removal_mode) == 340, "lpb_cleanup_action.removal_mode offset mismatch");
+static_assert(offsetof(lpb_cleanup_action, is_mandatory) == 344, "lpb_cleanup_action.is_mandatory offset mismatch");
 static_assert(offsetof(lpb_video_item_facts, source_index) == 72, "lpb_video_item_facts.source_index offset mismatch");
 static_assert(offsetof(lpb_source_media_facts, primary_sha256) == 336, "lpb_source_media_facts.primary_sha256 offset mismatch");
 static_assert(offsetof(lpb_source_media_facts, secondary_sha256) == 368, "lpb_source_media_facts.secondary_sha256 offset mismatch");

@@ -317,6 +317,11 @@ static bool rebuild_moov_without_matching_tracks(
                                                     set_error(context, "Residue owner protocol mismatch for metadata track.");
                                                     return false;
                                                 }
+                                                if (actions[a].coordinate_space != LPB_COORD_STRUCTURED_SELECTOR)
+                                                {
+                                                    set_error(context, "Residue coordinate space mismatch for metadata track.");
+                                                    return false;
+                                                }
                                                 if (actions[a].expected_fingerprint[0] == '\0' || fp != actions[a].expected_fingerprint)
                                                 {
                                                     set_error(context, "Residue fingerprint missing or mismatch for metadata track.");
@@ -541,6 +546,10 @@ static bool rebuild_moov_without_matching_mdta_keys(
                                 set_error(context, "Residue owner protocol mismatch for mdta key.");
                                 return false;
                             }
+                            if (actions[a].coordinate_space != LPB_COORD_STRUCTURED_SELECTOR) {
+                                set_error(context, "Residue coordinate space mismatch for mdta key.");
+                                return false;
+                            }
                             if (actions[a].expected_fingerprint[0] == '\0' || fp != actions[a].expected_fingerprint) {
                                 set_error(context, "Residue fingerprint missing or mismatch for mdta key.");
                                 return false;
@@ -574,6 +583,10 @@ static bool rebuild_moov_without_matching_mdta_keys(
                             if (expected_protocol != LPB_SOURCE_PROTOCOL_UNKNOWN &&
                                 actions[a].owner_protocol != expected_protocol) {
                                 set_error(context, "Residue owner protocol mismatch for mdta key.");
+                                return false;
+                            }
+                            if (actions[a].coordinate_space != LPB_COORD_STRUCTURED_SELECTOR) {
+                                set_error(context, "Residue coordinate space mismatch for mdta key.");
                                 return false;
                             }
                             if (actions[a].expected_fingerprint[0] == '\0' || fp != actions[a].expected_fingerprint) {
@@ -921,6 +934,10 @@ lpb_result stream_clean_mp4_bytes(
                             if (spec.expected_protocol != LPB_SOURCE_PROTOCOL_UNKNOWN &&
                                 spec.actions[a].owner_protocol != spec.expected_protocol) {
                                 set_error(context, "Residue owner protocol mismatch for uuid box.");
+                                return LPB_RESULT_INVALID_ARGUMENT;
+                            }
+                            if (spec.actions[a].coordinate_space != LPB_COORD_STRUCTURED_SELECTOR) {
+                                set_error(context, "Residue coordinate space mismatch for uuid box.");
                                 return LPB_RESULT_INVALID_ARGUMENT;
                             }
                             if (spec.actions[a].expected_fingerprint[0] == '\0' || ufp != spec.actions[a].expected_fingerprint) {

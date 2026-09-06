@@ -14,7 +14,8 @@ const lpb_cleanup_action* find_authorized_action(
     lpb_residue_structure_kind expected_kind,
     std::string_view expected_selector = {},
     std::string_view expected_semantic = {},
-    int32_t expected_removal_mode = -1);
+    int32_t expected_removal_mode = -1,
+    int32_t expected_coordinate_space = LPB_COORD_STRUCTURED_SELECTOR);
 
 lpb_result clean_source_protocol_with_plan(
     lpb_context* context,

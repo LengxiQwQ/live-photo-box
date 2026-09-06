@@ -74,7 +74,8 @@ const lpb_cleanup_action* find_authorized_action(
     lpb_residue_structure_kind expected_kind,
     std::string_view expected_selector,
     std::string_view expected_semantic,
-    int32_t expected_removal_mode)
+    int32_t expected_removal_mode,
+    int32_t expected_coordinate_space)
 {
     if (!actions || action_count == 0 || residue_id.empty()) return nullptr;
     for (size_t i = 0; i < action_count; ++i) {
@@ -86,6 +87,7 @@ const lpb_cleanup_action* find_authorized_action(
             if (!expected_selector.empty() && expected_selector != a.selector) return nullptr;
             if (!expected_semantic.empty() && expected_semantic != a.expected_semantic) return nullptr;
             if (expected_removal_mode >= 0 && a.removal_mode != expected_removal_mode) return nullptr;
+            if (expected_coordinate_space >= 0 && a.coordinate_space != expected_coordinate_space) return nullptr;
             if (a.expected_fingerprint[0] == '\0') return nullptr;
             return &a;
         }
@@ -636,6 +638,9 @@ lpb_result clean_source_protocol_with_plan(
     if (!context || !facts || !input_image_path || !output_image_path) {
         return LPB_RESULT_INVALID_ARGUMENT;
     }
+    if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
+        return LPB_RESULT_CANCELLED;
+    }
     if (!actions || action_count == 0) {
         set_error(context, "No cleanup actions authorized in plan.");
         return LPB_RESULT_INVALID_ARGUMENT;
@@ -650,14 +655,35 @@ lpb_result clean_source_protocol_with_plan(
     const lpb_cleanup_artifact_binding* video_target = nullptr;
     for (size_t i = 0; i < target_count; ++i) {
         if (targets[i].artifact_role == LPB_ARTIFACT_PRIMARY_IMAGE) {
+            if (primary_target != nullptr) {
+                set_error(context, "Duplicate PrimaryImage artifact target provided. At most one PrimaryImage target is allowed.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
             primary_target = &targets[i];
         } else if (targets[i].artifact_role == LPB_ARTIFACT_MOTION_VIDEO) {
+            if (video_target != nullptr) {
+                set_error(context, "Duplicate MotionVideo artifact target provided. At most one MotionVideo target is allowed.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
             video_target = &targets[i];
+        } else {
+            set_error(context, "Unsupported or unknown artifact target role provided in cleanup plan.");
+            return LPB_RESULT_INVALID_ARGUMENT;
         }
     }
 
     if (!primary_target || primary_target->has_expected_sha256 != 1 || primary_target->expected_length == 0 || is_all_zeroes_32(primary_target->expected_sha256)) {
         set_error(context, "TOCTOU check failed: valid primary image expected SHA-256 and positive length are mandatory.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    constexpr uint64_t kMaxSnapshotBytes = 2ULL * 1024 * 1024 * 1024; // 2GB limit for in-memory snapshot
+    if (primary_target->expected_length > kMaxSnapshotBytes) {
+        set_error(context, "Primary image artifact exceeds maximum supported in-memory snapshot size (2GB).");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (video_target && video_target->expected_length > kMaxSnapshotBytes) {
+        set_error(context, "Motion video artifact exceeds maximum supported in-memory snapshot size (2GB). Low-memory streaming is deferred.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
@@ -703,6 +729,10 @@ lpb_result clean_source_protocol_with_plan(
         context->cleaner_post_snapshot_callback(context->cleaner_callback_user_data);
     }
 
+    if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
+        return LPB_RESULT_CANCELLED;
+    }
+
     std::unordered_set<std::string_view> seen_residues;
     for (size_t i = 0; i < action_count; ++i) {
         const auto& a = actions[i];
@@ -712,6 +742,10 @@ lpb_result clean_source_protocol_with_plan(
         }
         if (a.residue_id[0] == '\0') {
             set_error(context, "Action residue_id must not be empty.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if (a.coordinate_space < LPB_COORD_ORIGINAL_SOURCE_RANGE || a.coordinate_space > LPB_COORD_STRUCTURED_SELECTOR) {
+            set_error(context, "Action coordinate_space is invalid or unsupported.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         if (!seen_residues.insert(a.residue_id).second) {

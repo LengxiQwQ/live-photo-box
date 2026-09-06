@@ -17,7 +17,13 @@ internal static class HeifBoxParser
     {
         public readonly uint Id;
         public readonly string Type;
-        public ItemInfo(uint id, string type) { Id = id; Type = type; }
+        public readonly string? ContentType;
+        public ItemInfo(uint id, string type, string? contentType = null)
+        {
+            Id = id;
+            Type = type;
+            ContentType = contentType;
+        }
     }
 
     private readonly struct ItemLocation
@@ -127,6 +133,94 @@ internal static class HeifBoxParser
         return false;
     }
 
+    public static bool TryLocateXmpItem(string heicPath, out long offset, out long length, out string? error)
+    {
+        offset = 0;
+        length = 0;
+        error = null;
+        try
+        {
+            byte[] data = File.ReadAllBytes(heicPath);
+            return TryLocateXmpItem(data, out offset, out length, out error);
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+    }
+
+    public static bool TryLocateXmpItem(byte[] data, out long offset, out long length, out string? error)
+    {
+        offset = 0;
+        length = 0;
+        error = null;
+
+        if (!TryFindBox(data, 0, data.Length, "meta", out int metaStart, out int metaLen, out int metaBodyStart))
+        {
+            error = "No meta box found.";
+            return false;
+        }
+
+        int childStart = metaBodyStart + 4;
+        int childEnd = metaStart + metaLen;
+
+        int iinfBody = -1, iinfLen = 0, ilocBody = -1, ilocLen = 0;
+        if (!TryWalkBoxes(data, childStart, childEnd, (type, body, len) =>
+        {
+            if (type == "iinf") { iinfBody = body; iinfLen = len; }
+            else if (type == "iloc") { ilocBody = body; ilocLen = len; }
+        }))
+        {
+            error = "Meta box is malformed.";
+            return false;
+        }
+
+        if (iinfBody < 0 || ilocBody < 0)
+        {
+            error = "Missing iinf or iloc box.";
+            return false;
+        }
+
+        if (!TryParseIinf(data, iinfBody, iinfLen, out var items, out error)) return false;
+        if (!TryParseIloc(data, ilocBody, ilocLen, out var locations, out error)) return false;
+
+        foreach (var item in items)
+        {
+            if (!item.Type.Equals("mime", StringComparison.Ordinal) || item.ContentType == null ||
+                !item.ContentType.StartsWith("application/rdf+xml", StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            if (!locations.TryGetValue(item.Id, out var loc))
+            {
+                error = "XMP item has no iloc entry.";
+                return false;
+            }
+            if (loc.ConstructionMethod != 0)
+            {
+                error = $"XMP item uses construction_method={loc.ConstructionMethod} (unsupported).";
+                return false;
+            }
+            if (loc.ExtentCount != 1)
+            {
+                error = $"XMP item has {loc.ExtentCount} extents (only single extent supported).";
+                return false;
+            }
+            if (loc.Offset < 0 || loc.Length <= 0 || loc.Offset + loc.Length > data.LongLength)
+            {
+                error = "XMP item extent out of range.";
+                return false;
+            }
+
+            offset = loc.Offset;
+            length = loc.Length;
+            return true;
+        }
+
+        error = "No XMP item found.";
+        return false;
+    }
+
     private static bool TryParseIinf(byte[] data, int body, int len, out List<ItemInfo> items, out string? error)
     {
         items = new List<ItemInfo>();
@@ -171,7 +265,29 @@ internal static class HeifBoxParser
             int itemTypeOff = infeVersion >= 3 ? 10 : 8;
             if (q + itemTypeOff + 4 > p + boxSize) { error = "infe item_type truncated."; return false; }
             string itemType = ReadFourCc(data, q + itemTypeOff);
-            items.Add(new ItemInfo(itemId, itemType));
+            string? contentType = null;
+            if (itemType.Equals("mime", StringComparison.Ordinal))
+            {
+                int s = q + itemTypeOff + 4;
+                int infeEnd = p + boxSize;
+                string? firstStr = ReadNullTerminatedString(data, ref s, infeEnd);
+                if (firstStr != null)
+                {
+                    if (firstStr.StartsWith("application/rdf+xml", StringComparison.OrdinalIgnoreCase))
+                    {
+                        contentType = firstStr;
+                    }
+                    else
+                    {
+                        string? secondStr = ReadNullTerminatedString(data, ref s, infeEnd);
+                        if (secondStr != null && secondStr.StartsWith("application/rdf+xml", StringComparison.OrdinalIgnoreCase))
+                        {
+                            contentType = secondStr;
+                        }
+                    }
+                }
+            }
+            items.Add(new ItemInfo(itemId, itemType, contentType));
             p += boxSize;
         }
 
@@ -360,5 +476,15 @@ internal static class HeifBoxParser
             value = (value << 8) | (uint)(data[off + i] & 0xFF);
         }
         return value;
+    }
+
+    private static string? ReadNullTerminatedString(byte[] data, ref int offset, int end)
+    {
+        int start = offset;
+        while (offset < end && data[offset] != 0) offset++;
+        if (offset >= end) return null;
+        string result = System.Text.Encoding.UTF8.GetString(data, start, offset - start);
+        offset++; // skip null terminator
+        return result;
     }
 }

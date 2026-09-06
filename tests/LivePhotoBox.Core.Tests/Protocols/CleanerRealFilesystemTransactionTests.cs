@@ -168,6 +168,126 @@ public sealed class CleanerRealFilesystemTransactionTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
+    public async Task Clean_RealFileSystem_MidFlightStagingWriteCancellation_LeavesNoArtifactsAndCleansStaging()
+    {
+        string samplePath = ResolveSample("oppo.jpg");
+        string shaBefore = ComputeSha256(samplePath);
+
+        using var workspace = new MediaWorkspace();
+        var inspector = new SourceInspector();
+        var extractor = new SourceExtractor();
+
+        var facts = await inspector.InspectAsync(samplePath);
+        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+
+        using var cts = new CancellationTokenSource();
+        string? partiallyWrittenStagedPath = null;
+
+        var cleaner = new SourceProtocolCleaner(
+            inspector,
+            async (factsArg, actions, targets, inImg, inVid, outImg, outVid, ct) =>
+            {
+                // 1. Cleaner starts actual writing of staging output
+                partiallyWrittenStagedPath = outImg;
+                byte[] partialData = new byte[4096];
+                Array.Fill(partialData, (byte)0xAA);
+                await File.WriteAllBytesAsync(outImg!, partialData, ct);
+
+                // 2. Confirm partial data has actually been written to disk in staging
+                Assert.True(File.Exists(outImg));
+                Assert.True(new FileInfo(outImg!).Length > 0);
+
+                // 3. Trigger cancellation mid-stream during staging write
+                cts.Cancel();
+                ct.ThrowIfCancellationRequested();
+
+                return Array.Empty<RemovedProtocolFact>();
+            });
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await cleaner.CleanAsync(new ProtocolCleanRequest
+            {
+                ExtractedBundle = extracted
+            }, workspace, cts.Token);
+        });
+
+        // 4. Check results:
+        // - source original file unchanged
+        Assert.Equal(shaBefore, ComputeSha256(samplePath));
+
+        // - destination has no half-baked artifacts
+        Assert.NotNull(partiallyWrittenStagedPath);
+        Assert.False(File.Exists(partiallyWrittenStagedPath));
+
+        // - staging temp directory cleaned up
+        string[] stagingDirs = Directory.GetDirectories(workspace.RootDirectory, "staging_*");
+        Assert.Empty(stagingDirs);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Clean_RealFileSystem_MidFlightNativeStagingCancellation_LeavesNoArtifactsAndCleansStaging()
+    {
+        string samplePath = ResolveSample("oppo.jpg");
+        string shaBefore = ComputeSha256(samplePath);
+
+        using var workspace = new MediaWorkspace();
+        var inspector = new SourceInspector();
+        var extractor = new SourceExtractor();
+        var cleaner = new SourceProtocolCleaner();
+
+        var facts = await inspector.InspectAsync(samplePath);
+        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+
+        using var cts = new CancellationTokenSource();
+        string? observedStagedFile = null;
+
+        cleaner.FaultInjectionHook = (stage, location) =>
+        {
+            if (stage == CleanerFailureStage.Staging && location == "ImageStaged")
+            {
+                // 1. Native cleaner has written the staged image file
+                var stagingDirs = Directory.GetDirectories(workspace.RootDirectory, "staging_*");
+                Assert.Single(stagingDirs);
+                var stagedFiles = Directory.GetFiles(stagingDirs[0]);
+                Assert.NotEmpty(stagedFiles);
+                observedStagedFile = stagedFiles[0];
+
+                // 2. Confirm data actually written to disk in staging
+                Assert.True(File.Exists(observedStagedFile));
+                Assert.True(new FileInfo(observedStagedFile).Length > 0);
+
+                // 3. Trigger cancellation mid-flight
+                cts.Cancel();
+                cts.Token.ThrowIfCancellationRequested();
+            }
+            return Task.CompletedTask;
+        };
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await cleaner.CleanAsync(new ProtocolCleanRequest
+            {
+                ExtractedBundle = extracted
+            }, workspace, cts.Token);
+        });
+
+        // 4. Check results:
+        // - source original file unchanged
+        Assert.Equal(shaBefore, ComputeSha256(samplePath));
+
+        // - destination and staging have no lingering artifacts
+        Assert.NotNull(observedStagedFile);
+        Assert.False(File.Exists(observedStagedFile));
+
+        // - staging temp directory cleaned up
+        string[] lingeringStagingDirs = Directory.GetDirectories(workspace.RootDirectory, "staging_*");
+        Assert.Empty(lingeringStagingDirs);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
     public async Task Clean_RealFileSystem_ReadOnlyExistingDestinationFile_FailsClosedAndRollsBack()
     {
         string samplePath = ResolveSample("oppo.jpg");

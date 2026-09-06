@@ -99,6 +99,7 @@ internal unsafe struct NativeCleanupAction
     public fixed byte Selector[128];
     public fixed byte ExpectedSemantic[64];
     public fixed byte ExpectedFingerprint[64];
+    public int CoordinateSpace;
     public int RemovalMode;
     public int IsMandatory;
 }

@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using System.Xml.Linq;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Models;
+using LivePhotoBox.Services.Protocols;
 
 namespace LivePhotoBox.Protocols.Cleaning;
 
@@ -536,8 +537,8 @@ public static class MetadataPreservationVerifier
         }
 
         // 7. XMP Non-Target Namespaces
-        string preXmp = ExtractXmp(preBytes);
-        string postXmp = ExtractXmp(postBytes);
+        string preXmp = ExtractXmp(preBytes, baseline.PrimaryImagePath);
+        string postXmp = ExtractXmp(postBytes, stagedImagePath);
 
         var preNonTarget = ExtractNonTargetXmpProperties(preXmp);
         var postNonTarget = ExtractNonTargetXmpProperties(postXmp);
@@ -748,8 +749,8 @@ public static class MetadataPreservationVerifier
                 items.Add(new PreservationReportItem
                 {
                     Name = "GainMap",
-                    Status = PreservationCheckStatus.VerifiedPreserved,
-                    Details = $"Detached GainMap frozen baseline SHA-256 exact match ({baseline.GainMapSha256})."
+                    Status = PreservationCheckStatus.SemanticallyPreserved,
+                    Details = $"Detached GainMap is not processed as destructive target; tracked as detached artifact ({baseline.GainMapSha256})."
                 });
             }
         }
@@ -1104,12 +1105,47 @@ public static class MetadataPreservationVerifier
         return Encoding.ASCII.GetString(bytes, 0, len);
     }
 
+    private static bool IsJpeg(byte[] data) =>
+        data.Length >= 4 && data[0] == 0xFF && data[1] == 0xD8;
+
+    private static bool IsHeifContainer(byte[] data)
+    {
+        if (data == null || data.Length < 12) return false;
+        if (data[4] == (byte)'f' && data[5] == (byte)'t' && data[6] == (byte)'y' && data[7] == (byte)'p')
+            return true;
+        if (data[4] == (byte)'m' && data[5] == (byte)'e' && data[6] == (byte)'t' && data[7] == (byte)'a')
+            return true;
+        return false;
+    }
+
+    public static bool TryLocateHeicExifItem(byte[] data, out long offset, out long length, out string? error)
+    {
+        if (NativeHeifBoxParser.TryLocateExifItem(data, out offset, out length, out error))
+        {
+            return true;
+        }
+        return HeifBoxParser.TryLocateExifItem(data, out offset, out length, out error);
+    }
+
+    public static bool TryLocateHeicXmpItem(byte[] data, out long offset, out long length, out string? error)
+    {
+        if (NativeHeifBoxParser.TryLocateXmpItem(data, out offset, out length, out error))
+        {
+            return true;
+        }
+        return HeifBoxParser.TryLocateXmpItem(data, out offset, out length, out error);
+    }
+
     public static byte[]? ExtractTiff(byte[] data, string path)
     {
         string ext = Path.GetExtension(path).ToLowerInvariant();
-        if (ext is ".heic" or ".heif")
+        if (ext is ".heic" or ".heif" || IsHeifContainer(data))
         {
             return ExtractHeicTiff(data);
+        }
+        if (ext is ".jpg" or ".jpeg" || IsJpeg(data))
+        {
+            return ExtractJpegTiff(data);
         }
         return ExtractJpegTiff(data) ?? ExtractHeicTiff(data);
     }
@@ -1151,39 +1187,44 @@ public static class MetadataPreservationVerifier
     private static byte[]? ExtractHeicTiff(byte[] data)
     {
         if (data.Length < 16) return null;
-        // Search for "Exif\0\0"
-        for (int i = 0; i < Math.Min(data.Length - 14, 131072); i++)
+        if (!TryLocateHeicExifItem(data, out long offset, out long length, out _))
         {
-            if (data[i] == 'E' && data[i + 1] == 'x' && data[i + 2] == 'i' && data[i + 3] == 'f' &&
-                data[i + 4] == 0 && data[i + 5] == 0)
+            return null;
+        }
+
+        if (offset < 0 || length < 4 || (ulong)offset + (ulong)length > (ulong)data.Length)
+        {
+            return null;
+        }
+
+        int itemStart = (int)offset;
+        int itemLen = (int)length;
+
+        uint tiffHeaderOffset = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(itemStart, 4));
+
+        int[] candidateStarts = [
+            itemStart + 4 + (int)tiffHeaderOffset,
+            itemStart + 10,
+            itemStart + 4,
+            itemStart
+        ];
+
+        foreach (int tiffStart in candidateStarts)
+        {
+            if (tiffStart >= itemStart && tiffStart + 4 <= itemStart + itemLen)
             {
-                int tiffStart = i + 6;
-                if (tiffStart + 8 <= data.Length)
+                bool isTiff = (data[tiffStart] == 0x49 && data[tiffStart + 1] == 0x49 && data[tiffStart + 2] == 0x2A && data[tiffStart + 3] == 0x00) ||
+                              (data[tiffStart] == 0x4D && data[tiffStart + 1] == 0x4D && data[tiffStart + 2] == 0x00 && data[tiffStart + 3] == 0x2A);
+                if (isTiff)
                 {
-                    // Verify TIFF header
-                    if ((data[tiffStart] == 0x49 && data[tiffStart + 1] == 0x49 && data[tiffStart + 2] == 0x2A && data[tiffStart + 3] == 0x00) ||
-                        (data[tiffStart] == 0x4D && data[tiffStart + 1] == 0x4D && data[tiffStart + 2] == 0x00 && data[tiffStart + 3] == 0x2A))
-                    {
-                        int tiffLen = Math.Min(data.Length - tiffStart, 65536);
-                        byte[] tiff = new byte[tiffLen];
-                        Buffer.BlockCopy(data, tiffStart, tiff, 0, tiffLen);
-                        return tiff;
-                    }
+                    int tiffLen = (itemStart + itemLen) - tiffStart;
+                    byte[] tiff = new byte[tiffLen];
+                    Buffer.BlockCopy(data, tiffStart, tiff, 0, tiffLen);
+                    return tiff;
                 }
             }
         }
-        // Fallback: search directly for II*\0 or MM\0*
-        for (int i = 0; i < Math.Min(data.Length - 8, 131072); i++)
-        {
-            if ((data[i] == 0x49 && data[i + 1] == 0x49 && data[i + 2] == 0x2A && data[i + 3] == 0x00) ||
-                (data[i] == 0x4D && data[i + 1] == 0x4D && data[i + 2] == 0x00 && data[i + 3] == 0x2A))
-            {
-                int tiffLen = Math.Min(data.Length - i, 65536);
-                byte[] tiff = new byte[tiffLen];
-                Buffer.BlockCopy(data, i, tiff, 0, tiffLen);
-                return tiff;
-            }
-        }
+
         return null;
     }
 
@@ -1194,83 +1235,221 @@ public static class MetadataPreservationVerifier
     public static byte[]? ExtractIcc(byte[] data, string path)
     {
         string ext = Path.GetExtension(path).ToLowerInvariant();
-        if (ext is not (".heic" or ".heif"))
+        if (ext is ".heic" or ".heif" || IsHeifContainer(data))
         {
-            // Scan JPEG APP2 segments
-            int pos = 2;
-            List<byte[]> chunks = new();
-            while (pos + 4 <= data.Length)
-            {
-                if (data[pos] != 0xFF) break;
-                while (pos < data.Length && data[pos] == 0xFF) pos++;
-                if (pos >= data.Length) break;
-                byte marker = data[pos++];
-                if (marker == 0xDA || marker == 0xD9) break;
-                if (marker == 0x00 || (marker >= 0xD0 && marker <= 0xD7)) continue;
-                if (pos + 2 > data.Length) break;
-                int len = (data[pos] << 8) | data[pos + 1];
-                if (len < 2 || pos + len > data.Length) break;
-
-                if (marker == 0xE2) // APP2
-                {
-                    // Check "ICC_PROFILE\0" (12 bytes)
-                    if (len >= 14 && pos + 14 <= data.Length &&
-                        data[pos + 2] == 'I' && data[pos + 3] == 'C' && data[pos + 4] == 'C' &&
-                        data[pos + 5] == '_' && data[pos + 6] == 'P' && data[pos + 7] == 'R' &&
-                        data[pos + 8] == 'O' && data[pos + 9] == 'F' && data[pos + 10] == 'I' &&
-                        data[pos + 11] == 'L' && data[pos + 12] == 'E' && data[pos + 13] == 0)
-                    {
-                        int payloadLen = len - 14;
-                        byte[] chunk = new byte[payloadLen];
-                        Buffer.BlockCopy(data, pos + 14, chunk, 0, payloadLen);
-                        chunks.Add(chunk);
-                    }
-                }
-                pos += len;
-            }
-
-            if (chunks.Count == 1) return chunks[0];
-            if (chunks.Count > 1)
-            {
-                int total = chunks.Sum(c => c.Length);
-                byte[] combined = new byte[total];
-                int offset = 0;
-                foreach (var c in chunks)
-                {
-                    Buffer.BlockCopy(c, 0, combined, offset, c.Length);
-                    offset += c.Length;
-                }
-                return combined;
-            }
+            return ExtractHeicIcc(data);
         }
 
-        // For HEIC or fallback, scan for 'colr' box
-        for (int i = 0; i < Math.Min(data.Length - 12, 131072); i++)
+        if (ext is ".jpg" or ".jpeg" || IsJpeg(data))
         {
-            if (data[i + 4] == 'c' && data[i + 5] == 'o' && data[i + 6] == 'l' && data[i + 7] == 'r')
+            return ExtractJpegIcc(data);
+        }
+
+        return ExtractJpegIcc(data) ?? ExtractHeicIcc(data);
+    }
+
+    private static byte[]? ExtractJpegIcc(byte[] data)
+    {
+        if (data.Length < 4 || data[0] != 0xFF || data[1] != 0xD8) return null;
+        int pos = 2;
+        List<byte[]> chunks = new();
+        while (pos + 4 <= data.Length)
+        {
+            if (data[pos] != 0xFF) break;
+            while (pos < data.Length && data[pos] == 0xFF) pos++;
+            if (pos >= data.Length) break;
+            byte marker = data[pos++];
+            if (marker == 0xDA || marker == 0xD9) break;
+            if (marker == 0x00 || (marker >= 0xD0 && marker <= 0xD7)) continue;
+            if (pos + 2 > data.Length) break;
+            int len = (data[pos] << 8) | data[pos + 1];
+            if (len < 2 || pos + len > data.Length) break;
+
+            if (marker == 0xE2) // APP2
             {
-                uint boxLen = ((uint)data[i] << 24) | ((uint)data[i + 1] << 16) | ((uint)data[i + 2] << 8) | data[i + 3];
-                if (boxLen >= 12 && i + boxLen <= data.Length)
+                // Check "ICC_PROFILE\0" (12 bytes)
+                if (len >= 14 && pos + 14 <= data.Length &&
+                    data[pos + 2] == 'I' && data[pos + 3] == 'C' && data[pos + 4] == 'C' &&
+                    data[pos + 5] == '_' && data[pos + 6] == 'P' && data[pos + 7] == 'R' &&
+                    data[pos + 8] == 'O' && data[pos + 9] == 'F' && data[pos + 10] == 'I' &&
+                    data[pos + 11] == 'L' && data[pos + 12] == 'E' && data[pos + 13] == 0)
                 {
-                    byte[] colr = new byte[boxLen];
-                    Buffer.BlockCopy(data, i, colr, 0, (int)boxLen);
-                    return colr;
+                    int payloadLen = len - 14;
+                    byte[] chunk = new byte[payloadLen];
+                    Buffer.BlockCopy(data, pos + 14, chunk, 0, payloadLen);
+                    chunks.Add(chunk);
                 }
             }
+            pos += len;
         }
+
+        if (chunks.Count == 1) return chunks[0];
+        if (chunks.Count > 1)
+        {
+            int total = chunks.Sum(c => c.Length);
+            byte[] combined = new byte[total];
+            int offset = 0;
+            foreach (var c in chunks)
+            {
+                Buffer.BlockCopy(c, 0, combined, offset, c.Length);
+                offset += c.Length;
+            }
+            return combined;
+        }
+
         return null;
+    }
+
+    private static byte[]? ExtractHeicIcc(byte[] data)
+    {
+        var metaChildren = GetMetaChildren(data, out _);
+        if (metaChildren == null) return null;
+
+        HeifBoxHeader? iprpBox = null;
+        foreach (var b in metaChildren)
+        {
+            if (b.Type == "iprp")
+            {
+                if (iprpBox != null) return null; // Duplicate / shadow iprp rejected
+                iprpBox = b;
+            }
+        }
+        if (iprpBox == null || iprpBox.Value.BodyLength < 8) return null;
+
+        var iprpChildren = ParseSequentialBoxes(data, iprpBox.Value.BodyStart, iprpBox.Value.BodyLength);
+        if (iprpChildren == null) return null;
+
+        HeifBoxHeader? ipcoBox = null;
+        HeifBoxHeader? ipmaBox = null;
+        foreach (var b in iprpChildren)
+        {
+            if (b.Type == "ipco")
+            {
+                if (ipcoBox != null) return null; // Duplicate / shadow ipco rejected
+                ipcoBox = b;
+            }
+            else if (b.Type == "ipma")
+            {
+                if (ipmaBox != null) return null; // Duplicate / shadow ipma rejected
+                ipmaBox = b;
+            }
+        }
+        if (ipcoBox == null || ipcoBox.Value.BodyLength < 8) return null;
+
+        var propBoxes = ParseSequentialBoxes(data, ipcoBox.Value.BodyStart, ipcoBox.Value.BodyLength);
+        if (propBoxes == null) return null;
+
+        var colrProps = new List<(int Index, HeifBoxHeader Box)>();
+        for (int i = 0; i < propBoxes.Count; i++)
+        {
+            if (propBoxes[i].Type == "colr")
+            {
+                colrProps.Add((i + 1, propBoxes[i]));
+            }
+        }
+
+        if (colrProps.Count == 0) return null;
+
+        if (colrProps.Count == 1)
+        {
+            var colr = colrProps[0].Box;
+            byte[] bytes = new byte[colr.BoxLength];
+            Buffer.BlockCopy(data, colr.BoxStart, bytes, 0, colr.BoxLength);
+            return bytes;
+        }
+
+        // Multiple colr properties: disambiguate using primary item association in ipma
+        uint? primaryId = ExtractHeicPrimaryItemId(data);
+        if (primaryId != null && ipmaBox != null)
+        {
+            var associatedIndices = GetItemPropertyAssociations(data, ipmaBox.Value, primaryId.Value);
+            var matching = colrProps.Where(cp => associatedIndices.Contains(cp.Index)).ToList();
+            if (matching.Count == 1)
+            {
+                var colr = matching[0].Box;
+                byte[] bytes = new byte[colr.BoxLength];
+                Buffer.BlockCopy(data, colr.BoxStart, bytes, 0, colr.BoxLength);
+                return bytes;
+            }
+        }
+
+        // Ambiguous multiple colr properties without single primary match: fail closed
+        return null;
+    }
+
+    private static HashSet<int> GetItemPropertyAssociations(byte[] data, HeifBoxHeader ipmaBox, uint targetItemId)
+    {
+        var result = new HashSet<int>();
+        if (ipmaBox.BodyLength < 8) return result;
+
+        int p = ipmaBox.BodyStart;
+        int end = ipmaBox.BodyStart + ipmaBox.BodyLength;
+
+        byte ver = data[p++];
+        int flags = (data[p++] << 16) | (data[p++] << 8) | data[p++];
+        bool isLargePropertyIndex = (flags & 1) != 0;
+
+        if (p + 4 > end) return result;
+        uint entryCount = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(p, 4));
+        p += 4;
+
+        for (uint i = 0; i < entryCount && p < end; i++)
+        {
+            uint itemId;
+            if (ver < 1)
+            {
+                if (p + 2 > end) break;
+                itemId = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(p, 2));
+                p += 2;
+            }
+            else
+            {
+                if (p + 4 > end) break;
+                itemId = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(p, 4));
+                p += 4;
+            }
+
+            if (p >= end) break;
+            byte assocCount = data[p++];
+
+            for (byte a = 0; a < assocCount && p < end; a++)
+            {
+                int propIndex;
+                if (isLargePropertyIndex)
+                {
+                    if (p + 2 > end) break;
+                    ushort raw = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(p, 2));
+                    p += 2;
+                    propIndex = raw & 0x7FFF;
+                }
+                else
+                {
+                    byte raw = data[p++];
+                    propIndex = raw & 0x7F;
+                }
+
+                if (itemId == targetItemId)
+                {
+                    result.Add(propIndex);
+                }
+            }
+        }
+
+        return result;
     }
 
     #endregion
 
     #region XMP Non-Target Extraction
 
-    public static string ExtractXmp(byte[] data)
+    public static string ExtractXmp(byte[] data, string? path = null)
     {
         if (data.Length < 32) return string.Empty;
 
-        // JPEG APP1 marker scan
-        if (data.Length >= 4 && data[0] == 0xFF && data[1] == 0xD8)
+        string ext = !string.IsNullOrEmpty(path) ? Path.GetExtension(path).ToLowerInvariant() : string.Empty;
+
+        // 1. JPEG APP1 marker scan
+        if ((ext is ".jpg" or ".jpeg" || IsJpeg(data)) && data.Length >= 4 && data[0] == 0xFF && data[1] == 0xD8)
         {
             int p = 2;
             byte[] xmpHeader = Encoding.ASCII.GetBytes("http://ns.adobe.com/xap/1.0/\0");
@@ -1297,16 +1476,26 @@ public static class MetadataPreservationVerifier
                 }
                 p += len;
             }
+            return string.Empty;
         }
 
-        // Fallback for HEIC or raw blocks: locate <x:xmpmeta or <rdf:RDF in bytes
-        ReadOnlySpan<byte> span = data;
-        int idx = span.IndexOf(Encoding.UTF8.GetBytes("<x:xmpmeta"));
-        if (idx < 0) idx = span.IndexOf(Encoding.UTF8.GetBytes("<rdf:RDF"));
-        if (idx >= 0)
+        // 2. HEIF / ISOBMFF authoritative XMP item
+        if (ext is ".heic" or ".heif" || IsHeifContainer(data))
         {
-            int maxLen = Math.Min(data.Length - idx, 256 * 1024);
-            return ExtractXmlFragment(Encoding.UTF8.GetString(data, idx, maxLen));
+            if (TryLocateHeicXmpItem(data, out long offset, out long length, out _) &&
+                offset >= 0 && length > 0 && (ulong)offset + (ulong)length <= (ulong)data.Length)
+            {
+                string xmpStr = Encoding.UTF8.GetString(data, (int)offset, (int)length);
+                return ExtractXmlFragment(xmpStr);
+            }
+            return string.Empty;
+        }
+
+        // 3. Raw XML document (non-container input only, e.g. standalone sidecar or synthetic string test)
+        var trimmed = data.AsSpan().TrimStart(" \t\r\n"u8);
+        if (trimmed.StartsWith("<?xml"u8) || trimmed.StartsWith("<x:xmpmeta"u8) || trimmed.StartsWith("<rdf:RDF"u8))
+        {
+            return ExtractXmlFragment(Encoding.UTF8.GetString(data));
         }
 
         return string.Empty;
@@ -1683,32 +1872,50 @@ public static class MetadataPreservationVerifier
                 itemId = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(p, 4));
                 p += 4;
             }
-            if (ver == 1 || ver == 2) p += 2; // construction_method
-            p += 2; // data_reference_index
+            byte constructionMethod = 0;
+            if (ver == 1 || ver == 2)
+            {
+                if (p + 2 > ilocEnd) return null;
+                ushort cmRaw = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(p, 2));
+                constructionMethod = (byte)(cmRaw & 0x0F);
+                p += 2;
+            }
+            if (p + 2 > ilocEnd) return null;
+            ushort dataRefIndex = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(p, 2));
+            p += 2;
             ulong baseOffset = 0;
             for (int b = 0; b < baseOffsetSize; b++) { if (p >= ilocEnd) return null; baseOffset = (baseOffset << 8) | data[p++]; }
             if (p + 2 > ilocEnd) return null;
             ushort extentCount = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(p, 2));
             p += 2;
 
-            for (ushort e = 0; e < extentCount; e++)
+            if (itemId == targetItemId)
             {
+                // Task 05: Multi-extent payload cannot be verified safely in this phase.
+                // Fail closed to prevent verifying only a partial first extent.
+                if (extentCount != 1) return null;
+
                 if ((ver == 1 || ver == 2) && indexSize > 0) p += indexSize;
                 ulong extentOffset = 0;
                 for (int b = 0; b < offsetSize; b++) { if (p >= ilocEnd) return null; extentOffset = (extentOffset << 8) | data[p++]; }
                 ulong extentLength = 0;
                 for (int b = 0; b < lengthSize; b++) { if (p >= ilocEnd) return null; extentLength = (extentLength << 8) | data[p++]; }
 
-                if (itemId == targetItemId)
+                ulong absOffset = baseOffset + extentOffset;
+                if (absOffset + extentLength <= (ulong)data.Length && extentLength > 0)
                 {
-                    ulong absOffset = baseOffset + extentOffset;
-                    if (absOffset + extentLength <= (ulong)data.Length && extentLength > 0)
-                    {
-                        byte[] payload = new byte[extentLength];
-                        Buffer.BlockCopy(data, (int)absOffset, payload, 0, (int)extentLength);
-                        return payload;
-                    }
+                    byte[] payload = new byte[extentLength];
+                    Buffer.BlockCopy(data, (int)absOffset, payload, 0, (int)extentLength);
+                    return payload;
                 }
+                return null;
+            }
+
+            for (ushort e = 0; e < extentCount; e++)
+            {
+                if ((ver == 1 || ver == 2) && indexSize > 0) p += indexSize;
+                p += offsetSize + lengthSize;
+                if (p > ilocEnd) return null;
             }
         }
         return null;
@@ -1766,15 +1973,15 @@ public static class MetadataPreservationVerifier
 
             if (actualSize < headerSize || p + actualSize > data.Length) break;
 
-            if (data[p + 4] == 'm' && data[p + 5] == 'd' && data[p + 6] == 'a' && data[p + 7] == 't')
+            bool isMdat = data[p + 4] == (byte)'m' && data[p + 5] == (byte)'d' && data[p + 6] == (byte)'a' && data[p + 7] == (byte)'t';
+            if (isMdat)
             {
-                long payloadSize = actualSize - headerSize;
-                if (payloadSize > 0 && payloadSize <= int.MaxValue)
-                {
-                    byte[] payload = new byte[payloadSize];
-                    Buffer.BlockCopy(data, p + headerSize, payload, 0, (int)payloadSize);
-                    return payload;
-                }
+                int payloadStart = p + headerSize;
+                int payloadLength = (int)(actualSize - headerSize);
+                if (payloadLength <= 0 || payloadStart + payloadLength > data.Length) return null;
+                byte[] payload = new byte[payloadLength];
+                Buffer.BlockCopy(data, payloadStart, payload, 0, payloadLength);
+                return payload;
             }
 
             p += (int)actualSize;
@@ -1784,15 +1991,18 @@ public static class MetadataPreservationVerifier
 
     public static string? ExtractHeicPrimaryItemSha256(byte[] data)
     {
-        uint? primaryId = ExtractHeicPrimaryItemId(data);
-        if (primaryId != null)
+        if (data == null || data.Length < 16) return null;
+        uint? primaryIdOpt = ExtractHeicPrimaryItemId(data);
+        if (primaryIdOpt != null)
         {
-            byte[]? payload = ExtractHeicItemPayload(data, primaryId.Value);
+            byte[]? payload = ExtractHeicItemPayload(data, primaryIdOpt.Value);
             if (payload != null)
             {
                 using var sha = SHA256.Create();
                 return Convert.ToHexString(sha.ComputeHash(payload));
             }
+            // If primary item has multi-extent or cannot be safely reconstructed, fail closed
+            return null;
         }
 
         byte[]? mdatPayload = ExtractFirstMdatPayload(data);
@@ -1827,8 +2037,14 @@ public static class MetadataPreservationVerifier
         if (irefBox == null || irefBox.Value.BodyLength < 4) return null;
 
         byte irefVer = data[irefBox.Value.BodyStart];
+        if (irefVer > 1) return null; // Unsupported iref version -> fail closed
+
         var irefChildren = ParseSequentialBoxes(data, irefBox.Value.BodyStart + 4, irefBox.Value.BodyLength - 4);
         if (irefChildren == null) return null;
+
+        var candidateRelations = new List<(uint fromId, uint toId, uint auxId)>();
+        bool duplicateFound = false;
+        var seenPairs = new HashSet<(uint, uint)>();
 
         foreach (var refBox in irefChildren)
         {
@@ -1837,55 +2053,76 @@ public static class MetadataPreservationVerifier
                 int p = refBox.BodyStart;
                 int end = refBox.BodyStart + refBox.BodyLength;
 
-                if (irefVer == 0 && p + 4 <= end)
+                if (irefVer == 0)
                 {
+                    if (p + 4 > end) return null;
                     uint fromId = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(p, 2));
                     ushort refCount = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(p + 2, 2));
                     p += 4;
-                    for (int r = 0; r < refCount && p + 2 <= end; r++)
+                    if (p + refCount * 2 > end) return null;
+
+                    for (int r = 0; r < refCount; r++)
                     {
                         uint toId = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(p, 2));
                         p += 2;
-                        uint auxItemId;
-                        if (fromId == primaryId) auxItemId = toId;
-                        else if (toId == primaryId) auxItemId = fromId;
-                        else continue;
 
-                        byte[]? payload = ExtractHeicItemPayload(data, auxItemId);
-                        if (payload != null)
+                        if (fromId == toId) return null; // Ambiguous owner self-reference fail closed
+
+                        if (fromId == primaryId || toId == primaryId)
                         {
-                            using var sha = SHA256.Create();
-                            string payloadSha = Convert.ToHexString(sha.ComputeHash(payload));
-                            return new HeicAuxRelationSnapshot(primaryId, auxItemId, fromId, toId, payloadSha);
+                            var pair = (fromId, toId);
+                            if (!seenPairs.Add(pair))
+                            {
+                                duplicateFound = true;
+                            }
+                            uint auxId = (fromId == primaryId) ? toId : fromId;
+                            candidateRelations.Add((fromId, toId, auxId));
                         }
                     }
                 }
-                else if (irefVer != 0 && p + 6 <= end)
+                else if (irefVer == 1)
                 {
+                    if (p + 6 > end) return null;
                     uint fromId = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(p, 4));
                     ushort refCount = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(p + 4, 2));
                     p += 6;
-                    for (int r = 0; r < refCount && p + 4 <= end; r++)
+                    if (p + refCount * 4 > end) return null;
+
+                    for (int r = 0; r < refCount; r++)
                     {
                         uint toId = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(p, 4));
                         p += 4;
-                        uint auxItemId;
-                        if (fromId == primaryId) auxItemId = toId;
-                        else if (toId == primaryId) auxItemId = fromId;
-                        else continue;
 
-                        byte[]? payload = ExtractHeicItemPayload(data, auxItemId);
-                        if (payload != null)
+                        if (fromId == toId) return null; // Ambiguous owner self-reference fail closed
+
+                        if (fromId == primaryId || toId == primaryId)
                         {
-                            using var sha = SHA256.Create();
-                            string payloadSha = Convert.ToHexString(sha.ComputeHash(payload));
-                            return new HeicAuxRelationSnapshot(primaryId, auxItemId, fromId, toId, payloadSha);
+                            var pair = (fromId, toId);
+                            if (!seenPairs.Add(pair))
+                            {
+                                duplicateFound = true;
+                            }
+                            uint auxId = (fromId == primaryId) ? toId : fromId;
+                            candidateRelations.Add((fromId, toId, auxId));
                         }
                     }
                 }
             }
         }
-        return null;
+
+        // Duplicate relation found -> fail closed!
+        if (duplicateFound) return null;
+
+        // Exactly one unique relation must exist for the primary image; multiple conflicting relations fail closed!
+        if (candidateRelations.Count != 1) return null;
+
+        var singleRel = candidateRelations[0];
+        byte[]? payload = ExtractHeicItemPayload(data, singleRel.auxId);
+        if (payload == null) return null;
+
+        using var sha = SHA256.Create();
+        string payloadSha = Convert.ToHexString(sha.ComputeHash(payload));
+        return new HeicAuxRelationSnapshot(primaryId, singleRel.auxId, singleRel.fromId, singleRel.toId, payloadSha);
     }
 
     public static uint? ExtractHeicAuxlItemId(byte[] data)

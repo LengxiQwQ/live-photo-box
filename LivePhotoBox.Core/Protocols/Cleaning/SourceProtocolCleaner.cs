@@ -21,6 +21,7 @@ namespace LivePhotoBox.Protocols.Cleaning;
 public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
 {
     private readonly ISourceInspector _inspector;
+    private readonly ITargetedPostCleanVerifier _postCleanVerifier;
     private readonly Func<SourceMediaFacts, IReadOnlyList<PlannedCleanupAction>, IReadOnlyList<PlannedArtifactTarget>?, string, string?, string?, string?, CancellationToken, Task<IReadOnlyList<RemovedProtocolFact>>> _cleanInvoker;
 
     /// <summary>
@@ -35,25 +36,35 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
     internal event Action? OnStagingStarted;
 
     public SourceProtocolCleaner(ISourceInspector? inspector = null)
+        : this(inspector, (ITargetedPostCleanVerifier?)null)
+    {
+    }
+
+    internal SourceProtocolCleaner(ISourceInspector? inspector, ITargetedPostCleanVerifier? postCleanVerifier)
     {
         _inspector = inspector ?? new SourceInspector();
+        _postCleanVerifier = postCleanVerifier ?? new TargetedPostCleanVerifier(_inspector);
         _cleanInvoker = NativeCleanService.CleanSourceProtocolAsync;
     }
 
     internal SourceProtocolCleaner(
         Func<SourceMediaFacts, IReadOnlyList<PlannedCleanupAction>, string, string?, string?, string?, CancellationToken, Task<IReadOnlyList<RemovedProtocolFact>>> cleanInvoker,
-        ISourceInspector? inspector = null)
+        ISourceInspector? inspector = null,
+        ITargetedPostCleanVerifier? postCleanVerifier = null)
     {
         _inspector = inspector ?? new SourceInspector();
+        _postCleanVerifier = postCleanVerifier ?? new TargetedPostCleanVerifier(_inspector);
         _cleanInvoker = (facts, actions, targets, inImg, inVid, outImg, outVid, ct) =>
             cleanInvoker(facts, actions, inImg, inVid, outImg, outVid, ct);
     }
 
     internal SourceProtocolCleaner(
         ISourceInspector inspector,
-        Func<SourceMediaFacts, IReadOnlyList<PlannedCleanupAction>, IReadOnlyList<PlannedArtifactTarget>?, string, string?, string?, string?, CancellationToken, Task<IReadOnlyList<RemovedProtocolFact>>> cleanInvoker)
+        Func<SourceMediaFacts, IReadOnlyList<PlannedCleanupAction>, IReadOnlyList<PlannedArtifactTarget>?, string, string?, string?, string?, CancellationToken, Task<IReadOnlyList<RemovedProtocolFact>>> cleanInvoker,
+        ITargetedPostCleanVerifier? postCleanVerifier = null)
     {
         _inspector = inspector ?? new SourceInspector();
+        _postCleanVerifier = postCleanVerifier ?? new TargetedPostCleanVerifier(_inspector);
         _cleanInvoker = cleanInvoker ?? NativeCleanService.CleanSourceProtocolAsync;
     }
 
@@ -212,6 +223,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     StructureKind = residue.StructureKind,
                     Selector = residue.Selector,
                     ExpectedSemantic = residue.ExpectedSemantic,
+                    CoordinateSpace = residue.CoordinateSpace,
                     RemovalMode = residue.RemovalMode,
                     ExpectedFingerprint = residue.ExpectedFingerprint,
                     IsMandatory = residue.RequiredAfterExtraction
@@ -302,6 +314,10 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     cancellationToken).ConfigureAwait(false);
             }
             catch (CleanerException)
+            {
+                throw;
+            }
+            catch (OperationCanceledException)
             {
                 throw;
             }
@@ -453,59 +469,12 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             }
 
             // -------------------------------------------------------------
-            // Step 8: Source Inspector Post-clean Gate
+            // Step 8: Targeted Post-clean Gate
             // -------------------------------------------------------------
             if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.PostCleanInspection, "BeforeInspect").ConfigureAwait(false);
 
-            bool isDualSource = facts.MotionVideo is { IsPresent: true, SourceIndex: 1 };
-
-            // 8.1 Inspect cleaned image individually
-            var imgRecheckFacts = await _inspector.InspectAsync(stagedImgPath, null, cancellationToken).ConfigureAwait(false);
-            if (imgRecheckFacts.Protocol != SourceProtocol.NonLive ||
-                imgRecheckFacts.MotionVideo != null ||
-                imgRecheckFacts.ProtocolTailLength != 0 ||
-                imgRecheckFacts.PairingIdentifier != null)
-            {
-                throw new CleanerException(
-                    CleanerFailureCategory.ProtocolStillDetected,
-                    CleanerFailureStage.PostCleanInspection,
-                    facts.Protocol,
-                    $"Post-clean inspection failed: image artifact still recognized as {imgRecheckFacts.Protocol} (PairingId='{imgRecheckFacts.PairingIdentifier}').",
-                    MediaArtifactKind.PrimaryImage);
-            }
-
-            // 8.2 Inspect cleaned video individually if present
-            if (stagedVidPath != null)
-            {
-                var vidRecheckFacts = await _inspector.InspectAsync(stagedVidPath, null, cancellationToken).ConfigureAwait(false);
-                if (vidRecheckFacts.Protocol != SourceProtocol.NonLive ||
-                    vidRecheckFacts.ProtocolTailLength != 0 ||
-                    (isDualSource && vidRecheckFacts.PairingIdentifier != null) ||
-                    (vidRecheckFacts.PairingIdentifier != null && vidRecheckFacts.PairingIdentifier == imgRecheckFacts.PairingIdentifier))
-                {
-                    throw new CleanerException(
-                        CleanerFailureCategory.ProtocolStillDetected,
-                        CleanerFailureStage.PostCleanInspection,
-                        facts.Protocol,
-                        $"Post-clean inspection failed: video artifact still recognized as {vidRecheckFacts.Protocol} (PairingId='{vidRecheckFacts.PairingIdentifier}').",
-                        MediaArtifactKind.MotionVideo);
-                }
-            }
-
-            // 8.3 Inspect combined pair if dual source
-            if (isDualSource && stagedVidPath != null)
-            {
-                var pairRecheckFacts = await _inspector.InspectAsync(stagedImgPath, stagedVidPath, cancellationToken).ConfigureAwait(false);
-                if (pairRecheckFacts.Protocol != SourceProtocol.NonLive ||
-                    pairRecheckFacts.PairingIdentifier != null)
-                {
-                    throw new CleanerException(
-                        CleanerFailureCategory.ProtocolStillDetected,
-                        CleanerFailureStage.PostCleanInspection,
-                        facts.Protocol,
-                        $"Post-clean bundle inspection failed: pair still recognized as {pairRecheckFacts.Protocol} (PairingId='{pairRecheckFacts.PairingIdentifier}').");
-                }
-            }
+            await _postCleanVerifier.VerifyPostCleanAsync(
+                facts, cleanupPlan, stagedImgPath, stagedVidPath, cancellationToken).ConfigureAwait(false);
 
             // -------------------------------------------------------------
             // Step 9: Bundle Transaction Commit

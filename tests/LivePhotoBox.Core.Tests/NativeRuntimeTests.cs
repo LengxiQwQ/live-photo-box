@@ -83,6 +83,14 @@ public sealed class NativeRuntimeTests
         Assert.Equal(336, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("PrimarySha256"));
         Assert.Equal(368, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("SecondarySha256"));
         Assert.Equal(400, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("HasSecondarySource"));
+
+        Assert.Equal(348, sizeof(NativeConfirmedResidue));
+        Assert.Equal(336, (int)Marshal.OffsetOf<NativeConfirmedResidue>("CoordinateSpace"));
+
+        Assert.Equal(348, sizeof(NativeCleanupAction));
+        Assert.Equal(336, (int)Marshal.OffsetOf<NativeCleanupAction>("CoordinateSpace"));
+        Assert.Equal(340, (int)Marshal.OffsetOf<NativeCleanupAction>("RemovalMode"));
+        Assert.Equal(344, (int)Marshal.OffsetOf<NativeCleanupAction>("IsMandatory"));
     }
 
     [Fact]

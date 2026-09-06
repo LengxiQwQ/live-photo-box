@@ -39,6 +39,7 @@ bld/
 # AI assistant files
 .claude/
 .codegraph/
+graphify-out/
 ai-tmp/
 .codex/
 .agents/

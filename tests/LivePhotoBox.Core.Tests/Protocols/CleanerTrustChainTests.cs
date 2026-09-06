@@ -7,6 +7,7 @@ using LivePhotoBox.Media.Extraction;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Workspace;
+using LivePhotoBox.Interop;
 using LivePhotoBox.Protocols.Cleaning;
 using System.Collections.Generic;
 using System.Linq;
@@ -1407,6 +1408,116 @@ public sealed class CleanerTrustChainTests
     }
 
     [Fact]
+    public async Task Clean_Native_RejectsCoordinateSpaceMismatch()
+    {
+        using var workspace = new MediaWorkspace();
+        string tempImage = workspace.AllocateFilePath("test-coord-mismatch", ".jpg");
+        string cleanedImage = workspace.AllocateFilePath("test-coord-mismatch-cleaned", ".jpg");
+
+        byte[] standardXmp = Encoding.UTF8.GetBytes(
+            "http://ns.adobe.com/xap/1.0/\0<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" GCamera:MotionPhoto=\"1\" /></rdf:RDF></x:xmpmeta>");
+
+        using var ms = new MemoryStream();
+        ms.Write([0xFF, 0xD8]);
+        ms.Write([0xFF, 0xE1]);
+        int len1 = standardXmp.Length + 2;
+        ms.WriteByte((byte)(len1 >> 8)); ms.WriteByte((byte)(len1 & 0xFF));
+        ms.Write(standardXmp);
+        ms.Write([0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x7F, 0xFF, 0x00, 0x00, 0xFF, 0xD9]);
+        byte[] fullJpeg = ms.ToArray();
+        await File.WriteAllBytesAsync(tempImage, fullJpeg);
+
+        using var sha = SHA256.Create();
+        string imgSha = Convert.ToHexString(sha.ComputeHash(fullJpeg));
+
+        var facts = new SourceMediaFacts
+        {
+            Protocol = SourceProtocol.GoogleMotionPhotoV2,
+            PrimarySha256 = imgSha,
+            PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
+        };
+
+        // Pass an action with mismatched CoordinateSpace (OriginalSourceRange instead of StructuredSelector)
+        var actions = new List<PlannedCleanupAction>
+        {
+            new PlannedCleanupAction
+            {
+                ResidueId = "google-v2-xmp-motionphoto",
+                OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
+                ArtifactRole = MediaArtifactKind.PrimaryImage,
+                StructureKind = ResidueStructureKind.XmpProperty,
+                Selector = "GCamera:MotionPhoto",
+                CoordinateSpace = CoordinateSpace.OriginalSourceRange, // Mismatched!
+                RemovalMode = ResidueRemovalMode.Delete,
+                ExpectedSemantic = "MotionPhoto",
+                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                IsMandatory = true
+            }
+        };
+
+        await Assert.ThrowsAnyAsync<Exception>(async () =>
+        {
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
+                facts, actions, tempImage, null, cleanedImage, null);
+        });
+    }
+
+    [Fact]
+    public async Task Clean_Native_RejectsInvalidCoordinateSpace()
+    {
+        using var workspace = new MediaWorkspace();
+        string tempImage = workspace.AllocateFilePath("test-invalid-coord", ".jpg");
+        string cleanedImage = workspace.AllocateFilePath("test-invalid-coord-cleaned", ".jpg");
+
+        byte[] standardXmp = Encoding.UTF8.GetBytes(
+            "http://ns.adobe.com/xap/1.0/\0<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" GCamera:MotionPhoto=\"1\" /></rdf:RDF></x:xmpmeta>");
+
+        using var ms = new MemoryStream();
+        ms.Write([0xFF, 0xD8]);
+        ms.Write([0xFF, 0xE1]);
+        int len1 = standardXmp.Length + 2;
+        ms.WriteByte((byte)(len1 >> 8)); ms.WriteByte((byte)(len1 & 0xFF));
+        ms.Write(standardXmp);
+        ms.Write([0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x7F, 0xFF, 0x00, 0x00, 0xFF, 0xD9]);
+        byte[] fullJpeg = ms.ToArray();
+        await File.WriteAllBytesAsync(tempImage, fullJpeg);
+
+        using var sha = SHA256.Create();
+        string imgSha = Convert.ToHexString(sha.ComputeHash(fullJpeg));
+
+        var facts = new SourceMediaFacts
+        {
+            Protocol = SourceProtocol.GoogleMotionPhotoV2,
+            PrimarySha256 = imgSha,
+            PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
+        };
+
+        // Pass an action with out-of-range CoordinateSpace
+        var actions = new List<PlannedCleanupAction>
+        {
+            new PlannedCleanupAction
+            {
+                ResidueId = "google-v2-xmp-motionphoto",
+                OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
+                ArtifactRole = MediaArtifactKind.PrimaryImage,
+                StructureKind = ResidueStructureKind.XmpProperty,
+                Selector = "GCamera:MotionPhoto",
+                CoordinateSpace = (CoordinateSpace)999, // Invalid!
+                RemovalMode = ResidueRemovalMode.Delete,
+                ExpectedSemantic = "MotionPhoto",
+                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                IsMandatory = true
+            }
+        };
+
+        await Assert.ThrowsAnyAsync<Exception>(async () =>
+        {
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
+                facts, actions, tempImage, null, cleanedImage, null);
+        });
+    }
+
+    [Fact]
     public async Task Clean_Native_RejectsDuplicateResidueId()
     {
         using var workspace = new MediaWorkspace();
@@ -1506,6 +1617,44 @@ public sealed class CleanerTrustChainTests
         Assert.False(result.Success);
         Assert.Equal(CleanerFailureCategory.CleanupAuthorizationMissing, result.FailureCategory);
         Assert.Equal(CleanerFailureStage.Planning, result.FailureStage);
+    }
+
+    [Fact]
+    public async Task Clean_Planner_PropagatesCoordinateSpace_AndRejectsTamperedCoordinateSpace()
+    {
+        using var workspace = new MediaWorkspace();
+        string imgPath = workspace.AllocateFilePath("apple-coord", ".jpg");
+        string movPath = workspace.AllocateFilePath("apple-coord", ".mov");
+        SyntheticProtocolFixtures.CreateAppleJpeg(imgPath);
+        SyntheticProtocolFixtures.CreateAppleMov(movPath);
+
+        var inspector = new SourceInspector();
+        var extractor = new SourceExtractor();
+        var cleaner = new SourceProtocolCleaner();
+
+        var facts = await inspector.InspectAsync(imgPath, movPath);
+        var extracted = await extractor.ExtractAsync(facts, imgPath, movPath, workspace);
+
+        // Verify Inspector assigns StructuredSelector to Apple residues
+        Assert.NotEmpty(facts.ConfirmedResidues);
+        Assert.All(facts.ConfirmedResidues, r => Assert.Equal(CoordinateSpace.StructuredSelector, r.CoordinateSpace));
+
+        // Tamper confirmed residues to have OriginalSourceRange CoordinateSpace
+        var list = new List<ConfirmedProtocolResidue>();
+        foreach (var r in facts.ConfirmedResidues)
+        {
+            list.Add(r with { CoordinateSpace = CoordinateSpace.OriginalSourceRange });
+        }
+
+        var tamperedFacts = facts with { ConfirmedResidues = list };
+        var tamperedBundle = extracted with { SourceFacts = tamperedFacts };
+
+        var result = await cleaner.CleanAsync(new ProtocolCleanRequest
+        {
+            ExtractedBundle = tamperedBundle
+        }, workspace);
+
+        Assert.False(result.Success);
     }
 
     [Fact]
@@ -1849,6 +1998,7 @@ public sealed class CleanerTrustChainTests
             ArtifactRole = r.ArtifactRole,
             StructureKind = r.StructureKind,
             Selector = r.Selector,
+            CoordinateSpace = r.CoordinateSpace,
             RemovalMode = r.RemovalMode,
             ExpectedSemantic = r.ExpectedSemantic ?? "",
             ExpectedFingerprint = r.ExpectedFingerprint,
@@ -1885,6 +2035,195 @@ public sealed class CleanerTrustChainTests
         Assert.Equal(CleanerFailureCategory.ArtifactChangedSinceExtraction, ex.Category);
         Assert.False(File.Exists(cleanedImage));
         Assert.False(File.Exists(cleanedVideo));
+    }
+
+    [Fact]
+    public async Task Clean_Native_RejectsDuplicatePrimaryImageArtifactTarget()
+    {
+        using var workspace = new MediaWorkspace();
+        string tempImage = workspace.AllocateFilePath("test-dup-primary", ".jpg");
+        string tempVideo = workspace.AllocateFilePath("test-dup-primary", ".mov");
+        string cleanedImage = workspace.AllocateFilePath("test-dup-primary-cleaned", ".jpg");
+        string cleanedVideo = workspace.AllocateFilePath("test-dup-primary-cleaned", ".mov");
+
+        SyntheticProtocolFixtures.CreateAppleJpeg(tempImage);
+        SyntheticProtocolFixtures.CreateAppleMov(tempVideo);
+
+        byte[] origImgBytes = await File.ReadAllBytesAsync(tempImage);
+        byte[] origVidBytes = await File.ReadAllBytesAsync(tempVideo);
+
+        string origImgSha = Convert.ToHexString(SHA256.HashData(origImgBytes));
+        string origVidSha = Convert.ToHexString(SHA256.HashData(origVidBytes));
+
+        var inspector = new SourceInspector();
+        var facts = await inspector.InspectAsync(tempImage, tempVideo);
+
+        var actions = facts.ConfirmedResidues.Select(r => new PlannedCleanupAction
+        {
+            ResidueId = r.Id,
+            OwnerProtocol = facts.Protocol,
+            ArtifactRole = r.ArtifactRole,
+            StructureKind = r.StructureKind,
+            Selector = r.Selector,
+            CoordinateSpace = r.CoordinateSpace,
+            RemovalMode = r.RemovalMode,
+            ExpectedSemantic = r.ExpectedSemantic ?? "",
+            ExpectedFingerprint = r.ExpectedFingerprint,
+            IsMandatory = true
+        }).ToList();
+
+        var targets = new List<PlannedArtifactTarget>
+        {
+            new PlannedArtifactTarget
+            {
+                Role = MediaArtifactKind.PrimaryImage,
+                ExpectedByteLength = origImgBytes.Length,
+                ExpectedSha256 = origImgSha
+            },
+            new PlannedArtifactTarget
+            {
+                Role = MediaArtifactKind.PrimaryImage, // Duplicate!
+                ExpectedByteLength = origImgBytes.Length,
+                ExpectedSha256 = origImgSha
+            }
+        };
+
+        var ex = await Assert.ThrowsAnyAsync<Exception>(async () =>
+        {
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
+                facts, actions, targets, tempImage, tempVideo, cleanedImage, cleanedVideo);
+        });
+
+        Assert.Contains("Duplicate PrimaryImage", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(cleanedImage));
+    }
+
+    [Fact]
+    public async Task Clean_Native_RejectsDuplicateMotionVideoArtifactTarget()
+    {
+        using var workspace = new MediaWorkspace();
+        string tempImage = workspace.AllocateFilePath("test-dup-video", ".jpg");
+        string tempVideo = workspace.AllocateFilePath("test-dup-video", ".mov");
+        string cleanedImage = workspace.AllocateFilePath("test-dup-video-cleaned", ".jpg");
+        string cleanedVideo = workspace.AllocateFilePath("test-dup-video-cleaned", ".mov");
+
+        SyntheticProtocolFixtures.CreateAppleJpeg(tempImage);
+        SyntheticProtocolFixtures.CreateAppleMov(tempVideo);
+
+        byte[] origImgBytes = await File.ReadAllBytesAsync(tempImage);
+        byte[] origVidBytes = await File.ReadAllBytesAsync(tempVideo);
+
+        string origImgSha = Convert.ToHexString(SHA256.HashData(origImgBytes));
+        string origVidSha = Convert.ToHexString(SHA256.HashData(origVidBytes));
+
+        var inspector = new SourceInspector();
+        var facts = await inspector.InspectAsync(tempImage, tempVideo);
+
+        var actions = facts.ConfirmedResidues.Select(r => new PlannedCleanupAction
+        {
+            ResidueId = r.Id,
+            OwnerProtocol = facts.Protocol,
+            ArtifactRole = r.ArtifactRole,
+            StructureKind = r.StructureKind,
+            Selector = r.Selector,
+            CoordinateSpace = r.CoordinateSpace,
+            RemovalMode = r.RemovalMode,
+            ExpectedSemantic = r.ExpectedSemantic ?? "",
+            ExpectedFingerprint = r.ExpectedFingerprint,
+            IsMandatory = true
+        }).ToList();
+
+        var targets = new List<PlannedArtifactTarget>
+        {
+            new PlannedArtifactTarget
+            {
+                Role = MediaArtifactKind.PrimaryImage,
+                ExpectedByteLength = origImgBytes.Length,
+                ExpectedSha256 = origImgSha
+            },
+            new PlannedArtifactTarget
+            {
+                Role = MediaArtifactKind.MotionVideo,
+                ExpectedByteLength = origVidBytes.Length,
+                ExpectedSha256 = origVidSha
+            },
+            new PlannedArtifactTarget
+            {
+                Role = MediaArtifactKind.MotionVideo, // Duplicate!
+                ExpectedByteLength = origVidBytes.Length,
+                ExpectedSha256 = origVidSha
+            }
+        };
+
+        var ex = await Assert.ThrowsAnyAsync<Exception>(async () =>
+        {
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
+                facts, actions, targets, tempImage, tempVideo, cleanedImage, cleanedVideo);
+        });
+
+        Assert.Contains("Duplicate MotionVideo", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(cleanedVideo));
+    }
+
+    [Fact]
+    public async Task Clean_Native_RejectsUnsupportedArtifactTargetRole()
+    {
+        using var workspace = new MediaWorkspace();
+        string tempImage = workspace.AllocateFilePath("test-unsupported-role", ".jpg");
+        string tempVideo = workspace.AllocateFilePath("test-unsupported-role", ".mov");
+        string cleanedImage = workspace.AllocateFilePath("test-unsupported-role-cleaned", ".jpg");
+        string cleanedVideo = workspace.AllocateFilePath("test-unsupported-role-cleaned", ".mov");
+
+        SyntheticProtocolFixtures.CreateAppleJpeg(tempImage);
+        SyntheticProtocolFixtures.CreateAppleMov(tempVideo);
+
+        byte[] origImgBytes = await File.ReadAllBytesAsync(tempImage);
+        byte[] origVidBytes = await File.ReadAllBytesAsync(tempVideo);
+
+        string origImgSha = Convert.ToHexString(SHA256.HashData(origImgBytes));
+        string origVidSha = Convert.ToHexString(SHA256.HashData(origVidBytes));
+
+        var inspector = new SourceInspector();
+        var facts = await inspector.InspectAsync(tempImage, tempVideo);
+
+        var actions = facts.ConfirmedResidues.Select(r => new PlannedCleanupAction
+        {
+            ResidueId = r.Id,
+            OwnerProtocol = facts.Protocol,
+            ArtifactRole = r.ArtifactRole,
+            StructureKind = r.StructureKind,
+            Selector = r.Selector,
+            CoordinateSpace = r.CoordinateSpace,
+            RemovalMode = r.RemovalMode,
+            ExpectedSemantic = r.ExpectedSemantic ?? "",
+            ExpectedFingerprint = r.ExpectedFingerprint,
+            IsMandatory = true
+        }).ToList();
+
+        var targets = new List<PlannedArtifactTarget>
+        {
+            new PlannedArtifactTarget
+            {
+                Role = MediaArtifactKind.PrimaryImage,
+                ExpectedByteLength = origImgBytes.Length,
+                ExpectedSha256 = origImgSha
+            },
+            new PlannedArtifactTarget
+            {
+                Role = MediaArtifactKind.GainMap, // Unsupported detached target role for cleaner!
+                ExpectedByteLength = origVidBytes.Length,
+                ExpectedSha256 = origVidSha
+            }
+        };
+
+        var ex = await Assert.ThrowsAnyAsync<Exception>(async () =>
+        {
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
+                facts, actions, targets, tempImage, tempVideo, cleanedImage, cleanedVideo);
+        });
+
+        Assert.Contains("Unsupported or unknown artifact target role", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(File.Exists(cleanedImage));
     }
 
     [Fact]
@@ -2089,7 +2428,8 @@ public sealed class CleanerTrustChainTests
         Assert.Contains("detached artifact", hdrItem.Details);
 
         var gmItem = report.Items.First(i => i.Name == "GainMap");
-        Assert.Equal(PreservationCheckStatus.VerifiedPreserved, gmItem.Status);
+        Assert.Equal(PreservationCheckStatus.SemanticallyPreserved, gmItem.Status);
+        Assert.NotEqual(PreservationCheckStatus.VerifiedPreserved, gmItem.Status);
     }
 
     [Fact]
@@ -2170,5 +2510,590 @@ public sealed class CleanerTrustChainTests
         string canonical = $"{uri}:{localName}={value}";
         byte[] hash = SHA256.HashData(Encoding.UTF8.GetBytes(canonical));
         return Convert.ToHexString(hash[..16]).ToLowerInvariant();
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Verifier_Adversarial_FakeExifSignatureInNonAuthoritativeArea_FailsClosed()
+    {
+        string samplePath = ResolveSample("三星.heic");
+        using var workspace = new MediaWorkspace();
+        byte[] rawBytes = await File.ReadAllBytesAsync(samplePath);
+
+        // Verify that original Exif can be located authoritatively
+        Assert.True(NativeHeifBoxParser.TryLocateExifItem(rawBytes, out long origExifOffset, out long origExifLength, out _));
+        byte[]? origTiff = MetadataPreservationVerifier.ExtractTiff(rawBytes, samplePath);
+        Assert.NotNull(origTiff);
+
+        // Tamper the authoritative Exif item by zeroing its payload
+        byte[] tamperedBytes = (byte[])rawBytes.Clone();
+        Array.Clear(tamperedBytes, (int)origExifOffset, (int)origExifLength);
+
+        // Append a fake Exif signature and valid TIFF header in a non-authoritative dummy trailer
+        byte[] fakeExifBlock = [
+            0x00, 0x00, 0x00, 0x20, // size 32
+            (byte)'f', (byte)'r', (byte)'e', (byte)'e', // free box
+            (byte)'E', (byte)'x', (byte)'i', (byte)'f', 0x00, 0x00, // Exif\0\0
+            0x49, 0x49, 0x2A, 0x00, // TIFF magic II*\0
+            0x08, 0x00, 0x00, 0x00, // IFD0 offset
+            0x00, 0x00, // 0 tags
+            0x00, 0x00, 0x00, 0x00, // next IFD
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+        ];
+        byte[] adversarialBytes = [.. tamperedBytes, .. fakeExifBlock];
+
+        string copyPath = workspace.AllocateFilePath("samsung-untampered", ".heic");
+        await File.WriteAllBytesAsync(copyPath, rawBytes);
+        string tamperedPath = workspace.AllocateFilePath("samsung-fake-exif-trailer", ".heic");
+        await File.WriteAllBytesAsync(tamperedPath, adversarialBytes);
+
+        // 1. Direct extraction must NOT find the fake Exif in the trailer
+        byte[]? extractedTiff = MetadataPreservationVerifier.ExtractTiff(adversarialBytes, tamperedPath);
+        Assert.Null(extractedTiff);
+
+        // 2. Full Verifier must fail closed and NOT report VerifiedPreserved for Exif
+        var bundle = new ExtractedMediaBundle
+        {
+            SourceFacts = new SourceMediaFacts
+            {
+                Protocol = SourceProtocol.SamsungMotionPhotoHeic,
+                PrimarySha256 = Convert.ToHexString(SHA256.HashData(rawBytes)),
+                PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = rawBytes.Length, IsPresent = true }
+            },
+            PrimaryImage = new MediaArtifact
+            {
+                Path = copyPath,
+                Kind = MediaArtifactKind.PrimaryImage,
+                MimeType = "image/heic",
+                ImageContainer = ImageContainer.Heic,
+                ByteLength = rawBytes.Length,
+                Sha256 = Convert.ToHexString(SHA256.HashData(rawBytes))
+            }
+        };
+
+        var report = await MetadataPreservationVerifier.VerifyAsync(bundle, tamperedPath, null);
+        var exifItem = report.Items.First(i => i.Name == "Exif");
+        Assert.Equal(PreservationCheckStatus.Failed, exifItem.Status);
+        Assert.NotEqual(PreservationOutcome.Preserved, report.OverallOutcome);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Verifier_Adversarial_FakeColrInNonAuthoritativeArea_FailsClosed()
+    {
+        string samplePath = ResolveSample("三星.heic");
+        using var workspace = new MediaWorkspace();
+        byte[] rawBytes = await File.ReadAllBytesAsync(samplePath);
+
+        byte[]? baselineIcc = MetadataPreservationVerifier.ExtractIcc(rawBytes, samplePath);
+
+        // Overwrite any 'colr' fourcc in rawBytes inside ipco to 'xxxx'
+        byte[] tamperedBytes = (byte[])rawBytes.Clone();
+        for (int i = 0; i <= tamperedBytes.Length - 4; i++)
+        {
+            if (tamperedBytes[i] == 'c' && tamperedBytes[i + 1] == 'o' && tamperedBytes[i + 2] == 'l' && tamperedBytes[i + 3] == 'r')
+            {
+                tamperedBytes[i] = (byte)'x';
+                tamperedBytes[i + 1] = (byte)'x';
+                tamperedBytes[i + 2] = (byte)'x';
+                tamperedBytes[i + 3] = (byte)'x';
+            }
+        }
+
+        // Now append a fake 'colr' box at the end of the file in trailer
+        byte[] fakeColrBox = [
+            0x00, 0x00, 0x00, 0x14, // length 20
+            (byte)'c', (byte)'o', (byte)'l', (byte)'r',
+            (byte)'n', (byte)'c', (byte)'l', (byte)'x',
+            0x00, 0x01, 0x00, 0x01, 0x00, 0x01, (byte)0x80, 0x00
+        ];
+        byte[] adversarialBytes = [.. tamperedBytes, .. fakeColrBox];
+
+        string tamperedPath = workspace.AllocateFilePath("samsung-fake-colr-trailer", ".heic");
+        await File.WriteAllBytesAsync(tamperedPath, adversarialBytes);
+
+        // 1. Direct extraction must NOT find the fake colr box in trailer
+        byte[]? extractedIcc = MetadataPreservationVerifier.ExtractIcc(adversarialBytes, tamperedPath);
+        Assert.Null(extractedIcc);
+
+        // 2. If baseline had ICC, Verifier must fail closed
+        if (baselineIcc != null)
+        {
+            string copyPath = workspace.AllocateFilePath("samsung-untampered", ".heic");
+            await File.WriteAllBytesAsync(copyPath, rawBytes);
+
+            var bundle = new ExtractedMediaBundle
+            {
+                SourceFacts = new SourceMediaFacts
+                {
+                    Protocol = SourceProtocol.SamsungMotionPhotoHeic,
+                    PrimarySha256 = Convert.ToHexString(SHA256.HashData(rawBytes)),
+                    PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = rawBytes.Length, IsPresent = true }
+                },
+                PrimaryImage = new MediaArtifact
+                {
+                    Path = copyPath,
+                    Kind = MediaArtifactKind.PrimaryImage,
+                    MimeType = "image/heic",
+                    ImageContainer = ImageContainer.Heic,
+                    ByteLength = rawBytes.Length,
+                    Sha256 = Convert.ToHexString(SHA256.HashData(rawBytes))
+                }
+            };
+
+            var report = await MetadataPreservationVerifier.VerifyAsync(bundle, tamperedPath, null);
+            var iccItem = report.Items.First(i => i.Name == "Icc");
+            Assert.Equal(PreservationCheckStatus.Failed, iccItem.Status);
+            Assert.NotEqual(PreservationOutcome.Preserved, report.OverallOutcome);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Verifier_Adversarial_FakeXmpInNonAuthoritativeArea_FailsClosed()
+    {
+        string samplePath = ResolveSample("三星.heic");
+        using var workspace = new MediaWorkspace();
+        byte[] rawBytes = await File.ReadAllBytesAsync(samplePath);
+
+        // Append a fake XMP document inside an unindexed trailer/free box
+        string fakeXml = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description nonTargetTag=\"adversarialValue\"/></rdf:RDF></x:xmpmeta>";
+        byte[] fakeXmlBytes = Encoding.UTF8.GetBytes(fakeXml);
+
+        byte[] fakeBox = new byte[8 + fakeXmlBytes.Length];
+        BinaryPrimitives.WriteUInt32BigEndian(fakeBox.AsSpan(0, 4), (uint)fakeBox.Length);
+        "free"u8.CopyTo(fakeBox.AsSpan(4, 4));
+        Buffer.BlockCopy(fakeXmlBytes, 0, fakeBox, 8, fakeXmlBytes.Length);
+
+        byte[] adversarialBytes = [.. rawBytes, .. fakeBox];
+        string tamperedPath = workspace.AllocateFilePath("samsung-fake-xmp-trailer", ".heic");
+        await File.WriteAllBytesAsync(tamperedPath, adversarialBytes);
+
+        // 1. Authoritative HEIC XMP extraction must NOT read the fake XMP from the non-authoritative box
+        string extractedXmp = MetadataPreservationVerifier.ExtractXmp(adversarialBytes, tamperedPath);
+        Assert.DoesNotContain("adversarialValue", extractedXmp);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Verifier_Adversarial_DuplicateAuxRelation_FailsClosed()
+    {
+        string samplePath = ResolveSample("三星.heic");
+        using var workspace = new MediaWorkspace();
+        byte[] rawBytes = await File.ReadAllBytesAsync(samplePath);
+
+        // In三星.heic, auxl box has ver 0: from_id at auxlPos+8 (55), refCount at auxlPos+10 (1), to_id at auxlPos+12 (49).
+        int auxlPos = -1;
+        for (int i = 0; i <= rawBytes.Length - 14; i++)
+        {
+            if (rawBytes[i + 4] == 'a' && rawBytes[i + 5] == 'u' && rawBytes[i + 6] == 'x' && rawBytes[i + 7] == 'l')
+            {
+                auxlPos = i;
+                break;
+            }
+        }
+        Assert.True(auxlPos >= 0);
+
+        uint auxlSize = BinaryPrimitives.ReadUInt32BigEndian(rawBytes.AsSpan(auxlPos, 4));
+        // Modify to have duplicate entry: change refCount to 2 and expand box by 2 bytes with duplicate to_id=49
+        byte[] tamperedBytes = new byte[rawBytes.Length + 2];
+        int insertPos = auxlPos + 14; // right after to_id
+        Buffer.BlockCopy(rawBytes, 0, tamperedBytes, 0, insertPos);
+        tamperedBytes[insertPos] = 0; // to_id duplicate (49)
+        tamperedBytes[insertPos + 1] = 49;
+        Buffer.BlockCopy(rawBytes, insertPos, tamperedBytes, insertPos + 2, rawBytes.Length - insertPos);
+
+        // Update auxl box size (+2) and ref_count (=2)
+        BinaryPrimitives.WriteUInt32BigEndian(tamperedBytes.AsSpan(auxlPos, 4), auxlSize + 2);
+        BinaryPrimitives.WriteUInt16BigEndian(tamperedBytes.AsSpan(auxlPos + 10, 2), 2);
+
+        // Update parent iref and meta box sizes (+2)
+        int metaPos = -1;
+        int irefPos = -1;
+        for (int i = 0; i <= rawBytes.Length - 8; i++)
+        {
+            if (rawBytes[i + 4] == 'm' && rawBytes[i + 5] == 'e' && rawBytes[i + 6] == 't' && rawBytes[i + 7] == 'a') metaPos = i;
+            if (rawBytes[i + 4] == 'i' && rawBytes[i + 5] == 'r' && rawBytes[i + 6] == 'e' && rawBytes[i + 7] == 'f') irefPos = i;
+        }
+        Assert.True(metaPos >= 0 && irefPos >= 0);
+        uint metaSize = BinaryPrimitives.ReadUInt32BigEndian(tamperedBytes.AsSpan(metaPos, 4));
+        BinaryPrimitives.WriteUInt32BigEndian(tamperedBytes.AsSpan(metaPos, 4), metaSize + 2);
+        uint irefSize = BinaryPrimitives.ReadUInt32BigEndian(tamperedBytes.AsSpan(irefPos, 4));
+        BinaryPrimitives.WriteUInt32BigEndian(tamperedBytes.AsSpan(irefPos, 4), irefSize + 2);
+
+        // 1. Direct snapshot extraction must reject duplicate relation and fail closed
+        var snapshot = MetadataPreservationVerifier.ExtractHeicAuxRelationSnapshot(tamperedBytes);
+        Assert.Null(snapshot);
+
+        // 2. Verifier must report Failed for HDR preservation
+        string copyPath = workspace.AllocateFilePath("samsung-untampered", ".heic");
+        await File.WriteAllBytesAsync(copyPath, rawBytes);
+        string tamperedPath = workspace.AllocateFilePath("samsung-dup-auxl", ".heic");
+        await File.WriteAllBytesAsync(tamperedPath, tamperedBytes);
+
+        var bundle = new ExtractedMediaBundle
+        {
+            SourceFacts = new SourceMediaFacts
+            {
+                Protocol = SourceProtocol.SamsungMotionPhotoHeic,
+                PrimarySha256 = Convert.ToHexString(SHA256.HashData(rawBytes)),
+                PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = rawBytes.Length, IsPresent = true }
+            },
+            PrimaryImage = new MediaArtifact
+            {
+                Path = copyPath,
+                Kind = MediaArtifactKind.PrimaryImage,
+                MimeType = "image/heic",
+                ImageContainer = ImageContainer.Heic,
+                ByteLength = rawBytes.Length,
+                Sha256 = Convert.ToHexString(SHA256.HashData(rawBytes))
+            }
+        };
+
+        var report = await MetadataPreservationVerifier.VerifyAsync(bundle, tamperedPath, null);
+        var hdrItem = report.Items.First(i => i.Name == "Hdr");
+        Assert.Equal(PreservationCheckStatus.Failed, hdrItem.Status);
+        Assert.NotEqual(PreservationOutcome.Preserved, report.OverallOutcome);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Verifier_Adversarial_ConflictingAuxRelation_FailsClosed()
+    {
+        string samplePath = ResolveSample("三星.heic");
+        using var workspace = new MediaWorkspace();
+        byte[] rawBytes = await File.ReadAllBytesAsync(samplePath);
+
+        int auxlPos = -1;
+        for (int i = 0; i <= rawBytes.Length - 14; i++)
+        {
+            if (rawBytes[i + 4] == 'a' && rawBytes[i + 5] == 'u' && rawBytes[i + 6] == 'x' && rawBytes[i + 7] == 'l')
+            {
+                auxlPos = i;
+                break;
+            }
+        }
+        Assert.True(auxlPos >= 0);
+
+        uint auxlSize = BinaryPrimitives.ReadUInt32BigEndian(rawBytes.AsSpan(auxlPos, 4));
+        // Add a conflicting to_id=99 (pointing to another auxiliary image item)
+        byte[] tamperedBytes = new byte[rawBytes.Length + 2];
+        int insertPos = auxlPos + 14;
+        Buffer.BlockCopy(rawBytes, 0, tamperedBytes, 0, insertPos);
+        tamperedBytes[insertPos] = 0;
+        tamperedBytes[insertPos + 1] = 99; // conflicting item ID
+        Buffer.BlockCopy(rawBytes, insertPos, tamperedBytes, insertPos + 2, rawBytes.Length - insertPos);
+
+        BinaryPrimitives.WriteUInt32BigEndian(tamperedBytes.AsSpan(auxlPos, 4), auxlSize + 2);
+        BinaryPrimitives.WriteUInt16BigEndian(tamperedBytes.AsSpan(auxlPos + 10, 2), 2);
+
+        int metaPos = -1;
+        int irefPos = -1;
+        for (int i = 0; i <= rawBytes.Length - 8; i++)
+        {
+            if (rawBytes[i + 4] == 'm' && rawBytes[i + 5] == 'e' && rawBytes[i + 6] == 't' && rawBytes[i + 7] == 'a') metaPos = i;
+            if (rawBytes[i + 4] == 'i' && rawBytes[i + 5] == 'r' && rawBytes[i + 6] == 'e' && rawBytes[i + 7] == 'f') irefPos = i;
+        }
+        Assert.True(metaPos >= 0 && irefPos >= 0);
+        uint metaSize = BinaryPrimitives.ReadUInt32BigEndian(tamperedBytes.AsSpan(metaPos, 4));
+        BinaryPrimitives.WriteUInt32BigEndian(tamperedBytes.AsSpan(metaPos, 4), metaSize + 2);
+        uint irefSize = BinaryPrimitives.ReadUInt32BigEndian(tamperedBytes.AsSpan(irefPos, 4));
+        BinaryPrimitives.WriteUInt32BigEndian(tamperedBytes.AsSpan(irefPos, 4), irefSize + 2);
+
+        // 1. Direct snapshot extraction must fail closed on multiple conflicting relations
+        var snapshot = MetadataPreservationVerifier.ExtractHeicAuxRelationSnapshot(tamperedBytes);
+        Assert.Null(snapshot);
+
+        // 2. Full Verifier must fail closed
+        string copyPath = workspace.AllocateFilePath("samsung-untampered", ".heic");
+        await File.WriteAllBytesAsync(copyPath, rawBytes);
+        string tamperedPath = workspace.AllocateFilePath("samsung-conflicting-auxl", ".heic");
+        await File.WriteAllBytesAsync(tamperedPath, tamperedBytes);
+
+        var bundle = new ExtractedMediaBundle
+        {
+            SourceFacts = new SourceMediaFacts
+            {
+                Protocol = SourceProtocol.SamsungMotionPhotoHeic,
+                PrimarySha256 = Convert.ToHexString(SHA256.HashData(rawBytes)),
+                PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = rawBytes.Length, IsPresent = true }
+            },
+            PrimaryImage = new MediaArtifact
+            {
+                Path = copyPath,
+                Kind = MediaArtifactKind.PrimaryImage,
+                MimeType = "image/heic",
+                ImageContainer = ImageContainer.Heic,
+                ByteLength = rawBytes.Length,
+                Sha256 = Convert.ToHexString(SHA256.HashData(rawBytes))
+            }
+        };
+
+        var report = await MetadataPreservationVerifier.VerifyAsync(bundle, tamperedPath, null);
+        var hdrItem = report.Items.First(i => i.Name == "Hdr");
+        Assert.Equal(PreservationCheckStatus.Failed, hdrItem.Status);
+        Assert.NotEqual(PreservationOutcome.Preserved, report.OverallOutcome);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Verifier_Adversarial_AmbiguousAuxOwner_FailsClosed()
+    {
+        string samplePath = ResolveSample("三星.heic");
+        using var workspace = new MediaWorkspace();
+        byte[] rawBytes = await File.ReadAllBytesAsync(samplePath);
+
+        int auxlPos = -1;
+        for (int i = 0; i <= rawBytes.Length - 14; i++)
+        {
+            if (rawBytes[i + 4] == 'a' && rawBytes[i + 5] == 'u' && rawBytes[i + 6] == 'x' && rawBytes[i + 7] == 'l')
+            {
+                auxlPos = i;
+                break;
+            }
+        }
+        Assert.True(auxlPos >= 0);
+
+        byte[] tamperedBytes = (byte[])rawBytes.Clone();
+        // Set from_id = 49 and to_id = 49 (self-referencing owner: ambiguous)
+        BinaryPrimitives.WriteUInt16BigEndian(tamperedBytes.AsSpan(auxlPos + 8, 2), 49);
+        BinaryPrimitives.WriteUInt16BigEndian(tamperedBytes.AsSpan(auxlPos + 12, 2), 49);
+
+        // 1. Direct snapshot extraction must fail closed on self-referencing owner
+        var snapshot = MetadataPreservationVerifier.ExtractHeicAuxRelationSnapshot(tamperedBytes);
+        Assert.Null(snapshot);
+
+        // 2. Full Verifier must fail closed
+        string copyPath = workspace.AllocateFilePath("samsung-untampered", ".heic");
+        await File.WriteAllBytesAsync(copyPath, rawBytes);
+        string tamperedPath = workspace.AllocateFilePath("samsung-ambiguous-owner", ".heic");
+        await File.WriteAllBytesAsync(tamperedPath, tamperedBytes);
+
+        var bundle = new ExtractedMediaBundle
+        {
+            SourceFacts = new SourceMediaFacts
+            {
+                Protocol = SourceProtocol.SamsungMotionPhotoHeic,
+                PrimarySha256 = Convert.ToHexString(SHA256.HashData(rawBytes)),
+                PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = rawBytes.Length, IsPresent = true }
+            },
+            PrimaryImage = new MediaArtifact
+            {
+                Path = copyPath,
+                Kind = MediaArtifactKind.PrimaryImage,
+                MimeType = "image/heic",
+                ImageContainer = ImageContainer.Heic,
+                ByteLength = rawBytes.Length,
+                Sha256 = Convert.ToHexString(SHA256.HashData(rawBytes))
+            }
+        };
+
+        var report = await MetadataPreservationVerifier.VerifyAsync(bundle, tamperedPath, null);
+        var hdrItem = report.Items.First(i => i.Name == "Hdr");
+        Assert.Equal(PreservationCheckStatus.Failed, hdrItem.Status);
+        Assert.NotEqual(PreservationOutcome.Preserved, report.OverallOutcome);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Verifier_Adversarial_MultiExtentPayload_FailsClosed()
+    {
+        string samplePath = ResolveSample("三星.heic");
+        using var workspace = new MediaWorkspace();
+        byte[] rawBytes = await File.ReadAllBytesAsync(samplePath);
+
+        uint? primaryIdOpt = MetadataPreservationVerifier.ExtractHeicPrimaryItemId(rawBytes);
+        Assert.NotNull(primaryIdOpt);
+        uint primaryId = primaryIdOpt.Value;
+
+        // Baseline untampered extract must succeed
+        byte[]? origPayload = MetadataPreservationVerifier.ExtractHeicItemPayload(rawBytes, primaryId);
+        Assert.NotNull(origPayload);
+
+        // Tamper iloc to report extent_count = 2 for primaryId
+        int ilocPos = -1;
+        for (int i = 0; i <= rawBytes.Length - 16; i++)
+        {
+            if (rawBytes[i + 4] == 'i' && rawBytes[i + 5] == 'l' && rawBytes[i + 6] == 'o' && rawBytes[i + 7] == 'c')
+            {
+                ilocPos = i;
+                break;
+            }
+        }
+        Assert.True(ilocPos >= 0);
+
+        byte[] tamperedBytes = (byte[])rawBytes.Clone();
+        int p = ilocPos + 8;
+        byte ver = tamperedBytes[p++];
+        p += 3; // flags
+        int offsetSize = (tamperedBytes[p] >> 4) & 0x0F;
+        int lengthSize = tamperedBytes[p] & 0x0F;
+        int baseOffsetSize = (tamperedBytes[p + 1] >> 4) & 0x0F;
+        int indexSize = (ver == 1 || ver == 2) ? (tamperedBytes[p + 1] & 0x0F) : 0;
+        p += 2;
+        uint itemCount = ver < 2 ? BinaryPrimitives.ReadUInt16BigEndian(tamperedBytes.AsSpan(p, 2)) : BinaryPrimitives.ReadUInt32BigEndian(tamperedBytes.AsSpan(p, 4));
+        p += (ver < 2 ? 2 : 4);
+
+        for (uint it = 0; it < itemCount; it++)
+        {
+            uint itemId = ver < 2 ? BinaryPrimitives.ReadUInt16BigEndian(tamperedBytes.AsSpan(p, 2)) : BinaryPrimitives.ReadUInt32BigEndian(tamperedBytes.AsSpan(p, 4));
+            p += (ver < 2 ? 2 : 4);
+            if (ver == 1 || ver == 2) p += 2; // construction_method
+            p += 2; // data_ref_index
+            p += baseOffsetSize;
+
+            if (itemId == primaryId)
+            {
+                // Tamper extent_count from 1 to 2
+                BinaryPrimitives.WriteUInt16BigEndian(tamperedBytes.AsSpan(p, 2), 2);
+                break;
+            }
+            ushort extentCount = BinaryPrimitives.ReadUInt16BigEndian(tamperedBytes.AsSpan(p, 2));
+            p += 2;
+            for (ushort e = 0; e < extentCount; e++)
+            {
+                if ((ver == 1 || ver == 2) && indexSize > 0) p += indexSize;
+                p += offsetSize + lengthSize;
+            }
+        }
+
+        // 1. ExtractHeicItemPayload must return null on multi-extent item
+        byte[]? multiExtentPayload = MetadataPreservationVerifier.ExtractHeicItemPayload(tamperedBytes, primaryId);
+        Assert.Null(multiExtentPayload);
+
+        // 2. ExtractHeicPrimaryItemSha256 must return null (not falling back to partial first extent or mdat)
+        string? multiExtentSha = MetadataPreservationVerifier.ExtractHeicPrimaryItemSha256(tamperedBytes);
+        Assert.Null(multiExtentSha);
+
+        // 3. Full Verifier must fail closed and report Failed for MediaPayload
+        string copyPath = workspace.AllocateFilePath("samsung-untampered", ".heic");
+        await File.WriteAllBytesAsync(copyPath, rawBytes);
+        string tamperedPath = workspace.AllocateFilePath("samsung-multi-extent", ".heic");
+        await File.WriteAllBytesAsync(tamperedPath, tamperedBytes);
+
+        var bundle = new ExtractedMediaBundle
+        {
+            SourceFacts = new SourceMediaFacts
+            {
+                Protocol = SourceProtocol.SamsungMotionPhotoHeic,
+                PrimarySha256 = Convert.ToHexString(SHA256.HashData(rawBytes)),
+                PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = rawBytes.Length, IsPresent = true }
+            },
+            PrimaryImage = new MediaArtifact
+            {
+                Path = copyPath,
+                Kind = MediaArtifactKind.PrimaryImage,
+                MimeType = "image/heic",
+                ImageContainer = ImageContainer.Heic,
+                ByteLength = rawBytes.Length,
+                Sha256 = Convert.ToHexString(SHA256.HashData(rawBytes))
+            }
+        };
+
+        var report = await MetadataPreservationVerifier.VerifyAsync(bundle, tamperedPath, null);
+        var mediaItem = report.Items.First(i => i.Name == "MediaPayload");
+        Assert.Equal(PreservationCheckStatus.Failed, mediaItem.Status);
+        Assert.NotEqual(PreservationOutcome.Preserved, report.OverallOutcome);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Cleaner_TargetedPostClean_FailsWhenAppleMakerNoteResidueRemains()
+    {
+        string imgPath = ResolveSample("苹果双文件.HEIC");
+        string movPath = ResolveSample("苹果双文件.MOV");
+        using var workspace = new MediaWorkspace();
+        var inspector = new SourceInspector();
+        var extractor = new SourceExtractor();
+
+        var facts = await inspector.InspectAsync(imgPath, movPath);
+        var bundle = await extractor.ExtractAsync(facts, imgPath, movPath, workspace);
+
+        // A faulty clean invoker that writes cleaned video but leaves the original untouched image (with live MakerNote tags)
+        var faultyCleaner = new SourceProtocolCleaner(
+            cleanInvoker: async (f, actions, inImg, inVid, outImg, outVid, ct) =>
+            {
+                // Copy original image unchanged so MakerNote live tags remain
+                File.Copy(inImg, outImg!, overwrite: true);
+                if (inVid != null && outVid != null)
+                {
+                    File.Copy(inVid, outVid, overwrite: true);
+                }
+                var removed = new List<RemovedProtocolFact>();
+                foreach (var action in actions)
+                {
+                    removed.Add(new RemovedProtocolFact
+                    {
+                        ProtocolName = f.Protocol.ToString(),
+                        ResidueId = action.ResidueId,
+                        ArtifactRole = action.ArtifactRole,
+                        StructureKind = action.StructureKind,
+                        Component = "MockComponent",
+                        Description = "Mock removal",
+                        BeforeFingerprint = action.ExpectedFingerprint
+                    });
+                }
+                return removed;
+            });
+
+        var result = await faultyCleaner.CleanAsync(new ProtocolCleanRequest
+        {
+            ExtractedBundle = bundle
+        }, workspace);
+
+        Assert.False(result.Success);
+        Assert.Equal(CleanerFailureCategory.ProtocolStillDetected, result.FailureCategory);
+        Assert.Equal(CleanerFailureStage.PostCleanInspection, result.FailureStage);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Cleaner_TargetedPostClean_FailsWhenQuickTimeCidResidueRemains()
+    {
+        string imgPath = ResolveSample("苹果双文件.HEIC");
+        string movPath = ResolveSample("苹果双文件.MOV");
+        using var workspace = new MediaWorkspace();
+        var inspector = new SourceInspector();
+        var extractor = new SourceExtractor();
+
+        var facts = await inspector.InspectAsync(imgPath, movPath);
+        var bundle = await extractor.ExtractAsync(facts, imgPath, movPath, workspace);
+
+        // A faulty clean invoker: cleans image (strips MakerNote), but fails to strip MOV CID
+        var faultyCleaner = new SourceProtocolCleaner(
+            cleanInvoker: async (f, actions, inImg, inVid, outImg, outVid, ct) =>
+            {
+                // Clean image using real Native clean
+                await NativeCleanService.CleanSourceProtocolAsync(f, actions.Where(a => a.ArtifactRole == MediaArtifactKind.PrimaryImage).ToList(), inImg, null, outImg, null, ct);
+                // But copy original video unchanged so QuickTime CID remains
+                if (inVid != null && outVid != null)
+                {
+                    File.Copy(inVid, outVid, overwrite: true);
+                }
+                var removed = new List<RemovedProtocolFact>();
+                foreach (var action in actions)
+                {
+                    removed.Add(new RemovedProtocolFact
+                    {
+                        ProtocolName = f.Protocol.ToString(),
+                        ResidueId = action.ResidueId,
+                        ArtifactRole = action.ArtifactRole,
+                        StructureKind = action.StructureKind,
+                        Component = "MockComponent",
+                        Description = "Mock removal",
+                        BeforeFingerprint = action.ExpectedFingerprint
+                    });
+                }
+                return removed;
+            });
+
+        var result = await faultyCleaner.CleanAsync(new ProtocolCleanRequest
+        {
+            ExtractedBundle = bundle
+        }, workspace);
+
+        Assert.False(result.Success);
+        Assert.Equal(CleanerFailureCategory.ProtocolStillDetected, result.FailureCategory);
+        Assert.Equal(CleanerFailureStage.PostCleanInspection, result.FailureStage);
     }
 }
