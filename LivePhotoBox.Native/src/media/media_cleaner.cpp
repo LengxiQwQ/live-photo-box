@@ -15,6 +15,7 @@
 #include <fstream>
 #include <filesystem>
 #include <vector>
+#include <span>
 #include <string>
 #include <cstring>
 #include <limits>
@@ -29,6 +30,14 @@
 namespace fs = std::filesystem;
 
 namespace lpb::media {
+
+static bool is_all_zeroes_32(const uint8_t* hash) noexcept {
+    if (!hash) return true;
+    for (size_t i = 0; i < 32; ++i) {
+        if (hash[i] != 0) return false;
+    }
+    return true;
+}
 
 static void add_fact(
     std::vector<lpb_removed_protocol_fact>& out_facts,
@@ -123,70 +132,6 @@ static bool write_file_binary(const std::string& path, const std::vector<uint8_t
 }
 
 
-
-static lpb_result fast_file_copy(lpb_context* context, const char* in_path, const char* out_path) {
-    if (!in_path || !out_path) return LPB_RESULT_INVALID_ARGUMENT;
-    auto p_in = utf8_to_path(in_path);
-    auto p_out = utf8_to_path(out_path);
-    std::error_code ec;
-
-    auto temp_dir = p_out.parent_path();
-    if (temp_dir.empty()) temp_dir = fs::current_path(ec);
-    if (ec || temp_dir.empty()) {
-        set_error(context, "Invalid output directory for copy.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-
-    wchar_t temp_name[MAX_PATH]{};
-    if (GetTempFileNameW(temp_dir.c_str(), L"lpb", 0, temp_name) == 0) {
-        set_error(context, "Failed to allocate temporary copy file.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-    const fs::path temp(temp_name);
-
-    std::ifstream src(p_in, std::ios::binary);
-    if (!src.is_open()) {
-        fs::remove(temp, ec);
-        set_error(context, "Failed to open source file for copy.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-
-    std::ofstream dst(temp, std::ios::binary | std::ios::trunc);
-    if (!dst.is_open()) {
-        fs::remove(temp, ec);
-        set_error(context, "Failed to open destination temp file for copy.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-
-    constexpr size_t buffer_size = 1024 * 1024; // 1MB streaming buffer (bounded memory)
-    std::vector<char> buffer(buffer_size);
-    while (src.read(buffer.data(), buffer_size) || src.gcount() > 0) {
-        dst.write(buffer.data(), src.gcount());
-        if (!dst.good()) {
-            dst.close();
-            fs::remove(temp, ec);
-            set_error(context, "Failed writing copy stream.");
-            return LPB_RESULT_INTERNAL_ERROR;
-        }
-    }
-    dst.flush();
-    if (!dst.good()) {
-        dst.close();
-        fs::remove(temp, ec);
-        set_error(context, "Failed flushing copy stream.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-    dst.close();
-    src.close();
-
-    if (!MoveFileExW(temp.c_str(), p_out.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        fs::remove(temp, ec);
-        set_error(context, "Failed to publish copied file atomically.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-    return LPB_RESULT_OK;
-}
-
 static std::string extract_xml_fragment(std::string_view sv) {
     const std::string start_tag = "<x:xmpmeta";
     const std::string end_tag = "</x:xmpmeta>";
@@ -242,7 +187,7 @@ static std::string extract_xmp_string(const std::vector<uint8_t>& data) {
 
 static lpb_result clean_jpeg_xmp(
     lpb_context* context,
-    const std::string& in_path,
+    const std::vector<uint8_t>& in_bytes,
     const std::string& out_path,
     lpb_source_protocol protocol,
     const lpb_cleanup_action* actions,
@@ -250,11 +195,7 @@ static lpb_result clean_jpeg_xmp(
     bool require_protocol_xmp,
     std::vector<lpb_removed_protocol_fact>& out_facts)
 {
-    std::vector<uint8_t> data;
-    if (!read_file_binary(in_path, data)) {
-        set_error(context, "Failed to read input JPEG for cleaning.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
+    std::vector<uint8_t> data = in_bytes;
 
     std::string xmp = extract_xmp_string(data);
     if (xmp.empty()) {
@@ -306,17 +247,13 @@ static lpb_result clean_jpeg_xmp(
 
 static lpb_result clean_apple_image(
     lpb_context* context,
-    const std::string& in_path,
+    const std::vector<uint8_t>& in_bytes,
     const std::string& out_path,
     const lpb_cleanup_action* actions,
     size_t action_count,
     std::vector<lpb_removed_protocol_fact>& out_facts)
 {
-    std::vector<uint8_t> data;
-    if (!read_file_binary(in_path, data)) {
-        set_error(context, "Failed to read Apple image for cleaning.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
+    std::vector<uint8_t> data = in_bytes;
 
     lpb_image_container img_cont = (data.size() >= 2 && data[0] == 0xFF && data[1] == 0xD8) ? LPB_IMAGE_CONTAINER_JPEG : LPB_IMAGE_CONTAINER_HEIC;
     std::vector<uint16_t> authorized_mn_tags;
@@ -441,7 +378,7 @@ static lpb_result clean_apple_image(
 
 static lpb_result clean_apple_video(
     lpb_context* context,
-    const std::string& in_path,
+    const std::vector<uint8_t>& in_bytes,
     const std::string& out_path,
     const lpb_cleanup_action* actions,
     size_t action_count,
@@ -476,7 +413,7 @@ static lpb_result clean_apple_video(
     }
 
     if (!should_strip_cid && !should_strip_livephoto && track_patterns.empty()) {
-        return fast_file_copy(context, in_path.c_str(), out_path.c_str());
+        return write_file_binary(out_path, in_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
     }
 
     std::vector<const char*> starts;
@@ -500,7 +437,7 @@ static lpb_result clean_apple_video(
     spec.action_count = action_count;
 
     lpb::containers::Mp4StripOutcome outcome{};
-    lpb_result res = lpb::containers::stream_clean_mp4_file(context, in_path, out_path, spec, outcome);
+    lpb_result res = lpb::containers::stream_clean_mp4_bytes(context, std::span<const uint8_t>(in_bytes.data(), in_bytes.size()), out_path, spec, outcome);
     if (res != LPB_RESULT_OK) return res;
 
     if (outcome.mdta_removed) {
@@ -526,7 +463,7 @@ static lpb_result clean_apple_video(
 
 static lpb_result clean_vivo_legacy_video(
     lpb_context* context,
-    const std::string& in_path,
+    const std::vector<uint8_t>& in_bytes,
     const std::string& out_path,
     const lpb_cleanup_action* actions,
     size_t action_count,
@@ -542,7 +479,7 @@ static lpb_result clean_vivo_legacy_video(
         LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.vivo.gallery.livePhoto", "com.vivo.gallery.livePhoto", LPB_REMOVAL_DELETE);
 
     if (!act_uuid && !act_lp && !act_it && !act_gallery) {
-        return fast_file_copy(context, in_path.c_str(), out_path.c_str());
+        return write_file_binary(out_path, in_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
     }
 
     const uint8_t vivo_uuid[16] = {
@@ -574,7 +511,7 @@ static lpb_result clean_vivo_legacy_video(
     spec.action_count = action_count;
 
     lpb::containers::Mp4StripOutcome outcome{};
-    lpb_result res = lpb::containers::stream_clean_mp4_file(context, in_path, out_path, spec, outcome);
+    lpb_result res = lpb::containers::stream_clean_mp4_bytes(context, std::span<const uint8_t>(in_bytes.data(), in_bytes.size()), out_path, spec, outcome);
     if (res != LPB_RESULT_OK) return res;
 
     if (outcome.uuid_removed && act_uuid) {
@@ -596,7 +533,7 @@ static lpb_result clean_vivo_legacy_video(
 
 static lpb_result clean_huawei_video(
     lpb_context* context,
-    const std::string& in_path,
+    const std::vector<uint8_t>& in_bytes,
     const std::string& out_path,
     lpb_source_protocol protocol,
     const lpb_cleanup_action* actions,
@@ -613,7 +550,7 @@ static lpb_result clean_huawei_video(
         LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.openharmony.timed_metadata.movingphoto", "com.openharmony.timed_metadata.movingphoto", LPB_REMOVAL_DELETE);
 
     if (!act_openharmony && !act_huawei && !act_covertime && !act_track) {
-        return fast_file_copy(context, in_path.c_str(), out_path.c_str());
+        return write_file_binary(out_path, in_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
     }
 
     std::vector<const char*> starts;
@@ -651,7 +588,7 @@ static lpb_result clean_huawei_video(
     spec.action_count = action_count;
 
     lpb::containers::Mp4StripOutcome outcome{};
-    lpb_result res = lpb::containers::stream_clean_mp4_file(context, in_path, out_path, spec, outcome);
+    lpb_result res = lpb::containers::stream_clean_mp4_bytes(context, std::span<const uint8_t>(in_bytes.data(), in_bytes.size()), out_path, spec, outcome);
     if (res != LPB_RESULT_OK) return res;
 
     const char* proto_str = protocol == LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO ? "Honor" : "Huawei";
@@ -719,46 +656,51 @@ lpb_result clean_source_protocol_with_plan(
         }
     }
 
-    if (!primary_target) {
-        set_error(context, "Primary image artifact snapshot target is required.");
+    if (!primary_target || primary_target->has_expected_sha256 != 1 || primary_target->expected_length == 0 || is_all_zeroes_32(primary_target->expected_sha256)) {
+        set_error(context, "TOCTOU check failed: valid primary image expected SHA-256 and positive length are mandatory.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    std::error_code ec;
-    auto img_p = utf8_to_path(input_image_path);
-    auto img_size = fs::file_size(img_p, ec);
-    if (ec || static_cast<uint64_t>(img_size) != primary_target->expected_length) {
+    std::vector<uint8_t> input_image_bytes;
+    if (!read_file_binary(input_image_path, input_image_bytes)) {
+        set_error(context, "Failed to read primary image artifact snapshot.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    if (input_image_bytes.size() != primary_target->expected_length) {
         set_error(context, "TOCTOU check failed: input image artifact length mismatch.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
-    if (primary_target->has_expected_sha256) {
-        uint8_t actual_sha[32]{};
-        if (!lpb::crypto::sha256_path(img_p.c_str(), actual_sha) ||
-            std::memcmp(actual_sha, primary_target->expected_sha256, 32) != 0) {
-            set_error(context, "TOCTOU check failed: input image artifact SHA-256 mismatch.");
+    uint8_t actual_image_sha[32]{};
+    lpb::crypto::sha256_buffer(input_image_bytes.data(), input_image_bytes.size(), actual_image_sha);
+    if (std::memcmp(actual_image_sha, primary_target->expected_sha256, 32) != 0) {
+        set_error(context, "TOCTOU check failed: input image artifact SHA-256 mismatch.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    std::vector<uint8_t> input_video_bytes;
+    if (input_video_path) {
+        if (!video_target || video_target->has_expected_sha256 != 1 || video_target->expected_length == 0 || is_all_zeroes_32(video_target->expected_sha256)) {
+            set_error(context, "TOCTOU check failed: valid motion video expected SHA-256 and positive length are mandatory when video input is provided.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if (!read_file_binary(input_video_path, input_video_bytes)) {
+            set_error(context, "Failed to read motion video artifact snapshot.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+        if (input_video_bytes.size() != video_target->expected_length) {
+            set_error(context, "TOCTOU check failed: input video artifact length mismatch.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        uint8_t actual_video_sha[32]{};
+        lpb::crypto::sha256_buffer(input_video_bytes.data(), input_video_bytes.size(), actual_video_sha);
+        if (std::memcmp(actual_video_sha, video_target->expected_sha256, 32) != 0) {
+            set_error(context, "TOCTOU check failed: input video artifact SHA-256 mismatch.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
     }
 
-    if (input_video_path) {
-        if (!video_target) {
-            set_error(context, "Motion video artifact snapshot target is required when video input is provided.");
-            return LPB_RESULT_INVALID_ARGUMENT;
-        }
-        auto vid_p = utf8_to_path(input_video_path);
-        auto vid_size = fs::file_size(vid_p, ec);
-        if (ec || static_cast<uint64_t>(vid_size) != video_target->expected_length) {
-            set_error(context, "TOCTOU check failed: input video artifact length mismatch.");
-            return LPB_RESULT_INVALID_ARGUMENT;
-        }
-        if (video_target->has_expected_sha256) {
-            uint8_t actual_sha[32]{};
-            if (!lpb::crypto::sha256_path(vid_p.c_str(), actual_sha) ||
-                std::memcmp(actual_sha, video_target->expected_sha256, 32) != 0) {
-                set_error(context, "TOCTOU check failed: input video artifact SHA-256 mismatch.");
-                return LPB_RESULT_INVALID_ARGUMENT;
-            }
-        }
+    if (context && context->cleaner_post_snapshot_callback) {
+        context->cleaner_post_snapshot_callback(context->cleaner_callback_user_data);
     }
 
     std::unordered_set<std::string_view> seen_residues;
@@ -802,9 +744,9 @@ lpb_result clean_source_protocol_with_plan(
 
         switch (facts->protocol) {
         case LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO:
-            res = clean_apple_image(context, input_image_path, output_image_path, actions, action_count, removed_facts);
+            res = clean_apple_image(context, input_image_bytes, output_image_path, actions, action_count, removed_facts);
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-                res = clean_apple_video(context, input_video_path, output_video_path, actions, action_count, removed_facts);
+                res = clean_apple_video(context, input_video_bytes, output_video_path, actions, action_count, removed_facts);
             }
             break;
 
@@ -812,54 +754,54 @@ lpb_result clean_source_protocol_with_plan(
         case LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2:
         case LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO:
         case LPB_SOURCE_PROTOCOL_VIVO_X300:
-            res = clean_jpeg_xmp(context, input_image_path, output_image_path,
+            res = clean_jpeg_xmp(context, input_image_bytes, output_image_path,
                 static_cast<lpb_source_protocol>(facts->protocol), actions, action_count, true, removed_facts);
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-                res = fast_file_copy(context, input_video_path, output_video_path);
+                res = write_file_binary(output_video_path, input_video_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             }
             break;
 
         case LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL:
-            res = fast_file_copy(context, input_image_path, output_image_path);
+            res = write_file_binary(output_image_path, input_image_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-                res = clean_vivo_legacy_video(context, input_video_path, output_video_path, actions, action_count, removed_facts);
+                res = clean_vivo_legacy_video(context, input_video_bytes, output_video_path, actions, action_count, removed_facts);
             }
             break;
 
         case LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG:
-            res = protocols::clean::clean_samsung_sef_jpeg(context, input_image_path, output_image_path, actions, action_count, removed_facts);
+            res = protocols::clean::clean_samsung_sef_jpeg(context, input_image_bytes, output_image_path, actions, action_count, removed_facts);
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-                res = fast_file_copy(context, input_video_path, output_video_path);
+                res = write_file_binary(output_video_path, input_video_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             }
             break;
 
         case LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC:
-            res = protocols::clean::clean_samsung_heic(context, input_image_path, output_image_path, actions, action_count, removed_facts);
+            res = protocols::clean::clean_samsung_heic(context, input_image_bytes, output_image_path, actions, action_count, removed_facts);
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-                res = fast_file_copy(context, input_video_path, output_video_path);
+                res = write_file_binary(output_video_path, input_video_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             }
             break;
 
         case LPB_SOURCE_PROTOCOL_HUAWEI_MOVING_PHOTO:
         case LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO:
-            res = fast_file_copy(context, input_image_path, output_image_path);
+            res = write_file_binary(output_image_path, input_image_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-                res = clean_huawei_video(context, input_video_path, output_video_path,
+                res = clean_huawei_video(context, input_video_bytes, output_video_path,
                     static_cast<lpb_source_protocol>(facts->protocol), actions, action_count, removed_facts);
             }
             break;
 
         case LPB_SOURCE_PROTOCOL_NON_LIVE:
         default:
-            res = fast_file_copy(context, input_image_path, output_image_path);
+            res = write_file_binary(output_image_path, input_image_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-                res = fast_file_copy(context, input_video_path, output_video_path);
+                res = write_file_binary(output_video_path, input_video_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             }
             break;
         }
 
         if (res == LPB_RESULT_OK && removed_facts.size() > facts_capacity) {
-            ec.clear();
+            std::error_code ec;
             fs::remove(utf8_to_path(output_image_path), ec);
             if (output_video_path) fs::remove(utf8_to_path(output_video_path), ec);
             if (out_facts_count) *out_facts_count = removed_facts.size();

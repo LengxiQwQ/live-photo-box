@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [string]$TargetDirectory,
     [string]$SourceDirectory
@@ -19,6 +19,7 @@ if (-not $SourceDirectory) {
 
 $resolvedTarget = [System.IO.Path]::GetFullPath($TargetDirectory)
 $resolvedSource = [System.IO.Path]::GetFullPath($SourceDirectory)
+$manifestPath = Join-Path $projectRoot 'tests\fixtures\realsamples-manifest.json'
 
 if (-not (Test-Path -LiteralPath $resolvedTarget)) {
     New-Item -ItemType Directory -Path $resolvedTarget -Force | Out-Null
@@ -41,7 +42,7 @@ if ($env:LIVEPHOTOBOX_SAMPLES_ARCHIVE -and (Test-Path -LiteralPath $env:LIVEPHOT
     Expand-Archive -LiteralPath $env:LIVEPHOTOBOX_SAMPLES_ARCHIVE -DestinationPath $resolvedTarget -Force
 }
 
-# 3. Check for mandatory P3 protocol sample coverage
+# 3. Check if mandatory samples are missing, and download from release if needed
 $mandatorySamples = @(
     '苹果双文件.HEIC',
     '苹果双文件.MOV',
@@ -58,6 +59,62 @@ $mandatorySamples = @(
     '荣耀.jpg'
 )
 
+$missingFromTarget = @()
+foreach ($s in $mandatorySamples) {
+    $p = Join-Path $resolvedTarget $s
+    if (-not (Test-Path -LiteralPath $p)) {
+        $missingFromTarget += $s
+    }
+}
+
+if ($missingFromTarget.Count -gt 0) {
+    Write-Host "[Fixtures] Missing samples in target ($($missingFromTarget.Count)). Attempting to download from release assets..." -ForegroundColor Cyan
+    $releaseUrl = "https://github.com/LengxiQwQ/live-photo-box/releases/download/test-fixtures-v1/realsamples-fixtures.zip"
+    $expectedZipSha = "d4ed29a1e49c1eb7bc35f0b4e0533c1efa2ad5d6fe825d0bc256eb1a951d1f5b"
+    $tempZip = Join-Path ([System.IO.Path]::GetTempPath()) "lpb-realsamples-fixtures.zip"
+
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+        Write-Host "[Fixtures] Downloading $releaseUrl -> $tempZip" -ForegroundColor Gray
+        Invoke-WebRequest -Uri $releaseUrl -OutFile $tempZip -UseBasicParsing
+        $downloadedSha = (Get-FileHash -LiteralPath $tempZip -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($downloadedSha -ne $expectedZipSha) {
+            throw "Downloaded fixtures archive hash mismatch: expected $expectedZipSha, got $downloadedSha"
+        }
+        Write-Host "[Fixtures] Archive verified. Extracting to $resolvedTarget..." -ForegroundColor Green
+        Expand-Archive -LiteralPath $tempZip -DestinationPath $resolvedTarget -Force
+    }
+    catch {
+        Write-Warning "[Fixtures] Failed downloading release fixture asset: $_"
+    }
+    finally {
+        if (Test-Path -LiteralPath $tempZip) {
+            Remove-Item -LiteralPath $tempZip -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+# 4. Verify integrity against manifest if manifest exists
+if (Test-Path -LiteralPath $manifestPath) {
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($prop in $manifest.PSObject.Properties) {
+        $fileName = $prop.Name
+        $fileEntry = $prop.Value
+        $filePath = Join-Path $resolvedTarget $fileName
+        if (Test-Path -LiteralPath $filePath) {
+            $item = Get-Item -LiteralPath $filePath
+            if ($item.Length -ne $fileEntry.size) {
+                Write-Warning "[Fixtures] Size mismatch for $fileName (expected $($fileEntry.size), got $($item.Length))"
+            }
+            $hash = (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($hash -ne $fileEntry.sha256) {
+                Write-Warning "[Fixtures] SHA-256 mismatch for $fileName (expected $($fileEntry.sha256), got $hash)"
+            }
+        }
+    }
+}
+
+# 5. Final check for mandatory P3 protocol sample coverage
 $missing = @()
 foreach ($s in $mandatorySamples) {
     $p = Join-Path $resolvedTarget $s

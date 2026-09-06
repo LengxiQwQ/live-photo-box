@@ -91,6 +91,14 @@ internal static partial class NativeMethods
         nint callback,
         nint userData);
 
+    [LibraryImport(LibraryName, EntryPoint = "lpb_test_set_cleaner_snapshot_hook")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult TestSetCleanerSnapshotHook(
+        nint context,
+        nint callback,
+        nint userData);
+
     [LibraryImport(LibraryName, EntryPoint = "lpb_test_sha256_buffer")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

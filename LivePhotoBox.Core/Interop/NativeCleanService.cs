@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -13,6 +15,14 @@ namespace LivePhotoBox.Interop;
 /// </summary>
 internal static class NativeCleanService
 {
+    internal static Action? TestPostSnapshotHook { get; set; }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void NativePostSnapshotCallback(nint userData)
+    {
+        TestPostSnapshotHook?.Invoke();
+    }
+
     internal static Task<IReadOnlyList<RemovedProtocolFact>> CleanSourceProtocolAsync(
         SourceMediaFacts facts,
         IReadOnlyList<PlannedCleanupAction> actions,
@@ -67,6 +77,14 @@ internal static class NativeCleanService
         return Task.Run(() =>
         {
             using var ctx = NativeContext.Create(cancellationToken);
+            if (TestPostSnapshotHook != null)
+            {
+                unsafe
+                {
+                    delegate* unmanaged[Cdecl]<nint, void> fn = &NativePostSnapshotCallback;
+                    NativeMethods.TestSetCleanerSnapshotHook(ctx.Handle, (nint)fn, nint.Zero);
+                }
+            }
             NativeSourceMediaFacts nativeFacts = NativeMediaService.MapToNativeFacts(facts);
 
             int actionCount = actions?.Count ?? 0;
@@ -100,15 +118,20 @@ internal static class NativeCleanService
                     targetsBuf[i].StructSize = (uint)sizeof(NativeCleanupArtifactBinding);
                     targetsBuf[i].ArtifactRole = (int)targets![i].Role;
                     targetsBuf[i].ExpectedLength = (ulong)targets[i].ExpectedByteLength;
-                    if (!string.IsNullOrEmpty(targets[i].ExpectedSha256))
+                    if (string.IsNullOrWhiteSpace(targets[i].ExpectedSha256) || targets[i].ExpectedSha256.Length != 64)
                     {
-                        byte[] hashBytes = Convert.FromHexString(targets[i].ExpectedSha256);
-                        fixed (byte* pSha = targetsBuf[i].ExpectedSha256)
-                        {
-                            System.Runtime.InteropServices.Marshal.Copy(hashBytes, 0, (nint)pSha, Math.Min(32, hashBytes.Length));
-                        }
-                        targetsBuf[i].HasExpectedSha256 = 1;
+                        throw new ArgumentException($"Target {targets[i].Role} must have a valid 64-character SHA-256.");
                     }
+                    byte[] hashBytes = Convert.FromHexString(targets[i].ExpectedSha256);
+                    if (hashBytes.Length != 32)
+                    {
+                        throw new ArgumentException($"Target {targets[i].Role} SHA-256 does not decode to 32 bytes.");
+                    }
+                    fixed (byte* pSha = targetsBuf[i].ExpectedSha256)
+                    {
+                        System.Runtime.InteropServices.Marshal.Copy(hashBytes, 0, (nint)pSha, 32);
+                    }
+                    targetsBuf[i].HasExpectedSha256 = 1;
                 }
 
                 Span<NativeRemovedProtocolFact> factsBuf = stackalloc NativeRemovedProtocolFact[64];

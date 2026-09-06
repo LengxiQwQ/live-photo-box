@@ -133,7 +133,7 @@ static std::string extract_jpeg_xmp(const std::vector<uint8_t>& data) {
 
 lpb_result clean_samsung_sef_jpeg(
     lpb_context* context,
-    const std::string& input_path,
+    const std::vector<uint8_t>& input_bytes,
     const std::string& output_path,
     const lpb_cleanup_action* actions,
     size_t action_count,
@@ -143,28 +143,12 @@ lpb_result clean_samsung_sef_jpeg(
         set_error(context, "Destructive cleaning requires a non-empty cleanup plan.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
-    auto p_in = utf8_to_path(input_path.c_str());
-    std::ifstream in(p_in, std::ios::binary | std::ios::ate);
-    if (!in.is_open()) {
-        set_error(context, "Failed to open input Samsung JPEG for cleaning.");
+    if (input_bytes.size() < 16) {
+        set_error(context, "Input data too small for Samsung JPEG.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    auto file_sz = in.tellg();
-    if (file_sz < 16) {
-        set_error(context, "Input file too small for Samsung JPEG.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-
-    std::vector<uint8_t> data(static_cast<size_t>(file_sz));
-    in.seekg(0, std::ios::beg);
-    in.read(reinterpret_cast<char*>(data.data()), file_sz);
-    if (!in.good()) {
-        set_error(context, "Failed to read Samsung JPEG data.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-    in.close();
-
+    std::vector<uint8_t> data = input_bytes;
     size_t input_size = data.size();
     std::vector<SefEntry> retained_entries;
     uint32_t sef_version = 107;

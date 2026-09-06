@@ -98,7 +98,7 @@ public sealed class CleanerRealFilesystemTransactionTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task Clean_RealFileSystem_RealCancellationDuringStaging_RollsBackCleanly()
+    public async Task Clean_RealFileSystem_PreExecutionCancellation_RollsBackCleanly()
     {
         string samplePath = ResolveSample("oppo.jpg");
         string shaBefore = ComputeSha256(samplePath);
@@ -133,7 +133,42 @@ public sealed class CleanerRealFilesystemTransactionTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task Clean_RealFileSystem_ReadOnlyDestinationDirectory_FailsClosedAndRollsBack()
+    public async Task Clean_RealFileSystem_InFlightCancellationDuringStaging_RollsBackCleanly()
+    {
+        string samplePath = ResolveSample("oppo.jpg");
+        string shaBefore = ComputeSha256(samplePath);
+
+        using var workspace = new MediaWorkspace();
+        var inspector = new SourceInspector();
+        var extractor = new SourceExtractor();
+        var cleaner = new SourceProtocolCleaner();
+
+        var facts = await inspector.InspectAsync(samplePath);
+        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+
+        using var cts = new CancellationTokenSource();
+        // Trigger real cancellation in-flight when staging starts
+        cleaner.OnStagingStarted += () => cts.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        {
+            await cleaner.CleanAsync(new ProtocolCleanRequest
+            {
+                ExtractedBundle = extracted
+            }, workspace, cts.Token);
+        });
+
+        // Verify original source immutability
+        Assert.Equal(shaBefore, ComputeSha256(samplePath));
+
+        // Verify no orphan staging directories
+        string[] stagingDirs = Directory.GetDirectories(workspace.RootDirectory, "staging_*");
+        Assert.Empty(stagingDirs);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Clean_RealFileSystem_ReadOnlyExistingDestinationFile_FailsClosedAndRollsBack()
     {
         string samplePath = ResolveSample("oppo.jpg");
         string shaBefore = ComputeSha256(samplePath);

@@ -506,6 +506,14 @@ LPB_API lpb_result LPB_CALL lpb_test_set_extractor_fault(
     lpb_extractor_step_callback callback,
     void* user_data);
 
+/* Test-only hook for verifying that cleaner consumes pinned in-memory snapshot and never reopens source path */
+typedef void(LPB_CALL* lpb_cleaner_snapshot_callback)(void* user_data);
+
+LPB_API lpb_result LPB_CALL lpb_test_set_cleaner_snapshot_hook(
+    lpb_context* context,
+    lpb_cleaner_snapshot_callback callback,
+    void* user_data);
+
 /* Test-only helper to verify native SHA-256 implementation against standard test vectors */
 LPB_API lpb_result LPB_CALL lpb_test_sha256_buffer(
     const uint8_t* data,

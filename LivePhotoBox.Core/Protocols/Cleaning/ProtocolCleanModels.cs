@@ -109,6 +109,38 @@ public sealed record PreservationReport
     public string? Summary { get; init; }
 }
 
+/// <summary>
+/// Immutable snapshot of media artifact bytes, lengths, hashes, and extracted metadata baseline
+/// frozen before any destructive mutations or staging begin.
+/// </summary>
+public sealed record PreservationBaseline
+{
+    public required byte[] PrimaryImageBytes { get; init; }
+    public required long PrimaryImageLength { get; init; }
+    public required string PrimaryImageSha256 { get; init; }
+    public ImageContainer PrimaryImageContainer { get; init; }
+    public required string PrimaryImagePath { get; init; }
+
+    public SourceProtocol Protocol { get; init; }
+
+    public byte[]? MotionVideoBytes { get; init; }
+    public long? MotionVideoLength { get; init; }
+    public string? MotionVideoSha256 { get; init; }
+    public VideoContainer MotionVideoContainer { get; init; }
+    public string? MotionVideoPath { get; init; }
+    public string? PreMdatSha { get; init; }
+
+    public byte[]? GainMapBytes { get; init; }
+    public long? GainMapLength { get; init; }
+    public string? GainMapSha256 { get; init; }
+
+    public string? PreCodestreamSha { get; init; }
+    public MetadataPreservationVerifier.TiffMetadata? PreTiff { get; init; }
+    public byte[]? PreIcc { get; init; }
+
+    public DateTimeOffset CapturedAt { get; init; } = DateTimeOffset.UtcNow;
+}
+
 public enum CleanerFailureCategory
 {
     None,

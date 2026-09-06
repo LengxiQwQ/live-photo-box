@@ -8,7 +8,7 @@ namespace lpb::protocols::clean {
 
 lpb_result clean_samsung_heic(
     lpb_context* context,
-    const std::string& input_path,
+    const std::vector<uint8_t>& input_bytes,
     const std::string& output_path,
     const lpb_cleanup_action* actions,
     size_t action_count,

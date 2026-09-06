@@ -77,6 +77,17 @@ LPB_API lpb_result LPB_CALL lpb_test_set_extractor_fault(
     return LPB_RESULT_OK;
 }
 
+LPB_API lpb_result LPB_CALL lpb_test_set_cleaner_snapshot_hook(
+    lpb_context* context,
+    lpb_cleaner_snapshot_callback callback,
+    void* user_data)
+{
+    if (!context) return LPB_RESULT_INVALID_ARGUMENT;
+    context->cleaner_post_snapshot_callback = callback;
+    context->cleaner_callback_user_data = user_data;
+    return LPB_RESULT_OK;
+}
+
 LPB_API lpb_result LPB_CALL lpb_test_sha256_buffer(
     const uint8_t* data,
     size_t length,

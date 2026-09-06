@@ -1,0 +1,70 @@
+{
+  "oppo.jpg": {
+    "size": 6752474,
+    "sha256": "9c6e3fa8926660d066d1208ef99e9ab7d6a30e4b18905c5ca2c0221c9424bc0f"
+  },
+  "vivo.jpg": {
+    "size": 8270322,
+    "sha256": "631cf8dac983a9f58fc1d8cb63aaf8cc0569c45b80f046f1b995936d608320b9"
+  },
+  "vivo双文件.jpg": {
+    "size": 4096218,
+    "sha256": "751a39426d618404d144d6fc061cee7ffda389396516a11cae1c926b056d47e6"
+  },
+  "vivo双文件.mp4": {
+    "size": 3163201,
+    "sha256": "21c45d75af6738a52db0eaafe383fced216fa3367a3ab159191f45869a7a60d9"
+  },
+  "一加-改了封面照片.jpg": {
+    "size": 20123765,
+    "sha256": "ac2eacef2e09043f8f34a1e3d714aa8940cb561b3829ac9a40fc0726860c07e1"
+  },
+  "一加.jpg": {
+    "size": 13762654,
+    "sha256": "2065994c59495f65ffda59d768d6cc2c73e8dfb861cd5d815e1273c82ba54c01"
+  },
+  "三星.heic": {
+    "size": 5136712,
+    "sha256": "dbfb8ad846a16291b0b09599fcf588a3e6c20d58b96782e357d5652e3ec544c4"
+  },
+  "三星.jpg": {
+    "size": 7749650,
+    "sha256": "6caef9fd8f5aa65ce13ba4282a9be7773dfbd5bd52ecb568aa3354e71c8c8488"
+  },
+  "华为-Mate80.jpg": {
+    "size": 9316483,
+    "sha256": "317526b2b7b6a5774cc41fbb232fb2526901ee358ab4b470adeef7ac3617794a"
+  },
+  "华为Mate80.heic": {
+    "size": 6816675,
+    "sha256": "904e94cd37cc0336060409c07025c1341a5621eda3ab53ae2840ee6613f5834a"
+  },
+  "小米.jpg": {
+    "size": 4038241,
+    "sha256": "71f49fb21b5a7397d8a0fb499f644a1cd7d701d5c6fa6bbc9bc251e55e27f9e3"
+  },
+  "红米老款-GV1.JPG": {
+    "size": 8943926,
+    "sha256": "48c7490f30c25d5f9e7cfc763d766ba3fdeda8b12aa72a38426167233276c477"
+  },
+  "苹果-双文件.JPG": {
+    "size": 2823948,
+    "sha256": "998c82938748de56c8a226b0b4c8984d2ed0ee04a2ab4ef436267cfb5b59d55f"
+  },
+  "苹果-双文件.MOV": {
+    "size": 3911870,
+    "sha256": "026ace53263731c03ec05a14310e42692a99a51b0e62579021fe6f915513c63d"
+  },
+  "苹果双文件.HEIC": {
+    "size": 2856220,
+    "sha256": "868f29d1408d090193d04ebe5c71fea139705381b9c1b8673c40c62e1a456998"
+  },
+  "苹果双文件.MOV": {
+    "size": 2782940,
+    "sha256": "d47c0e8fc052393e91a6ecb0aa941afb20758cd244220943e3c06c52bc2df381"
+  },
+  "荣耀.jpg": {
+    "size": 10418919,
+    "sha256": "970658f835add139247694a67803e21a0ca0421290a3a2d269d52d970cabf759"
+  }
+}

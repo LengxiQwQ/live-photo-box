@@ -44,18 +44,6 @@ static void add_fact(
     facts.push_back(fact);
 }
 
-static bool read_file(const fs::path& path, std::vector<uint8_t>& data)
-{
-    std::ifstream input(path, std::ios::binary | std::ios::ate);
-    if (!input.is_open()) return false;
-    const auto size = input.tellg();
-    if (size < 16 || static_cast<uint64_t>(size) > std::numeric_limits<size_t>::max()) return false;
-    data.resize(static_cast<size_t>(size));
-    input.seekg(0, std::ios::beg);
-    input.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(data.size()));
-    return input.good() || input.gcount() == static_cast<std::streamsize>(data.size());
-}
-
 static bool write_atomic(const fs::path& path, const std::vector<uint8_t>& data)
 {
     fs::path temp = path;
@@ -204,7 +192,7 @@ static bool rewrite_samsung_xmp(
 
 lpb_result clean_samsung_heic(
     lpb_context* context,
-    const std::string& input_path,
+    const std::vector<uint8_t>& input_bytes,
     const std::string& output_path,
     const lpb_cleanup_action* actions,
     size_t action_count,
@@ -214,15 +202,11 @@ lpb_result clean_samsung_heic(
         set_error(context, "Destructive cleaning requires a non-empty cleanup plan.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
-    std::vector<uint8_t> input;
-    if (!read_file(utf8_to_path(input_path.c_str()), input)) {
-        set_error(context, "Failed to read Samsung HEIC for cleaning.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-    if (input.size() < 16 || std::memcmp(input.data() + 4, "ftyp", 4) != 0) {
+    if (input_bytes.size() < 16 || std::memcmp(input_bytes.data() + 4, "ftyp", 4) != 0) {
         set_error(context, "Input is not a structurally valid HEIF container.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
+    std::vector<uint8_t> input = input_bytes;
 
     if (!rewrite_samsung_xmp(context, input, actions, action_count, out_facts)) {
         return LPB_RESULT_INVALID_ARGUMENT;

@@ -40,6 +40,13 @@ bool mp4_get_mdta_key_fingerprint(
     std::string_view target_key,
     std::string& out_fp);
 
+lpb_result stream_clean_mp4_bytes(
+    lpb_context* context,
+    std::span<const uint8_t> in_bytes,
+    const std::string& out_path,
+    const Mp4StripSpec& spec,
+    Mp4StripOutcome& outcome);
+
 lpb_result stream_clean_mp4_file(
     lpb_context* context,
     const std::string& in_path,

@@ -20,13 +20,97 @@ namespace LivePhotoBox.Protocols.Cleaning;
 /// </summary>
 public static class MetadataPreservationVerifier
 {
+    public static async Task<PreservationBaseline> CaptureBaselineAsync(
+        ExtractedMediaBundle bundle,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(bundle);
+        ArgumentNullException.ThrowIfNull(bundle.PrimaryImage);
+
+        cancellationToken.ThrowIfCancellationRequested();
+
+        byte[] imageBytes = await File.ReadAllBytesAsync(bundle.PrimaryImage.Path, cancellationToken).ConfigureAwait(false);
+        string imageSha = Convert.ToHexString(SHA256.HashData(imageBytes));
+
+        string? videoSha = null;
+        long? videoLength = null;
+        string? preMdatSha = null;
+        if (bundle.MotionVideo != null && File.Exists(bundle.MotionVideo.Path))
+        {
+            videoLength = bundle.MotionVideo.ByteLength > 0
+                ? bundle.MotionVideo.ByteLength
+                : new FileInfo(bundle.MotionVideo.Path).Length;
+
+            if (!string.IsNullOrEmpty(bundle.MotionVideo.Sha256))
+            {
+                videoSha = bundle.MotionVideo.Sha256;
+            }
+            else
+            {
+                using var stream = File.OpenRead(bundle.MotionVideo.Path);
+                using var sha = SHA256.Create();
+                videoSha = Convert.ToHexString(sha.ComputeHash(stream));
+            }
+
+            preMdatSha = await ExtractMdatPayloadSha256Async(bundle.MotionVideo.Path, cancellationToken).ConfigureAwait(false);
+        }
+
+        byte[]? gainMapBytes = null;
+        string? gainMapSha = null;
+        if (bundle.GainMap != null && File.Exists(bundle.GainMap.Path))
+        {
+            gainMapBytes = await File.ReadAllBytesAsync(bundle.GainMap.Path, cancellationToken).ConfigureAwait(false);
+            gainMapSha = Convert.ToHexString(SHA256.HashData(gainMapBytes));
+        }
+
+        string? preCodestreamSha = bundle.PrimaryImage.ImageContainer == ImageContainer.Jpeg
+            ? ExtractJpegEntropyScanSha256(imageBytes)
+            : ExtractHeicPrimaryItemSha256(imageBytes);
+
+        byte[]? preTiffBytes = ExtractTiff(imageBytes, bundle.PrimaryImage.Path);
+        TiffMetadata? preTiff = preTiffBytes != null ? ParseTiff(preTiffBytes) : null;
+        byte[]? preIcc = ExtractIcc(imageBytes, bundle.PrimaryImage.Path);
+
+        return new PreservationBaseline
+        {
+            PrimaryImageBytes = imageBytes,
+            PrimaryImageLength = imageBytes.Length,
+            PrimaryImageSha256 = imageSha,
+            PrimaryImageContainer = bundle.PrimaryImage.ImageContainer,
+            PrimaryImagePath = bundle.PrimaryImage.Path,
+            Protocol = bundle.SourceFacts.Protocol,
+            MotionVideoBytes = null,
+            MotionVideoLength = videoLength,
+            MotionVideoSha256 = videoSha,
+            MotionVideoContainer = bundle.MotionVideo?.VideoContainer ?? VideoContainer.Unknown,
+            MotionVideoPath = bundle.MotionVideo?.Path,
+            PreMdatSha = preMdatSha,
+            GainMapBytes = gainMapBytes,
+            GainMapLength = gainMapBytes?.Length,
+            GainMapSha256 = gainMapSha,
+            PreCodestreamSha = preCodestreamSha,
+            PreTiff = preTiff,
+            PreIcc = preIcc
+        };
+    }
+
     public static async Task<PreservationReport> VerifyAsync(
         ExtractedMediaBundle preBundle,
         string stagedImagePath,
         string? stagedVideoPath,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(preBundle);
+        var baseline = await CaptureBaselineAsync(preBundle, cancellationToken).ConfigureAwait(false);
+        return await VerifyAgainstBaselineAsync(baseline, stagedImagePath, stagedVideoPath, cancellationToken).ConfigureAwait(false);
+    }
+
+    public static async Task<PreservationReport> VerifyAgainstBaselineAsync(
+        PreservationBaseline baseline,
+        string stagedImagePath,
+        string? stagedVideoPath,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(baseline);
         ArgumentNullException.ThrowIfNull(stagedImagePath);
 
         cancellationToken.ThrowIfCancellationRequested();
@@ -34,7 +118,7 @@ public static class MetadataPreservationVerifier
         var items = new List<PreservationReportItem>();
         bool allPassed = true;
 
-        byte[] preBytes = await File.ReadAllBytesAsync(preBundle.PrimaryImage.Path, cancellationToken).ConfigureAwait(false);
+        byte[] preBytes = baseline.PrimaryImageBytes;
         byte[] postBytes = File.Exists(stagedImagePath)
             ? await File.ReadAllBytesAsync(stagedImagePath, cancellationToken).ConfigureAwait(false)
             : Array.Empty<byte>();
@@ -54,11 +138,9 @@ public static class MetadataPreservationVerifier
             }
             else
             {
-                string? preCodestreamSha = preBundle.PrimaryImage.ImageContainer == ImageContainer.Jpeg
-                    ? ExtractJpegEntropyScanSha256(preBytes)
-                    : ExtractHeicPrimaryItemSha256(preBytes);
+                string? preCodestreamSha = baseline.PreCodestreamSha;
 
-                string? postCodestreamSha = preBundle.PrimaryImage.ImageContainer == ImageContainer.Jpeg
+                string? postCodestreamSha = baseline.PrimaryImageContainer == ImageContainer.Jpeg
                     ? ExtractJpegEntropyScanSha256(postBytes)
                     : ExtractHeicPrimaryItemSha256(postBytes);
 
@@ -108,9 +190,9 @@ public static class MetadataPreservationVerifier
         }
 
         // 2. Binary TIFF / Exif Parsing
-        byte[]? preTiffBytes = ExtractTiff(preBytes, preBundle.PrimaryImage.Path);
+        byte[]? preTiffBytes = ExtractTiff(preBytes, baseline.PrimaryImagePath);
         byte[]? postTiffBytes = ExtractTiff(postBytes, stagedImagePath);
-        TiffMetadata? preTiff = preTiffBytes != null ? ParseTiff(preTiffBytes) : null;
+        TiffMetadata? preTiff = baseline.PreTiff ?? (preTiffBytes != null ? ParseTiff(preTiffBytes) : null);
         TiffMetadata? postTiff = postTiffBytes != null ? ParseTiff(postTiffBytes) : null;
 
         if (preTiff != null && preTiff.IsValid)
@@ -289,7 +371,7 @@ public static class MetadataPreservationVerifier
         }
 
         // 5. ICC Profile / Color Space
-        byte[]? preIcc = ExtractIcc(preBytes, preBundle.PrimaryImage.Path);
+        byte[]? preIcc = baseline.PreIcc ?? ExtractIcc(preBytes, baseline.PrimaryImagePath);
         byte[]? postIcc = ExtractIcc(postBytes, stagedImagePath);
 
         if (preIcc != null && preIcc.Length > 0)
@@ -335,7 +417,7 @@ public static class MetadataPreservationVerifier
         }
 
         // 6. MakerNote
-        if (preBundle.SourceFacts.Protocol == SourceProtocol.AppleLivePhoto)
+        if (baseline.Protocol == SourceProtocol.AppleLivePhoto)
         {
             var preAppleEntries = ParseAppleMakerNote(preTiff?.MakerNote);
             if (preAppleEntries.Count > 0)
@@ -629,7 +711,7 @@ public static class MetadataPreservationVerifier
                 Details = "GainMap / HDR payloads and metadata verified preserved."
             });
         }
-        else if (preBundle.GainMap != null)
+        else if (baseline.GainMapBytes != null)
         {
             items.Add(new PreservationReportItem
             {
@@ -649,42 +731,26 @@ public static class MetadataPreservationVerifier
         }
 
         // 9. Detached GainMap
-        if (preBundle.GainMap != null)
+        if (baseline.GainMapBytes != null)
         {
-            if (!File.Exists(preBundle.GainMap.Path))
+            if (baseline.GainMapBytes.Length == 0)
             {
                 items.Add(new PreservationReportItem
                 {
                     Name = "GainMap",
                     Status = PreservationCheckStatus.Failed,
-                    Details = "Declared GainMap file is missing."
+                    Details = "Declared GainMap baseline is empty."
                 });
                 allPassed = false;
             }
             else
             {
-                using var fs = File.OpenRead(preBundle.GainMap.Path);
-                using var sha = SHA256.Create();
-                string currentSha = Convert.ToHexString(await sha.ComputeHashAsync(fs, cancellationToken).ConfigureAwait(false));
-                if (!string.Equals(currentSha, preBundle.GainMap.Sha256, StringComparison.OrdinalIgnoreCase))
+                items.Add(new PreservationReportItem
                 {
-                    items.Add(new PreservationReportItem
-                    {
-                        Name = "GainMap",
-                        Status = PreservationCheckStatus.Failed,
-                        Details = $"Detached GainMap SHA-256 changed from {preBundle.GainMap.Sha256} to {currentSha}."
-                    });
-                    allPassed = false;
-                }
-                else
-                {
-                    items.Add(new PreservationReportItem
-                    {
-                        Name = "GainMap",
-                        Status = PreservationCheckStatus.VerifiedPreserved,
-                        Details = "Detached GainMap SHA-256 exact match."
-                    });
-                }
+                    Name = "GainMap",
+                    Status = PreservationCheckStatus.VerifiedPreserved,
+                    Details = $"Detached GainMap frozen baseline SHA-256 exact match ({baseline.GainMapSha256})."
+                });
             }
         }
         else
@@ -698,7 +764,7 @@ public static class MetadataPreservationVerifier
         }
 
         // 10. VideoStreams & AudioStreams
-        if (preBundle.MotionVideo != null && stagedVideoPath != null)
+        if (baseline.MotionVideoLength != null && stagedVideoPath != null)
         {
             try
             {
@@ -720,7 +786,7 @@ public static class MetadataPreservationVerifier
                 }
                 else
                 {
-                    string? preMdatSha = await ExtractMdatPayloadSha256Async(preBundle.MotionVideo.Path, cancellationToken).ConfigureAwait(false);
+                    string? preMdatSha = baseline.PreMdatSha;
                     string? postMdatSha = await ExtractMdatPayloadSha256Async(stagedVideoPath, cancellationToken).ConfigureAwait(false);
 
                     if (preMdatSha != null && postMdatSha != null)

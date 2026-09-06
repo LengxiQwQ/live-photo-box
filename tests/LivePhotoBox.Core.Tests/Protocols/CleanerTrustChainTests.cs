@@ -258,7 +258,91 @@ public sealed class CleanerTrustChainTests
         var facts = await inspector.InspectAsync(samplePath);
         var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
 
-        // Tamper declared SHA-256
+        // Tamper declared SHA-256 with a different valid non-zero hash
+        var tamperedBundle = extracted with
+        {
+            PrimaryImage = extracted.PrimaryImage! with { Sha256 = "1111111111111111111111111111111111111111111111111111111111111111" }
+        };
+
+        var result = await cleaner.CleanAsync(new ProtocolCleanRequest
+        {
+            ExtractedBundle = tamperedBundle
+        }, workspace);
+
+        Assert.False(result.Success);
+        Assert.Equal(CleanerFailureCategory.ArtifactChangedSinceExtraction, result.FailureCategory);
+        Assert.Equal(CleanerFailureStage.ArtifactVerification, result.FailureStage);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Clean_FailsWhenPrimaryImageSha256Missing()
+    {
+        string samplePath = ResolveSample("oppo.jpg");
+        using var workspace = new MediaWorkspace();
+        var inspector = new SourceInspector();
+        var extractor = new SourceExtractor();
+        var cleaner = new SourceProtocolCleaner();
+
+        var facts = await inspector.InspectAsync(samplePath);
+        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+
+        var tamperedBundle = extracted with
+        {
+            PrimaryImage = extracted.PrimaryImage! with { Sha256 = "" }
+        };
+
+        var result = await cleaner.CleanAsync(new ProtocolCleanRequest
+        {
+            ExtractedBundle = tamperedBundle
+        }, workspace);
+
+        Assert.False(result.Success);
+        Assert.Equal(CleanerFailureCategory.ArtifactChangedSinceExtraction, result.FailureCategory);
+        Assert.Equal(CleanerFailureStage.ArtifactVerification, result.FailureStage);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Clean_FailsWhenPrimaryImageSha256Malformed()
+    {
+        string samplePath = ResolveSample("oppo.jpg");
+        using var workspace = new MediaWorkspace();
+        var inspector = new SourceInspector();
+        var extractor = new SourceExtractor();
+        var cleaner = new SourceProtocolCleaner();
+
+        var facts = await inspector.InspectAsync(samplePath);
+        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+
+        var tamperedBundle = extracted with
+        {
+            PrimaryImage = extracted.PrimaryImage! with { Sha256 = "not_a_valid_sha256_hash_value" }
+        };
+
+        var result = await cleaner.CleanAsync(new ProtocolCleanRequest
+        {
+            ExtractedBundle = tamperedBundle
+        }, workspace);
+
+        Assert.False(result.Success);
+        Assert.Equal(CleanerFailureCategory.ArtifactChangedSinceExtraction, result.FailureCategory);
+        Assert.Equal(CleanerFailureStage.ArtifactVerification, result.FailureStage);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Clean_FailsWhenPrimaryImageSha256AllZeroes()
+    {
+        string samplePath = ResolveSample("oppo.jpg");
+        using var workspace = new MediaWorkspace();
+        var inspector = new SourceInspector();
+        var extractor = new SourceExtractor();
+        var cleaner = new SourceProtocolCleaner();
+
+        var facts = await inspector.InspectAsync(samplePath);
+        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+
         var tamperedBundle = extracted with
         {
             PrimaryImage = extracted.PrimaryImage! with { Sha256 = "0000000000000000000000000000000000000000000000000000000000000000" }
@@ -293,6 +377,66 @@ public sealed class CleanerTrustChainTests
         var tamperedBundle = extracted with
         {
             MotionVideo = extracted.MotionVideo! with { Sha256 = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF" }
+        };
+
+        var result = await cleaner.CleanAsync(new ProtocolCleanRequest
+        {
+            ExtractedBundle = tamperedBundle
+        }, workspace);
+
+        Assert.False(result.Success);
+        Assert.Equal(CleanerFailureCategory.ArtifactChangedSinceExtraction, result.FailureCategory);
+        Assert.Equal(CleanerFailureStage.ArtifactVerification, result.FailureStage);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Clean_FailsWhenMotionVideoSha256Missing()
+    {
+        string sampleImg = ResolveSample("苹果双文件.HEIC");
+        string sampleMov = ResolveSample("苹果双文件.MOV");
+        using var workspace = new MediaWorkspace();
+        var inspector = new SourceInspector();
+        var extractor = new SourceExtractor();
+        var cleaner = new SourceProtocolCleaner();
+
+        var facts = await inspector.InspectAsync(sampleImg, sampleMov);
+        var extracted = await extractor.ExtractAsync(facts, sampleImg, sampleMov, workspace);
+        Assert.NotNull(extracted.MotionVideo);
+
+        var tamperedBundle = extracted with
+        {
+            MotionVideo = extracted.MotionVideo! with { Sha256 = null }
+        };
+
+        var result = await cleaner.CleanAsync(new ProtocolCleanRequest
+        {
+            ExtractedBundle = tamperedBundle
+        }, workspace);
+
+        Assert.False(result.Success);
+        Assert.Equal(CleanerFailureCategory.ArtifactChangedSinceExtraction, result.FailureCategory);
+        Assert.Equal(CleanerFailureStage.ArtifactVerification, result.FailureStage);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Clean_FailsWhenMotionVideoSha256AllZeroes()
+    {
+        string sampleImg = ResolveSample("苹果双文件.HEIC");
+        string sampleMov = ResolveSample("苹果双文件.MOV");
+        using var workspace = new MediaWorkspace();
+        var inspector = new SourceInspector();
+        var extractor = new SourceExtractor();
+        var cleaner = new SourceProtocolCleaner();
+
+        var facts = await inspector.InspectAsync(sampleImg, sampleMov);
+        var extracted = await extractor.ExtractAsync(facts, sampleImg, sampleMov, workspace);
+        Assert.NotNull(extracted.MotionVideo);
+
+        var tamperedBundle = extracted with
+        {
+            MotionVideo = extracted.MotionVideo! with { Sha256 = "0000000000000000000000000000000000000000000000000000000000000000" }
         };
 
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
@@ -1416,7 +1560,7 @@ public sealed class CleanerTrustChainTests
     }
 
     [Fact]
-    public async Task Clean_Native_TOCTOU_FailsWhenImageAlteredBeforeClean()
+    public async Task Clean_Native_TOCTOU_RejectsStaleArtifactSnapshotBeforeNativeExecution()
     {
         using var workspace = new MediaWorkspace();
         string tempImage = workspace.AllocateFilePath("test-toctou-img", ".jpg");
@@ -1486,7 +1630,199 @@ public sealed class CleanerTrustChainTests
     }
 
     [Fact]
-    public async Task Clean_Native_TOCTOU_FailsWhenVideoAlteredBeforeClean()
+    public async Task Clean_Native_TOCTOU_ConsumesPinnedVerifiedSnapshot_EvenWhenSourcePathIsReplaced()
+    {
+        using var workspace = new MediaWorkspace();
+        string tempImage = workspace.AllocateFilePath("test-toctou-race-img", ".jpg");
+        string cleanedImage = workspace.AllocateFilePath("test-toctou-race-img-cleaned", ".jpg");
+
+        byte[] standardXmp = Encoding.UTF8.GetBytes(
+            "http://ns.adobe.com/xap/1.0/\0<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" GCamera:MotionPhoto=\"1\" /></rdf:RDF></x:xmpmeta>");
+
+        using var ms = new MemoryStream();
+        ms.Write([0xFF, 0xD8]);
+        ms.Write([0xFF, 0xE1]);
+        int len1 = standardXmp.Length + 2;
+        ms.WriteByte((byte)(len1 >> 8)); ms.WriteByte((byte)(len1 & 0xFF));
+        ms.Write(standardXmp);
+        ms.Write([0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x7F, 0xFF, 0x00, 0x00, 0xFF, 0xD9]);
+        byte[] fullJpeg = ms.ToArray();
+        await File.WriteAllBytesAsync(tempImage, fullJpeg);
+
+        string originalSha = Convert.ToHexString(SHA256.HashData(fullJpeg));
+
+        var facts = new SourceMediaFacts
+        {
+            Protocol = SourceProtocol.GoogleMotionPhotoV2,
+            PrimarySha256 = originalSha,
+            PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
+        };
+
+        var actions = new List<PlannedCleanupAction>
+        {
+            new PlannedCleanupAction
+            {
+                ResidueId = "google-v2-xmp-motionphoto",
+                OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
+                ArtifactRole = MediaArtifactKind.PrimaryImage,
+                StructureKind = ResidueStructureKind.XmpProperty,
+                Selector = "GCamera:MotionPhoto",
+                RemovalMode = ResidueRemovalMode.Delete,
+                ExpectedSemantic = "MotionPhoto",
+                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                IsMandatory = true
+            }
+        };
+
+        var targets = new List<PlannedArtifactTarget>
+        {
+            new PlannedArtifactTarget
+            {
+                Role = MediaArtifactKind.PrimaryImage,
+                ExpectedByteLength = fullJpeg.Length,
+                ExpectedSha256 = originalSha
+            }
+        };
+
+        bool hookTriggered = false;
+        byte[] garbageBytes = [0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04];
+
+        // Register hook to mutate source path on disk immediately after Native opens and validates the in-memory snapshot
+        LivePhotoBox.Interop.NativeCleanService.TestPostSnapshotHook = () =>
+        {
+            hookTriggered = true;
+            // Overwrite source disk file with corrupted non-JPEG garbage bytes
+            File.WriteAllBytes(tempImage, garbageBytes);
+        };
+
+        try
+        {
+            var removed = await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
+                facts, actions, targets, tempImage, null, cleanedImage, null);
+
+            Assert.True(hookTriggered, "TestPostSnapshotHook must be invoked after snapshot is read and verified.");
+            Assert.Single(removed);
+            Assert.Equal("google-v2-xmp-motionphoto", removed[0].ResidueId);
+            Assert.True(File.Exists(cleanedImage));
+
+            // Verify disk file remained replaced with garbage
+            byte[] currentDiskBytes = await File.ReadAllBytesAsync(tempImage);
+            Assert.Equal(garbageBytes, currentDiskBytes);
+
+            // Verify output file is a valid cleaned JPEG that consumed the pinned in-memory snapshot, NOT the corrupted disk file
+            byte[] outBytes = await File.ReadAllBytesAsync(cleanedImage);
+            Assert.True(outBytes.Length > 4);
+            Assert.Equal(0xFF, outBytes[0]);
+            Assert.Equal(0xD8, outBytes[1]);
+            Assert.DoesNotContain("GCamera:MotionPhoto", Encoding.UTF8.GetString(outBytes));
+        }
+        finally
+        {
+            LivePhotoBox.Interop.NativeCleanService.TestPostSnapshotHook = null;
+        }
+    }
+
+    [Fact]
+    public async Task Clean_Native_RejectsMissingOrAllZeroSha256Target()
+    {
+        using var workspace = new MediaWorkspace();
+        string tempImage = workspace.AllocateFilePath("test-invalid-sha-img", ".jpg");
+        string cleanedImage = workspace.AllocateFilePath("test-invalid-sha-img-cleaned", ".jpg");
+
+        byte[] standardXmp = Encoding.UTF8.GetBytes(
+            "http://ns.adobe.com/xap/1.0/\0<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" GCamera:MotionPhoto=\"1\" /></rdf:RDF></x:xmpmeta>");
+
+        using var ms = new MemoryStream();
+        ms.Write([0xFF, 0xD8]);
+        ms.Write([0xFF, 0xE1]);
+        int len1 = standardXmp.Length + 2;
+        ms.WriteByte((byte)(len1 >> 8)); ms.WriteByte((byte)(len1 & 0xFF));
+        ms.Write(standardXmp);
+        ms.Write([0xFF, 0xDA, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3F, 0x00, 0x7F, 0xFF, 0x00, 0x00, 0xFF, 0xD9]);
+        byte[] fullJpeg = ms.ToArray();
+        await File.WriteAllBytesAsync(tempImage, fullJpeg);
+
+        var facts = new SourceMediaFacts
+        {
+            Protocol = SourceProtocol.GoogleMotionPhotoV2,
+            PrimarySha256 = Convert.ToHexString(SHA256.HashData(fullJpeg)),
+            PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
+        };
+
+        var actions = new List<PlannedCleanupAction>
+        {
+            new PlannedCleanupAction
+            {
+                ResidueId = "google-v2-xmp-motionphoto",
+                OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
+                ArtifactRole = MediaArtifactKind.PrimaryImage,
+                StructureKind = ResidueStructureKind.XmpProperty,
+                Selector = "GCamera:MotionPhoto",
+                RemovalMode = ResidueRemovalMode.Delete,
+                ExpectedSemantic = "MotionPhoto",
+                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                IsMandatory = true
+            }
+        };
+
+        // Target with all-zero SHA-256
+        var targets = new List<PlannedArtifactTarget>
+        {
+            new PlannedArtifactTarget
+            {
+                Role = MediaArtifactKind.PrimaryImage,
+                ExpectedByteLength = fullJpeg.Length,
+                ExpectedSha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+            }
+        };
+
+        await Assert.ThrowsAnyAsync<Exception>(async () =>
+        {
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
+                facts, actions, targets, tempImage, null, cleanedImage, null);
+        });
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Verifier_PreservationEvidence_RefersToFrozenBaseline_EvenIfSourcePathIsMutated()
+    {
+        string samplePath = ResolveSample("oppo.jpg");
+        using var workspace = new MediaWorkspace();
+        var inspector = new SourceInspector();
+        var extractor = new SourceExtractor();
+        var cleaner = new SourceProtocolCleaner();
+
+        var facts = await inspector.InspectAsync(samplePath);
+        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+
+        // Pre-clean successfully
+        var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
+        {
+            ExtractedBundle = extracted
+        }, workspace);
+
+        Assert.True(cleanResult.Success, cleanResult.ErrorMessage);
+        Assert.NotNull(cleanResult.CleanedImage);
+
+        // Capture frozen preservation baseline from extracted bundle before mutation
+        var baseline = await MetadataPreservationVerifier.CaptureBaselineAsync(extracted);
+
+        // Adversarial: Overwrite original primary image artifact on disk with non-JPEG garbage
+        await File.WriteAllBytesAsync(extracted.PrimaryImage.Path, [0xDE, 0xAD, 0xBE, 0xEF]);
+
+        // Post-clean verification against frozen baseline must succeed and NOT re-read the corrupted disk file
+        var report = await MetadataPreservationVerifier.VerifyAgainstBaselineAsync(
+            baseline, cleanResult.CleanedImage.Path, null);
+
+        Assert.Equal(PreservationOutcome.Preserved, report.OverallOutcome);
+        var payloadItem = report.Items.FirstOrDefault(i => i.Name == "MediaPayload");
+        Assert.NotNull(payloadItem);
+        Assert.Equal(PreservationCheckStatus.VerifiedPreserved, payloadItem.Status);
+    }
+
+    [Fact]
+    public async Task Clean_Native_TOCTOU_RejectsStaleVideoSnapshotBeforeNativeExecution()
     {
         using var workspace = new MediaWorkspace();
         string tempImage = workspace.AllocateFilePath("test-toctou-vid", ".jpg");

@@ -27,25 +27,29 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
     /// Test seam for deterministic fault injection and mid-operation cancellation in tests.
     /// Only active when set by test fixtures; in production this is null.
     /// </summary>
-    public Func<CleanerFailureStage, string?, Task>? FaultInjectionHook { get; set; }
+    internal Func<CleanerFailureStage, string?, Task>? FaultInjectionHook { get; set; }
 
-    public SourceProtocolCleaner(
-        ISourceInspector? inspector = null,
-        Func<SourceMediaFacts, IReadOnlyList<PlannedCleanupAction>, string, string?, string?, string?, CancellationToken, Task<IReadOnlyList<RemovedProtocolFact>>>? cleanInvoker = null)
+    /// <summary>
+    /// Event fired right as staging clean starts, allowing deterministic in-flight cancellation testing.
+    /// </summary>
+    internal event Action? OnStagingStarted;
+
+    public SourceProtocolCleaner(ISourceInspector? inspector = null)
     {
         _inspector = inspector ?? new SourceInspector();
-        if (cleanInvoker != null)
-        {
-            _cleanInvoker = (facts, actions, targets, inImg, inVid, outImg, outVid, ct) =>
-                cleanInvoker(facts, actions, inImg, inVid, outImg, outVid, ct);
-        }
-        else
-        {
-            _cleanInvoker = NativeCleanService.CleanSourceProtocolAsync;
-        }
+        _cleanInvoker = NativeCleanService.CleanSourceProtocolAsync;
     }
 
-    public SourceProtocolCleaner(
+    internal SourceProtocolCleaner(
+        Func<SourceMediaFacts, IReadOnlyList<PlannedCleanupAction>, string, string?, string?, string?, CancellationToken, Task<IReadOnlyList<RemovedProtocolFact>>> cleanInvoker,
+        ISourceInspector? inspector = null)
+    {
+        _inspector = inspector ?? new SourceInspector();
+        _cleanInvoker = (facts, actions, targets, inImg, inVid, outImg, outVid, ct) =>
+            cleanInvoker(facts, actions, inImg, inVid, outImg, outVid, ct);
+    }
+
+    internal SourceProtocolCleaner(
         ISourceInspector inspector,
         Func<SourceMediaFacts, IReadOnlyList<PlannedCleanupAction>, IReadOnlyList<PlannedArtifactTarget>?, string, string?, string?, string?, CancellationToken, Task<IReadOnlyList<RemovedProtocolFact>>> cleanInvoker)
     {
@@ -214,22 +218,39 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 });
             }
 
+            if (!IsValidSha256(bundle.PrimaryImage.Sha256))
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                    CleanerFailureStage.Planning,
+                    facts.Protocol,
+                    $"Primary image artifact must have a valid non-zero SHA-256 (was '{bundle.PrimaryImage.Sha256}').");
+            }
+
             var targets = new List<PlannedArtifactTarget>
             {
                 new PlannedArtifactTarget
                 {
                     Role = MediaArtifactKind.PrimaryImage,
                     ExpectedByteLength = bundle.PrimaryImage.ByteLength,
-                    ExpectedSha256 = bundle.PrimaryImage.Sha256 ?? string.Empty
+                    ExpectedSha256 = bundle.PrimaryImage.Sha256!
                 }
             };
             if (bundle.MotionVideo != null)
             {
+                if (!IsValidSha256(bundle.MotionVideo.Sha256))
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                        CleanerFailureStage.Planning,
+                        facts.Protocol,
+                        $"Motion video artifact must have a valid non-zero SHA-256 (was '{bundle.MotionVideo.Sha256}').");
+                }
                 targets.Add(new PlannedArtifactTarget
                 {
                     Role = MediaArtifactKind.MotionVideo,
                     ExpectedByteLength = bundle.MotionVideo.ByteLength,
-                    ExpectedSha256 = bundle.MotionVideo.Sha256 ?? string.Empty
+                    ExpectedSha256 = bundle.MotionVideo.Sha256!
                 });
             }
 
@@ -240,11 +261,16 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 ArtifactTargets = targets
             };
 
+            // Capture frozen preservation baseline before destructive execution
+            var preservationBaseline = await MetadataPreservationVerifier.CaptureBaselineAsync(bundle, cancellationToken).ConfigureAwait(false);
+
             // -------------------------------------------------------------
             // Step 5: Stage Clean (Isolated Workspace)
             // -------------------------------------------------------------
             cancellationToken.ThrowIfCancellationRequested();
             journal.SetState(CleanerTransactionState.Staging);
+            OnStagingStarted?.Invoke();
+            cancellationToken.ThrowIfCancellationRequested();
 
             string stagingDir = Path.Combine(workspace.RootDirectory, "staging_" + Guid.NewGuid().ToString("N"));
             journal.StagingDir = stagingDir;
@@ -386,8 +412,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             // -------------------------------------------------------------
             if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.PreservationDiff, null).ConfigureAwait(false);
 
-            var preservationReport = await MetadataPreservationVerifier.VerifyAsync(
-                bundle, stagedImgPath, stagedVidPath, cancellationToken).ConfigureAwait(false);
+            var preservationReport = await MetadataPreservationVerifier.VerifyAgainstBaselineAsync(
+                preservationBaseline, stagedImgPath, stagedVidPath, cancellationToken).ConfigureAwait(false);
 
             if (preservationReport.OverallOutcome != PreservationOutcome.Preserved)
             {
@@ -656,6 +682,22 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         }
     }
 
+    private static bool IsValidSha256(string? sha)
+    {
+        if (string.IsNullOrWhiteSpace(sha) || sha.Length != 64) return false;
+        bool nonZero = false;
+        for (int i = 0; i < 64; i++)
+        {
+            char c = sha[i];
+            if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+            {
+                return false;
+            }
+            if (c != '0') nonZero = true;
+        }
+        return nonZero;
+    }
+
     private static async Task VerifyArtifactIntegrityAsync(
         MediaArtifact artifact,
         string roleName,
@@ -681,21 +723,27 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 $"{roleName} artifact length changed since extraction: declared {artifact.ByteLength} bytes, found {fi.Length} bytes.");
         }
 
-        if (!string.IsNullOrEmpty(artifact.Sha256))
+        if (!IsValidSha256(artifact.Sha256))
         {
-            using var fs = File.OpenRead(artifact.Path);
-            using var sha = SHA256.Create();
-            byte[] hash = await sha.ComputeHashAsync(fs, cancellationToken).ConfigureAwait(false);
-            string actualSha = Convert.ToHexString(hash);
+            throw new CleanerException(
+                CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                CleanerFailureStage.ArtifactVerification,
+                protocol,
+                $"{roleName} artifact SHA-256 is missing, malformed, or all-zeroes: '{artifact.Sha256}'.");
+        }
 
-            if (!string.Equals(actualSha, artifact.Sha256, StringComparison.OrdinalIgnoreCase))
-            {
-                throw new CleanerException(
-                    CleanerFailureCategory.ArtifactChangedSinceExtraction,
-                    CleanerFailureStage.ArtifactVerification,
-                    protocol,
-                    $"{roleName} artifact SHA-256 changed since extraction: declared '{artifact.Sha256}', found '{actualSha}'.");
-            }
+        using var fs = File.OpenRead(artifact.Path);
+        using var sha = SHA256.Create();
+        byte[] hash = await sha.ComputeHashAsync(fs, cancellationToken).ConfigureAwait(false);
+        string actualSha = Convert.ToHexString(hash);
+
+        if (!string.Equals(actualSha, artifact.Sha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new CleanerException(
+                CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                CleanerFailureStage.ArtifactVerification,
+                protocol,
+                $"{roleName} artifact SHA-256 changed since extraction: declared '{artifact.Sha256}', found '{actualSha}'.");
         }
     }
 
@@ -740,6 +788,18 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             };
         }
 
+        bool imgMatch = string.Equals(bundle.PrimaryImage.Sha256, cleanImgArtifact.Sha256, StringComparison.OrdinalIgnoreCase);
+        bool vidMatch = bundle.MotionVideo == null || (cleanVidArtifact != null && string.Equals(bundle.MotionVideo.Sha256, cleanVidArtifact.Sha256, StringComparison.OrdinalIgnoreCase));
+
+        if (!imgMatch || !vidMatch)
+        {
+            throw new CleanerException(
+                CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                CleanerFailureStage.PostCleanInspection,
+                SourceProtocol.NonLive,
+                $"NonLive verbatim copy failed SHA verification (image match: {imgMatch}, video match: {vidMatch}).");
+        }
+
         sw.Stop();
 
         var report = new PreservationReport
@@ -751,10 +811,10 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 {
                     Name = "NonLiveNoOp",
                     Status = PreservationCheckStatus.VerifiedPreserved,
-                    Details = "NonLive source bypassed cleaning without mutations."
+                    Details = $"NonLive source verified 0 modification (Primary image SHA-256 match: {bundle.PrimaryImage.Sha256})."
                 }
             ],
-            Summary = "Source is NonLive; artifacts carried through verbatim."
+            Summary = "Source is NonLive; artifacts carried through verbatim with verified identical SHA-256."
         };
 
         journal.SetState(CleanerTransactionState.Committed);

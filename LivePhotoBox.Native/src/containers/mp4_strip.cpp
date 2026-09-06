@@ -834,54 +834,9 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_mdta_keys(
 
 namespace lpb::containers {
 
-static lpb_result fast_stream_copy(lpb_context* context, const char* in_path, const char* out_path) {
-    auto p_in = utf8_to_path(in_path);
-    auto p_out = utf8_to_path(out_path);
-    std::ifstream src(p_in, std::ios::binary);
-    if (!src.is_open()) {
-        set_error(context, "Failed to open source video file for copy.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-    std::error_code ec;
-    auto temp_dir = p_out.parent_path();
-    if (temp_dir.empty()) temp_dir = std::filesystem::current_path(ec);
-    wchar_t temp_name[MAX_PATH]{};
-    if (GetTempFileNameW(temp_dir.c_str(), L"lpb", 0, temp_name) == 0) {
-        set_error(context, "Failed to allocate temporary video copy target.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-    const std::filesystem::path temp(temp_name);
-    std::ofstream dst(temp, std::ios::binary | std::ios::trunc);
-    if (!dst.is_open()) {
-        std::filesystem::remove(temp, ec);
-        set_error(context, "Failed to open temporary video copy target.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-    constexpr size_t BUFFER_SIZE = 1024 * 1024;
-    std::vector<char> buffer(BUFFER_SIZE);
-    while (src.good()) {
-        src.read(buffer.data(), BUFFER_SIZE);
-        std::streamsize bytes = src.gcount();
-        if (bytes > 0) dst.write(buffer.data(), bytes);
-    }
-    dst.flush();
-    if (!dst.good()) {
-        dst.close(); std::filesystem::remove(temp, ec);
-        set_error(context, "Failed to flush copied video file.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-    dst.close(); src.close();
-    if (!MoveFileExW(temp.c_str(), p_out.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        std::filesystem::remove(temp, ec);
-        set_error(context, "Failed to atomically publish copied video file.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-    return LPB_RESULT_OK;
-}
-
-lpb_result stream_clean_mp4_file(
+lpb_result stream_clean_mp4_bytes(
     lpb_context* context,
-    const std::string& in_path,
+    std::span<const uint8_t> in_bytes,
     const std::string& out_path,
     const Mp4StripSpec& spec,
     Mp4StripOutcome& outcome)
@@ -893,18 +848,12 @@ lpb_result stream_clean_mp4_file(
     outcome.mdta_starts_fingerprints.assign(spec.mdta_starts_count, "");
     outcome.mdta_contains_fingerprints.assign(spec.mdta_contains_count, "");
     outcome.track_fingerprints.assign(spec.track_patterns_count, "");
-    auto p_in = utf8_to_path(in_path.c_str());
-    std::ifstream in(p_in, std::ios::binary | std::ios::ate);
-    if (!in.is_open()) {
-        set_error(context, "Failed to open input video for cleaning.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-    const auto file_size_signed = in.tellg();
-    if (file_size_signed < 16) {
+
+    const uint64_t file_size = in_bytes.size();
+    if (file_size < 16) {
         set_error(context, "Input video file is too small.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
-    const uint64_t file_size = static_cast<uint64_t>(file_size_signed);
 
     struct BoxEntry {
         uint64_t offset = 0;
@@ -918,17 +867,16 @@ lpb_result stream_clean_mp4_file(
     size_t moov_index = std::numeric_limits<size_t>::max();
 
     while (pos < file_size) {
-        in.seekg(static_cast<std::streamoff>(pos));
-        uint8_t hdr[16]{};
-        if (!in.read(reinterpret_cast<char*>(hdr), 8)) {
+        if (pos + 8 > file_size) {
             set_error(context, "Failed to read ISO-BMFF box header.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
+        const uint8_t* hdr = in_bytes.data() + pos;
         uint32_t s32 = read_be32u(hdr);
         uint64_t s = s32;
         size_t hdr_sz = 8;
         if (s32 == 1) {
-            if (!in.read(reinterpret_cast<char*>(hdr + 8), 8)) {
+            if (pos + 16 > file_size) {
                 set_error(context, "Failed to read extended ISO-BMFF box size.");
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
@@ -960,13 +908,10 @@ lpb_result stream_clean_mp4_file(
             moov_index = boxes.size();
         }
         if (spec.strip_uuid_16 != nullptr && std::memcmp(b.type, "uuid", 4) == 0 && s >= hdr_sz + 16) {
-            uint8_t uid[16]{};
-            if (in.read(reinterpret_cast<char*>(uid), 16) && std::memcmp(uid, spec.strip_uuid_16, 16) == 0) {
+            const uint8_t* uid = in_bytes.data() + pos + hdr_sz;
+            if (std::memcmp(uid, spec.strip_uuid_16, 16) == 0) {
                 std::vector<uint8_t> uid_payload(static_cast<size_t>(s - hdr_sz));
-                std::memcpy(uid_payload.data(), uid, 16);
-                if (s > hdr_sz + 16) {
-                    in.read(reinterpret_cast<char*>(uid_payload.data() + 16), static_cast<std::streamsize>(s - hdr_sz - 16));
-                }
+                std::memcpy(uid_payload.data(), uid, uid_payload.size());
                 std::string ufp = lpb::crypto::compute_isobmff_box_fingerprint("uuid", s, uid_payload.data(), uid_payload.size());
                 if (spec.actions && spec.action_count > 0) {
                     bool authorized = false;
@@ -1008,15 +953,11 @@ lpb_result stream_clean_mp4_file(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    if (moov_index == std::numeric_limits<size_t>::max()) {
-        if (!outcome.uuid_removed) {
-            return fast_stream_copy(context, in_path.c_str(), out_path.c_str());
-        }
-    }
-
+    // 2. Process moov box if present
     std::vector<uint8_t> moov_data;
-    uint64_t old_moov_size = 0;
     uint64_t moov_offset = 0;
+    uint64_t old_moov_size = 0;
+
     if (moov_index != std::numeric_limits<size_t>::max()) {
         const auto& moov_box = boxes[moov_index];
         moov_offset = moov_box.offset;
@@ -1025,13 +966,7 @@ lpb_result stream_clean_mp4_file(
             set_error(context, "moov box exceeds maximum supported 64MB metadata size.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
-        moov_data.resize(static_cast<size_t>(old_moov_size));
-        in.seekg(static_cast<std::streamoff>(moov_offset));
-        in.read(reinterpret_cast<char*>(moov_data.data()), static_cast<std::streamsize>(old_moov_size));
-        if (in.gcount() != static_cast<std::streamsize>(old_moov_size)) {
-            set_error(context, "Failed to read moov metadata box.");
-            return LPB_RESULT_INTERNAL_ERROR;
-        }
+        moov_data.assign(in_bytes.data() + moov_offset, in_bytes.data() + moov_offset + old_moov_size);
 
         // 1. Strip MDTA keys if requested
         if (spec.mdta_starts_count > 0 || spec.mdta_contains_count > 0) {
@@ -1069,8 +1004,34 @@ lpb_result stream_clean_mp4_file(
         }
     }
 
+    auto p_out = utf8_to_path(out_path.c_str());
+    std::error_code ec;
+    auto temp_dir = p_out.parent_path();
+    if (temp_dir.empty()) temp_dir = std::filesystem::current_path(ec);
+    wchar_t temp_name[MAX_PATH]{};
+    if (GetTempFileNameW(temp_dir.c_str(), L"lpb", 0, temp_name) == 0) {
+        set_error(context, "Failed to create temporary output file.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    const std::filesystem::path temp(temp_name);
+
     if (!outcome.uuid_removed && !outcome.mdta_removed && !outcome.track_removed) {
-        return fast_stream_copy(context, in_path.c_str(), out_path.c_str());
+        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
+        if (!out.is_open()) {
+            std::filesystem::remove(temp, ec);
+            set_error(context, "Failed to open temporary output file for direct copy.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+        out.write(reinterpret_cast<const char*>(in_bytes.data()), static_cast<std::streamsize>(in_bytes.size()));
+        out.flush();
+        const bool write_ok = out.good();
+        out.close();
+        if (!write_ok || !MoveFileExW(temp.c_str(), p_out.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+            std::filesystem::remove(temp, ec);
+            set_error(context, "Failed to publish unchanged video.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+        return LPB_RESULT_OK;
     }
 
     // 3. Compute exact mdat shift and adjust chunk offsets
@@ -1087,33 +1048,20 @@ lpb_result stream_clean_mp4_file(
         }
         if (mdat_shift != 0) {
             if (!shift_chunk_offsets(moov_data, 0, 0, mdat_shift)) {
+                std::filesystem::remove(temp, ec);
                 set_error(context, "Failed to adjust chunk offsets in moov.");
                 return LPB_RESULT_INTERNAL_ERROR;
             }
         }
     }
 
-    // 4. Stream-write to temporary file with bounded 1MB buffer
-    auto p_out = utf8_to_path(out_path.c_str());
-    std::error_code ec;
-    auto temp_dir = p_out.parent_path();
-    if (temp_dir.empty()) temp_dir = std::filesystem::current_path(ec);
-    wchar_t temp_name[MAX_PATH]{};
-    if (GetTempFileNameW(temp_dir.c_str(), L"lpb", 0, temp_name) == 0) {
-        set_error(context, "Failed to create temporary output file.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-    const std::filesystem::path temp(temp_name);
-
+    // 4. Stream-write to temporary file
     std::ofstream out(temp, std::ios::binary | std::ios::trunc);
     if (!out.is_open()) {
         std::filesystem::remove(temp, ec);
         set_error(context, "Failed to open temporary output file for streaming.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
-
-    constexpr size_t BUFFER_SIZE = 1024 * 1024; // 1MB streaming buffer
-    std::vector<char> stream_buf(BUFFER_SIZE);
 
     for (size_t i = 0; i < boxes.size(); i++) {
         const auto& b = boxes[i];
@@ -1130,24 +1078,12 @@ lpb_result stream_clean_mp4_file(
             continue;
         }
 
-        // Stream-copy box (e.g. mdat, ftyp)
-        in.seekg(static_cast<std::streamoff>(b.offset));
-        uint64_t remaining = b.size;
-        while (remaining > 0) {
-            size_t chunk = static_cast<size_t>(std::min<uint64_t>(remaining, BUFFER_SIZE));
-            in.read(stream_buf.data(), static_cast<std::streamsize>(chunk));
-            if (in.gcount() != static_cast<std::streamsize>(chunk)) {
-                out.close(); std::filesystem::remove(temp, ec);
-                set_error(context, "Failed to read source box during streaming copy.");
-                return LPB_RESULT_INTERNAL_ERROR;
-            }
-            out.write(stream_buf.data(), static_cast<std::streamsize>(chunk));
-            if (!out.good()) {
-                out.close(); std::filesystem::remove(temp, ec);
-                set_error(context, "Failed to write box during streaming copy.");
-                return LPB_RESULT_INTERNAL_ERROR;
-            }
-            remaining -= chunk;
+        // Copy box from immutable buffer
+        out.write(reinterpret_cast<const char*>(in_bytes.data() + b.offset), static_cast<std::streamsize>(b.size));
+        if (!out.good()) {
+            out.close(); std::filesystem::remove(temp, ec);
+            set_error(context, "Failed to write box during copy.");
+            return LPB_RESULT_INTERNAL_ERROR;
         }
     }
 
@@ -1158,7 +1094,6 @@ lpb_result stream_clean_mp4_file(
         return LPB_RESULT_INTERNAL_ERROR;
     }
     out.close();
-    in.close();
 
     if (!MoveFileExW(temp.c_str(), p_out.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
         std::filesystem::remove(temp, ec);
@@ -1166,6 +1101,31 @@ lpb_result stream_clean_mp4_file(
         return LPB_RESULT_INTERNAL_ERROR;
     }
     return LPB_RESULT_OK;
+}
+
+lpb_result stream_clean_mp4_file(
+    lpb_context* context,
+    const std::string& in_path,
+    const std::string& out_path,
+    const Mp4StripSpec& spec,
+    Mp4StripOutcome& outcome)
+{
+    auto p_in = utf8_to_path(in_path.c_str());
+    std::ifstream in(p_in, std::ios::binary | std::ios::ate);
+    if (!in.is_open()) {
+        set_error(context, "Failed to open input video for cleaning.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const auto file_size_signed = in.tellg();
+    if (file_size_signed < 16) {
+        set_error(context, "Input video file is too small.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    std::vector<uint8_t> bytes(static_cast<size_t>(file_size_signed));
+    in.seekg(0, std::ios::beg);
+    in.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    in.close();
+    return stream_clean_mp4_bytes(context, bytes, out_path, spec, outcome);
 }
 
 bool mp4_get_mdta_key_fingerprint(

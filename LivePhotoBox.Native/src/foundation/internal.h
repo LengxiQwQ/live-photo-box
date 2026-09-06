@@ -37,6 +37,8 @@ struct lpb_context
     std::mutex error_mutex;
     std::string last_error;
     lpb_extractor_test_hook extractor_hook{};
+    lpb_cleaner_snapshot_callback cleaner_post_snapshot_callback{nullptr};
+    void* cleaner_callback_user_data{nullptr};
 };
 
 constexpr size_t context_options_v1_size =
