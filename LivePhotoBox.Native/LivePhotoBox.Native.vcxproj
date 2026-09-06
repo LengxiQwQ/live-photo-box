@@ -118,6 +118,7 @@
     <ClInclude Include="src\containers\isobmff.h" />
     <ClInclude Include="src\containers\mp4_strip.h" />
     <ClInclude Include="src\foundation\internal.h" />
+    <ClInclude Include="src\foundation\residue_fingerprint.h" />
     <ClInclude Include="src\foundation\sha256.h" />
     <ClInclude Include="src\media\image_converter.h" />
     <ClInclude Include="src\media\media_cleaner.h" />
@@ -127,17 +128,20 @@
     <ClInclude Include="src\metadata\exif.h" />
     <ClInclude Include="src\metadata\exif_rewrite.h" />
     <ClInclude Include="src\metadata\jpeg.h" />
+    <ClInclude Include="src\protocols\apple.h" />
     <ClInclude Include="src\protocols\apple_mebx_templates.h" />
     <ClInclude Include="src\protocols\clean\heif_cleaner.h" />
     <ClInclude Include="src\protocols\clean\jpeg_structure_cleaner.h" />
     <ClInclude Include="src\protocols\clean\samsung_sef_cleaner.h" />
     <ClInclude Include="src\protocols\clean\xmp_cleaner.h" />
+    <ClInclude Include="src\protocols\samsung_sef.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\containers\heif.cpp" />
     <ClCompile Include="src\containers\isobmff.cpp" />
     <ClCompile Include="src\containers\mp4_strip.cpp" />
     <ClCompile Include="src\foundation\context.cpp" />
+    <ClCompile Include="src\foundation\residue_fingerprint.cpp" />
     <ClCompile Include="src\foundation\sha256.cpp" />
     <ClCompile Include="src\media\image_converter.cpp" />
     <ClCompile Include="src\media\media_api.cpp" />

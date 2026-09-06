@@ -1,4 +1,5 @@
 #include "containers/mp4_strip.h"
+#include "foundation/residue_fingerprint.h"
 #include "foundation/internal.h"
 #include "containers/isobmff.h"
 #include <fstream>
@@ -240,7 +241,11 @@ static bool rebuild_moov_without_matching_tracks(
     const char* const* key_fragments,
     size_t fragment_count,
     std::vector<uint8_t>& out_new_moov,
-    bool& out_modified)
+    bool& out_modified,
+    std::vector<bool>* out_matched = nullptr,
+    std::vector<std::string>* out_fps = nullptr,
+    const lpb_cleanup_action* actions = nullptr,
+    size_t action_count = 0)
 {
     out_modified = false;
     const size_t missing = std::numeric_limits<size_t>::max();
@@ -295,8 +300,34 @@ static bool rebuild_moov_without_matching_tracks(
                                     key_fragments[i], key_fragments[i] + frag_len);
                                 if (it != data.begin() + trak_end)
                                 {
+                                    std::string fp = lpb::crypto::compute_metadata_track_fingerprint("meta", key_fragments[i]);
+                                    if (actions && action_count > 0)
+                                    {
+                                        bool authorized = false;
+                                        for (size_t a = 0; a < action_count; ++a)
+                                        {
+                                            if (actions[a].artifact_role == LPB_ARTIFACT_MOTION_VIDEO &&
+                                                actions[a].structure_kind == LPB_RESIDUE_QUICKTIME_METADATA_TRACK &&
+                                                actions[a].selector == std::string_view(key_fragments[i]))
+                                            {
+                                                if (actions[a].expected_fingerprint[0] != '\0' && fp != actions[a].expected_fingerprint)
+                                                {
+                                                    set_error(context, "Residue fingerprint mismatch for metadata track.");
+                                                    return false;
+                                                }
+                                                authorized = true;
+                                                break;
+                                            }
+                                        }
+                                        if (!authorized)
+                                        {
+                                            set_error(context, "Unauthorized removal of metadata track.");
+                                            return false;
+                                        }
+                                    }
                                     found = true;
-                                    break;
+                                    if (out_matched && i < out_matched->size()) (*out_matched)[i] = true;
+                                    if (out_fps && i < out_fps->size()) (*out_fps)[i] = fp;
                                 }
                             }
                         }
@@ -358,7 +389,13 @@ static bool rebuild_moov_without_matching_mdta_keys(
     const char* const* value_contains,
     size_t value_contains_count,
     std::vector<uint8_t>& out_new_moov,
-    bool& out_modified)
+    bool& out_modified,
+    std::vector<bool>* out_starts_matched = nullptr,
+    std::vector<bool>* out_contains_matched = nullptr,
+    std::vector<std::string>* out_starts_fps = nullptr,
+    std::vector<std::string>* out_contains_fps = nullptr,
+    const lpb_cleanup_action* actions = nullptr,
+    size_t action_count = 0)
 {
     out_modified = false;
     if (data.size() < 8 || !is_type(data, 0, "moov")) return false;
@@ -477,11 +514,59 @@ static bool rebuild_moov_without_matching_mdta_keys(
         std::string name = key_entries[i].name;
 
         bool should_remove = false;
-        for (size_t k = 0; k < name_starts_count && !should_remove; k++) {
-            if (starts_with_icase(name, name_starts[k])) should_remove = true;
+        for (size_t k = 0; k < name_starts_count; k++) {
+            if (starts_with_icase(name, name_starts[k])) {
+                std::string fp = lpb::crypto::compute_mdta_key_fingerprint(name, reinterpret_cast<const uint8_t*>(value.data()), value.size());
+                if (actions && action_count > 0) {
+                    bool authorized = false;
+                    for (size_t a = 0; a < action_count; ++a) {
+                        if (actions[a].artifact_role == LPB_ARTIFACT_MOTION_VIDEO &&
+                            actions[a].structure_kind == LPB_RESIDUE_QUICKTIME_MDTA_KEY &&
+                            (name == actions[a].selector || starts_with_icase(name, actions[a].selector))) {
+                            if (actions[a].expected_fingerprint[0] != '\0' && fp != actions[a].expected_fingerprint) {
+                                set_error(context, "Residue fingerprint mismatch for mdta key.");
+                                return false;
+                            }
+                            authorized = true;
+                            break;
+                        }
+                    }
+                    if (!authorized) {
+                        set_error(context, "Unauthorized removal of mdta key.");
+                        return false;
+                    }
+                }
+                should_remove = true;
+                if (out_starts_matched && k < out_starts_matched->size()) (*out_starts_matched)[k] = true;
+                if (out_starts_fps && k < out_starts_fps->size()) (*out_starts_fps)[k] = fp;
+            }
         }
-        for (size_t k = 0; k < name_contains_count && !should_remove; k++) {
-            if (contains_icase(name, name_contains[k])) should_remove = true;
+        for (size_t k = 0; k < name_contains_count; k++) {
+            if (contains_icase(name, name_contains[k])) {
+                std::string fp = lpb::crypto::compute_mdta_key_fingerprint(name, reinterpret_cast<const uint8_t*>(value.data()), value.size());
+                if (actions && action_count > 0) {
+                    bool authorized = false;
+                    for (size_t a = 0; a < action_count; ++a) {
+                        if (actions[a].artifact_role == LPB_ARTIFACT_MOTION_VIDEO &&
+                            actions[a].structure_kind == LPB_RESIDUE_QUICKTIME_MDTA_KEY &&
+                            (name == actions[a].selector || contains_icase(name, actions[a].selector))) {
+                            if (actions[a].expected_fingerprint[0] != '\0' && fp != actions[a].expected_fingerprint) {
+                                set_error(context, "Residue fingerprint mismatch for mdta key.");
+                                return false;
+                            }
+                            authorized = true;
+                            break;
+                        }
+                    }
+                    if (!authorized) {
+                        set_error(context, "Unauthorized removal of mdta key.");
+                        return false;
+                    }
+                }
+                should_remove = true;
+                if (out_contains_matched && k < out_contains_matched->size()) (*out_contains_matched)[k] = true;
+                if (out_contains_fps && k < out_contains_fps->size()) (*out_contains_fps)[k] = fp;
+            }
         }
         for (size_t k = 0; k < value_contains_count && !should_remove; k++) {
             if (contains_icase(value, value_contains[k])) should_remove = true;
@@ -773,6 +858,12 @@ lpb_result stream_clean_mp4_file(
     Mp4StripOutcome& outcome)
 {
     outcome = {};
+    outcome.mdta_starts_matched.assign(spec.mdta_starts_count, false);
+    outcome.mdta_contains_matched.assign(spec.mdta_contains_count, false);
+    outcome.track_patterns_matched.assign(spec.track_patterns_count, false);
+    outcome.mdta_starts_fingerprints.assign(spec.mdta_starts_count, "");
+    outcome.mdta_contains_fingerprints.assign(spec.mdta_contains_count, "");
+    outcome.track_fingerprints.assign(spec.track_patterns_count, "");
     auto p_in = utf8_to_path(in_path.c_str());
     std::ifstream in(p_in, std::ios::binary | std::ios::ate);
     if (!in.is_open()) {
@@ -842,6 +933,31 @@ lpb_result stream_clean_mp4_file(
         if (spec.strip_uuid_16 != nullptr && std::memcmp(b.type, "uuid", 4) == 0 && s >= hdr_sz + 16) {
             uint8_t uid[16]{};
             if (in.read(reinterpret_cast<char*>(uid), 16) && std::memcmp(uid, spec.strip_uuid_16, 16) == 0) {
+                std::vector<uint8_t> uid_payload(static_cast<size_t>(s - hdr_sz));
+                std::memcpy(uid_payload.data(), uid, 16);
+                if (s > hdr_sz + 16) {
+                    in.read(reinterpret_cast<char*>(uid_payload.data() + 16), static_cast<std::streamsize>(s - hdr_sz - 16));
+                }
+                std::string ufp = lpb::crypto::compute_isobmff_box_fingerprint("uuid", s, uid_payload.data(), uid_payload.size());
+                if (spec.actions && spec.action_count > 0) {
+                    bool authorized = false;
+                    for (size_t a = 0; a < spec.action_count; ++a) {
+                        if (spec.actions[a].artifact_role == LPB_ARTIFACT_MOTION_VIDEO &&
+                            spec.actions[a].structure_kind == LPB_RESIDUE_UUID_BOX) {
+                            if (spec.actions[a].expected_fingerprint[0] != '\0' && ufp != spec.actions[a].expected_fingerprint) {
+                                set_error(context, "Residue fingerprint mismatch for uuid box.");
+                                return LPB_RESULT_INVALID_ARGUMENT;
+                            }
+                            authorized = true;
+                            break;
+                        }
+                    }
+                    if (!authorized) {
+                        set_error(context, "Unauthorized removal of uuid box.");
+                        return LPB_RESULT_INVALID_ARGUMENT;
+                    }
+                }
+                outcome.uuid_fingerprint = ufp;
                 b.is_target_uuid = true;
                 outcome.uuid_removed = true;
             }
@@ -887,7 +1003,10 @@ lpb_result stream_clean_mp4_file(
             if (!rebuild_moov_without_matching_mdta_keys(context, moov_data,
                     spec.mdta_starts, spec.mdta_starts_count,
                     spec.mdta_contains, spec.mdta_contains_count,
-                    nullptr, 0, new_moov, modified)) {
+                    nullptr, 0, new_moov, modified,
+                    &outcome.mdta_starts_matched, &outcome.mdta_contains_matched,
+                    &outcome.mdta_starts_fingerprints, &outcome.mdta_contains_fingerprints,
+                    spec.actions, spec.action_count)) {
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
             if (modified) {
@@ -902,7 +1021,8 @@ lpb_result stream_clean_mp4_file(
             bool modified = false;
             if (!rebuild_moov_without_matching_tracks(context, moov_data,
                     spec.track_patterns, spec.track_patterns_count,
-                    new_moov, modified)) {
+                    new_moov, modified, &outcome.track_patterns_matched,
+                    &outcome.track_fingerprints, spec.actions, spec.action_count)) {
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
             if (modified) {
@@ -1009,6 +1129,129 @@ lpb_result stream_clean_mp4_file(
         return LPB_RESULT_INTERNAL_ERROR;
     }
     return LPB_RESULT_OK;
+}
+
+bool mp4_get_mdta_key_fingerprint(
+    std::span<const uint8_t> data,
+    std::string_view target_key,
+    std::string& out_fp)
+{
+    if (data.size() < 8 || target_key.empty()) return false;
+    const size_t missing = std::numeric_limits<size_t>::max();
+    size_t moov = missing;
+    size_t p = 0;
+    while (p + 8 <= data.size()) {
+        isobmff_box_header box{};
+        if (!try_read_box_header(data.data(), p, data.size(), box)) break;
+        if (std::memcmp(data.data() + p + 4, "moov", 4) == 0) {
+            moov = p;
+            break;
+        }
+        p += box.size;
+    }
+    if (moov == missing || moov + 8 > data.size()) return false;
+
+    isobmff_box_header moov_header{};
+    if (!try_read_box_header(data.data(), moov, data.size(), moov_header)) return false;
+    const size_t moov_end = moov + moov_header.size;
+
+    size_t meta_start = missing;
+    isobmff_box_header meta{};
+    p = moov + moov_header.header_size;
+    while (p < moov_end) {
+        isobmff_box_header box{};
+        if (!try_read_box_header(data.data(), p, moov_end, box)) break;
+        if (std::memcmp(data.data() + p + 4, "meta", 4) == 0) {
+            meta_start = p;
+            meta = box;
+            break;
+        }
+        if (std::memcmp(data.data() + p + 4, "udta", 4) == 0) {
+            size_t up = p + box.header_size;
+            size_t uend = p + box.size;
+            while (up < uend) {
+                isobmff_box_header ubox{};
+                if (!try_read_box_header(data.data(), up, uend, ubox)) break;
+                if (std::memcmp(data.data() + up + 4, "meta", 4) == 0) {
+                    meta_start = up;
+                    meta = ubox;
+                    break;
+                }
+                up += ubox.size;
+            }
+            if (meta_start != missing) break;
+        }
+        p += box.size;
+    }
+    if (meta_start == missing || meta.size < meta.header_size + 8) return false;
+
+    const size_t meta_end = meta_start + meta.size;
+    size_t child_start = meta_start + meta.header_size;
+    isobmff_box_header first_child{};
+    if (!try_read_box_header(data.data(), child_start, meta_end, first_child)) {
+        if (child_start <= meta_end - 4 && try_read_box_header(data.data(), child_start + 4, meta_end, first_child)) {
+            child_start += 4;
+        }
+    }
+
+    size_t keys_start = missing;
+    isobmff_box_header keys{};
+    size_t ilst_start = missing;
+    isobmff_box_header ilst{};
+    p = child_start;
+    while (p < meta_end) {
+        isobmff_box_header box{};
+        if (!try_read_box_header(data.data(), p, meta_end, box)) break;
+        if (std::memcmp(data.data() + p + 4, "keys", 4) == 0) {
+            keys_start = p;
+            keys = box;
+        } else if (std::memcmp(data.data() + p + 4, "ilst", 4) == 0) {
+            ilst_start = p;
+            ilst = box;
+        }
+        p += box.size;
+    }
+    if (keys_start == missing || keys.size < keys.header_size + 8) return false;
+
+    const size_t keys_body = keys_start + keys.header_size;
+    const int32_t key_count = read_be32(data.data() + keys_body + 4);
+    if (key_count <= 0 || key_count > 1024) return false;
+    size_t key_pos = keys_body + 8;
+    int32_t target_index = -1;
+    for (uint32_t index = 1; index <= static_cast<uint32_t>(key_count); ++index) {
+        if (key_pos > keys_start + keys.size || keys_start + keys.size - key_pos < 8) return false;
+        const int32_t key_size = read_be32(data.data() + key_pos);
+        if (key_size < 8 || static_cast<size_t>(key_size) > keys_start + keys.size - key_pos) return false;
+        if (std::memcmp(data.data() + key_pos + 4, "mdta", 4) == 0) {
+            std::string name = read_key_name(data.data(), key_pos, static_cast<size_t>(key_size));
+            if (name == target_key) {
+                target_index = static_cast<int32_t>(index);
+                break;
+            }
+        }
+        key_pos += static_cast<size_t>(key_size);
+    }
+    if (target_index < 0) return false;
+
+    std::string val_str;
+    if (ilst_start != missing && ilst.size >= 8) {
+        size_t ip = ilst_start + 8;
+        size_t ilst_end = ilst_start + ilst.size;
+        while (ip <= ilst_end && ilst_end - ip >= 8) {
+            int32_t item_size = read_be32(data.data() + ip);
+            if (item_size < 8 || static_cast<size_t>(item_size) > ilst_end - ip) break;
+            int32_t idx = read_be32(data.data() + ip + 4);
+            if (idx == target_index) {
+                val_str = read_ilst_value(data.data(), ip + 8, ip + static_cast<size_t>(item_size));
+                break;
+            }
+            ip += static_cast<size_t>(item_size);
+        }
+    }
+
+    out_fp = lpb::crypto::compute_mdta_key_fingerprint(
+        target_key, reinterpret_cast<const uint8_t*>(val_str.data()), val_str.size());
+    return true;
 }
 
 } // namespace lpb::containers

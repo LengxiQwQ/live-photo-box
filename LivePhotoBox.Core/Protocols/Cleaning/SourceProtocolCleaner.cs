@@ -133,7 +133,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             // -------------------------------------------------------------
             if (facts.Protocol == SourceProtocol.NonLive)
             {
-                return await ExecuteNonLiveNoOpAsync(bundle, workspace, sw, cancellationToken).ConfigureAwait(false);
+                return await ExecuteNonLiveNoOpAsync(bundle, workspace, journal, sw, cancellationToken).ConfigureAwait(false);
             }
 
             if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Authorization, null).ConfigureAwait(false);
@@ -154,8 +154,18 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Planning, null).ConfigureAwait(false);
 
             var planActions = new List<PlannedCleanupAction>();
+            var plannedResidueIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (var residue in authorizations)
             {
+                if (!plannedResidueIds.Add(residue.Id))
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.AuthorizedResidueAmbiguous,
+                        CleanerFailureStage.Planning,
+                        facts.Protocol,
+                        $"Duplicate authorization for ResidueId='{residue.Id}'. Each authorized mutation must be unique.");
+                }
+
                 planActions.Add(new PlannedCleanupAction
                 {
                     ResidueId = residue.Id,
@@ -197,14 +207,27 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 stagedVidPath = Path.Combine(stagingDir, "stage-vid" + vidExt);
             }
 
-            var removedFacts = await _cleanInvoker(
-                facts,
-                cleanupPlan.Actions,
-                bundle.PrimaryImage.Path,
-                bundle.MotionVideo?.Path,
-                stagedImgPath,
-                stagedVidPath,
-                cancellationToken).ConfigureAwait(false);
+            IReadOnlyList<RemovedProtocolFact> removedFacts;
+            try
+            {
+                removedFacts = await _cleanInvoker(
+                    facts,
+                    cleanupPlan.Actions,
+                    bundle.PrimaryImage.Path,
+                    bundle.MotionVideo?.Path,
+                    stagedImgPath,
+                    stagedVidPath,
+                    cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.StructureChanged,
+                    CleanerFailureStage.Staging,
+                    facts.Protocol,
+                    $"Native media operation failed: {ex.Message}",
+                    innerException: ex);
+            }
 
             if (!File.Exists(stagedImgPath))
             {
@@ -232,16 +255,69 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             // -------------------------------------------------------------
             // Step 5.5: Destructive Authority Reconciliation Gate
             // -------------------------------------------------------------
-            var authorizedResidueIds = new HashSet<string>(cleanupPlan.Actions.Select(a => a.ResidueId), StringComparer.Ordinal);
+            var authorizedActionsMap = cleanupPlan.Actions.ToDictionary(a => a.ResidueId, StringComparer.Ordinal);
+            var seenResidueIds = new HashSet<string>(StringComparer.Ordinal);
             foreach (var fact in removedFacts)
             {
-                if (string.IsNullOrEmpty(fact.ResidueId) || !authorizedResidueIds.Contains(fact.ResidueId))
+                if (string.IsNullOrEmpty(fact.ResidueId) || !authorizedActionsMap.TryGetValue(fact.ResidueId, out var action))
                 {
                     throw new CleanerException(
                         CleanerFailureCategory.RemovalWouldTouchUnknownData,
                         CleanerFailureStage.Staging,
                         facts.Protocol,
                         $"Native cleaner performed unauthorized removal: ResidueId='{fact.ResidueId}', Component='{fact.Component}', Desc='{fact.Description}'. All mutations must be authorized by CleanupPlan.");
+                }
+
+                if (fact.ArtifactRole != action.ArtifactRole || fact.StructureKind != action.StructureKind)
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.RemovalWouldTouchUnknownData,
+                        CleanerFailureStage.Staging,
+                        facts.Protocol,
+                        $"Native cleaner reported fact with mismatched identity for ResidueId='{fact.ResidueId}': expected (Role={action.ArtifactRole}, Kind={action.StructureKind}), actual (Role={fact.ArtifactRole}, Kind={fact.StructureKind}).");
+                }
+
+                if (!seenResidueIds.Add(fact.ResidueId))
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.AuthorizedResidueAmbiguous,
+                        CleanerFailureStage.Staging,
+                        facts.Protocol,
+                        $"Duplicate removal fact reported for ResidueId='{fact.ResidueId}'. Each authorized mutation must be unique.");
+                }
+
+                // Enforcement of ExpectedFingerprint: fail closed if expected is non-empty
+                if (!string.IsNullOrEmpty(action.ExpectedFingerprint))
+                {
+                    if (string.IsNullOrEmpty(fact.BeforeFingerprint))
+                    {
+                        throw new CleanerException(
+                            CleanerFailureCategory.StructureChanged,
+                            CleanerFailureStage.Staging,
+                            facts.Protocol,
+                            $"Fingerprint missing from removal fact for ResidueId='{fact.ResidueId}': expected='{action.ExpectedFingerprint}', actual BeforeFingerprint was not provided.");
+                    }
+
+                    if (!string.Equals(action.ExpectedFingerprint, fact.BeforeFingerprint, StringComparison.Ordinal))
+                    {
+                        throw new CleanerException(
+                            CleanerFailureCategory.StructureChanged,
+                            CleanerFailureStage.Staging,
+                            facts.Protocol,
+                            $"Fingerprint mismatch for ResidueId='{fact.ResidueId}': expected='{action.ExpectedFingerprint}', actual='{fact.BeforeFingerprint}'.");
+                    }
+                }
+            }
+
+            foreach (var action in cleanupPlan.Actions)
+            {
+                if (action.IsMandatory && !seenResidueIds.Contains(action.ResidueId))
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.AuthorizedResidueNotFound,
+                        CleanerFailureStage.Staging,
+                        facts.Protocol,
+                        $"Mandatory authorized residue was not removed by native cleaner: ResidueId='{action.ResidueId}'.");
                 }
             }
 
@@ -253,14 +329,13 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             var preservationReport = await MetadataPreservationVerifier.VerifyAsync(
                 bundle, stagedImgPath, stagedVidPath, cancellationToken).ConfigureAwait(false);
 
-            if (request.PreservationPolicy == PreservationPolicy.Strict &&
-                preservationReport.OverallOutcome != PreservationOutcome.Preserved)
+            if (preservationReport.OverallOutcome != PreservationOutcome.Preserved)
             {
                 throw new CleanerException(
                     CleanerFailureCategory.UnexpectedMetadataChange,
                     CleanerFailureStage.PreservationDiff,
                     facts.Protocol,
-                    $"Strict preservation check failed: {preservationReport.Summary}");
+                    $"Preservation verification failed ({preservationReport.OverallOutcome}): {preservationReport.Summary}");
             }
 
             // -------------------------------------------------------------
@@ -567,12 +642,16 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
     private static async Task<ProtocolCleanResult> ExecuteNonLiveNoOpAsync(
         ExtractedMediaBundle bundle,
         IMediaWorkspace workspace,
+        CleanerTransactionJournal journal,
         Stopwatch sw,
         CancellationToken cancellationToken)
     {
+        journal.SetState(CleanerTransactionState.Staging);
+
         string imgExt = bundle.PrimaryImage.ImageContainer == ImageContainer.Heic ? ".heic" : ".jpg";
         string cleanImgPath = workspace.AllocateFilePath("clean-img", imgExt);
         File.Copy(bundle.PrimaryImage.Path, cleanImgPath, overwrite: true);
+        journal.PublishedPaths.Add(cleanImgPath);
 
         string? cleanVidPath = null;
         if (bundle.MotionVideo != null)
@@ -580,6 +659,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             string vidExt = bundle.MotionVideo.VideoContainer == VideoContainer.Mov ? ".mov" : ".mp4";
             cleanVidPath = workspace.AllocateFilePath("clean-vid", vidExt);
             File.Copy(bundle.MotionVideo.Path, cleanVidPath, overwrite: true);
+            journal.PublishedPaths.Add(cleanVidPath);
         }
 
         var cleanImgArtifact = bundle.PrimaryImage with
@@ -616,6 +696,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             ],
             Summary = "Source is NonLive; artifacts carried through verbatim."
         };
+
+        journal.SetState(CleanerTransactionState.Committed);
 
         return new ProtocolCleanResult
         {

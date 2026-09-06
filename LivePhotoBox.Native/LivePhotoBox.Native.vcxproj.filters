@@ -48,6 +48,9 @@
     <ClInclude Include="src\foundation\internal.h">
       <Filter>src\foundation</Filter>
     </ClInclude>
+    <ClInclude Include="src\foundation\residue_fingerprint.h">
+      <Filter>src\foundation</Filter>
+    </ClInclude>
     <ClInclude Include="src\foundation\sha256.h">
       <Filter>src\foundation</Filter>
     </ClInclude>
@@ -75,6 +78,9 @@
     <ClInclude Include="src\metadata\jpeg.h">
       <Filter>src\metadata</Filter>
     </ClInclude>
+    <ClInclude Include="src\protocols\apple.h">
+      <Filter>src\protocols</Filter>
+    </ClInclude>
     <ClInclude Include="src\protocols\apple_mebx_templates.h">
       <Filter>src\protocols</Filter>
     </ClInclude>
@@ -90,6 +96,9 @@
     <ClInclude Include="src\protocols\clean\xmp_cleaner.h">
       <Filter>src\protocols\clean</Filter>
     </ClInclude>
+    <ClInclude Include="src\protocols\samsung_sef.h">
+      <Filter>src\protocols</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\containers\heif.cpp">
@@ -102,6 +111,9 @@
       <Filter>src\containers</Filter>
     </ClCompile>
     <ClCompile Include="src\foundation\context.cpp">
+      <Filter>src\foundation</Filter>
+    </ClCompile>
+    <ClCompile Include="src\foundation\residue_fingerprint.cpp">
       <Filter>src\foundation</Filter>
     </ClCompile>
     <ClCompile Include="src\foundation\sha256.cpp">

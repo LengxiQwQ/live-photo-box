@@ -431,7 +431,7 @@ public sealed class SourceProtocolCleanerTests
         Assert.NotNull(cleanResult.CleanedImage);
 
         var makerNoteItem = cleanResult.PreservationReport!.Items.First(i => i.Name == "MakerNote");
-        Assert.Equal(PreservationCheckStatus.SemanticallyPreserved, makerNoteItem.Status);
+        Assert.Equal(PreservationCheckStatus.VerifiedPreserved, makerNoteItem.Status);
         Assert.Equal(PreservationOutcome.Preserved, cleanResult.PreservationOutcome);
     }
 

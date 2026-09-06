@@ -33,10 +33,15 @@ public static class MetadataPreservationVerifier
         var items = new List<PreservationReportItem>();
         bool allPassed = true;
 
+        byte[] preBytes = await File.ReadAllBytesAsync(preBundle.PrimaryImage.Path, cancellationToken).ConfigureAwait(false);
+        byte[] postBytes = File.Exists(stagedImagePath)
+            ? await File.ReadAllBytesAsync(stagedImagePath, cancellationToken).ConfigureAwait(false)
+            : Array.Empty<byte>();
+
         // 1. Media Payload (Image)
         try
         {
-            if (!File.Exists(stagedImagePath) || new FileInfo(stagedImagePath).Length == 0)
+            if (postBytes.Length == 0)
             {
                 items.Add(new PreservationReportItem
                 {
@@ -48,52 +53,25 @@ public static class MetadataPreservationVerifier
             }
             else
             {
-                using var fs = File.OpenRead(stagedImagePath);
-                using var mem = new MemoryStream();
-                await fs.CopyToAsync(mem, cancellationToken).ConfigureAwait(false);
-                mem.Position = 0;
-                using var randomStream = mem.AsRandomAccessStream();
-                var decoder = await Windows.Graphics.Imaging.BitmapDecoder.CreateAsync(randomStream);
+                string? preCodestreamSha = preBundle.PrimaryImage.ImageContainer == ImageContainer.Jpeg
+                    ? ExtractJpegEntropyScanSha256(preBytes)
+                    : ExtractHeicPrimaryItemSha256(preBytes);
 
-                uint width = decoder.PixelWidth;
-                uint height = decoder.PixelHeight;
+                string? postCodestreamSha = preBundle.PrimaryImage.ImageContainer == ImageContainer.Jpeg
+                    ? ExtractJpegEntropyScanSha256(postBytes)
+                    : ExtractHeicPrimaryItemSha256(postBytes);
 
-                if (width == 0 || height == 0)
+                if (preCodestreamSha != null && postCodestreamSha != null)
                 {
-                    items.Add(new PreservationReportItem
+                    if (!string.Equals(preCodestreamSha, postCodestreamSha, StringComparison.OrdinalIgnoreCase))
                     {
-                        Name = "MediaPayload",
-                        Status = PreservationCheckStatus.Failed,
-                        Details = "Image decodes to 0x0 dimensions."
-                    });
-                    allPassed = false;
-                }
-                else
-                {
-                    var exp = preBundle.SourceFacts.PrimaryImage;
-                    if (exp.Width > 0 && exp.Height > 0)
-                    {
-                        bool dimsMatch = (width == exp.Width && height == exp.Height) ||
-                                         (width == exp.Height && height == exp.Width);
-                        if (!dimsMatch)
+                        items.Add(new PreservationReportItem
                         {
-                            items.Add(new PreservationReportItem
-                            {
-                                Name = "MediaPayload",
-                                Status = PreservationCheckStatus.Failed,
-                                Details = $"Dimensions changed from {exp.Width}x{exp.Height} to {width}x{height}."
-                            });
-                            allPassed = false;
-                        }
-                        else
-                        {
-                            items.Add(new PreservationReportItem
-                            {
-                                Name = "MediaPayload",
-                                Status = PreservationCheckStatus.VerifiedPreserved,
-                                Details = $"Decodable at {width}x{height}."
-                            });
-                        }
+                            Name = "MediaPayload",
+                            Status = PreservationCheckStatus.Failed,
+                            Details = $"Image payload codestream SHA-256 mismatch (pre: {preCodestreamSha}, post: {postCodestreamSha})."
+                        });
+                        allPassed = false;
                     }
                     else
                     {
@@ -101,9 +79,19 @@ public static class MetadataPreservationVerifier
                         {
                             Name = "MediaPayload",
                             Status = PreservationCheckStatus.VerifiedPreserved,
-                            Details = $"Decodable at {width}x{height}."
+                            Details = $"Image payload codestream bitwise verified identical (SHA-256: {preCodestreamSha})."
                         });
                     }
+                }
+                else
+                {
+                    items.Add(new PreservationReportItem
+                    {
+                        Name = "MediaPayload",
+                        Status = PreservationCheckStatus.Failed,
+                        Details = "Could not extract image codestream for bitwise verification (unrecognized container or corrupt codestream)."
+                    });
+                    allPassed = false;
                 }
             }
         }
@@ -113,15 +101,10 @@ public static class MetadataPreservationVerifier
             {
                 Name = "MediaPayload",
                 Status = PreservationCheckStatus.Failed,
-                Details = $"Image decode failed: {ex.Message}"
+                Details = $"Image codestream extraction error: {ex.Message}"
             });
             allPassed = false;
         }
-
-        byte[] preBytes = await File.ReadAllBytesAsync(preBundle.PrimaryImage.Path, cancellationToken).ConfigureAwait(false);
-        byte[] postBytes = File.Exists(stagedImagePath)
-            ? await File.ReadAllBytesAsync(stagedImagePath, cancellationToken).ConfigureAwait(false)
-            : Array.Empty<byte>();
 
         // 2. Binary TIFF / Exif Parsing
         byte[]? preTiffBytes = ExtractTiff(preBytes, preBundle.PrimaryImage.Path);
@@ -143,38 +126,53 @@ public static class MetadataPreservationVerifier
             }
             else
             {
-                // Verify core camera tags
-                bool coreTagsPreserved = true;
-                var missingTags = new List<string>();
+                bool allTagsPreserved = true;
+                string diffDetail = "";
 
-                if (!string.IsNullOrEmpty(preTiff.Make) && !string.Equals(preTiff.Make, postTiff.Make, StringComparison.Ordinal))
+                foreach (var (tag, preVal) in preTiff.Ifd0Tags)
                 {
-                    coreTagsPreserved = false;
-                    missingTags.Add($"Make ('{preTiff.Make}' -> '{postTiff.Make}')");
-                }
-                if (!string.IsNullOrEmpty(preTiff.Model) && !string.Equals(preTiff.Model, postTiff.Model, StringComparison.Ordinal))
-                {
-                    coreTagsPreserved = false;
-                    missingTags.Add($"Model ('{preTiff.Model}' -> '{postTiff.Model}')");
+                    if (tag is 0x8769 or 0x8825) continue;
+                    if (!postTiff.Ifd0Tags.TryGetValue(tag, out var postVal) || !preVal.SequenceEqual(postVal))
+                    {
+                        allTagsPreserved = false;
+                        diffDetail = $"IFD0 tag 0x{tag:X4} modified or dropped.";
+                        break;
+                    }
                 }
 
-                if (!coreTagsPreserved)
+                if (allTagsPreserved)
+                {
+                    foreach (var (tag, preVal) in preTiff.ExifTags)
+                    {
+                        if (tag == 0x927C) continue;
+                        if (!postTiff.ExifTags.TryGetValue(tag, out var postVal) || !preVal.SequenceEqual(postVal))
+                        {
+                            allTagsPreserved = false;
+                            diffDetail = $"Exif tag 0x{tag:X4} modified or dropped.";
+                            break;
+                        }
+                    }
+                }
+
+                if (!allTagsPreserved)
                 {
                     items.Add(new PreservationReportItem
                     {
                         Name = "Exif",
                         Status = PreservationCheckStatus.Failed,
-                        Details = $"Core Exif tags corrupted: {string.Join(", ", missingTags)}"
+                        Details = $"Non-protocol Exif tags altered: {diffDetail}"
                     });
                     allPassed = false;
                 }
                 else
                 {
+                    int totalChecked = preTiff.Ifd0Tags.Count(t => t.Key is not (0x8769 or 0x8825)) +
+                                       preTiff.ExifTags.Count(t => t.Key != 0x927C);
                     items.Add(new PreservationReportItem
                     {
                         Name = "Exif",
                         Status = PreservationCheckStatus.VerifiedPreserved,
-                        Details = "Core TIFF/Exif structure and camera parameters verified preserved."
+                        Details = $"All {totalChecked} non-protocol TIFF/Exif tags bitwise verified preserved."
                     });
                 }
             }
@@ -338,13 +336,80 @@ public static class MetadataPreservationVerifier
         // 6. MakerNote
         if (preBundle.SourceFacts.Protocol == SourceProtocol.AppleLivePhoto)
         {
-            // For Apple Live Photo, MakerNote live tags were stripped by design
-            items.Add(new PreservationReportItem
+            var preAppleEntries = ParseAppleMakerNote(preTiff?.MakerNote);
+            if (preAppleEntries.Count > 0)
             {
-                Name = "MakerNote",
-                Status = PreservationCheckStatus.SemanticallyPreserved,
-                Details = "Apple MakerNote Live Photo tags stripped while preserving container structure."
-            });
+                if (postTiff?.MakerNote == null || postTiff.MakerNote.Length == 0)
+                {
+                    items.Add(new PreservationReportItem
+                    {
+                        Name = "MakerNote",
+                        Status = PreservationCheckStatus.Failed,
+                        Details = "Apple MakerNote container was lost completely."
+                    });
+                    allPassed = false;
+                }
+                else
+                {
+                    var postAppleEntries = ParseAppleMakerNote(postTiff.MakerNote);
+                    var postAppleDict = postAppleEntries.ToDictionary(e => e.Tag);
+                    var liveTags = new HashSet<ushort> { 0x0011, 0x0017, 0x0025, 0x002b };
+                    bool allNonLivePreserved = true;
+                    string failDetail = "";
+
+                    foreach (var preEntry in preAppleEntries)
+                    {
+                        if (liveTags.Contains(preEntry.Tag))
+                        {
+                            // Live tags are stripped by design
+                            continue;
+                        }
+
+                        if (!postAppleDict.TryGetValue(preEntry.Tag, out var postEntry))
+                        {
+                            allNonLivePreserved = false;
+                            failDetail = $"Non-live Apple MakerNote tag 0x{preEntry.Tag:X4} was dropped.";
+                            break;
+                        }
+
+                        if (!preEntry.ValueBytes.SequenceEqual(postEntry.ValueBytes))
+                        {
+                            allNonLivePreserved = false;
+                            failDetail = $"Non-live Apple MakerNote tag 0x{preEntry.Tag:X4} data was modified.";
+                            break;
+                        }
+                    }
+
+                    if (!allNonLivePreserved)
+                    {
+                        items.Add(new PreservationReportItem
+                        {
+                            Name = "MakerNote",
+                            Status = PreservationCheckStatus.Failed,
+                            Details = failDetail
+                        });
+                        allPassed = false;
+                    }
+                    else
+                    {
+                        items.Add(new PreservationReportItem
+                        {
+                            Name = "MakerNote",
+                            Status = PreservationCheckStatus.VerifiedPreserved,
+                            Details = "Apple MakerNote verified intact: non-live tags preserved, live tags stripped."
+                        });
+                    }
+                }
+            }
+            else
+            {
+                items.Add(new PreservationReportItem
+                {
+                    Name = "MakerNote",
+                    Status = PreservationCheckStatus.NotApplicable,
+                    Details = "No Apple MakerNote in source."
+                });
+            }
         }
         else if (preTiff?.MakerNote != null && preTiff.MakerNote.Length > 0)
         {
@@ -360,14 +425,21 @@ public static class MetadataPreservationVerifier
             }
             else
             {
+                bool mnEqual = preTiff.MakerNote.SequenceEqual(postTiff.MakerNote);
                 items.Add(new PreservationReportItem
                 {
                     Name = "MakerNote",
-                    Status = preTiff.MakerNote.SequenceEqual(postTiff.MakerNote)
+                    Status = mnEqual
                         ? PreservationCheckStatus.VerifiedPreserved
-                        : PreservationCheckStatus.SemanticallyPreserved,
-                    Details = "Camera MakerNote preserved."
+                        : PreservationCheckStatus.Failed,
+                    Details = mnEqual
+                        ? "Camera MakerNote preserved."
+                        : "Camera MakerNote altered on non-Apple source."
                 });
+                if (!mnEqual)
+                {
+                    allPassed = false;
+                }
             }
         }
         else
@@ -432,42 +504,117 @@ public static class MetadataPreservationVerifier
             });
         }
 
+        // 7.5. Extended XMP Preservation
+        string? preExtXmpSha = ExtractExtendedXmpSha256(preBytes);
+        string? postExtXmpSha = ExtractExtendedXmpSha256(postBytes);
+        if (preExtXmpSha != null)
+        {
+            if (postExtXmpSha == null || !string.Equals(preExtXmpSha, postExtXmpSha, StringComparison.OrdinalIgnoreCase))
+            {
+                items.Add(new PreservationReportItem
+                {
+                    Name = "ExtendedXmp",
+                    Status = PreservationCheckStatus.Failed,
+                    Details = $"Extended XMP segments altered or dropped (pre: {preExtXmpSha}, post: {postExtXmpSha})."
+                });
+                allPassed = false;
+            }
+            else
+            {
+                items.Add(new PreservationReportItem
+                {
+                    Name = "ExtendedXmp",
+                    Status = PreservationCheckStatus.VerifiedPreserved,
+                    Details = $"Extended XMP segments bitwise verified preserved (SHA-256: {preExtXmpSha})."
+                });
+            }
+        }
+        else
+        {
+            items.Add(new PreservationReportItem
+            {
+                Name = "ExtendedXmp",
+                Status = PreservationCheckStatus.NotApplicable,
+                Details = "No Extended XMP present in source."
+            });
+        }
+
         // 8. HDR & GainMap
-        bool preHadRawGainMap = preBytes.AsSpan().IndexOf("GainMap"u8) >= 0;
-        bool postHasRawGainMap = postBytes.AsSpan().IndexOf("GainMap"u8) >= 0;
+        bool hasHdrIndicator = false;
+        bool hdrFailed = false;
+        string hdrFailReason = "";
 
-        bool preHadXmpGainMap = preHadRawGainMap ||
-                                preXmp.Contains("GainMap", StringComparison.OrdinalIgnoreCase) ||
-                                preXmp.Contains("hdrgm:Version", StringComparison.OrdinalIgnoreCase) ||
-                                preXmp.Contains("hdrgm:GainMapMin", StringComparison.OrdinalIgnoreCase);
-        bool postHasXmpGainMap = postHasRawGainMap ||
-                                 postXmp.Contains("GainMap", StringComparison.OrdinalIgnoreCase) ||
-                                 postXmp.Contains("hdrgm:Version", StringComparison.OrdinalIgnoreCase) ||
-                                 postXmp.Contains("hdrgm:GainMapMin", StringComparison.OrdinalIgnoreCase);
+        // Check A: HEIC auxl item payload
+        string? preAuxSha = ExtractHeicAuxlItemSha256(preBytes);
+        string? postAuxSha = ExtractHeicAuxlItemSha256(postBytes);
+        if (preAuxSha != null)
+        {
+            hasHdrIndicator = true;
+            if (postAuxSha == null || !string.Equals(preAuxSha, postAuxSha, StringComparison.OrdinalIgnoreCase))
+            {
+                hdrFailed = true;
+                hdrFailReason = $"HEIC GainMap auxl payload altered or dropped (pre: {preAuxSha}, post: {postAuxSha}).";
+            }
+        }
 
-        bool preHadDetached = preBundle.GainMap != null;
-        bool postHasDetached = preBundle.GainMap != null && File.Exists(preBundle.GainMap.Path);
+        // Check B: Structured XMP GainMap / hdrgm properties
+        var preGainMapProps = preNonTarget.Where(kvp => kvp.Key.Contains("hdrgm", StringComparison.OrdinalIgnoreCase) ||
+                                                        kvp.Key.Contains("GainMap", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (preGainMapProps.Count > 0)
+        {
+            hasHdrIndicator = true;
+            if (!hdrFailed)
+            {
+                foreach (var prop in preGainMapProps)
+                {
+                    if (!postNonTarget.TryGetValue(prop.Key, out var postVal) || !string.Equals(prop.Value, postVal, StringComparison.Ordinal))
+                    {
+                        hdrFailed = true;
+                        hdrFailReason = $"HDR/GainMap property '{prop.Key}' changed or lost.";
+                        break;
+                    }
+                }
+            }
+        }
 
-        bool preHadGainMap = preHadDetached || preHadXmpGainMap;
-        bool postLostGainMap = (preHadXmpGainMap && !postHasXmpGainMap) || (preHadDetached && !postHasDetached);
+        // Check C: Raw fallback if raw bytes contained GainMap / hdrgm marker
+        bool preHadRawGainMap = preBytes.AsSpan().IndexOf("GainMap"u8) >= 0 || preBytes.AsSpan().IndexOf("hdrgm"u8) >= 0;
+        bool postHasRawGainMap = postBytes.AsSpan().IndexOf("GainMap"u8) >= 0 || postBytes.AsSpan().IndexOf("hdrgm"u8) >= 0;
+        if (preHadRawGainMap)
+        {
+            if (!hdrFailed && !postHasRawGainMap)
+            {
+                hdrFailed = true;
+                hdrFailReason = "GainMap / HDR metadata was present in source but dropped after cleaning.";
+            }
+        }
 
-        if (preHadGainMap && postLostGainMap)
+        if (hdrFailed)
         {
             items.Add(new PreservationReportItem
             {
                 Name = "Hdr",
                 Status = PreservationCheckStatus.Failed,
-                Details = "GainMap / HDR metadata was present in source but dropped after cleaning."
+                Details = hdrFailReason
             });
             allPassed = false;
         }
-        else if (preHadGainMap)
+        else if (hasHdrIndicator)
         {
             items.Add(new PreservationReportItem
             {
                 Name = "Hdr",
                 Status = PreservationCheckStatus.VerifiedPreserved,
-                Details = "GainMap / HDR metadata verified preserved."
+                Details = "GainMap / HDR payloads and metadata verified preserved."
+            });
+        }
+        else if (preBundle.GainMap != null)
+        {
+            items.Add(new PreservationReportItem
+            {
+                Name = "Hdr",
+                Status = PreservationCheckStatus.VerifiedPreserved,
+                Details = "HDR GainMap handled as detached artifact."
             });
         }
         else
@@ -476,7 +623,7 @@ public static class MetadataPreservationVerifier
             {
                 Name = "Hdr",
                 Status = PreservationCheckStatus.NotApplicable,
-                Details = "No HDR / GainMap declared in input."
+                Details = "No HDR / GainMap metadata present in source."
             });
         }
 
@@ -552,37 +699,24 @@ public static class MetadataPreservationVerifier
                 }
                 else
                 {
-                    var probed = await NativeMediaService.ProbeVideoAsync(stagedVideoPath, cancellationToken).ConfigureAwait(false);
-                    var expVid = preBundle.SourceFacts.MotionVideo;
-                    if (expVid != null && expVid.Width > 0 && expVid.Height > 0)
-                    {
-                        if (probed.Width != expVid.Width || probed.Height != expVid.Height)
-                        {
-                            items.Add(new PreservationReportItem
-                            {
-                                Name = "VideoStreams",
-                                Status = PreservationCheckStatus.Failed,
-                                Details = $"Video resolution changed from {expVid.Width}x{expVid.Height} to {probed.Width}x{probed.Height}."
-                            });
-                            allPassed = false;
-                        }
-                        else
-                        {
-                            items.Add(new PreservationReportItem
-                            {
-                                Name = "VideoStreams",
-                                Status = PreservationCheckStatus.VerifiedPreserved,
-                                Details = $"Video stream valid at {probed.Width}x{probed.Height}, codec {probed.Codec}."
-                            });
-                        }
+                    string? preMdatSha = await ExtractMdatPayloadSha256Async(preBundle.MotionVideo.Path, cancellationToken).ConfigureAwait(false);
+                    string? postMdatSha = await ExtractMdatPayloadSha256Async(stagedVideoPath, cancellationToken).ConfigureAwait(false);
 
-                        if (expVid.HasAudio && !probed.HasAudio)
+                    if (preMdatSha != null && postMdatSha != null)
+                    {
+                        if (!string.Equals(preMdatSha, postMdatSha, StringComparison.OrdinalIgnoreCase))
                         {
+                            items.Add(new PreservationReportItem
+                            {
+                                Name = "VideoStreams",
+                                Status = PreservationCheckStatus.Failed,
+                                Details = $"Video mdat sample payload SHA-256 mismatch (pre: {preMdatSha}, post: {postMdatSha})."
+                            });
                             items.Add(new PreservationReportItem
                             {
                                 Name = "AudioStreams",
                                 Status = PreservationCheckStatus.Failed,
-                                Details = "Audio stream was stripped from motion video."
+                                Details = $"Audio mdat sample payload SHA-256 mismatch (pre: {preMdatSha}, post: {postMdatSha})."
                             });
                             allPassed = false;
                         }
@@ -590,26 +724,34 @@ public static class MetadataPreservationVerifier
                         {
                             items.Add(new PreservationReportItem
                             {
+                                Name = "VideoStreams",
+                                Status = PreservationCheckStatus.VerifiedPreserved,
+                                Details = $"Video sample payload bitwise verified identical (mdat SHA-256: {preMdatSha})."
+                            });
+                            items.Add(new PreservationReportItem
+                            {
                                 Name = "AudioStreams",
                                 Status = PreservationCheckStatus.VerifiedPreserved,
-                                Details = $"Audio stream preserved (HasAudio={probed.HasAudio})."
+                                Details = $"Audio sample payload bitwise verified identical (mdat SHA-256: {preMdatSha})."
                             });
                         }
                     }
                     else
                     {
+                        var probed = await NativeMediaService.ProbeVideoAsync(stagedVideoPath, cancellationToken).ConfigureAwait(false);
                         items.Add(new PreservationReportItem
                         {
                             Name = "VideoStreams",
-                            Status = PreservationCheckStatus.VerifiedPreserved,
-                            Details = $"Video stream probed at {probed.Width}x{probed.Height}."
+                            Status = PreservationCheckStatus.UnableToVerify,
+                            Details = $"Video stream probed at {probed.Width}x{probed.Height} ({probed.Codec}), but mdat payload fingerprint could not be established."
                         });
                         items.Add(new PreservationReportItem
                         {
                             Name = "AudioStreams",
-                            Status = PreservationCheckStatus.VerifiedPreserved,
-                            Details = $"Audio stream probed (HasAudio={probed.HasAudio})."
+                            Status = PreservationCheckStatus.UnableToVerify,
+                            Details = $"Audio stream probed (HasAudio={probed.HasAudio}), but mdat payload fingerprint could not be established."
                         });
+                        allPassed = false;
                     }
                 }
             }
@@ -620,6 +762,12 @@ public static class MetadataPreservationVerifier
                     Name = "VideoStreams",
                     Status = PreservationCheckStatus.Failed,
                     Details = $"Video probe failed: {ex.Message}"
+                });
+                items.Add(new PreservationReportItem
+                {
+                    Name = "AudioStreams",
+                    Status = PreservationCheckStatus.Failed,
+                    Details = $"Audio probe failed: {ex.Message}"
                 });
                 allPassed = false;
             }
@@ -668,8 +816,8 @@ public static class MetadataPreservationVerifier
             items.Add(new PreservationReportItem
             {
                 Name = "Timing",
-                Status = PreservationCheckStatus.VerifiedPreserved,
-                Details = "Timing facts preserved."
+                Status = PreservationCheckStatus.NotApplicable,
+                Details = "No capture timestamp present in source media."
             });
         }
 
@@ -687,6 +835,7 @@ public static class MetadataPreservationVerifier
             }
         }
 
+        string failedDetails = string.Join("; ", items.Where(i => i.Status == PreservationCheckStatus.Failed).Select(i => $"{i.Name}: {i.Details}"));
         return new PreservationReport
         {
             OverallOutcome = outcome,
@@ -694,8 +843,8 @@ public static class MetadataPreservationVerifier
             Summary = allPassed
                 ? "All applicable preservation checks verified intact."
                 : (outcome == PreservationOutcome.DegradedToSdr
-                    ? "Preservation check failed: HDR/GainMap was lost (DegradedToSdr)."
-                    : "Preservation check failed: One or more non-protocol metadata or media items were lost or altered.")
+                    ? $"Preservation check failed: HDR/GainMap was lost (DegradedToSdr). Details: {failedDetails}"
+                    : $"Preservation check failed: One or more non-protocol metadata or media items were lost or altered: {failedDetails}")
         };
     }
 
@@ -708,6 +857,7 @@ public static class MetadataPreservationVerifier
         public string? Make { get; set; }
         public string? Model { get; set; }
         public string? DateTimeOriginal { get; set; }
+        public Dictionary<ushort, byte[]> Ifd0Tags { get; } = new();
         public Dictionary<ushort, byte[]> ExifTags { get; } = new();
         public Dictionary<ushort, byte[]> GpsTags { get; } = new();
         public byte[]? MakerNote { get; set; }
@@ -740,6 +890,7 @@ public static class MetadataPreservationVerifier
 
         ParseIfd(tiffBytes, ifd0Offset, isLittleEndian, (tag, type, count, valOrOffset, rawBytes) =>
         {
+            meta.Ifd0Tags[tag] = rawBytes;
             switch (tag)
             {
                 case 0x0112: // Orientation
@@ -1241,6 +1392,459 @@ public static class MetadataPreservationVerifier
         }
 
         return false;
+    }
+
+    #endregion
+
+    #region Binary Preservation Proof Helpers
+
+    public static string? ExtractJpegEntropyScanSha256(byte[] data)
+    {
+        if (data == null || data.Length < 4 || data[0] != 0xFF || data[1] != 0xD8) return null;
+        int p = 2;
+        while (p + 4 <= data.Length)
+        {
+            if (data[p] != 0xFF) break;
+            while (p < data.Length && data[p] == 0xFF) p++;
+            if (p >= data.Length) break;
+            byte marker = data[p++];
+            if (marker == 0xDA) // SOS (Start of Scan)
+            {
+                if (p + 2 > data.Length) return null;
+                int sosHeaderLen = (data[p] << 8) | data[p + 1];
+                int scanStart = p + sosHeaderLen;
+                if (scanStart > data.Length) return null;
+
+                int scanEnd = -1;
+                for (int i = scanStart; i + 1 < data.Length; i++)
+                {
+                    if (data[i] == 0xFF)
+                    {
+                        byte next = data[i + 1];
+                        if (next == 0x00 || (next >= 0xD0 && next <= 0xD7))
+                        {
+                            i++;
+                            continue;
+                        }
+                        if (next == 0xD9)
+                        {
+                            scanEnd = i;
+                            break;
+                        }
+                    }
+                }
+
+                if (scanEnd <= scanStart) return null;
+                using var sha = SHA256.Create();
+                byte[] hash = sha.ComputeHash(data, scanStart, scanEnd - scanStart);
+                return Convert.ToHexString(hash);
+            }
+            if (marker == 0xD9) break; // EOI
+            if (marker == 0x00 || (marker >= 0xD0 && marker <= 0xD7)) continue;
+            if (p + 2 > data.Length) break;
+            int len = (data[p] << 8) | data[p + 1];
+            if (len < 2 || p + len > data.Length) break;
+            p += len;
+        }
+        return null;
+    }
+
+    public static byte[]? ExtractHeicItemPayload(byte[] data, uint targetItemId)
+    {
+        if (data == null || data.Length < 16) return null;
+        int ilocPos = -1;
+        int ilocSize = 0;
+        for (int i = 0; i <= data.Length - 8; i++)
+        {
+            if (data[i + 4] == 'i' && data[i + 5] == 'l' && data[i + 6] == 'o' && data[i + 7] == 'c')
+            {
+                uint s = ((uint)data[i] << 24) | ((uint)data[i + 1] << 16) | ((uint)data[i + 2] << 8) | data[i + 3];
+                if (s >= 12 && i + s <= data.Length)
+                {
+                    ilocPos = i;
+                    ilocSize = (int)s;
+                    break;
+                }
+            }
+        }
+        if (ilocPos < 0) return null;
+
+        int p = ilocPos + 8;
+        int ilocEnd = ilocPos + ilocSize;
+        if (p + 4 > ilocEnd) return null;
+        byte ver = data[p++];
+        p += 3; // flags
+        if (p + 2 > ilocEnd) return null;
+        int offsetSize = (data[p] >> 4) & 0x0F;
+        int lengthSize = data[p] & 0x0F;
+        int baseOffsetSize = (data[p + 1] >> 4) & 0x0F;
+        int indexSize = (ver == 1 || ver == 2) ? (data[p + 1] & 0x0F) : 0;
+        p += 2;
+
+        uint itemCount = 0;
+        if (ver < 2)
+        {
+            if (p + 2 > ilocEnd) return null;
+            itemCount = (uint)((data[p] << 8) | data[p + 1]);
+            p += 2;
+        }
+        else
+        {
+            if (p + 4 > ilocEnd) return null;
+            itemCount = ((uint)data[p] << 24) | ((uint)data[p + 1] << 16) | ((uint)data[p + 2] << 8) | data[p + 3];
+            p += 4;
+        }
+
+        for (uint it = 0; it < itemCount; it++)
+        {
+            uint itemId = 0;
+            if (ver < 2)
+            {
+                if (p + 2 > ilocEnd) return null;
+                itemId = (uint)((data[p] << 8) | data[p + 1]);
+                p += 2;
+            }
+            else
+            {
+                if (p + 4 > ilocEnd) return null;
+                itemId = ((uint)data[p] << 24) | ((uint)data[p + 1] << 16) | ((uint)data[p + 2] << 8) | data[p + 3];
+                p += 4;
+            }
+            if (ver == 1 || ver == 2) p += 2; // construction_method
+            p += 2; // data_reference_index
+            ulong baseOffset = 0;
+            for (int b = 0; b < baseOffsetSize; b++) { if (p >= ilocEnd) return null; baseOffset = (baseOffset << 8) | data[p++]; }
+            if (p + 2 > ilocEnd) return null;
+            ushort extentCount = (ushort)((data[p] << 8) | data[p + 1]);
+            p += 2;
+
+            for (ushort e = 0; e < extentCount; e++)
+            {
+                if ((ver == 1 || ver == 2) && indexSize > 0) p += indexSize;
+                ulong extentOffset = 0;
+                for (int b = 0; b < offsetSize; b++) { if (p >= ilocEnd) return null; extentOffset = (extentOffset << 8) | data[p++]; }
+                ulong extentLength = 0;
+                for (int b = 0; b < lengthSize; b++) { if (p >= ilocEnd) return null; extentLength = (extentLength << 8) | data[p++]; }
+
+                if (itemId == targetItemId)
+                {
+                    ulong absOffset = baseOffset + extentOffset;
+                    if (absOffset + extentLength <= (ulong)data.Length && extentLength > 0)
+                    {
+                        byte[] payload = new byte[extentLength];
+                        Buffer.BlockCopy(data, (int)absOffset, payload, 0, (int)extentLength);
+                        return payload;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    public static uint? ExtractHeicPrimaryItemId(byte[] data)
+    {
+        if (data == null || data.Length < 16) return null;
+        for (int i = 0; i <= data.Length - 14; i++)
+        {
+            if (data[i + 4] == 'p' && data[i + 5] == 'i' && data[i + 6] == 't' && data[i + 7] == 'm')
+            {
+                byte version = data[i + 8];
+                if (version == 0 && i + 14 <= data.Length)
+                {
+                    return (uint)((data[i + 12] << 8) | data[i + 13]);
+                }
+                else if (version == 1 && i + 16 <= data.Length)
+                {
+                    return ((uint)data[i + 12] << 24) | ((uint)data[i + 13] << 16) | ((uint)data[i + 14] << 8) | data[i + 15];
+                }
+            }
+        }
+        return null;
+    }
+
+    private static byte[]? ExtractFirstMdatPayload(byte[] data)
+    {
+        if (data == null || data.Length < 16) return null;
+        int p = 0;
+        while (p + 8 <= data.Length)
+        {
+            uint boxSize = ((uint)data[p] << 24) | ((uint)data[p + 1] << 16) | ((uint)data[p + 2] << 8) | data[p + 3];
+            int headerSize = 8;
+            long actualSize = boxSize;
+            if (boxSize == 1)
+            {
+                if (p + 16 > data.Length) break;
+                actualSize = ((long)data[p + 8] << 56) | ((long)data[p + 9] << 48) | ((long)data[p + 10] << 40) | ((long)data[p + 11] << 32)
+                           | ((long)data[p + 12] << 24) | ((long)data[p + 13] << 16) | ((long)data[p + 14] << 8) | data[p + 15];
+                headerSize = 16;
+            }
+            else if (boxSize == 0)
+            {
+                actualSize = data.Length - p;
+            }
+
+            if (actualSize < headerSize || p + actualSize > data.Length) break;
+
+            if (data[p + 4] == 'm' && data[p + 5] == 'd' && data[p + 6] == 'a' && data[p + 7] == 't')
+            {
+                long payloadSize = actualSize - headerSize;
+                if (payloadSize > 0 && payloadSize <= int.MaxValue)
+                {
+                    byte[] payload = new byte[payloadSize];
+                    Buffer.BlockCopy(data, p + headerSize, payload, 0, (int)payloadSize);
+                    return payload;
+                }
+            }
+
+            p += (int)actualSize;
+        }
+        return null;
+    }
+
+    public static string? ExtractHeicPrimaryItemSha256(byte[] data)
+    {
+        uint? primaryId = ExtractHeicPrimaryItemId(data);
+        if (primaryId != null)
+        {
+            byte[]? payload = ExtractHeicItemPayload(data, primaryId.Value);
+            if (payload != null)
+            {
+                using var sha = SHA256.Create();
+                return Convert.ToHexString(sha.ComputeHash(payload));
+            }
+        }
+
+        byte[]? mdatPayload = ExtractFirstMdatPayload(data);
+        if (mdatPayload != null)
+        {
+            using var sha = SHA256.Create();
+            return Convert.ToHexString(sha.ComputeHash(mdatPayload));
+        }
+
+        return null;
+    }
+
+    public static uint? ExtractHeicAuxlItemId(byte[] data)
+    {
+        if (data == null || data.Length < 16) return null;
+        uint? primaryId = ExtractHeicPrimaryItemId(data);
+        for (int i = 0; i <= data.Length - 16; i++)
+        {
+            if (data[i + 4] == 'i' && data[i + 5] == 'r' && data[i + 6] == 'e' && data[i + 7] == 'f')
+            {
+                uint irefSize = ((uint)data[i] << 24) | ((uint)data[i + 1] << 16) | ((uint)data[i + 2] << 8) | data[i + 3];
+                if (irefSize < 12 || i + irefSize > (uint)data.Length) continue;
+                byte ver = data[i + 8];
+                int p = i + 12;
+                int irefEnd = i + (int)irefSize;
+                while (p + 8 <= irefEnd)
+                {
+                    uint boxSize = ((uint)data[p] << 24) | ((uint)data[p + 1] << 16) | ((uint)data[p + 2] << 8) | data[p + 3];
+                    if (boxSize < 8 || p + boxSize > irefEnd) break;
+                    if (data[p + 4] == 'a' && data[p + 5] == 'u' && data[p + 6] == 'x' && data[p + 7] == 'l')
+                    {
+                        if (ver == 0 && p + 14 <= irefEnd)
+                        {
+                            uint fromId = (uint)((data[p + 8] << 8) | data[p + 9]);
+                            ushort refCount = (ushort)((data[p + 10] << 8) | data[p + 11]);
+                            uint toId = (uint)((data[p + 12] << 8) | data[p + 13]);
+                            if (refCount > 0 && fromId == primaryId)
+                                return toId;
+                            return fromId;
+                        }
+                        else if (ver != 0 && p + 18 <= irefEnd)
+                        {
+                            uint fromId = ((uint)data[p + 8] << 24) | ((uint)data[p + 9] << 16) | ((uint)data[p + 10] << 8) | data[p + 11];
+                            ushort refCount = (ushort)((data[p + 12] << 8) | data[p + 13]);
+                            uint toId = ((uint)data[p + 14] << 24) | ((uint)data[p + 15] << 16) | ((uint)data[p + 16] << 8) | data[p + 17];
+                            if (refCount > 0 && fromId == primaryId)
+                                return toId;
+                            return fromId;
+                        }
+                    }
+                    p += (int)boxSize;
+                }
+            }
+        }
+        return null;
+    }
+
+    public static string? ExtractHeicAuxlItemSha256(byte[] data)
+    {
+        uint? auxId = ExtractHeicAuxlItemId(data);
+        if (auxId == null) return null;
+        byte[]? payload = ExtractHeicItemPayload(data, auxId.Value);
+        if (payload == null) return null;
+        using var sha = SHA256.Create();
+        return Convert.ToHexString(sha.ComputeHash(payload));
+    }
+
+    public static async Task<string?> ExtractMdatPayloadSha256Async(string filePath, CancellationToken cancellationToken)
+    {
+        if (!File.Exists(filePath)) return null;
+        using var fs = File.OpenRead(filePath);
+        byte[] hdr = new byte[16];
+        using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        bool foundMdat = false;
+
+        while (fs.Position < fs.Length)
+        {
+            long boxStart = fs.Position;
+            int read = await fs.ReadAsync(hdr.AsMemory(0, 8), cancellationToken).ConfigureAwait(false);
+            if (read < 8) break;
+            uint size32 = (uint)((hdr[0] << 24) | (hdr[1] << 16) | (hdr[2] << 8) | hdr[3]);
+            long boxSize = size32;
+            int hdrSize = 8;
+            if (size32 == 1)
+            {
+                read = await fs.ReadAsync(hdr.AsMemory(8, 8), cancellationToken).ConfigureAwait(false);
+                if (read < 8) break;
+                boxSize = (long)(((ulong)hdr[8] << 56) | ((ulong)hdr[9] << 48) | ((ulong)hdr[10] << 40) | ((ulong)hdr[11] << 32) |
+                                 ((ulong)hdr[12] << 24) | ((ulong)hdr[13] << 16) | ((ulong)hdr[14] << 8) | (ulong)hdr[15]);
+                hdrSize = 16;
+            }
+            else if (size32 == 0)
+            {
+                boxSize = fs.Length - boxStart;
+            }
+
+            if (boxSize < hdrSize || boxStart + boxSize > fs.Length) break;
+
+            bool isMdat = hdr[4] == (byte)'m' && hdr[5] == (byte)'d' && hdr[6] == (byte)'a' && hdr[7] == (byte)'t';
+            if (isMdat)
+            {
+                foundMdat = true;
+                long payloadRemaining = boxSize - hdrSize;
+                byte[] buffer = new byte[64 * 1024];
+                while (payloadRemaining > 0)
+                {
+                    int toRead = (int)Math.Min(payloadRemaining, buffer.Length);
+                    int r = await fs.ReadAsync(buffer.AsMemory(0, toRead), cancellationToken).ConfigureAwait(false);
+                    if (r <= 0) break;
+                    sha.AppendData(buffer, 0, r);
+                    payloadRemaining -= r;
+                }
+            }
+            else
+            {
+                fs.Seek(boxStart + boxSize, SeekOrigin.Begin);
+            }
+        }
+
+        return foundMdat ? Convert.ToHexString(sha.GetHashAndReset()) : null;
+    }
+
+    public sealed class AppleMakerNoteEntry
+    {
+        public ushort Tag { get; init; }
+        public ushort Type { get; init; }
+        public uint Count { get; init; }
+        public byte[] ValueBytes { get; init; } = Array.Empty<byte>();
+    }
+
+    public static List<AppleMakerNoteEntry> ParseAppleMakerNote(byte[]? makerNoteBytes)
+    {
+        var list = new List<AppleMakerNoteEntry>();
+        if (makerNoteBytes == null || makerNoteBytes.Length < 16) return list;
+
+        int headerOffset = -1;
+        for (int i = 0; i <= makerNoteBytes.Length - 16; i++)
+        {
+            if (makerNoteBytes[i] == 'A' && makerNoteBytes[i + 1] == 'p' && makerNoteBytes[i + 2] == 'p' &&
+                makerNoteBytes[i + 3] == 'l' && makerNoteBytes[i + 4] == 'e' && makerNoteBytes[i + 5] == ' ' &&
+                makerNoteBytes[i + 6] == 'i' && makerNoteBytes[i + 7] == 'O' && makerNoteBytes[i + 8] == 'S' &&
+                makerNoteBytes[i + 9] == 0)
+            {
+                headerOffset = i;
+                break;
+            }
+        }
+        if (headerOffset < 0) return list;
+
+        int mnStart = headerOffset;
+        if (mnStart + 16 > makerNoteBytes.Length) return list;
+        ushort count = (ushort)((makerNoteBytes[mnStart + 14] << 8) | makerNoteBytes[mnStart + 15]);
+        if (count == 0 || count > 64) return list;
+
+        int entriesStart = mnStart + 16;
+        for (int i = 0; i < count; i++)
+        {
+            int e = entriesStart + i * 12;
+            if (e + 12 > makerNoteBytes.Length) break;
+            ushort tag = (ushort)((makerNoteBytes[e] << 8) | makerNoteBytes[e + 1]);
+            ushort type = (ushort)((makerNoteBytes[e + 2] << 8) | makerNoteBytes[e + 3]);
+            uint entryCount = (uint)((makerNoteBytes[e + 4] << 24) | (makerNoteBytes[e + 5] << 16) | (makerNoteBytes[e + 6] << 8) | makerNoteBytes[e + 7]);
+            uint valOrOffset = (uint)((makerNoteBytes[e + 8] << 24) | (makerNoteBytes[e + 9] << 16) | (makerNoteBytes[e + 10] << 8) | makerNoteBytes[e + 11]);
+
+            int typeSize = GetTiffTypeSize(type);
+            long totalBytes = (long)entryCount * typeSize;
+            byte[] valBytes;
+            if (totalBytes <= 4 && totalBytes > 0)
+            {
+                valBytes = new byte[totalBytes];
+                Buffer.BlockCopy(makerNoteBytes, e + 8, valBytes, 0, (int)totalBytes);
+            }
+            else if (totalBytes > 4 && mnStart + valOrOffset + totalBytes <= makerNoteBytes.Length)
+            {
+                valBytes = new byte[totalBytes];
+                Buffer.BlockCopy(makerNoteBytes, (int)(mnStart + valOrOffset), valBytes, 0, (int)totalBytes);
+            }
+            else
+            {
+                valBytes = BitConverter.GetBytes(valOrOffset);
+            }
+
+            list.Add(new AppleMakerNoteEntry
+            {
+                Tag = tag,
+                Type = type,
+                Count = entryCount,
+                ValueBytes = valBytes
+            });
+        }
+        return list;
+    }
+
+    public static string? ExtractExtendedXmpSha256(byte[] data)
+    {
+        if (data == null || data.Length < 35) return null;
+        if (data.Length >= 4 && data[0] == 0xFF && data[1] == 0xD8)
+        {
+            byte[] extXmpHeader = "http://ns.adobe.com/xmp/extension/\0"u8.ToArray();
+            using var sha = SHA256.Create();
+            using var ms = new MemoryStream();
+            int p = 2;
+            bool foundAny = false;
+            while (p + 4 <= data.Length)
+            {
+                if (data[p] != 0xFF) break;
+                while (p < data.Length && data[p] == 0xFF) p++;
+                if (p >= data.Length) break;
+                byte marker = data[p++];
+                if (marker == 0xDA || marker == 0xD9) break;
+                if (marker == 0x00 || (marker >= 0xD0 && marker <= 0xD7)) continue;
+                if (p + 2 > data.Length) break;
+                int len = (data[p] << 8) | data[p + 1];
+                if (len < 2 || p + len > data.Length) break;
+
+                if (marker == 0xE1 && len >= extXmpHeader.Length + 2)
+                {
+                    if (data.AsSpan(p + 2, extXmpHeader.Length).SequenceEqual(extXmpHeader))
+                    {
+                        foundAny = true;
+                        int payloadStart = p + 2 + extXmpHeader.Length;
+                        int payloadLen = len - 2 - extXmpHeader.Length;
+                        ms.Write(data, payloadStart, payloadLen);
+                    }
+                }
+                p += len;
+            }
+            if (foundAny && ms.Length > 0)
+            {
+                return Convert.ToHexString(sha.ComputeHash(ms.ToArray()));
+            }
+        }
+        return null;
     }
 
     #endregion

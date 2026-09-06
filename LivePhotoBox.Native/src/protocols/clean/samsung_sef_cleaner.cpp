@@ -1,5 +1,7 @@
 #include "samsung_sef_cleaner.h"
 #include "xmp_cleaner.h"
+#include "media/media_cleaner.h"
+#include "foundation/residue_fingerprint.h"
 #include "foundation/internal.h"
 #include "binary/binary_io.h"
 #include "containers/isobmff.h"
@@ -31,7 +33,8 @@ static void add_fact(
     lpb_media_artifact_kind role = LPB_ARTIFACT_PRIMARY_IMAGE,
     lpb_residue_structure_kind structure_kind = LPB_RESIDUE_SEF_ENTRY,
     const char* op = "Removed",
-    const char* after = "Removed")
+    const char* after = "Removed",
+    const char* before_fp = "")
 {
     lpb_removed_protocol_fact fact{};
     fact.struct_size = sizeof(lpb_removed_protocol_fact);
@@ -43,19 +46,8 @@ static void add_fact(
     fact.structure_kind = structure_kind;
     strncpy_s(fact.operation, op ? op : "Removed", _TRUNCATE);
     strncpy_s(fact.after_status, after ? after : "Removed", _TRUNCATE);
+    if (before_fp) strncpy_s(fact.before_fingerprint, before_fp, _TRUNCATE);
     out_facts.push_back(fact);
-}
-
-static bool is_action_authorized(
-    const lpb_cleanup_action* actions,
-    size_t action_count,
-    std::string_view residue_id)
-{
-    if (!actions) return true;
-    for (size_t i = 0; i < action_count; ++i) {
-        if (residue_id == actions[i].residue_id) return true;
-    }
-    return false;
 }
 
 static size_t find_jpeg_eoi(const std::vector<uint8_t>& data, size_t max_search) {
@@ -147,6 +139,10 @@ lpb_result clean_samsung_sef_jpeg(
     size_t action_count,
     std::vector<lpb_removed_protocol_fact>& out_facts)
 {
+    if (!actions || action_count == 0) {
+        set_error(context, "Destructive cleaning requires a non-empty cleanup plan.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     auto p_in = utf8_to_path(input_path.c_str());
     std::ifstream in(p_in, std::ios::binary | std::ios::ate);
     if (!in.is_open()) {
@@ -176,9 +172,7 @@ lpb_result clean_samsung_sef_jpeg(
     bool parsed_sef = false;
     bool had_motion_photo = false;
 
-    // The footer's total_size starts at SEFH, while tag payloads are stored
-    // before SEFH and addressed backwards from it. Do not locate SEFH by a
-    // string search: a payload is allowed to contain the same bytes.
+    std::string fp_0a30_matched;
     if (input_size >= 20 && std::memcmp(data.data() + input_size - 4, "SEFT", 4) == 0) {
         const size_t footer_pos = input_size - 8;
         const auto le16 = [&](size_t at) noexcept -> uint16_t {
@@ -239,8 +233,17 @@ lpb_result clean_samsung_sef_jpeg(
                             parsed_sef = false;
                             break;
                         }
-                        if (is_action_authorized(actions, action_count, "samsung-jpeg-sef-0a30")) {
+                        const auto* act_0a30 = lpb::media::find_authorized_action(actions, action_count, "samsung-jpeg-sef-0a30",
+                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_SEF_ENTRY, "0x0A30:MotionPhoto_Data", LPB_REMOVAL_REBUILD_CONTAINER);
+                        if (act_0a30) {
+                            std::string fp = lpb::crypto::compute_samsung_sef_entry_fingerprint(
+                                0x0A30, "MotionPhoto_Data", size - 24, data.data() + payload_pos + 24, size - 24);
+                            if (act_0a30->expected_fingerprint[0] != '\0' && fp != act_0a30->expected_fingerprint) {
+                                set_error(context, "Residue fingerprint mismatch for samsung-jpeg-sef-0a30.");
+                                return LPB_RESULT_INVALID_ARGUMENT;
+                            }
                             had_motion_photo = true;
+                            fp_0a30_matched = std::move(fp);
                         } else {
                             SefEntry retained{};
                             retained.prefix = prefix;
@@ -254,9 +257,17 @@ lpb_result clean_samsung_sef_jpeg(
                             parsed_sef = false;
                             break;
                         }
-                        if (is_action_authorized(actions, action_count, "samsung-jpeg-sef-0a31")) {
+                        const auto* act_0a31 = lpb::media::find_authorized_action(actions, action_count, "samsung-jpeg-sef-0a31",
+                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_SEF_ENTRY, "0x0A31:MotionPhoto_Version", LPB_REMOVAL_REBUILD_CONTAINER);
+                        if (act_0a31) {
+                            std::string fp = lpb::crypto::compute_samsung_sef_entry_fingerprint(
+                                0x0A31, "MotionPhoto_Version", size - 8, data.data() + payload_pos + 8, size - 8);
+                            if (act_0a31->expected_fingerprint[0] != '\0' && fp != act_0a31->expected_fingerprint) {
+                                set_error(context, "Residue fingerprint mismatch for samsung-jpeg-sef-0a31.");
+                                return LPB_RESULT_INVALID_ARGUMENT;
+                            }
                             add_fact(out_facts, "Samsung", "SEF Trailer", "Removed 0x0A31 MotionPhoto_Version from SEF",
-                                "samsung-jpeg-sef-0a31", LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_SEF_ENTRY);
+                                "samsung-jpeg-sef-0a31", LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_SEF_ENTRY, "Removed", "Removed", fp.c_str());
                         } else {
                             SefEntry retained{};
                             retained.prefix = prefix;
@@ -275,7 +286,7 @@ lpb_result clean_samsung_sef_jpeg(
                 }
                 if (parsed_sef && had_motion_photo) {
                     add_fact(out_facts, "Samsung", "SEF Trailer", "Removed 0x0A30 MotionPhoto_Data from SEF",
-                        "samsung-jpeg-sef-0a30", LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_SEF_ENTRY);
+                        "samsung-jpeg-sef-0a30", LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_SEF_ENTRY, "Removed", "Removed", fp_0a30_matched.c_str());
                     const size_t payload_start = actual_sefh >= max_payload_offset ? actual_sefh - max_payload_offset : actual_sefh;
                     eoi = find_jpeg_eoi(data, payload_start);
                     if (eoi < 2 || eoi > payload_start || data[eoi - 2] != 0xFF || data[eoi - 1] != 0xD9) {

@@ -455,11 +455,14 @@ public sealed class CleanerTransactionTests
         var extracted = await extractor.ExtractAsync(facts, imgPath, largeMovPath, workspace);
         Assert.NotNull(extracted.MotionVideo);
 
-        // Record initial memory
+        // Record initial memory (both managed GC heap and native process working set)
         GC.Collect();
         GC.WaitForPendingFinalizers();
         GC.Collect();
         long memBefore = GC.GetTotalMemory(true);
+        using var proc = System.Diagnostics.Process.GetCurrentProcess();
+        proc.Refresh();
+        long wsBefore = proc.WorkingSet64;
 
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
@@ -470,6 +473,8 @@ public sealed class CleanerTransactionTests
         GC.WaitForPendingFinalizers();
         GC.Collect();
         long memAfter = GC.GetTotalMemory(true);
+        proc.Refresh();
+        long wsAfter = proc.WorkingSet64;
 
         Assert.True(cleanResult.Success, cleanResult.ErrorMessage);
         Assert.NotNull(cleanResult.CleanedVideo);
@@ -480,6 +485,11 @@ public sealed class CleanerTransactionTests
         long managedDelta = Math.Max(0, memAfter - memBefore);
         Assert.True(managedDelta < 15 * 1024 * 1024,
             $"Managed memory delta ({managedDelta / (1024 * 1024)}MB) exceeded bounded streaming limit.");
+
+        // Unmanaged working set guarantee: process memory delta must not exceed 2x video size
+        long wsDelta = Math.Max(0, wsAfter - wsBefore);
+        Assert.True(wsDelta < 80 * 1024 * 1024,
+            $"Process working set delta ({wsDelta / (1024 * 1024)}MB) exceeded bounded streaming limit.");
 
         // Cleaned video must be NonLive
         var recheck = await inspector.InspectAsync(cleanResult.CleanedImage!.Path, cleanResult.CleanedVideo.Path);

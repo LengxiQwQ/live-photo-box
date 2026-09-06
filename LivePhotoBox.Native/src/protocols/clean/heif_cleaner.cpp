@@ -1,5 +1,7 @@
 #include "heif_cleaner.h"
 #include "xmp_cleaner.h"
+#include "media/media_cleaner.h"
+#include "foundation/residue_fingerprint.h"
 #include "containers/isobmff.h"
 #include "foundation/internal.h"
 #include <cstring>
@@ -25,7 +27,8 @@ static void add_fact(
     lpb_media_artifact_kind role = LPB_ARTIFACT_PRIMARY_IMAGE,
     lpb_residue_structure_kind structure_kind = LPB_RESIDUE_ISOBMFF_BOX,
     const char* op = "Removed",
-    const char* after = "Removed")
+    const char* after = "Removed",
+    const char* before_fp = "")
 {
     lpb_removed_protocol_fact fact{};
     fact.struct_size = sizeof(fact);
@@ -37,19 +40,8 @@ static void add_fact(
     fact.structure_kind = structure_kind;
     strncpy_s(fact.operation, op ? op : "Removed", _TRUNCATE);
     strncpy_s(fact.after_status, after ? after : "Removed", _TRUNCATE);
+    if (before_fp) strncpy_s(fact.before_fingerprint, before_fp, _TRUNCATE);
     facts.push_back(fact);
-}
-
-static bool is_action_authorized(
-    const lpb_cleanup_action* actions,
-    size_t action_count,
-    std::string_view residue_id)
-{
-    if (!actions) return true;
-    for (size_t i = 0; i < action_count; ++i) {
-        if (residue_id == actions[i].residue_id) return true;
-    }
-    return false;
 }
 
 static bool read_file(const fs::path& path, std::vector<uint8_t>& data)
@@ -218,6 +210,10 @@ lpb_result clean_samsung_heic(
     size_t action_count,
     std::vector<lpb_removed_protocol_fact>& out_facts)
 {
+    if (!actions || action_count == 0) {
+        set_error(context, "Destructive cleaning requires a non-empty cleanup plan.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     std::vector<uint8_t> input;
     if (!read_file(utf8_to_path(input_path.c_str()), input)) {
         set_error(context, "Failed to read Samsung HEIC for cleaning.");
@@ -240,8 +236,13 @@ lpb_result clean_samsung_heic(
     isobmff_box_header sefd_box{};
     uint64_t video_offset = 0;
     uint64_t video_length = 0;
-    const bool should_remove_mpvd = is_action_authorized(actions, action_count, "samsung-heic-box-mpvd");
-    const bool should_remove_sefd = is_action_authorized(actions, action_count, "samsung-heic-box-sefd-motion");
+    const auto* act_mpvd = lpb::media::find_authorized_action(actions, action_count, "samsung-heic-box-mpvd",
+        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_ISOBMFF_BOX, "mpvd", LPB_REMOVAL_DELETE);
+    const auto* act_sefd = lpb::media::find_authorized_action(actions, action_count, "samsung-heic-box-sefd-motion",
+        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_ISOBMFF_BOX, "sefd", LPB_REMOVAL_DELETE);
+    const bool should_remove_mpvd = (act_mpvd != nullptr);
+    const bool should_remove_sefd = (act_sefd != nullptr);
+    std::string fp_mpvd_matched, fp_sefd_matched;
 
     while (offset < input.size()) {
         isobmff_box_header box{};
@@ -257,6 +258,15 @@ lpb_result clean_samsung_heic(
                 if (removed_mpvd || box.header_size != 8) {
                     set_error(context, "Samsung HEIF mpvd payload is not a single valid ISO-BMFF media range.");
                     return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                if (act_mpvd) {
+                    std::string fp = lpb::crypto::compute_isobmff_box_fingerprint(
+                        "mpvd", box.size, input.data() + offset, box.size);
+                    if (act_mpvd->expected_fingerprint[0] != '\0' && fp != act_mpvd->expected_fingerprint) {
+                        set_error(context, "Residue fingerprint mismatch for samsung-heic-box-mpvd.");
+                        return LPB_RESULT_INVALID_ARGUMENT;
+                    }
+                    fp_mpvd_matched = std::move(fp);
                 }
                 const size_t candidate_video_start = offset + box.header_size;
                 size_t candidate_video_end = offset + box.size;
@@ -277,6 +287,15 @@ lpb_result clean_samsung_heic(
                             return LPB_RESULT_INVALID_ARGUMENT;
                         }
                         if (should_remove_sefd) {
+                            if (act_sefd) {
+                                std::string fp = lpb::crypto::compute_isobmff_box_fingerprint(
+                                    "sefd", nested.size, input.data() + nested_pos, nested.size);
+                                if (act_sefd->expected_fingerprint[0] != '\0' && fp != act_sefd->expected_fingerprint) {
+                                    set_error(context, "Residue fingerprint mismatch for samsung-heic-box-sefd-motion.");
+                                    return LPB_RESULT_INVALID_ARGUMENT;
+                                }
+                                fp_sefd_matched = std::move(fp);
+                            }
                             removed_sefd = true;
                             sefd_box = nested;
                         }
@@ -303,6 +322,15 @@ lpb_result clean_samsung_heic(
                     set_error(context, "Duplicate Samsung HEIF sefd boxes.");
                     return LPB_RESULT_INVALID_ARGUMENT;
                 }
+                if (act_sefd) {
+                    std::string fp = lpb::crypto::compute_isobmff_box_fingerprint(
+                        "sefd", box.size, input.data() + offset, box.size);
+                    if (act_sefd->expected_fingerprint[0] != '\0' && fp != act_sefd->expected_fingerprint) {
+                        set_error(context, "Residue fingerprint mismatch for samsung-heic-box-sefd-motion.");
+                        return LPB_RESULT_INVALID_ARGUMENT;
+                    }
+                    fp_sefd_matched = std::move(fp);
+                }
                 removed_sefd = true;
                 sefd_box = box;
             }
@@ -323,11 +351,11 @@ lpb_result clean_samsung_heic(
     }
     if (removed_mpvd) {
         add_fact(out_facts, "Samsung", "HEIF mpvd Box", "Removed the validated Samsung Motion Photo mpvd payload box",
-            "samsung-heic-box-mpvd", LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_ISOBMFF_BOX);
+            "samsung-heic-box-mpvd", LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_ISOBMFF_BOX, "Removed", "Removed", fp_mpvd_matched.c_str());
     }
     if (removed_sefd) {
         add_fact(out_facts, "Samsung", "HEIF sefd Box", "Removed the validated Samsung Motion Photo sefd metadata box",
-            "samsung-heic-box-sefd-motion", LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_ISOBMFF_BOX);
+            "samsung-heic-box-sefd-motion", LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_ISOBMFF_BOX, "Removed", "Removed", fp_sefd_matched.c_str());
     }
     return LPB_RESULT_OK;
 }

@@ -1,4 +1,6 @@
-﻿#include <cstdio>
+#include <cstdio>
+#include "protocols/apple.h"
+#include "foundation/residue_fingerprint.h"
 #include "foundation/internal.h"
 #include "binary/endian.h"
 #include "containers/isobmff.h"
@@ -613,13 +615,23 @@ static bool add_heif_exif_item(
 
 } // namespace
 
-extern "C" LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries(
+extern "C" LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries_selective(
     lpb_context* context,
     uint8_t* data,
-    size_t data_size)
+    size_t data_size,
+    const uint16_t* authorized_tags,
+    size_t authorized_count,
+    uint16_t* out_stripped_tags,
+    size_t max_stripped_tags,
+    size_t* out_stripped_count)
 {
+    if (out_stripped_count) *out_stripped_count = 0;
     if (!context || !data) return LPB_RESULT_INVALID_ARGUMENT;
+    if (!authorized_tags || authorized_count == 0) {
+        return LPB_RESULT_OK;
+    }
 
+    std::vector<uint16_t> stripped_tags_acc;
     size_t search_from = 0;
     bool malformed_candidate = false;
     while (true) {
@@ -629,7 +641,7 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries(
                 set_error(context, "Malformed Apple MakerNote candidate.");
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
-            return LPB_RESULT_OK;
+            break;
         }
 
         size_t mnStart = static_cast<size_t>(mn_start);
@@ -660,8 +672,15 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries(
             size_t e = entriesStart + i * 12;
             uint16_t tag = read_be16u(data + e);
             bool isLiveEntry = (tag == 0x0011 || tag == 0x0017 || tag == 0x0025 || tag == 0x002b);
+            bool isAuthorized = false;
+            for (size_t a = 0; a < authorized_count; ++a) {
+                if (authorized_tags[a] == tag) {
+                    isAuthorized = true;
+                    break;
+                }
+            }
 
-            if (!isLiveEntry) {
+            if (!isLiveEntry || !isAuthorized) {
                 keep.push_back(i);
                 continue;
             }
@@ -680,6 +699,9 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries(
             size_t absData = mnStart + offset;
             if (dataLen > 0) {
                 std::memset(data + absData, 0, static_cast<size_t>(dataLen));
+            }
+            if (std::find(stripped_tags_acc.begin(), stripped_tags_acc.end(), tag) == stripped_tags_acc.end()) {
+                stripped_tags_acc.push_back(tag);
             }
         }
 
@@ -700,6 +722,23 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries(
         write_be16(data + mnStart + 14, static_cast<uint16_t>(newCount));
     }
 
+    if (out_stripped_count) *out_stripped_count = stripped_tags_acc.size();
+    if (out_stripped_tags && max_stripped_tags > 0) {
+        size_t to_copy = std::min(max_stripped_tags, stripped_tags_acc.size());
+        for (size_t i = 0; i < to_copy; ++i) {
+            out_stripped_tags[i] = stripped_tags_acc[i];
+        }
+    }
+    return LPB_RESULT_OK;
+}
+
+extern "C" LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries(
+    lpb_context* context,
+    uint8_t* data,
+    size_t data_size)
+{
+    const uint16_t all_live_tags[] = { 0x0011, 0x0017, 0x0025, 0x002b };
+    return lpb_apple_strip_live_photo_entries_selective(context, data, data_size, all_live_tags, 4, nullptr, 0, nullptr);
 }
 
 extern "C" LPB_API lpb_result LPB_CALL lpb_apple_write_content_identifier(
@@ -1110,7 +1149,146 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_heic(
     }
 }
 
+namespace lpb::protocols::apple {
 
+bool apple_makernote_has_tag(const uint8_t* data, size_t start, size_t end, uint16_t target_tag) {
+    if (!data || start > end || end - start < 30) return false;
+    const char signature[] = "Apple iOS\0";
+    for (size_t p = start; p + 16 <= end; ++p) {
+        if (std::memcmp(data + p, signature, 10) != 0 || data[p + 10] != 0 || data[p + 11] != 1 ||
+            data[p + 12] != 'M' || data[p + 13] != 'M') continue;
+        const uint16_t count = read_be16u(data + p + 14);
+        if (count == 0 || count > 64 || count > (end - p - 16) / 12) continue;
+        const size_t entries = p + 16;
+        for (uint16_t i = 0; i < count; ++i) {
+            const size_t entry = entries + static_cast<size_t>(i) * 12;
+            const uint16_t tag = read_be16u(data + entry);
+            if (tag == target_tag) return true;
+        }
+    }
+    return false;
+}
 
+bool apple_makernote_get_tag_fingerprint(
+    const uint8_t* data, size_t start, size_t end, uint16_t target_tag, std::string& out_fp)
+{
+    if (!data || start > end || end - start < 30) return false;
+    const char signature[] = "Apple iOS\0";
+    for (size_t p = start; p + 16 <= end; ++p) {
+        if (std::memcmp(data + p, signature, 10) != 0 || data[p + 10] != 0 || data[p + 11] != 1 ||
+            data[p + 12] != 'M' || data[p + 13] != 'M') continue;
+        const uint16_t entry_count = read_be16u(data + p + 14);
+        if (entry_count == 0 || entry_count > 64 || entry_count > (end - p - 16) / 12) continue;
+        const size_t entries = p + 16;
+        for (uint16_t i = 0; i < entry_count; ++i) {
+            const size_t entry = entries + static_cast<size_t>(i) * 12;
+            const uint16_t tag = read_be16u(data + entry);
+            if (tag == target_tag) {
+                uint16_t type = read_be16u(data + entry + 2);
+                uint32_t count = read_be32u(data + entry + 4);
+                uint32_t offset = read_be32u(data + entry + 8);
+                int unit = 0;
+                switch (type) {
+                    case 1: case 2: case 7: unit = 1; break;
+                    case 3: case 8: unit = 2; break;
+                    case 4: case 9: unit = 4; break;
+                    case 5: case 10: unit = 8; break;
+                    case 6: case 11: unit = 4; break;
+                    case 12: unit = 8; break;
+                    case 13: case 14: unit = 4; break;
+                    case 16: unit = 8; break;
+                    default: break;
+                }
+                if (unit == 0) return false;
+                if (count > static_cast<uint64_t>(std::numeric_limits<int>::max()) / static_cast<uint64_t>(unit)) return false;
+                size_t val_len = static_cast<size_t>(unit) * count;
+                const uint8_t* val_ptr = nullptr;
+                if (val_len <= 4) {
+                    val_ptr = data + entry + 8;
+                } else {
+                    if (offset > end - p || val_len > (end - p - offset)) return false;
+                    val_ptr = data + p + offset;
+                }
+                out_fp = lpb::crypto::compute_apple_makernote_tag_fingerprint(tag, type, count, val_ptr, val_len);
+                return true;
+            }
+        }
+    }
+    return false;
+}
 
+bool apple_image_has_tag(
+    lpb_context* context, const std::vector<uint8_t>& data,
+    lpb_image_container container, uint16_t tag)
+{
+    if (container == LPB_IMAGE_CONTAINER_JPEG && data.size() >= 2 && data[0] == 0xFF && data[1] == 0xD8) {
+        size_t p = 2;
+        while (p + 2 <= data.size()) {
+            if (data[p++] != 0xFF) return false;
+            while (p < data.size() && data[p] == 0xFF) ++p;
+            if (p >= data.size()) return false;
+            const uint8_t marker = data[p++];
+            if (marker == 0xDA || marker == 0xD9) break;
+            if (marker == 0x00 || (marker >= 0xD0 && marker <= 0xD7)) continue;
+            if (p + 2 > data.size()) return false;
+            const size_t segment_length = (static_cast<size_t>(data[p]) << 8) | data[p + 1];
+            if (segment_length < 2 || segment_length - 2 > data.size() - (p + 2)) return false;
+            const size_t payload = p + 2;
+            const size_t payload_size = segment_length - 2;
+            if (marker == 0xE1 && payload_size >= 6 && std::memcmp(data.data() + payload, "Exif\0\0", 6) == 0) {
+                if (apple_makernote_has_tag(data.data(), payload + 6, payload + payload_size, tag)) {
+                    return true;
+                }
+            }
+            p = payload + payload_size;
+        }
+        return false;
+    }
+    if (container == LPB_IMAGE_CONTAINER_HEIC) {
+        uint64_t offset = 0, length = 0;
+        if (lpb_heif_locate_exif_item(context, data.data(), data.size(), &offset, &length) != LPB_RESULT_OK ||
+            offset > data.size() || length > data.size() - static_cast<size_t>(offset)) return false;
+        return apple_makernote_has_tag(data.data(), static_cast<size_t>(offset),
+            static_cast<size_t>(offset + length), tag);
+    }
+    return false;
+}
 
+bool apple_image_get_tag_fingerprint(
+    lpb_context* context, const std::vector<uint8_t>& data,
+    lpb_image_container container, uint16_t tag, std::string& out_fp)
+{
+    if (container == LPB_IMAGE_CONTAINER_JPEG && data.size() >= 2 && data[0] == 0xFF && data[1] == 0xD8) {
+        size_t p = 2;
+        while (p + 2 <= data.size()) {
+            if (data[p++] != 0xFF) return false;
+            while (p < data.size() && data[p] == 0xFF) ++p;
+            if (p >= data.size()) return false;
+            const uint8_t marker = data[p++];
+            if (marker == 0xDA || marker == 0xD9) break;
+            if (marker == 0x00 || (marker >= 0xD0 && marker <= 0xD7)) continue;
+            if (p + 2 > data.size()) return false;
+            const size_t segment_length = (static_cast<size_t>(data[p]) << 8) | data[p + 1];
+            if (segment_length < 2 || segment_length - 2 > data.size() - (p + 2)) return false;
+            const size_t payload = p + 2;
+            const size_t payload_size = segment_length - 2;
+            if (marker == 0xE1 && payload_size >= 6 && std::memcmp(data.data() + payload, "Exif\0\0", 6) == 0) {
+                if (apple_makernote_get_tag_fingerprint(data.data(), payload + 6, payload + payload_size, tag, out_fp)) {
+                    return true;
+                }
+            }
+            p = payload + payload_size;
+        }
+        return false;
+    }
+    if (container == LPB_IMAGE_CONTAINER_HEIC) {
+        uint64_t offset = 0, length = 0;
+        if (lpb_heif_locate_exif_item(context, data.data(), data.size(), &offset, &length) != LPB_RESULT_OK ||
+            offset > data.size() || length > data.size() - static_cast<size_t>(offset)) return false;
+        return apple_makernote_get_tag_fingerprint(data.data(), static_cast<size_t>(offset),
+            static_cast<size_t>(offset + length), tag, out_fp);
+    }
+    return false;
+}
+
+} // namespace lpb::protocols::apple

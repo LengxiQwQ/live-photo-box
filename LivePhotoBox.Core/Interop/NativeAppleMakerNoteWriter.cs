@@ -42,6 +42,17 @@ public static class NativeAppleMakerNoteWriter
         nuint dataSize,
         string contentId);
 
+    [DllImport(NativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_apple_strip_live_photo_entries_selective")]
+    private static extern NativeResult LpbAppleStripLivePhotoEntriesSelective(
+        nint context,
+        ref byte data,
+        nuint dataSize,
+        ushort[] authorizedTags,
+        nuint authorizedCount,
+        ushort[]? outStrippedTags,
+        nuint maxStrippedTags,
+        out nuint outStrippedCount);
+
     public static bool TryStripLivePhotoEntries(byte[] imageBytes, out string? error)
     {
         error = null;
@@ -54,6 +65,37 @@ public static class NativeAppleMakerNoteWriter
                 context,
                 ref MemoryMarshal.GetArrayDataReference(imageBytes),
                 (nuint)imageBytes.Length);
+
+            if (res != NativeResult.Ok)
+            {
+                error = ReadLastError(context) ?? $"Native error {res}";
+                return false;
+            }
+            return true;
+        }
+        finally
+        {
+            if (context != nint.Zero) { NativeMethods.DestroyContext(context); }
+        }
+    }
+
+    public static bool TryStripLivePhotoEntriesSelective(byte[] imageBytes, ushort[] authorizedTags, out string? error)
+    {
+        error = null;
+        nint context = nint.Zero;
+        try
+        {
+            if (NativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
+
+            NativeResult res = LpbAppleStripLivePhotoEntriesSelective(
+                context,
+                ref MemoryMarshal.GetArrayDataReference(imageBytes),
+                (nuint)imageBytes.Length,
+                authorizedTags,
+                (nuint)authorizedTags.Length,
+                null,
+                0,
+                out _);
 
             if (res != NativeResult.Ok)
             {

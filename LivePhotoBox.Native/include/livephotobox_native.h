@@ -194,6 +194,11 @@ LPB_API lpb_result LPB_CALL lpb_samsung_sef_parse(
     uint64_t* out_video_offset,
     uint64_t* out_video_size);
 
+LPB_API int32_t LPB_CALL lpb_samsung_sef_has_tag(
+    const uint8_t* input,
+    size_t input_size,
+    uint16_t target_marker);
+
 /*
  * Builds a complete Samsung SEF trailer for appending after image data.
  * JPEG: returns [tag_data | SEFH/SEFT].
@@ -265,6 +270,23 @@ LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries(
     lpb_context* context,
     uint8_t* data,
     size_t data_size);
+
+/*
+ * Selectively strips Apple Live Photo proprietary EXIF MakerNote entries (e.g. 0x0011, 0x0017, 0x0025, 0x002b)
+ * in-place for both JPEG and HEIC files according to the supplied authorized_tags array.
+ * Only tags present in authorized_tags are stripped; all other MakerNote tags are strictly preserved.
+ * The stripped tags are returned in out_stripped_tags up to max_stripped_tags, and out_stripped_count
+ * receives the total number of stripped tags.
+ */
+LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries_selective(
+    lpb_context* context,
+    uint8_t* data,
+    size_t data_size,
+    const uint16_t* authorized_tags,
+    size_t authorized_count,
+    uint16_t* out_stripped_tags,
+    size_t max_stripped_tags,
+    size_t* out_stripped_count);
 
 /*
  * Overwrites the Apple MakerNote in-place with a minimal 70-byte block containing

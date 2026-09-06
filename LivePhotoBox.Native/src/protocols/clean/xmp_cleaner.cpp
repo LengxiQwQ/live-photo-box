@@ -1,7 +1,9 @@
 #include "xmp_cleaner.h"
+#include "foundation/residue_fingerprint.h"
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
 #include <cstring>
 #include <string_view>
 #include <utility>
@@ -19,7 +21,11 @@ struct attribute_span
     std::string_view value{};
 };
 
-using namespace_binding = std::pair<std::string_view, std::string_view>;
+struct namespace_binding
+{
+    std::string_view first{};
+    std::string_view second{};
+};
 
 static constexpr std::string_view google_camera_namespace = "http://ns.google.com/photos/1.0/camera/";
 static constexpr std::string_view google_container_namespace = "http://ns.google.com/photos/1.0/container/";
@@ -128,7 +134,7 @@ static void set_namespace_binding(std::vector<namespace_binding>& bindings,
             return;
         }
     }
-    bindings.emplace_back(prefix, uri);
+    bindings.push_back({ prefix, uri });
 }
 
 static void collect_namespace_bindings(const std::vector<attribute_span>& attributes,
@@ -332,7 +338,9 @@ static const lpb_cleanup_action* find_xmp_attribute_action(
     const std::string_view local = local_name(name);
     for (size_t i = 0; i < action_count; ++i) {
         const auto& a = actions[i];
-        if (a.artifact_role == LPB_ARTIFACT_PRIMARY_IMAGE && a.structure_kind == LPB_RESIDUE_XMP_PROPERTY) {
+        if (a.artifact_role == LPB_ARTIFACT_PRIMARY_IMAGE &&
+            a.structure_kind == LPB_RESIDUE_XMP_PROPERTY &&
+            a.removal_mode == LPB_REMOVAL_DELETE) {
             std::string_view sel(a.selector);
             std::string_view sel_local = local_name(sel);
             if (equals_icase(local, sel_local) || equals_icase(name, sel)) {
@@ -353,13 +361,11 @@ static const lpb_cleanup_action* find_motion_item_action(
     if (!actions || action_count == 0) return nullptr;
     for (size_t i = 0; i < action_count; ++i) {
         const auto& a = actions[i];
-        if (a.artifact_role == LPB_ARTIFACT_PRIMARY_IMAGE && a.structure_kind == LPB_RESIDUE_XMP_CONTAINER_ITEM) {
+        if (a.artifact_role == LPB_ARTIFACT_PRIMARY_IMAGE &&
+            a.structure_kind == LPB_RESIDUE_XMP_CONTAINER_ITEM &&
+            a.removal_mode == LPB_REMOVAL_DELETE) {
             std::string_view sel(a.selector);
-            if (sel.find("MotionPhoto") != std::string_view::npos ||
-                equals_icase(a.residue_id, "google-v2-container-item-motionphoto") ||
-                equals_icase(a.residue_id, "oppo-container-item-motionphoto") ||
-                equals_icase(a.residue_id, "samsung-heic-container-item-motionphoto") ||
-                equals_icase(a.residue_id, "samsung-jpeg-container-item-motionphoto")) {
+            if (sel.find("MotionPhoto") != std::string_view::npos) {
                 return &a;
             }
         }
@@ -372,7 +378,8 @@ static bool find_motion_ranges(std::string_view xml,
     const lpb_cleanup_action* actions,
     size_t action_count,
     std::vector<std::pair<size_t, size_t>>& ranges,
-    std::vector<lpb_cleanup_action>& matched_actions) noexcept
+    std::vector<lpb_cleanup_action>& matched_actions,
+    std::vector<std::string>& matched_fps) noexcept
 {
     std::vector<parsed_element> elements;
     if (!parse_xml_elements(xml, elements)) return false;
@@ -380,10 +387,31 @@ static bool find_motion_ranges(std::string_view xml,
     for (const auto& element : elements)
     {
         if (!item_is_motion(element, protocol)) continue;
-        const lpb_cleanup_action* matched_act = nullptr;
-        if (actions && action_count > 0) {
-            matched_act = find_motion_item_action(element, protocol, actions, action_count);
-            if (!matched_act) continue;
+        if (!actions || action_count == 0) return false;
+        const lpb_cleanup_action* matched_act = find_motion_item_action(element, protocol, actions, action_count);
+        if (!matched_act) continue;
+
+        std::string_view sem, mime;
+        uint64_t len = 0, pad = 0;
+        bool has_pad = false;
+        for (const auto& a : element.attributes) {
+            if (namespace_uri_for_name(a.name, element.bindings, true) != google_item_namespace) continue;
+            std::string_view local = local_name(a.name);
+            if (equals_icase(local, "Semantic")) sem = a.value;
+            else if (equals_icase(local, "Mime")) mime = a.value;
+            else if (equals_icase(local, "Length")) {
+                std::from_chars(a.value.data(), a.value.data() + a.value.size(), len);
+            }
+            else if (equals_icase(local, "Padding")) {
+                has_pad = true;
+                std::from_chars(a.value.data(), a.value.data() + a.value.size(), pad);
+            }
+        }
+        std::string item_fp = lpb::crypto::compute_xmp_container_item_fingerprint(sem, mime, len, pad, has_pad);
+        if (matched_act && matched_act->expected_fingerprint[0] != '\0') {
+            if (item_fp != matched_act->expected_fingerprint) {
+                return false;
+            }
         }
 
         size_t start = element.start;
@@ -406,6 +434,7 @@ static bool find_motion_ranges(std::string_view xml,
         if (matched_act) {
             matched_actions.push_back(*matched_act);
         }
+        matched_fps.push_back(item_fp);
     }
     return true;
 }
@@ -420,12 +449,13 @@ bool clean_xmp_metadata_with_plan(
     std::string& output_xmp,
     std::vector<lpb_removed_protocol_fact>& out_facts)
 {
-    if (input_xmp.empty()) return false;
+    if (input_xmp.empty() || !actions || action_count == 0) return false;
     const std::string_view xml(input_xmp);
 
     std::vector<std::pair<size_t, size_t>> motion_ranges;
     std::vector<lpb_cleanup_action> matched_motion_actions;
-    if (!find_motion_ranges(xml, protocol, actions, action_count, motion_ranges, matched_motion_actions)) return false;
+    std::vector<std::string> matched_motion_fps;
+    if (!find_motion_ranges(xml, protocol, actions, action_count, motion_ranges, matched_motion_actions, matched_motion_fps)) return false;
 
     std::string cleaned;
     cleaned.reserve(xml.size());
@@ -454,6 +484,14 @@ bool clean_xmp_metadata_with_plan(
 
             if (should_remove)
             {
+                std::string_view attr_uri = namespace_uri_for_name(attr.name, element.bindings, true);
+                std::string prop_fp = lpb::crypto::compute_xmp_property_fingerprint(attr_uri, local_name(attr.name), attr.value);
+                if (matched_act && matched_act->expected_fingerprint[0] != '\0') {
+                    if (prop_fp != matched_act->expected_fingerprint) {
+                        return false;
+                    }
+                }
+
                 cleaned.append(xml.substr(cursor, attr.start - cursor));
                 cursor = attr.end;
                 removed_attribute = true;
@@ -474,6 +512,7 @@ bool clean_xmp_metadata_with_plan(
                 }
                 strncpy_s(fact.operation, "Removed", _TRUNCATE);
                 strncpy_s(fact.after_status, "Removed", _TRUNCATE);
+                strncpy_s(fact.before_fingerprint, prop_fp.c_str(), _TRUNCATE);
                 attr_facts.push_back(fact);
             }
         }
@@ -486,7 +525,8 @@ bool clean_xmp_metadata_with_plan(
     {
         std::vector<std::pair<size_t, size_t>> final_ranges;
         std::vector<lpb_cleanup_action> final_motion_acts;
-        if (!find_motion_ranges(cleaned, protocol, actions, action_count, final_ranges, final_motion_acts)) return false;
+        std::vector<std::string> final_motion_fps;
+        if (!find_motion_ranges(cleaned, protocol, actions, action_count, final_ranges, final_motion_acts, final_motion_fps)) return false;
         std::sort(final_ranges.begin(), final_ranges.end());
         final_ranges.erase(std::unique(final_ranges.begin(), final_ranges.end()), final_ranges.end());
 
@@ -510,7 +550,8 @@ bool clean_xmp_metadata_with_plan(
     out_facts.insert(out_facts.end(), attr_facts.begin(), attr_facts.end());
     if (!motion_ranges.empty()) {
         if (!matched_motion_actions.empty()) {
-            for (const auto& ma : matched_motion_actions) {
+            for (size_t i = 0; i < matched_motion_actions.size(); ++i) {
+                const auto& ma = matched_motion_actions[i];
                 lpb_removed_protocol_fact fact{};
                 fact.struct_size = sizeof(lpb_removed_protocol_fact);
                 strncpy_s(fact.protocol_name, protocol_name_str(protocol), _TRUNCATE);
@@ -521,6 +562,8 @@ bool clean_xmp_metadata_with_plan(
                 fact.structure_kind = ma.structure_kind;
                 strncpy_s(fact.operation, "Removed", _TRUNCATE);
                 strncpy_s(fact.after_status, "Removed", _TRUNCATE);
+                const char* fp = i < matched_motion_fps.size() ? matched_motion_fps[i].c_str() : "";
+                strncpy_s(fact.before_fingerprint, fp, _TRUNCATE);
                 out_facts.push_back(fact);
             }
         } else {

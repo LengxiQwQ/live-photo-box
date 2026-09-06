@@ -1,3 +1,5 @@
+#include "protocols/samsung_sef.h"
+#include "foundation/residue_fingerprint.h"
 #include "foundation/internal.h"
 #include "binary/binary_io.h"
 #include "containers/isobmff.h"
@@ -123,6 +125,107 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_samsung_sef_parse(
     set_error(context, "MotionPhoto_Data entry not found in SEF.");
     return LPB_RESULT_INVALID_ARGUMENT;
 }
+
+extern "C" LPB_API int32_t LPB_CALL lpb_samsung_sef_has_tag(
+    const uint8_t* input,
+    size_t input_size,
+    uint16_t target_marker)
+{
+    if (!input || input_size < 16) return 0;
+    const size_t footer_pos = input_size - 8;
+    if (std::memcmp(input + input_size - 4, "SEFT", 4) != 0) return 0;
+
+    const uint32_t total_size = static_cast<uint32_t>(input[footer_pos]) |
+        (static_cast<uint32_t>(input[footer_pos + 1]) << 8) |
+        (static_cast<uint32_t>(input[footer_pos + 2]) << 16) |
+        (static_cast<uint32_t>(input[footer_pos + 3]) << 24);
+
+    if (total_size < 12 || static_cast<uint64_t>(total_size) > input_size - 8) return 0;
+
+    const size_t sef_start = footer_pos - static_cast<size_t>(total_size);
+    if (sef_start > footer_pos || std::memcmp(input + sef_start, "SEFH", 4) != 0) return 0;
+
+    const auto read_le16 = [&](size_t at) noexcept -> uint16_t {
+        return static_cast<uint16_t>(input[at]) | (static_cast<uint16_t>(input[at + 1]) << 8);
+    };
+    const auto read_le32 = [&](size_t at) noexcept -> uint32_t {
+        return static_cast<uint32_t>(input[at]) |
+            (static_cast<uint32_t>(input[at + 1]) << 8) |
+            (static_cast<uint32_t>(input[at + 2]) << 16) |
+            (static_cast<uint32_t>(input[at + 3]) << 24);
+    };
+
+    const uint32_t count = read_le32(sef_start + 8);
+    if (count > (static_cast<size_t>(total_size) - 12) / 12 ||
+        sef_start + 12 + static_cast<size_t>(count) * 12 != footer_pos) return 0;
+
+    for (uint32_t i = 0; i < count; i++) {
+        const size_t entry = sef_start + 12 + static_cast<size_t>(i) * 12;
+        const uint16_t marker = read_le16(entry + 2);
+        if (marker == target_marker) return 1;
+    }
+    return 0;
+}
+
+namespace lpb::protocols {
+
+bool samsung_sef_get_entry_fingerprint(
+    const uint8_t* input,
+    size_t input_size,
+    uint16_t target_marker,
+    std::string& out_fp)
+{
+    if (!input || input_size < 16) return false;
+    const size_t footer_pos = input_size - 8;
+    if (std::memcmp(input + input_size - 4, "SEFT", 4) != 0) return false;
+
+    const uint32_t total_size = static_cast<uint32_t>(input[footer_pos]) |
+        (static_cast<uint32_t>(input[footer_pos + 1]) << 8) |
+        (static_cast<uint32_t>(input[footer_pos + 2]) << 16) |
+        (static_cast<uint32_t>(input[footer_pos + 3]) << 24);
+
+    if (total_size < 12 || static_cast<uint64_t>(total_size) > input_size - 8) return false;
+
+    const size_t sef_start = footer_pos - static_cast<size_t>(total_size);
+    if (sef_start > footer_pos || std::memcmp(input + sef_start, "SEFH", 4) != 0) return false;
+
+    const auto read_le16 = [&](size_t at) noexcept -> uint16_t {
+        return static_cast<uint16_t>(input[at]) | (static_cast<uint16_t>(input[at + 1]) << 8);
+    };
+    const auto read_le32 = [&](size_t at) noexcept -> uint32_t {
+        return static_cast<uint32_t>(input[at]) |
+            (static_cast<uint32_t>(input[at + 1]) << 8) |
+            (static_cast<uint32_t>(input[at + 2]) << 16) |
+            (static_cast<uint32_t>(input[at + 3]) << 24);
+    };
+
+    const uint32_t count = read_le32(sef_start + 8);
+    if (count > (static_cast<size_t>(total_size) - 12) / 12 ||
+        sef_start + 12 + static_cast<size_t>(count) * 12 != footer_pos) return false;
+
+    for (uint32_t i = 0; i < count; i++) {
+        const size_t entry = sef_start + 12 + static_cast<size_t>(i) * 12;
+        const uint16_t marker = read_le16(entry + 2);
+        if (marker == target_marker) {
+            const uint32_t offset = read_le32(entry + 4);
+            const uint32_t size = read_le32(entry + 8);
+            if (static_cast<uint64_t>(offset) > sef_start || static_cast<uint64_t>(size) > offset || size < 8) return false;
+            const size_t payload_start = sef_start - static_cast<size_t>(offset);
+            const uint32_t name_size = read_le32(payload_start + 4);
+            if (name_size > size - 8 || static_cast<size_t>(name_size) > input_size - (payload_start + 8)) return false;
+            std::string_view name(reinterpret_cast<const char*>(input + payload_start + 8), name_size);
+            const size_t data_start = payload_start + 8 + name_size;
+            const size_t data_len = size - 8 - name_size;
+            out_fp = lpb::crypto::compute_samsung_sef_entry_fingerprint(
+                marker, name, static_cast<uint32_t>(data_len), input + data_start, data_len);
+            return true;
+        }
+    }
+    return false;
+}
+
+} // namespace lpb::protocols
+
 
 extern "C" LPB_API lpb_result LPB_CALL lpb_samsung_sef_build_trailer(
     lpb_context* context,
