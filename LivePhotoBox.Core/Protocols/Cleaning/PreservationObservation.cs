@@ -19,6 +19,7 @@ public sealed class PreservationObservation
     private const uint FlagHasHeicAux     = 0x00000040u;
     private const uint FlagHasVideoMdat   = 0x00000080u;
     private const uint FlagHasGainMapMeta = 0x00000100u;
+    private const uint FlagHasHeicGainMapSemantic = 0x00000200u;
     private const uint FlagExifError      = 0x00010000u;
     private const uint FlagIccError       = 0x00020000u;
     private const uint FlagMakerNoteMalf  = 0x00040000u;
@@ -38,6 +39,7 @@ public sealed class PreservationObservation
     public bool HasHeicAux => (Flags & FlagHasHeicAux) != 0;
     public bool HasVideoMdat => (Flags & FlagHasVideoMdat) != 0;
     public bool HasGainMapMeta => (Flags & FlagHasGainMapMeta) != 0;
+    public bool HasHeicGainMapSemantic => (Flags & FlagHasHeicGainMapSemantic) != 0;
 
     // Error flags
     public bool ExifParseError => (Flags & FlagExifError) != 0;

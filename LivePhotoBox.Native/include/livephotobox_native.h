@@ -579,7 +579,8 @@ LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
     lpb_context* context,
     const char* primary_jpeg_path,
     const char* gainmap_jpeg_path,
-    const char* output_path);
+    const char* output_path,
+    const char* expected_gainmap_sha256);
 
 typedef enum lpb_media_artifact_kind
 {
@@ -716,6 +717,7 @@ LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_plan(
 #define LPB_POBS_HAS_HEIC_AUX     0x00000040u
 #define LPB_POBS_HAS_VIDEO_MDAT   0x00000080u
 #define LPB_POBS_HAS_GAINMAP_META 0x00000100u
+#define LPB_POBS_HAS_HEIC_GAINMAP_SEMANTIC 0x00000200u
 
 /* Error/status flags (high 16 bits) — presence of these → UnableToVerify in C# */
 #define LPB_POBS_EXIF_PARSE_ERROR    0x00010000u
@@ -823,6 +825,10 @@ LPB_API lpb_result LPB_CALL lpb_capture_preservation_observation(
 #define LPB_PRESERVATION_STATUS_NOT_APPLICABLE         3
 #define LPB_PRESERVATION_STATUS_SEMANTICALLY_PRESERVED 4
 
+#define LPB_DETACHED_GAINMAP_NOT_EXPECTED                0u
+#define LPB_DETACHED_GAINMAP_EXPECTED_AND_VERIFIED       1u
+#define LPB_DETACHED_GAINMAP_EXPECTED_MISSING_OR_CHANGED 2u
+
 /* Category of preservation check */
 typedef enum lpb_preservation_check_category {
     LPB_PCHECK_MEDIA_PAYLOAD = 1,
@@ -851,7 +857,9 @@ typedef struct lpb_preservation_verdict {
 /*
  * Compares pre and post observations based on protocol rules and outputs a list of verdicts.
  *
- * has_detached_gainmap: true if the orchestration layer successfully preserved a detached gainmap artifact.
+ * detached_gainmap_state: explicit state of the expected detached GainMap
+ * working artifact.  NotExpected is distinct from a missing or changed
+ * artifact so tampering cannot become NotApplicable.
  * out_verdicts: Caller-allocated array to receive verdicts.
  * max_verdicts: Capacity of out_verdicts (recommend >= 16).
  * out_count: Number of verdicts populated.
@@ -862,7 +870,7 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
     const lpb_preservation_observation* pre,
     const lpb_preservation_observation* post,
     lpb_source_protocol protocol,
-    uint8_t has_detached_gainmap,
+    uint32_t detached_gainmap_state,
     lpb_preservation_verdict* out_verdicts,
     size_t max_verdicts,
     size_t* out_count,

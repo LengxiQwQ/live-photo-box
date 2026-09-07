@@ -527,6 +527,7 @@ public static class NativeMediaService
         string primaryJpegPath,
         string gainmapJpegPath,
         string outputPath,
+        string expectedGainMapSha256,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -537,7 +538,8 @@ public static class NativeMediaService
                 ctx.Handle,
                 primaryJpegPath,
                 gainmapJpegPath,
-                outputPath);
+                outputPath,
+                expectedGainMapSha256);
             ctx.ThrowIfFailed(res);
         }, cancellationToken);
     }
@@ -579,7 +581,7 @@ public static class NativeMediaService
         PreservationObservation? preVideo,
         PreservationObservation? postVideo,
         SourceProtocol protocol,
-        bool hasDetachedGainmap,
+        DetachedGainMapVerificationState detachedGainMapState,
         out bool allPassed,
         CancellationToken cancellationToken = default)
     {
@@ -612,7 +614,7 @@ public static class NativeMediaService
             ref preNative,
             ref postNative,
             (int)protocol,
-            hasDetachedGainmap ? (byte)1 : (byte)0,
+            (uint)detachedGainMapState,
             verdicts,
             (nuint)verdicts.Length,
             out nuint outCount,

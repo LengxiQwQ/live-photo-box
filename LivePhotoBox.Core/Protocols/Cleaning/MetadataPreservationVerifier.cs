@@ -67,7 +67,8 @@ public static class MetadataPreservationVerifier
             MotionVideoContainer = bundle.MotionVideo?.VideoContainer ?? VideoContainer.Unknown,
             MotionVideoPath = bundle.MotionVideo?.Path,
             VideoObservation = videoObs,
-            GainMapSha256 = bundle.GainMap?.Sha256
+            GainMapSha256 = bundle.GainMap?.Sha256,
+            GainMapExpected = bundle.GainMap != null
         };
     }
 
@@ -156,15 +157,21 @@ public static class MetadataPreservationVerifier
             }
         }
 
-        // Blocker 05: Re-verify GainMap working artifact identity before preservation verdict.
-        // Step 2 (Preflight) checked it, but the file could have been replaced by the time
-        // we reach this step (TOCTOU). If the SHA no longer matches, treat as absent so
-        // Native produces a DegradedToSdr failure rather than silently passing.
-        bool hasDetachedGainmap = false;
-        if (baseline.GainMapSha256 != null && !string.IsNullOrEmpty(stagedGainMapPath))
+        DetachedGainMapVerificationState detachedGainMapState;
+        if (!baseline.GainMapExpected)
         {
-            hasDetachedGainmap = await VerifyGainMapIdentityAsync(
-                stagedGainMapPath, baseline.GainMapSha256, cancellationToken).ConfigureAwait(false);
+            detachedGainMapState = DetachedGainMapVerificationState.NotExpected;
+        }
+        else if (!string.IsNullOrWhiteSpace(baseline.GainMapSha256) &&
+                 !string.IsNullOrEmpty(stagedGainMapPath) &&
+                 await VerifyGainMapIdentityAsync(
+                     stagedGainMapPath, baseline.GainMapSha256, cancellationToken).ConfigureAwait(false))
+        {
+            detachedGainMapState = DetachedGainMapVerificationState.ExpectedAndVerified;
+        }
+        else
+        {
+            detachedGainMapState = DetachedGainMapVerificationState.ExpectedButMissingOrChanged;
         }
         var verdicts = NativeMediaService.VerifyPreservation(
             baseline.ImageObservation,
@@ -172,7 +179,7 @@ public static class MetadataPreservationVerifier
             preVideo,
             postVideo,
             baseline.Protocol,
-            hasDetachedGainmap,
+            detachedGainMapState,
             out bool allPassed,
             cancellationToken);
 

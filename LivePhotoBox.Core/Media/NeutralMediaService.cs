@@ -86,7 +86,8 @@ public sealed class NeutralMediaService : INeutralMediaService
             && (requirement == null || requirement.ImageContainer != ImageContainer.Heic))
         {
             finalImage = await ReassembleJpegGainMapAsync(
-                finalImage, cleanResult.CleanedGainMap, workspace, cancellationToken)
+                finalImage, cleanResult.CleanedGainMap, cleanResult.GainMapExpectedSha256,
+                workspace, cancellationToken)
                 .ConfigureAwait(false);
             gainMapEmbeddedInPrimary = true;
         }
@@ -217,7 +218,8 @@ public sealed class NeutralMediaService : INeutralMediaService
             {
                 Role = "GainMap",
                 Path = cleanResult.CleanedGainMap.Path,
-                Sha256 = cleanResult.CleanedGainMap.Sha256 ?? await workspace.ComputeFileSha256Async(cleanResult.CleanedGainMap.Path, cancellationToken).ConfigureAwait(false),
+                Sha256 = cleanResult.GainMapExpectedSha256
+                    ?? throw new InvalidDataException("GainMap manifest identity is missing after verified consumption."),
                 ByteLength = cleanResult.CleanedGainMap.ByteLength > 0 ? cleanResult.CleanedGainMap.ByteLength : new FileInfo(cleanResult.CleanedGainMap.Path).Length,
                 ImageContainer = cleanResult.CleanedGainMap.ImageContainer,
                 PreservationOutcome = cleanResult.PreservationOutcome,
@@ -251,6 +253,7 @@ public sealed class NeutralMediaService : INeutralMediaService
     private static async Task<MediaArtifact> ReassembleJpegGainMapAsync(
         MediaArtifact primaryImage,
         MediaArtifact gainMap,
+        string? expectedGainMapSha256,
         IMediaWorkspace workspace,
         CancellationToken cancellationToken)
     {
@@ -258,6 +261,8 @@ public sealed class NeutralMediaService : INeutralMediaService
             throw new FileNotFoundException("Cleaned primary image was not found.", primaryImage.Path);
         if (!File.Exists(gainMap.Path))
             throw new FileNotFoundException("Cleaned GainMap was not found.", gainMap.Path);
+        if (string.IsNullOrWhiteSpace(expectedGainMapSha256))
+            throw new InvalidDataException("Verified GainMap identity is required for final JPEG consumption.");
 
         string outputPath = workspace.AllocateFilePath("neutral-img-gainmap", ".jpg");
         
@@ -265,6 +270,7 @@ public sealed class NeutralMediaService : INeutralMediaService
             primaryImage.Path,
             gainMap.Path,
             outputPath,
+            expectedGainMapSha256,
             cancellationToken).ConfigureAwait(false);
 
         return primaryImage with

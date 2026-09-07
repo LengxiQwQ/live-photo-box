@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 using LivePhotoBox.Interop;
 using Xunit;
@@ -44,7 +45,8 @@ public class NativeGainMapReassemblyTests : IDisposable
         await File.WriteAllBytesAsync(primaryPath, primaryBytes);
         await File.WriteAllBytesAsync(gainmapPath, gainmapBytes);
 
-        await NativeMediaService.ReassembleJpegGainMapAsync(primaryPath, gainmapPath, outputPath);
+        string expectedSha = Convert.ToHexString(SHA256.HashData(gainmapBytes));
+        await NativeMediaService.ReassembleJpegGainMapAsync(primaryPath, gainmapPath, outputPath, expectedSha);
 
         Assert.True(File.Exists(outputPath));
         byte[] outputBytes = await File.ReadAllBytesAsync(outputPath);
@@ -71,7 +73,8 @@ public class NativeGainMapReassemblyTests : IDisposable
         await File.WriteAllBytesAsync(gainmapPath, validGainmap);
 
         await Assert.ThrowsAnyAsync<Exception>(() =>
-            NativeMediaService.ReassembleJpegGainMapAsync(primaryPath, gainmapPath, outputPath));
+            NativeMediaService.ReassembleJpegGainMapAsync(primaryPath, gainmapPath, outputPath,
+                Convert.ToHexString(SHA256.HashData(validGainmap))));
 
         Assert.False(File.Exists(outputPath));
     }
@@ -90,7 +93,8 @@ public class NativeGainMapReassemblyTests : IDisposable
         await File.WriteAllBytesAsync(gainmapPath, invalidGainmap);
 
         await Assert.ThrowsAnyAsync<Exception>(() =>
-            NativeMediaService.ReassembleJpegGainMapAsync(primaryPath, gainmapPath, outputPath));
+            NativeMediaService.ReassembleJpegGainMapAsync(primaryPath, gainmapPath, outputPath,
+                Convert.ToHexString(SHA256.HashData(invalidGainmap))));
 
         Assert.False(File.Exists(outputPath));
     }
@@ -110,6 +114,27 @@ public class NativeGainMapReassemblyTests : IDisposable
         await File.WriteAllBytesAsync(outputPath, [0x01, 0x02]);
 
         await Assert.ThrowsAnyAsync<Exception>(() =>
-            NativeMediaService.ReassembleJpegGainMapAsync(primaryPath, gainmapPath, outputPath));
+            NativeMediaService.ReassembleJpegGainMapAsync(primaryPath, gainmapPath, outputPath,
+                Convert.ToHexString(SHA256.HashData(validGainmap))));
+    }
+
+    [Fact]
+    public async Task ReassembleJpegGainMapAsync_ExpectedIdentityRejectsSameLengthReplacement()
+    {
+        string primaryPath = Path.Combine(_tempDir, "primary.jpg");
+        string gainmapPath = Path.Combine(_tempDir, "gainmap.jpg");
+        string outputPath = Path.Combine(_tempDir, "output.jpg");
+        byte[] primaryBytes = [0xFF, 0xD8, 0xFF, 0xD9];
+        byte[] gainmapA = [0xFF, 0xD8, 0xFF, 0xE2, 0x00, 0x06, 0x41, 0x41, 0xFF, 0xD9];
+        byte[] gainmapB = [0xFF, 0xD8, 0xFF, 0xE2, 0x00, 0x06, 0x42, 0x42, 0xFF, 0xD9];
+
+        await File.WriteAllBytesAsync(primaryPath, primaryBytes);
+        await File.WriteAllBytesAsync(gainmapPath, gainmapB);
+
+        await Assert.ThrowsAnyAsync<Exception>(() =>
+            NativeMediaService.ReassembleJpegGainMapAsync(primaryPath, gainmapPath, outputPath,
+                Convert.ToHexString(SHA256.HashData(gainmapA))));
+
+        Assert.False(File.Exists(outputPath));
     }
 }

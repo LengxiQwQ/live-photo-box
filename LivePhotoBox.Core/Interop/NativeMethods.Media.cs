@@ -121,7 +121,8 @@ internal static partial class NativeMethods
         nint context,
         string primaryJpegPath,
         string gainmapJpegPath,
-        string outputPath);
+        string outputPath,
+        string expectedGainMapSha256);
 
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
         EntryPoint = "lpb_capture_preservation_observation", ExactSpelling = true)]
@@ -139,7 +140,7 @@ internal static partial class NativeMethods
         ref NativePreservationObservation pre,
         ref NativePreservationObservation post,
         int protocol,
-        byte hasDetachedGainmap,
+        uint detachedGainmapState,
         [In, Out] NativePreservationVerdict[] outVerdicts,
         nuint maxVerdicts,
         out nuint outCount,

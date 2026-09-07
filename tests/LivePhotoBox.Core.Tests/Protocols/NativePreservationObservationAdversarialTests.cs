@@ -18,6 +18,41 @@ public sealed class NativePreservationObservationAdversarialTests
 {
     private static string ResolveSample(string filename) => TestSampleResolver.ResolveSample(filename);
 
+    private static int FindIlocEntry(byte[] data, uint targetItemId)
+    {
+        int ilocPos = data.AsSpan().IndexOf("iloc"u8) - 4;
+        Assert.True(ilocPos >= 8);
+        int body = ilocPos + 8;
+        byte version = data[body];
+        int p = body + 4;
+        int offsetSize = data[p] >> 4;
+        int lengthSize = data[p] & 0x0F;
+        int baseOffsetSize = data[p + 1] >> 4;
+        int indexSize = version is 1 or 2 ? data[p + 1] & 0x0F : 0;
+        p += 2;
+        uint itemCount = version < 2
+            ? BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(p, 2))
+            : BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(p, 4));
+        p += version < 2 ? 2 : 4;
+
+        for (uint i = 0; i < itemCount; i++)
+        {
+            int entry = p;
+            uint itemId = version < 2
+                ? BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(p, 2))
+                : BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(p, 4));
+            p += version < 2 ? 2 : 4;
+            if (version is 1 or 2) p += 2;
+            p += 2 + baseOffsetSize;
+            ushort extentCount = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(p, 2));
+            p += 2;
+            if (itemId == targetItemId) return entry;
+            p += extentCount * (indexSize + offsetSize + lengthSize);
+        }
+
+        throw new InvalidOperationException($"iloc item {targetItemId} not found.");
+    }
+
     [Fact]
     public async Task Observation_FakeExifInEntropyCodestream_IsIgnoredByNative()
     {
@@ -255,6 +290,68 @@ public sealed class NativePreservationObservationAdversarialTests
 
         // Multi-extent HEIF must fail closed with CodestreamError
         Assert.True(obs.CodestreamError, "Unsupported multi-extent HEIF must set CodestreamError flag.");
+    }
+
+    [Theory]
+    [InlineData("version", 8, 3)]
+    [InlineData("flags", 9, 1)]
+    [InlineData("construction_method", 18, 2)]
+    [InlineData("data_reference_index", 20, 1)]
+    [Trait("Category", "RealSamples")]
+    public async Task Observation_UnsupportedIlocFields_FailClosed(string field, int ilocRelativeOffset, byte value)
+    {
+        string samplePath = ResolveSample("三星.heic");
+        if (!File.Exists(samplePath)) return;
+
+        byte[] tamperedBytes = await File.ReadAllBytesAsync(samplePath);
+        uint primaryId = PreservationTestHelpers.ExtractHeicPrimaryItemId(tamperedBytes)
+            ?? throw new InvalidOperationException("Samsung sample has no primary item.");
+        int ilocPos = tamperedBytes.AsSpan().IndexOf("iloc"u8) - 4;
+        int primaryEntry = FindIlocEntry(tamperedBytes, primaryId);
+        int mutationOffset = field switch
+        {
+            "version" or "flags" => ilocPos + ilocRelativeOffset,
+            "construction_method" => primaryEntry + 2,
+            "data_reference_index" => primaryEntry + 4,
+            _ => throw new InvalidOperationException(field)
+        };
+        tamperedBytes[mutationOffset] = value;
+
+        using var workspace = new MediaWorkspace();
+        string tamperedPath = workspace.AllocateFilePath($"iloc-{field}", ".heic");
+        await File.WriteAllBytesAsync(tamperedPath, tamperedBytes);
+
+        var obs = await NativeMediaService.CapturePreservationObservationAsync(
+            tamperedPath, SourceProtocol.SamsungMotionPhotoHeic, ImageContainer.Heic);
+
+        Assert.True(obs.CodestreamError, $"Unsupported iloc {field} must fail closed.");
+        Assert.Empty(obs.ImageCodestreamSha256);
+    }
+
+    [Theory]
+    [InlineData("version", 2)]
+    [InlineData("flags", 1)]
+    [Trait("Category", "RealSamples")]
+    public async Task Observation_UnsupportedIpmaHeader_FailsClosedForIcc(string field, byte value)
+    {
+        string samplePath = ResolveSample("三星.heic");
+        if (!File.Exists(samplePath)) return;
+
+        byte[] tamperedBytes = await File.ReadAllBytesAsync(samplePath);
+        int ipmaPos = tamperedBytes.AsSpan().IndexOf("ipma"u8) - 4;
+        Assert.True(ipmaPos >= 8);
+        tamperedBytes[ipmaPos + (field == "version" ? 8 : 9)] = value;
+
+        using var workspace = new MediaWorkspace();
+        string tamperedPath = workspace.AllocateFilePath($"ipma-{field}", ".heic");
+        await File.WriteAllBytesAsync(tamperedPath, tamperedBytes);
+
+        var obs = await NativeMediaService.CapturePreservationObservationAsync(
+            tamperedPath, SourceProtocol.SamsungMotionPhotoHeic, ImageContainer.Heic);
+
+        Assert.True(obs.IccParseError, $"Unsupported ipma {field} must fail closed for ICC ownership.");
+        Assert.False(obs.HasIcc);
+        Assert.Empty(obs.IccSha256);
     }
 
     [Fact]
@@ -539,7 +636,7 @@ public sealed class NativePreservationObservationAdversarialTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task Observation_HeicWithGenericAuxButNoXmp_IsNotClassifiedAsGainMap()
+    public async Task Observation_HeicWithGenericAuxAndUnrelatedGainMapLikeXmp_IsNotClassifiedAsGainMap()
     {
         string samplePath = ResolveSample("苹果双文件.HEIC");
         if (!File.Exists(samplePath)) return;
@@ -549,7 +646,7 @@ public sealed class NativePreservationObservationAdversarialTests
 
         byte[] tamperedBytes = (byte[])rawBytes.Clone();
 
-        // 1. Replace Apple GainMap URN in auxC with generic URN "urn:mpeg:hevc:2015:auxid:1"
+        // 1. Replace Apple GainMap URN in auxC with generic URN "urn:mpeg:hevc:2015:auxid:1".
         byte[] oldUrn = Encoding.ASCII.GetBytes("urn:com:apple:photo:2020:aux:hdrgainmap");
         byte[] newUrnPrefix = Encoding.ASCII.GetBytes("urn:mpeg:hevc:2015:auxid:1\0");
         int urnIdx = -1;
@@ -565,20 +662,22 @@ public sealed class NativePreservationObservationAdversarialTests
         Array.Clear(tamperedBytes, urnIdx, oldUrn.Length);
         Buffer.BlockCopy(newUrnPrefix, 0, tamperedBytes, urnIdx, newUrnPrefix.Length);
 
-        // 2. Neuter XMP MIME type so no XMP item is recognized
-        byte[] xmpMime = Encoding.ASCII.GetBytes("application/rdf+xml");
-        byte[] neuteredMime = Encoding.ASCII.GetBytes("application/neutered");
-        int mimeIdx = -1;
-        for (int i = 0; i <= tamperedBytes.Length - xmpMime.Length; i++)
+        // 2. Keep the XMP item but move its GainMap-like property to an
+        // unrelated namespace. This must not turn a generic aux item into a
+        // GainMap through a name-only heuristic.
+        byte[] xmpNamespace = Encoding.ASCII.GetBytes("http://ns.apple.com/HDRGainMap/1.0/");
+        byte[] unrelatedNamespace = Encoding.ASCII.GetBytes("http://ns.other.com/HDRGainMap/1.0/");
+        int namespaceIdx = -1;
+        for (int i = 0; i <= tamperedBytes.Length - xmpNamespace.Length; i++)
         {
-            if (tamperedBytes.AsSpan(i, xmpMime.Length).SequenceEqual(xmpMime))
+            if (tamperedBytes.AsSpan(i, xmpNamespace.Length).SequenceEqual(xmpNamespace))
             {
-                mimeIdx = i;
+                namespaceIdx = i;
                 break;
             }
         }
-        Assert.True(mimeIdx >= 0, "XMP MIME not found");
-        Buffer.BlockCopy(neuteredMime, 0, tamperedBytes, mimeIdx, neuteredMime.Length);
+        Assert.True(namespaceIdx >= 0, "GainMap-like XMP namespace not found");
+        Buffer.BlockCopy(unrelatedNamespace, 0, tamperedBytes, namespaceIdx, unrelatedNamespace.Length);
 
         string tamperedPath = workspace.AllocateFilePath("generic-aux-no-xmp", ".heic");
         await File.WriteAllBytesAsync(tamperedPath, tamperedBytes);
@@ -589,14 +688,91 @@ public sealed class NativePreservationObservationAdversarialTests
         // Generic aux is still observed as an HEIC auxiliary item
         Assert.True(obs.HasHeicAux, "Generic auxiliary item must still be detected as HEIC aux.");
         Assert.Equal("urn:mpeg:hevc:2015:auxid:1", obs.HeicAuxType);
-        Assert.False(obs.HasGainMapMeta, "File has no XMP, so HasGainMapMeta must be false.");
+        Assert.False(obs.HasGainMapMeta, "Unrelated GainMap-like XMP must not be positive semantic evidence.");
         Assert.False(obs.HeicAuxAmbiguous);
 
         // In verification, generic aux without XMP semantic proof must NOT trigger GainMap preservation check
         var verdicts = NativeMediaService.VerifyPreservation(
-            obs, obs, null, null, SourceProtocol.AppleLivePhoto, hasDetachedGainmap: false, out bool allPassed);
+            obs, obs, null, null, SourceProtocol.AppleLivePhoto,
+            DetachedGainMapVerificationState.NotExpected, out bool allPassed);
         var hdrVerdict = verdicts.FirstOrDefault(v => v.Category == 9); // LPB_PCHECK_HDR_GAINMAP
         Assert.Equal((uint)PreservationCheckStatus.NotApplicable, hdrVerdict.Status);
+    }
+
+    [Theory]
+    [InlineData("auxC-version")]
+    [InlineData("auxC-flags")]
+    [InlineData("auxC-no-terminator")]
+    [InlineData("iref-flags")]
+    [Trait("Category", "RealSamples")]
+    public async Task Observation_MalformedGainMapProof_FailsClosed(string mutation)
+    {
+        string samplePath = ResolveSample("苹果双文件.HEIC");
+        Assert.True(File.Exists(samplePath), $"Required RealSample is missing: {samplePath}");
+        byte[] tamperedBytes = await File.ReadAllBytesAsync(samplePath);
+
+        int auxcPos = tamperedBytes.AsSpan().IndexOf("auxC"u8) - 4;
+        int irefPos = tamperedBytes.AsSpan().IndexOf("iref"u8) - 4;
+        Assert.True(auxcPos >= 8);
+        Assert.True(irefPos >= 8);
+
+        switch (mutation)
+        {
+            case "auxC-version":
+                tamperedBytes[auxcPos + 8] = 1;
+                break;
+            case "auxC-flags":
+                tamperedBytes[auxcPos + 9] = 1;
+                break;
+            case "auxC-no-terminator":
+                int auxcSize = checked((int)BinaryPrimitives.ReadUInt32BigEndian(tamperedBytes.AsSpan(auxcPos, 4)));
+                int terminator = Array.IndexOf(tamperedBytes, (byte)0, auxcPos + 12, auxcSize - 12);
+                Assert.True(terminator > auxcPos + 12);
+                tamperedBytes[terminator] = (byte)'X';
+                break;
+            case "iref-flags":
+                tamperedBytes[irefPos + 9] = 1;
+                break;
+            default:
+                throw new InvalidOperationException(mutation);
+        }
+
+        using var workspace = new MediaWorkspace();
+        string tamperedPath = workspace.AllocateFilePath($"gainmap-proof-{mutation}", ".heic");
+        await File.WriteAllBytesAsync(tamperedPath, tamperedBytes);
+
+        var obs = await NativeMediaService.CapturePreservationObservationAsync(
+            tamperedPath, SourceProtocol.AppleLivePhoto, ImageContainer.Heic);
+
+        Assert.True(obs.HeicAuxAmbiguous, $"Malformed {mutation} must be marked ambiguous.");
+        Assert.False(obs.HasHeicGainMapSemantic, $"Malformed {mutation} must not prove GainMap semantic.");
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Observation_MalformedAuxlRelationship_FailsClosed()
+    {
+        string samplePath = ResolveSample("三星.heic");
+        Assert.True(File.Exists(samplePath), $"Required RealSample is missing: {samplePath}");
+        byte[] tamperedBytes = await File.ReadAllBytesAsync(samplePath);
+        int irefPos = tamperedBytes.AsSpan().IndexOf("iref"u8) - 4;
+        Assert.True(irefPos >= 8);
+        int auxlPos = tamperedBytes.AsSpan(irefPos).IndexOf("auxl"u8) - 4 + irefPos;
+        Assert.True(auxlPos >= irefPos);
+
+        byte irefVersion = tamperedBytes[irefPos + 8];
+        int refCountOffset = auxlPos + (irefVersion == 0 ? 10 : 12);
+        BinaryPrimitives.WriteUInt16BigEndian(tamperedBytes.AsSpan(refCountOffset, 2), ushort.MaxValue);
+
+        using var workspace = new MediaWorkspace();
+        string tamperedPath = workspace.AllocateFilePath("malformed-auxl", ".heic");
+        await File.WriteAllBytesAsync(tamperedPath, tamperedBytes);
+
+        var obs = await NativeMediaService.CapturePreservationObservationAsync(
+            tamperedPath, SourceProtocol.SamsungMotionPhotoHeic, ImageContainer.Heic);
+
+        Assert.True(obs.HeicAuxAmbiguous);
+        Assert.False(obs.HasHeicGainMapSemantic);
     }
 
     [Fact]
@@ -664,7 +840,8 @@ public sealed class NativePreservationObservationAdversarialTests
         Assert.Equal(baselineObs.HeicAuxItemSha256, obs.HeicAuxItemSha256);
 
         var verdicts = NativeMediaService.VerifyPreservation(
-            baselineObs, obs, null, null, SourceProtocol.AppleLivePhoto, hasDetachedGainmap: false, out bool allPassed);
+            baselineObs, obs, null, null, SourceProtocol.AppleLivePhoto,
+            DetachedGainMapVerificationState.NotExpected, out bool allPassed);
         var hdrVerdict = verdicts.FirstOrDefault(v => v.Category == 9);
         Assert.Equal((uint)PreservationCheckStatus.VerifiedPreserved, hdrVerdict.Status);
     }

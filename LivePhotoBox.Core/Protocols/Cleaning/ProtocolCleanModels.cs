@@ -110,6 +110,13 @@ public sealed record PreservationReport
     public string? Summary { get; init; }
 }
 
+public enum DetachedGainMapVerificationState
+{
+    NotExpected = 0,
+    ExpectedAndVerified = 1,
+    ExpectedButMissingOrChanged = 2
+}
+
 /// <summary>
 /// Immutable snapshot of media artifact lengths, hashes, and native preservation observations
 /// frozen before any destructive mutations or staging begin.
@@ -132,6 +139,7 @@ public sealed record PreservationBaseline
     public PreservationObservation? VideoObservation { get; init; }
 
     public string? GainMapSha256 { get; init; }
+    public bool GainMapExpected { get; init; }
 
     public DateTimeOffset CapturedAt { get; init; } = DateTimeOffset.UtcNow;
 }
@@ -232,6 +240,7 @@ public sealed record ProtocolCleanResult
     public IReadOnlyList<RemovedProtocolFact> RemovedFacts { get; init; } = [];
     public PreservationOutcome PreservationOutcome { get; init; }
     public PreservationReport? PreservationReport { get; init; }
+    public string? GainMapExpectedSha256 { get; init; }
     public ProtocolCleanupPlan? CleanupPlan { get; init; }
     public CleanerFailureCategory? FailureCategory { get; init; }
     public CleanerFailureStage? FailureStage { get; init; }

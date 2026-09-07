@@ -566,6 +566,9 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 RemovedFacts = removedFacts,
                 PreservationOutcome = preservationReport.OverallOutcome,
                 PreservationReport = preservationReport,
+                GainMapExpectedSha256 = preservationBaseline.GainMapExpected
+                    ? preservationBaseline.GainMapSha256
+                    : null,
                 CleanupPlan = cleanupPlan,
                 TransactionState = journal.State,
                 Duration = sw.Elapsed
@@ -799,6 +802,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             RemovedFacts = [],
             PreservationOutcome = PreservationOutcome.Preserved,
             PreservationReport = report,
+            GainMapExpectedSha256 = bundle.GainMap?.Sha256,
             CleanupPlan = new ProtocolCleanupPlan
             {
                 Protocol = SourceProtocol.NonLive,

@@ -5,9 +5,25 @@
 #include "media/media_cleaner.h"
 #include "foundation/internal.h"
 #include "foundation/sha256.h"
+#include <cctype>
 
 using namespace lpb;
 using namespace lpb::media;
+
+namespace {
+bool sha256_matches_hex(const uint8_t hash[32], const char* expected) noexcept {
+    if (!expected) return false;
+    for (size_t i = 0; i < 64; ++i) {
+        const char c = expected[i];
+        if (c == '\0') return false;
+        const char want = (i % 2 == 0)
+            ? "0123456789ABCDEF"[(hash[i / 2] >> 4) & 0x0F]
+            : "0123456789ABCDEF"[hash[i / 2] & 0x0F];
+        if (c != want && c != static_cast<char>(std::tolower(static_cast<unsigned char>(want)))) return false;
+    }
+    return expected[64] == '\0';
+}
+}
 
 extern "C" {
 
@@ -178,9 +194,10 @@ LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
     lpb_context* context,
     const char* primary_jpeg_path,
     const char* gainmap_jpeg_path,
-    const char* output_path)
+    const char* output_path,
+    const char* expected_gainmap_sha256)
 {
-    if (!context || !primary_jpeg_path || !gainmap_jpeg_path || !output_path) {
+    if (!context || !primary_jpeg_path || !gainmap_jpeg_path || !output_path || !expected_gainmap_sha256) {
         if (context) set_error(context, "Invalid arguments for GainMap JPEG reassembly.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
@@ -265,8 +282,10 @@ LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
     }
 
     std::vector<uint8_t> buffer(64 * 1024);
+    lpb::crypto::sha256_ctx gainmap_sha;
     bool failed = false;
     bool cancelled = false;
+    bool identity_mismatch = false;
 
     while (ReadFile(h_primary, buffer.data(), static_cast<DWORD>(buffer.size()), &bytes_read, NULL) && bytes_read > 0) {
         if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
@@ -293,6 +312,16 @@ LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
                 failed = true;
                 break;
             }
+            gainmap_sha.update(buffer.data(), bytes_read);
+        }
+    }
+
+    if (!failed) {
+        uint8_t actual_gainmap_sha[32]{};
+        gainmap_sha.finalize(actual_gainmap_sha);
+        if (!sha256_matches_hex(actual_gainmap_sha, expected_gainmap_sha256)) {
+            failed = true;
+            identity_mismatch = true;
         }
     }
 
@@ -312,7 +341,9 @@ LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
             set_error(context, "GainMap reassembly cancelled.");
             return LPB_RESULT_CANCELLED;
         }
-        set_error(context, "Failed during GainMap JPEG reassembly write.");
+        set_error(context, identity_mismatch
+            ? "GainMap artifact identity changed before or during final consumption."
+            : "Failed during GainMap JPEG reassembly write.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
 

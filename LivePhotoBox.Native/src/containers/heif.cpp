@@ -1,25 +1,158 @@
 #include "foundation/internal.h"
 #include "binary/binary_io.h"
 #include "containers/isobmff.h"
+#include <algorithm>
+#include <cstring>
+#include <limits>
 #include <string>
+#include <vector>
 
 using namespace lpb;
 
 namespace {
-    bool find_box(binary_reader& reader, size_t end, const char* type, size_t& box_start, size_t& box_len, size_t& body_start) {
-        if (end > reader.size()) end = reader.size();
-        while (reader.position() <= end && end - reader.position() >= 8) {
-            isobmff_box_header box{};
-            if (!try_read_box_header(reader.data().data(), reader.position(), end, box)) return false;
-            if (std::memcmp(reader.data().data() + box.start + 4, type, 4) == 0) {
-                box_start = box.start;
-                box_len = box.size;
-                body_start = box.start + box.header_size;
-                return true;
+    struct locator_box {
+        size_t start{};
+        size_t size{};
+        size_t header_size{};
+        size_t body_start{};
+        size_t body_size{};
+        char type[5]{};
+    };
+
+    enum class locator_result { present, absent, malformed };
+
+    bool parse_children_strict(const uint8_t* data, size_t start, size_t end,
+        std::vector<locator_box>& out) {
+        out.clear();
+        if (!data || start > end) return false;
+        size_t p = start;
+        while (p < end) {
+            if (end - p < 8) return false;
+            isobmff_box_header header{};
+            if (!try_read_box_header(data, p, end, header) ||
+                header.size < header.header_size || header.size > end - p) {
+                return false;
             }
-            if (!reader.try_seek(box.start + box.size)) return false;
+            locator_box box{};
+            box.start = p;
+            box.size = header.size;
+            box.header_size = header.header_size;
+            box.body_start = p + header.header_size;
+            box.body_size = header.size - header.header_size;
+            std::memcpy(box.type, data + p + 4, 4);
+            box.type[4] = '\0';
+            out.push_back(box);
+            p += header.size;
         }
-        return false;
+        return p == end;
+    }
+
+    bool is_type(const locator_box& box, const char* type) noexcept {
+        return std::memcmp(box.type, type, 4) == 0;
+    }
+
+    bool read_c_string(const uint8_t* data, size_t& p, size_t end, std::string& value) {
+        value.clear();
+        if (!data || p > end) return false;
+        const size_t start = p;
+        while (p < end && data[p] != 0) ++p;
+        if (p == end) return false;
+        if (p - start > 4096) return false;
+        value.assign(reinterpret_cast<const char*>(data + start), p - start);
+        ++p;
+        return true;
+    }
+
+    struct locator_item {
+        uint32_t id{};
+        uint32_t type{};
+        std::string content_type;
+    };
+
+    bool parse_iinf(const uint8_t* data, const locator_box& iinf,
+        std::vector<locator_item>& out_items, std::string* failure = nullptr) {
+        const auto fail = [&](const char* reason) {
+            if (failure) *failure = reason;
+            return false;
+        };
+        out_items.clear();
+        if (iinf.body_size < 6) return fail("iinf body too short");
+        size_t p = iinf.body_start;
+        const size_t end = iinf.start + iinf.size;
+        const uint8_t version = data[p++];
+        if (version > 1 || data[p] != 0 || data[p + 1] != 0 || data[p + 2] != 0) return fail("iinf version or flags");
+        p += 3;
+        uint32_t count = 0;
+        if (version == 0) {
+            if (p + 2 > end) return fail("iinf count truncated");
+            count = read_be16u(data + p);
+            p += 2;
+        } else {
+            if (p + 4 > end) return fail("iinf count truncated");
+            count = read_be32u(data + p);
+            p += 4;
+        }
+        if (count > 1'000'000u) return fail("iinf count too large");
+
+        std::vector<locator_box> children;
+        if (!parse_children_strict(data, p, end, children)) return fail("iinf child boxes malformed");
+        if (children.size() != count) return fail("iinf child count mismatch");
+        std::vector<uint32_t> seen_ids;
+        seen_ids.reserve(children.size());
+        for (const auto& child : children) {
+            if (!is_type(child, "infe") || child.body_size < 8) return fail("iinf contains non-infe or short child");
+            size_t q = child.body_start;
+            const size_t child_end = child.start + child.size;
+            const uint8_t infe_version = data[q++];
+            const uint32_t infe_flags = (static_cast<uint32_t>(data[q]) << 16) |
+                (static_cast<uint32_t>(data[q + 1]) << 8) | data[q + 2];
+            // The corpus uses the defined infe flag bit 0; other flags are
+            // outside this locator's supported layout.
+            if (infe_version < 2 || infe_version > 3 || (infe_flags & ~1u) != 0) return fail("infe version or flags");
+            q += 3;
+            uint32_t item_id = 0;
+            if (infe_version == 2) {
+                if (q + 2 > child_end) return fail("infe item id truncated");
+                item_id = read_be16u(data + q);
+                q += 2;
+            } else {
+                if (q + 4 > child_end) return fail("infe item id truncated");
+                item_id = read_be32u(data + q);
+                q += 4;
+            }
+            if (item_id == 0 || std::find(seen_ids.begin(), seen_ids.end(), item_id) != seen_ids.end()) return fail("duplicate or zero infe item id");
+            seen_ids.push_back(item_id);
+            if (q + 2 + 4 > child_end) return fail("infe type truncated");
+            q += 2; // item_protection_index
+            const uint32_t item_type = read_be32u(data + q);
+            q += 4;
+
+            std::string item_name;
+            if (!read_c_string(data, q, child_end, item_name)) return fail("infe item_name unterminated");
+            std::string content_type;
+            if (item_type == 0x6D696D65u) { // mime
+                // Both layouts occur in the corpus: the canonical form has an
+                // empty item_name before content_type, while some producers
+                // omit that empty field.  In either form every consumed field
+                // must be NUL-terminated and the child must end exactly at
+                // the final supported field.
+                if (!item_name.empty() && item_name.rfind("application/", 0) == 0) {
+                    content_type = item_name;
+                    item_name.clear();
+                } else if (!read_c_string(data, q, child_end, content_type)) {
+                    return fail("infe content_type unterminated");
+                }
+                // content_encoding is optional in the field layout, but if present it
+                // must still be a complete NUL-terminated field.
+                if (q < child_end) {
+                    std::string content_encoding;
+                    if (!read_c_string(data, q, child_end, content_encoding)) return fail("infe content_encoding unterminated");
+                }
+            }
+            if (q != child_end) return fail("infe trailing bytes");
+            out_items.push_back({ item_id, item_type, std::move(content_type) });
+        }
+        return true;
     }
 
     bool read_uint_local(binary_reader& reader, size_t size, uint64_t& value) {
@@ -35,13 +168,18 @@ namespace {
     }
 
     bool parse_iloc_for_item(binary_reader& reader, size_t iloc_body, size_t iloc_end,
-        uint32_t target_item_id, uint64_t data_size, uint64_t* out_offset, uint64_t* out_length) {
+        uint32_t target_item_id, uint64_t data_size, uint64_t idat_body, uint64_t idat_size, bool has_idat,
+        uint64_t* out_offset, uint64_t* out_length, bool* out_found) {
         if (iloc_body > iloc_end || iloc_end > reader.size()) return false;
+        if (out_found) *out_found = false;
         if (!reader.try_seek(iloc_body)) return false;
         
         uint8_t iloc_version = 0;
         if (!reader.try_read_u8(iloc_version)) return false;
-        if (!reader.skip(3)) return false; // flags
+        if (iloc_version > 2) return false;
+        uint8_t flag0 = 0, flag1 = 0, flag2 = 0;
+        if (!reader.try_read_u8(flag0) || !reader.try_read_u8(flag1) || !reader.try_read_u8(flag2)) return false;
+        if (flag0 != 0 || flag1 != 0 || flag2 != 0) return false;
         
         uint8_t byte1 = 0, byte2 = 0;
         if (!reader.try_read_u8(byte1) || !reader.try_read_u8(byte2)) return false;
@@ -50,6 +188,7 @@ namespace {
         uint8_t length_size = byte1 & 0x0F;
         uint8_t base_offset_size = (byte2 >> 4) & 0x0F;
         uint8_t index_size = (iloc_version == 1 || iloc_version == 2) ? (byte2 & 0x0F) : 0;
+        if (iloc_version == 0 && (byte2 & 0x0F) != 0) return false;
         const auto valid_field_size = [](uint8_t size) noexcept { return size == 0 || size == 4 || size == 8; };
         if (iloc_version > 2 || !valid_field_size(offset_size) || !valid_field_size(length_size) ||
             !valid_field_size(base_offset_size) || !valid_field_size(index_size)) return false;
@@ -64,25 +203,28 @@ namespace {
         }
 
         bool found_target = false;
+        std::vector<uint32_t> seen_item_ids;
+        seen_item_ids.reserve(item_count);
         for (uint32_t i = 0; i < item_count; i++) {
             uint32_t item_id = 0;
             if (iloc_version < 2) {
                 uint16_t id16 = 0;
-                if (!reader.try_read_be16u(id16)) break;
+                if (!reader.try_read_be16u(id16)) return false;
                 item_id = id16;
             } else {
-                if (!reader.try_read_be32u(item_id)) break;
+                if (!reader.try_read_be32u(item_id)) return false;
             }
+            if (item_id == 0 || std::find(seen_item_ids.begin(), seen_item_ids.end(), item_id) != seen_item_ids.end()) return false;
+            seen_item_ids.push_back(item_id);
             
+            uint16_t construction_method = 0;
             if (iloc_version == 1 || iloc_version == 2) {
-                uint16_t construction_method = 0;
                 if (!reader.try_read_be16u(construction_method)) return false;
-                construction_method &= 0x000F;
-                if (item_id == target_item_id && construction_method != 0) return false;
+                if ((construction_method & 0xFFF0u) != 0 || construction_method > 1) return false;
             }
             uint16_t data_reference_index = 0;
             if (!reader.try_read_be16u(data_reference_index)) return false;
-            if (item_id == target_item_id && data_reference_index != 0) return false;
+            if (data_reference_index != 0) return false;
             if (reader.position() > iloc_end) return false;
             
             uint64_t base_offset = 0;
@@ -91,7 +233,7 @@ namespace {
             }
             
             uint16_t extent_count = 0;
-            if (!reader.try_read_be16u(extent_count)) break;
+            if (!reader.try_read_be16u(extent_count)) return false;
             
             if (item_id == target_item_id && (found_target || extent_count != 1)) return false;
             for (uint16_t j = 0; j < extent_count; j++) {
@@ -106,10 +248,16 @@ namespace {
                 uint64_t extent_length = 0;
                 if (length_size > 0 && !read_uint_local(reader, length_size, extent_length)) return false;
 
+                const uint64_t owner_base = construction_method == 1 ? idat_body : 0;
+                const uint64_t owner_size = construction_method == 1 ? idat_size : data_size;
+                if (construction_method == 1 && !has_idat) return false;
+                if (base_offset > owner_size || extent_offset > owner_size - base_offset ||
+                    extent_length > owner_size - base_offset - extent_offset) return false;
                 if (item_id == target_item_id) {
-                    if (extent_length == 0 || base_offset > data_size || extent_offset > data_size - base_offset ||
-                        extent_length > data_size - base_offset - extent_offset) return false;
-                    *out_offset = base_offset + extent_offset;
+                    if (extent_length == 0 || owner_base > data_size || base_offset > data_size - owner_base ||
+                        extent_offset > data_size - owner_base - base_offset ||
+                        extent_length > data_size - owner_base - base_offset - extent_offset) return false;
+                    *out_offset = owner_base + base_offset + extent_offset;
                     *out_length = extent_length;
                     found_target = true;
                 }
@@ -117,7 +265,100 @@ namespace {
             if (reader.position() > iloc_end) return false;
             if (item_id == target_item_id) continue;
         }
-        return found_target && reader.position() == iloc_end;
+        if (out_found) *out_found = found_target;
+        return reader.position() == iloc_end;
+    }
+
+    locator_result locate_item(const uint8_t* input, size_t input_size, uint32_t wanted_type,
+        const char* label, uint64_t* out_offset, uint64_t* out_length, std::string& error) {
+        if (!input || !out_offset || !out_length) {
+            error = "Invalid locator arguments.";
+            return locator_result::malformed;
+        }
+        std::vector<locator_box> top_boxes;
+        if (!parse_children_strict(input, 0, input_size, top_boxes)) {
+            error = "Malformed top-level HEIF box region.";
+            return locator_result::malformed;
+        }
+        const locator_box* meta = nullptr;
+        for (const auto& box : top_boxes) {
+            if (!is_type(box, "meta")) continue;
+            if (meta) {
+                error = "Duplicate authoritative meta box.";
+                return locator_result::malformed;
+            }
+            meta = &box;
+        }
+        if (!meta || meta->body_size < 4) {
+            error = "Missing or malformed meta box.";
+            return locator_result::malformed;
+        }
+        const size_t meta_end = meta->start + meta->size;
+        const uint8_t* meta_body = input + meta->body_start;
+        if (meta_body[0] != 0 || meta_body[1] != 0 || meta_body[2] != 0 || meta_body[3] != 0) {
+            error = "Unsupported meta FullBox version or flags.";
+            return locator_result::malformed;
+        }
+        std::vector<locator_box> children;
+        if (!parse_children_strict(input, meta->body_start + 4, meta_end, children)) {
+            error = "Malformed meta child box region.";
+            return locator_result::malformed;
+        }
+        const locator_box* iinf = nullptr;
+        const locator_box* iloc = nullptr;
+        const locator_box* idat = nullptr;
+        for (const auto& box : children) {
+            if (is_type(box, "iinf")) {
+                if (iinf) { error = "Duplicate authoritative iinf box."; return locator_result::malformed; }
+                iinf = &box;
+            } else if (is_type(box, "iloc")) {
+                if (iloc) { error = "Duplicate authoritative iloc box."; return locator_result::malformed; }
+                iloc = &box;
+            } else if (is_type(box, "idat")) {
+                if (idat) { error = "Duplicate idat box."; return locator_result::malformed; }
+                idat = &box;
+            }
+        }
+        if (!iinf || !iloc) {
+            error = "Missing authoritative iinf or iloc box.";
+            return locator_result::malformed;
+        }
+
+        std::vector<locator_item> items;
+        std::string iinf_failure;
+        if (!parse_iinf(input, *iinf, items, &iinf_failure)) {
+            error = "Malformed or unsupported iinf/infe structure: " + iinf_failure;
+            return locator_result::malformed;
+        }
+        uint32_t target_item_id = 0;
+        for (const auto& item : items) {
+            const bool is_target = item.type == wanted_type ||
+                (wanted_type == 0x6D696D65u && item.type == 0x6D696D65u &&
+                 item.content_type.rfind("application/rdf+xml", 0) == 0);
+            if (is_target && target_item_id == 0) {
+                target_item_id = item.id;
+            }
+        }
+
+        binary_reader reader(input, input_size);
+        const uint64_t idat_body = idat ? static_cast<uint64_t>(idat->body_start) : 0;
+        const uint64_t idat_size = idat ? static_cast<uint64_t>(idat->body_size) : 0;
+        bool found_location = false;
+        if (!parse_iloc_for_item(reader, iloc->body_start, iloc->start + iloc->size,
+            target_item_id, input_size, idat_body, idat_size, idat != nullptr,
+            out_offset, out_length, &found_location)) {
+            error = "Malformed or unsupported iloc structure.";
+            return locator_result::malformed;
+        }
+        if (target_item_id == 0) {
+            error = std::string("Confirmed absent: no ") + label + " item in validated iinf.";
+            return locator_result::absent;
+        }
+        if (!found_location) {
+            error = std::string("Malformed authoritative graph: ") + label + " item has no iloc entry.";
+            return locator_result::malformed;
+        }
+        return locator_result::present;
     }
 }
 
@@ -133,101 +374,12 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_heif_locate_exif_item(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    try
-    {
-        binary_reader reader(input, input_size);
-        size_t meta_start, meta_len, meta_body;
-        if (!find_box(reader, input_size, "meta", meta_start, meta_len, meta_body)) {
-            set_error(context, "No meta box found.");
-            return LPB_RESULT_INVALID_ARGUMENT;
-        }
-
-        // meta is FullBox: skip version(1) and flags(3)
-        size_t child_start = meta_body + 4;
-        size_t child_end = meta_start + meta_len;
-
-        reader.try_seek(child_start);
-        size_t iinf_start, iinf_len, iinf_body;
-        if (!find_box(reader, child_end, "iinf", iinf_start, iinf_len, iinf_body)) {
-            set_error(context, "No iinf box found.");
-            return LPB_RESULT_INVALID_ARGUMENT;
-        }
-
-        reader.try_seek(child_start);
-        size_t iloc_start, iloc_len, iloc_body;
-        if (!find_box(reader, child_end, "iloc", iloc_start, iloc_len, iloc_body)) {
-            set_error(context, "No iloc box found.");
-            return LPB_RESULT_INVALID_ARGUMENT;
-        }
-
-        // Parse iinf to find Exif item_ID
-        if (!reader.try_seek(iinf_body)) return LPB_RESULT_INVALID_ARGUMENT;
-        
-        uint8_t version = 0;
-        if (!reader.try_read_u8(version)) return LPB_RESULT_INVALID_ARGUMENT;
-        if (!reader.skip(3)) return LPB_RESULT_INVALID_ARGUMENT;
-        if (version > 1) return LPB_RESULT_INVALID_ARGUMENT;
-
-        uint32_t count = 0;
-        if (version == 0) {
-            uint16_t count16 = 0;
-            if (!reader.try_read_be16u(count16)) return LPB_RESULT_INVALID_ARGUMENT;
-            count = count16;
-        } else {
-            if (!reader.try_read_be32u(count)) return LPB_RESULT_INVALID_ARGUMENT;
-        }
-
-        uint32_t target_item_id = 0xFFFFFFFF;
-        bool found_exif = false;
-        
-        for (uint32_t i = 0; i < count; i++) {
-            size_t infe_start, infe_len, infe_body;
-            if (!find_box(reader, iinf_start + iinf_len, "infe", infe_start, infe_len, infe_body)) {
-                break;
-            }
-            
-            binary_reader infe_reader(input, input_size);
-            if (infe_reader.try_seek(infe_body)) {
-                uint8_t infe_version = 0;
-                if (infe_reader.try_read_u8(infe_version) && infe_reader.skip(3)) {
-                    uint32_t item_id = 0;
-                    bool id_ok = false;
-                    if (infe_version >= 3) {
-                        id_ok = infe_reader.try_read_be32u(item_id);
-                    } else if (infe_version == 2) {
-                        uint16_t id16 = 0;
-                        id_ok = infe_reader.try_read_be16u(id16);
-                        item_id = id16;
-                    }
-                    
-                    if (id_ok && infe_reader.skip(2)) { // skip item_protection_index
-                        uint32_t item_type = 0;
-                        if (infe_reader.try_read_be32u(item_type) && item_type == 0x45786966) { // 'Exif'
-                            target_item_id = item_id;
-                            found_exif = true;
-                            break;
-                        }
-                    }
-                }
-            }
-            reader.try_seek(infe_start + infe_len);
-        }
-
-        if (!found_exif) {
-            set_error(context, "No Exif item found in iinf.");
-            return LPB_RESULT_INVALID_ARGUMENT;
-        }
-
-        if (parse_iloc_for_item(reader, iloc_body, iloc_start + iloc_len,
-            target_item_id, input_size, out_offset, out_length)) {
-            return LPB_RESULT_OK;
-        }
-
-        set_error(context, "Exif item location not found in iloc.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-    catch (const std::exception& ex)
-    {
+    try {
+        std::string error;
+        const locator_result result = locate_item(input, input_size, 0x45786966u, "Exif", out_offset, out_length, error);
+        set_error(context, error.c_str());
+        return result == locator_result::present ? LPB_RESULT_OK : LPB_RESULT_INVALID_ARGUMENT;
+    } catch (const std::exception& ex) {
         set_error(context, ex.what());
         return LPB_RESULT_INVALID_ARGUMENT;
     }
@@ -245,122 +397,12 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_heif_locate_xmp_item(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    try
-    {
-        binary_reader reader(input, input_size);
-        size_t meta_start, meta_len, meta_body;
-        if (!find_box(reader, input_size, "meta", meta_start, meta_len, meta_body)) {
-            set_error(context, "No meta box found.");
-            return LPB_RESULT_INVALID_ARGUMENT;
-        }
-
-        size_t child_start = meta_body + 4;
-        size_t child_end = meta_start + meta_len;
-
-        reader.try_seek(child_start);
-        size_t iinf_start, iinf_len, iinf_body;
-        if (!find_box(reader, child_end, "iinf", iinf_start, iinf_len, iinf_body)) {
-            set_error(context, "No iinf box found.");
-            return LPB_RESULT_INVALID_ARGUMENT;
-        }
-
-        reader.try_seek(child_start);
-        size_t iloc_start, iloc_len, iloc_body;
-        if (!find_box(reader, child_end, "iloc", iloc_start, iloc_len, iloc_body)) {
-            set_error(context, "No iloc box found.");
-            return LPB_RESULT_INVALID_ARGUMENT;
-        }
-
-        if (!reader.try_seek(iinf_body)) return LPB_RESULT_INVALID_ARGUMENT;
-        
-        uint8_t version = 0;
-        if (!reader.try_read_u8(version)) return LPB_RESULT_INVALID_ARGUMENT;
-        if (!reader.skip(3)) return LPB_RESULT_INVALID_ARGUMENT;
-        if (version > 1) return LPB_RESULT_INVALID_ARGUMENT;
-
-        uint32_t count = 0;
-        if (version == 0) {
-            uint16_t count16 = 0;
-            if (!reader.try_read_be16u(count16)) return LPB_RESULT_INVALID_ARGUMENT;
-            count = count16;
-        } else {
-            if (!reader.try_read_be32u(count)) return LPB_RESULT_INVALID_ARGUMENT;
-        }
-
-        uint32_t target_item_id = 0xFFFFFFFF;
-        bool found_xmp = false;
-        
-        for (uint32_t i = 0; i < count; i++) {
-            size_t infe_start, infe_len, infe_body;
-            if (!find_box(reader, iinf_start + iinf_len, "infe", infe_start, infe_len, infe_body)) {
-                break;
-            }
-            
-            binary_reader infe_reader(input, input_size);
-            if (infe_reader.try_seek(infe_body)) {
-                uint8_t infe_version = 0;
-                if (infe_reader.try_read_u8(infe_version) && infe_reader.skip(3)) {
-                    if (infe_version >= 2) {
-                        uint32_t item_id = 0;
-                        bool id_ok = false;
-                        if (infe_version >= 3) {
-                            id_ok = infe_reader.try_read_be32u(item_id);
-                        } else {
-                            uint16_t id16 = 0;
-                            id_ok = infe_reader.try_read_be16u(id16);
-                            item_id = id16;
-                        }
-                        
-                        if (id_ok && infe_reader.skip(2)) { // skip item_protection_index
-                            uint32_t item_type = 0;
-                            if (infe_reader.try_read_be32u(item_type) && item_type == 0x6D696D65) { // 'mime'
-                                auto read_infe_string = [&](std::string& value) {
-                                    value.clear();
-                                    while (infe_reader.position() < infe_start + infe_len) {
-                                        uint8_t b = 0;
-                                        if (!infe_reader.try_read_u8(b)) return false;
-                                        if (b == 0) return true;
-                                        if (value.size() >= 255) return false;
-                                        value.push_back(static_cast<char>(b));
-                                    }
-                                    return false;
-                                };
-                                // Both forms occur in the field: some files
-                                // omit the empty item_name, while Samsung puts
-                                // an empty item_name before content_type.
-                                std::string first_string;
-                                if (!read_infe_string(first_string)) continue;
-                                std::string type_str = first_string;
-                                if (type_str.rfind("application/rdf+xml", 0) != 0 &&
-                                    !read_infe_string(type_str)) continue;
-                                if (type_str.find("application/rdf+xml") == 0) {
-                                    target_item_id = item_id;
-                                    found_xmp = true;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            reader.try_seek(infe_start + infe_len);
-        }
-
-        if (!found_xmp) {
-            set_error(context, "No XMP item found in iinf.");
-            return LPB_RESULT_INVALID_ARGUMENT;
-        }
-
-        if (parse_iloc_for_item(reader, iloc_body, iloc_start + iloc_len,
-            target_item_id, input_size, out_offset, out_length)) {
-            return LPB_RESULT_OK;
-        }
-
-        set_error(context, "XMP item location not found in iloc.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-    catch (const std::exception& ex)
-    {
+    try {
+        std::string error;
+        const locator_result result = locate_item(input, input_size, 0x6D696D65u, "XMP", out_offset, out_length, error);
+        set_error(context, error.c_str());
+        return result == locator_result::present ? LPB_RESULT_OK : LPB_RESULT_INVALID_ARGUMENT;
+    } catch (const std::exception& ex) {
         set_error(context, ex.what());
         return LPB_RESULT_INVALID_ARGUMENT;
     }

@@ -685,27 +685,41 @@ static bool is_live_protocol_property(std::string_view name, std::string_view ur
     return false;
 }
 
-static bool is_gainmap_meta(std::string_view name, std::string_view uri) {
-    auto contains_icase = [](std::string_view str, std::string_view sub) {
-        if (sub.empty() || str.size() < sub.size()) return false;
-        for (size_t i = 0; i <= str.size() - sub.size(); ++i) {
-            bool match = true;
-            for (size_t j = 0; j < sub.size(); ++j) {
-                if (std::tolower(static_cast<unsigned char>(str[i + j])) !=
-                    std::tolower(static_cast<unsigned char>(sub[j]))) {
-                    match = false;
-                    break;
-                }
-            }
-            if (match) return true;
+static bool is_gainmap_meta(
+    std::string_view name,
+    std::string_view uri,
+    std::string_view value = {}) {
+    auto equals_icase = [](std::string_view a, std::string_view b) {
+        if (a.size() != b.size()) return false;
+        for (size_t i = 0; i < a.size(); ++i) {
+            if (std::tolower(static_cast<unsigned char>(a[i])) !=
+                std::tolower(static_cast<unsigned char>(b[i]))) return false;
         }
-        return false;
+        return true;
     };
 
-    return contains_icase(uri, "hdrgm") ||
-           contains_icase(uri, "gainmap") ||
-           contains_icase(name, "hdrgm") ||
-           contains_icase(name, "gainmap");
+    // Only protocol namespaces with a known GainMap property are positive
+    // semantic evidence.  A vendor-private name/value containing "GainMap"
+    // is deliberately not sufficient.
+    if (equals_icase(uri, "http://ns.adobe.com/hdr-gain-map/1.0/")) {
+        return equals_icase(name, "Version") ||
+               equals_icase(name, "GainMapMin") ||
+               equals_icase(name, "GainMapMax") ||
+               equals_icase(name, "Gamma") ||
+               equals_icase(name, "OffsetSDR") ||
+               equals_icase(name, "OffsetHDR") ||
+               equals_icase(name, "HDRCapacityMin") ||
+               equals_icase(name, "HDRCapacityMax") ||
+               equals_icase(name, "BaseRenditionIsHDR");
+    }
+    return equals_icase(uri, "http://ns.google.com/photos/1.0/container/item/") &&
+           equals_icase(name, "Semantic") && equals_icase(value, "GainMap");
+}
+
+bool last_error_is_confirmed_absent(lpb_context* context) {
+    if (!context) return false;
+    std::scoped_lock lock(context->error_mutex);
+    return context->last_error.rfind("Confirmed absent:", 0) == 0;
 }
 
 void observe_xmp_common(std::string_view xml_text, lpb_preservation_observation* out) {
@@ -794,7 +808,7 @@ void observe_xmp_common(std::string_view xml_text, lpb_preservation_observation*
             std::string_view local = (colon == std::string_view::npos) ? attr_name : attr_name.substr(colon + 1);
             std::string_view uri = resolve_prefix(prefix);
 
-            if (is_gainmap_meta(local, uri) || is_gainmap_meta(attr_val, uri) || is_gainmap_meta(prefix, uri)) {
+            if (is_gainmap_meta(local, uri, attr_val)) {
                 out->flags |= LPB_POBS_HAS_GAINMAP_META;
             }
 
@@ -826,7 +840,7 @@ void observe_xmp_common(std::string_view xml_text, lpb_preservation_observation*
                         std::string_view local = (colon == std::string_view::npos) ? elem_name : elem_name.substr(colon + 1);
                         std::string_view uri = resolve_prefix(prefix);
 
-                        if (is_gainmap_meta(local, uri) || is_gainmap_meta(inner, uri) || is_gainmap_meta(prefix, uri)) {
+                        if (is_gainmap_meta(local, uri, inner)) {
                             out->flags |= LPB_POBS_HAS_GAINMAP_META;
                         }
 
@@ -929,24 +943,122 @@ std::vector<isobmff_box> parse_boxes(const uint8_t* data, size_t start, size_t e
     return boxes;
 }
 
-bool extract_heic_item_payload(const uint8_t* data, size_t data_size, size_t iloc_body, size_t iloc_size, uint32_t target_item_id, std::vector<uint8_t>& out_payload) {
-    if (iloc_size < 8) return false;
-    size_t p = iloc_body;
-    size_t end = iloc_body + iloc_size;
+bool parse_boxes_strict(
+    const uint8_t* data,
+    size_t start,
+    size_t end,
+    std::vector<isobmff_box>& boxes) {
+    boxes.clear();
+    if (!data || start > end) return false;
+    size_t p = start;
+    while (p < end) {
+        if (end - p < 8) return false;
+        isobmff_box_header hdr{};
+        if (!try_read_box_header(data, p, end, hdr) || hdr.size < 8 || hdr.size > end - p) return false;
+        char type_str[5]{};
+        std::memcpy(type_str, data + p + 4, 4);
+        isobmff_box box;
+        box.type = type_str;
+        box.start = p;
+        box.size = hdr.size;
+        box.header_size = hdr.header_size;
+        box.body_start = p + hdr.header_size;
+        box.body_size = hdr.size - hdr.header_size;
+        boxes.push_back(std::move(box));
+        p += hdr.size;
+    }
+    return p == end;
+}
 
-    uint8_t ver = data[p++];
-    p += 3; // flags
+struct ipma_association {
+    uint32_t item_id{};
+    uint32_t property_index{};
+};
+
+bool parse_ipma_box(
+    const std::vector<uint8_t>& data,
+    const isobmff_box& ipma,
+    size_t property_count,
+    std::vector<ipma_association>& out_associations)
+{
+    if (ipma.body_size < 8 || ipma.start > data.size() || ipma.size > data.size() - ipma.start) return false;
+    size_t p = ipma.body_start;
+    const size_t end = ipma.start + ipma.size;
+    if (p + 4 > end) return false;
+
+    const uint8_t version = data[p++];
+    if (version > 1) return false;
+    const uint32_t flags = (static_cast<uint32_t>(data[p]) << 16) |
+                           (static_cast<uint32_t>(data[p + 1]) << 8) |
+                           static_cast<uint32_t>(data[p + 2]);
+    p += 3;
+    // Only the large_property_index bit is supported; all reserved flags fail closed.
+    if ((flags & ~1u) != 0) return false;
+    const bool large_index = (flags & 1u) != 0;
+
+    if (p + 4 > end) return false;
+    const uint32_t entry_count = read_be32u(data.data() + p);
+    p += 4;
+    std::vector<uint32_t> seen_items;
+    std::vector<std::pair<uint32_t, uint32_t>> seen_associations;
+    seen_items.reserve(entry_count);
+
+    for (uint32_t i = 0; i < entry_count; ++i) {
+        const size_t id_size = version == 0 ? 2 : 4;
+        if (p > end || id_size + 1 > end - p) return false;
+        const uint32_t item_id = version == 0 ? read_be16u(data.data() + p) : read_be32u(data.data() + p);
+        p += id_size;
+        if (std::find(seen_items.begin(), seen_items.end(), item_id) != seen_items.end()) return false;
+        seen_items.push_back(item_id);
+
+        const uint8_t association_count = data[p++];
+        for (uint8_t a = 0; a < association_count; ++a) {
+            const size_t association_size = large_index ? 2 : 1;
+            if (association_size > end - p) return false;
+            const uint32_t raw = large_index ? read_be16u(data.data() + p) : data[p];
+            p += association_size;
+            const uint32_t property_index = large_index ? (raw & 0x7FFFu) : (raw & 0x7Fu);
+            if (property_index == 0 || property_index > property_count) return false;
+            const auto association = std::make_pair(item_id, property_index);
+            if (std::find(seen_associations.begin(), seen_associations.end(), association) != seen_associations.end()) return false;
+            seen_associations.push_back(association);
+            out_associations.push_back({ item_id, property_index });
+        }
+    }
+
+    return p == end;
+}
+
+bool extract_heic_item_payload(
+    const uint8_t* data,
+    size_t data_size,
+    size_t iloc_body,
+    size_t iloc_size,
+    const isobmff_box* idat,
+    uint32_t target_item_id,
+    std::vector<uint8_t>& out_payload) {
+    if (!data || iloc_body > data_size || iloc_size > data_size - iloc_body || iloc_size < 8) return false;
+    size_t p = iloc_body;
+    const size_t end = iloc_body + iloc_size;
+
+    const uint8_t ver = data[p++];
+    if (ver > 2 || p + 3 > end) return false;
+    // iloc is a FullBox, and this implementation does not support reserved flags.
+    if (data[p] != 0 || data[p + 1] != 0 || data[p + 2] != 0) return false;
+    p += 3;
 
     if (p + 2 > end) return false;
-    uint8_t b1 = data[p++];
-    uint8_t b2 = data[p++];
-    uint8_t offset_size = (b1 >> 4) & 0x0F;
-    uint8_t length_size = b1 & 0x0F;
-    uint8_t base_offset_size = (b2 >> 4) & 0x0F;
-    uint8_t index_size = (ver == 1 || ver == 2) ? (b2 & 0x0F) : 0;
+    const uint8_t b1 = data[p++];
+    const uint8_t b2 = data[p++];
+    const uint8_t offset_size = (b1 >> 4) & 0x0F;
+    const uint8_t length_size = b1 & 0x0F;
+    const uint8_t base_offset_size = (b2 >> 4) & 0x0F;
+    const uint8_t index_size = (ver == 1 || ver == 2) ? (b2 & 0x0F) : 0;
+    if (ver == 0 && (b2 & 0x0F) != 0) return false;
 
-    auto valid_sz = [](uint8_t s) { return s == 0 || s == 4 || s == 8; };
-    if (!valid_sz(offset_size) || !valid_sz(length_size) || !valid_sz(base_offset_size) || !valid_sz(index_size)) return false;
+    const auto valid_sz = [](uint8_t s) noexcept { return s == 0 || s == 4 || s == 8; };
+    if (!valid_sz(offset_size) || !valid_sz(length_size) ||
+        !valid_sz(base_offset_size) || !valid_sz(index_size)) return false;
 
     uint32_t item_count = 0;
     if (ver < 2) {
@@ -959,50 +1071,69 @@ bool extract_heic_item_payload(const uint8_t* data, size_t data_size, size_t ilo
         p += 4;
     }
 
-    auto read_uint_sz = [&](uint8_t sz) -> uint64_t {
-        uint64_t v = 0;
+    bool found_target = false;
+    uint64_t target_offset = 0;
+    uint64_t target_length = 0;
+    const auto read_uint_sz = [&](uint8_t sz, uint64_t& value) noexcept {
+        if (sz > 8 || p > end || sz > end - p) return false;
+        value = 0;
         for (uint8_t i = 0; i < sz; ++i) {
-            v = (v << 8) | data[p++];
+            if (value > (std::numeric_limits<uint64_t>::max() >> 8)) return false;
+            value = (value << 8) | data[p++];
         }
-        return v;
+        return true;
     };
 
-    for (uint32_t i = 0; i < item_count && p < end; ++i) {
-        uint32_t item_id = (ver < 2) ? read_be16u(data + p) : read_be32u(data + p);
-        p += (ver < 2) ? 2 : 4;
+    for (uint32_t i = 0; i < item_count; ++i) {
+        if (p > end || (ver < 2 ? 2u : 4u) > end - p) return false;
+        const uint32_t item_id = ver < 2 ? read_be16u(data + p) : read_be32u(data + p);
+        p += ver < 2 ? 2 : 4;
 
+        uint16_t construction_method = 0;
         if (ver == 1 || ver == 2) {
             if (p + 2 > end) return false;
-            p += 2; // construction_method
+            construction_method = read_be16u(data + p);
+            p += 2;
+            if ((construction_method & 0xFFF0u) != 0 || construction_method > 1) return false;
         }
-        if (p + 2 > end) return false;
-        p += 2; // data_reference_index
-
-        if (p + base_offset_size > end) return false;
-        uint64_t base_offset = read_uint_sz(base_offset_size);
 
         if (p + 2 > end) return false;
-        uint16_t extent_count = read_be16u(data + p);
+        const uint16_t data_reference_index = read_be16u(data + p);
         p += 2;
+        if (data_reference_index != 0) return false;
 
-        if (item_id == target_item_id) {
-            if (extent_count != 1) return false; // Multi-extent fail closed
-            if ((ver == 1 || ver == 2) && index_size > 0) p += index_size;
-            if (p + offset_size + length_size > end) return false;
-            uint64_t extent_offset = read_uint_sz(offset_size);
-            uint64_t extent_length = read_uint_sz(length_size);
-            uint64_t abs_offset = base_offset + extent_offset;
-            if (extent_length == 0 || abs_offset > data_size || extent_length > data_size - abs_offset) return false;
-            out_payload.assign(data + abs_offset, data + abs_offset + extent_length);
-            return true;
-        }
+        uint64_t base_offset = 0;
+        if (!read_uint_sz(base_offset_size, base_offset)) return false;
+        if (p + 2 > end) return false;
+        const uint16_t extent_count = read_be16u(data + p);
+        p += 2;
+        if (item_id == target_item_id && (found_target || extent_count != 1)) return false;
 
-        for (uint16_t e = 0; e < extent_count && p <= end; ++e) {
-            if ((ver == 1 || ver == 2) && index_size > 0) p += index_size;
-            p += offset_size + length_size;
+        for (uint16_t e = 0; e < extent_count; ++e) {
+            if ((ver == 1 || ver == 2) && index_size > 0) {
+                uint64_t ignored_index = 0;
+                if (!read_uint_sz(index_size, ignored_index)) return false;
+            }
+            uint64_t extent_offset = 0;
+            uint64_t extent_length = 0;
+            if (!read_uint_sz(offset_size, extent_offset) || !read_uint_sz(length_size, extent_length)) return false;
+            const uint64_t owner_start = construction_method == 1 ? (idat ? idat->body_start : 0) : 0;
+            const uint64_t owner_size = construction_method == 1 ? (idat ? idat->body_size : 0) : data_size;
+            if (construction_method == 1 && !idat) return false;
+            if (base_offset > owner_size || extent_offset > owner_size - base_offset ||
+                extent_length > owner_size - base_offset - extent_offset) return false;
+            if (item_id == target_item_id) {
+                if (extent_length == 0) return false;
+                target_offset = owner_start + base_offset + extent_offset;
+                target_length = extent_length;
+                found_target = true;
+            }
         }
     }
-    return false;
+
+    if (!found_target || p != end || target_offset > data_size || target_length > data_size - target_offset) return false;
+    out_payload.assign(data + target_offset, data + target_offset + target_length);
+    return !out_payload.empty();
 }
 
 uint32_t extract_heic_primary_item_id(const uint8_t* data, const std::vector<isobmff_box>& meta_children, lpb_preservation_observation* out) {
@@ -1025,14 +1156,18 @@ uint32_t extract_heic_primary_item_id(const uint8_t* data, const std::vector<iso
         return 0;
     }
     uint8_t ver = data[pitm->body_start];
-    if (ver == 0 && pitm->body_size >= 6) {
+    if (data[pitm->body_start + 1] != 0 || data[pitm->body_start + 2] != 0 || data[pitm->body_start + 3] != 0) {
+        out->flags |= LPB_POBS_CODESTREAM_ERROR;
+        return 0;
+    }
+    if (ver == 0 && pitm->body_size == 6) {
         uint32_t id = read_be16u(data + pitm->body_start + 4);
         if (id == 0) {
             out->flags |= LPB_POBS_CODESTREAM_ERROR;
             return 0;
         }
         return id;
-    } else if (ver == 1 && pitm->body_size >= 8) {
+    } else if (ver == 1 && pitm->body_size == 8) {
         uint32_t id = read_be32u(data + pitm->body_start + 4);
         if (id == 0) {
             out->flags |= LPB_POBS_CODESTREAM_ERROR;
@@ -1065,8 +1200,19 @@ void observe_heic_codestream(const std::vector<uint8_t>& data, const std::vector
         return;
     }
 
+    const isobmff_box* idat = nullptr;
+    for (const auto& b : meta_children) {
+        if (b.type == "idat") {
+            if (idat) {
+                out->flags |= LPB_POBS_CODESTREAM_ERROR;
+                return;
+            }
+            idat = &b;
+        }
+    }
+
     std::vector<uint8_t> payload;
-    if (extract_heic_item_payload(data.data(), data.size(), iloc->body_start, iloc->body_size, primary_id, payload)) {
+    if (extract_heic_item_payload(data.data(), data.size(), iloc->body_start, iloc->body_size, idat, primary_id, payload)) {
         uint8_t hash[32];
         lpb::crypto::sha256_buffer(payload.data(), payload.size(), hash);
         sha256_to_hex_upper(hash, out->image_codestream_sha256);
@@ -1086,13 +1232,25 @@ void observe_heic_icc(const std::vector<uint8_t>& data, const std::vector<isobmf
             iprp = &b;
         }
     }
-    if (!iprp) return;
+    if (!iprp) {
+        for (const auto& b : meta_children) {
+            if (b.type == "ipma") {
+                out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+                return;
+            }
+        }
+        return;
+    }
     if (iprp->body_size < 8) {
         out->flags |= LPB_POBS_ICC_PARSE_ERROR;
         return;
     }
 
-    auto iprp_children = parse_boxes(data.data(), iprp->body_start, iprp->start + iprp->size);
+    std::vector<isobmff_box> iprp_children;
+    if (!parse_boxes_strict(data.data(), iprp->body_start, iprp->start + iprp->size, iprp_children)) {
+        out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+        return;
+    }
     const isobmff_box* ipco = nullptr;
     const isobmff_box* ipma = nullptr;
     for (const auto& b : iprp_children) {
@@ -1120,15 +1278,31 @@ void observe_heic_icc(const std::vector<uint8_t>& data, const std::vector<isobmf
         }
     }
 
-    if (!ipco) return;
-    if (ipco->body_size < 8) return;
+    if (!ipco) {
+        if (ipma) out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+        return;
+    }
+    if (ipco->body_size == 0) {
+        if (ipma) out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+        return;
+    }
 
-    auto prop_boxes = parse_boxes(data.data(), ipco->body_start, ipco->start + ipco->size);
+    std::vector<isobmff_box> prop_boxes;
+    if (!parse_boxes_strict(data.data(), ipco->body_start, ipco->start + ipco->size, prop_boxes)) {
+        out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+        return;
+    }
     std::vector<std::pair<size_t, const isobmff_box*>> colr_props;
     for (size_t i = 0; i < prop_boxes.size(); ++i) {
         if (prop_boxes[i].type == "colr") {
             colr_props.push_back({ i + 1, &prop_boxes[i] });
         }
+    }
+
+    std::vector<ipma_association> associations;
+    if (ipma && !parse_ipma_box(data, *ipma, prop_boxes.size(), associations)) {
+        out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+        return;
     }
 
     if (colr_props.empty()) return;
@@ -1139,74 +1313,12 @@ void observe_heic_icc(const std::vector<uint8_t>& data, const std::vector<isobmf
         return;
     }
 
-    size_t p = ipma->body_start;
-    size_t end = ipma->start + ipma->size;
-    if (p + 4 > end) {
-        out->flags |= LPB_POBS_ICC_PARSE_ERROR;
-        return;
-    }
-    uint8_t ver = data[p++];
-    int flags = (data[p] << 16) | (data[p + 1] << 8) | data[p + 2];
-    p += 3;
-    bool is_large_index = (flags & 1) != 0;
-
-    if (p + 4 > end) {
-        out->flags |= LPB_POBS_ICC_PARSE_ERROR;
-        return;
-    }
-    uint32_t entry_count = read_be32u(data.data() + p);
-    p += 4;
-
-    std::vector<size_t> matched_indices;
-    std::vector<uint32_t> seen_items;
-    bool parse_ok = true;
-    for (uint32_t i = 0; i < entry_count; ++i) {
-        size_t id_sz = (ver < 1) ? 2 : 4;
-        if (p + id_sz + 1 > end) {
-            parse_ok = false;
-            break;
-        }
-        uint32_t item_id = (ver < 1) ? read_be16u(data.data() + p) : read_be32u(data.data() + p);
-        p += id_sz;
-
-        if (std::find(seen_items.begin(), seen_items.end(), item_id) != seen_items.end()) {
-            parse_ok = false; // Duplicate item entry in ipma
-            break;
-        }
-        seen_items.push_back(item_id);
-
-        uint8_t assoc_count = data[p++];
-        for (uint8_t a = 0; a < assoc_count; ++a) {
-            size_t prop_index = 0;
-            if (is_large_index) {
-                if (p + 2 > end) {
-                    parse_ok = false;
-                    break;
-                }
-                prop_index = read_be16u(data.data() + p) & 0x7FFF;
-                p += 2;
-            } else {
-                if (p + 1 > end) {
-                    parse_ok = false;
-                    break;
-                }
-                prop_index = data[p++] & 0x7F;
-            }
-            if (item_id == primary_id) {
-                matched_indices.push_back(prop_index);
-            }
-        }
-        if (!parse_ok) break;
-    }
-
-    if (!parse_ok) {
-        out->flags |= LPB_POBS_ICC_PARSE_ERROR;
-        return;
-    }
-
     std::vector<const isobmff_box*> matching_colrs;
     for (const auto& cp : colr_props) {
-        size_t matches = std::count(matched_indices.begin(), matched_indices.end(), cp.first);
+        size_t matches = 0;
+        for (const auto& association : associations) {
+            if (association.item_id == primary_id && association.property_index == cp.first) ++matches;
+        }
         if (matches > 1) {
             // Duplicate association to the same colr property
             out->flags |= LPB_POBS_ICC_PARSE_ERROR;
@@ -1232,29 +1344,46 @@ void observe_heic_icc(const std::vector<uint8_t>& data, const std::vector<isobmf
 std::string extract_heic_item_aux_type(
     const std::vector<uint8_t>& data,
     const std::vector<isobmff_box>& meta_children,
-    uint32_t aux_item_id)
+    uint32_t aux_item_id,
+    bool* out_auxc_ipma_proof,
+    bool* out_ipma_valid)
 {
-    // 1. Try resolving via iprp -> ipco (auxC) + ipma
+    if (out_auxc_ipma_proof) *out_auxc_ipma_proof = false;
+    if (out_ipma_valid) *out_ipma_valid = true;
+    // GainMap classification is authoritative only through iprp -> ipco(auxC)
+    // plus a complete ipma association.  iinf names/content types are not a
+    // semantic proof and must never be used as a fallback.
     const isobmff_box* iprp = nullptr;
     for (const auto& b : meta_children) {
         if (b.type == "iprp") {
+            if (iprp) {
+                if (out_ipma_valid) *out_ipma_valid = false;
+                return "";
+            }
             iprp = &b;
-            break;
         }
     }
+    if (!iprp) return "";
+    if (iprp->body_size == 0) return "";
 
     isobmff_box ipco{};
     bool has_ipco = false;
     std::vector<isobmff_box> ipma_boxes;
-    if (iprp && iprp->body_size >= 8) {
-        auto iprp_children = parse_boxes(data.data(), iprp->body_start, iprp->start + iprp->size);
-        for (const auto& b : iprp_children) {
-            if (b.type == "ipco") {
-                ipco = b;
-                has_ipco = true;
-            } else if (b.type == "ipma") {
-                ipma_boxes.push_back(b);
+    std::vector<isobmff_box> iprp_children;
+    if (!parse_boxes_strict(data.data(), iprp->body_start, iprp->start + iprp->size, iprp_children)) {
+        if (out_ipma_valid) *out_ipma_valid = false;
+        return "";
+    }
+    for (const auto& b : iprp_children) {
+        if (b.type == "ipco") {
+            if (has_ipco) {
+                if (out_ipma_valid) *out_ipma_valid = false;
+                return "";
             }
+            ipco = b;
+            has_ipco = true;
+        } else if (b.type == "ipma") {
+            ipma_boxes.push_back(b);
         }
     }
     for (const auto& b : meta_children) {
@@ -1263,117 +1392,76 @@ std::string extract_heic_item_aux_type(
         }
     }
 
-    if (has_ipco && ipco.body_size >= 8) {
-        auto prop_boxes = parse_boxes(data.data(), ipco.body_start, ipco.start + ipco.size);
-        std::vector<std::pair<size_t, std::string>> auxc_props;
-        for (size_t i = 0; i < prop_boxes.size(); ++i) {
-            const auto& prop = prop_boxes[i];
-            if (prop.type == "auxC" && prop.body_size >= 4) {
-                size_t p = prop.body_start + 4; // skip version + flags
-                size_t end = prop.start + prop.size;
-                std::string urn;
-                while (p < end && data[p] != 0) {
-                    urn.push_back(static_cast<char>(data[p++]));
-                }
-                auxc_props.push_back({ i + 1, std::move(urn) });
+    if (!has_ipco) return "";
+    std::vector<isobmff_box> prop_boxes;
+    if (!parse_boxes_strict(data.data(), ipco.body_start, ipco.start + ipco.size, prop_boxes)) {
+        if (out_ipma_valid) *out_ipma_valid = false;
+        return "";
+    }
+    std::vector<std::pair<size_t, std::string>> auxc_props;
+    for (size_t i = 0; i < prop_boxes.size(); ++i) {
+        const auto& prop = prop_boxes[i];
+        if (prop.type != "auxC") continue;
+        if (prop.body_size < 5) {
+            if (out_ipma_valid) *out_ipma_valid = false;
+            return "";
+        }
+        const size_t body = prop.body_start;
+        const size_t end = prop.start + prop.size;
+        if (data[body] != 0 || data[body + 1] != 0 || data[body + 2] != 0 || data[body + 3] != 0) {
+            if (out_ipma_valid) *out_ipma_valid = false;
+            return "";
+        }
+        size_t p = body + 4;
+        const size_t text_start = p;
+        while (p < end && data[p] != 0) ++p;
+        if (p == end || p == text_start) {
+            if (out_ipma_valid) *out_ipma_valid = false;
+            return "";
+        }
+        // Some producer writers leave zero padding after the required
+        // terminator when replacing a longer auxiliary_type in-place.  It is
+        // safe to accept only zero padding; any non-zero trailing bytes are a
+        // malformed auxC proof.
+        for (size_t trailing = p + 1; trailing < end; ++trailing) {
+            if (data[trailing] != 0) {
+                if (out_ipma_valid) *out_ipma_valid = false;
+                return "";
             }
         }
-
-        if (!auxc_props.empty()) {
-            for (const auto& ipma : ipma_boxes) {
-                if (ipma.body_size < 8) continue;
-                size_t p = ipma.body_start;
-                size_t end = ipma.start + ipma.size;
-                if (p + 4 > end) continue;
-                uint8_t ver = data[p++];
-                int flags = (data[p] << 16) | (data[p + 1] << 8) | data[p + 2];
-                p += 3;
-                bool is_large_index = (flags & 1) != 0;
-                if (p + 4 > end) continue;
-                uint32_t entry_count = read_be32u(data.data() + p);
-                p += 4;
-                for (uint32_t i = 0; i < entry_count && p < end; ++i) {
-                    size_t id_sz = (ver < 1) ? 2 : 4;
-                    if (p + id_sz + 1 > end) break;
-                    uint32_t cur_item_id = (ver < 1) ? read_be16u(data.data() + p) : read_be32u(data.data() + p);
-                    p += id_sz;
-                    uint8_t assoc_count = data[p++];
-                    for (uint8_t a = 0; a < assoc_count && p < end; ++a) {
-                        size_t prop_index = 0;
-                        if (is_large_index) {
-                            if (p + 2 > end) break;
-                            prop_index = read_be16u(data.data() + p) & 0x7FFF;
-                            p += 2;
-                        } else {
-                            prop_index = data[p++] & 0x7F;
-                        }
-                        if (cur_item_id == aux_item_id) {
-                            for (const auto& ap : auxc_props) {
-                                if (ap.first == prop_index) {
-                                    return ap.second;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        auxc_props.push_back({ i + 1, std::string(reinterpret_cast<const char*>(data.data() + text_start), p - text_start) });
     }
 
-    // 2. Fallback: check iinf -> infe for item_name or content_type
-    const isobmff_box* iinf = nullptr;
-    for (const auto& b : meta_children) {
-        if (b.type == "iinf") {
-            iinf = &b;
-            break;
-        }
+    if (auxc_props.empty()) return "";
+    if (ipma_boxes.size() > 1) {
+        if (out_ipma_valid) *out_ipma_valid = false;
+        return "";
     }
+    if (ipma_boxes.empty()) return auxc_props.size() == 1 ? auxc_props.front().second : "";
 
-    if (iinf && iinf->body_size >= 4) {
-        auto infe_boxes = parse_boxes(data.data(), iinf->body_start + 4, iinf->start + iinf->size);
-        for (const auto& ib : infe_boxes) {
-            if (ib.type == "infe" && ib.body_size >= 4) {
-                uint8_t infe_ver = data[ib.body_start];
-                size_t p = ib.body_start + 4;
-                size_t end = ib.start + ib.size;
-                uint32_t cur_item_id = 0;
-                if (infe_ver >= 3) {
-                    if (p + 4 > end) continue;
-                    cur_item_id = read_be32u(data.data() + p);
-                    p += 4;
-                } else if (infe_ver == 2) {
-                    if (p + 2 > end) continue;
-                    cur_item_id = read_be16u(data.data() + p);
-                    p += 2;
-                } else {
-                    continue;
-                }
-
-                if (cur_item_id == aux_item_id) {
-                    p += 2; // skip item_protection_index
-                    if (p + 4 > end) continue;
-                    p += 4; // skip item_type
-
-                    std::string item_name;
-                    while (p < end && data[p] != 0) {
-                        item_name.push_back(static_cast<char>(data[p++]));
-                    }
-                    if (p < end && data[p] == 0) ++p;
-
-                    std::string content_type;
-                    while (p < end && data[p] != 0) {
-                        content_type.push_back(static_cast<char>(data[p++]));
-                    }
-
-                    if (!content_type.empty()) return content_type;
-                    if (!item_name.empty()) return item_name;
-                    break;
-                }
+    std::vector<ipma_association> associations;
+    if (!parse_ipma_box(data, ipma_boxes.front(), prop_boxes.size(), associations)) {
+        if (out_ipma_valid) *out_ipma_valid = false;
+        return "";
+    }
+    std::string resolved_type;
+    size_t matched = 0;
+    for (const auto& association : associations) {
+        if (association.item_id != aux_item_id) continue;
+        for (const auto& ap : auxc_props) {
+            if (ap.first == association.property_index) {
+                resolved_type = ap.second;
+                ++matched;
             }
         }
     }
-
-    return "";
+    if (matched != 1) {
+        // This is diagnostic type text only.  It is deliberately not marked as
+        // an ipma proof, so it can never classify a GainMap on its own.
+        return auxc_props.size() == 1 ? auxc_props.front().second : "";
+    }
+    if (out_auxc_ipma_proof) *out_auxc_ipma_proof = true;
+    return resolved_type;
 }
 
 void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmff_box>& meta_children, uint32_t primary_id, lpb_preservation_observation* out) {
@@ -1389,15 +1477,24 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
             iref = &b;
         }
     }
-    if (!iref || iref->body_size < 4) return;
-
-    uint8_t iref_ver = data[iref->body_start];
-    if (iref_ver > 1) {
+    if (!iref) return;
+    if (iref->body_size < 4) {
         out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
         return;
     }
 
-    auto iref_children = parse_boxes(data.data(), iref->body_start + 4, iref->start + iref->size);
+    uint8_t iref_ver = data[iref->body_start];
+    if (iref_ver > 1 || data[iref->body_start + 1] != 0 ||
+        data[iref->body_start + 2] != 0 || data[iref->body_start + 3] != 0) {
+        out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
+        return;
+    }
+
+    std::vector<isobmff_box> iref_children;
+    if (!parse_boxes_strict(data.data(), iref->body_start + 4, iref->start + iref->size, iref_children)) {
+        out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
+        return;
+    }
     struct aux_rel {
         uint32_t from_id;
         uint32_t to_id;
@@ -1428,7 +1525,7 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
                 for (uint16_t r = 0; r < ref_count; ++r) {
                     uint32_t to_id = read_be16u(data.data() + p);
                     p += 2;
-                    if (from_id == to_id) {
+                    if (from_id == 0 || to_id == 0 || from_id == to_id) {
                         invalid_rel = true;
                     }
                     if (from_id == primary_id || to_id == primary_id) {
@@ -1444,6 +1541,7 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
                         invalid_rel = true;
                     }
                 }
+                if (p != end) invalid_rel = true;
             } else if (iref_ver == 1) {
                 if (p + 6 > end) {
                     out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
@@ -1459,7 +1557,7 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
                 for (uint16_t r = 0; r < ref_count; ++r) {
                     uint32_t to_id = read_be32u(data.data() + p);
                     p += 4;
-                    if (from_id == to_id) {
+                    if (from_id == 0 || to_id == 0 || from_id == to_id) {
                         invalid_rel = true;
                     }
                     if (from_id == primary_id || to_id == primary_id) {
@@ -1475,6 +1573,7 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
                         invalid_rel = true;
                     }
                 }
+                if (p != end) invalid_rel = true;
             }
         }
     }
@@ -1506,21 +1605,16 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
     std::vector<resolved_candidate> gainmap_candidates;
 
     for (const auto& rel : candidate_relations) {
-        std::string aux_type = extract_heic_item_aux_type(data, meta_children, rel.aux_id);
-        bool is_apple_urn = (aux_type == "urn:com:apple:photo:2020:aux:hdrgainmap");
-        bool is_gainmap = false;
-        if (is_apple_urn) {
-            is_gainmap = true;
-        } else if (out->flags & LPB_POBS_HAS_GAINMAP_META) {
-            if (aux_type.find("hdrgainmap") != std::string::npos ||
-                aux_type == "urn:mpeg:hevc:2015:auxid:1" ||
-                (candidate_relations.size() == 1 && !aux_type.empty() &&
-                 aux_type.find("depth") == std::string::npos &&
-                 aux_type.find("matte") == std::string::npos &&
-                 aux_type.find("auxid:2") == std::string::npos)) {
-                is_gainmap = true;
-            }
+        bool auxc_ipma_proof = false;
+        bool ipma_valid = true;
+        std::string aux_type = extract_heic_item_aux_type(
+            data, meta_children, rel.aux_id, &auxc_ipma_proof, &ipma_valid);
+        if (!ipma_valid) {
+            out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
+            return;
         }
+        const bool is_gainmap = auxc_ipma_proof &&
+            aux_type == "urn:com:apple:photo:2020:aux:hdrgainmap";
         resolved_candidate rc{ rel, std::move(aux_type), is_gainmap };
         if (is_gainmap) {
             gainmap_candidates.push_back(rc);
@@ -1561,8 +1655,19 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
         return;
     }
 
+    const isobmff_box* idat = nullptr;
+    for (const auto& b : meta_children) {
+        if (b.type == "idat") {
+            if (idat) {
+                out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
+                return;
+            }
+            idat = &b;
+        }
+    }
+
     std::vector<uint8_t> aux_payload;
-    if (!extract_heic_item_payload(data.data(), data.size(), iloc->body_start, iloc->body_size, rel.aux_id, aux_payload)) {
+    if (!extract_heic_item_payload(data.data(), data.size(), iloc->body_start, iloc->body_size, idat, rel.aux_id, aux_payload)) {
         out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
         return;
     }
@@ -1578,6 +1683,7 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
     }
 
     out->flags |= LPB_POBS_HAS_HEIC_AUX;
+    if (selected->is_gainmap) out->flags |= LPB_POBS_HAS_HEIC_GAINMAP_SEMANTIC;
 }
 
 void observe_jpeg(lpb_context* context, const std::vector<uint8_t>& data, lpb_source_protocol protocol_hint, lpb_preservation_observation* out) {
@@ -1597,7 +1703,11 @@ void observe_jpeg(lpb_context* context, const std::vector<uint8_t>& data, lpb_so
 }
 
 void observe_heic(lpb_context* context, const std::vector<uint8_t>& data, lpb_source_protocol protocol_hint, lpb_preservation_observation* out) {
-    auto top_boxes = parse_boxes(data.data(), 0, data.size());
+    std::vector<isobmff_box> top_boxes;
+    if (!parse_boxes_strict(data.data(), 0, data.size(), top_boxes)) {
+        out->flags |= LPB_POBS_CODESTREAM_ERROR;
+        return;
+    }
     const isobmff_box* meta = nullptr;
     for (const auto& b : top_boxes) {
         if (b.type == "meta") {
@@ -1613,8 +1723,28 @@ void observe_heic(lpb_context* context, const std::vector<uint8_t>& data, lpb_so
         out->flags |= LPB_POBS_CODESTREAM_ERROR;
         return;
     }
+    if (data[meta->body_start] != 0 || data[meta->body_start + 1] != 0 ||
+        data[meta->body_start + 2] != 0 || data[meta->body_start + 3] != 0) {
+        out->flags |= LPB_POBS_CODESTREAM_ERROR;
+        return;
+    }
 
-    auto meta_children = parse_boxes(data.data(), meta->body_start + 4, meta->start + meta->size);
+    std::vector<isobmff_box> meta_children;
+    if (!parse_boxes_strict(data.data(), meta->body_start + 4, meta->start + meta->size, meta_children)) {
+        out->flags |= LPB_POBS_CODESTREAM_ERROR;
+        // The region is not authoritative and no facts are consumed.  Keep a
+        // conservative ambiguity marker when a structurally recognizable iref
+        // prefix was present, so callers do not mistake the failure for a
+        // clean "no auxiliary" result.
+        const auto partial_children = parse_boxes(data.data(), meta->body_start + 4, meta->start + meta->size);
+        for (const auto& child : partial_children) {
+            if (child.type == "iref") {
+                out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
+                break;
+            }
+        }
+        return;
+    }
     uint32_t primary_id = extract_heic_primary_item_id(data.data(), meta_children, out);
     out->heic_primary_item_id = primary_id;
 
@@ -1624,7 +1754,8 @@ void observe_heic(lpb_context* context, const std::vector<uint8_t>& data, lpb_so
     // Exif item
     uint64_t exif_offset = 0;
     uint64_t exif_len = 0;
-    if (lpb_heif_locate_exif_item(context, data.data(), data.size(), &exif_offset, &exif_len) == LPB_RESULT_OK) {
+    const lpb_result exif_result = lpb_heif_locate_exif_item(context, data.data(), data.size(), &exif_offset, &exif_len);
+    if (exif_result == LPB_RESULT_OK) {
         if (exif_offset < data.size() && exif_len > 4 && exif_offset + exif_len <= data.size()) {
             size_t item_start = static_cast<size_t>(exif_offset);
             size_t item_len = static_cast<size_t>(exif_len);
@@ -1648,6 +1779,8 @@ void observe_heic(lpb_context* context, const std::vector<uint8_t>& data, lpb_so
                 }
             }
         }
+    } else if (!last_error_is_confirmed_absent(context)) {
+        out->flags |= LPB_POBS_EXIF_PARSE_ERROR;
     }
     if (lpb_context_check_cancelled(context) != LPB_RESULT_OK) return;
 
@@ -1657,11 +1790,14 @@ void observe_heic(lpb_context* context, const std::vector<uint8_t>& data, lpb_so
     // XMP item
     uint64_t xmp_offset = 0;
     uint64_t xmp_len = 0;
-    if (lpb_heif_locate_xmp_item(context, data.data(), data.size(), &xmp_offset, &xmp_len) == LPB_RESULT_OK) {
+    const lpb_result xmp_result = lpb_heif_locate_xmp_item(context, data.data(), data.size(), &xmp_offset, &xmp_len);
+    if (xmp_result == LPB_RESULT_OK) {
         if (xmp_offset < data.size() && xmp_len > 0 && xmp_offset + xmp_len <= data.size()) {
             std::string_view xml_text(reinterpret_cast<const char*>(data.data() + xmp_offset), static_cast<size_t>(xmp_len));
             observe_xmp_common(xml_text, out);
         }
+    } else if (!last_error_is_confirmed_absent(context)) {
+        out->flags |= LPB_POBS_XMP_MALFORMED;
     }
     if (lpb_context_check_cancelled(context) != LPB_RESULT_OK) return;
 
@@ -1732,7 +1868,7 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
     const lpb_preservation_observation* pre,
     const lpb_preservation_observation* post,
     lpb_source_protocol protocol,
-    uint8_t has_detached_gainmap,
+    uint32_t detached_gainmap_state,
     lpb_preservation_verdict* out_verdicts,
     size_t max_verdicts,
     size_t* out_count,
@@ -1747,6 +1883,16 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
 
     *out_overall_passed = 1;
     size_t count = 0;
+    if (detached_gainmap_state > LPB_DETACHED_GAINMAP_EXPECTED_MISSING_OR_CHANGED) {
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const bool detached_expected =
+        detached_gainmap_state == LPB_DETACHED_GAINMAP_EXPECTED_AND_VERIFIED ||
+        detached_gainmap_state == LPB_DETACHED_GAINMAP_EXPECTED_MISSING_OR_CHANGED;
+    const bool detached_verified =
+        detached_gainmap_state == LPB_DETACHED_GAINMAP_EXPECTED_AND_VERIFIED;
+    const bool detached_failed =
+        detached_gainmap_state == LPB_DETACHED_GAINMAP_EXPECTED_MISSING_OR_CHANGED;
 
     // 1. Media Payload (Image)
     {
@@ -1987,6 +2133,14 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
         bool has_hdr_indicator = false;
         bool hdr_failed = false;
         char hdr_fail_reason[256] = {0};
+        const bool positive_xmp_gainmap = (pre->flags & LPB_POBS_HAS_GAINMAP_META) != 0;
+
+        if (detached_failed) {
+            has_hdr_indicator = true;
+            hdr_failed = true;
+            snprintf(hdr_fail_reason, sizeof(hdr_fail_reason), "%s",
+                "Expected detached GainMap artifact is missing or its identity changed.");
+        }
 
         if ((pre->flags & LPB_POBS_HEIC_AUX_AMBIGUOUS) || (post->flags & LPB_POBS_HEIC_AUX_AMBIGUOUS)) {
             has_hdr_indicator = true;
@@ -1994,14 +2148,12 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
             snprintf(hdr_fail_reason, sizeof(hdr_fail_reason), "%s",
                 "Ambiguous or duplicate HEIC auxiliary relationship detected (fail closed).");
         } else if (pre->flags & LPB_POBS_HAS_HEIC_AUX) {
-            bool pre_is_gainmap = (
-                std::strcmp(pre->heic_aux_type, "urn:com:apple:photo:2020:aux:hdrgainmap") == 0 ||
-                (pre->flags & LPB_POBS_HAS_GAINMAP_META)
-            );
+            const bool pre_is_gainmap = (pre->flags & LPB_POBS_HAS_HEIC_GAINMAP_SEMANTIC) != 0;
 
             if (pre_is_gainmap) {
                 has_hdr_indicator = true;
-                if (!(post->flags & LPB_POBS_HAS_HEIC_AUX)) {
+                if (!(post->flags & LPB_POBS_HAS_HEIC_AUX) ||
+                    !(post->flags & LPB_POBS_HAS_HEIC_GAINMAP_SEMANTIC)) {
                     hdr_failed = true;
                     snprintf(hdr_fail_reason, sizeof(hdr_fail_reason), "%s",
                         "HEIC GainMap auxl relationship or auxiliary item was dropped after cleaning.");
@@ -2036,7 +2188,28 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
             }
         }
 
-        if (pre->flags & LPB_POBS_HAS_GAINMAP_META) {
+        // A generic HEIC auxiliary is not itself GainMap evidence.  When a
+        // supported XMP GainMap semantic is present, however, preserve the
+        // separately observable auxl relationship and fail closed if that
+        // relationship disappears or is rewritten.
+        if (!hdr_failed && positive_xmp_gainmap &&
+            (pre->flags & LPB_POBS_HAS_HEIC_AUX) &&
+            !(pre->flags & LPB_POBS_HAS_HEIC_GAINMAP_SEMANTIC)) {
+            if (!(post->flags & LPB_POBS_HAS_HEIC_AUX) ||
+                pre->heic_primary_item_id != post->heic_primary_item_id ||
+                pre->heic_aux_item_id != post->heic_aux_item_id ||
+                pre->heic_aux_from_item_id != post->heic_aux_from_item_id ||
+                pre->heic_aux_to_item_id != post->heic_aux_to_item_id ||
+                std::strcmp(pre->heic_aux_type, post->heic_aux_type) != 0 ||
+                !shas_equal_ignore_case(pre->heic_aux_item_sha256, post->heic_aux_item_sha256)) {
+                hdr_failed = true;
+                has_hdr_indicator = true;
+                snprintf(hdr_fail_reason, sizeof(hdr_fail_reason), "%s",
+                    "HEIC auxiliary relationship changed while supported XMP GainMap metadata was present.");
+            }
+        }
+
+        if (positive_xmp_gainmap) {
             has_hdr_indicator = true;
             if (!hdr_failed && !(post->flags & LPB_POBS_HAS_GAINMAP_META)) {
                 hdr_failed = true;
@@ -2052,7 +2225,7 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
         } else if (has_hdr_indicator) {
             v.status = LPB_PRESERVATION_STATUS_VERIFIED_PRESERVED;
             snprintf(v.details, sizeof(v.details), "%s", "GainMap / HDR payloads and metadata verified preserved.");
-        } else if (has_detached_gainmap) {
+        } else if (detached_verified) {
             v.status = LPB_PRESERVATION_STATUS_SEMANTICALLY_PRESERVED;
             snprintf(v.details, sizeof(v.details), "%s",
                 "Primary image contains no embedded HDR metadata; GainMap is tracked as detached artifact.");
@@ -2069,13 +2242,22 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
         std::memset(&v, 0, sizeof(v));
         v.category = LPB_PCHECK_GAINMAP;
 
-        if (has_detached_gainmap) {
+        if (detached_failed) {
+            v.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v.details, sizeof(v.details), "%s",
+                "Expected detached GainMap artifact is missing or its identity changed.");
+            *out_overall_passed = 0;
+        } else if (detached_verified) {
             v.status = LPB_PRESERVATION_STATUS_SEMANTICALLY_PRESERVED;
             snprintf(v.details, sizeof(v.details), "%s",
                 "Detached GainMap is not processed as destructive target; tracked as detached artifact.");
-        } else {
+        } else if (!detached_expected) {
             v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
             snprintf(v.details, sizeof(v.details), "%s", "No detached GainMap artifact present.");
+        } else {
+            v.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
+            snprintf(v.details, sizeof(v.details), "%s", "Detached GainMap state is invalid.");
+            *out_overall_passed = 0;
         }
         if (count < max_verdicts) out_verdicts[count++] = v;
     }

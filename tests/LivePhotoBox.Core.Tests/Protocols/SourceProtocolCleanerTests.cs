@@ -4,6 +4,7 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Extraction;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
@@ -481,7 +482,15 @@ public sealed class SourceProtocolCleanerTests
         }
         WipeBytes("GainMap"u8.ToArray(), "Wiped__"u8.ToArray());
         WipeBytes("hdrgm"u8.ToArray(), "wiped"u8.ToArray());
+        WipeBytes(
+            "http://ns.adobe.com/hdr-gain-map/1.0/"u8.ToArray(),
+            "http://ns.other.com/unknown-gain/1.0/"u8.ToArray());
         await File.WriteAllBytesAsync(strippedHdrPath, heicBytes);
+
+        var strippedObservation = await NativeMediaService.CapturePreservationObservationAsync(
+            strippedHdrPath, SourceProtocol.SamsungMotionPhotoHeic, ImageContainer.Heic);
+        Assert.False(strippedObservation.HasGainMapMeta,
+            "Tampered HDR metadata fixture must no longer carry positive GainMap XMP semantic evidence.");
 
         var reportHdrLost = await MetadataPreservationVerifier.VerifyAsync(hdrExtracted, strippedHdrPath, null);
         var hdrCheckItem = reportHdrLost.Items.FirstOrDefault(i => i.Name == "Hdr");

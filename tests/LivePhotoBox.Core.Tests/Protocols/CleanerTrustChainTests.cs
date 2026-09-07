@@ -2321,7 +2321,8 @@ public sealed class CleanerTrustChainTests
         string tamperedPath = workspace.AllocateFilePath("samsung-tampered-auxl", ".heic");
         await File.WriteAllBytesAsync(tamperedPath, tamperedBytes);
 
-        // Verifier must detect the tampered association and fail closed
+        // A supported XMP GainMap semantic is present, so rewriting its
+        // associated HEIC auxiliary relationship must fail closed.
         var tamperedReport = await MetadataPreservationVerifier.VerifyAsync(bundle, tamperedPath, null);
         var hdrTampered = tamperedReport.Items.First(i => i.Name == "Hdr");
         Assert.Equal(PreservationCheckStatus.Failed, hdrTampered.Status);
@@ -3159,27 +3160,17 @@ public sealed class CleanerTrustChainTests
         byte[] tamperedGainMapBytes = [0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x01]; // invalid replacement
         await File.WriteAllBytesAsync(gainMapPath, tamperedGainMapBytes);
 
-        // Without the fix: hasDetachedGainmap = (baseline.GainMapSha256 != null) = true
-        //   => Native would treat it as SemanticallyPreserved, outcome = Preserved (WRONG)
-        // With the fix: VerifyGainMapIdentityAsync re-hashes => SHA mismatch => hasDetachedGainmap = false
-        //   => Native GainMap check = NotApplicable, but Hdr check may still be NotApplicable...
-        //   Actually the key assertion is that we did NOT silently return Preserved when the artifact is tampered.
+        // Without the fix, a SHA mismatch could be collapsed into NotApplicable.
+        // The three-state contract must instead produce a failed HDR/GainMap check.
         var report = await MetadataPreservationVerifier.VerifyAgainstBaselineAsync(
             baseline,
             stagedImagePath,
             stagedVideoPath: null,
             stagedGainMapPath: gainMapPath);
 
-        // The GainMap identity check must have detected the tampering.
-        // Since the GainMap is declared (baseline.GainMapSha256 != null) but SHA no longer matches,
-        // hasDetachedGainmap is passed as false. The Detached GainMap verdict becomes NotApplicable.
-        // The GainMap category should reflect it's not confirmed present (SemanticallyPreserved is NOT acceptable).
-        var gainMapItem = report.Items.FirstOrDefault(i => i.Name == "GainMap");
-        if (gainMapItem != null)
-        {
-            // Must not be SemanticallyPreserved (which would indicate the tampered artifact was accepted)
-            Assert.NotEqual(PreservationCheckStatus.SemanticallyPreserved, gainMapItem.Status);
-        }
+        Assert.Equal(PreservationOutcome.DegradedToSdr, report.OverallOutcome);
+        Assert.Equal(PreservationCheckStatus.Failed, report.Items.Single(i => i.Name == "Hdr").Status);
+        Assert.Equal(PreservationCheckStatus.Failed, report.Items.Single(i => i.Name == "GainMap").Status);
 
         // Additionally verify directly that VerifyGainMapIdentityAsync returns false for tampered file
         // via the public VerifyAgainstBaselineAsync having a different path with original SHA expectation
@@ -3187,11 +3178,9 @@ public sealed class CleanerTrustChainTests
             baseline,
             stagedImagePath,
             stagedVideoPath: null,
-            stagedGainMapPath: null); // no gainmap path at all => hasDetachedGainmap = false
-        var gainMapItemNoPath = reportWithCorrectPath.Items.FirstOrDefault(i => i.Name == "GainMap");
-        if (gainMapItemNoPath != null)
-        {
-            Assert.NotEqual(PreservationCheckStatus.SemanticallyPreserved, gainMapItemNoPath.Status);
-        }
+            stagedGainMapPath: null);
+        Assert.Equal(PreservationOutcome.DegradedToSdr, reportWithCorrectPath.OverallOutcome);
+        Assert.Equal(PreservationCheckStatus.Failed, reportWithCorrectPath.Items.Single(i => i.Name == "Hdr").Status);
+        Assert.Equal(PreservationCheckStatus.Failed, reportWithCorrectPath.Items.Single(i => i.Name == "GainMap").Status);
     }
 }

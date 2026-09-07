@@ -44,8 +44,8 @@ internal static class HeifBoxParser
 
     /// <summary>
     /// 定位 HEIC/HEIF 文件内 item_type='Exif' 的 item 的绝对字节偏移与长度。
-    /// 仅接受 construction_method=0（文件偏移）且单 extent 的常规情况，
-    /// 遇到 idat / 多 extent / 未知版本等一律返回 false，交由上层回退重编码。
+    /// Accepts construction_method=0 (file offsets) and construction_method=1
+    /// (the enclosing meta idat payload), with a single extent only.
     /// </summary>
     public static bool TryLocateExifItem(string heicPath, out long offset, out long length, out string? error)
     {
@@ -81,10 +81,16 @@ internal static class HeifBoxParser
         int childEnd = metaStart + metaLen;
 
         int iinfBody = -1, iinfLen = 0, ilocBody = -1, ilocLen = 0;
+        int idatStart = -1, idatLen = 0, idatBody = -1;
         if (!TryWalkBoxes(data, childStart, childEnd, (type, body, len) =>
         {
             if (type == "iinf") { iinfBody = body; iinfLen = len; }
             else if (type == "iloc") { ilocBody = body; ilocLen = len; }
+            else if (type == "idat")
+            {
+                if (idatStart >= 0) { idatStart = -2; }
+                else { idatStart = body - 8; idatLen = len; idatBody = body; }
+            }
         }))
         {
             error = "Meta box is malformed.";
@@ -108,7 +114,7 @@ internal static class HeifBoxParser
                 error = "Exif item has no iloc entry.";
                 return false;
             }
-            if (loc.ConstructionMethod != 0)
+            if (loc.ConstructionMethod is not (0 or 1))
             {
                 error = $"Exif item uses construction_method={loc.ConstructionMethod} (unsupported).";
                 return false;
@@ -118,13 +124,31 @@ internal static class HeifBoxParser
                 error = $"Exif item has {loc.ExtentCount} extents (only single extent supported).";
                 return false;
             }
-            if (loc.Offset < 0 || loc.Length <= 0 || loc.Offset + loc.Length > data.LongLength)
+            long resolvedOffset = loc.Offset;
+            long ownerLength = data.LongLength;
+            if (loc.ConstructionMethod == 1)
+            {
+                if (idatStart < 0)
+                {
+                    error = "Exif item uses construction_method=1 but meta has no unique idat box.";
+                    return false;
+                }
+                ownerLength = idatLen - (idatBody - idatStart);
+                if (loc.Offset < 0 || loc.Offset + loc.Length > ownerLength)
+                {
+                    error = "Exif item idat extent out of range.";
+                    return false;
+                }
+                resolvedOffset = idatBody + loc.Offset;
+            }
+            if (loc.Offset < 0 || loc.Length <= 0 || resolvedOffset < 0 ||
+                resolvedOffset + loc.Length > data.LongLength)
             {
                 error = "Exif item extent out of range.";
                 return false;
             }
 
-            offset = loc.Offset;
+            offset = resolvedOffset;
             length = loc.Length;
             return true;
         }
@@ -229,6 +253,7 @@ internal static class HeifBoxParser
         if (body + 4 > end) { error = "iinf too short."; return false; }
 
         int version = data[body] & 0xFF;
+        if (version > 1) { error = $"Unsupported iinf version {version}."; return false; }
         int p = body + 4;
         uint count;
         if (version == 0)
@@ -302,6 +327,12 @@ internal static class HeifBoxParser
         if (body + 6 > end) { error = "iloc too short."; return false; }
 
         int version = data[body] & 0xFF;
+        if (version > 2) { error = $"Unsupported iloc version {version}."; return false; }
+        if (data[body + 1] != 0 || data[body + 2] != 0 || data[body + 3] != 0)
+        {
+            error = "Unsupported iloc flags.";
+            return false;
+        }
         int p = body + 4;
         int b0 = data[p] & 0xFF;
         int b1 = data[p + 1] & 0xFF;
@@ -310,6 +341,7 @@ internal static class HeifBoxParser
         int lengthSize = b0 & 0x0F;
         int baseOffsetSize = (b1 >> 4) & 0x0F;
         int indexSize = b1 & 0x0F;
+        if (version == 0 && indexSize != 0) { error = "Unsupported iloc version-0 reserved index_size."; return false; }
 
         uint count;
         if (version < 2)
@@ -327,6 +359,7 @@ internal static class HeifBoxParser
 
         if (count > 1_000_000) { error = "iloc item count too large."; return false; }
 
+        var seenItemIds = new HashSet<uint>();
         for (uint i = 0; i < count; i++)
         {
             uint itemId;
@@ -342,18 +375,28 @@ internal static class HeifBoxParser
                 itemId = Read32(data, p);
                 p += 4;
             }
+            if (!seenItemIds.Add(itemId)) { error = "Duplicate iloc item entry."; return false; }
 
             byte constructionMethod = 0;
             if (version == 1 || version == 2)
             {
                 if (p + 2 > end) { error = "iloc item truncated."; return false; }
-                constructionMethod = (byte)(Read16(data, p) & 0x000F);
+                ushort rawConstructionMethod = Read16(data, p);
+                if ((rawConstructionMethod & 0xFFF0) != 0 || rawConstructionMethod > 1)
+                {
+                    error = $"Unsupported iloc construction_method={rawConstructionMethod}.";
+                    return false;
+                }
+                constructionMethod = (byte)rawConstructionMethod;
                 p += 2;
             }
 
-            // data_reference_index（16bit，恒存在）
+            // data_reference_index is 16-bit and this implementation only
+            // understands the same-file reference (zero).
             if (p + 2 > end) { error = "iloc item truncated."; return false; }
+            ushort dataReferenceIndex = Read16(data, p);
             p += 2;
+            if (dataReferenceIndex != 0) { error = $"Unsupported iloc data_reference_index={dataReferenceIndex}."; return false; }
 
             long baseOffset = 0;
             if (baseOffsetSize > 0)
