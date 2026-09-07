@@ -1,55 +1,187 @@
-# Live Photo Box — Future Work Backlog V3.2
+# Live Photo Box — Future Work Backlog V4.0
 
-> **Document role:** 未来事项停车场 / Parking Lot  
+> **Document role:** 主 P0–P10 完成后的未来产品/平台停车场  
 > **Status:** Non-authoritative for current phase  
-> **Rule:** 本文记录“主 Roadmap 完成后值得继续推进的产品/平台事项”，但绝不抢占 00 的 P0–P10 顺序。
+> **Rule:** 不抢占 `00` 的 P0–P10 顺序。
 
-# 1. Existing Edit Product — Core Rebuild & Feature Expansion
+---
 
-当前仓库已经存在：
+# 1. Web / Online Tools — 未来第一优先平台
+
+长期平台优先级：
 
 ```text
-EditPage
-EditViewModel
-相关浏览/导出能力
+1. Web / WebAssembly
+2. Linux
+3. macOS
 ```
 
-所以 Future Work 不是“新建设计一个 Edit 页面”。
+Web 目标不是复制桌面全部产品能力。
 
-主 Roadmap 完成后，应重新审计当时已有 Edit 产品，决定如何将其 result-affecting 处理能力迁移/复用：
+优先适合浏览器、本地处理、低部署复杂度的能力：
+
+```text
+online inspector
+protocol facts
+split
+basic merge
+lossless protocol/container transforms
+metadata operations
+limited media preparation where WASM codec support is practical
+```
+
+核心架构：
+
+```text
+Browser UI / TypeScript
+↓
+WASM bindings / C ABI adapter
+↓
+same LivePhotoBox Portable Core
+↓
+WASM-compatible media/platform backend
+```
+
+禁止重新做：
+
+```text
+Web-specific protocol parser
+Web-specific vendor conversion truth
+```
+
+---
+
+# 2. Web 产品能力允许小于 Windows
+
+桌面 Windows 是完整 first-class 产品。
+
+Web 可以明确 capability-based：
+
+```text
+Inspect            supported
+Split              supported
+Lossless merge     supported where possible
+Heavy transcode    optional/unsupported
+Huge batch         optional/limited
+hardware encode    browser capability dependent
+```
+
+不为了“功能一致”把复杂云端服务提前塞进架构。
+
+---
+
+# 3. Static Website First
+
+未来官网/Online Tools 优先：
+
+```text
+static site
++
+client-side WASM
+```
+
+没有以下需求时不引入 VPS：
+
+```text
+accounts
+server-side cloud processing
+storage
+payments/backend-only workflows
+```
+
+这样可以保持：
+
+```text
+privacy
+low operating cost
+simple deployment
+local media processing
+```
+
+---
+
+# 4. Linux
+
+P4 完成后，Linux 理论工作应变成：
+
+```text
+build Portable Core
++
+implement/finish POSIX Platform Backend
++
+select portable media backend
++
+CLI/product integration
++
+package
+```
+
+而不是：
+
+```text
+rewrite Apple/Google/Huawei parsers
+```
+
+是否真正发布 Linux 由未来需求决定。
+
+---
+
+# 5. macOS
+
+macOS 不是当前承诺。
+
+如果未来做：
+
+```text
+Portable Core
++
+Apple platform backend where useful
++
+product UI/CLI
++
+signing/notarization
++
+device testing
+```
+
+协议/Writer/Validator 继续复用。
+
+没有 Mac 测试环境时不宣称正式支持。
+
+---
+
+# 6. Existing Edit Product — Core Rebuild & Expansion
+
+当前项目已有 Edit 产品。
+
+主 Roadmap 后重新审计并复用：
 
 ```text
 NeutralMediaBundle
 Converter
 Target Writer
 Target Validator
-Repair primitives where appropriate
+Repair primitives
 ```
 
-可能继续扩展：
+可能扩展：
 
 ```text
-Key Photo / cover frame
-duration / trim
+Key Photo
+cover frame
+duration/trim
 rotation
-other Live Photo editing operations
-preview + before/after
+other Live Photo edits
+preview/before-after
 ```
 
-Edit 不应提前污染 P1–P10 的底层 contract。
+Edit 不提前污染 P1–P10。
 
-# 2. Existing PhotoClassify Placeholder — Future Implementation
+---
 
-当前仓库已经存在：
+# 7. Existing PhotoClassify Placeholder
 
-```text
-PhotoClassifyPage
-PhotoClassifyViewModel
-```
-
-但属于占位/未完整开放状态。
-
-未来可在不复制协议 parser 的前提下，复用 Inspector / media metadata 实现：
+未来复用 Inspector/media facts：
 
 ```text
 Live Photo
@@ -58,135 +190,145 @@ Screenshot
 Portrait
 Selfie
 Slow Motion
-Other vendor/media categories
+Other categories
 ```
 
-分类结果属于产品语义，不成为 Source protocol truth。
+分类是产品语义，不成为 protocol truth。
 
-# 3. Performance / Scale
+---
 
-后续持续推进：
+# 8. Performance / Scale
+
+持续优化：
 
 ```text
 1000+ file batch
 very large media
-lower temp-space amplification
-streaming transforms
+lower temp amplification
+streaming
 concurrency scheduler
 memory ceiling
-resume/retry strategy
+resume/retry
 ```
 
-# 4. Cross-platform Product Expansion
+性能优化不能突破 preservation/correctness contract。
 
-P4 已负责 Native foundation/portable-core 方向。
+---
 
-主 Roadmap 完成后可继续推进更高层产品：
+# 9. Native Dependency Optimization
+
+在 P4 已冻结 foundation 后，仍可持续：
 
 ```text
-Linux Native runtime completion
-Linux CLI
-macOS Native/CLI
-platform-specific GUI
-managed Core portability
-packaging/distribution per platform
+remove unused features
+deduplicate codec runtimes
+security upgrades
+dependency version updates
+smaller builds
+faster backend
 ```
 
-不要求跨平台共用 UI。
-
-# 5. Native Dependency Optimization
-
-P4 完成后仍可按证据持续：
+排序仍是：
 
 ```text
-smaller binary builds
-remove unused codec/features
-deduplicate media runtimes
-update security/license records
-replace dependency only when benefit is proven
+compatibility/correctness
+before
+package size/dependency count
 ```
 
-不要为了体积指标牺牲兼容性、保真或维护性。
+---
 
-# 6. Diagnostics / Support
+# 10. New codecs / formats
 
-未来可以把结构化错误进一步产品化：
+只有出现真实产品 requirement 时增加：
+
+```text
+AV1/AVIF
+new HEIF codecs
+new HDR format
+new video codec
+new vendor format
+```
+
+不因 dependency “顺便支持”就对产品开放。
+
+---
+
+# 11. Diagnostics / Support
+
+未来可产品化：
 
 ```text
 diagnostic report export
 protocol facts summary
-sanitized technical report
-operation execution record
-support bundle without original media
+sanitized support bundle
+ExecutionRecord export
+backend/capability report
 ```
 
-# 7. Acceptance Automation
+不包含用户原媒体时尽量仍可用于支持。
 
-后续把 00 的 Product Acceptance Matrix 自动生成/更新：
+---
+
+# 12. Acceptance Automation
+
+未来可以自动生成：
 
 ```text
-test evidence
+supported source matrix
+supported target matrix
+backend capability matrix
 device evidence
-supported profiles
 release gate
 ```
 
-避免手工表格长期失真。
+避免文档状态长期失真。
 
-# 8. Target Protocol Expansion
+---
 
-新厂商/新版本出现时：
+# 13. Target Protocol Expansion
+
+新厂商/版本：
 
 ```text
 research
-→ source inspector/extractor/cleaner if it is a source
-→ neutral tests
-→ target writer/validator if it is a target
+→ Source side if needed
+→ Neutral coverage
+→ Target Writer/Validator if needed
 ```
 
 不创建 Vendor A → Vendor B 专属转换器。
 
-# 9. Repair Expansion
+---
 
-只在真实用户问题出现且能定义可靠修复规则时加入：
+# 14. Repair Expansion
+
+只有真实用户问题且可定义可靠规则：
 
 ```text
-new diagnosis
-→ narrow repair contract
-→ real broken samples
+diagnosis
+→ narrow RepairPlan
+→ real broken sample
 → validation
 → product UI
 ```
 
-不把 Repair 扩成无边界“万能修复”。
+不扩成万能恢复器。
 
-# 10. Website / Online Tools
+---
 
-如后续推进官网或 Web/WASM：
+# 15. 使用规则
 
-```text
-website
-online inspector
-online split
-lossless protocol conversion where browser capability permits
-WASM media/protocol layer
-optional cloud backend
-```
-
-必须复用协议语义和测试 corpus，而不是重新做一套不同的协议判断。
-
-# 11. 使用规则
-
-任何 AI 看到本文：
+看到 Future Work：
 
 ```text
-可以记录想法
-不可以因为本文存在就提前施工
+可以记录
+不能提前施工
 ```
 
-真正开始某一未来项前：
+真正启动某未来项前：
 
-1. 用户/维护者明确决定进入该功能；
-2. 创建新的独立 Roadmap；
-3. 重新审计当时 HEAD；
-4. 从真实产品需求定义范围与 Gate。
+1. 用户/维护者明确决定；
+2. 重新审计当时 HEAD；
+3. 基于 V4.0 contracts 建独立执行 Roadmap；
+4. 不重新发明 Protocol Core。

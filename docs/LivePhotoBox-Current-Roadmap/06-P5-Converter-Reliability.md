@@ -1,9 +1,39 @@
 # P5 — Converter Reliability
 
-> **Entry:** P4 backend decisions usable  
-> **Goal:** 把图像/视频转换做成真实、可解释、可验证的通用媒体能力。
+> **Entry:** P4 backend/build decisions frozen and usable.  
+> **Goal:** 把图像/视频转换做成真实、可解释、可验证、backend-neutral 的通用媒体能力。  
+> **Current acceptance platform:** Windows x64。
 
-## Required Semantics
+---
+
+# 1. Converter Contract
+
+Converter 只依赖：
+
+```text
+Neutral media facts
+requested MediaFormatRequirement
+approved Media Backend contracts
+approved Platform/transaction primitives
+```
+
+禁止业务 converter 直接把：
+
+```text
+WIC
+Media Foundation
+libheif
+libjpeg-turbo
+libav*
+```
+
+当作产品 contract。
+
+具体 library 只能出现在 backend implementation。
+
+---
+
+# 2. Required Semantics
 
 必须区分：
 
@@ -13,27 +43,69 @@ container remux
 lossless transform
 lossless transcode where meaningful
 lossy reencode
+color transform
+HDR/GainMap conversion
+degraded output
 unsupported
 ```
 
-不能把“输出成功”统一叫 preserved。
+“输出成功”不等于 `Preserved`。
 
-## Image
+---
 
-覆盖当前产品真实需要的：
+# 3. Image Pipeline
+
+覆盖当前真实需要：
 
 ```text
 JPEG
 HEIC
 orientation
-ICC/color
 EXIF/XMP
-HDR/GainMap where applicable
+ICC/color
+HDR/GainMap
+primary/aux representation
 ```
 
-## Video
+默认 backend foundation：
 
-覆盖当前产品真实需要的：
+```text
+JPEG → libjpeg-turbo
+HEIC → libheif + approved HEVC codec backend
+ICC transform → lcms2 only if needed
+```
+
+## 3.1 Structural truth remains project-owned
+
+Converter 不把：
+
+```text
+Exif relocation
+XMP ownership
+GainMap semantic identity
+Apple auxiliary semantics
+vendor metadata
+```
+
+外包给 codec library。
+
+## 3.2 Metadata/pixel separation
+
+明确：
+
+```text
+pixel conversion
+vs
+container/metadata mapping
+```
+
+codec backend 只证明像素/codec 操作成功，不能自动宣告 metadata preserved。
+
+---
+
+# 4. Video Pipeline
+
+覆盖：
 
 ```text
 MOV ↔ MP4
@@ -43,45 +115,158 @@ audio
 rotation
 duration/timing
 color metadata
+hardware/software backend identity
 ```
 
-## Tests — 在 P5 当场完成
+Container/remux 与 codec/transcode 分开。
 
-每条 conversion path：
+如果 project-owned ISO-BMFF 能可靠做 passthrough/remux：
 
-- unit；
-- 真实照片/视频；
-- quality/reference comparison；
-- decode/probe；
-- metadata preservation；
-- orientation；
-- HDR/GainMap；
-- audio；
-- cancellation；
-- large file；
-- backend fallback within Rebuilt；
-- truthful ExecutionRecord。
+```text
+不要因为引入 libav* 就强制换掉
+```
 
-## Exit Criteria
+视频 codec backend 使用 P4 冻结结果：
 
-- 每种公开转换路径都有明确 contract；
-- 真实媒体样本通过；
-- output structurally valid；
-- preservation outcome 真实；
-- 不发生未声明质量损失；
-- 不依赖 production external CLI。
+```text
+Media Foundation
+or
+minimal libav*
+or
+approved hybrid
+```
 
+---
 
-## AI 执行硬规则
+# 5. Backend Selection Rule
 
-1. **先读当前 HEAD，再动代码。** Roadmap 定义目标、边界和验收，不替代当前实现事实；文档中记录的审计点必须在执行时重新核对。
-2. **只执行当前阶段。** 未满足当前 Phase Gate，不提前实现后续阶段，不以“顺手整理”为理由扩大范围。
-3. **验证证据必须与风险匹配。** 任何影响媒体产物、协议 correctness、兼容性或 preservation 的 Process，都必须同时具备代码证据、自动化测试和真实媒体样本证据；纯 build/platform/diagnostic infrastructure 使用与其风险匹配的 build smoke、dependency report、fault injection、platform proof 等证据。真实媒体样本不是 P7 才开始。
-4. **测试失败必须可定位。** 错误应携带阶段、能力、关键输入事实、失败类别和技术原因；CLI/产品层必须能把核心错误清楚呈现。
-5. **Production runtime 不恢复外部媒体 CLI 子进程依赖。** `ffmpeg.exe`、`ffprobe.exe`、`ExifTool.exe`、`jpegtran.exe`、`heif-enc.exe`、`heif-dec.exe`、`magick.exe` 等可以用于研究、测试和独立验证，但不能重新成为正式处理后端。
-6. **第三方 C/C++ 媒体库是候选能力，不是预先锁定的架构承诺。** 是否采用、如何裁剪、静态或动态链接、平台 backend 组合等，由 P4 的实际证据决定；不得因为 Roadmap 举例提到某个库就机械引入，也不得为了“全部自研”重复实现成熟 codec。
-7. **C# 是 Control Plane；Native 是 result-affecting Data Plane。** 产品级命名、目标目录、队列、UI/CLI orchestration 由 Core 管理；底层临时文件、原子 replace/publish 等事务 primitive 可以保留在 Native，但应置于明确的 platform/filesystem boundary。UI-only 的缩略图、预览、显示缩放和缓存不强制进入 Native。
-8. **不猜协议事实，也不猜 Writer 写入位置。** 字符串命中、固定 offset、同文件名、magic number、`hit + N` 只能用于 research/candidate/evidence，不能直接成为 destructive authority 或 production Writer authoritative write location。
-9. **源文件默认不原地覆盖。** Destructive/repair/write 流程优先使用新文件或安全临时输出；只有在结构与媒体验证通过后，才进入正式 publish。失败或取消不得留下“看起来成功”的半成品。
-10. **所有 Done 都由证据宣布。** 代码存在、API 返回成功、文件能打开、播放器能播放，都不能单独证明阶段完成。
-11. **当前 Roadmap 不主动修改用户可见文档。** README、CLI 用户手册、商店/Release 用户说明等，只有用户明确要求时才更新。
+同一 requested conversion 如果存在多个 approved backend：
+
+```text
+capability compatibility
+→ preservation
+→ quality
+→ stability
+→ performance
+```
+
+决定。
+
+Backend fallback：
+
+- 必须显式；
+- 必须记录原因；
+- 不能改变未声明的质量/HDR/preservation contract；
+- fallback 后实际结果必须重新验证。
+
+---
+
+# 6. ExecutionRecord
+
+每次 result-affecting conversion 至少能记录：
+
+```text
+input container/codec
+requested output
+operation kind
+backend name
+backend/library version where useful
+hardware/software
+codec/profile where applicable
+passthrough/remux/reencode
+metadata mapping result
+ICC result
+HDR/GainMap result
+audio result
+fallback
+preservation outcome
+degradation
+```
+
+---
+
+# 7. HDR / GainMap
+
+正式 HDR/GainMap 转换逻辑进入 Native Data Plane。
+
+禁止长期依赖：
+
+```text
+C# Magick.NET pixel math
+external heif-enc/heif-dec
+silent "HDR failed → plain SDR success"
+```
+
+BestEffort 如果允许 SDR fallback：
+
+```text
+必须明确 DegradedToSdr
+```
+
+Strict policy：
+
+```text
+must fail
+```
+
+GainMap 的 codec/pixel primitive 可以使用第三方库；GainMap 的语义与 container representation 由 LivePhotoBox 掌握。
+
+---
+
+# 8. Color
+
+如果只是 ICC preserve：
+
+```text
+copy/map bytes according to container contract
+```
+
+如果实际执行色彩转换：
+
+```text
+approved color backend
+→ lcms2 by default
+```
+
+不得：
+
+```text
+Display P3 input
+→ blindly relabel sRGB without transform
+```
+
+---
+
+# 9. Portability Rule
+
+P5 的 converter orchestration 不包含：
+
+```text
+#ifdef _WIN32 protocol behavior
+if Windows then different preservation semantics
+Windows-only output facts
+```
+
+允许：
+
+```text
+same converter contract
+→ Windows backend implementation
+```
+
+未来平台只替 backend。
+
+---
+
+# 10. Exit Criteria
+
+- 每种公开 conversion path 有明确语义；
+- backend identity 可诊断；
+- passthrough/remux/reencode 区分真实；
+- HDR/color/audio/preservation 不静默降级；
+- approved Windows backend 覆盖产品需要；
+- 无 production external CLI；
+- Converter 不直接拥有平台 API；
+- P6 可把 Converter 当作稳定通用能力。
+
+全局执行规则见 `00`。

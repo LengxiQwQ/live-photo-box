@@ -1,444 +1,875 @@
-# P4 — Native Media Toolchain Evaluation & Foundation
+# P4 — Native Platform / Media Backend / Build Foundation
 
 > **Status:** Planned / HARD GATE BEFORE P5  
-> **Goal:** 在真正收口 Converter 前，建立可复现、可裁剪、可维护、跨平台友好的 Native media foundation，并通过证据选择实际 backend。  
-> **Critical rule:** 本阶段不预先锁死视频编码、HEIC、JPEG、color 或 build-system 方案。  
-> **Audit snapshot:** `master @ c99876956c4df59864014d942c1e81921ae289f1`；执行时必须重新扫描当前 HEAD。  
-> **Next:** P5 — Converter Reliability  
+> **Goal:** 在 Converter 收口前，把 Native 长期平台边界、media backend、build/dependency 与默认技术栈一次定型。  
+> **Current production target:** Windows x64  
+> **Future architecture target:** WebAssembly first; Linux/macOS deferred  
+> **Important:** P4 不再从零重选全部媒体库。V4.0 已拍板默认方向；P4 的职责是实现 foundation、验证默认方案、对少数真正竞争的 backend 做 differential benchmark。
 
-# 1. P4 的正确含义
+---
 
-P4 不是：
+# 1. P4 的核心任务
 
-```text
-Roadmap 写了 FFmpeg
-→ 必须用 FFmpeg
-
-Roadmap 写了 libheif
-→ 必须用 libheif
-
-为了跨平台
-→ 先删除 WIC / Media Foundation
-
-为了“纯 Native”
-→ 自己重写 JPEG / HEVC / HEIF codec
-```
-
-P4 是：
+P4 必须建立：
 
 ```text
-inventory actual processing needs
-↓
-freeze current baseline
-↓
-建立 platform/build/dependency foundation
-↓
-列 candidate
-↓
-minimal POC
-↓
-real-media differential
-↓
-security/license/size/performance/portability review
-↓
-Accepted / Rejected / Deferred decision
-↓
-为 P5 提供明确 backend contract
+Portable Native Core
++
+Platform Backend Contract
++
+Media Backend Contract
++
+CMake canonical build
++
+reproducible dependency manifest
++
+capability/runtime identity
++
+Windows production backend
++
+future platform extension points
 ```
 
-候选被拒绝也是有效结果。
-
-# 2. Current Baseline 不是最终方案
-
-在 `c998769...` 快照：
+P4 完成后，P5–P10 不应再直接在业务模块中随意引入：
 
 ```text
-LivePhotoBox.Native
-= Windows x64 MSVC DLL / .vcxproj
-
-cross-container image conversion
-= Windows Imaging Component
-
-cross-codec video transcode
-= Windows Media Foundation
-
-project-owned ISO-BMFF/container/protocol logic
-= 已存在并继续保留
+Windows.h
+WIC
+Media Foundation
+new codec library
+new filesystem publish implementation
 ```
 
-这只是当前 reference baseline。
+任何新增平台/媒体能力都通过既有 backend contract 进入。
 
-执行 P4 时必须重新确认真实 HEAD，不能根据本文假设这些事实永远不变。
+---
 
-# 3. Capability Inventory
+# 2. 已拍板的默认技术栈
 
-先回答 Live Photo Box **真正需要什么**，再选库。
+这些是默认决策，不是平级候选池：
 
-至少区分：
+| Capability | V4.0 default |
+|---|---|
+| Canonical Native build | **CMake** |
+| Windows dependency declaration | **vcpkg manifest** as primary strategy |
+| JPEG decode/encode | **libjpeg-turbo** |
+| JPEG lossless transform | **libjpeg-turbo transform API** |
+| HEIF/HEIC generic codec gateway | **libheif** |
+| HEIC HEVC decode | **libde265 via libheif** |
+| HEIC HEVC encode | **x265 via libheif** |
+| Alternative HEIC encoder | **Kvazaar** as benchmark/fallback candidate |
+| ICC transform | **lcms2 only when actual transform is required** |
+| ISO-BMFF/MOV/MP4 protocol/container truth | **LivePhotoBox project-owned engine** |
+| Windows file I/O / atomic publish | **Win32 backend behind PlatformFilesystem** |
+| Production external media CLI | **Forbidden** |
+
+默认方案只有在：
+
+```text
+real compatibility evidence
+correctness failure
+preservation failure
+security/license/distribution blocker
+measurable severe performance issue
+```
+
+出现时才允许替换。
+
+“另一个库看起来也可以”不是换技术栈的理由。
+
+---
+
+# 3. 决策优先级
+
+所有 P4 benchmark 与 dependency decision 按：
+
+```text
+1 correctness
+2 real-device compatibility
+3 preservation / HDR / metadata / color
+4 stability / malformed / failure safety
+5 output quality
+6 performance / hardware acceleration
+7 maintainability
+8 portability
+9 license / distribution / patent handling
+10 binary/package size
+11 dependency count
+```
+
+排序。
+
+这意味着：
+
+```text
+更大但兼容性明显更好
+→ 选更兼容的
+
+多个专用库明显更稳
+→ 可以多个
+
+一个库可可靠覆盖多个能力
+→ 优先复用，减少重复 runtime
+```
+
+---
+
+# 4. Capability Inventory
+
+执行 P4 时先扫描当前 HEAD，至少建立以下表：
 
 ```text
 JPEG structure
-JPEG pixel decode/encode
+JPEG decode/encode
 JPEG lossless transform
-HEIF/HEIC structure
-HEIC pixel decode/encode
-ISO-BMFF structure
-MOV/MP4 remux
+TIFF/EXIF/XMP/MakerNote
+HEIF structure
+HEIC decode/encode
+HEIF auxiliary image handling
+ISO-BMFF/MOV/MP4 structure
+video structural probe
+MOV/MP4 generic remux
 H264/HEVC transcode
-audio handling
-color / ICC
-HDR / GainMap pixel processing
-UI thumbnail/preview
-filesystem/path/atomic publish
+audio
+orientation
+ICC/color
+HDR/GainMap pixel processing
+SHA/hash
+filesystem/random access
+temp/transaction/atomic publish
+UI-only thumbnail/preview
 ```
 
 每项记录：
 
 ```text
+current owner
 current backend
 result-affecting?
-platform
-runtime dependencies
-known preservation behavior
-test coverage
-candidate replacement needed?
+platform coupling
+runtime dependency
+duplicate capability
+preservation risk
+P4 action
 ```
 
-# 4. Protocol truth 与 media primitive 的边界
+---
 
-Live Photo Box 自己掌握：
+# 5. Windows-only Contamination Audit
+
+P4 必须系统扫描 Native：
 
 ```text
-Live/Motion Photo protocol semantics
-source/target ownership
-exact ranges
-pairing identity
-vendor metadata meaning
-container mutation rules
-Target Writer placement
-Neutral contract
+Windows.h
+HANDLE
+CreateFileW
+GetFileAttributesW
+DeleteFileW
+MoveFileExW
+GetTempFileNameW
+GetLastError
+MAX_PATH
+IWIC*
+IMF*
+MF*
+strncpy_s / _TRUNCATE
+其他 MSVC-only API
 ```
 
-第三方库可以承担：
+分类：
+
+## A — Legitimate Windows backend
+
+例如：
 
 ```text
-JPEG encode/decode
-HEIC encode/decode
-H264/HEVC encode/decode
-generic media primitives
-color transform
-resample/scale where actually required
+Windows atomic publish
+Windows file open flags
+Media Foundation backend
+possible WIC backend
 ```
 
-引入 generic media framework 不意味着删除已经可靠的 project-owned protocol/container truth。
+允许保留，但移动到明确 platform/backend module。
 
-# 5. Platform Foundation
+## B — Accidental platform coupling
 
-当前 Native 中存在仅因：
+例如：
 
 ```text
-UTF-8 / UTF-16 path
-atomic file replace
-filesystem publish
-platform capability
+protocol parser 为了复制字符串用 strncpy_s
+cleaner 为了发布文件直接 MoveFileExW
+SHA algorithm 接受 HANDLE
+Inspector 因 video probe include converter/MF
 ```
 
-而直接依赖 Windows API 的代码。
+应消除或通过 adapter/backend 收口。
 
-P4 应建立清晰的 platform/filesystem boundary，使协议、container、extract/clean 等 portable core 不因无关 plumbing 锁死某个平台。
+## C — Current Windows correctness-critical code
 
-目标语义可以包括：
+如果移动会在 P4 造成高风险：
 
 ```text
-path conversion
+先建立 contract
+→ 保留旧 implementation behind adapter
+→ regression
+→ 再替换
+```
+
+禁止为“跨平台看起来干净”进行无证据大爆炸重写。
+
+---
+
+# 6. PlatformFilesystem Contract
+
+P4 建立统一低层 platform contract，语义至少覆盖：
+
+```text
+open read-only/random-access source
+open streaming sink
+safe temp file/workspace
+read exact range
+write all
+flush
+close
+exists/stat/size
 safe remove
-atomic replace/publish
-filesystem capability
+atomic publish
+atomic replace when explicitly allowed
+platform capability query
 platform error mapping
 ```
 
-具体 API、目录、类名由执行时当前代码决定。
-
-不要求为了这个步骤顺手重写 Cleaner/Extractor/Converter。
-
-# 6. Build & Dependency Foundation
-
-P4 必须建立**可复现**的 Native build/dependency strategy。
-
-至少能明确表达：
+当前实现：
 
 ```text
-dependency name
-exact version/tag/commit
-source
-hash/checksum where applicable
-patches
-enabled features
-disabled features
-static/dynamic
-platform
-runtime binary list
-license/security record
+WindowsPlatformFilesystem
+→ Win32 / std::filesystem where appropriate
 ```
 
-Build graph 必须适合未来：
+Portable Core 不直接知道：
 
 ```text
-Windows
-+
-portable/non-Windows Native core
-+
-third-party native dependencies
-+
-feature options
+HANDLE
+DWORD
+Windows path encoding
+MOVEFILE_* flags
 ```
 
-Roadmap **不规定必须 CMake、Meson、vcpkg 或其他方案**。
+### 6.1 Path policy
 
-选择 build/dependency 方案本身也必须在 P4 基于：
+Public C ABI：
 
 ```text
-可维护性
-CI
-依赖集成
-跨平台
-可复现性
-开发体验
+UTF-8
 ```
 
-做决定。
-
-当前 `.vcxproj` 不应在 replacement 尚未证明 parity 时被机械删除。
-
-# 7. Cross-platform Proof
-
-P4 的跨平台目标是：
-
-> **证明 result-affecting Native core 的架构和 build foundation 不被无必要的 Windows-only plumbing 锁死。**
-
-不要求：
+内部 platform adapter 负责：
 
 ```text
-Linux GUI
-macOS GUI
-完整跨平台 C# Core
-立即发布 Linux CLI
+UTF-8 ↔ native path representation
 ```
 
-根据执行时条件，至少建立：
+不让 `wchar_t*` / Windows path 成为核心协议 API。
+
+### 6.2 Transaction rule
+
+不要在：
 
 ```text
-portable core build proof
-或
-明确记录仍阻塞 non-Windows build 的依赖/模块
+image_converter.cpp
+video_converter.cpp
+media_cleaner.cpp
+media_extractor.cpp
+mp4_strip.cpp
+vendor cleaner
 ```
 
-不能为了“跨平台”牺牲当前 Windows correctness。
+分别实现自己的 atomic publish。
 
-# 8. Candidate Pool 不是 Architecture Commitment
-
-可以研究但不限于：
+应收敛成共享：
 
 ```text
-JPEG:
-  libjpeg-turbo
-  focused JPEG codec/lossless-transform alternatives
-  platform backend
-
-HEIC:
-  libheif-based stack
-  platform codec
-  other maintained HEIC stacks
-
-Video:
-  current Media Foundation
-  minimal FFmpeg libav* library build
-  focused codec/container libraries
-  platform-specific backend set behind one contract
-
-Color:
-  lcms2
-  backend-provided color management
-  other evidence-supported option
+transaction / publish primitive
 ```
 
-Roadmap 中出现名字只表示“值得评估”。
+---
 
-# 9. Candidate Evaluation
+# 7. Portable Byte / Stream Foundation
 
-每个 result-affecting candidate 至少评估：
+为了未来 WASM 与大文件，不应只有 path API。
+
+应逐步形成：
 
 ```text
-Capability need
-→ minimal POC
-→ automated tests
-→ real-device/media samples
-→ current-backend differential
-→ quality/preservation
-→ malformed/security behavior
-→ performance/memory
-→ binary size/runtime dependencies
-→ portability
-→ maintenance
-→ license/distribution
-→ decision
+ByteSpan / MutableByteSpan
+RandomAccessReader
+SequentialWriter
+ArtifactSource/Sink
 ```
 
-最终状态：
-
-```text
-Proposed
-Trial
-Accepted
-Rejected
-Deferred
-Reference-only
-```
-
-# 10. Minimal Build / Packaging Rule
-
-若候选库能力很大，应由产品真实需求反推最小 feature set。
-
-例如大型 media framework 可能需要关闭：
-
-```text
-CLI frontend
-network
-unused protocols
-unused demuxers/muxers
-unused decoders/encoders
-unused filters
-unrelated devices/features
-```
-
-具体关闭项必须来自真实 dependency graph，而不是照抄模板。
+或当前代码最自然的等价 contract。
 
 目标：
 
-> **发布包里每个 native binary 和启用 feature 都有明确用途。**
-
-# 11. UI-only Dependencies
-
-只服务：
-
 ```text
-thumbnail
-preview
-display resize
-UI cache
+Windows file
+WASM ArrayBuffer / browser-backed source
+POSIX file
+memory fixture
 ```
 
-的库不要求迁移到 Native。
+可复用同一 protocol/container engine。
 
-同一 library 同时用于 UI 和正式 processing 时，按调用点拆分职责，不做“全删/全留”的粗暴决定。
+不要求 P4 一次把所有 path API 删除；要求 canonical core primitive 不再只能由 Win32 file path 驱动。
 
-# 12. Video 特别规则
+---
 
-必须区分：
+# 8. CMake Migration
 
-```text
-container/remux
-vs
-codec/transcode
-```
+## 8.1 Canonical build
 
-项目已有可靠 ISO-BMFF remux 时，默认保留并继续验证，不因为选中大型 media library 就无条件替换。
-
-跨 codec transcode backend 才单独做候选评估。
-
-允许统一 Converter contract 下不同平台使用不同已批准 backend，但：
+P4 后：
 
 ```text
-capability
-fallback policy
-execution record
-preservation semantics
+CMakeLists.txt
+= Native build authority
 ```
 
-必须一致且可诊断。
-
-这类 backend fallback 仍属于 Rebuilt，不等于恢复 Legacy product fallback。
-
-# 13. Audio / Color / HDR Foundation
-
-P4 要让 P5 能诚实表达：
+至少支持当前正式 target：
 
 ```text
-audio bitstream copied
-audio decoded/reencoded
-audio dropped
-no audio
-unsupported
+Windows x64 / MSVC
 ```
 
-以及：
+并让 build graph 能表达：
 
 ```text
-ICC preserved/converted
-HDR/GainMap preserved
-HDR degraded
-orientation normalized
+portable core
+windows backend
+media dependencies
+feature flags
+tests
 ```
 
-GainMap 语义仍由项目自己掌握；codec/pixel backend 只处理通用媒体 primitive。
+## 8.2 `.vcxproj` 迁移规则
 
-# 14. Dependency Decision Record
-
-每个正式 candidate/decision 至少记录：
+当前 `.vcxproj`：
 
 ```text
-Capability:
-Current implementation:
-Why evaluate/change:
-Candidate:
-Exact version/source:
-Enabled features:
-Disabled features:
-Static or dynamic:
-Platforms:
-Runtime binaries:
-Binary/package delta:
-License/distribution:
-Security status:
-Real-media tests:
-Differential result:
-Known gaps:
-Approved fallback inside Rebuilt:
-Removal plan for obsolete dependency:
-Decision:
+保留
+→ CMake Windows parity
+→ tests/artifact/debug workflow parity
+→ 再删除或降级为 generated/compatibility entry
 ```
 
-# 15. P4 Exit Gate
+不允许先删再修。
 
-P4 完成不要求“所有旧 backend 全部删除”。
+## 8.3 Future build readiness
 
-必须满足：
+本阶段不要求发布 Linux/Web，但 CMake graph 应允许未来：
 
-1. result-affecting capability inventory 完整；
-2. current baseline 与 differential samples 已建立；
-3. platform/filesystem boundary 足够清晰；
-4. build/dependency strategy 可复现；
-5. dependency version/features/runtime binary 可追踪；
-6. P5 必需的 JPEG/HEIC/video/audio/color/HDR 能力已有 Accepted backend，或明确 Unsupported/Deferred 且不会被产品误宣称支持；
-7. result-affecting candidate 有真实媒体证据；
-8. binary size/runtime dependency report 明确；
-9. license/security 状态有记录；
-10. cross-platform/portable-core 状态有证据或明确 blocker；
-11. 未恢复 external media CLI production backend；
-12. 不继续为了“潜在未来需求”无限扩张 P4。
+```text
+Emscripten
+GCC/Clang
+AppleClang
+```
 
-> **P4 的成功是“有证据的 foundation + decision”，不是“必须选中某一个预设库”。**
+接入，而不复制 protocol sources。
 
-## AI 执行硬规则
+---
 
-1. **先读当前 HEAD，再动代码。** Roadmap 定义目标、边界和验收，不替代当前实现事实；文档中记录的审计点必须在执行时重新核对。
-2. **只执行当前阶段。** 未满足当前 Phase Gate，不提前实现后续阶段，不以“顺手整理”为理由扩大范围。
-3. **验证证据必须与风险匹配。** 任何影响媒体产物、协议 correctness、兼容性或 preservation 的 Process，都必须同时具备代码证据、自动化测试和真实媒体样本证据；纯 build/platform/diagnostic infrastructure 使用与其风险匹配的 build smoke、dependency report、fault injection、platform proof 等证据。真实媒体样本不是 P7 才开始。
-4. **测试失败必须可定位。** 错误应携带阶段、能力、关键输入事实、失败类别和技术原因；CLI/产品层必须能把核心错误清楚呈现。
-5. **Production runtime 不恢复外部媒体 CLI 子进程依赖。** `ffmpeg.exe`、`ffprobe.exe`、`ExifTool.exe`、`jpegtran.exe`、`heif-enc.exe`、`heif-dec.exe`、`magick.exe` 等可以用于研究、测试和独立验证，但不能重新成为正式处理后端。
-6. **第三方 C/C++ 媒体库是候选能力，不是预先锁定的架构承诺。** 是否采用、如何裁剪、静态或动态链接、平台 backend 组合等，由 P4 的实际证据决定；不得因为 Roadmap 举例提到某个库就机械引入，也不得为了“全部自研”重复实现成熟 codec。
-7. **C# 是 Control Plane；Native 是 result-affecting Data Plane。** 产品级命名、目标目录、队列、UI/CLI orchestration 由 Core 管理；底层临时文件、原子 replace/publish 等事务 primitive 可以保留在 Native，但应置于明确的 platform/filesystem boundary。UI-only 的缩略图、预览、显示缩放和缓存不强制进入 Native。
-8. **不猜协议事实，也不猜 Writer 写入位置。** 字符串命中、固定 offset、同文件名、magic number、`hit + N` 只能用于 research/candidate/evidence，不能直接成为 destructive authority 或 production Writer authoritative write location。
-9. **源文件默认不原地覆盖。** Destructive/repair/write 流程优先使用新文件或安全临时输出；只有在结构与媒体验证通过后，才进入正式 publish。失败或取消不得留下“看起来成功”的半成品。
-10. **所有 Done 都由证据宣布。** 代码存在、API 返回成功、文件能打开、播放器能播放，都不能单独证明阶段完成。
-11. **当前 Roadmap 不主动修改用户可见文档。** README、CLI 用户手册、商店/Release 用户说明等，只有用户明确要求时才更新。
+# 9. Dependency Management
+
+Windows Native 默认：
+
+```text
+vcpkg manifest
+```
+
+P4 必须记录：
+
+```text
+dependency
+exact version/baseline
+source
+features
+disabled features
+static/dynamic
+license
+runtime binaries
+patches
+hash/checksum where appropriate
+```
+
+如果某依赖用 vcpkg 无法可靠满足：
+
+```text
+允许 CMake FetchContent / pinned source / vendored patch
+```
+
+但必须解释原因，不能形成第二套无版本控制的依赖管理。
+
+---
+
+# 10. JPEG Foundation — libjpeg-turbo
+
+## 10.1 Ownership
+
+```text
+LivePhotoBox:
+JPEG marker structure
+APP1
+EXIF
+XMP
+MakerNote
+MPF/Ultra HDR/vendor semantics
+
+libjpeg-turbo:
+JPEG pixel decode
+JPEG pixel encode
+lossless DCT transform where applicable
+```
+
+## 10.2 Migration goal
+
+逐步替代 result-affecting path 中：
+
+```text
+WIC JPEG codec dependency
+jpegtran.exe legacy capability
+Magick.NET JPEG codec usage
+```
+
+但 UI-only preview 不要求迁移。
+
+## 10.3 Required capability proof
+
+```text
+decode common real JPEG
+encode device-compatible JPEG
+quality controls
+grayscale/RGB handling
+EXIF orientation workflow
+lossless rotate/flip transform
+metadata reattachment/preservation contract
+large-file/memory behavior
+```
+
+---
+
+# 11. HEIF/HEIC Foundation — libheif
+
+## 11.1 Ownership
+
+```text
+LivePhotoBox:
+HEIF structural truth
+item/extent/reference semantics
+Exif/XMP placement semantics
+Apple/Huawei/Samsung/vendor rules
+GainMap semantic identity
+target protocol structure
+
+libheif:
+generic HEIF image codec access
+decode/encode
+generic image item codec plumbing
+```
+
+libheif 的 parser 结果可以作为通用 codec input/evidence，但不是 vendor protocol authority。
+
+## 11.2 Default codec stack
+
+```text
+Decode:
+libheif → libde265
+
+Encode:
+libheif → x265
+```
+
+Kvazaar：
+
+```text
+benchmark / fallback candidate
+```
+
+不默认为了“少 GPL 依赖”替换 x265；compatibility first。
+
+## 11.3 x265 distribution gate
+
+仓库当前为 GPLv3。  
+x265 使用 GPL v2-or-later / commercial dual licensing；P4 必须把：
+
+```text
+software license compatibility
+source/binary redistribution obligations
+HEVC patent/licensing considerations
+store/distribution requirements
+```
+
+作为正式 dependency record。
+
+> License compatibility 与 codec patent rights 是两个不同问题，均需记录。
+
+如果未来 distribution channel 对 x265 形成实际 blocker：
+
+```text
+再评估 Kvazaar / platform encoder / other approved encoder
+```
+
+不能提前因为理论担忧牺牲实际兼容性。
+
+## 11.4 Minimal HEIF build
+
+禁用 Live Photo Box 不需要的：
+
+```text
+unused codecs
+examples
+CLI tools
+plugins when not needed
+AVIF/JPEG2000/VVC etc. if no product requirement
+```
+
+是否 static/plugin 由 package/security/update 证据决定。
+
+---
+
+# 12. HDR / GainMap Native Migration
+
+当前正式目标是：
+
+> **所有会改变 HDR/GainMap 正式产物的逻辑收口到 Native。**
+
+P4/P5 边界：
+
+P4 建 foundation：
+
+```text
+pixel access
+HEIC primary/aux decode/encode capability
+JPEG codec
+color primitive
+portable GainMap processing host
+```
+
+P5 完成可靠转换 semantics。
+
+需要逐步退出 result-affecting：
+
+```text
+C# Magick.NET pixel math
+C# HEIC external-tool-era helper assumptions
+result-affecting fallback that silently drops GainMap
+```
+
+但：
+
+```text
+GainMap math
+Apple/ISO metadata semantics
+Ultra HDR structure
+auxiliary ownership
+```
+
+仍由 LivePhotoBox 自己掌握。
+
+---
+
+# 13. Color Management — lcms2 Optional
+
+lcms2 是 **approved optional dependency**。
+
+只有发生真实：
+
+```text
+ICC A → pixel color transform → ICC B
+Display P3 → sRGB
+other explicit profile conversion
+```
+
+时引入。
+
+如果只是：
+
+```text
+ICC bytes preserve
+```
+
+禁止为了形式主义调用 color engine。
+
+P4 应先证明实际 Converter path 是否需要 lcms2 runtime；若不需要：
+
+```text
+do not ship it
+```
+
+---
+
+# 14. Video Backend — 主要剩余决策
+
+视频是 P4 唯一需要认真“比赛”的大项。
+
+候选：
+
+```text
+A. Windows Media Foundation
+B. minimal FFmpeg libav* library build
+C. hybrid per-capability backend
+```
+
+禁止：
+
+```text
+ffmpeg.exe production subprocess
+```
+
+## 14.1 为什么不能现在强行统一
+
+Media Foundation 可能在 Windows 赢在：
+
+```text
+inbox runtime
+hardware MFT
+GPU acceleration
+small package footprint
+Windows integration
+```
+
+minimal libav* 可能赢在：
+
+```text
+codec/control consistency
+diagnostics
+portability
+format coverage
+future Linux/Web reuse
+```
+
+因此用真实 Live Photo 视频做 differential。
+
+## 14.2 Benchmark corpus
+
+至少覆盖：
+
+```text
+Apple HEVC/H264 MOV
+Google/Xiaomi MP4
+OPPO/OnePlus
+vivo
+Samsung
+Huawei/Honor
+audio/no-audio
+rotation
+10-bit where applicable
+HDR/color metadata where applicable
+odd dimensions
+VFR/timing variants
+```
+
+## 14.3 Metrics
+
+```text
+device compatibility
+output structural validity
+quality
+codec profile/level
+audio
+rotation/timing
+color/HDR metadata
+CPU
+GPU
+elapsed time
+memory
+failure/cancel behavior
+binary/package delta
+maintenance
+```
+
+## 14.4 Decision rule
+
+```text
+MF clearly better on Windows
+→ WindowsVideoBackend = MF
+
+libav* equal or better overall
+→ portable backend may become Windows default
+
+different capabilities have different winners
+→ hybrid backend allowed
+```
+
+只要 backend identity、fallback、preservation semantics 可诊断即可。
+
+---
+
+# 15. WIC Policy
+
+WIC 不再是默认跨平台 image foundation。
+
+允许保留的情况：
+
+```text
+某个 Windows-specific image capability
+在 compatibility/performance/system integration 上
+有可证明优势
+```
+
+否则：
+
+```text
+JPEG → libjpeg-turbo
+HEIC → libheif stack
+```
+
+优先。
+
+P4 需要决定是否还有任何 **result-affecting WIC path** 值得长期保留。
+
+UI preview/thumbnail 不受此限制。
+
+---
+
+# 16. Dependency Consolidation Gate
+
+对最终 Windows package 建 capability graph：
+
+```text
+dependency
+↓
+which features use it?
+↓
+which codecs does it duplicate?
+↓
+can an existing dependency cover the same need?
+↓
+does removal hurt compatibility?
+```
+
+原则：
+
+> **先兼容、正确、稳定；再考虑总体体积；最后才考虑“用了几个库”。**
+
+典型禁止：
+
+```text
+libde265 + second HEVC decoder
+only because both happened to be easy to add
+
+ImageMagick + libjpeg-turbo
+both serving the same production JPEG conversion with no evidence
+
+two atomic publish implementations
+```
+
+典型允许：
+
+```text
+libde265 for HEIC
++
+Media Foundation HEVC for video
+
+if each is demonstrably the best/most compatible in its domain
+```
+
+---
+
+# 17. Runtime Capability & ExecutionRecord
+
+P4 建立可诊断 capability identity。
+
+至少能够回答：
+
+```text
+which backend is available?
+which codec path was chosen?
+hardware/software?
+library/backend version?
+fallback happened?
+why?
+```
+
+P5 的 ExecutionRecord 应能记录：
+
+```text
+operation class
+backend
+codec
+transform kind
+preservation outcome
+fallback
+quality/degradation
+```
+
+不得：
+
+```text
+fallback happened
+→ output still called "preserved"
+```
+
+---
+
+# 18. Portable-core Proof
+
+P4 不要求完整 Linux/Web 产品。
+
+但至少完成一种结构证明：
+
+### Preferred
+
+建立一个：
+
+```text
+livephotobox_portable_core
+```
+
+目标，不链接 Win32/WIC/MF，包含：
+
+```text
+binary
+metadata
+protocol/container
+neutral structural primitives
+```
+
+并在 Windows compiler 上证明它可独立构建。
+
+### Stronger optional proof
+
+如果成本合理：
+
+```text
+Emscripten compile smoke
+or
+non-Windows Clang compile smoke
+```
+
+仅用于发现污染，不构成 Linux/Web 产品支持承诺。
+
+---
+
+# 19. P4 Exit Gate
+
+P4 只有全部满足以下条件才能进入 P5：
+
+1. Platform / Media backend contracts 已存在且职责清楚；
+2. scattered Win32 filesystem/publish logic 已收口或有明确剩余清单；
+3. CMake Windows build 成为 canonical 且与当前生产能力 parity；
+4. dependency manifest 可复现；
+5. libjpeg-turbo foundation 可用；
+6. libheif foundation 可用；
+7. libde265/x265 HEIC default path 有真实样本与分发记录；
+8. HDR/GainMap Native foundation 已能支撑 P5；
+9. video backend comparison 已完成，Windows P5 backend 已冻结；
+10. lcms2 是否需要已由实际 path 决定；
+11. WIC 是否保留 result-affecting path 已明确；
+12. duplicate codec/runtime report 完成；
+13. runtime binaries/features 有用途说明；
+14. portable-core build proof 通过或 blocker 被明确记录；
+15. production runtime 无 external media CLI；
+16. package footprint 有 baseline，但未以体积牺牲 compatibility；
+17. P5 不再需要重新发明 build/backend architecture。
+
+> **P4 成功的定义：长期骨架已经定型，P5 只需要把 Converter 正确接上它。**
