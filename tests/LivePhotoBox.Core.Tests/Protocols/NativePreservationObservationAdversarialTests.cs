@@ -12,6 +12,7 @@ using Xunit;
 
 namespace LivePhotoBox.Core.Tests.Protocols;
 
+[Trait("Category", "RealSamples")]
 public sealed class NativePreservationObservationAdversarialTests
 {
     private static string ResolveSample(string filename) => TestSampleResolver.ResolveSample(filename);
