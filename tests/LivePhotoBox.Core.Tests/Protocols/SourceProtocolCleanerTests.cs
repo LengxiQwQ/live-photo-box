@@ -334,7 +334,7 @@ public sealed class SourceProtocolCleanerTests
         // Prepare an image with custom non-protocol XMP properties
         string customImg = workspace.AllocateFilePath("adversarial-xmp", ".jpg");
         byte[] originalBytes = await File.ReadAllBytesAsync(primaryPath);
-        string originalXmp = MetadataPreservationVerifier.ExtractXmp(originalBytes);
+        string originalXmp = PreservationTestHelpers.ExtractXmp(originalBytes);
         Assert.NotEmpty(originalXmp);
 
         // Inject custom dc:creator and custom:SpecialTag into the XMP block
@@ -359,7 +359,7 @@ public sealed class SourceProtocolCleanerTests
 
         Assert.True(cleanResult.Success, cleanResult.ErrorMessage);
         Assert.NotNull(cleanResult.CleanedImage);
-        string cleanedXmp = MetadataPreservationVerifier.ExtractXmp(await File.ReadAllBytesAsync(cleanResult.CleanedImage.Path));
+        string cleanedXmp = PreservationTestHelpers.ExtractXmp(await File.ReadAllBytesAsync(cleanResult.CleanedImage.Path));
         Assert.Contains("Adversarial Photographer", cleanedXmp);
         Assert.Contains("Preserve12345", cleanedXmp);
 
@@ -528,7 +528,7 @@ public sealed class SourceProtocolCleanerTests
 
         string customImg = workspace.AllocateFilePath("oppo-audit-prop", ".jpg");
         byte[] originalBytes = await File.ReadAllBytesAsync(primaryPath);
-        string originalXmp = MetadataPreservationVerifier.ExtractXmp(originalBytes);
+        string originalXmp = PreservationTestHelpers.ExtractXmp(originalBytes);
         Assert.NotEmpty(originalXmp);
 
         // Inject <GCamera:SpecialAuditProp>AuditPreserveValue123</GCamera:SpecialAuditProp> into XMP
@@ -560,7 +560,7 @@ public sealed class SourceProtocolCleanerTests
         Assert.NotNull(cleanResult.CleanedImage);
 
         // Verify that protocol tags were cleaned but the unauthorized GCamera property was preserved intact
-        string cleanedXmp = MetadataPreservationVerifier.ExtractXmp(await File.ReadAllBytesAsync(cleanResult.CleanedImage.Path));
+        string cleanedXmp = PreservationTestHelpers.ExtractXmp(await File.ReadAllBytesAsync(cleanResult.CleanedImage.Path));
         Assert.DoesNotContain("OLivePhotoVersion", cleanedXmp, StringComparison.Ordinal);
         Assert.DoesNotContain("MotionPhotoOwner", cleanedXmp, StringComparison.Ordinal);
         Assert.Contains("AuditPreserveValue123", cleanedXmp, StringComparison.Ordinal);

@@ -2264,7 +2264,7 @@ public sealed class CleanerTrustChainTests
         using var workspace = new MediaWorkspace();
         byte[] rawBytes = await File.ReadAllBytesAsync(samplePath);
 
-        var snapshot = MetadataPreservationVerifier.ExtractHeicAuxRelationSnapshot(rawBytes);
+        var snapshot = PreservationTestHelpers.ExtractHeicAuxRelationSnapshot(rawBytes);
         Assert.NotNull(snapshot);
         Assert.Equal((uint)49, snapshot.PrimaryItemId);
         Assert.Equal((uint)55, snapshot.AuxiliaryItemId);
@@ -2439,7 +2439,7 @@ public sealed class CleanerTrustChainTests
         string samplePath = ResolveSample("三星.heic");
         byte[] rawBytes = await File.ReadAllBytesAsync(samplePath);
 
-        var baselineSnapshot = MetadataPreservationVerifier.ExtractHeicAuxRelationSnapshot(rawBytes);
+        var baselineSnapshot = PreservationTestHelpers.ExtractHeicAuxRelationSnapshot(rawBytes);
         Assert.NotNull(baselineSnapshot);
 
         // Find the mdat box in rawBytes and append fake "auxl", "pitm", "iloc", "iref" strings inside mdat
@@ -2460,13 +2460,13 @@ public sealed class CleanerTrustChainTests
         Buffer.BlockCopy(fakeBoxes, 0, noisyBytes, mdatPos + 100, fakeBoxes.Length);
 
         // Authoritative parsing must ignore payload noise and return exact same baseline items
-        var noisySnapshot = MetadataPreservationVerifier.ExtractHeicAuxRelationSnapshot(noisyBytes);
+        var noisySnapshot = PreservationTestHelpers.ExtractHeicAuxRelationSnapshot(noisyBytes);
         Assert.NotNull(noisySnapshot);
         Assert.Equal(baselineSnapshot.PrimaryItemId, noisySnapshot.PrimaryItemId);
         Assert.Equal(baselineSnapshot.AuxiliaryItemId, noisySnapshot.AuxiliaryItemId);
         Assert.Equal(baselineSnapshot.FromItemId, noisySnapshot.FromItemId);
         Assert.Equal(baselineSnapshot.ToItemId, noisySnapshot.ToItemId);
-        Assert.Equal(MetadataPreservationVerifier.ExtractHeicPrimaryItemId(rawBytes), MetadataPreservationVerifier.ExtractHeicPrimaryItemId(noisyBytes));
+        Assert.Equal(PreservationTestHelpers.ExtractHeicPrimaryItemId(rawBytes), PreservationTestHelpers.ExtractHeicPrimaryItemId(noisyBytes));
     }
 
     [Fact]
@@ -2501,7 +2501,7 @@ public sealed class CleanerTrustChainTests
         BinaryPrimitives.WriteUInt32BigEndian(tamperedBytes.AsSpan(metaPos, 4), metaSize + irefSize);
 
         // Authoritative parser must reject shadow/duplicate iref box and fail closed
-        var snapshot = MetadataPreservationVerifier.ExtractHeicAuxRelationSnapshot(tamperedBytes);
+        var snapshot = PreservationTestHelpers.ExtractHeicAuxRelationSnapshot(tamperedBytes);
         Assert.Null(snapshot);
     }
 
@@ -2522,7 +2522,7 @@ public sealed class CleanerTrustChainTests
 
         // Verify that original Exif can be located authoritatively
         Assert.True(NativeHeifBoxParser.TryLocateExifItem(rawBytes, out long origExifOffset, out long origExifLength, out _));
-        byte[]? origTiff = MetadataPreservationVerifier.ExtractTiff(rawBytes, samplePath);
+        byte[]? origTiff = PreservationTestHelpers.ExtractTiff(rawBytes, samplePath);
         Assert.NotNull(origTiff);
 
         // Tamper the authoritative Exif item by zeroing its payload
@@ -2548,7 +2548,7 @@ public sealed class CleanerTrustChainTests
         await File.WriteAllBytesAsync(tamperedPath, adversarialBytes);
 
         // 1. Direct extraction must NOT find the fake Exif in the trailer
-        byte[]? extractedTiff = MetadataPreservationVerifier.ExtractTiff(adversarialBytes, tamperedPath);
+        byte[]? extractedTiff = PreservationTestHelpers.ExtractTiff(adversarialBytes, tamperedPath);
         Assert.Null(extractedTiff);
 
         // 2. Full Verifier must fail closed and NOT report VerifiedPreserved for Exif
@@ -2585,7 +2585,7 @@ public sealed class CleanerTrustChainTests
         using var workspace = new MediaWorkspace();
         byte[] rawBytes = await File.ReadAllBytesAsync(samplePath);
 
-        byte[]? baselineIcc = MetadataPreservationVerifier.ExtractIcc(rawBytes, samplePath);
+        byte[]? baselineIcc = PreservationTestHelpers.ExtractIcc(rawBytes, samplePath);
 
         // Overwrite any 'colr' fourcc in rawBytes inside ipco to 'xxxx'
         byte[] tamperedBytes = (byte[])rawBytes.Clone();
@@ -2613,7 +2613,7 @@ public sealed class CleanerTrustChainTests
         await File.WriteAllBytesAsync(tamperedPath, adversarialBytes);
 
         // 1. Direct extraction must NOT find the fake colr box in trailer
-        byte[]? extractedIcc = MetadataPreservationVerifier.ExtractIcc(adversarialBytes, tamperedPath);
+        byte[]? extractedIcc = PreservationTestHelpers.ExtractIcc(adversarialBytes, tamperedPath);
         Assert.Null(extractedIcc);
 
         // 2. If baseline had ICC, Verifier must fail closed
@@ -2670,7 +2670,7 @@ public sealed class CleanerTrustChainTests
         await File.WriteAllBytesAsync(tamperedPath, adversarialBytes);
 
         // 1. Authoritative HEIC XMP extraction must NOT read the fake XMP from the non-authoritative box
-        string extractedXmp = MetadataPreservationVerifier.ExtractXmp(adversarialBytes, tamperedPath);
+        string extractedXmp = PreservationTestHelpers.ExtractXmp(adversarialBytes, tamperedPath);
         Assert.DoesNotContain("adversarialValue", extractedXmp);
     }
 
@@ -2722,7 +2722,7 @@ public sealed class CleanerTrustChainTests
         BinaryPrimitives.WriteUInt32BigEndian(tamperedBytes.AsSpan(irefPos, 4), irefSize + 2);
 
         // 1. Direct snapshot extraction must reject duplicate relation and fail closed
-        var snapshot = MetadataPreservationVerifier.ExtractHeicAuxRelationSnapshot(tamperedBytes);
+        var snapshot = PreservationTestHelpers.ExtractHeicAuxRelationSnapshot(tamperedBytes);
         Assert.Null(snapshot);
 
         // 2. Verifier must report Failed for HDR preservation
@@ -2801,7 +2801,7 @@ public sealed class CleanerTrustChainTests
         BinaryPrimitives.WriteUInt32BigEndian(tamperedBytes.AsSpan(irefPos, 4), irefSize + 2);
 
         // 1. Direct snapshot extraction must fail closed on multiple conflicting relations
-        var snapshot = MetadataPreservationVerifier.ExtractHeicAuxRelationSnapshot(tamperedBytes);
+        var snapshot = PreservationTestHelpers.ExtractHeicAuxRelationSnapshot(tamperedBytes);
         Assert.Null(snapshot);
 
         // 2. Full Verifier must fail closed
@@ -2860,7 +2860,7 @@ public sealed class CleanerTrustChainTests
         BinaryPrimitives.WriteUInt16BigEndian(tamperedBytes.AsSpan(auxlPos + 12, 2), 49);
 
         // 1. Direct snapshot extraction must fail closed on self-referencing owner
-        var snapshot = MetadataPreservationVerifier.ExtractHeicAuxRelationSnapshot(tamperedBytes);
+        var snapshot = PreservationTestHelpers.ExtractHeicAuxRelationSnapshot(tamperedBytes);
         Assert.Null(snapshot);
 
         // 2. Full Verifier must fail closed
@@ -2902,12 +2902,12 @@ public sealed class CleanerTrustChainTests
         using var workspace = new MediaWorkspace();
         byte[] rawBytes = await File.ReadAllBytesAsync(samplePath);
 
-        uint? primaryIdOpt = MetadataPreservationVerifier.ExtractHeicPrimaryItemId(rawBytes);
+        uint? primaryIdOpt = PreservationTestHelpers.ExtractHeicPrimaryItemId(rawBytes);
         Assert.NotNull(primaryIdOpt);
         uint primaryId = primaryIdOpt.Value;
 
         // Baseline untampered extract must succeed
-        byte[]? origPayload = MetadataPreservationVerifier.ExtractHeicItemPayload(rawBytes, primaryId);
+        byte[]? origPayload = PreservationTestHelpers.ExtractHeicItemPayload(rawBytes, primaryId);
         Assert.NotNull(origPayload);
 
         // Tamper iloc to report extent_count = 2 for primaryId
@@ -2958,11 +2958,11 @@ public sealed class CleanerTrustChainTests
         }
 
         // 1. ExtractHeicItemPayload must return null on multi-extent item
-        byte[]? multiExtentPayload = MetadataPreservationVerifier.ExtractHeicItemPayload(tamperedBytes, primaryId);
+        byte[]? multiExtentPayload = PreservationTestHelpers.ExtractHeicItemPayload(tamperedBytes, primaryId);
         Assert.Null(multiExtentPayload);
 
         // 2. ExtractHeicPrimaryItemSha256 must return null (not falling back to partial first extent or mdat)
-        string? multiExtentSha = MetadataPreservationVerifier.ExtractHeicPrimaryItemSha256(tamperedBytes);
+        string? multiExtentSha = PreservationTestHelpers.ExtractHeicPrimaryItemSha256(tamperedBytes);
         Assert.Null(multiExtentSha);
 
         // 3. Full Verifier must fail closed and report Failed for MediaPayload

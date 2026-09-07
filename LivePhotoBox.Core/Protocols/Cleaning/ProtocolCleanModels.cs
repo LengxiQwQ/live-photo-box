@@ -111,33 +111,27 @@ public sealed record PreservationReport
 }
 
 /// <summary>
-/// Immutable snapshot of media artifact bytes, lengths, hashes, and extracted metadata baseline
+/// Immutable snapshot of media artifact lengths, hashes, and native preservation observations
 /// frozen before any destructive mutations or staging begin.
+/// Contains zero raw media byte arrays. All media structure truth is owned by LivePhotoBox.Native.
 /// </summary>
 public sealed record PreservationBaseline
 {
-    public required byte[] PrimaryImageBytes { get; init; }
+    public required string PrimaryImagePath { get; init; }
     public required long PrimaryImageLength { get; init; }
     public required string PrimaryImageSha256 { get; init; }
     public ImageContainer PrimaryImageContainer { get; init; }
-    public required string PrimaryImagePath { get; init; }
-
     public SourceProtocol Protocol { get; init; }
 
-    public byte[]? MotionVideoBytes { get; init; }
+    public required PreservationObservation ImageObservation { get; init; }
+
     public long? MotionVideoLength { get; init; }
     public string? MotionVideoSha256 { get; init; }
     public VideoContainer MotionVideoContainer { get; init; }
     public string? MotionVideoPath { get; init; }
-    public string? PreMdatSha { get; init; }
+    public PreservationObservation? VideoObservation { get; init; }
 
-    public byte[]? GainMapBytes { get; init; }
-    public long? GainMapLength { get; init; }
     public string? GainMapSha256 { get; init; }
-
-    public string? PreCodestreamSha { get; init; }
-    public MetadataPreservationVerifier.TiffMetadata? PreTiff { get; init; }
-    public byte[]? PreIcc { get; init; }
 
     public DateTimeOffset CapturedAt { get; init; } = DateTimeOffset.UtcNow;
 }

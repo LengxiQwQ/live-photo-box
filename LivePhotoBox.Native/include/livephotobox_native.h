@@ -699,7 +699,122 @@ LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_plan(
     lpb_removed_protocol_fact* out_facts,
     size_t facts_capacity,
     size_t* out_facts_count);
+/* ========================================================================= */
+/* P3 Preservation Observation — Native media fact capture                   */
+/* ========================================================================= */
 
+/* Length of a null-terminated hex SHA256 string (64 chars + null) */
+#define LPB_POBS_SHA256_LEN 65
+
+/* Presence flags (low 16 bits of lpb_preservation_observation.flags) */
+#define LPB_POBS_HAS_EXIF         0x00000001u
+#define LPB_POBS_HAS_GPS          0x00000002u
+#define LPB_POBS_HAS_ICC          0x00000004u
+#define LPB_POBS_HAS_MAKERNOTE    0x00000008u
+#define LPB_POBS_HAS_XMP          0x00000010u
+#define LPB_POBS_HAS_EXTENDED_XMP 0x00000020u
+#define LPB_POBS_HAS_HEIC_AUX     0x00000040u
+#define LPB_POBS_HAS_VIDEO_MDAT   0x00000080u
+#define LPB_POBS_HAS_GAINMAP_META 0x00000100u
+
+/* Error/status flags (high 16 bits) — presence of these → UnableToVerify in C# */
+#define LPB_POBS_EXIF_PARSE_ERROR    0x00010000u
+#define LPB_POBS_ICC_PARSE_ERROR     0x00020000u
+#define LPB_POBS_MAKERNOTE_MALFORMED 0x00040000u
+#define LPB_POBS_XMP_MALFORMED       0x00080000u
+#define LPB_POBS_HEIC_AUX_AMBIGUOUS  0x00100000u
+#define LPB_POBS_CODESTREAM_ERROR    0x00200000u
+
+typedef struct lpb_preservation_observation
+{
+    uint32_t struct_size;
+    uint32_t flags;                        /* LPB_POBS_HAS_* | LPB_POBS_*_ERROR */
+
+    /* Image codestream SHA256:
+       JPEG: entropy-coded scan (SOS payload before EOI)
+       HEIC: primary item payload */
+    char image_codestream_sha256[LPB_POBS_SHA256_LEN];
+
+    /* SHA256 of canonical IFD0 tags (excluding pointers 0x8769, 0x8825):
+       Each entry serialized as: u16_tag_BE u16_type_BE u32_count_BE <value_bytes>
+       sorted ascending by tag, then hashed. */
+    char exif_ifd0_nonptr_sha256[LPB_POBS_SHA256_LEN];
+
+    /* SHA256 of canonical ExifIFD tags (excluding MakerNote 0x927C),
+       same serialization as above. */
+    char exif_exif_ifd_sha256[LPB_POBS_SHA256_LEN];
+
+    /* DateTimeOriginal (tag 0x9003) as ASCII string, null-terminated.
+       Empty string if absent. */
+    char datetime_original[32];
+
+    /* Orientation tag (0x0112) value; 0 if absent. */
+    uint16_t orientation;
+    uint16_t _pad0;
+
+    /* SHA256 of canonical GPS IFD tags (all tags, same serialization). */
+    char gps_sha256[LPB_POBS_SHA256_LEN];
+
+    /* SHA256 of reassembled ICC profile bytes:
+       JPEG: reassemble all APP2 ICC chunks in sequence order
+       HEIC: colr property body payload for primary item */
+    char icc_sha256[LPB_POBS_SHA256_LEN];
+
+    /* SHA256 of non-live-protocol MakerNote content:
+       Apple (protocol_hint == LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO):
+         hash canonical IFD entries excluding tags 0x0011, 0x0017, 0x0025, 0x002b
+       All others: hash full MakerNote bytes.
+       Empty string if no MakerNote or MakerNote malformed. */
+    char makernote_nonlive_sha256[LPB_POBS_SHA256_LEN];
+
+    /* SHA256 of XMP non-protocol content:
+       Extract XMP from JPEG APP1 or HEIC XMP item,
+       remove properties from live-protocol namespaces (see implementation notes),
+       serialize remaining properties canonically, hash.
+       hdrgm/GainMap namespaces are preserved in this hash.
+       Set LPB_POBS_HAS_GAINMAP_META if hdrgm or GainMap properties found. */
+    char xmp_nonprotocol_sha256[LPB_POBS_SHA256_LEN];
+
+    /* SHA256 of extended XMP APP1 payloads (JPEG only):
+       Concatenate all extended XMP APP1 segment payloads in document order, hash.
+       Empty string if none present. */
+    char extended_xmp_sha256[LPB_POBS_SHA256_LEN];
+
+    /* HEIC auxiliary item relationship:
+       primary_item_id: from pitm box
+       aux_item_id: ID of the auxl-referenced auxiliary item
+       aux_from/to_item_id: raw iref auxl fromId/toId
+       aux_item_sha256: SHA256 of auxiliary item payload
+       aux_type: null-terminated aux_type string from infe (e.g. "urn:mpeg:hevc:2015:auxid:1")
+       LPB_POBS_HEIC_AUX_AMBIGUOUS set if duplicate/shadow iref, self-reference,
+         or multiple candidate relations found. */
+    uint32_t heic_primary_item_id;
+    uint32_t heic_aux_item_id;
+    uint32_t heic_aux_from_item_id;
+    uint32_t heic_aux_to_item_id;
+    char heic_aux_item_sha256[LPB_POBS_SHA256_LEN];
+    char heic_aux_type[128];
+
+    /* SHA256 of mdat payload (video artifact: stream mdat box contents).
+       Empty string if not a video or mdat not found. */
+    char video_mdat_sha256[LPB_POBS_SHA256_LEN];
+} lpb_preservation_observation;
+
+/*
+ * Captures preservation-relevant media facts from a file as SHA256 fingerprints.
+ * protocol_hint: used for vendor-specific MakerNote semantics (which tags are "live").
+ * container_hint: LPB_IMAGE_CONTAINER_JPEG or LPB_IMAGE_CONTAINER_HEIC for images;
+ *   LPB_IMAGE_CONTAINER_UNKNOWN for video (triggers mdat SHA mode).
+ * All fields in out_observation are zero-initialized by the caller via struct_size.
+ * Returns LPB_RESULT_OK on success (even if some optional regions not found).
+ * Returns error only for fatal I/O failures (file not found, etc.).
+ */
+LPB_API lpb_result LPB_CALL lpb_capture_preservation_observation(
+    lpb_context* context,
+    const char* media_path,
+    lpb_source_protocol protocol_hint,
+    lpb_image_container container_hint,
+    lpb_preservation_observation* out_observation);
 
 #ifdef __cplusplus
 }
@@ -721,5 +836,6 @@ static_assert(offsetof(lpb_video_item_facts, source_index) == 72, "lpb_video_ite
 static_assert(offsetof(lpb_source_media_facts, primary_sha256) == 336, "lpb_source_media_facts.primary_sha256 offset mismatch");
 static_assert(offsetof(lpb_source_media_facts, secondary_sha256) == 368, "lpb_source_media_facts.secondary_sha256 offset mismatch");
 static_assert(offsetof(lpb_source_media_facts, has_secondary_source) == 400, "lpb_source_media_facts.has_secondary_source offset mismatch");
+static_assert(sizeof(lpb_preservation_observation) == 844, "lpb_preservation_observation size mismatch");
 #endif
 #endif

@@ -298,6 +298,188 @@ public class CleanerBoundaryArchitectureTests
             + "Raw C# byte-append (FileStream.CopyToAsync) is not acceptable as the production GainMap join path.");
     }
 
+    [Fact]
+    public void MetadataPreservationVerifier_HasNoBinaryParserMethods()
+    {
+        var forbiddenNames = new[]
+        {
+            "ParseTiff", "ParseIfd", "ExtractTiff", "ExtractJpegTiff", "ExtractHeicTiff",
+            "ExtractIcc", "ExtractJpegIcc", "ExtractHeicIcc", "ExtractXmp",
+            "ExtractNonTargetXmpProperties", "ParseAppleMakerNote", "ExtractHeicAuxRelationSnapshot",
+            "ExtractMdatPayloadSha256", "ExtractMdatPayloadSha256Async", "ParseSequentialBoxes",
+            "ExtractHeicPrimaryItemSha256", "ExtractExtendedXmpSha256", "ExtractFirstMdatPayload",
+            "ExtractHeicPrimaryItemId", "ExtractHeicItemPayload", "ExtractHeicAuxlItemId",
+            "ExtractHeicAuxlItemSha256"
+        };
+
+        var type = typeof(MetadataPreservationVerifier);
+        var allMethods = type.GetMethods(
+            BindingFlags.Public | BindingFlags.NonPublic |
+            BindingFlags.Static | BindingFlags.Instance |
+            BindingFlags.DeclaredOnly);
+
+        foreach (var m in allMethods)
+        {
+            Assert.DoesNotContain(m.Name, forbiddenNames);
+        }
+    }
+
+    [Fact]
+    public void MetadataPreservationVerifier_DoesNotUseBinaryPrimitives_InProductionMethods()
+    {
+        var type = typeof(MetadataPreservationVerifier);
+        var allMethods = type.GetMethods(
+            BindingFlags.Public | BindingFlags.NonPublic |
+            BindingFlags.Static | BindingFlags.Instance |
+            BindingFlags.DeclaredOnly);
+
+        var forbiddenTypeNames = new HashSet<string>(StringComparer.Ordinal)
+        {
+            "System.Buffers.Binary.BinaryPrimitives",
+            "System.Xml.Linq.XDocument",
+            "System.Xml.Linq.XNamespace",
+            "System.Xml.Linq.XElement"
+        };
+
+        foreach (var method in allMethods)
+        {
+            var referencedTypes = GetReferencedTypesInMethod(method).ToList();
+            foreach (var refType in referencedTypes)
+            {
+                Assert.False(
+                    forbiddenTypeNames.Contains(refType.FullName ?? ""),
+                    $"MetadataPreservationVerifier.{method.Name} references {refType.FullName}, violating C# binary parser ban.");
+            }
+        }
+    }
+
+    [Fact]
+    public void MetadataPreservationVerifier_CallsNativeMediaService_ForObservation()
+    {
+        var type = typeof(MetadataPreservationVerifier);
+        var captureMethod = type.GetMethod("CaptureBaselineAsync", BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(captureMethod);
+
+        var referencedTypes = GetReferencedTypesInMethod(captureMethod).ToList();
+        Assert.True(
+            referencedTypes.Contains(typeof(NativeMediaService)),
+            "MetadataPreservationVerifier.CaptureBaselineAsync must reference NativeMediaService in its call graph.");
+    }
+
+    [Fact]
+    public void MetadataPreservationVerifier_DoesNotReadFileBytes_ForParsing()
+    {
+        var type = typeof(MetadataPreservationVerifier);
+        var methodsToCheck = new[]
+        {
+            type.GetMethod("CaptureBaselineAsync", BindingFlags.Public | BindingFlags.Static),
+            type.GetMethod("VerifyAgainstBaselineAsync", BindingFlags.Public | BindingFlags.Static),
+            type.GetMethod("VerifyAsync", BindingFlags.Public | BindingFlags.Static)
+        };
+
+        foreach (var method in methodsToCheck)
+        {
+            Assert.NotNull(method);
+            var members = GetReferencedMembersInMethod(method).ToList();
+            foreach (var member in members)
+            {
+                if (member.DeclaringType == typeof(System.IO.File))
+                {
+                    Assert.False(
+                        member.Name is nameof(System.IO.File.ReadAllBytes) or nameof(System.IO.File.ReadAllBytesAsync),
+                        $"MetadataPreservationVerifier.{method.Name} calls File.{member.Name}. Media bytes must not be read into C# memory for parsing.");
+                }
+            }
+        }
+    }
+
+    [Fact]
+    public void PreservationBaseline_DoesNotContainRawMediaBytes()
+    {
+        var type = typeof(PreservationBaseline);
+        var fields = type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        var props = type.GetProperties(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+
+        foreach (var f in fields)
+        {
+            if (f.FieldType == typeof(byte[]))
+            {
+                Assert.False(
+                    f.Name.EndsWith("Bytes", StringComparison.OrdinalIgnoreCase) ||
+                    f.Name.EndsWith("Bytes>k__BackingField", StringComparison.OrdinalIgnoreCase),
+                    $"PreservationBaseline has byte[] field {f.Name}. Raw media byte arrays must not be in preservation baseline.");
+            }
+        }
+
+        foreach (var p in props)
+        {
+            if (p.PropertyType == typeof(byte[]))
+            {
+                Assert.False(
+                    p.Name.EndsWith("Bytes", StringComparison.OrdinalIgnoreCase),
+                    $"PreservationBaseline has byte[] property {p.Name}. Raw media byte arrays must not be in preservation baseline.");
+            }
+        }
+    }
+
+    private static IEnumerable<MemberInfo> GetReferencedMembersInMethod(MethodInfo method)
+    {
+        var asyncAttr = method.GetCustomAttribute<AsyncStateMachineAttribute>();
+        if (asyncAttr != null)
+        {
+            var moveNext = asyncAttr.StateMachineType.GetMethod("MoveNext", BindingFlags.NonPublic | BindingFlags.Instance);
+            if (moveNext != null)
+            {
+                foreach (var m in GetReferencedMembersInMethod(moveNext))
+                {
+                    yield return m;
+                }
+            }
+        }
+
+        var body = method.GetMethodBody();
+        if (body == null) yield break;
+
+        var il = body.GetILAsByteArray();
+        if (il == null || il.Length < 5) yield break;
+
+        var module = method.Module;
+        for (int i = 0; i <= il.Length - 5; i++)
+        {
+            byte op = il[i];
+            bool isCall = (op == 0x28 || op == 0x6F || op == 0x73); // call, callvirt, newobj
+            int tokenOffset = i + 1;
+
+            if (!isCall && op == 0xFE && i <= il.Length - 6)
+            {
+                byte op2 = il[i + 1];
+                if (op2 == 0x06 || op2 == 0x07) // ldftn, ldvirtftn
+                {
+                    isCall = true;
+                    tokenOffset = i + 2;
+                }
+            }
+
+            if (isCall)
+            {
+                int token = BitConverter.ToInt32(il, tokenOffset);
+                MemberInfo? member = null;
+                try
+                {
+                    member = module.ResolveMember(token);
+                }
+                catch
+                {
+                }
+
+                if (member != null)
+                {
+                    yield return member;
+                }
+            }
+        }
+    }
+
     private static IEnumerable<Type> GetReferencedTypesInMethod(MethodInfo method)
     {
         var asyncAttr = method.GetCustomAttribute<AsyncStateMachineAttribute>();

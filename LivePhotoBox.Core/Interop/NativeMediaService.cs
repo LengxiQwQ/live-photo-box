@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using LivePhotoBox.Media.Models;
+using LivePhotoBox.Protocols.Cleaning;
 
 namespace LivePhotoBox.Interop;
 
@@ -538,6 +539,37 @@ public static class NativeMediaService
                 gainmapJpegPath,
                 outputPath);
             ctx.ThrowIfFailed(res);
+        }, cancellationToken);
+    }
+
+    public static Task<PreservationObservation> CapturePreservationObservationAsync(
+        string mediaPath,
+        SourceProtocol protocol,
+        ImageContainer container,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mediaPath);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!File.Exists(mediaPath))
+            throw new FileNotFoundException("Preservation target media file not found.", mediaPath);
+
+        return Task.Run(() =>
+        {
+            using var ctx = NativeContext.Create(cancellationToken);
+            var nativeObs = new NativePreservationObservation
+            {
+                StructSize = checked((uint)Marshal.SizeOf<NativePreservationObservation>())
+            };
+
+            NativeResult res = NativeMethods.lpb_capture_preservation_observation(
+                ctx.Handle,
+                mediaPath,
+                (int)protocol,
+                (int)container,
+                ref nativeObs);
+
+            ctx.ThrowIfFailed(res);
+            return PreservationObservation.FromNative(in nativeObs);
         }, cancellationToken);
     }
 }

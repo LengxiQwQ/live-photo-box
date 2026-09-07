@@ -122,6 +122,53 @@ internal static partial class NativeMethods
         string primaryJpegPath,
         string gainmapJpegPath,
         string outputPath);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+        EntryPoint = "lpb_capture_preservation_observation", ExactSpelling = true)]
+    internal static extern NativeResult lpb_capture_preservation_observation(
+        nint context,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string mediaPath,
+        int protocolHint,
+        int containerHint,
+        ref NativePreservationObservation outObservation);
+}
+
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+internal struct NativePreservationObservation
+{
+    public uint StructSize;
+    public uint Flags;
+
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 65)]
+    public string ImageCodestreamSha256;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 65)]
+    public string ExifIfd0NonPtrSha256;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 65)]
+    public string ExifExifIfdSha256;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
+    public string DatetimeOriginal;
+    public ushort Orientation;
+    public ushort Pad0;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 65)]
+    public string GpsSha256;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 65)]
+    public string IccSha256;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 65)]
+    public string MakernoteNonliveSha256;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 65)]
+    public string XmpNonprotocolSha256;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 65)]
+    public string ExtendedXmpSha256;
+    public uint HeicPrimaryItemId;
+    public uint HeicAuxItemId;
+    public uint HeicAuxFromItemId;
+    public uint HeicAuxToItemId;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 65)]
+    public string HeicAuxItemSha256;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
+    public string HeicAuxType;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 65)]
+    public string VideoMdatSha256;
 }
 
 [Flags]
