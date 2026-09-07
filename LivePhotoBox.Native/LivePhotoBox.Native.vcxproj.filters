@@ -134,6 +134,9 @@
     <ClCompile Include="src\media\media_inspector.cpp">
       <Filter>src\media</Filter>
     </ClCompile>
+    <ClCompile Include="src\media\preservation_observation.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
     <ClCompile Include="src\media\video_converter.cpp">
       <Filter>src\media</Filter>
     </ClCompile>

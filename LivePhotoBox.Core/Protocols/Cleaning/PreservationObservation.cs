@@ -87,4 +87,29 @@ public sealed class PreservationObservation
         HeicAuxType = native.HeicAuxType ?? "",
         VideoMdatSha256 = native.VideoMdatSha256 ?? ""
     };
+
+    /// <summary>Populates a NativePreservationObservation from this managed PreservationObservation.</summary>
+    internal void ToNative(ref Interop.NativePreservationObservation native)
+    {
+        native.StructSize = checked((uint)System.Runtime.InteropServices.Marshal.SizeOf<Interop.NativePreservationObservation>());
+        native.Flags = Flags;
+        native.ImageCodestreamSha256 = ImageCodestreamSha256 ?? "";
+        native.ExifIfd0NonPtrSha256 = ExifIfd0NonPtrSha256 ?? "";
+        native.ExifExifIfdSha256 = ExifExifIfdSha256 ?? "";
+        native.DatetimeOriginal = DateTimeOriginal ?? "";
+        native.Orientation = Orientation;
+        native.Pad0 = 0;
+        native.GpsSha256 = GpsSha256 ?? "";
+        native.IccSha256 = IccSha256 ?? "";
+        native.MakernoteNonliveSha256 = MakernoteNonliveSha256 ?? "";
+        native.XmpNonprotocolSha256 = XmpNonprotocolSha256 ?? "";
+        native.ExtendedXmpSha256 = ExtendedXmpSha256 ?? "";
+        native.HeicPrimaryItemId = HeicPrimaryItemId;
+        native.HeicAuxItemId = HeicAuxItemId;
+        native.HeicAuxFromItemId = HeicAuxFromItemId;
+        native.HeicAuxToItemId = HeicAuxToItemId;
+        native.HeicAuxItemSha256 = HeicAuxItemSha256 ?? "";
+        native.HeicAuxType = HeicAuxType ?? "";
+        native.VideoMdatSha256 = VideoMdatSha256 ?? "";
+    }
 }

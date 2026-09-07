@@ -131,6 +131,19 @@ internal static partial class NativeMethods
         int protocolHint,
         int containerHint,
         ref NativePreservationObservation outObservation);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+        EntryPoint = "lpb_verify_preservation", ExactSpelling = true)]
+    internal static extern NativeResult lpb_verify_preservation(
+        nint context,
+        ref NativePreservationObservation pre,
+        ref NativePreservationObservation post,
+        int protocol,
+        byte hasDetachedGainmap,
+        [In, Out] NativePreservationVerdict[] outVerdicts,
+        nuint maxVerdicts,
+        out nuint outCount,
+        out byte outOverallPassed);
 }
 
 [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
@@ -169,6 +182,15 @@ internal struct NativePreservationObservation
     public string HeicAuxType;
     [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 65)]
     public string VideoMdatSha256;
+}
+
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+internal struct NativePreservationVerdict
+{
+    public uint Category;
+    public uint Status;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+    public string Details;
 }
 
 [Flags]

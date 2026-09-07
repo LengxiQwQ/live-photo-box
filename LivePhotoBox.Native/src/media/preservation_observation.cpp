@@ -1498,4 +1498,438 @@ LPB_API lpb_result LPB_CALL lpb_capture_preservation_observation(
     return LPB_RESULT_OK;
 }
 
+static bool shas_equal_ignore_case(const char* a, const char* b) {
+    if (!a || !b || a[0] == '\0' || b[0] == '\0') return false;
+    while (*a && *b) {
+        if (std::tolower(static_cast<unsigned char>(*a)) !=
+            std::tolower(static_cast<unsigned char>(*b))) {
+            return false;
+        }
+        ++a;
+        ++b;
+    }
+    return *a == '\0' && *b == '\0';
+}
+
+LPB_API lpb_result LPB_CALL lpb_verify_preservation(
+    lpb_context* context,
+    const lpb_preservation_observation* pre,
+    const lpb_preservation_observation* post,
+    lpb_source_protocol protocol,
+    uint8_t has_detached_gainmap,
+    lpb_preservation_verdict* out_verdicts,
+    size_t max_verdicts,
+    size_t* out_count,
+    uint8_t* out_overall_passed)
+{
+    if (!context || !pre || !post || !out_verdicts || !out_count || !out_overall_passed) {
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (lpb_context_check_cancelled(context) != LPB_RESULT_OK) {
+        return LPB_RESULT_CANCELLED;
+    }
+
+    *out_overall_passed = 1;
+    size_t count = 0;
+
+    // 1. Media Payload (Image)
+    {
+        lpb_preservation_verdict v;
+        std::memset(&v, 0, sizeof(v));
+        v.category = LPB_PCHECK_MEDIA_PAYLOAD;
+
+        if (pre->image_codestream_sha256[0] == '\0' || (pre->flags & LPB_POBS_CODESTREAM_ERROR)) {
+            v.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
+            snprintf(v.details, sizeof(v.details), "%s",
+                "Could not extract image codestream for bitwise verification (unrecognized container or corrupt codestream).");
+            *out_overall_passed = 0;
+        } else if (post->flags & LPB_POBS_CODESTREAM_ERROR) {
+            v.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v.details, sizeof(v.details), "%s",
+                "Image payload codestream extraction failed on cleaned artifact.");
+            *out_overall_passed = 0;
+        } else if (shas_equal_ignore_case(pre->image_codestream_sha256, post->image_codestream_sha256)) {
+            v.status = LPB_PRESERVATION_STATUS_VERIFIED_PRESERVED;
+            snprintf(v.details, sizeof(v.details),
+                "Image payload codestream bitwise verified identical (SHA-256: %s).", pre->image_codestream_sha256);
+        } else {
+            v.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v.details, sizeof(v.details),
+                "Image payload codestream SHA-256 mismatch (pre: %s, post: %s).",
+                pre->image_codestream_sha256, post->image_codestream_sha256);
+            *out_overall_passed = 0;
+        }
+        if (count < max_verdicts) out_verdicts[count++] = v;
+    }
+
+    // 2. Exif / TIFF
+    {
+        lpb_preservation_verdict v;
+        std::memset(&v, 0, sizeof(v));
+        v.category = LPB_PCHECK_EXIF;
+
+        if (!(pre->flags & LPB_POBS_HAS_EXIF)) {
+            v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
+            snprintf(v.details, sizeof(v.details), "%s", "No Exif segment in source artifact.");
+        } else if ((pre->flags & LPB_POBS_EXIF_PARSE_ERROR) || (post->flags & LPB_POBS_EXIF_PARSE_ERROR)) {
+            v.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
+            snprintf(v.details, sizeof(v.details), "%s", "Exif metadata parse error encountered.");
+            *out_overall_passed = 0;
+        } else if (!(post->flags & LPB_POBS_HAS_EXIF)) {
+            v.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v.details, sizeof(v.details), "%s", "TIFF / Exif metadata was present in source but missing in cleaned artifact.");
+            *out_overall_passed = 0;
+        } else if (!shas_equal_ignore_case(pre->exif_ifd0_nonptr_sha256, post->exif_ifd0_nonptr_sha256) ||
+                   !shas_equal_ignore_case(pre->exif_exif_ifd_sha256, post->exif_exif_ifd_sha256)) {
+            v.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v.details, sizeof(v.details), "%s", "Non-protocol Exif tags altered or dropped.");
+            *out_overall_passed = 0;
+        } else {
+            v.status = LPB_PRESERVATION_STATUS_VERIFIED_PRESERVED;
+            snprintf(v.details, sizeof(v.details), "%s", "All non-protocol TIFF/Exif tags bitwise verified preserved.");
+        }
+        if (count < max_verdicts) out_verdicts[count++] = v;
+    }
+
+    // 3. Orientation
+    {
+        lpb_preservation_verdict v;
+        std::memset(&v, 0, sizeof(v));
+        v.category = LPB_PCHECK_ORIENTATION;
+
+        if (pre->orientation == 0) {
+            v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
+            snprintf(v.details, sizeof(v.details), "%s", "No Exif Orientation tag in input.");
+        } else if (post->orientation == 0) {
+            v.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v.details, sizeof(v.details), "%s", "Exif Orientation tag was lost.");
+            *out_overall_passed = 0;
+        } else if (pre->orientation != post->orientation) {
+            v.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v.details, sizeof(v.details), "Exif Orientation changed from %u to %u.",
+                     static_cast<unsigned>(pre->orientation), static_cast<unsigned>(post->orientation));
+            *out_overall_passed = 0;
+        } else {
+            v.status = LPB_PRESERVATION_STATUS_VERIFIED_PRESERVED;
+            snprintf(v.details, sizeof(v.details), "Orientation tag (%u) verified preserved.",
+                     static_cast<unsigned>(pre->orientation));
+        }
+        if (count < max_verdicts) out_verdicts[count++] = v;
+    }
+
+    // 4. GPS
+    {
+        lpb_preservation_verdict v;
+        std::memset(&v, 0, sizeof(v));
+        v.category = LPB_PCHECK_GPS;
+
+        if (!(pre->flags & LPB_POBS_HAS_GPS)) {
+            v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
+            snprintf(v.details, sizeof(v.details), "%s", "No GPS metadata in input artifact.");
+        } else if (!(post->flags & LPB_POBS_HAS_GPS)) {
+            v.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v.details, sizeof(v.details), "%s", "GPS metadata was present in source but completely lost.");
+            *out_overall_passed = 0;
+        } else if (!shas_equal_ignore_case(pre->gps_sha256, post->gps_sha256)) {
+            v.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v.details, sizeof(v.details), "%s", "GPS metadata tags altered or partially dropped.");
+            *out_overall_passed = 0;
+        } else {
+            v.status = LPB_PRESERVATION_STATUS_VERIFIED_PRESERVED;
+            snprintf(v.details, sizeof(v.details), "%s", "All GPS tags verified preserved.");
+        }
+        if (count < max_verdicts) out_verdicts[count++] = v;
+    }
+
+    // 5. ICC Profile
+    {
+        lpb_preservation_verdict v;
+        std::memset(&v, 0, sizeof(v));
+        v.category = LPB_PCHECK_ICC;
+
+        if (!(pre->flags & LPB_POBS_HAS_ICC)) {
+            v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
+            snprintf(v.details, sizeof(v.details), "%s", "No ICC profile in input artifact.");
+        } else if ((pre->flags & LPB_POBS_ICC_PARSE_ERROR) || (post->flags & LPB_POBS_ICC_PARSE_ERROR)) {
+            v.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
+            snprintf(v.details, sizeof(v.details), "%s", "ICC color profile parsing error encountered.");
+            *out_overall_passed = 0;
+        } else if (!(post->flags & LPB_POBS_HAS_ICC)) {
+            v.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v.details, sizeof(v.details), "%s", "ICC color profile was present in input artifact but lost after cleaning.");
+            *out_overall_passed = 0;
+        } else if (!shas_equal_ignore_case(pre->icc_sha256, post->icc_sha256)) {
+            v.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v.details, sizeof(v.details), "%s", "ICC color profile binary payload was modified after cleaning.");
+            *out_overall_passed = 0;
+        } else {
+            v.status = LPB_PRESERVATION_STATUS_VERIFIED_PRESERVED;
+            snprintf(v.details, sizeof(v.details), "%s", "ICC color profile binary exact match.");
+        }
+        if (count < max_verdicts) out_verdicts[count++] = v;
+    }
+
+    // 6. MakerNote
+    {
+        lpb_preservation_verdict v;
+        std::memset(&v, 0, sizeof(v));
+        v.category = LPB_PCHECK_MAKERNOTE;
+
+        bool is_apple = (protocol == LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO);
+
+        if (!(pre->flags & LPB_POBS_HAS_MAKERNOTE)) {
+            v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
+            snprintf(v.details, sizeof(v.details), "%s",
+                is_apple ? "No Apple MakerNote in source."
+                         : "No applicable camera MakerNote requiring preservation.");
+        } else if ((pre->flags & LPB_POBS_MAKERNOTE_MALFORMED) || (post->flags & LPB_POBS_MAKERNOTE_MALFORMED)) {
+            v.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
+            snprintf(v.details, sizeof(v.details), "%s", "Camera MakerNote malformed or unparseable.");
+            *out_overall_passed = 0;
+        } else if (!(post->flags & LPB_POBS_HAS_MAKERNOTE)) {
+            v.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v.details, sizeof(v.details), "%s",
+                is_apple ? "Apple MakerNote container was lost completely."
+                         : "Camera MakerNote was lost on non-Apple source.");
+            *out_overall_passed = 0;
+        } else if (!shas_equal_ignore_case(pre->makernote_nonlive_sha256, post->makernote_nonlive_sha256)) {
+            v.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v.details, sizeof(v.details), "%s",
+                is_apple ? "Non-live Apple MakerNote data was modified or dropped."
+                         : "Camera MakerNote altered on non-Apple source.");
+            *out_overall_passed = 0;
+        } else {
+            v.status = LPB_PRESERVATION_STATUS_VERIFIED_PRESERVED;
+            snprintf(v.details, sizeof(v.details), "%s",
+                is_apple ? "Apple MakerNote verified intact: non-live tags preserved, live tags stripped."
+                         : "Camera MakerNote preserved.");
+        }
+        if (count < max_verdicts) out_verdicts[count++] = v;
+    }
+
+    // 7. XMP Non-Target Namespaces
+    {
+        lpb_preservation_verdict v;
+        std::memset(&v, 0, sizeof(v));
+        v.category = LPB_PCHECK_XMP_NON_TARGET;
+
+        if (!(pre->flags & LPB_POBS_HAS_XMP) || pre->xmp_nonprotocol_sha256[0] == '\0') {
+            v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
+            snprintf(v.details, sizeof(v.details), "%s", "No non-protocol XMP properties present in input.");
+        } else if ((pre->flags & LPB_POBS_XMP_MALFORMED) || (post->flags & LPB_POBS_XMP_MALFORMED)) {
+            v.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
+            snprintf(v.details, sizeof(v.details), "%s", "XMP payload malformed or unparseable.");
+            *out_overall_passed = 0;
+        } else if (!(post->flags & LPB_POBS_HAS_XMP)) {
+            v.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v.details, sizeof(v.details), "%s", "XMP metadata was present in source but missing in cleaned artifact.");
+            *out_overall_passed = 0;
+        } else if (!shas_equal_ignore_case(pre->xmp_nonprotocol_sha256, post->xmp_nonprotocol_sha256)) {
+            v.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v.details, sizeof(v.details),
+                "Non-target XMP properties modified or dropped (pre: '%s', post: '%s').",
+                pre->xmp_nonprotocol_sha256, post->xmp_nonprotocol_sha256);
+            *out_overall_passed = 0;
+        } else {
+            v.status = LPB_PRESERVATION_STATUS_VERIFIED_PRESERVED;
+            snprintf(v.details, sizeof(v.details), "%s", "All non-protocol XMP properties verified preserved.");
+        }
+        if (count < max_verdicts) out_verdicts[count++] = v;
+    }
+
+    // 8. Extended XMP Preservation
+    {
+        lpb_preservation_verdict v;
+        std::memset(&v, 0, sizeof(v));
+        v.category = LPB_PCHECK_EXTENDED_XMP;
+
+        if (!(pre->flags & LPB_POBS_HAS_EXTENDED_XMP)) {
+            v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
+            snprintf(v.details, sizeof(v.details), "%s", "No Extended XMP present in source.");
+        } else if (!(post->flags & LPB_POBS_HAS_EXTENDED_XMP) ||
+                   !shas_equal_ignore_case(pre->extended_xmp_sha256, post->extended_xmp_sha256)) {
+            v.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v.details, sizeof(v.details),
+                "Extended XMP segments altered or dropped (pre: %s, post: %s).",
+                pre->extended_xmp_sha256, post->extended_xmp_sha256);
+            *out_overall_passed = 0;
+        } else {
+            v.status = LPB_PRESERVATION_STATUS_VERIFIED_PRESERVED;
+            snprintf(v.details, sizeof(v.details),
+                "Extended XMP segments bitwise verified preserved (SHA-256: %s).",
+                pre->extended_xmp_sha256);
+        }
+        if (count < max_verdicts) out_verdicts[count++] = v;
+    }
+
+    // 9. HDR & GainMap
+    {
+        lpb_preservation_verdict v;
+        std::memset(&v, 0, sizeof(v));
+        v.category = LPB_PCHECK_HDR_GAINMAP;
+
+        bool has_hdr_indicator = false;
+        bool hdr_failed = false;
+        char hdr_fail_reason[256] = {0};
+
+        if ((pre->flags & LPB_POBS_HEIC_AUX_AMBIGUOUS) || (post->flags & LPB_POBS_HEIC_AUX_AMBIGUOUS)) {
+            has_hdr_indicator = true;
+            hdr_failed = true;
+            snprintf(hdr_fail_reason, sizeof(hdr_fail_reason), "%s",
+                "Ambiguous or duplicate HEIC auxiliary relationship detected (fail closed).");
+        } else if (pre->flags & LPB_POBS_HAS_HEIC_AUX) {
+            has_hdr_indicator = true;
+            if (!(post->flags & LPB_POBS_HAS_HEIC_AUX)) {
+                hdr_failed = true;
+                snprintf(hdr_fail_reason, sizeof(hdr_fail_reason), "%s",
+                    "HEIC GainMap auxl relationship or auxiliary item was dropped after cleaning.");
+            } else if (pre->heic_primary_item_id != post->heic_primary_item_id) {
+                hdr_failed = true;
+                snprintf(hdr_fail_reason, sizeof(hdr_fail_reason),
+                    "HEIC GainMap primary item ID mismatch (pre: %u, post: %u).",
+                    pre->heic_primary_item_id, post->heic_primary_item_id);
+            } else if (pre->heic_aux_item_id != post->heic_aux_item_id) {
+                hdr_failed = true;
+                snprintf(hdr_fail_reason, sizeof(hdr_fail_reason),
+                    "HEIC GainMap auxiliary item ID mismatch (pre: %u, post: %u).",
+                    pre->heic_aux_item_id, post->heic_aux_item_id);
+            } else if (pre->heic_aux_from_item_id != post->heic_aux_from_item_id ||
+                       pre->heic_aux_to_item_id != post->heic_aux_to_item_id) {
+                hdr_failed = true;
+                snprintf(hdr_fail_reason, sizeof(hdr_fail_reason),
+                    "HEIC GainMap auxl association direction/IDs tampered (pre: %u->%u, post: %u->%u).",
+                    pre->heic_aux_from_item_id, pre->heic_aux_to_item_id,
+                    post->heic_aux_from_item_id, post->heic_aux_to_item_id);
+            } else if (!shas_equal_ignore_case(pre->heic_aux_item_sha256, post->heic_aux_item_sha256)) {
+                hdr_failed = true;
+                snprintf(hdr_fail_reason, sizeof(hdr_fail_reason),
+                    "HEIC GainMap auxl payload altered (pre: %s, post: %s).",
+                    pre->heic_aux_item_sha256, post->heic_aux_item_sha256);
+            }
+        }
+
+        if (pre->flags & LPB_POBS_HAS_GAINMAP_META) {
+            has_hdr_indicator = true;
+            if (!hdr_failed && !(post->flags & LPB_POBS_HAS_GAINMAP_META)) {
+                hdr_failed = true;
+                snprintf(hdr_fail_reason, sizeof(hdr_fail_reason), "%s",
+                    "GainMap / HDR metadata was present in source but dropped after cleaning.");
+            }
+        }
+
+        if (hdr_failed) {
+            v.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v.details, sizeof(v.details), "%s", hdr_fail_reason);
+            *out_overall_passed = 0;
+        } else if (has_hdr_indicator) {
+            v.status = LPB_PRESERVATION_STATUS_VERIFIED_PRESERVED;
+            snprintf(v.details, sizeof(v.details), "%s", "GainMap / HDR payloads and metadata verified preserved.");
+        } else if (has_detached_gainmap) {
+            v.status = LPB_PRESERVATION_STATUS_SEMANTICALLY_PRESERVED;
+            snprintf(v.details, sizeof(v.details), "%s",
+                "Primary image contains no embedded HDR metadata; GainMap is tracked as detached artifact.");
+        } else {
+            v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
+            snprintf(v.details, sizeof(v.details), "%s", "No HDR / GainMap metadata present in source.");
+        }
+        if (count < max_verdicts) out_verdicts[count++] = v;
+    }
+
+    // 10. Detached GainMap
+    {
+        lpb_preservation_verdict v;
+        std::memset(&v, 0, sizeof(v));
+        v.category = LPB_PCHECK_GAINMAP;
+
+        if (has_detached_gainmap) {
+            v.status = LPB_PRESERVATION_STATUS_SEMANTICALLY_PRESERVED;
+            snprintf(v.details, sizeof(v.details), "%s",
+                "Detached GainMap is not processed as destructive target; tracked as detached artifact.");
+        } else {
+            v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
+            snprintf(v.details, sizeof(v.details), "%s", "No detached GainMap artifact present.");
+        }
+        if (count < max_verdicts) out_verdicts[count++] = v;
+    }
+
+    // 11 & 12. VideoStreams & AudioStreams
+    {
+        lpb_preservation_verdict v_vid;
+        std::memset(&v_vid, 0, sizeof(v_vid));
+        v_vid.category = LPB_PCHECK_VIDEO_STREAMS;
+
+        lpb_preservation_verdict v_aud;
+        std::memset(&v_aud, 0, sizeof(v_aud));
+        v_aud.category = LPB_PCHECK_AUDIO_STREAMS;
+
+        if (!(pre->flags & LPB_POBS_HAS_VIDEO_MDAT)) {
+            v_vid.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
+            snprintf(v_vid.details, sizeof(v_vid.details), "%s", "No motion video artifact in bundle.");
+            v_aud.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
+            snprintf(v_aud.details, sizeof(v_aud.details), "%s", "No motion video artifact in bundle.");
+        } else if (!(post->flags & LPB_POBS_HAS_VIDEO_MDAT)) {
+            v_vid.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v_vid.details, sizeof(v_vid.details), "%s", "Cleaned video artifact is missing or empty.");
+            v_aud.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v_aud.details, sizeof(v_aud.details), "%s", "Cleaned video artifact is missing or empty.");
+            *out_overall_passed = 0;
+        } else if (pre->video_mdat_sha256[0] == '\0' || post->video_mdat_sha256[0] == '\0') {
+            v_vid.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
+            snprintf(v_vid.details, sizeof(v_vid.details), "%s", "Video stream mdat payload fingerprint could not be established.");
+            v_aud.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
+            snprintf(v_aud.details, sizeof(v_aud.details), "%s", "Audio stream mdat payload fingerprint could not be established.");
+            *out_overall_passed = 0;
+        } else if (!shas_equal_ignore_case(pre->video_mdat_sha256, post->video_mdat_sha256)) {
+            v_vid.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v_vid.details, sizeof(v_vid.details),
+                "Video mdat sample payload SHA-256 mismatch (pre: %s, post: %s).",
+                pre->video_mdat_sha256, post->video_mdat_sha256);
+            v_aud.status = LPB_PRESERVATION_STATUS_FAILED;
+            snprintf(v_aud.details, sizeof(v_aud.details),
+                "Audio mdat sample payload SHA-256 mismatch (pre: %s, post: %s).",
+                pre->video_mdat_sha256, post->video_mdat_sha256);
+            *out_overall_passed = 0;
+        } else {
+            v_vid.status = LPB_PRESERVATION_STATUS_VERIFIED_PRESERVED;
+            snprintf(v_vid.details, sizeof(v_vid.details),
+                "Video sample payload bitwise verified identical (mdat SHA-256: %s).", pre->video_mdat_sha256);
+            v_aud.status = LPB_PRESERVATION_STATUS_VERIFIED_PRESERVED;
+            snprintf(v_aud.details, sizeof(v_aud.details),
+                "Audio sample payload bitwise verified identical (mdat SHA-256: %s).", pre->video_mdat_sha256);
+        }
+
+        if (count < max_verdicts) out_verdicts[count++] = v_vid;
+        if (count < max_verdicts) out_verdicts[count++] = v_aud;
+    }
+
+    // 13. Timing
+    {
+        lpb_preservation_verdict v;
+        std::memset(&v, 0, sizeof(v));
+        v.category = LPB_PCHECK_TIMING;
+
+        if (pre->datetime_original[0] != '\0') {
+            if (post->datetime_original[0] == '\0' ||
+                std::strcmp(pre->datetime_original, post->datetime_original) != 0) {
+                v.status = LPB_PRESERVATION_STATUS_FAILED;
+                snprintf(v.details, sizeof(v.details),
+                    "Capture timestamp altered from '%s' to '%s'.",
+                    pre->datetime_original, post->datetime_original);
+                *out_overall_passed = 0;
+            } else {
+                v.status = LPB_PRESERVATION_STATUS_VERIFIED_PRESERVED;
+                snprintf(v.details, sizeof(v.details),
+                    "Capture timestamp (%s) verified preserved.", pre->datetime_original);
+            }
+        } else {
+            v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
+            snprintf(v.details, sizeof(v.details), "%s", "No capture timestamp present in source media.");
+        }
+        if (count < max_verdicts) out_verdicts[count++] = v;
+    }
+
+    *out_count = count;
+    return LPB_RESULT_OK;
+}
+
 } // extern "C"

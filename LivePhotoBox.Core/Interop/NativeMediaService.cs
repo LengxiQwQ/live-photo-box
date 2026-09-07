@@ -572,4 +572,58 @@ public static class NativeMediaService
             return PreservationObservation.FromNative(in nativeObs);
         }, cancellationToken);
     }
+
+    internal static IReadOnlyList<NativePreservationVerdict> VerifyPreservation(
+        PreservationObservation preImage,
+        PreservationObservation postImage,
+        PreservationObservation? preVideo,
+        PreservationObservation? postVideo,
+        SourceProtocol protocol,
+        bool hasDetachedGainmap,
+        out bool allPassed,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(preImage);
+        ArgumentNullException.ThrowIfNull(postImage);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        using var ctx = NativeContext.Create(cancellationToken);
+        var preNative = new NativePreservationObservation();
+        preImage.ToNative(ref preNative);
+
+        var postNative = new NativePreservationObservation();
+        postImage.ToNative(ref postNative);
+
+        if (preVideo != null)
+        {
+            preNative.Flags |= 0x00000080u; // LPB_POBS_HAS_VIDEO_MDAT
+            preNative.VideoMdatSha256 = preVideo.VideoMdatSha256 ?? "";
+        }
+
+        if (postVideo != null)
+        {
+            postNative.Flags |= 0x00000080u; // LPB_POBS_HAS_VIDEO_MDAT
+            postNative.VideoMdatSha256 = postVideo.VideoMdatSha256 ?? "";
+        }
+
+        var verdicts = new NativePreservationVerdict[16];
+        NativeResult res = NativeMethods.lpb_verify_preservation(
+            ctx.Handle,
+            ref preNative,
+            ref postNative,
+            (int)protocol,
+            hasDetachedGainmap ? (byte)1 : (byte)0,
+            verdicts,
+            (nuint)verdicts.Length,
+            out nuint outCount,
+            out byte outOverallPassed);
+
+        ctx.ThrowIfFailed(res);
+        allPassed = outOverallPassed != 0;
+
+        int count = Math.Min((int)outCount, verdicts.Length);
+        var result = new NativePreservationVerdict[count];
+        Array.Copy(verdicts, result, count);
+        return result;
+    }
 }

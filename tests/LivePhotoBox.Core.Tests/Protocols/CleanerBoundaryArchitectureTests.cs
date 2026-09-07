@@ -422,6 +422,47 @@ public class CleanerBoundaryArchitectureTests
         }
     }
 
+    [Fact]
+    public void MetadataPreservationVerifier_DoesNotCompareShas()
+    {
+        var type = typeof(MetadataPreservationVerifier);
+
+        // 1. Must not have any helper method comparing SHAs (such as ShasEqual)
+        var allMethods = type.GetMethods(
+            BindingFlags.Public | BindingFlags.NonPublic |
+            BindingFlags.Static | BindingFlags.Instance |
+            BindingFlags.DeclaredOnly);
+
+        foreach (var m in allMethods)
+        {
+            Assert.DoesNotContain("Sha", m.Name, StringComparison.OrdinalIgnoreCase);
+        }
+
+        // 2. VerifyAgainstBaselineAsync must not access any Sha256 properties on PreservationObservation
+        var verifyMethod = type.GetMethod("VerifyAgainstBaselineAsync", BindingFlags.Public | BindingFlags.Static);
+        Assert.NotNull(verifyMethod);
+
+        var referencedMembers = GetReferencedMembersInMethod(verifyMethod).ToList();
+        foreach (var member in referencedMembers)
+        {
+            if (member.DeclaringType == typeof(PreservationObservation))
+            {
+                Assert.False(
+                    member.Name.Contains("Sha256", StringComparison.OrdinalIgnoreCase),
+                    $"MetadataPreservationVerifier.VerifyAgainstBaselineAsync accesses PreservationObservation.{member.Name}. "
+                    + "All preservation comparison and verdict rules must live in Native (lpb_verify_preservation).");
+            }
+        }
+
+        // 3. VerifyAgainstBaselineAsync must delegate to NativeMediaService.VerifyPreservation
+        var referencedMethods = referencedMembers.OfType<MethodInfo>().ToList();
+        var hasVerifyCall = referencedMethods.Any(m =>
+            m.DeclaringType == typeof(NativeMediaService) &&
+            m.Name == "VerifyPreservation");
+
+        Assert.True(hasVerifyCall, "MetadataPreservationVerifier.VerifyAgainstBaselineAsync must call NativeMediaService.VerifyPreservation.");
+    }
+
     private static IEnumerable<MemberInfo> GetReferencedMembersInMethod(MethodInfo method)
     {
         var asyncAttr = method.GetCustomAttribute<AsyncStateMachineAttribute>();
