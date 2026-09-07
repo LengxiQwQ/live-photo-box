@@ -429,7 +429,9 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.PreservationDiff, null).ConfigureAwait(false);
 
             var preservationReport = await MetadataPreservationVerifier.VerifyAgainstBaselineAsync(
-                preservationBaseline, stagedImgPath, stagedVidPath, cancellationToken).ConfigureAwait(false);
+                preservationBaseline, stagedImgPath, stagedVidPath,
+                stagedGainMapPath: bundle.GainMap?.Path,
+                cancellationToken).ConfigureAwait(false);
 
             if (preservationReport.OverallOutcome != PreservationOutcome.Preserved)
             {

@@ -1,6 +1,7 @@
 using System;
 using System.Buffers.Binary;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
@@ -534,6 +535,138 @@ public sealed class NativePreservationObservationAdversarialTests
         Assert.True(obs.IccParseError, "HEIC colr without ipma link must set IccParseError flag.");
         Assert.False(obs.HasIcc);
         Assert.Empty(obs.IccSha256);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Observation_HeicWithGenericAuxButNoXmp_IsNotClassifiedAsGainMap()
+    {
+        string samplePath = ResolveSample("苹果双文件.HEIC");
+        if (!File.Exists(samplePath)) return;
+
+        byte[] rawBytes = await File.ReadAllBytesAsync(samplePath);
+        using var workspace = new MediaWorkspace();
+
+        byte[] tamperedBytes = (byte[])rawBytes.Clone();
+
+        // 1. Replace Apple GainMap URN in auxC with generic URN "urn:mpeg:hevc:2015:auxid:1"
+        byte[] oldUrn = Encoding.ASCII.GetBytes("urn:com:apple:photo:2020:aux:hdrgainmap");
+        byte[] newUrnPrefix = Encoding.ASCII.GetBytes("urn:mpeg:hevc:2015:auxid:1\0");
+        int urnIdx = -1;
+        for (int i = 0; i <= tamperedBytes.Length - oldUrn.Length; i++)
+        {
+            if (tamperedBytes.AsSpan(i, oldUrn.Length).SequenceEqual(oldUrn))
+            {
+                urnIdx = i;
+                break;
+            }
+        }
+        Assert.True(urnIdx >= 0, "Apple GainMap URN not found in auxC");
+        Array.Clear(tamperedBytes, urnIdx, oldUrn.Length);
+        Buffer.BlockCopy(newUrnPrefix, 0, tamperedBytes, urnIdx, newUrnPrefix.Length);
+
+        // 2. Neuter XMP MIME type so no XMP item is recognized
+        byte[] xmpMime = Encoding.ASCII.GetBytes("application/rdf+xml");
+        byte[] neuteredMime = Encoding.ASCII.GetBytes("application/neutered");
+        int mimeIdx = -1;
+        for (int i = 0; i <= tamperedBytes.Length - xmpMime.Length; i++)
+        {
+            if (tamperedBytes.AsSpan(i, xmpMime.Length).SequenceEqual(xmpMime))
+            {
+                mimeIdx = i;
+                break;
+            }
+        }
+        Assert.True(mimeIdx >= 0, "XMP MIME not found");
+        Buffer.BlockCopy(neuteredMime, 0, tamperedBytes, mimeIdx, neuteredMime.Length);
+
+        string tamperedPath = workspace.AllocateFilePath("generic-aux-no-xmp", ".heic");
+        await File.WriteAllBytesAsync(tamperedPath, tamperedBytes);
+
+        var obs = await NativeMediaService.CapturePreservationObservationAsync(
+            tamperedPath, SourceProtocol.AppleLivePhoto, ImageContainer.Heic);
+
+        // Generic aux is still observed as an HEIC auxiliary item
+        Assert.True(obs.HasHeicAux, "Generic auxiliary item must still be detected as HEIC aux.");
+        Assert.Equal("urn:mpeg:hevc:2015:auxid:1", obs.HeicAuxType);
+        Assert.False(obs.HasGainMapMeta, "File has no XMP, so HasGainMapMeta must be false.");
+        Assert.False(obs.HeicAuxAmbiguous);
+
+        // In verification, generic aux without XMP semantic proof must NOT trigger GainMap preservation check
+        var verdicts = NativeMediaService.VerifyPreservation(
+            obs, obs, null, null, SourceProtocol.AppleLivePhoto, hasDetachedGainmap: false, out bool allPassed);
+        var hdrVerdict = verdicts.FirstOrDefault(v => v.Category == 9); // LPB_PCHECK_HDR_GAINMAP
+        Assert.Equal((uint)PreservationCheckStatus.NotApplicable, hdrVerdict.Status);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Observation_HeicWithMultipleDistinctAux_CorrectlyIdentifiesGainMap()
+    {
+        string samplePath = ResolveSample("苹果双文件.HEIC");
+        if (!File.Exists(samplePath)) return;
+
+        byte[] rawBytes = await File.ReadAllBytesAsync(samplePath);
+        using var workspace = new MediaWorkspace();
+
+        string baselinePath = workspace.AllocateFilePath("apple-baseline", ".heic");
+        await File.WriteAllBytesAsync(baselinePath, rawBytes);
+        var baselineObs = await NativeMediaService.CapturePreservationObservationAsync(
+            baselinePath, SourceProtocol.AppleLivePhoto, ImageContainer.Heic);
+        Assert.True(baselineObs.HasHeicAux);
+        Assert.Equal("urn:com:apple:photo:2020:aux:hdrgainmap", baselineObs.HeicAuxType);
+        Assert.False(baselineObs.HeicAuxAmbiguous);
+
+        byte[] tamperedBytes = (byte[])rawBytes.Clone();
+
+        // In 苹果双文件.HEIC, iref has:
+        // - auxl: from 63 -> 49 (Apple hdrgainmap)
+        // - cdsc: from 65 -> 49
+        // Mutate the 'cdsc' box (from 65 -> 49) to an 'auxl' box.
+        // This adds a second, distinct auxiliary relationship (from 65 -> 49) alongside the GainMap (from 63 -> 49).
+        byte[] cdscTarget = new byte[] {
+            0x00, 0x00, 0x00, 0x0E,
+            (byte)'c', (byte)'d', (byte)'s', (byte)'c',
+            0x00, 0x41, // from_id = 65
+            0x00, 0x01, // ref_count = 1
+            0x00, 0x31  // to_id = 49 (primary)
+        };
+
+        int cdscIdx = -1;
+        for (int i = 0; i <= tamperedBytes.Length - cdscTarget.Length; i++)
+        {
+            if (tamperedBytes.AsSpan(i, cdscTarget.Length).SequenceEqual(cdscTarget))
+            {
+                cdscIdx = i;
+                break;
+            }
+        }
+        Assert.True(cdscIdx >= 0, "Target cdsc box (65 -> 49) not found in iref.");
+
+        // Change 'cdsc' -> 'auxl'
+        tamperedBytes[cdscIdx + 4] = (byte)'a';
+        tamperedBytes[cdscIdx + 5] = (byte)'u';
+        tamperedBytes[cdscIdx + 6] = (byte)'x';
+        tamperedBytes[cdscIdx + 7] = (byte)'l';
+
+        string tamperedPath = workspace.AllocateFilePath("apple-multi-aux", ".heic");
+        await File.WriteAllBytesAsync(tamperedPath, tamperedBytes);
+
+        var obs = await NativeMediaService.CapturePreservationObservationAsync(
+            tamperedPath, SourceProtocol.AppleLivePhoto, ImageContainer.Heic);
+
+        // Multiple distinct aux relations must NOT fail closed as ambiguous;
+        // Native must uniquely identify and select the Apple GainMap (item 63).
+        Assert.False(obs.HeicAuxAmbiguous, "Multiple distinct aux relations must not be flagged ambiguous if GainMap is uniquely identifiable.");
+        Assert.True(obs.HasHeicAux);
+        Assert.Equal("urn:com:apple:photo:2020:aux:hdrgainmap", obs.HeicAuxType);
+        Assert.Equal(baselineObs.HeicAuxItemId, obs.HeicAuxItemId);
+        Assert.Equal(baselineObs.HeicAuxItemSha256, obs.HeicAuxItemSha256);
+
+        var verdicts = NativeMediaService.VerifyPreservation(
+            baselineObs, obs, null, null, SourceProtocol.AppleLivePhoto, hasDetachedGainmap: false, out bool allPassed);
+        var hdrVerdict = verdicts.FirstOrDefault(v => v.Category == 9);
+        Assert.Equal((uint)PreservationCheckStatus.VerifiedPreserved, hdrVerdict.Status);
     }
 }
 

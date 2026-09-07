@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using LivePhotoBox.Interop;
@@ -74,16 +75,23 @@ public static class MetadataPreservationVerifier
         ExtractedMediaBundle preBundle,
         string stagedImagePath,
         string? stagedVideoPath,
+        string? stagedGainMapPath = null,
         CancellationToken cancellationToken = default)
     {
         var baseline = await CaptureBaselineAsync(preBundle, cancellationToken).ConfigureAwait(false);
-        return await VerifyAgainstBaselineAsync(baseline, stagedImagePath, stagedVideoPath, cancellationToken).ConfigureAwait(false);
+        return await VerifyAgainstBaselineAsync(
+            baseline, 
+            stagedImagePath, 
+            stagedVideoPath, 
+            stagedGainMapPath ?? preBundle.GainMap?.Path, 
+            cancellationToken).ConfigureAwait(false);
     }
 
     public static async Task<PreservationReport> VerifyAgainstBaselineAsync(
         PreservationBaseline baseline,
         string stagedImagePath,
         string? stagedVideoPath,
+        string? stagedGainMapPath = null,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(baseline);
@@ -148,7 +156,16 @@ public static class MetadataPreservationVerifier
             }
         }
 
-        bool hasDetachedGainmap = baseline.GainMapSha256 != null;
+        // Blocker 05: Re-verify GainMap working artifact identity before preservation verdict.
+        // Step 2 (Preflight) checked it, but the file could have been replaced by the time
+        // we reach this step (TOCTOU). If the SHA no longer matches, treat as absent so
+        // Native produces a DegradedToSdr failure rather than silently passing.
+        bool hasDetachedGainmap = false;
+        if (baseline.GainMapSha256 != null && !string.IsNullOrEmpty(stagedGainMapPath))
+        {
+            hasDetachedGainmap = await VerifyGainMapIdentityAsync(
+                stagedGainMapPath, baseline.GainMapSha256, cancellationToken).ConfigureAwait(false);
+        }
         var verdicts = NativeMediaService.VerifyPreservation(
             baseline.ImageObservation,
             postImage,
@@ -200,6 +217,37 @@ public static class MetadataPreservationVerifier
         4 => PreservationCheckStatus.SemanticallyPreserved,
         _ => PreservationCheckStatus.UnableToVerify
     };
+
+    /// <summary>
+    /// Re-verifies a GainMap working artifact's SHA-256 identity at preservation time.
+    /// Returns <c>true</c> only when the file exists and its hash matches <paramref name="expectedSha256"/>.
+    /// Any discrepancy is treated as "artifact absent" so that the Native preservation verdict
+    /// can produce a DegradedToSdr failure rather than silently accepting a tampered file.
+    /// </summary>
+    private static async Task<bool> VerifyGainMapIdentityAsync(
+        string gainMapPath,
+        string expectedSha256,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(gainMapPath) || !File.Exists(gainMapPath))
+            return false;
+
+        if (new FileInfo(gainMapPath).Length == 0)
+            return false;
+
+        try
+        {
+            using var fs = File.OpenRead(gainMapPath);
+            using var sha = SHA256.Create();
+            byte[] hash = await sha.ComputeHashAsync(fs, cancellationToken).ConfigureAwait(false);
+            string actualSha = Convert.ToHexString(hash);
+            return string.Equals(actualSha, expectedSha256, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
 
     private static PreservationReport CreateReport(IReadOnlyList<PreservationReportItem> items, bool allPassed)
     {

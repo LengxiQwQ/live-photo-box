@@ -1229,6 +1229,153 @@ void observe_heic_icc(const std::vector<uint8_t>& data, const std::vector<isobmf
     out->flags |= LPB_POBS_HAS_ICC;
 }
 
+std::string extract_heic_item_aux_type(
+    const std::vector<uint8_t>& data,
+    const std::vector<isobmff_box>& meta_children,
+    uint32_t aux_item_id)
+{
+    // 1. Try resolving via iprp -> ipco (auxC) + ipma
+    const isobmff_box* iprp = nullptr;
+    for (const auto& b : meta_children) {
+        if (b.type == "iprp") {
+            iprp = &b;
+            break;
+        }
+    }
+
+    isobmff_box ipco{};
+    bool has_ipco = false;
+    std::vector<isobmff_box> ipma_boxes;
+    if (iprp && iprp->body_size >= 8) {
+        auto iprp_children = parse_boxes(data.data(), iprp->body_start, iprp->start + iprp->size);
+        for (const auto& b : iprp_children) {
+            if (b.type == "ipco") {
+                ipco = b;
+                has_ipco = true;
+            } else if (b.type == "ipma") {
+                ipma_boxes.push_back(b);
+            }
+        }
+    }
+    for (const auto& b : meta_children) {
+        if (b.type == "ipma") {
+            ipma_boxes.push_back(b);
+        }
+    }
+
+    if (has_ipco && ipco.body_size >= 8) {
+        auto prop_boxes = parse_boxes(data.data(), ipco.body_start, ipco.start + ipco.size);
+        std::vector<std::pair<size_t, std::string>> auxc_props;
+        for (size_t i = 0; i < prop_boxes.size(); ++i) {
+            const auto& prop = prop_boxes[i];
+            if (prop.type == "auxC" && prop.body_size >= 4) {
+                size_t p = prop.body_start + 4; // skip version + flags
+                size_t end = prop.start + prop.size;
+                std::string urn;
+                while (p < end && data[p] != 0) {
+                    urn.push_back(static_cast<char>(data[p++]));
+                }
+                auxc_props.push_back({ i + 1, std::move(urn) });
+            }
+        }
+
+        if (!auxc_props.empty()) {
+            for (const auto& ipma : ipma_boxes) {
+                if (ipma.body_size < 8) continue;
+                size_t p = ipma.body_start;
+                size_t end = ipma.start + ipma.size;
+                if (p + 4 > end) continue;
+                uint8_t ver = data[p++];
+                int flags = (data[p] << 16) | (data[p + 1] << 8) | data[p + 2];
+                p += 3;
+                bool is_large_index = (flags & 1) != 0;
+                if (p + 4 > end) continue;
+                uint32_t entry_count = read_be32u(data.data() + p);
+                p += 4;
+                for (uint32_t i = 0; i < entry_count && p < end; ++i) {
+                    size_t id_sz = (ver < 1) ? 2 : 4;
+                    if (p + id_sz + 1 > end) break;
+                    uint32_t cur_item_id = (ver < 1) ? read_be16u(data.data() + p) : read_be32u(data.data() + p);
+                    p += id_sz;
+                    uint8_t assoc_count = data[p++];
+                    for (uint8_t a = 0; a < assoc_count && p < end; ++a) {
+                        size_t prop_index = 0;
+                        if (is_large_index) {
+                            if (p + 2 > end) break;
+                            prop_index = read_be16u(data.data() + p) & 0x7FFF;
+                            p += 2;
+                        } else {
+                            prop_index = data[p++] & 0x7F;
+                        }
+                        if (cur_item_id == aux_item_id) {
+                            for (const auto& ap : auxc_props) {
+                                if (ap.first == prop_index) {
+                                    return ap.second;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Fallback: check iinf -> infe for item_name or content_type
+    const isobmff_box* iinf = nullptr;
+    for (const auto& b : meta_children) {
+        if (b.type == "iinf") {
+            iinf = &b;
+            break;
+        }
+    }
+
+    if (iinf && iinf->body_size >= 4) {
+        auto infe_boxes = parse_boxes(data.data(), iinf->body_start + 4, iinf->start + iinf->size);
+        for (const auto& ib : infe_boxes) {
+            if (ib.type == "infe" && ib.body_size >= 4) {
+                uint8_t infe_ver = data[ib.body_start];
+                size_t p = ib.body_start + 4;
+                size_t end = ib.start + ib.size;
+                uint32_t cur_item_id = 0;
+                if (infe_ver >= 3) {
+                    if (p + 4 > end) continue;
+                    cur_item_id = read_be32u(data.data() + p);
+                    p += 4;
+                } else if (infe_ver == 2) {
+                    if (p + 2 > end) continue;
+                    cur_item_id = read_be16u(data.data() + p);
+                    p += 2;
+                } else {
+                    continue;
+                }
+
+                if (cur_item_id == aux_item_id) {
+                    p += 2; // skip item_protection_index
+                    if (p + 4 > end) continue;
+                    p += 4; // skip item_type
+
+                    std::string item_name;
+                    while (p < end && data[p] != 0) {
+                        item_name.push_back(static_cast<char>(data[p++]));
+                    }
+                    if (p < end && data[p] == 0) ++p;
+
+                    std::string content_type;
+                    while (p < end && data[p] != 0) {
+                        content_type.push_back(static_cast<char>(data[p++]));
+                    }
+
+                    if (!content_type.empty()) return content_type;
+                    if (!item_name.empty()) return item_name;
+                    break;
+                }
+            }
+        }
+    }
+
+    return "";
+}
+
 void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmff_box>& meta_children, uint32_t primary_id, lpb_preservation_observation* out) {
     if (primary_id == 0) return;
 
@@ -1259,6 +1406,7 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
     std::vector<aux_rel> candidate_relations;
     std::vector<std::pair<uint32_t, uint32_t>> seen_pairs;
     bool duplicate_found = false;
+    bool invalid_rel = false;
 
     for (const auto& ref_box : iref_children) {
         if (ref_box.type == "auxl") {
@@ -1277,16 +1425,11 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
                     out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
                     return;
                 }
-                bool box_has_primary = (from_id == primary_id);
                 for (uint16_t r = 0; r < ref_count; ++r) {
                     uint32_t to_id = read_be16u(data.data() + p);
                     p += 2;
                     if (from_id == to_id) {
-                        out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
-                        return;
-                    }
-                    if (to_id == primary_id) {
-                        box_has_primary = true;
+                        invalid_rel = true;
                     }
                     if (from_id == primary_id || to_id == primary_id) {
                         auto pair = std::make_pair(from_id, to_id);
@@ -1297,10 +1440,9 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
                         uint32_t aux_id = (from_id == primary_id) ? to_id : from_id;
                         candidate_relations.push_back({ from_id, to_id, aux_id });
                     }
-                }
-                if (box_has_primary && ref_count > 1) {
-                    out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
-                    return;
+                    if (from_id != primary_id && to_id == primary_id && ref_count > 1) {
+                        invalid_rel = true;
+                    }
                 }
             } else if (iref_ver == 1) {
                 if (p + 6 > end) {
@@ -1314,16 +1456,11 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
                     out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
                     return;
                 }
-                bool box_has_primary = (from_id == primary_id);
                 for (uint16_t r = 0; r < ref_count; ++r) {
                     uint32_t to_id = read_be32u(data.data() + p);
                     p += 4;
                     if (from_id == to_id) {
-                        out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
-                        return;
-                    }
-                    if (to_id == primary_id) {
-                        box_has_primary = true;
+                        invalid_rel = true;
                     }
                     if (from_id == primary_id || to_id == primary_id) {
                         auto pair = std::make_pair(from_id, to_id);
@@ -1334,16 +1471,15 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
                         uint32_t aux_id = (from_id == primary_id) ? to_id : from_id;
                         candidate_relations.push_back({ from_id, to_id, aux_id });
                     }
-                }
-                if (box_has_primary && ref_count > 1) {
-                    out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
-                    return;
+                    if (from_id != primary_id && to_id == primary_id && ref_count > 1) {
+                        invalid_rel = true;
+                    }
                 }
             }
         }
     }
 
-    if (duplicate_found || candidate_relations.size() > 1) {
+    if (duplicate_found || invalid_rel) {
         out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
         return;
     }
@@ -1352,7 +1488,61 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
         return;
     }
 
-    const auto& rel = candidate_relations[0];
+    std::vector<uint32_t> seen_aux_ids;
+    for (const auto& rel : candidate_relations) {
+        if (std::find(seen_aux_ids.begin(), seen_aux_ids.end(), rel.aux_id) != seen_aux_ids.end()) {
+            out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
+            return;
+        }
+        seen_aux_ids.push_back(rel.aux_id);
+    }
+
+    struct resolved_candidate {
+        aux_rel rel;
+        std::string aux_type;
+        bool is_gainmap;
+    };
+    std::vector<resolved_candidate> resolved;
+    std::vector<resolved_candidate> gainmap_candidates;
+
+    for (const auto& rel : candidate_relations) {
+        std::string aux_type = extract_heic_item_aux_type(data, meta_children, rel.aux_id);
+        bool is_apple_urn = (aux_type == "urn:com:apple:photo:2020:aux:hdrgainmap");
+        bool is_gainmap = false;
+        if (is_apple_urn) {
+            is_gainmap = true;
+        } else if (out->flags & LPB_POBS_HAS_GAINMAP_META) {
+            if (aux_type.find("hdrgainmap") != std::string::npos ||
+                aux_type == "urn:mpeg:hevc:2015:auxid:1" ||
+                (candidate_relations.size() == 1 && !aux_type.empty() &&
+                 aux_type.find("depth") == std::string::npos &&
+                 aux_type.find("matte") == std::string::npos &&
+                 aux_type.find("auxid:2") == std::string::npos)) {
+                is_gainmap = true;
+            }
+        }
+        resolved_candidate rc{ rel, std::move(aux_type), is_gainmap };
+        if (is_gainmap) {
+            gainmap_candidates.push_back(rc);
+        }
+        resolved.push_back(std::move(rc));
+    }
+
+    if (gainmap_candidates.size() > 1) {
+        out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
+        return;
+    }
+
+    const resolved_candidate* selected = nullptr;
+    if (gainmap_candidates.size() == 1) {
+        selected = &gainmap_candidates[0];
+    } else if (resolved.size() == 1) {
+        selected = &resolved[0];
+    } else {
+        return;
+    }
+
+    const auto& rel = selected->rel;
     out->heic_primary_item_id = primary_id;
     out->heic_aux_item_id = rel.aux_id;
     out->heic_aux_from_item_id = rel.from_id;
@@ -1381,59 +1571,10 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
     lpb::crypto::sha256_buffer(aux_payload.data(), aux_payload.size(), hash);
     sha256_to_hex_upper(hash, out->heic_aux_item_sha256);
 
-    const isobmff_box* iinf = nullptr;
-    for (const auto& b : meta_children) {
-        if (b.type == "iinf") {
-            iinf = &b;
-            break;
-        }
-    }
-
-    if (iinf && iinf->body_size >= 4) {
-        auto infe_boxes = parse_boxes(data.data(), iinf->body_start + 4, iinf->start + iinf->size);
-        for (const auto& ib : infe_boxes) {
-            if (ib.type == "infe" && ib.body_size >= 4) {
-                uint8_t infe_ver = data[ib.body_start];
-                size_t p = ib.body_start + 4;
-                size_t end = ib.start + ib.size;
-                uint32_t item_id = 0;
-                if (infe_ver >= 3) {
-                    if (p + 4 > end) continue;
-                    item_id = read_be32u(data.data() + p);
-                    p += 4;
-                } else if (infe_ver == 2) {
-                    if (p + 2 > end) continue;
-                    item_id = read_be16u(data.data() + p);
-                    p += 2;
-                } else {
-                    continue;
-                }
-
-                if (item_id == rel.aux_id) {
-                    p += 2; // skip item_protection_index
-                    if (p + 4 > end) continue;
-                    p += 4; // skip item_type
-
-                    std::string item_name;
-                    while (p < end && data[p] != 0 && item_name.size() < sizeof(out->heic_aux_type) - 1) {
-                        item_name.push_back(static_cast<char>(data[p++]));
-                    }
-                    if (p < end && data[p] == 0) ++p;
-
-                    std::string content_type;
-                    while (p < end && data[p] != 0 && content_type.size() < sizeof(out->heic_aux_type) - 1) {
-                        content_type.push_back(static_cast<char>(data[p++]));
-                    }
-
-                    if (!content_type.empty()) {
-                        std::memcpy(out->heic_aux_type, content_type.c_str(), content_type.size() + 1);
-                    } else if (!item_name.empty()) {
-                        std::memcpy(out->heic_aux_type, item_name.c_str(), item_name.size() + 1);
-                    }
-                    break;
-                }
-            }
-        }
+    if (!selected->aux_type.empty()) {
+        size_t copy_len = std::min(selected->aux_type.size(), sizeof(out->heic_aux_type) - 1);
+        std::memcpy(out->heic_aux_type, selected->aux_type.c_str(), copy_len);
+        out->heic_aux_type[copy_len] = '\0';
     }
 
     out->flags |= LPB_POBS_HAS_HEIC_AUX;
@@ -1853,33 +1994,45 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
             snprintf(hdr_fail_reason, sizeof(hdr_fail_reason), "%s",
                 "Ambiguous or duplicate HEIC auxiliary relationship detected (fail closed).");
         } else if (pre->flags & LPB_POBS_HAS_HEIC_AUX) {
-            has_hdr_indicator = true;
-            if (!(post->flags & LPB_POBS_HAS_HEIC_AUX)) {
-                hdr_failed = true;
-                snprintf(hdr_fail_reason, sizeof(hdr_fail_reason), "%s",
-                    "HEIC GainMap auxl relationship or auxiliary item was dropped after cleaning.");
-            } else if (pre->heic_primary_item_id != post->heic_primary_item_id) {
-                hdr_failed = true;
-                snprintf(hdr_fail_reason, sizeof(hdr_fail_reason),
-                    "HEIC GainMap primary item ID mismatch (pre: %u, post: %u).",
-                    pre->heic_primary_item_id, post->heic_primary_item_id);
-            } else if (pre->heic_aux_item_id != post->heic_aux_item_id) {
-                hdr_failed = true;
-                snprintf(hdr_fail_reason, sizeof(hdr_fail_reason),
-                    "HEIC GainMap auxiliary item ID mismatch (pre: %u, post: %u).",
-                    pre->heic_aux_item_id, post->heic_aux_item_id);
-            } else if (pre->heic_aux_from_item_id != post->heic_aux_from_item_id ||
-                       pre->heic_aux_to_item_id != post->heic_aux_to_item_id) {
-                hdr_failed = true;
-                snprintf(hdr_fail_reason, sizeof(hdr_fail_reason),
-                    "HEIC GainMap auxl association direction/IDs tampered (pre: %u->%u, post: %u->%u).",
-                    pre->heic_aux_from_item_id, pre->heic_aux_to_item_id,
-                    post->heic_aux_from_item_id, post->heic_aux_to_item_id);
-            } else if (!shas_equal_ignore_case(pre->heic_aux_item_sha256, post->heic_aux_item_sha256)) {
-                hdr_failed = true;
-                snprintf(hdr_fail_reason, sizeof(hdr_fail_reason),
-                    "HEIC GainMap auxl payload altered (pre: %s, post: %s).",
-                    pre->heic_aux_item_sha256, post->heic_aux_item_sha256);
+            bool pre_is_gainmap = (
+                std::strcmp(pre->heic_aux_type, "urn:com:apple:photo:2020:aux:hdrgainmap") == 0 ||
+                (pre->flags & LPB_POBS_HAS_GAINMAP_META)
+            );
+
+            if (pre_is_gainmap) {
+                has_hdr_indicator = true;
+                if (!(post->flags & LPB_POBS_HAS_HEIC_AUX)) {
+                    hdr_failed = true;
+                    snprintf(hdr_fail_reason, sizeof(hdr_fail_reason), "%s",
+                        "HEIC GainMap auxl relationship or auxiliary item was dropped after cleaning.");
+                } else if (pre->heic_primary_item_id != post->heic_primary_item_id) {
+                    hdr_failed = true;
+                    snprintf(hdr_fail_reason, sizeof(hdr_fail_reason),
+                        "HEIC GainMap primary item ID mismatch (pre: %u, post: %u).",
+                        pre->heic_primary_item_id, post->heic_primary_item_id);
+                } else if (pre->heic_aux_item_id != post->heic_aux_item_id) {
+                    hdr_failed = true;
+                    snprintf(hdr_fail_reason, sizeof(hdr_fail_reason),
+                        "HEIC GainMap auxiliary item ID mismatch (pre: %u, post: %u).",
+                        pre->heic_aux_item_id, post->heic_aux_item_id);
+                } else if (pre->heic_aux_from_item_id != post->heic_aux_from_item_id ||
+                           pre->heic_aux_to_item_id != post->heic_aux_to_item_id) {
+                    hdr_failed = true;
+                    snprintf(hdr_fail_reason, sizeof(hdr_fail_reason),
+                        "HEIC GainMap auxl association direction/IDs tampered (pre: %u->%u, post: %u->%u).",
+                        pre->heic_aux_from_item_id, pre->heic_aux_to_item_id,
+                        post->heic_aux_from_item_id, post->heic_aux_to_item_id);
+                } else if (std::strcmp(pre->heic_aux_type, post->heic_aux_type) != 0) {
+                    hdr_failed = true;
+                    snprintf(hdr_fail_reason, sizeof(hdr_fail_reason),
+                        "HEIC GainMap auxl type mismatch (pre: %s, post: %s).",
+                        pre->heic_aux_type, post->heic_aux_type);
+                } else if (!shas_equal_ignore_case(pre->heic_aux_item_sha256, post->heic_aux_item_sha256)) {
+                    hdr_failed = true;
+                    snprintf(hdr_fail_reason, sizeof(hdr_fail_reason),
+                        "HEIC GainMap auxl payload altered (pre: %s, post: %s).",
+                        pre->heic_aux_item_sha256, post->heic_aux_item_sha256);
+                }
             }
         }
 
