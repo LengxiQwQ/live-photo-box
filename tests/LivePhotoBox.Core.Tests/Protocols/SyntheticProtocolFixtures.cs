@@ -707,10 +707,23 @@ internal static class SyntheticProtocolFixtures
         WriteBox(ms, "ftyp", Encoding.UTF8.GetBytes("heic\0\0\0\0mif1heic"));
 
         byte[] pitmBox = BuildPitmBox(1);
+        using var infeMs = new MemoryStream();
+        WriteBe16(infeMs, 1); // item_id
+        WriteBe16(infeMs, 0); // item_protection_index
+        infeMs.Write(Encoding.ASCII.GetBytes("mime"));
+        infeMs.WriteByte(0); // empty item_name
+        infeMs.Write(Encoding.ASCII.GetBytes("image/heic\0"));
+        byte[] infeBox = BuildFullBox("infe", 2, 0, infeMs.ToArray());
+
+        using var iinfMs = new MemoryStream();
+        WriteBe16(iinfMs, 1); // entry_count
+        iinfMs.Write(infeBox);
+        byte[] iinfBox = BuildFullBox("iinf", 0, 0, iinfMs.ToArray());
+
         byte[] dummyImage = Encoding.UTF8.GetBytes("DUMMY_IMAGE_ITEM_DATA");
         byte[] ilocDummy = BuildIlocBox(0, (uint)dummyImage.Length);
 
-        int metaBodyLen = pitmBox.Length + ilocDummy.Length;
+        int metaBodyLen = pitmBox.Length + iinfBox.Length + ilocDummy.Length;
         int metaBoxLen = 12 + metaBodyLen;
         uint imageOffset = (uint)(ms.Length + metaBoxLen + 8); // 8 bytes for mdat box header
 
@@ -718,6 +731,7 @@ internal static class SyntheticProtocolFixtures
 
         using var metaInnerMs = new MemoryStream();
         metaInnerMs.Write(pitmBox);
+        metaInnerMs.Write(iinfBox);
         metaInnerMs.Write(ilocReal);
         byte[] metaBytes = BuildFullBox("meta", 0, 0, metaInnerMs.ToArray());
         ms.Write(metaBytes);
@@ -797,7 +811,25 @@ internal static class SyntheticProtocolFixtures
         // Payload for 0x0011
         mnMs.Write(Encoding.UTF8.GetBytes("12345678-ABCD-1234-ABCD-1234567890AB\0"));
 
-        byte[] exifPayload = mnMs.ToArray();
+        byte[] makerNote = mnMs.ToArray();
+        using var tiffMs = new MemoryStream();
+        tiffMs.Write(Encoding.ASCII.GetBytes("MM\0*"));
+        WriteBe32(tiffMs, 8); // IFD0 offset
+        WriteBe16(tiffMs, 1); // IFD0 entry count
+        WriteBe16(tiffMs, 0x8769); // ExifIFD pointer
+        WriteBe16(tiffMs, 4); // LONG
+        WriteBe32(tiffMs, 1);
+        WriteBe32(tiffMs, 26); // ExifIFD starts after IFD0
+        WriteBe32(tiffMs, 0); // next IFD
+        WriteBe16(tiffMs, 1); // ExifIFD entry count
+        WriteBe16(tiffMs, 0x927C); // MakerNote
+        WriteBe16(tiffMs, 7); // UNDEFINED
+        WriteBe32(tiffMs, (uint)makerNote.Length);
+        WriteBe32(tiffMs, 44); // MakerNote payload offset
+        WriteBe32(tiffMs, 0); // next IFD
+        tiffMs.Write(makerNote);
+
+        byte[] exifPayload = tiffMs.ToArray();
         byte[] app1 = new byte[exifPayload.Length + 6];
         Encoding.UTF8.GetBytes("Exif\0\0").CopyTo(app1, 0);
         Buffer.BlockCopy(exifPayload, 0, app1, 6, exifPayload.Length);

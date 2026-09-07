@@ -1930,13 +1930,13 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
         std::memset(&v, 0, sizeof(v));
         v.category = LPB_PCHECK_EXIF;
 
-        if (!(pre->flags & LPB_POBS_HAS_EXIF)) {
-            v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
-            snprintf(v.details, sizeof(v.details), "%s", "No Exif segment in source artifact.");
-        } else if ((pre->flags & LPB_POBS_EXIF_PARSE_ERROR) || (post->flags & LPB_POBS_EXIF_PARSE_ERROR)) {
+        if ((pre->flags & LPB_POBS_EXIF_PARSE_ERROR) || (post->flags & LPB_POBS_EXIF_PARSE_ERROR)) {
             v.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
             snprintf(v.details, sizeof(v.details), "%s", "Exif metadata parse error encountered.");
             *out_overall_passed = 0;
+        } else if (!(pre->flags & LPB_POBS_HAS_EXIF)) {
+            v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
+            snprintf(v.details, sizeof(v.details), "%s", "No Exif segment in source artifact.");
         } else if (!(post->flags & LPB_POBS_HAS_EXIF)) {
             v.status = LPB_PRESERVATION_STATUS_FAILED;
             snprintf(v.details, sizeof(v.details), "%s", "TIFF / Exif metadata was present in source but missing in cleaned artifact.");
@@ -1959,7 +1959,11 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
         std::memset(&v, 0, sizeof(v));
         v.category = LPB_PCHECK_ORIENTATION;
 
-        if (pre->orientation == 0) {
+        if ((pre->flags & LPB_POBS_EXIF_PARSE_ERROR) || (post->flags & LPB_POBS_EXIF_PARSE_ERROR)) {
+            v.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
+            snprintf(v.details, sizeof(v.details), "%s", "Exif metadata parse error prevents Orientation verification.");
+            *out_overall_passed = 0;
+        } else if (pre->orientation == 0) {
             v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
             snprintf(v.details, sizeof(v.details), "%s", "No Exif Orientation tag in input.");
         } else if (post->orientation == 0) {
@@ -1985,7 +1989,11 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
         std::memset(&v, 0, sizeof(v));
         v.category = LPB_PCHECK_GPS;
 
-        if (!(pre->flags & LPB_POBS_HAS_GPS)) {
+        if ((pre->flags & LPB_POBS_EXIF_PARSE_ERROR) || (post->flags & LPB_POBS_EXIF_PARSE_ERROR)) {
+            v.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
+            snprintf(v.details, sizeof(v.details), "%s", "Exif/TIFF parse error prevents GPS verification.");
+            *out_overall_passed = 0;
+        } else if (!(pre->flags & LPB_POBS_HAS_GPS)) {
             v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
             snprintf(v.details, sizeof(v.details), "%s", "No GPS metadata in input artifact.");
         } else if (!(post->flags & LPB_POBS_HAS_GPS)) {
@@ -2009,13 +2017,13 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
         std::memset(&v, 0, sizeof(v));
         v.category = LPB_PCHECK_ICC;
 
-        if (!(pre->flags & LPB_POBS_HAS_ICC)) {
-            v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
-            snprintf(v.details, sizeof(v.details), "%s", "No ICC profile in input artifact.");
-        } else if ((pre->flags & LPB_POBS_ICC_PARSE_ERROR) || (post->flags & LPB_POBS_ICC_PARSE_ERROR)) {
+        if ((pre->flags & LPB_POBS_ICC_PARSE_ERROR) || (post->flags & LPB_POBS_ICC_PARSE_ERROR)) {
             v.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
             snprintf(v.details, sizeof(v.details), "%s", "ICC color profile parsing error encountered.");
             *out_overall_passed = 0;
+        } else if (!(pre->flags & LPB_POBS_HAS_ICC)) {
+            v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
+            snprintf(v.details, sizeof(v.details), "%s", "No ICC profile in input artifact.");
         } else if (!(post->flags & LPB_POBS_HAS_ICC)) {
             v.status = LPB_PRESERVATION_STATUS_FAILED;
             snprintf(v.details, sizeof(v.details), "%s", "ICC color profile was present in input artifact but lost after cleaning.");
@@ -2039,15 +2047,15 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
 
         bool is_apple = (protocol == LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO);
 
-        if (!(pre->flags & LPB_POBS_HAS_MAKERNOTE)) {
+        if ((pre->flags & LPB_POBS_MAKERNOTE_MALFORMED) || (post->flags & LPB_POBS_MAKERNOTE_MALFORMED)) {
+            v.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
+            snprintf(v.details, sizeof(v.details), "%s", "Camera MakerNote malformed or unparseable.");
+            *out_overall_passed = 0;
+        } else if (!(pre->flags & LPB_POBS_HAS_MAKERNOTE)) {
             v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
             snprintf(v.details, sizeof(v.details), "%s",
                 is_apple ? "No Apple MakerNote in source."
                          : "No applicable camera MakerNote requiring preservation.");
-        } else if ((pre->flags & LPB_POBS_MAKERNOTE_MALFORMED) || (post->flags & LPB_POBS_MAKERNOTE_MALFORMED)) {
-            v.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
-            snprintf(v.details, sizeof(v.details), "%s", "Camera MakerNote malformed or unparseable.");
-            *out_overall_passed = 0;
         } else if (!(post->flags & LPB_POBS_HAS_MAKERNOTE)) {
             v.status = LPB_PRESERVATION_STATUS_FAILED;
             snprintf(v.details, sizeof(v.details), "%s",
@@ -2075,13 +2083,13 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
         std::memset(&v, 0, sizeof(v));
         v.category = LPB_PCHECK_XMP_NON_TARGET;
 
-        if (!(pre->flags & LPB_POBS_HAS_XMP) || pre->xmp_nonprotocol_sha256[0] == '\0') {
-            v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
-            snprintf(v.details, sizeof(v.details), "%s", "No non-protocol XMP properties present in input.");
-        } else if ((pre->flags & LPB_POBS_XMP_MALFORMED) || (post->flags & LPB_POBS_XMP_MALFORMED)) {
+        if ((pre->flags & LPB_POBS_XMP_MALFORMED) || (post->flags & LPB_POBS_XMP_MALFORMED)) {
             v.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
             snprintf(v.details, sizeof(v.details), "%s", "XMP payload malformed or unparseable.");
             *out_overall_passed = 0;
+        } else if (!(pre->flags & LPB_POBS_HAS_XMP) || pre->xmp_nonprotocol_sha256[0] == '\0') {
+            v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
+            snprintf(v.details, sizeof(v.details), "%s", "No non-protocol XMP properties present in input.");
         } else if (!(post->flags & LPB_POBS_HAS_XMP)) {
             v.status = LPB_PRESERVATION_STATUS_FAILED;
             snprintf(v.details, sizeof(v.details), "%s", "XMP metadata was present in source but missing in cleaned artifact.");
@@ -2105,7 +2113,11 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
         std::memset(&v, 0, sizeof(v));
         v.category = LPB_PCHECK_EXTENDED_XMP;
 
-        if (!(pre->flags & LPB_POBS_HAS_EXTENDED_XMP)) {
+        if ((pre->flags & LPB_POBS_XMP_MALFORMED) || (post->flags & LPB_POBS_XMP_MALFORMED)) {
+            v.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
+            snprintf(v.details, sizeof(v.details), "%s", "XMP parse error prevents Extended XMP verification.");
+            *out_overall_passed = 0;
+        } else if (!(pre->flags & LPB_POBS_HAS_EXTENDED_XMP)) {
             v.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
             snprintf(v.details, sizeof(v.details), "%s", "No Extended XMP present in source.");
         } else if (!(post->flags & LPB_POBS_HAS_EXTENDED_XMP) ||
@@ -2134,6 +2146,9 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
         bool hdr_failed = false;
         char hdr_fail_reason[256] = {0};
         const bool positive_xmp_gainmap = (pre->flags & LPB_POBS_HAS_GAINMAP_META) != 0;
+        const bool hdr_observation_error =
+            (pre->flags & LPB_POBS_XMP_MALFORMED) != 0 ||
+            (post->flags & LPB_POBS_XMP_MALFORMED) != 0;
 
         if (detached_failed) {
             has_hdr_indicator = true;
@@ -2218,7 +2233,11 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
             }
         }
 
-        if (hdr_failed) {
+        if (hdr_observation_error) {
+            v.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
+            snprintf(v.details, sizeof(v.details), "%s", "Malformed or unsupported image observation prevents HDR/GainMap verification.");
+            *out_overall_passed = 0;
+        } else if (hdr_failed) {
             v.status = LPB_PRESERVATION_STATUS_FAILED;
             snprintf(v.details, sizeof(v.details), "%s", hdr_fail_reason);
             *out_overall_passed = 0;
@@ -2272,7 +2291,13 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
         std::memset(&v_aud, 0, sizeof(v_aud));
         v_aud.category = LPB_PCHECK_AUDIO_STREAMS;
 
-        if (!(pre->flags & LPB_POBS_HAS_VIDEO_MDAT)) {
+        if ((pre->flags & LPB_POBS_CODESTREAM_ERROR) || (post->flags & LPB_POBS_CODESTREAM_ERROR)) {
+            v_vid.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
+            snprintf(v_vid.details, sizeof(v_vid.details), "%s", "Video container observation parse error prevents stream verification.");
+            v_aud.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
+            snprintf(v_aud.details, sizeof(v_aud.details), "%s", "Video container observation parse error prevents audio verification.");
+            *out_overall_passed = 0;
+        } else if (!(pre->flags & LPB_POBS_HAS_VIDEO_MDAT)) {
             v_vid.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
             snprintf(v_vid.details, sizeof(v_vid.details), "%s", "No motion video artifact in bundle.");
             v_aud.status = LPB_PRESERVATION_STATUS_NOT_APPLICABLE;
@@ -2318,7 +2343,11 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
         std::memset(&v, 0, sizeof(v));
         v.category = LPB_PCHECK_TIMING;
 
-        if (pre->datetime_original[0] != '\0') {
+        if ((pre->flags & LPB_POBS_EXIF_PARSE_ERROR) || (post->flags & LPB_POBS_EXIF_PARSE_ERROR)) {
+            v.status = LPB_PRESERVATION_STATUS_UNABLE_TO_VERIFY;
+            snprintf(v.details, sizeof(v.details), "%s", "Exif metadata parse error prevents capture timestamp verification.");
+            *out_overall_passed = 0;
+        } else if (pre->datetime_original[0] != '\0') {
             if (post->datetime_original[0] == '\0' ||
                 std::strcmp(pre->datetime_original, post->datetime_original) != 0) {
                 v.status = LPB_PRESERVATION_STATUS_FAILED;
