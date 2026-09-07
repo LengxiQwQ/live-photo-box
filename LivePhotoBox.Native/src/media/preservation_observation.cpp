@@ -1005,34 +1005,47 @@ bool extract_heic_item_payload(const uint8_t* data, size_t data_size, size_t ilo
     return false;
 }
 
-uint32_t extract_heic_primary_item_id(const uint8_t* data, const std::vector<isobmff_box>& meta_children) {
+uint32_t extract_heic_primary_item_id(const uint8_t* data, const std::vector<isobmff_box>& meta_children, lpb_preservation_observation* out) {
     const isobmff_box* pitm = nullptr;
     for (const auto& b : meta_children) {
         if (b.type == "pitm") {
-            if (pitm) return 0; // Duplicate pitm rejected
+            if (pitm) {
+                out->flags |= LPB_POBS_CODESTREAM_ERROR; // Duplicate pitm rejected
+                return 0;
+            }
             pitm = &b;
         }
     }
-    if (!pitm || pitm->body_size < 4) return 0;
+    if (!pitm) {
+        out->flags |= LPB_POBS_CODESTREAM_ERROR; // Missing pitm rejected
+        return 0;
+    }
+    if (pitm->body_size < 4) {
+        out->flags |= LPB_POBS_CODESTREAM_ERROR; // Malformed pitm
+        return 0;
+    }
     uint8_t ver = data[pitm->body_start];
     if (ver == 0 && pitm->body_size >= 6) {
-        return read_be16u(data + pitm->body_start + 4);
+        uint32_t id = read_be16u(data + pitm->body_start + 4);
+        if (id == 0) {
+            out->flags |= LPB_POBS_CODESTREAM_ERROR;
+            return 0;
+        }
+        return id;
     } else if (ver == 1 && pitm->body_size >= 8) {
-        return read_be32u(data + pitm->body_start + 4);
+        uint32_t id = read_be32u(data + pitm->body_start + 4);
+        if (id == 0) {
+            out->flags |= LPB_POBS_CODESTREAM_ERROR;
+            return 0;
+        }
+        return id;
     }
+    out->flags |= LPB_POBS_CODESTREAM_ERROR;
     return 0;
 }
 
-void observe_heic_codestream(const std::vector<uint8_t>& data, const std::vector<isobmff_box>& top_boxes, const std::vector<isobmff_box>& meta_children, uint32_t primary_id, lpb_preservation_observation* out) {
+void observe_heic_codestream(const std::vector<uint8_t>& data, const std::vector<isobmff_box>& meta_children, uint32_t primary_id, lpb_preservation_observation* out) {
     if (primary_id == 0) {
-        for (const auto& b : top_boxes) {
-            if (b.type == "mdat" && b.size >= 8) {
-                uint8_t hash[32];
-                lpb::crypto::sha256_buffer(data.data() + b.body_start, b.body_size, hash);
-                sha256_to_hex_upper(hash, out->image_codestream_sha256);
-                return;
-            }
-        }
         out->flags |= LPB_POBS_CODESTREAM_ERROR;
         return;
     }
@@ -1066,25 +1079,49 @@ void observe_heic_icc(const std::vector<uint8_t>& data, const std::vector<isobmf
     const isobmff_box* iprp = nullptr;
     for (const auto& b : meta_children) {
         if (b.type == "iprp") {
-            if (iprp) return; // Duplicate iprp
+            if (iprp) {
+                out->flags |= LPB_POBS_ICC_PARSE_ERROR; // Duplicate iprp rejected
+                return;
+            }
             iprp = &b;
         }
     }
-    if (!iprp || iprp->body_size < 8) return;
+    if (!iprp) return;
+    if (iprp->body_size < 8) {
+        out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+        return;
+    }
 
     auto iprp_children = parse_boxes(data.data(), iprp->body_start, iprp->start + iprp->size);
     const isobmff_box* ipco = nullptr;
     const isobmff_box* ipma = nullptr;
     for (const auto& b : iprp_children) {
         if (b.type == "ipco") {
-            if (ipco) return;
+            if (ipco) {
+                out->flags |= LPB_POBS_ICC_PARSE_ERROR; // Duplicate ipco rejected
+                return;
+            }
             ipco = &b;
         } else if (b.type == "ipma") {
-            if (ipma) return;
+            if (ipma) {
+                out->flags |= LPB_POBS_ICC_PARSE_ERROR; // Duplicate ipma rejected
+                return;
+            }
             ipma = &b;
         }
     }
-    if (!ipco || ipco->body_size < 8) return;
+    for (const auto& b : meta_children) {
+        if (b.type == "ipma") {
+            if (ipma) {
+                out->flags |= LPB_POBS_ICC_PARSE_ERROR; // Duplicate ipma across iprp and meta, or multiple in meta
+                return;
+            }
+            ipma = &b;
+        }
+    }
+
+    if (!ipco) return;
+    if (ipco->body_size < 8) return;
 
     auto prop_boxes = parse_boxes(data.data(), ipco->body_start, ipco->start + ipco->size);
     std::vector<std::pair<size_t, const isobmff_box*>> colr_props;
@@ -1096,62 +1133,100 @@ void observe_heic_icc(const std::vector<uint8_t>& data, const std::vector<isobmf
 
     if (colr_props.empty()) return;
 
-    const isobmff_box* target_colr = nullptr;
-    if (colr_props.size() == 1) {
-        target_colr = colr_props[0].second;
-    } else if (primary_id != 0 && ipma && ipma->body_size >= 8) {
-        size_t p = ipma->body_start;
-        size_t end = ipma->start + ipma->size;
-        uint8_t ver = data[p++];
-        int flags = (data[p] << 16) | (data[p + 1] << 8) | data[p + 2];
-        p += 3;
-        bool is_large_index = (flags & 1) != 0;
+    // Colr properties exist, so we MUST verify ownership for primary_id via ipma
+    if (primary_id == 0 || !ipma || ipma->body_size < 8) {
+        out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+        return;
+    }
 
-        if (p + 4 <= end) {
-            uint32_t entry_count = read_be32u(data.data() + p);
-            p += 4;
-            std::vector<size_t> matched_indices;
-            for (uint32_t i = 0; i < entry_count && p < end; ++i) {
-                uint32_t item_id = (ver < 1) ? read_be16u(data.data() + p) : read_be32u(data.data() + p);
-                p += (ver < 1) ? 2 : 4;
-                if (p >= end) break;
-                uint8_t assoc_count = data[p++];
-                for (uint8_t a = 0; a < assoc_count && p < end; ++a) {
-                    size_t prop_index = 0;
-                    if (is_large_index) {
-                        if (p + 2 > end) break;
-                        prop_index = read_be16u(data.data() + p) & 0x7FFF;
-                        p += 2;
-                    } else {
-                        prop_index = data[p++] & 0x7F;
-                    }
-                    if (item_id == primary_id) {
-                        matched_indices.push_back(prop_index);
-                    }
-                }
-            }
+    size_t p = ipma->body_start;
+    size_t end = ipma->start + ipma->size;
+    if (p + 4 > end) {
+        out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+        return;
+    }
+    uint8_t ver = data[p++];
+    int flags = (data[p] << 16) | (data[p + 1] << 8) | data[p + 2];
+    p += 3;
+    bool is_large_index = (flags & 1) != 0;
 
-            std::vector<const isobmff_box*> matching_colrs;
-            for (const auto& cp : colr_props) {
-                if (std::find(matched_indices.begin(), matched_indices.end(), cp.first) != matched_indices.end()) {
-                    matching_colrs.push_back(cp.second);
+    if (p + 4 > end) {
+        out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+        return;
+    }
+    uint32_t entry_count = read_be32u(data.data() + p);
+    p += 4;
+
+    std::vector<size_t> matched_indices;
+    std::vector<uint32_t> seen_items;
+    bool parse_ok = true;
+    for (uint32_t i = 0; i < entry_count; ++i) {
+        size_t id_sz = (ver < 1) ? 2 : 4;
+        if (p + id_sz + 1 > end) {
+            parse_ok = false;
+            break;
+        }
+        uint32_t item_id = (ver < 1) ? read_be16u(data.data() + p) : read_be32u(data.data() + p);
+        p += id_sz;
+
+        if (std::find(seen_items.begin(), seen_items.end(), item_id) != seen_items.end()) {
+            parse_ok = false; // Duplicate item entry in ipma
+            break;
+        }
+        seen_items.push_back(item_id);
+
+        uint8_t assoc_count = data[p++];
+        for (uint8_t a = 0; a < assoc_count; ++a) {
+            size_t prop_index = 0;
+            if (is_large_index) {
+                if (p + 2 > end) {
+                    parse_ok = false;
+                    break;
                 }
-            }
-            if (matching_colrs.size() == 1) {
-                target_colr = matching_colrs[0];
+                prop_index = read_be16u(data.data() + p) & 0x7FFF;
+                p += 2;
             } else {
-                out->flags |= LPB_POBS_ICC_PARSE_ERROR;
-                return;
+                if (p + 1 > end) {
+                    parse_ok = false;
+                    break;
+                }
+                prop_index = data[p++] & 0x7F;
             }
+            if (item_id == primary_id) {
+                matched_indices.push_back(prop_index);
+            }
+        }
+        if (!parse_ok) break;
+    }
+
+    if (!parse_ok) {
+        out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+        return;
+    }
+
+    std::vector<const isobmff_box*> matching_colrs;
+    for (const auto& cp : colr_props) {
+        size_t matches = std::count(matched_indices.begin(), matched_indices.end(), cp.first);
+        if (matches > 1) {
+            // Duplicate association to the same colr property
+            out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+            return;
+        }
+        if (matches == 1) {
+            matching_colrs.push_back(cp.second);
         }
     }
 
-    if (target_colr) {
-        uint8_t hash[32];
-        lpb::crypto::sha256_buffer(data.data() + target_colr->start, target_colr->size, hash);
-        sha256_to_hex_upper(hash, out->icc_sha256);
-        out->flags |= LPB_POBS_HAS_ICC;
+    if (matching_colrs.size() != 1) {
+        out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+        return;
     }
+
+    const isobmff_box* target_colr = matching_colrs[0];
+    uint8_t hash[32];
+    lpb::crypto::sha256_buffer(data.data() + target_colr->start, target_colr->size, hash);
+    sha256_to_hex_upper(hash, out->icc_sha256);
+    out->flags |= LPB_POBS_HAS_ICC;
 }
 
 void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmff_box>& meta_children, uint32_t primary_id, lpb_preservation_observation* out) {
@@ -1399,10 +1474,10 @@ void observe_heic(lpb_context* context, const std::vector<uint8_t>& data, lpb_so
     }
 
     auto meta_children = parse_boxes(data.data(), meta->body_start + 4, meta->start + meta->size);
-    uint32_t primary_id = extract_heic_primary_item_id(data.data(), meta_children);
+    uint32_t primary_id = extract_heic_primary_item_id(data.data(), meta_children, out);
     out->heic_primary_item_id = primary_id;
 
-    observe_heic_codestream(data, top_boxes, meta_children, primary_id, out);
+    observe_heic_codestream(data, meta_children, primary_id, out);
     if (lpb_context_check_cancelled(context) != LPB_RESULT_OK) return;
 
     // Exif item

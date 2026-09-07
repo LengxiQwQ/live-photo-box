@@ -705,10 +705,25 @@ internal static class SyntheticProtocolFixtures
         using var ms = new MemoryStream();
         // ftyp box
         WriteBox(ms, "ftyp", Encoding.UTF8.GetBytes("heic\0\0\0\0mif1heic"));
-        // meta box
-        WriteBox(ms, "meta", new byte[16]);
+
+        byte[] pitmBox = BuildPitmBox(1);
+        byte[] dummyImage = Encoding.UTF8.GetBytes("DUMMY_IMAGE_ITEM_DATA");
+        byte[] ilocDummy = BuildIlocBox(0, (uint)dummyImage.Length);
+
+        int metaBodyLen = pitmBox.Length + ilocDummy.Length;
+        int metaBoxLen = 12 + metaBodyLen;
+        uint imageOffset = (uint)(ms.Length + metaBoxLen + 8); // 8 bytes for mdat box header
+
+        byte[] ilocReal = BuildIlocBox(imageOffset, (uint)dummyImage.Length);
+
+        using var metaInnerMs = new MemoryStream();
+        metaInnerMs.Write(pitmBox);
+        metaInnerMs.Write(ilocReal);
+        byte[] metaBytes = BuildFullBox("meta", 0, 0, metaInnerMs.ToArray());
+        ms.Write(metaBytes);
+
         // Keep the still-image item before the private motion-photo boxes.
-        WriteBox(ms, "mdat", Encoding.UTF8.GetBytes("DUMMY_IMAGE_ITEM_DATA"));
+        WriteBox(ms, "mdat", dummyImage);
 
         // mpvd box (Samsung Motion Photo box)
         byte[] motionVideo = CreateMinimalMp4();
@@ -948,5 +963,12 @@ internal static class SyntheticProtocolFixtures
         WriteBe32(ms, offset);
         WriteBe32(ms, length);
         return BuildFullBox("iloc", 0, 0, ms.ToArray());
+    }
+
+    private static byte[] BuildPitmBox(ushort primaryItemId)
+    {
+        using var ms = new MemoryStream();
+        WriteBe16(ms, primaryItemId);
+        return BuildFullBox("pitm", 0, 0, ms.ToArray());
     }
 }
