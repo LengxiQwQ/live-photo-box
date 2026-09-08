@@ -6,11 +6,32 @@
 #include "foundation/internal.h"
 #include "foundation/sha256.h"
 #include <cctype>
+#include <cstring>
 
 using namespace lpb;
 using namespace lpb::media;
 
 namespace {
+void classify_inspection_failure(lpb_context* context, lpb_result result) noexcept {
+    if (!context) return;
+    if (result == LPB_RESULT_OK) {
+        set_inspection_status(context, LPB_INSPECTION_FAILURE_NONE, LPB_INSPECTION_STAGE_NONE);
+        return;
+    }
+    // `inspect_source` records a typed stage/category at its decision point.
+    // Never derive the public status by substring matching a diagnostic: that
+    // makes ABI behavior depend on English wording and loses ambiguity vs
+    // malformed semantics.
+    lpb_inspection_status current{};
+    current.struct_size = sizeof(current);
+    if (lpb_get_last_inspection_status(context, &current) != LPB_RESULT_OK ||
+        current.category == LPB_INSPECTION_FAILURE_NONE) {
+        set_inspection_status(context,
+            result == LPB_RESULT_INVALID_ARGUMENT ? LPB_INSPECTION_FAILURE_MALFORMED : LPB_INSPECTION_FAILURE_IO,
+            LPB_INSPECTION_STAGE_READ);
+    }
+}
+
 bool sha256_matches_hex(const uint8_t hash[32], const char* expected) noexcept {
     if (!expected) return false;
     for (size_t i = 0; i < 64; ++i) {
@@ -23,6 +44,64 @@ bool sha256_matches_hex(const uint8_t hash[32], const char* expected) noexcept {
     }
     return expected[64] == '\0';
 }
+
+bool validate_gainmap_binding(lpb_context* context,
+    const lpb_source_media_facts* facts) noexcept {
+    if (!context || !facts || facts->struct_size < sizeof(lpb_source_media_facts)) {
+        if (context) set_error(context, "GainMap binding validation received an incompatible source-facts struct.");
+        return false;
+    }
+    if (facts->auxiliary_count > 8) {
+        set_error(context, "Source facts contain more auxiliary items than the ABI capacity.");
+        return false;
+    }
+    for (uint32_t i = 0; i < facts->auxiliary_count; ++i) {
+        if (facts->auxiliary_items[i].struct_size < sizeof(lpb_auxiliary_item_facts)) {
+            set_error(context, "Source facts contain an auxiliary item with an incompatible struct_size.");
+            return false;
+        }
+    }
+    if (!facts->gain_map.is_present) return true;
+    if (facts->gain_map.struct_size < sizeof(lpb_gainmap_item_facts) ||
+        facts->gain_map.file_range.length == 0 ||
+        facts->gain_map.container == LPB_IMAGE_CONTAINER_UNKNOWN ||
+        facts->gain_map.representation < LPB_AUX_REPRESENTATION_EMBEDDED ||
+        facts->gain_map.representation > LPB_AUX_REPRESENTATION_MATERIALIZED ||
+        facts->gain_map.ownership < LPB_AUX_OWNER_PRIMARY ||
+        facts->gain_map.ownership > LPB_AUX_OWNER_AUXILIARY ||
+        facts->gain_map.auxiliary_index >= facts->auxiliary_count ||
+        facts->gain_map.relationship[0] == '\0') {
+        set_error(context, "GainMap facts are missing a complete auxiliary identity.");
+        return false;
+    }
+    const int32_t expected_owner_role = facts->gain_map.ownership == LPB_AUX_OWNER_PRIMARY
+        ? LPB_ARTIFACT_PRIMARY_IMAGE : LPB_ARTIFACT_AUXILIARY_ITEM;
+    if (facts->gain_map.owner_artifact_role != expected_owner_role) {
+        set_error(context, "GainMap owner artifact role is inconsistent with ownership.");
+        return false;
+    }
+    const auto& auxiliary = facts->auxiliary_items[facts->gain_map.auxiliary_index];
+    const auto same_relationship = [](const char* left, const char* right) noexcept {
+        const void* left_end = std::memchr(left, '\0', 64);
+        const void* right_end = std::memchr(right, '\0', 64);
+        if (!left_end || !right_end) return false;
+        const size_t left_length = static_cast<const char*>(left_end) - left;
+        const size_t right_length = static_cast<const char*>(right_end) - right;
+        return left_length == right_length && std::memcmp(left, right, left_length) == 0;
+    };
+    if (!auxiliary.is_present ||
+        auxiliary.container != facts->gain_map.container ||
+        auxiliary.representation != facts->gain_map.representation ||
+        auxiliary.ownership != facts->gain_map.ownership ||
+        auxiliary.item_id != facts->gain_map.item_id ||
+        auxiliary.file_range.offset != facts->gain_map.file_range.offset ||
+        auxiliary.file_range.length != facts->gain_map.file_range.length ||
+        !same_relationship(auxiliary.relationship, facts->gain_map.relationship)) {
+        set_error(context, "GainMap facts are not bound to their referenced auxiliary entry.");
+        return false;
+    }
+    return true;
+}
 }
 
 extern "C" {
@@ -33,7 +112,9 @@ LPB_API lpb_result LPB_CALL lpb_inspect_media(
     const char* secondary_path,
     lpb_source_media_facts* out_facts)
 {
-    return inspect_source(context, primary_path, secondary_path, out_facts);
+    const lpb_result result = inspect_source(context, primary_path, secondary_path, out_facts);
+    classify_inspection_failure(context, result);
+    return result;
 }
 
 LPB_API lpb_result LPB_CALL lpb_inspect_media_with_residues(
@@ -47,11 +128,12 @@ LPB_API lpb_result LPB_CALL lpb_inspect_media_with_residues(
 {
     std::vector<lpb_confirmed_residue> residues;
     lpb_result res = inspect_source(context, primary_path, secondary_path, out_facts, &residues);
-    if (res != LPB_RESULT_OK) return res;
+    if (res != LPB_RESULT_OK) { classify_inspection_failure(context, res); return res; }
 
     if (residues.size() > residues_capacity) {
         if (out_residues_count) *out_residues_count = residues.size();
         set_error(context, "The supplied residues buffer is too small.");
+        classify_inspection_failure(context, LPB_RESULT_BUFFER_TOO_SMALL);
         return LPB_RESULT_BUFFER_TOO_SMALL;
     }
 
@@ -61,6 +143,7 @@ LPB_API lpb_result LPB_CALL lpb_inspect_media_with_residues(
         }
     }
     if (out_residues_count) *out_residues_count = residues.size();
+    classify_inspection_failure(context, LPB_RESULT_OK);
     return LPB_RESULT_OK;
 }
 
@@ -73,6 +156,7 @@ LPB_API lpb_result LPB_CALL lpb_extract_media(
     const char* output_video_path,
     const char* output_gainmap_path)
 {
+    if (!validate_gainmap_binding(context, facts)) return LPB_RESULT_INVALID_ARGUMENT;
     return extract_source(context, primary_path, secondary_path, facts, output_image_path, output_video_path, output_gainmap_path);
 }
 
@@ -141,6 +225,10 @@ LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_plan(
     size_t facts_capacity,
     size_t* out_facts_count)
 {
+    if (!validate_gainmap_binding(context, facts)) {
+        if (out_facts_count) *out_facts_count = 0;
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     return clean_source_protocol_with_plan(
         context, facts, actions, action_count,
         targets, target_count,

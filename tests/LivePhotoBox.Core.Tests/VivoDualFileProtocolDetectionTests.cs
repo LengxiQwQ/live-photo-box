@@ -1,5 +1,7 @@
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
+using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Core.Tests.Protocols;
 using System;
 using System.IO;
 using System.Text;
@@ -7,10 +9,10 @@ using Xunit;
 
 namespace LivePhotoBox.Core.Tests;
 
-[Trait("Category", "RealSamples")]
 public sealed class VivoDualFileProtocolDetectionTests
 {
     [Fact]
+    [Trait("Category", "RealSamples")]
     public async Task DetectDualFileProtocol_RealVivoPair_ReturnsVivo()
     {
         LivePhotoProtocolType protocol = await LivePhotoMetadataMatcher.DetectDualFileProtocolAsync(
@@ -22,6 +24,7 @@ public sealed class VivoDualFileProtocolDetectionTests
     }
 
     [Fact]
+    [Trait("Category", "RealSamples")]
     public async Task DetectDualFileProtocol_RealApplePair_ReturnsApple()
     {
         LivePhotoProtocolType protocol = await LivePhotoMetadataMatcher.DetectDualFileProtocolAsync(
@@ -33,7 +36,7 @@ public sealed class VivoDualFileProtocolDetectionTests
     }
 
     [Fact]
-    public async Task DetectDualFileProtocol_MatchingAppleMetadataWithDifferentNames_ReturnsUnknown()
+    public async Task DetectDualFileProtocol_MatchingAppleMetadataWithDifferentNames_ReturnsApple()
     {
         string dir = Path.Combine(Path.GetTempPath(), "lpb_dual_name_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
@@ -50,7 +53,7 @@ public sealed class VivoDualFileProtocolDetectionTests
                 videoPath,
                 token: CancellationToken.None);
 
-            Assert.Equal(LivePhotoProtocolType.Unknown, protocol);
+            Assert.Equal(LivePhotoProtocolType.Apple, protocol);
         }
         finally
         {
@@ -85,6 +88,32 @@ public sealed class VivoDualFileProtocolDetectionTests
     }
 
     [Fact]
+    public void MatchVivo_DuplicateCandidateId_RemainsAmbiguous()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "lpb_vivo_duplicate_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        string imageA = Path.Combine(dir, "a.jpg");
+        string imageB = Path.Combine(dir, "b.jpg");
+        string video = Path.Combine(dir, "motion.mp4");
+        try
+        {
+            SyntheticProtocolFixtures.CreateVivoLegacyDualJpeg(imageA);
+            File.Copy(imageA, imageB);
+            SyntheticProtocolFixtures.CreateVivoLegacyDualMp4(video);
+
+            var error = Assert.Throws<SourceInspectionException>(() =>
+                LivePhotoMetadataMatcher.MatchVivo([imageA, imageB], [video]));
+            Assert.Equal(SourceInspectionFailureCategory.Ambiguous, error.Category);
+            Assert.Equal(SourceInspectionStage.Pairing, error.Stage);
+            Assert.Equal(LivePhotoBox.Interop.NativeRuntime.VivoLegacyCapability, error.Capability);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
     public void Detect_SingleFileJpeg_WithHdrOnlyContainer_ReturnsUnknown()
     {
         string dir = Path.Combine(Path.GetTempPath(), "lpb_hdr_detect_" + Guid.NewGuid().ToString("N"));
@@ -114,7 +143,7 @@ public sealed class VivoDualFileProtocolDetectionTests
     }
 
     [Fact]
-    public void Detect_DualFileJpeg_WithHdrContainerXmp_PrefersVivoTail()
+    public void Detect_DualFileJpeg_WithoutSecondaryCannotConfirmVivo()
     {
         string dir = Path.Combine(Path.GetTempPath(), "lpb_vivo_detect_" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
@@ -152,7 +181,7 @@ public sealed class VivoDualFileProtocolDetectionTests
             LivePhotoProtocolType protocol = LivePhotoProtocolDetector.Detect(
                 path, LivePhotoType.DualFile, contentIdentifier: null);
 
-            Assert.Equal(LivePhotoProtocolType.Vivo, protocol);
+            Assert.Equal(LivePhotoProtocolType.Unknown, protocol);
         }
         finally
         {

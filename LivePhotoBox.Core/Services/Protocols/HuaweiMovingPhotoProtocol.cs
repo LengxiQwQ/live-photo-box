@@ -10,7 +10,7 @@
  *   - 60B 尾标字段：+0..+5 "v6_f{XX}" 封面帧号（控制相册进度条）、+20..+27 "{PPP}:{QQQQ}"
  *     封面帧:总帧数（只读历史）、+40..+51 "LIVE_{NNNN}" = MP4 大小+20（实况检测标记）
  *
- * 参考：docs/实况照片协议完整分析报告.md、scripts/Python_Scripts/convert_apple_to_huawei.py
+ * 参考：docs/实况照片协议分析文档/（全部文档）、scripts/Python_Scripts/convert_apple_to_huawei.py
  */
 
 using System;

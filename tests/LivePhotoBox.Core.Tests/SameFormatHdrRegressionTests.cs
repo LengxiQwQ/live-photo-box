@@ -6,6 +6,9 @@ using System.Text;
 using System.Text.RegularExpressions;
 using Xunit;
 using LivePhotoBox.Core.Tests.Protocols;
+using LivePhotoBox.Interop;
+using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Media.Models;
 
 namespace LivePhotoBox.Core.Tests;
 
@@ -59,11 +62,9 @@ public sealed class SameFormatHdrRegressionTests
                 : LivePhotoType.SingleFileJpeg;
             LivePhotoProtocolType protocol = LivePhotoProtocolDetector.Detect(
                 result.ImageOutputPath, probeType, contentIdentifier: null, xmpText: metadata);
-            // In Rebuilt without ExifTool, non-XMP EXIF UserComment (e.g. OnePlus oplus_ marker)
-            // is preserved without destructive rewriting, while LivePhotoType is correctly None.
-            Assert.Equal(
-                sampleName == "一加.jpg" ? LivePhotoProtocolType.OPPO : LivePhotoProtocolType.Unknown,
-                protocol);
+            // A cleaned neutral artifact must not be reclassified from a
+            // preserved, non-authoritative vendor UserComment.
+            Assert.Equal(LivePhotoProtocolType.Unknown, protocol);
             Assert.Equal(LivePhotoProtocolType.Unknown, LivePhotoProtocolDetector.Detect(result.ImageOutputPath, detectedType));
         }
         finally
@@ -265,21 +266,50 @@ public sealed class SameFormatHdrRegressionTests
     }
 
     [Fact]
-    public async Task SplitHeic_KeepFormat_PreservesAppleHdrGainMap()
+    public async Task InspectHeic_GoogleMotionPhotoV2PublishesUnambiguousHdrGainMapFacts()
     {
         string source = ResolveSample("谷歌自己合成的.heic");
-        string outputDir = CreateTempDirectory();
+        long fileLength = new FileInfo(source).Length;
+        SourceMediaFacts facts = await new SourceInspector().InspectAsync(source);
 
-        try
-        {
-            await Assert.ThrowsAsync<InvalidDataException>(() =>
-                LivePhotoSplitService.SplitAsync(
-                    source, outputDir, protocolIndex: 0, outputFormatIndex: 0, CancellationToken.None));
-        }
-        finally
-        {
-            TryDeleteDirectory(outputDir);
-        }
+        Assert.Equal(SourceProtocol.GoogleMotionPhotoV2, facts.Protocol);
+        Assert.True(facts.PrimaryImage.IsPresent);
+        Assert.Equal(ImageContainer.Heic, facts.PrimaryImage.Container);
+        Assert.Equal(0, facts.PrimaryImage.ByteOffset);
+        Assert.InRange(facts.PrimaryImage.ByteLength, 1, fileLength - 1);
+
+        VideoFacts motionVideo = Assert.IsType<VideoFacts>(facts.MotionVideo);
+        Assert.True(motionVideo.IsPresent);
+        Assert.Equal(VideoContainer.Mov, motionVideo.Container);
+        Assert.InRange(motionVideo.ByteOffset, 1, fileLength - 1);
+        Assert.InRange(motionVideo.ByteLength, 1, fileLength - motionVideo.ByteOffset);
+
+        long primaryEnd = checked(facts.PrimaryImage.ByteOffset + facts.PrimaryImage.ByteLength);
+        long framingEnd = checked(facts.ProtocolTailOffset + facts.ProtocolTailLength);
+        long videoEnd = checked(motionVideo.ByteOffset + motionVideo.ByteLength);
+        Assert.Equal(primaryEnd, facts.ProtocolTailOffset);
+        Assert.True(facts.ProtocolTailLength > 0, "HEIC Motion Photo V2 must expose the mpvd framing range.");
+        Assert.Equal(framingEnd, motionVideo.ByteOffset);
+        Assert.Equal(fileLength, videoEnd);
+        Assert.True(primaryEnd < motionVideo.ByteOffset,
+            "Primary HEIC bytes and the MOV payload must be separated by one unambiguous protocol framing range.");
+
+        var gainMapAuxiliaries = facts.AuxiliaryItems
+            .Where(item => item.Relationship == "urn:com:apple:photo:2020:aux:hdrgainmap")
+            .ToArray();
+        AuxiliaryMediaFacts gainMapAuxiliary = Assert.Single(gainMapAuxiliaries);
+        Assert.True(gainMapAuxiliary.IsPresent);
+        Assert.Equal(ImageContainer.Heic, gainMapAuxiliary.Container);
+        Assert.Equal(AuxiliaryRepresentation.Embedded, gainMapAuxiliary.Representation);
+        Assert.Equal(AuxiliaryOwnership.Auxiliary, gainMapAuxiliary.Ownership);
+        Assert.InRange(gainMapAuxiliary.ByteOffset, 0, fileLength - 1);
+        Assert.InRange(gainMapAuxiliary.ByteLength, 1, fileLength - gainMapAuxiliary.ByteOffset);
+
+        GainMapFacts gainMap = Assert.IsType<GainMapFacts>(facts.GainMap);
+        Assert.True(gainMap.IsPresent);
+        Assert.Equal(ImageContainer.Heic, gainMap.Container);
+        Assert.Equal(gainMapAuxiliary.ByteOffset, gainMap.ByteOffset);
+        Assert.Equal(gainMapAuxiliary.ByteLength, gainMap.ByteLength);
     }
 
     [Fact]
@@ -334,21 +364,16 @@ public sealed class SameFormatHdrRegressionTests
     }
 
     [Fact]
-    public async Task MergeHeic_MotionPhotoV2_PreservesAppleHdrGainMap()
+    public async Task InspectHeic_PrimaryOwnedXmpPublishesHdrPreservationEvidence()
     {
         string source = ResolveSample("谷歌自己合成的.heic");
-        string outputDir = CreateTempDirectory();
+        var observation = await NativeMediaService.CapturePreservationObservationAsync(
+            source, SourceProtocol.NonLive, ImageContainer.Heic, CancellationToken.None);
 
-        try
-        {
-            await Assert.ThrowsAsync<InvalidDataException>(() =>
-                LivePhotoSplitService.SplitAsync(
-                    source, outputDir, protocolIndex: 0, outputFormatIndex: 0, CancellationToken.None));
-        }
-        finally
-        {
-            TryDeleteDirectory(outputDir);
-        }
+        Assert.True(observation.HasHeicAux);
+        Assert.True(observation.HasHeicGainMapSemantic);
+        Assert.Equal("urn:com:apple:photo:2020:aux:hdrgainmap", observation.HeicAuxType);
+        Assert.False(string.IsNullOrWhiteSpace(observation.HeicAuxItemSha256));
     }
 
     [Fact]
@@ -373,16 +398,17 @@ public sealed class SameFormatHdrRegressionTests
     }
 
     [Fact]
-    public async Task StandardConversion_AppleHeicToJpeg_WritesGoogleUltraHdrGainMap()
+    public async Task StandardConversion_AppleHeicToJpeg_FailsClosedWithoutFormalHeadroomReader()
     {
         string source = ResolveSample("苹果双文件.HEIC");
         string outputDir = CreateTempDirectory();
 
         try
         {
-            await Assert.ThrowsAsync<NotSupportedException>(() =>
+            InvalidDataException error = await Assert.ThrowsAsync<InvalidDataException>(() =>
                 StandardHdrConversionService.ConvertHeicToJpegAsync(
                     source, outputDir, CancellationToken.None));
+            Assert.Contains("could not be formally extracted", error.Message, StringComparison.Ordinal);
         }
         finally
         {
@@ -390,14 +416,13 @@ public sealed class SameFormatHdrRegressionTests
         }
     }
 
-    // 回归：vivo/一加/小米/三星 的增益图藏在 XMP 容器清单里（Item:Length），
+    // 回归：vivo/一加/小米/荣耀 的增益图藏在 XMP 容器清单里（Item:Length），
     // exiftool -GainMapImage 会错取成追加的视频；在 Rebuilt 引擎中，
     // heif-enc 外部工具已移除，因此转换操作安全拒绝抛出 NotSupportedException。
     [Theory]
     [InlineData("vivo.jpg")]
     [InlineData("一加.jpg")]
     [InlineData("小米.jpg")]
-    [InlineData("三星.jpg")]
     [InlineData("荣耀.jpg")]
     public async Task StandardConversion_BrandJpegToHeic_ExtractsGainMapAndWritesMatchingHeadroom(string sampleName)
     {
@@ -412,6 +437,44 @@ public sealed class SameFormatHdrRegressionTests
             await Assert.ThrowsAsync<NotSupportedException>(() =>
                 StandardHdrConversionService.ConvertJpegToHeicAsync(
                     source, outputDir, CancellationToken.None));
+        }
+        finally
+        {
+            TryDeleteDirectory(outputDir);
+        }
+    }
+
+    [Fact]
+    public async Task StandardConversion_SamsungGainMap_UsesNativeBindingBeforeUnsupportedWriter()
+    {
+        string source = ResolveSample("三星.jpg");
+        string outputDir = CreateTempDirectory();
+
+        try
+        {
+            SourceMediaFacts facts = await new SourceInspector().InspectAsync(source);
+            Assert.Equal(SourceProtocol.SamsungMotionPhotoJpeg, facts.Protocol);
+            GainMapFacts gainMap = Assert.IsType<GainMapFacts>(facts.GainMap);
+            Assert.True(gainMap.IsPresent);
+            Assert.Equal(ImageContainer.Jpeg, gainMap.Container);
+            Assert.Equal(AuxiliaryRepresentation.Embedded, gainMap.Representation);
+            Assert.Equal(AuxiliaryOwnership.Primary, gainMap.Ownership);
+            Assert.Equal(MediaArtifactKind.PrimaryImage, gainMap.OwnerArtifactRole);
+            Assert.NotEqual(0u, gainMap.ItemId);
+            Assert.True(gainMap.ByteOffset > 0);
+            Assert.True(gainMap.ByteLength > 0);
+            AuxiliaryMediaFacts auxiliary = Assert.Single(facts.AuxiliaryItems);
+            Assert.Equal(0u, gainMap.AuxiliaryIndex);
+            Assert.Equal(auxiliary.ItemId, gainMap.ItemId);
+            Assert.Equal(auxiliary.ByteOffset, gainMap.ByteOffset);
+            Assert.Equal(auxiliary.ByteLength, gainMap.ByteLength);
+            Assert.Equal(auxiliary.Relationship, gainMap.Relationship);
+            Assert.True(StandardHdrConversionService.HasStandardJpegGainMap(source));
+
+            NotSupportedException error = await Assert.ThrowsAsync<NotSupportedException>(() =>
+                StandardHdrConversionService.ConvertJpegToHeicAsync(
+                    source, outputDir, CancellationToken.None));
+            Assert.Contains("heif-enc is not supported", error.Message, StringComparison.Ordinal);
         }
         finally
         {

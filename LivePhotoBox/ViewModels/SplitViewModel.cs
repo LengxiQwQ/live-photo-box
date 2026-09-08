@@ -14,6 +14,8 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using LivePhotoBox.Collections;
 using LivePhotoBox.Helpers;
+using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Media.Models;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using System;
@@ -296,8 +298,22 @@ namespace LivePhotoBox.ViewModels
         {
             var target = MatchProtocolType;
             if (target == null) return true;
-            return LivePhotoProtocolDetector.Detect(filePath, type) == target.Value;
+            if (type == LivePhotoType.None || type == LivePhotoType.DualFile) return false;
+            var facts = new SourceInspector().InspectAsync(filePath).GetAwaiter().GetResult();
+            return MapNativeProtocol(facts.Protocol) == target.Value;
         }
+
+        private static LivePhotoProtocolType MapNativeProtocol(SourceProtocol protocol) => protocol switch
+        {
+            SourceProtocol.AppleLivePhoto => LivePhotoProtocolType.Apple,
+            SourceProtocol.GoogleMicroVideoV1 => LivePhotoProtocolType.GoogleV1,
+            SourceProtocol.GoogleMotionPhotoV2 => LivePhotoProtocolType.GoogleV2,
+            SourceProtocol.OppoLivePhoto => LivePhotoProtocolType.OPPO,
+            SourceProtocol.VivoLivePhoto or SourceProtocol.VivoLegacyDualFile => LivePhotoProtocolType.Vivo,
+            SourceProtocol.SamsungMotionPhotoJpeg or SourceProtocol.SamsungMotionPhotoHeic => LivePhotoProtocolType.Samsung,
+            SourceProtocol.HuaweiMovingPhoto or SourceProtocol.HonorMovingPhoto => LivePhotoProtocolType.Huawei,
+            _ => LivePhotoProtocolType.Unknown
+        };
 
         // ── 搜索 / 排序 / 筛选 ──
 
@@ -1026,7 +1042,22 @@ namespace LivePhotoBox.ViewModels
                 LivePhotoType type;
                 try { type = await LivePhotoDiscoveryService.DetectSingleFileTypeAsync(path); }
                 catch (OperationCanceledException) { throw; }
-                catch { continue; }
+                catch (SourceInspectionException ex)
+                {
+                    LogService.Split(
+                        $"AddFiles Native inspection failed for '{Path.GetFileName(path)}' " +
+                        $"({ex.Category}/{ex.Stage}, capability=0x{ex.Capability:X}): {ex.Message}",
+                        LogLevel.Warning);
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    LogService.Split(
+                        $"AddFiles Native inspection failed for '{Path.GetFileName(path)}': {ex.Message}",
+                        LogLevel.Error,
+                        ex);
+                    throw;
+                }
 
                 if (type == LivePhotoType.None) continue;
                 // 按"匹配方式"过滤协议

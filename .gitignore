@@ -36,16 +36,22 @@ bld/
 # Visual Studio 2015/2017 cache/options directory
 .vs/
 
-# AI assistant files
-.claude/
+# Local AI assistant configuration (never commit these files)
+/.ai/
+/.agents/
+/.claude/
+/.codex/
+/.antigravity/
+/.gemini/
+/.mcp.json
+/AGENTS.md
+/CLAUDE.md
+/.github/copilot-instructions.md
+
+# Local developer tooling and generated analysis outputs
 .codegraph/
 graphify-out/
 ai-tmp/
-.codex/
-.agents/
-/AGENTS.md
-/.github/copilot-instructions.md
-CLAUDE.md
 
 .backups/
 .tmp-ico/
@@ -402,7 +408,7 @@ FodyWeavers.xsd
 /scripts/build-release.multifile.bak.ps1
 /LivePhotoBox.CLI/LivePhotoBox.CLI.multifile.bak.csproj
 
-docs/实况照片协议完整分析报告.md
+/docs/实况照片协议分析文档/
 /docs/LivePhotoBox-Native-Refactor/
 
 # CLI integration test workspace (large binary samples & output)
@@ -415,4 +421,4 @@ docs/实况照片协议完整分析报告.md
 /tests/ThumbnailStressTest/
 
 # 项目源码打包压缩包（本地生成，覆盖使用）
-/live-photo-box-source.zip
+/live-photo-box-source.zip

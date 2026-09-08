@@ -144,12 +144,33 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     MediaArtifactKind.GainMap);
             }
 
+            MediaArtifact cleanupImageArtifact = bundle.PrimaryImage;
+            if (facts.Protocol == SourceProtocol.SamsungMotionPhotoJpeg)
+            {
+                if (bundle.CleanupSource is not { } sourceContainer ||
+                    sourceContainer.Kind != MediaArtifactKind.SourceContainer ||
+                    !File.Exists(sourceContainer.Path))
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.ArtifactFactMismatch,
+                        CleanerFailureStage.Preflight,
+                        facts.Protocol,
+                        "Samsung JPEG cleanup requires the full verified SEF source-container snapshot.",
+                        MediaArtifactKind.SourceContainer);
+                }
+                cleanupImageArtifact = sourceContainer;
+            }
+
             // -------------------------------------------------------------
             // Step 2: Verify P2 Artifact Identity
             // -------------------------------------------------------------
             if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.ArtifactVerification, null).ConfigureAwait(false);
 
             await VerifyArtifactIntegrityAsync(bundle.PrimaryImage, "PrimaryImage", facts.Protocol, cancellationToken).ConfigureAwait(false);
+            if (!ReferenceEquals(cleanupImageArtifact, bundle.PrimaryImage))
+            {
+                await VerifyArtifactIntegrityAsync(cleanupImageArtifact, "SourceContainer", facts.Protocol, cancellationToken).ConfigureAwait(false);
+            }
             if (bundle.MotionVideo != null)
             {
                 await VerifyArtifactIntegrityAsync(bundle.MotionVideo, "MotionVideo", facts.Protocol, cancellationToken).ConfigureAwait(false);
@@ -244,8 +265,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 new PlannedArtifactTarget
                 {
                     Role = MediaArtifactKind.PrimaryImage,
-                    ExpectedByteLength = bundle.PrimaryImage.ByteLength,
-                    ExpectedSha256 = bundle.PrimaryImage.Sha256!
+                    ExpectedByteLength = cleanupImageArtifact.ByteLength,
+                    ExpectedSha256 = cleanupImageArtifact.Sha256!
                 }
             };
             if (bundle.MotionVideo != null)
@@ -274,7 +295,10 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             };
 
             // Capture frozen preservation baseline before destructive execution
-            var preservationBaseline = await MetadataPreservationVerifier.CaptureBaselineAsync(bundle, cancellationToken).ConfigureAwait(false);
+            var preservationBundle = ReferenceEquals(cleanupImageArtifact, bundle.PrimaryImage)
+                ? bundle
+                : bundle with { PrimaryImage = cleanupImageArtifact };
+            var preservationBaseline = await MetadataPreservationVerifier.CaptureBaselineAsync(preservationBundle, cancellationToken).ConfigureAwait(false);
 
             // -------------------------------------------------------------
             // Step 5: Stage Clean (Isolated Workspace)
@@ -290,7 +314,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
 
             if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Staging, "BeforeNative").ConfigureAwait(false);
 
-            string imgExt = bundle.PrimaryImage.ImageContainer == ImageContainer.Heic ? ".heic" : ".jpg";
+            string imgExt = cleanupImageArtifact.ImageContainer == ImageContainer.Heic ? ".heic" : ".jpg";
             string stagedImgPath = Path.Combine(stagingDir, "stage-img" + imgExt);
 
             string? stagedVidPath = null;
@@ -307,7 +331,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     facts,
                     cleanupPlan.Actions,
                     cleanupPlan.ArtifactTargets,
-                    bundle.PrimaryImage.Path,
+                    cleanupImageArtifact.Path,
                     bundle.MotionVideo?.Path,
                     stagedImgPath,
                     stagedVidPath,
@@ -483,6 +507,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             // -------------------------------------------------------------
             journal.SetState(CleanerTransactionState.Validated);
             if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Commit, "BeforePublish").ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
 
             string cleanImgPath = workspace.AllocateFilePath("clean-img", imgExt);
             string? cleanVidPath = null;
@@ -495,14 +520,15 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             journal.SetState(CleanerTransactionState.Committing);
             try
             {
-                File.Move(stagedImgPath, cleanImgPath, overwrite: true);
+                File.Move(stagedImgPath, cleanImgPath, overwrite: false);
                 journal.PublishedPaths.Add(cleanImgPath);
 
                 if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Commit, "ImagePublished").ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
 
                 if (stagedVidPath != null && cleanVidPath != null)
                 {
-                    File.Move(stagedVidPath, cleanVidPath, overwrite: true);
+                    File.Move(stagedVidPath, cleanVidPath, overwrite: false);
                     journal.PublishedPaths.Add(cleanVidPath);
                 }
 
@@ -618,6 +644,42 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 ErrorMessage = ex.Message,
                 FailureCategory = ex.Category,
                 FailureStage = ex.Stage,
+                TransactionState = journal.State,
+                PreservationOutcome = PreservationOutcome.PartiallyPreserved,
+                Duration = sw.Elapsed
+            };
+        }
+        catch (SourceInspectionException ex)
+        {
+            sw.Stop();
+            try
+            {
+                journal.Rollback(FaultInjectionHook, currentProtocol);
+            }
+            catch (CleanerException rbEx)
+            {
+                return new ProtocolCleanResult
+                {
+                    Success = false,
+                    ErrorMessage = $"Post-clean inspection failed ({ex.Category}): {ex.Message}. Critical rollback failure: {rbEx.Message}",
+                    FailureCategory = CleanerFailureCategory.RollbackFailed,
+                    FailureStage = CleanerFailureStage.Rollback,
+                    TransactionState = CleanerTransactionState.RollbackFailed,
+                    PreservationOutcome = PreservationOutcome.PartiallyPreserved,
+                    Duration = sw.Elapsed
+                };
+            }
+            return new ProtocolCleanResult
+            {
+                Success = false,
+                ErrorMessage = ex.Message,
+                FailureCategory = ex.Category switch
+                {
+                    SourceInspectionFailureCategory.Unsupported => CleanerFailureCategory.UnsupportedProtocol,
+                    SourceInspectionFailureCategory.Ambiguous => CleanerFailureCategory.AmbiguousProtocol,
+                    _ => CleanerFailureCategory.MediaInvalid
+                },
+                FailureStage = CleanerFailureStage.PostCleanInspection,
                 TransactionState = journal.State,
                 PreservationOutcome = PreservationOutcome.PartiallyPreserved,
                 Duration = sw.Elapsed

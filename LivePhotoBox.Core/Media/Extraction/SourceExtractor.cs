@@ -275,6 +275,14 @@ public sealed class SourceExtractor : ISourceExtractor
                 throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, $"Destination file already exists: {outputGainmapPath}");
         }
 
+        string? cleanupSourcePath = null;
+        if (facts.Protocol == SourceProtocol.SamsungMotionPhotoJpeg)
+        {
+            cleanupSourcePath = workspace.AllocateFilePath("source-container", imgExt);
+            if (File.Exists(cleanupSourcePath))
+                throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, $"Destination file already exists: {cleanupSourcePath}");
+        }
+
         bool nativeExtractionSucceeded = false;
         try
         {
@@ -317,6 +325,38 @@ public sealed class SourceExtractor : ISourceExtractor
                         $"Source file immutability violation: secondary source '{secondaryPath}' was modified during extraction!",
                         sourcePath: secondaryPath);
                 }
+            }
+
+            MediaArtifact? cleanupSourceArtifact = null;
+            if (cleanupSourcePath != null)
+            {
+                // Samsung SEF is a structured trailer outside the exact JPEG
+                // media range.  Preserve a full source-container snapshot for
+                // the authorized rebuild cleaner instead of lying about the
+                // PrimaryImage range.
+                File.Copy(primaryPath, cleanupSourcePath, overwrite: false);
+                string copiedSha = await workspace.ComputeFileSha256Async(cleanupSourcePath, cancellationToken).ConfigureAwait(false);
+                string sourceShaAfterCopy = await workspace.ComputeFileSha256Async(primaryPath, cancellationToken).ConfigureAwait(false);
+                if (!string.Equals(beforePrimarySha, copiedSha, StringComparison.OrdinalIgnoreCase) ||
+                    !string.Equals(beforePrimarySha, sourceShaAfterCopy, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new ExtractionException(
+                        ExtractionFailureCategory.SourceChanged,
+                        "Primary source changed while the cleanup-container snapshot was being materialized.",
+                        artifactKind: MediaArtifactKind.SourceContainer,
+                        sourcePath: primaryPath);
+                }
+                cleanupSourceArtifact = new MediaArtifact
+                {
+                    Path = cleanupSourcePath,
+                    Kind = MediaArtifactKind.SourceContainer,
+                    MimeType = "image/jpeg",
+                    ImageContainer = ImageContainer.Jpeg,
+                    ImageCodec = ImageCodec.Jpeg,
+                    ByteLength = new FileInfo(cleanupSourcePath).Length,
+                    SourceOffset = 0,
+                    Sha256 = copiedSha
+                };
             }
 
             var primaryArtifact = new MediaArtifact
@@ -398,6 +438,7 @@ public sealed class SourceExtractor : ISourceExtractor
             return new ExtractedMediaBundle
             {
                 PrimaryImage = primaryArtifact,
+                CleanupSource = cleanupSourceArtifact,
                 MotionVideo = videoArtifact,
                 GainMap = gainmapArtifact,
                 SourceFacts = facts,
@@ -429,6 +470,11 @@ public sealed class SourceExtractor : ISourceExtractor
                 {
                     try { File.Delete(outputGainmapPath); }
                     catch (Exception delEx) { cleanupFailedFile ??= outputGainmapPath; cleanupError ??= delEx; }
+                }
+                if (cleanupSourcePath != null && File.Exists(cleanupSourcePath))
+                {
+                    try { File.Delete(cleanupSourcePath); }
+                    catch (Exception delEx) { cleanupFailedFile ??= cleanupSourcePath; cleanupError ??= delEx; }
                 }
 
                 if (cleanupFailedFile != null)

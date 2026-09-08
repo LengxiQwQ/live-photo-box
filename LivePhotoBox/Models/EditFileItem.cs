@@ -12,6 +12,7 @@
  */
 
 using CommunityToolkit.Mvvm.ComponentModel;
+using LivePhotoBox.Media.Models;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -57,6 +58,11 @@ namespace LivePhotoBox.Models
 
         /// <summary>单文件 JPEG 实况照片：内嵌视频段字节数</summary>
         public long AppendedVideoLength { get; set; }
+
+        /// <summary>Native inspector motion-video range and container facts.</summary>
+        public long MotionVideoByteOffset { get; set; }
+        public long MotionVideoByteLength { get; set; }
+        public VideoContainer MotionVideoContainer { get; set; } = VideoContainer.Unknown;
 
         /// <summary>检测方法（区分 Apple CID 配对 vs 纯文件名配对等）</summary>
         public LivePhotoDetectionMethod DetectionMethod { get; set; }

@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define LPB_NATIVE_ABI_VERSION 2u
+#define LPB_NATIVE_ABI_VERSION 4u
 
 typedef struct lpb_context lpb_context;
 
@@ -33,6 +33,34 @@ typedef enum lpb_result
     LPB_RESULT_BUFFER_TOO_SMALL = 4,
     LPB_RESULT_INTERNAL_ERROR = 5
 } lpb_result;
+
+typedef enum lpb_inspection_failure_category
+{
+    LPB_INSPECTION_FAILURE_NONE = 0,
+    LPB_INSPECTION_FAILURE_UNSUPPORTED = 1,
+    LPB_INSPECTION_FAILURE_AMBIGUOUS = 2,
+    LPB_INSPECTION_FAILURE_MALFORMED = 3,
+    LPB_INSPECTION_FAILURE_INVALID_ARGUMENT = 4,
+    LPB_INSPECTION_FAILURE_IO = 5
+} lpb_inspection_failure_category;
+
+typedef enum lpb_inspection_stage
+{
+    LPB_INSPECTION_STAGE_NONE = 0,
+    LPB_INSPECTION_STAGE_READ = 1,
+    LPB_INSPECTION_STAGE_CONTAINER = 2,
+    LPB_INSPECTION_STAGE_METADATA = 3,
+    LPB_INSPECTION_STAGE_PROTOCOL = 4,
+    LPB_INSPECTION_STAGE_PAIRING = 5
+} lpb_inspection_stage;
+
+typedef struct lpb_inspection_status
+{
+    uint32_t struct_size;
+    lpb_inspection_failure_category category;
+    lpb_inspection_stage stage;
+    uint64_t capability;
+} lpb_inspection_status;
 
 typedef enum lpb_log_level
 {
@@ -101,6 +129,10 @@ LPB_API lpb_result LPB_CALL lpb_get_last_error(
     char* utf8_buffer,
     size_t buffer_size,
     size_t* required_size);
+
+LPB_API lpb_result LPB_CALL lpb_get_last_inspection_status(
+    lpb_context* context,
+    lpb_inspection_status* status);
 
 /*
  * Builds a vivo <= X200 JPEG payload from the complete UTF-8 `vivo{...}` JSON.
@@ -395,6 +427,19 @@ typedef struct lpb_media_range
     uint64_t length;
 } lpb_media_range;
 
+/*
+ * Enumerates all structurally located HEIF XMP item ranges.  A HEIF may
+ * contain several RDF items; callers must inspect the returned packets and
+ * select a unique protocol-authoritative one rather than assuming iinf order.
+ */
+LPB_API lpb_result LPB_CALL lpb_heif_enumerate_xmp_items(
+    lpb_context* context,
+    const uint8_t* input,
+    size_t input_size,
+    lpb_media_range* output_items,
+    size_t output_capacity,
+    size_t* output_count);
+
 typedef struct lpb_image_item_facts
 {
     uint32_t struct_size;
@@ -426,8 +471,32 @@ typedef struct lpb_gainmap_item_facts
     uint32_t struct_size;
     int32_t is_present;
     lpb_image_container container;
+    int32_t representation;
+    int32_t ownership;
+    int32_t owner_artifact_role;
+    uint32_t auxiliary_index;
+    uint32_t item_id;
     lpb_media_range file_range;
+    char relationship[64];
 } lpb_gainmap_item_facts;
+
+/* A GainMap fact must point at exactly one entry in source_media_facts. */
+#define LPB_AUXILIARY_INDEX_NONE UINT32_MAX
+
+typedef enum lpb_auxiliary_representation { LPB_AUX_REPRESENTATION_EMBEDDED = 0, LPB_AUX_REPRESENTATION_DETACHED = 1, LPB_AUX_REPRESENTATION_MATERIALIZED = 2 } lpb_auxiliary_representation;
+typedef enum lpb_auxiliary_ownership { LPB_AUX_OWNER_PRIMARY = 0, LPB_AUX_OWNER_AUXILIARY = 1 } lpb_auxiliary_ownership;
+
+typedef struct lpb_auxiliary_item_facts
+{
+    uint32_t struct_size;
+    int32_t is_present;
+    lpb_image_container container;
+    lpb_auxiliary_representation representation;
+    lpb_auxiliary_ownership ownership;
+    uint32_t item_id;
+    lpb_media_range file_range;
+    char relationship[64];
+} lpb_auxiliary_item_facts;
 
 typedef struct lpb_timing_facts
 {
@@ -453,7 +522,20 @@ typedef struct lpb_source_media_facts
     uint8_t primary_sha256[32];
     uint8_t secondary_sha256[32];
     int32_t has_secondary_source;
+    uint32_t auxiliary_count;
+    lpb_auxiliary_item_facts auxiliary_items[8];
 } lpb_source_media_facts;
+
+/* Enumerates all HEIF auxiliary items that are formally related to the
+   primary item through the item-reference graph.  A zero-capacity call is a
+   count query.  No magic-byte/string scan is used as an authority. */
+LPB_API lpb_result LPB_CALL lpb_heif_enumerate_auxiliary_items(
+    lpb_context* context,
+    const uint8_t* input,
+    size_t input_size,
+    lpb_auxiliary_item_facts* output_items,
+    size_t output_capacity,
+    size_t* output_count);
 
 /*
  * High-level Native inspection of source media files.
@@ -882,9 +964,11 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
 static_assert(sizeof(lpb_media_range) == 16, "lpb_media_range size mismatch");
 static_assert(sizeof(lpb_image_item_facts) == 40, "lpb_image_item_facts size mismatch");
 static_assert(sizeof(lpb_video_item_facts) == 80, "lpb_video_item_facts size mismatch");
-static_assert(sizeof(lpb_gainmap_item_facts) == 32, "lpb_gainmap_item_facts size mismatch");
+static_assert(sizeof(lpb_gainmap_item_facts) == 112, "lpb_gainmap_item_facts size mismatch");
+static_assert(offsetof(lpb_gainmap_item_facts, file_range) == 32, "lpb_gainmap_item_facts.file_range offset mismatch");
+static_assert(offsetof(lpb_gainmap_item_facts, relationship) == 48, "lpb_gainmap_item_facts.relationship offset mismatch");
 static_assert(sizeof(lpb_timing_facts) == 32, "lpb_timing_facts size mismatch");
-static_assert(sizeof(lpb_source_media_facts) == 408, "lpb_source_media_facts size mismatch");
+static_assert(sizeof(lpb_source_media_facts) == 1320, "lpb_source_media_facts size mismatch");
 static_assert(sizeof(lpb_confirmed_residue) == 348, "lpb_confirmed_residue size mismatch");
 static_assert(sizeof(lpb_cleanup_action) == 348, "lpb_cleanup_action size mismatch");
 static_assert(sizeof(lpb_cleanup_artifact_binding) == 56, "lpb_cleanup_artifact_binding size mismatch");
@@ -893,9 +977,12 @@ static_assert(offsetof(lpb_cleanup_action, coordinate_space) == 336, "lpb_cleanu
 static_assert(offsetof(lpb_cleanup_action, removal_mode) == 340, "lpb_cleanup_action.removal_mode offset mismatch");
 static_assert(offsetof(lpb_cleanup_action, is_mandatory) == 344, "lpb_cleanup_action.is_mandatory offset mismatch");
 static_assert(offsetof(lpb_video_item_facts, source_index) == 72, "lpb_video_item_facts.source_index offset mismatch");
-static_assert(offsetof(lpb_source_media_facts, primary_sha256) == 336, "lpb_source_media_facts.primary_sha256 offset mismatch");
-static_assert(offsetof(lpb_source_media_facts, secondary_sha256) == 368, "lpb_source_media_facts.secondary_sha256 offset mismatch");
-static_assert(offsetof(lpb_source_media_facts, has_secondary_source) == 400, "lpb_source_media_facts.has_secondary_source offset mismatch");
+static_assert(offsetof(lpb_source_media_facts, gain_map) == 128, "lpb_source_media_facts.gain_map offset mismatch");
+static_assert(offsetof(lpb_source_media_facts, timing) == 240, "lpb_source_media_facts.timing offset mismatch");
+static_assert(offsetof(lpb_source_media_facts, primary_sha256) == 416, "lpb_source_media_facts.primary_sha256 offset mismatch");
+static_assert(offsetof(lpb_source_media_facts, secondary_sha256) == 448, "lpb_source_media_facts.secondary_sha256 offset mismatch");
+static_assert(offsetof(lpb_source_media_facts, has_secondary_source) == 480, "lpb_source_media_facts.has_secondary_source offset mismatch");
+static_assert(offsetof(lpb_source_media_facts, auxiliary_count) == 484, "lpb_source_media_facts.auxiliary_count offset mismatch");
 static_assert(sizeof(lpb_preservation_observation) == 844, "lpb_preservation_observation size mismatch");
 static_assert(sizeof(lpb_preservation_verdict) == 264, "lpb_preservation_verdict size mismatch");
 #endif

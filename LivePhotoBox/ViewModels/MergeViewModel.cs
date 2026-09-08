@@ -14,6 +14,8 @@ using LivePhotoBox.Collections;
 using System.ComponentModel;
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
+using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Media.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.Services.Protocols;
 using Microsoft.UI.Xaml;
@@ -849,7 +851,7 @@ namespace LivePhotoBox.ViewModels
 
         #region Scan Command
 
-        // 扫描输入文件夹中的图片-视频配对，支持文件名匹配和元数据匹配两种模式。
+        // 扫描输入文件夹中的图片-视频配对，配对 authority 始终来自 Native metadata。
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ScanDirectoryAsync()
         {
@@ -912,10 +914,10 @@ namespace LivePhotoBox.ViewModels
                 // Mutually exclusive: only the selected matching method runs
                 DiscoveryScanMode scanMode = PairingMethodIndex switch
                 {
-                    0 => DiscoveryScanMode.FilenamePair,
+                    0 => DiscoveryScanMode.CidMatch | DiscoveryScanMode.VivoMatch,
                     1 => DiscoveryScanMode.CidMatch,
                     2 => DiscoveryScanMode.VivoMatch,
-                    _ => DiscoveryScanMode.FilenamePair
+                    _ => DiscoveryScanMode.CidMatch | DiscoveryScanMode.VivoMatch
                 };
 
                 var discoveryResult = await Task.Run(
@@ -965,6 +967,11 @@ namespace LivePhotoBox.ViewModels
                         BaseName = baseName,
                         ImagePath = img.FilePath,
                         VideoPath = vidPath,
+                        Protocol = MapSourceProtocol(img.Protocol),
+                        DetectionMethod = img.DetectionMethod,
+                        MotionVideoByteOffset = img.MotionVideoByteOffset,
+                        MotionVideoByteLength = img.MotionVideoByteLength,
+                        MotionVideoContainer = img.MotionVideoContainer,
                         Status = ProcessStatus.Pending,
                         Details = pendingText
                     };
@@ -1044,40 +1051,15 @@ namespace LivePhotoBox.ViewModels
             var images = filePaths.Where(p => imgExts.Contains(Path.GetExtension(p))).ToList();
             var videos = filePaths.Where(p => vidExts.Contains(Path.GetExtension(p))).ToList();
 
-            // 按 basename 粗配对
-            var vidDict = videos.ToDictionary(
-                v => Path.GetFileNameWithoutExtension(v), v => v,
-                StringComparer.OrdinalIgnoreCase);
-
             var pendingText = ResourceService.GetString("Task_Pending");
             var newTasks = new List<MergeTask>();
             var unmatchedImages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var matchedVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var imgPath in images)
+            var nativePairs = await MatchNativePairsAsync(images, videos, CancellationToken.None);
+            foreach (var pair in nativePairs)
             {
-                var baseName = Path.GetFileNameWithoutExtension(imgPath);
-                if (!vidDict.TryGetValue(baseName, out var vidPath))
-                {
-                    unmatchedImages.Add(imgPath);
-                    continue;
-                }
-
-                // 根据配对方式验证
-                bool valid = PairingMethodIndex switch
-                {
-                    0 => true, // 文件名模式：basename 相同即可
-                    1 => await VerifyApplePairAsync(imgPath, vidPath),   // Apple: CID UUID
-                    2 => VerifyVivoPair(imgPath, vidPath),              // vivo: livephoto ID
-                    _ => true
-                };
-
-                if (!valid)
-                {
-                    unmatchedImages.Add(imgPath);
-                    continue;
-                }
-
+                string imgPath = pair.ImagePath;
+                string vidPath = pair.VideoPath;
                 matchedVideos.Add(vidPath);
 
                 long imgSize = new FileInfo(imgPath).Length;
@@ -1095,13 +1077,22 @@ namespace LivePhotoBox.ViewModels
                     VideoSizeBytes = vidSize,
                     TotalSizeBytes = imgSize + vidSize,
                     DateTaken = GetDateTaken(imgPath),
-                    BaseName = baseName,
+                    BaseName = Path.GetFileNameWithoutExtension(imgPath),
                     ImagePath = imgPath,
                     VideoPath = vidPath,
+                    Protocol = pair.Protocol,
+                    DetectionMethod = pair.DetectionMethod,
+                    MotionVideoByteOffset = pair.VideoByteOffset,
+                    MotionVideoByteLength = pair.VideoByteLength,
+                    MotionVideoContainer = pair.VideoContainer,
                     Status = ProcessStatus.Pending,
                     Details = pendingText
                 });
             }
+
+            foreach (var imgPath in images.Where(path => !nativePairs.Any(pair =>
+                string.Equals(pair.ImagePath, path, StringComparison.OrdinalIgnoreCase))))
+                unmatchedImages.Add(imgPath);
 
             // 未匹配的视频 = 所有视频中未被匹配上的
             var unmatchedVideos = videos.Where(v => !matchedVideos.Contains(v)).ToList();
@@ -1135,24 +1126,9 @@ namespace LivePhotoBox.ViewModels
             var pendingText = ResourceService.GetString("Task_Pending");
             int startIndex = Tasks.Count;
             var matchedVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var invalidImages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var pair in scanResult.Pairs)
             {
-                // 根据配对方式验证
-                bool valid = PairingMethodIndex switch
-                {
-                    0 => true,
-                    1 => await VerifyApplePairAsync(pair.ImagePath, pair.VideoPath),
-                    2 => VerifyVivoPair(pair.ImagePath, pair.VideoPath),
-                    _ => true
-                };
-                if (!valid)
-                {
-                    invalidImages.Add(pair.ImagePath);
-                    continue;
-                }
-
                 matchedVideos.Add(pair.VideoPath);
 
                 Tasks.Add(new MergeTask
@@ -1169,17 +1145,20 @@ namespace LivePhotoBox.ViewModels
                     BaseName = pair.BaseName,
                     ImagePath = pair.ImagePath,
                     VideoPath = pair.VideoPath,
+                    Protocol = pair.Protocol,
+                    DetectionMethod = pair.DetectionMethod,
+                    MotionVideoByteOffset = pair.VideoByteOffset,
+                    MotionVideoByteLength = pair.VideoByteLength,
+                    MotionVideoContainer = pair.VideoContainer,
                     Status = ProcessStatus.Pending,
                     Details = pendingText
                 });
             }
 
             // 未匹配统计：
-            // 图片 = 扫描结果中的独立图片 + 配对验证失败被拒绝的图片
-            // 视频 = 扫描结果中的独立视频 + 配对验证失败被拒绝的配对视频
+            // Only Native-confirmed pairs were added; all remaining paths stay standalone.
             var standaloneImagePaths = new HashSet<string>(scanResult.StandaloneImagePaths ?? [], StringComparer.OrdinalIgnoreCase);
-            int unmatchedImages = standaloneImagePaths.Count +
-                invalidImages.Count(p => !standaloneImagePaths.Contains(p));
+            int unmatchedImages = standaloneImagePaths.Count;
             var unmatchedVideosPaths = new HashSet<string>(scanResult.StandaloneVideoPaths ?? [], StringComparer.OrdinalIgnoreCase);
             foreach (var pair in scanResult.Pairs)
             {
@@ -1198,27 +1177,79 @@ namespace LivePhotoBox.ViewModels
 
         // ── 配对验证辅助方法 ──
 
-        private static async Task<bool> VerifyApplePairAsync(string imgPath, string vidPath)
+        private async Task<IReadOnlyList<LivePhotoFilePairInfo>> MatchNativePairsAsync(
+            IReadOnlyList<string> imagePaths,
+            IReadOnlyList<string> videoPaths,
+            CancellationToken token)
         {
-            try
+            var apple = await LivePhotoMetadataMatcher.MatchAsync(imagePaths, videoPaths, token).ConfigureAwait(false);
+            var matchedImages = new HashSet<string>(apple.Pairs.Select(pair => pair.ImagePath), StringComparer.OrdinalIgnoreCase);
+            var matchedVideos = new HashSet<string>(apple.Pairs.Select(pair => pair.VideoPath), StringComparer.OrdinalIgnoreCase);
+            var vivo = LivePhotoMetadataMatcher.MatchVivo(
+                imagePaths.Where(path => !matchedImages.Contains(path)).ToList(),
+                videoPaths.Where(path => !matchedVideos.Contains(path)).ToList());
+
+            IEnumerable<MetadataPair> metadataPairs = PairingMethodIndex switch
             {
-                var output = await LivePhotoMetadataMatcher.MatchAsync(
-                    new[] { imgPath }, new[] { vidPath }, token: CancellationToken.None);
-                return output.Pairs.Count > 0;
+                1 => apple.Pairs,
+                2 => vivo.Pairs,
+                _ => apple.Pairs.Concat(vivo.Pairs)
+            };
+
+            var inspector = new SourceInspector();
+            var result = new List<LivePhotoFilePairInfo>();
+            foreach (var pair in metadataPairs)
+            {
+                token.ThrowIfCancellationRequested();
+                var facts = await inspector.InspectAsync(pair.ImagePath, pair.VideoPath, token).ConfigureAwait(false);
+                if (facts.PrimaryImage is not { IsPresent: true } ||
+                    facts.Protocol is SourceProtocol.NonLive or SourceProtocol.Unknown ||
+                    facts.MotionVideo is not { IsPresent: true, SourceIndex: 1 } motionVideo)
+                {
+                    throw new SourceInspectionException(
+                        SourceInspectionFailureCategory.Malformed,
+                        SourceInspectionStage.Pairing,
+                        0,
+                        $"Native facts did not confirm pair '{pair.ImagePath}' + '{pair.VideoPath}'.");
+                }
+
+                LivePhotoProtocolType protocol = MapSourceProtocol(facts.Protocol);
+                if (protocol == LivePhotoProtocolType.Unknown)
+                {
+                    throw new SourceInspectionException(
+                        SourceInspectionFailureCategory.Unsupported,
+                        SourceInspectionStage.Pairing,
+                        0,
+                        $"Native facts returned unsupported pair protocol for '{pair.ImagePath}'.");
+                }
+
+                result.Add(new LivePhotoFilePairInfo
+                {
+                    BaseName = Path.GetFileNameWithoutExtension(pair.ImagePath),
+                    ImagePath = pair.ImagePath,
+                    VideoPath = pair.VideoPath,
+                    ImageSizeBytes = new FileInfo(pair.ImagePath).Length,
+                    VideoSizeBytes = new FileInfo(pair.VideoPath).Length,
+                    Protocol = protocol,
+                    DetectionMethod = pair.Source == MatchSource.ContentIdentifier
+                        ? LivePhotoDetectionMethod.ContentIdentifier
+                        : LivePhotoDetectionMethod.VivoLivePhoto,
+                    VideoByteOffset = motionVideo.ByteOffset,
+                    VideoByteLength = motionVideo.ByteLength,
+                    VideoContainer = motionVideo.Container,
+                    PairingIdentifier = facts.PairingIdentifier
+                });
             }
-            catch { return false; }
+
+            return result;
         }
 
-        private static bool VerifyVivoPair(string imgPath, string vidPath)
+        private static LivePhotoProtocolType MapSourceProtocol(SourceProtocol protocol) => protocol switch
         {
-            try
-            {
-                var output = LivePhotoMetadataMatcher.MatchVivo(
-                    new[] { imgPath }, new[] { vidPath });
-                return output.Pairs.Count > 0;
-            }
-            catch { return false; }
-        }
+            SourceProtocol.AppleLivePhoto => LivePhotoProtocolType.Apple,
+            SourceProtocol.VivoLegacyDualFile or SourceProtocol.VivoLivePhoto => LivePhotoProtocolType.Vivo,
+            _ => LivePhotoProtocolType.Unknown
+        };
 
         #endregion
 

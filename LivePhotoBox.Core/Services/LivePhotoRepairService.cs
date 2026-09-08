@@ -1,5 +1,8 @@
 using LivePhotoBox.Models;
+using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Media.Models;
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -15,15 +18,42 @@ namespace LivePhotoBox.Services
         /// <summary>
         /// 扫描与诊断文件。
         /// </summary>
-        public static Task<RepairAnalysisResult> AnalyzeFileAsync(
+        public static async Task<RepairAnalysisResult> AnalyzeFileAsync(
             string filePath,
             CancellationToken token = default)
         {
-            return Task.FromResult(new RepairAnalysisResult
+            if (string.IsNullOrWhiteSpace(filePath))
+                throw new ArgumentException("A source path is required.", nameof(filePath));
+
+            // Repair diagnosis is deliberately a thin orchestration mapping.  The
+            // Native SourceInspector owns all media/protocol recognition; Repair
+            // must not recover facts from a managed DTO or an external parser.
+            SourceMediaFacts facts = await new SourceInspector()
+                .InspectAsync(filePath, null, token)
+                .ConfigureAwait(false);
+
+            bool isVideo = facts.MotionVideo is { IsPresent: true }
+                || string.Equals(Path.GetExtension(filePath), ".mov", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(Path.GetExtension(filePath), ".mp4", StringComparison.OrdinalIgnoreCase);
+
+            var result = new RepairAnalysisResult
             {
-                IssueType = RepairIssueType.Error,
-                IssueDescription = "Repair analysis is not supported in the Rebuilt Native engine (external tools removed)."
-            });
+                IssueType = RepairIssueType.Perfect,
+                IssueDescription = facts.Protocol == SourceProtocol.NonLive
+                    ? "Native inspection confirmed a non-live media source."
+                    : $"Native inspection confirmed {facts.Protocol}.",
+                IsVideo = isVideo,
+                ContentIdentifier = facts.PairingIdentifier ?? string.Empty
+            };
+
+            if (facts.MotionVideo is { } video)
+            {
+                result.VideoDurationSeconds = video.DurationSeconds;
+                result.VideoRotationAngle = video.RotationDegrees;
+                result.VideoCodec = video.Codec.ToString();
+            }
+
+            return result;
         }
 
         /// <summary>

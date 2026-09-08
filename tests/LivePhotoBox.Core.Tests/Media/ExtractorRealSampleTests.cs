@@ -75,6 +75,7 @@ public sealed class ExtractorRealSampleTests
         Assert.NotNull(bundle.PrimaryImage);
         Assert.True(File.Exists(bundle.PrimaryImage.Path));
         Assert.Equal(facts.PrimaryImage.ByteLength, bundle.PrimaryImage.ByteLength);
+        Assert.Equal(facts.PrimaryImage.ByteOffset, bundle.PrimaryImage.SourceOffset);
         string oracleImgSha = await ComputeSliceSha256Async(samplePath, facts.PrimaryImage.ByteOffset, facts.PrimaryImage.ByteLength);
         Assert.Equal(oracleImgSha, bundle.PrimaryImage.Sha256);
 
@@ -106,6 +107,7 @@ public sealed class ExtractorRealSampleTests
             Assert.NotNull(bundle.MotionVideo);
             Assert.True(File.Exists(bundle.MotionVideo.Path));
             Assert.Equal(vidFacts.ByteLength, bundle.MotionVideo.ByteLength);
+            Assert.Equal(vidFacts.ByteOffset, bundle.MotionVideo.SourceOffset);
             string oracleVidSha = await ComputeSliceSha256Async(samplePath, vidFacts.ByteOffset, vidFacts.ByteLength);
             Assert.Equal(oracleVidSha, bundle.MotionVideo.Sha256);
 
@@ -150,6 +152,39 @@ public sealed class ExtractorRealSampleTests
                 ByteLength = gmFacts.ByteLength,
                 IsPresent = true
             });
+        }
+
+        // Samsung JPEG SEF lives in the full source container, outside the
+        // inspector-confirmed primary image range.  It is a cleanup input
+        // snapshot, not a user-facing extracted media artifact.
+        bool isSamsungJpeg = string.Equals(fileName, "三星.jpg", StringComparison.Ordinal);
+        if (isSamsungJpeg)
+        {
+            expectedArtifactCount++;
+            Assert.NotNull(bundle.CleanupSource);
+            MediaArtifact cleanupSource = bundle.CleanupSource!;
+            Assert.True(File.Exists(cleanupSource.Path));
+            Assert.Equal(MediaArtifactKind.SourceContainer, cleanupSource.Kind);
+            Assert.Equal("image/jpeg", cleanupSource.MimeType);
+            Assert.Equal(ImageContainer.Jpeg, cleanupSource.ImageContainer);
+            Assert.Equal(ImageCodec.Jpeg, cleanupSource.ImageCodec);
+            Assert.Equal(0, cleanupSource.SourceOffset);
+            long sourceLength = new FileInfo(samplePath).Length;
+            Assert.Equal(sourceLength, cleanupSource.ByteLength);
+            Assert.Equal(sourceLength, new FileInfo(cleanupSource.Path).Length);
+            Assert.Equal(beforeSha, cleanupSource.Sha256);
+            Assert.Equal(beforeSha, await ComputeFileSha256Async(cleanupSource.Path));
+
+            Assert.NotEqual(samplePath, cleanupSource.Path);
+            Assert.NotEqual(bundle.PrimaryImage.Path, cleanupSource.Path);
+            Assert.NotNull(bundle.MotionVideo);
+            Assert.NotEqual(bundle.MotionVideo!.Path, cleanupSource.Path);
+            Assert.Equal(MediaArtifactKind.PrimaryImage, bundle.PrimaryImage.Kind);
+            Assert.Equal(MediaArtifactKind.MotionVideo, bundle.MotionVideo.Kind);
+        }
+        else
+        {
+            Assert.Null(bundle.CleanupSource);
         }
 
         // 5. Workspace Cleanliness
@@ -216,12 +251,87 @@ public sealed class ExtractorRealSampleTests
         await AssertImageDecodableAndDimensionsMatchAsync(bundle.PrimaryImage.Path, facts.PrimaryImage);
         await AssertVideoProbedValidAsync(bundle.MotionVideo.Path, facts.MotionVideo!);
 
-        // 4. Workspace Cleanliness
+        // 4. GainMap identity, range, and byte exactness.  Apple HEIC carries
+        // one source GainMap auxiliary item, which must be materialized once;
+        // it must not be inferred by range or materialized a second time.
+        if (string.Equals(primaryFileName, "苹果双文件.HEIC", StringComparison.Ordinal))
+        {
+            Assert.True(facts.GainMap is { IsPresent: true },
+                "The Apple HEIC real sample must publish its GainMap binding.");
+        }
+        int expectedArtifactCount = 2;
+        if (facts.GainMap is { IsPresent: true } gainMapFacts)
+        {
+            expectedArtifactCount++;
+            Assert.NotNull(bundle.GainMap);
+            Assert.Equal(MediaArtifactKind.GainMap, bundle.GainMap!.Kind);
+            if (string.Equals(primaryFileName, "苹果双文件.HEIC", StringComparison.Ordinal))
+            {
+                Assert.Equal(ImageContainer.Heic, gainMapFacts.Container);
+                Assert.Equal(AuxiliaryRepresentation.Embedded, gainMapFacts.Representation);
+                Assert.Equal(AuxiliaryOwnership.Auxiliary, gainMapFacts.Ownership);
+                Assert.Equal(MediaArtifactKind.AuxiliaryItem, gainMapFacts.OwnerArtifactRole);
+                Assert.NotEqual(0u, gainMapFacts.ItemId);
+                Assert.Equal("urn:com:apple:photo:2020:aux:hdrgainmap", gainMapFacts.Relationship);
+            }
+            Assert.True(gainMapFacts.AuxiliaryIndex < (uint)facts.AuxiliaryItems.Count);
+
+            AuxiliaryMediaFacts boundAuxiliary = facts.AuxiliaryItems[(int)gainMapFacts.AuxiliaryIndex];
+            Assert.True(boundAuxiliary.IsPresent);
+            Assert.Equal(boundAuxiliary.Container, gainMapFacts.Container);
+            Assert.Equal(boundAuxiliary.Representation, gainMapFacts.Representation);
+            Assert.Equal(boundAuxiliary.Ownership, gainMapFacts.Ownership);
+            Assert.Equal(boundAuxiliary.ItemId, gainMapFacts.ItemId);
+            Assert.Equal(boundAuxiliary.ByteOffset, gainMapFacts.ByteOffset);
+            Assert.Equal(boundAuxiliary.ByteLength, gainMapFacts.ByteLength);
+            Assert.Equal(boundAuxiliary.Relationship, gainMapFacts.Relationship);
+
+            int matchingAuxiliaryCount = 0;
+            foreach (AuxiliaryMediaFacts auxiliary in facts.AuxiliaryItems)
+            {
+                if (auxiliary.IsPresent &&
+                    auxiliary.Container == gainMapFacts.Container &&
+                    auxiliary.Representation == gainMapFacts.Representation &&
+                    auxiliary.Ownership == gainMapFacts.Ownership &&
+                    auxiliary.ItemId == gainMapFacts.ItemId &&
+                    auxiliary.ByteOffset == gainMapFacts.ByteOffset &&
+                    auxiliary.ByteLength == gainMapFacts.ByteLength &&
+                    auxiliary.Relationship == gainMapFacts.Relationship)
+                {
+                    matchingAuxiliaryCount++;
+                }
+            }
+            Assert.Equal(1, matchingAuxiliaryCount);
+
+            Assert.Equal(gainMapFacts.ByteLength, bundle.GainMap.ByteLength);
+            Assert.Equal(gainMapFacts.ByteOffset, bundle.GainMap.SourceOffset);
+            string oracleGainMapSha = await ComputeSliceSha256Async(
+                primaryPath, gainMapFacts.ByteOffset, gainMapFacts.ByteLength);
+            Assert.Equal(oracleGainMapSha, bundle.GainMap.Sha256);
+
+            using (var source = File.OpenRead(primaryPath))
+            {
+                source.Seek(gainMapFacts.ByteOffset, SeekOrigin.Begin);
+                byte[] expectedGainMapBytes = new byte[checked((int)gainMapFacts.ByteLength)];
+                source.ReadExactly(expectedGainMapBytes);
+                Assert.Equal(expectedGainMapBytes, await File.ReadAllBytesAsync(bundle.GainMap.Path));
+            }
+
+            Assert.NotEqual(bundle.PrimaryImage.Path, bundle.GainMap.Path);
+            Assert.NotEqual(bundle.PrimaryImage.Path, bundle.MotionVideo!.Path);
+            Assert.NotEqual(bundle.MotionVideo!.Path, bundle.GainMap.Path);
+        }
+        else
+        {
+            Assert.Null(bundle.GainMap);
+        }
+
+        // 5. Workspace Cleanliness
         var workspaceFiles = Directory.GetFiles(workspace.RootDirectory, "*", SearchOption.AllDirectories);
-        Assert.Equal(2, workspaceFiles.Length);
+        Assert.Equal(expectedArtifactCount, workspaceFiles.Length);
         Assert.DoesNotContain(workspaceFiles, f => Path.GetFileName(f).Contains("tmp", StringComparison.OrdinalIgnoreCase));
 
-        // 5. Optional Export for Real-Device Validation Artifacts
+        // 6. Optional Export for Real-Device Validation Artifacts
         ExportValidationArtifacts(bundle, primaryFileName, isDual: true, secondaryFileName: secondaryFileName);
     }
 

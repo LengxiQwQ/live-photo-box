@@ -142,7 +142,6 @@ try {
 
     # 4. 补充核心设计/架构/规约与协议分析文档
     $specialDocs = @(
-        'docs/实况照片协议完整分析报告.md',
         'AGENTS.md',
         '.ai/project-context.md'
     )
@@ -151,6 +150,15 @@ try {
         $fullDocPath = Join-Path $repoRoot ($sDoc.Replace('/', [System.IO.Path]::DirectorySeparatorChar))
         if (Test-Path $fullDocPath -PathType Leaf) {
             $filesToPack[$sDoc] = $fullDocPath
+        }
+    }
+
+    # 协议事实参考：收集新协议文档目录内的全部文件。
+    $protocolDocsDir = Join-Path $repoRoot 'docs\实况照片协议分析文档'
+    if (Test-Path $protocolDocsDir -PathType Container) {
+        Get-ChildItem $protocolDocsDir -File -Recurse | ForEach-Object {
+            $relativeDoc = $_.FullName.Substring($repoRoot.Length + 1).Replace('\','/')
+            $filesToPack[$relativeDoc] = $_.FullName
         }
     }
 

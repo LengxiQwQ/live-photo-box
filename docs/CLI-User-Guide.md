@@ -153,10 +153,10 @@ Run `lpb protocols` to view this interactively, or `lpb protocols --json` for st
 
 | Protocol | Devices | Status |
 |---|---|---|
-| Google Micro Video (v1) | Windows / Xiaomi (legacy MIUI) / Pixel | ✅ Supported |
-| Google Motion Photo (v2) | Windows / Xiaomi / Pixel | ✅ Supported |
+| Google Micro Video (V1) | Windows / Xiaomi (legacy MIUI) / Pixel | ✅ Supported |
+| Google Motion Photo (V2) | Windows / Xiaomi / Pixel | ✅ Supported |
 | OPPO O-Live Photo | Windows / Xiaomi / OPPO | ✅ Supported |
-| vivo Live Photo | Windows / vivo (≥ X300) | 🟡 In testing |
+| vivo Live Photo | Windows / vivo (≥ x300) | 🟡 In testing |
 | Samsung Motion Photo | Windows / Samsung | ✅ Supported |
 | HUAWEI Moving Photo | HUAWEI / Honor | ✅ Supported |
 
@@ -165,7 +165,7 @@ Run `lpb protocols` to view this interactively, or `lpb protocols --json` for st
 | Protocol | Devices | Status |
 |---|---|---|
 | Apple Live Photo | iPhone / iPad | ✅ Supported |
-| vivo Live Photo | vivo (≤ X200) | 🟡 In testing |
+| vivo Live Photo | vivo (≤ X200) | ✅ Supported |
 
 **Split — protocol × format compatibility:**
 

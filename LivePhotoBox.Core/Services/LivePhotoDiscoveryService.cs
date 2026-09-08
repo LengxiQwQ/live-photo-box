@@ -4,8 +4,8 @@
  * 统一实况照片发现服务。
  *
  *   - 按 DiscoveryScanMode 标志位运行检测/匹配步骤，被各页共用
- *   - 检测（拆分/资源浏览页）：JPEG XMP 扫描 + HEIC 视频轨
- *   - 匹配（合并页，三选一互斥）：文件名 / Apple CID / vivo ID
+ *   - 检测（拆分/资源浏览页）：Native SourceInspector 单文件 facts
+ *   - 匹配（合并页）：正式 metadata matcher，并由 Native facts 复核
  *   - 文件只被第一个命中它的步骤分类
  */
 
@@ -123,14 +123,27 @@ namespace LivePhotoBox.Services
                                     ? LivePhotoDetectionMethod.JpegByteMarkers
                                     : LivePhotoDetectionMethod.HeicVideoTrack;
                                 item.AppendedVideoLength = facts.MotionVideo.ByteLength;
+                                item.Protocol = facts.Protocol;
+                                item.MotionVideoByteOffset = facts.MotionVideo.ByteOffset;
+                                item.MotionVideoByteLength = facts.MotionVideo.ByteLength;
+                                item.MotionVideoContainer = facts.MotionVideo.Container;
                                 classifiedPaths.Add(item.FilePath);
                                 itemProgress?.Report(item);
                             }
                         }
                         catch (OperationCanceledException) { throw; }
+                        catch (SourceInspectionException ex)
+                        {
+                            LogService.Scan(
+                                $"Rebuilt inspection failed for '{item.FilePath}' " +
+                                $"({ex.Category}/{ex.Stage}, capability=0x{ex.Capability:X}): {ex.Message}",
+                                LogLevel.Warning);
+                            throw;
+                        }
                         catch (Exception ex)
                         {
                             LogService.Scan($"Rebuilt inspection failed for '{item.FilePath}': {ex.Message}", LogLevel.Warning);
+                            throw;
                         }
                     }
                     completed++;
@@ -138,55 +151,80 @@ namespace LivePhotoBox.Services
                 }
             }
 
-            var videoByBaseName = videos
-                .GroupBy(v => Path.GetFileNameWithoutExtension(v.FilePath), StringComparer.OrdinalIgnoreCase)
-                .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-            var usedVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // Protocol pairing is metadata-authoritative and intentionally does
+            // not use basename equality. Filename similarity is never a detected
+            // protocol or pairing result.
+            var metadataPairs = new List<MetadataPair>();
+            if (scanMode.HasFlag(DiscoveryScanMode.CidMatch))
+            {
+                var match = await LivePhotoMetadataMatcher.MatchAsync(
+                    images.Where(i => !classifiedPaths.Contains(i.FilePath)).Select(i => i.FilePath).ToList(),
+                    videos.Select(v => v.FilePath).ToList(), ct).ConfigureAwait(false);
+                metadataPairs.AddRange(match.Pairs);
+            }
+            if (scanMode.HasFlag(DiscoveryScanMode.VivoMatch))
+            {
+                var vivoMatch = LivePhotoMetadataMatcher.MatchVivo(
+                    images.Where(i => !classifiedPaths.Contains(i.FilePath)).Select(i => i.FilePath).ToList(),
+                    videos.Select(v => v.FilePath).ToList()).Pairs;
+                foreach (var pair in vivoMatch)
+                {
+                    if (!metadataPairs.Any(existing =>
+                        string.Equals(existing.ImagePath, pair.ImagePath, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(existing.VideoPath, pair.VideoPath, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        metadataPairs.Add(pair);
+                    }
+                }
+            }
 
-            foreach (var image in images.Where(i => !classifiedPaths.Contains(i.FilePath)))
+            var itemsByPath = allItems.ToDictionary(i => i.FilePath, StringComparer.OrdinalIgnoreCase);
+            foreach (var pair in metadataPairs)
             {
                 ct.ThrowIfCancellationRequested();
-                string baseName = Path.GetFileNameWithoutExtension(image.FilePath);
-                if (!videoByBaseName.TryGetValue(baseName, out var video) || usedVideos.Contains(video.FilePath))
+                if (!itemsByPath.TryGetValue(pair.ImagePath, out var image) ||
+                    !itemsByPath.TryGetValue(pair.VideoPath, out var video))
                     continue;
 
-                SourceProtocol protocol = SourceProtocol.Unknown;
-                LivePhotoDetectionMethod method = LivePhotoDetectionMethod.FilenamePairing;
-                if (scanMode.HasFlag(DiscoveryScanMode.FilenamePair))
+                SourceMediaFacts dualFacts = await inspector.InspectAsync(
+                    pair.ImagePath, pair.VideoPath, ct).ConfigureAwait(false);
+                if (dualFacts.PrimaryImage is not { IsPresent: true } ||
+                    dualFacts.Protocol is SourceProtocol.NonLive or SourceProtocol.Unknown ||
+                    dualFacts.MotionVideo is not { IsPresent: true, SourceIndex: 1 } dualVideo)
                 {
-                    protocol = SourceProtocol.Unknown;
-                    method = LivePhotoDetectionMethod.FilenamePairing;
-                }
-                else if (scanMode.HasFlag(DiscoveryScanMode.VivoMatch))
-                {
-                    protocol = await InspectDualProtocolAsync(inspector, image.FilePath, video.FilePath, ct).ConfigureAwait(false);
-                    if (protocol != SourceProtocol.VivoLegacyDualFile) continue;
-                    method = LivePhotoDetectionMethod.VivoLivePhoto;
-                }
-                else if (scanMode.HasFlag(DiscoveryScanMode.CidMatch))
-                {
-                    protocol = await InspectDualProtocolAsync(inspector, image.FilePath, video.FilePath, ct).ConfigureAwait(false);
-                    if (protocol != SourceProtocol.AppleLivePhoto) continue;
-                    method = LivePhotoDetectionMethod.ContentIdentifier;
-                }
-                else
-                {
-                    continue;
+                    throw new SourceInspectionException(
+                        SourceInspectionFailureCategory.Malformed,
+                        SourceInspectionStage.Pairing,
+                        0,
+                        $"Native facts did not confirm dual-file pair '{pair.ImagePath}' + '{pair.VideoPath}'.");
                 }
 
+                var method = pair.Source == MatchSource.ContentIdentifier
+                    ? LivePhotoDetectionMethod.ContentIdentifier
+                    : LivePhotoDetectionMethod.VivoLivePhoto;
                 image.LivePhotoType = LivePhotoType.DualFile;
                 image.DetectionMethod = method;
                 image.PairedVideoPath = video.FilePath;
+                image.Protocol = dualFacts.Protocol;
+                image.MotionVideoByteOffset = dualVideo.ByteOffset;
+                image.MotionVideoByteLength = dualVideo.ByteLength;
+                image.MotionVideoContainer = dualVideo.Container;
                 video.LivePhotoType = LivePhotoType.DualFile;
                 video.DetectionMethod = method;
                 video.PairedImagePath = image.FilePath;
+                video.Protocol = dualFacts.Protocol;
+                video.MotionVideoByteOffset = dualVideo.ByteOffset;
+                video.MotionVideoByteLength = dualVideo.ByteLength;
+                video.MotionVideoContainer = dualVideo.Container;
                 classifiedPaths.Add(image.FilePath);
                 classifiedPaths.Add(video.FilePath);
-                usedVideos.Add(video.FilePath);
                 itemProgress?.Report(image);
                 completed++;
                 progress?.Report(new WorkProgressSnapshot(totalFiles, Math.Min(totalFiles, completed)));
             }
+
+            // Directory discovery must never manufacture a confirmed DualFile
+            // item from two unrelated files sharing a basename.
 
             int liveCount = allItems.Count(i => i.IsLivePhoto);
             progress?.Report(new WorkProgressSnapshot(totalFiles, totalFiles, liveCount));
@@ -206,10 +244,18 @@ namespace LivePhotoBox.Services
                 return facts.Protocol;
             }
             catch (OperationCanceledException) { throw; }
+            catch (SourceInspectionException ex)
+            {
+                LogService.Scan(
+                    $"Rebuilt dual-file inspection failed for '{imagePath}' " +
+                    $"({ex.Category}/{ex.Stage}, capability=0x{ex.Capability:X}): {ex.Message}",
+                    LogLevel.Warning);
+                throw;
+            }
             catch (Exception ex)
             {
                 LogService.Scan($"Rebuilt dual-file inspection failed for '{imagePath}': {ex.Message}", LogLevel.Warning);
-                return SourceProtocol.Unknown;
+                throw;
             }
         }
 
@@ -240,9 +286,18 @@ namespace LivePhotoBox.Services
                 }
             }
             catch (OperationCanceledException) { throw; }
+            catch (SourceInspectionException ex)
+            {
+                LogService.Scan(
+                    $"DetectSingleFileTypeAsync failed for '{filePath}' " +
+                    $"({ex.Category}/{ex.Stage}, capability=0x{ex.Capability:X}): {ex.Message}",
+                    LogLevel.Warning);
+                throw;
+            }
             catch (Exception ex)
             {
                 LogService.Scan($"DetectSingleFileTypeAsync failed for '{filePath}': {ex.Message}", LogLevel.Warning);
+                throw;
             }
 
             return LivePhotoType.None;

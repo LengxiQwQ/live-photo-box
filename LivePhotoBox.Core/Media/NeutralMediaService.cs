@@ -167,9 +167,15 @@ public sealed class NeutralMediaService : INeutralMediaService
         SourceMediaFacts neutralFacts = await _inspector
             .InspectAsync(finalImage.Path, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
+        // A Samsung neutral JPEG may retain a formally validated, non-motion
+        // SEF directory between the JPEG and its embedded GainMap.  That
+        // metadata tail is not a live binding; Native reports it explicitly
+        // while the GainMap remains bound to its XMP range.
+        bool retainedNonMotionMetadataTail = neutralFacts.GainMap is { IsPresent: true }
+            && neutralFacts.ProtocolTailLength > 0;
         if (neutralFacts.Protocol != SourceProtocol.NonLive
             || neutralFacts.MotionVideo != null
-            || neutralFacts.ProtocolTailLength != 0
+            || (!retainedNonMotionMetadataTail && neutralFacts.ProtocolTailLength != 0)
             || neutralFacts.PairingIdentifier != null)
         {
             throw new InvalidDataException(

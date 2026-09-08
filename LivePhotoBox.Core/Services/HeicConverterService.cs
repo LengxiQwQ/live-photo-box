@@ -34,8 +34,7 @@ namespace LivePhotoBox.Services
             if (StandardHdrConversionService.HasAppleHeicGainMap(heicPath, token))
             {
                 string dir = Path.GetDirectoryName(heicPath) ?? string.Empty;
-                string? hdrPath = await TryConvertHdrToJpegAsync(heicPath, dir, token);
-                if (hdrPath != null) return hdrPath;
+                return await TryConvertHdrToJpegAsync(heicPath, dir, token);
             }
 
             string jpegPath = Path.Combine(
@@ -51,8 +50,7 @@ namespace LivePhotoBox.Services
 
             if (StandardHdrConversionService.HasAppleHeicGainMap(heicPath, token))
             {
-                string? hdrPath = await TryConvertHdrToJpegAsync(heicPath, outputDirectory, token);
-                if (hdrPath != null) return hdrPath;
+                return await TryConvertHdrToJpegAsync(heicPath, outputDirectory, token);
             }
 
             // 临时文件名由 TempFileService 分配（GUID 后缀），并发任务互不冲突。
@@ -71,8 +69,7 @@ namespace LivePhotoBox.Services
 
             if (StandardHdrConversionService.HasAppleHeicGainMap(heicPath, token))
             {
-                string? hdrPath = await TryConvertHdrToJpegAsync(heicPath, outputDirectory, token);
-                if (hdrPath != null) return hdrPath;
+                return await TryConvertHdrToJpegAsync(heicPath, outputDirectory, token);
             }
 
             // 临时文件名由 TempFileService 分配（GUID 后缀），并发任务互不冲突。
@@ -108,13 +105,12 @@ namespace LivePhotoBox.Services
                 }
                 catch (Exception ex)
                 {
-                    // HDR 转换失败不应让整个合成/拆分任务失败：记录警告并回退
-                    // 普通 HEIC 转换（无增益图，仍可正常导入/显示 SDR 画面）。
-                    LogService.Merge(
-                        $"HDR conversion failed for {Path.GetFileName(sourcePath)}: {ex.Message}; "
-                        + "falling back to plain HEIC conversion (gain map dropped)",
-                        LogLevel.Warning, ex);
-                    resultPath = await ConvertPlainHeicAsync(sourcePath, outputDirectory, token);
+                    // A source with a Native-bound GainMap must never be silently
+                    // converted to SDR.  Dropping the auxiliary artifact would
+                    // make a successful result falsely claim neutral preservation.
+                    throw new InvalidOperationException(
+                        $"HDR conversion failed; GainMap preservation cannot be proven for "
+                        + $"{Path.GetFileName(sourcePath)}.", ex);
                 }
             }
             else
@@ -197,9 +193,9 @@ namespace LivePhotoBox.Services
             }
         }
 
-        // HDR 保真的 HEIC→JPEG 转换；失败时记录警告并返回 null，
-        // 由调用方回退普通转换（HDR 失败不应拖垮整个合成/拆分任务）。
-        private static async Task<string?> TryConvertHdrToJpegAsync(
+        // HDR 保真的 HEIC→JPEG 转换。Native facts 已确认 GainMap 后，
+        // 任一保真步骤失败都必须失败关闭，不能回退为丢失 GainMap 的 SDR JPEG。
+        private static async Task<string> TryConvertHdrToJpegAsync(
             string heicPath, string outputDirectory, CancellationToken token)
         {
             try
@@ -213,11 +209,9 @@ namespace LivePhotoBox.Services
             }
             catch (Exception ex)
             {
-                LogService.Merge(
-                    $"Apple HDR gain map conversion failed for {Path.GetFileName(heicPath)}: {ex.Message}; "
-                    + "falling back to plain JPEG conversion (gain map dropped)",
-                    LogLevel.Warning, ex);
-                return null;
+                throw new InvalidOperationException(
+                    $"Apple HDR GainMap conversion failed; preservation cannot be proven for "
+                    + $"{Path.GetFileName(heicPath)}.", ex);
             }
         }
 

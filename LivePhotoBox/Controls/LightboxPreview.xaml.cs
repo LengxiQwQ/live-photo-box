@@ -13,6 +13,7 @@
  */
 
 using LivePhotoBox.Models;
+using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
@@ -208,8 +209,8 @@ namespace LivePhotoBox.Controls
             _activeVideoSlot = -1;
             await TransitionToVisualAsync(LightboxImage);
 
-            // 图片已显示。此后台探测单文件实况（读 XMP 头 + 尾部 LIVE_ 标记），
-            // 检测到实况则置 IsLivePhoto=true 显示 LIVE 按钮；普通照片永不显示。
+            // 图片已显示。此后台探测单文件实况只消费 Native facts；
+            // 检测到实况则置 IsLivePhoto=true 显示 LIVE 按钮。
             // 探测不阻塞图片显示，按钮延迟出现（用户已确认可接受）。
             if (_currentIndex >= 0 && _currentIndex < _items.Count)
             {
@@ -222,15 +223,24 @@ namespace LivePhotoBox.Controls
         }
 
         /// <summary>
-        /// 后台探测单文件实况照片：复用 LightboxItemSource.DetectSingleFileVideo
-        /// （读 XMP 头 64KB + 尾部 LIVE_ 标记），探测到 videoLen&gt;0 就更新条目并显示 LIVE 按钮。
+        /// 后台探测单文件实况照片：复用 Native SourceInspector，
+        /// 只使用确认协议和 SourceIndex=0 的 MotionVideo facts。
         /// </summary>
         private async Task DetectLivePhotoInBackgroundAsync(LightboxItem item)
         {
             try
             {
                 var facts = await new SourceInspector().InspectAsync(item.ImagePath);
-                if (facts.MotionVideo is { IsPresent: true } video)
+                if (facts.Protocol == SourceProtocol.NonLive)
+                    return;
+                if (facts.Protocol == SourceProtocol.Unknown)
+                {
+                    LogService.FileOp(
+                        $"Lightbox Native inspection returned Unknown for '{Path.GetFileName(item.ImagePath)}'.",
+                        LogLevel.Warning);
+                    return;
+                }
+                if (facts.MotionVideo is { IsPresent: true, SourceIndex: 0 } video)
                 {
                     item.AppendedVideoLength = video.ByteLength;
                     item.IsLivePhoto = true;
@@ -248,7 +258,24 @@ namespace LivePhotoBox.Controls
                     }
                 });
             }
-            catch { /* 探测失败静默——普通照片 */ }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (SourceInspectionException ex)
+            {
+                LogService.FileOp(
+                    $"Lightbox Native inspection failed for '{Path.GetFileName(item.ImagePath)}' " +
+                    $"({ex.Category}/{ex.Stage}, capability=0x{ex.Capability:X}): {ex.Message}",
+                    LogLevel.Warning);
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp(
+                    $"Lightbox Native inspection failed for '{Path.GetFileName(item.ImagePath)}': {ex.Message}",
+                    LogLevel.Error,
+                    ex);
+            }
         }
 
         private async Task ShowVideoAsync(string path, CancellationToken token)

@@ -25,6 +25,15 @@ bool is_valid_isobmff_media_range(
     uint64_t offset,
     uint64_t length) noexcept;
 
+// MOV permits a QuickTime top-level layout without an ftyp box.  Keep the
+// stricter MP4 validator above (Google/vendor payloads require ftyp), while
+// exposing the same hierarchy/sample-table validation for QuickTime sources.
+bool is_valid_mov_media_range(
+    const uint8_t* data,
+    size_t data_size,
+    uint64_t offset,
+    uint64_t length) noexcept;
+
 #include <span>
 
 bool is_type(std::span<const uint8_t> data, size_t offset, const char* type) noexcept;

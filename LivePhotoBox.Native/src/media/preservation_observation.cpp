@@ -970,6 +970,58 @@ bool parse_boxes_strict(
     return p == end;
 }
 
+// Resolve reference endpoints against the authoritative iinf/infe item graph.
+// iref bytes alone are not sufficient ownership evidence: an unknown endpoint
+// must be treated as malformed rather than silently ignored.
+bool collect_heic_item_ids(const std::vector<uint8_t>& data,
+    const std::vector<isobmff_box>& meta_children, std::vector<uint32_t>& out_ids) {
+    out_ids.clear();
+    const isobmff_box* iinf = nullptr;
+    for (const auto& box : meta_children) {
+        if (box.type != "iinf") continue;
+        if (iinf != nullptr || box.body_size < 6) return false;
+        iinf = &box;
+    }
+    if (iinf == nullptr) return false;
+    const size_t body = iinf->body_start;
+    const size_t end = iinf->start + iinf->size;
+    const uint8_t version = data[body];
+    if (version > 1 || data[body + 1] != 0 || data[body + 2] != 0 || data[body + 3] != 0) return false;
+    size_t p = body + 4;
+    uint32_t entry_count = 0;
+    if (version == 0) {
+        if (p + 2 > end) return false;
+        entry_count = read_be16u(data.data() + p);
+        p += 2;
+    } else {
+        if (p + 4 > end) return false;
+        entry_count = read_be32u(data.data() + p);
+        p += 4;
+    }
+    std::vector<isobmff_box> entries;
+    if (!parse_boxes_strict(data.data(), p, end, entries) || entries.size() != entry_count) return false;
+    for (const auto& entry : entries) {
+        if (entry.type != "infe" || entry.body_size < 8) return false;
+        const size_t entry_body = entry.body_start;
+        const uint8_t entry_version = data[entry_body];
+        const uint32_t entry_flags = (static_cast<uint32_t>(data[entry_body + 1]) << 16) |
+            (static_cast<uint32_t>(data[entry_body + 2]) << 8) | data[entry_body + 3];
+        if (entry_version < 2 || entry_version > 3 || (entry_flags & ~1u) != 0) return false;
+        const size_t id_pos = entry_body + 4;
+        uint32_t item_id = 0;
+        if (entry_version == 2) {
+            if (id_pos + 2 > entry.start + entry.size) return false;
+            item_id = read_be16u(data.data() + id_pos);
+        } else {
+            if (id_pos + 4 > entry.start + entry.size) return false;
+            item_id = read_be32u(data.data() + id_pos);
+        }
+        if (item_id == 0 || std::find(out_ids.begin(), out_ids.end(), item_id) != out_ids.end()) return false;
+        out_ids.push_back(item_id);
+    }
+    return true;
+}
+
 struct ipma_association {
     uint32_t item_id{};
     uint32_t property_index{};
@@ -1455,6 +1507,12 @@ std::string extract_heic_item_aux_type(
             }
         }
     }
+    if (matched > 1) {
+        // One auxiliary item owning multiple auxC properties is a conflicting
+        // semantic proof, even when the strings happen to be identical.
+        if (out_ipma_valid) *out_ipma_valid = false;
+        return "";
+    }
     if (matched != 1) {
         // This is diagnostic type text only.  It is deliberately not marked as
         // an ipma proof, so it can never classify a GainMap on its own.
@@ -1495,6 +1553,12 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
         out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
         return;
     }
+    std::vector<uint32_t> item_ids;
+    if (!collect_heic_item_ids(data, meta_children, item_ids) ||
+        std::find(item_ids.begin(), item_ids.end(), primary_id) == item_ids.end()) {
+        out->flags |= (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HEIC_AUX_AMBIGUOUS);
+        return;
+    }
     struct aux_rel {
         uint32_t from_id;
         uint32_t to_id;
@@ -1528,6 +1592,10 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
                     if (from_id == 0 || to_id == 0 || from_id == to_id) {
                         invalid_rel = true;
                     }
+                    if (std::find(item_ids.begin(), item_ids.end(), from_id) == item_ids.end() ||
+                        std::find(item_ids.begin(), item_ids.end(), to_id) == item_ids.end()) {
+                        invalid_rel = true;
+                    }
                     if (from_id == primary_id || to_id == primary_id) {
                         auto pair = std::make_pair(from_id, to_id);
                         if (std::find(seen_pairs.begin(), seen_pairs.end(), pair) != seen_pairs.end()) {
@@ -1536,9 +1604,6 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
                         seen_pairs.push_back(pair);
                         uint32_t aux_id = (from_id == primary_id) ? to_id : from_id;
                         candidate_relations.push_back({ from_id, to_id, aux_id });
-                    }
-                    if (from_id != primary_id && to_id == primary_id && ref_count > 1) {
-                        invalid_rel = true;
                     }
                 }
                 if (p != end) invalid_rel = true;
@@ -1560,6 +1625,10 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
                     if (from_id == 0 || to_id == 0 || from_id == to_id) {
                         invalid_rel = true;
                     }
+                    if (std::find(item_ids.begin(), item_ids.end(), from_id) == item_ids.end() ||
+                        std::find(item_ids.begin(), item_ids.end(), to_id) == item_ids.end()) {
+                        invalid_rel = true;
+                    }
                     if (from_id == primary_id || to_id == primary_id) {
                         auto pair = std::make_pair(from_id, to_id);
                         if (std::find(seen_pairs.begin(), seen_pairs.end(), pair) != seen_pairs.end()) {
@@ -1568,9 +1637,6 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
                         seen_pairs.push_back(pair);
                         uint32_t aux_id = (from_id == primary_id) ? to_id : from_id;
                         candidate_relations.push_back({ from_id, to_id, aux_id });
-                    }
-                    if (from_id != primary_id && to_id == primary_id && ref_count > 1) {
-                        invalid_rel = true;
                     }
                 }
                 if (p != end) invalid_rel = true;
@@ -1633,6 +1699,13 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
     } else if (resolved.size() == 1) {
         selected = &resolved[0];
     } else {
+        // Multiple formally related auxiliary items are valid (for example
+        // HDR gainmap, sky matte, thumbnail, and style delta map).  The
+        // single-item preservation ABI can carry one selected relationship;
+        // deterministically select the unique Apple HDR gainmap above.  When
+        // no gainmap exists, still publish the fact that legal aux media is
+        // present without inventing one as the gainmap.
+        out->flags |= LPB_POBS_HAS_HEIC_AUX;
         return;
     }
 

@@ -153,10 +153,10 @@ lpb cover photo.jpg --at 1.5 -y
 
 | 协议 | 支持设备 | 状态 |
 |---|---|---|
-| Google Micro Video (v1) | Windows / 小米 (旧版 MIUI) / Pixel | ✅ 可用 |
-| Google Motion Photo (v2) | Windows / 小米 / Pixel | ✅ 可用 |
+| Google Micro Video (V1) | Windows / 小米 (旧版 MIUI) / Pixel | ✅ 可用 |
+| Google Motion Photo (V2) | Windows / 小米 / Pixel | ✅ 可用 |
 | OPPO O-Live Photo | Windows / 小米 / OPPO | ✅ 可用 |
-| vivo Live Photo | Windows / vivo（≥ X300） | 🟡 测试中 |
+| vivo Live Photo | Windows / vivo（≥ x300） | 🟡 测试中 |
 | Samsung Motion Photo | Windows / Samsung | ✅ 可用 |
 | HUAWEI Moving Photo | 华为 / 荣耀 | ✅ 可用 |
 
@@ -165,7 +165,7 @@ lpb cover photo.jpg --at 1.5 -y
 | 协议 | 支持机型 | 状态 |
 |---|---|---|
 | Apple Live Photo | iPhone / iPad | ✅ 可用 |
-| vivo Live Photo | vivo（≤ X200） | 🟡 测试中 |
+| vivo Live Photo | vivo（≤ X200） | ✅ 可用 |
 
 **拆分 — 协议 × 格式兼容矩阵：**
 

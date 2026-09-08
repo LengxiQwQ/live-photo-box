@@ -1967,7 +1967,7 @@ Pick the matching protocol type or "All single-file Live Photo" and place the fi
 
 · None — export the photo + video as-is
 · Apple — JPG + MOV / HEIC + MOV
-· vivo (≤ x200) — JPG + MP4 ⚠️ In testing
+· vivo (≤ x200) — JPG + MP4
 
 Then click "Start Split".</value>
   </data>
@@ -3903,7 +3903,7 @@ Then click "Start Split".</value>
     <value>iPhone / iPad</value>
   </data>
   <data name="SplitPage_Protocol_Vivo.Content" xml:space="preserve">
-    <value>vivo Live Photo ⚠️</value>
+    <value>vivo Live Photo</value>
   </data>
   <data name="SplitPage_Protocol_Vivo_Hint" xml:space="preserve">
     <value>vivo (≤ x200) / iQOO</value>

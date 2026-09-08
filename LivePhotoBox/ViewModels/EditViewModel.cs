@@ -1682,44 +1682,44 @@ namespace LivePhotoBox.ViewModels
         /// </summary>
         private static async Task<string> ResolveStillPhotoSourceAsync(string photoPath, CancellationToken token)
         {
-            // 1. HEIC + mpvd box（Google V2 / Samsung / vivo X300 HEIC）：图片 = [0, mpvd box size 字段前)
-            // 必须先于 HUAWEI 判断——V2 HEIC 的 mpvd 内嵌 MP4 也有 moov/ftyp，
-            // GetHuaweiEmbeddedVideoRange 会误报一个视频区间（无 LIVE_ 尾标但能解析出 ftyp/moov）。
-            if (HeicConverterService.IsHeicFile(photoPath))
-            {
-                long mpvdLen = LivePhotoMergeService.GetMpvdVideoLength(photoPath);
-                if (mpvdLen > 0)
-                {
-                    long mpvdStart = LivePhotoMergeService.GetMpvdVideoStart(photoPath); // "mpvd" fourcc 后 = 视频起点
-                    long imageEnd = mpvdStart - 8; // 图片结束于 box size 字段之前
-                    if (imageEnd > 0)
-                        return await SliceContainerPrefixAsync(photoPath, imageEnd, token);
-                }
-            }
+            // Primary and MotionVideo ranges are Native Inspector facts. Do not
+            // infer a still boundary from managed metadata or container scans.
+            var facts = await new SourceInspector().InspectAsync(photoPath, null, token).ConfigureAwait(false);
+            var video = facts.MotionVideo;
+            if (facts.Protocol is SourceProtocol.NonLive or SourceProtocol.Unknown ||
+                video is not { IsPresent: true } || video.SourceIndex != 0)
+                return photoPath;
 
-            // 2. 华为/荣耀（HEIC 或 JPEG + 内嵌 MP4 + 60B LIVE_ 尾标）：moov 定位视频起点，图片 = [0, videoStart)
-            var hwRange = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(photoPath);
-            if (hwRange != null && hwRange.Value.videoStart > 0)
-                return await SliceContainerPrefixAsync(photoPath, hwRange.Value.videoStart, token);
+            var primary = facts.PrimaryImage;
+            if (!primary.IsPresent || primary.ByteOffset < 0 || primary.ByteLength <= 0 ||
+                video.ByteOffset < 0 || video.ByteLength <= 0)
+                throw new InvalidDataException("Native source inspection returned incomplete primary/video ranges.");
+            if (video.Container is not (VideoContainer.Mp4 or VideoContainer.Mov))
+                throw new InvalidDataException("Native source inspection returned an unsupported embedded video container.");
 
-            // 3. 单文件 JPEG（V2/OPPO/vivo X300）：视频在文件末尾，图片 = [0, fileSize - videoLen)
-            long fileSize = new FileInfo(photoPath).Length;
-            long videoLen = 0;
-            try
-            {
-                videoLen = LivePhotoSplitService.GetAppendedVideoLength(
-                    LivePhotoSplitService.ReadMetadataTextSync(photoPath));
-            }
-            catch { videoLen = 0; }
-            if (videoLen > 0 && videoLen < fileSize)
-                return await SliceContainerPrefixAsync(photoPath, fileSize - videoLen, token);
+            long sourceLength = new FileInfo(photoPath).Length;
+            if (primary.ByteOffset > sourceLength || primary.ByteLength > sourceLength - primary.ByteOffset ||
+                video.ByteOffset > sourceLength || video.ByteLength > sourceLength - video.ByteOffset)
+                throw new InvalidDataException("Native source inspection returned an out-of-bounds media range.");
 
-            // 双文件实况等：photoPath 即干净图片
-            return photoPath;
+            long primaryLength = primary.ByteLength;
+            long primaryEnd = checked(primary.ByteOffset + primaryLength);
+            long videoEnd = checked(video.ByteOffset + video.ByteLength);
+            if (primary.ByteOffset < videoEnd && video.ByteOffset < primaryEnd)
+                throw new InvalidDataException("Native primary and motion-video ranges overlap; refusing to derive a still boundary.");
+
+            // A single-file source has an embedded video range. The still export
+            // must use the exact primary range, including any protocol-owned image
+            // metadata that belongs to that primary artifact.
+            return await SliceContainerRangeAsync(photoPath, primary.ByteOffset, primaryLength, token);
         }
 
-        /// <summary>把文件开头 [0, length) 字节切片成临时文件，返回临时路径。</summary>
-        private static async Task<string> SliceContainerPrefixAsync(string sourcePath, long length, CancellationToken token)
+        /// <summary>按 Native Inspector 给出的 primary range 切片成临时文件。</summary>
+        private static async Task<string> SliceContainerRangeAsync(
+            string sourcePath,
+            long offset,
+            long length,
+            CancellationToken token)
         {
             string ext = Path.GetExtension(sourcePath);
             string tempPath = Path.Combine(Path.GetTempPath(), $"lpb_still_{Guid.NewGuid():N}{ext}");
@@ -1727,12 +1727,15 @@ namespace LivePhotoBox.ViewModels
             using (var dst = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
             {
                 var buf = new byte[81920];
-                long remain = Math.Min(length, src.Length);
+                if (offset < 0 || length <= 0 || offset > src.Length || length > src.Length - offset)
+                    throw new InvalidDataException("Requested primary image range is outside the source file.");
+                src.Seek(offset, SeekOrigin.Begin);
+                long remain = length;
                 while (remain > 0)
                 {
                     token.ThrowIfCancellationRequested();
                     int r = src.Read(buf, 0, (int)Math.Min(buf.Length, remain));
-                    if (r == 0) break;
+                    if (r == 0) throw new EndOfStreamException("Source changed while extracting the inspected primary range.");
                     dst.Write(buf, 0, r);
                     remain -= r;
                 }
@@ -2234,7 +2237,7 @@ namespace LivePhotoBox.ViewModels
             long embeddedVideoLen = 0;
             // 仅已确认协议的实况照片才触发时间轴帧提取。
             // DualFile：需要 Phase 2 exiftool 查出 ContentIdentifier 才算确认（纯文件名配对不算）。
-            // SingleFileJpeg/Heic：Phase 1 XMP 标记检测通过即确认。
+            // SingleFileJpeg/Heic：仅使用 Native inspection 确认的 embedded range。
             if (item?.LivePhotoType == LivePhotoType.DualFile
                 && item.HasConfirmedProtocol
                 && !string.IsNullOrEmpty(item.PairedVideoPath))
@@ -2748,9 +2751,8 @@ namespace LivePhotoBox.ViewModels
         }
 
         /// <summary>
-        /// Rebuilt property path. Only Native facts and the existing small
-        /// binary metadata reader are allowed here; the Legacy EXIF process
-        /// is intentionally not a fallback.
+        /// Rebuilt property path. All media facts, including dimensions and
+        /// motion-video identity, come from the Native source inspector.
         /// </summary>
         private async Task LoadRebuiltPropertiesAsync(
             string imagePath, string? videoPath, int generation, CancellationToken token)
@@ -2760,18 +2762,15 @@ namespace LivePhotoBox.ViewModels
                 var inspector = new SourceInspector();
                 var facts = await inspector.InspectAsync(imagePath, videoPath, token).ConfigureAwait(false);
                 VideoFacts? videoFacts = facts.MotionVideo;
-                if (IsSelectedFileVideo)
-                    videoFacts = await new VideoConverter().ProbeAsync(imagePath, token).ConfigureAwait(false);
 
                 string resolution = string.Empty;
                 EditFileItem? selectedItem = FileItems.FirstOrDefault(f =>
                     string.Equals(f.FilePath, imagePath, StringComparison.OrdinalIgnoreCase));
                 if (!IsSelectedFileVideo)
                 {
-                    var (width, height, _) = FastMetadataReader.Read(imagePath);
-                    if (width > 0 && height > 0)
+                    if (facts.PrimaryImage is { IsPresent: true, Width: > 0, Height: > 0 } imageFacts)
                     {
-                        resolution = $"{width} × {height}";
+                        resolution = $"{imageFacts.Width} × {imageFacts.Height}";
                         if (selectedItem != null && string.IsNullOrEmpty(selectedItem.Resolution))
                             selectedItem.Resolution = resolution;
                     }
@@ -2835,9 +2834,18 @@ namespace LivePhotoBox.ViewModels
                 });
             }
             catch (OperationCanceledException) { }
+            catch (SourceInspectionException ex)
+            {
+                LogService.FileOp(
+                    $"Timeline[LoadProps] Rebuilt Native inspection failed " +
+                    $"({ex.Category}/{ex.Stage}, capability=0x{ex.Capability:X}): {ex.Message}",
+                    LogLevel.Warning);
+                throw;
+            }
             catch (Exception ex)
             {
                 LogService.FileOp($"Timeline[LoadProps] Rebuilt Native inspection failed: {ex.Message}", LogLevel.Warning);
+                throw;
             }
         }
 
@@ -2904,12 +2912,13 @@ namespace LivePhotoBox.ViewModels
                 var dispatcher = App.MainWindow?.DispatcherQueue;
                 LogService.FileOp($"KeyPhoto scan started: '{directoryPath}'");
 
-                // 阶段 1：文件发现。仅检测单文件实况（JPEG XMP / HEIC 视频轨），
+                // 阶段 1：文件发现。仅消费 Native inspector 确认的单文件事实，
                 // 双文件配对不放这里——靠文件名碰运气不严谨，统一在 Phase 2 用 ContentIdentifier 严格匹配。
                 var discoveryResult = await Task.Run(
                     () => LivePhotoDiscoveryService.ScanAsync(
                         directoryPath,
-                        DiscoveryScanMode.JpegMarkers | DiscoveryScanMode.HeicTrack, token),
+                        DiscoveryScanMode.JpegMarkers | DiscoveryScanMode.HeicTrack |
+                        DiscoveryScanMode.CidMatch | DiscoveryScanMode.VivoMatch, token),
                     token);
 
                 if (token.IsCancellationRequested) return;
@@ -2920,12 +2929,13 @@ namespace LivePhotoBox.ViewModels
                     .Where(d => SupportedVideoExtensions.Contains(Path.GetExtension(d.FilePath)))
                     .ToDictionary(d => d.FilePath, d => d.FileSizeBytes, StringComparer.OrdinalIgnoreCase);
 
-                var files = discoveryResult.Items
+                var files = (await Task.WhenAll(discoveryResult.Items
                     .Where(d => !SupportedVideoExtensions.Contains(Path.GetExtension(d.FilePath)))
-                    .Select(d =>
+                    .Select(async d =>
                     {
                         bool confirmed = d.LivePhotoType is LivePhotoType.SingleFileJpeg
-                            or LivePhotoType.SingleFileHeic;
+                            or LivePhotoType.SingleFileHeic
+                            or LivePhotoType.DualFile;
                         // 双文件实况照片：计算图片+视频的合并大小
                         long totalBytes = d.FileSizeBytes;
                         if (!string.IsNullOrEmpty(d.PairedVideoPath)
@@ -2934,21 +2944,32 @@ namespace LivePhotoBox.ViewModels
                             totalBytes += vidBytes;
                         }
 
-                        // 协议检测：单文件实况照片在此阶段即可确定协议
+                        // 协议检测：结果必须来自 Native SourceInspector；UI 不再
+                        // 不读取 managed XMP/尾标，也不把文件名当作协议证据。
                         var protocol = LivePhotoProtocolType.Unknown;
+                        long motionVideoOffset = 0;
+                        long motionVideoLength = 0;
+                        VideoContainer motionVideoContainer = VideoContainer.Unknown;
                         if (confirmed)
                         {
-                            try
+                            var facts = await new SourceInspector().InspectAsync(
+                                d.FilePath, d.PairedVideoPath, CancellationToken.None).ConfigureAwait(false);
+                            if (facts.PrimaryImage is not { IsPresent: true } ||
+                                facts.Protocol is SourceProtocol.NonLive or SourceProtocol.Unknown ||
+                                facts.MotionVideo is not { IsPresent: true } motionVideo ||
+                                (d.LivePhotoType == LivePhotoType.DualFile && motionVideo.SourceIndex != 1) ||
+                                (d.LivePhotoType != LivePhotoType.DualFile && motionVideo.SourceIndex != 0))
                             {
-                                protocol = LivePhotoProtocolDetector.Detect(
-                                    d.FilePath, d.LivePhotoType, d.ContentIdentifier);
+                                throw new SourceInspectionException(
+                                    SourceInspectionFailureCategory.Malformed,
+                                    SourceInspectionStage.Pairing,
+                                    0,
+                                    $"Native facts did not confirm the discovered source '{d.FilePath}'.");
                             }
-                            catch (Exception ex)
-                            {
-                                LogService.Scan(
-                                    $"Protocol detection failed for '{Path.GetFileName(d.FilePath)}': {ex.Message}",
-                                    LogLevel.Warning);
-                            }
+                            protocol = MapRebuiltProtocol(facts.Protocol);
+                            motionVideoOffset = motionVideo.ByteOffset;
+                            motionVideoLength = motionVideo.ByteLength;
+                            motionVideoContainer = motionVideo.Container;
                         }
 
                         return new EditFileItem
@@ -2960,11 +2981,14 @@ namespace LivePhotoBox.ViewModels
                             Resolution = string.Empty,
                             LivePhotoType = d.LivePhotoType,
                             PairedVideoPath = d.PairedVideoPath,
-                            AppendedVideoLength = d.AppendedVideoLength,
+                            AppendedVideoLength = motionVideoLength,
                             DetectionMethod = d.DetectionMethod,
                             DetectedProtocol = protocol,
+                            MotionVideoByteOffset = motionVideoOffset,
+                            MotionVideoByteLength = motionVideoLength,
+                            MotionVideoContainer = motionVideoContainer,
                         };
-                    }).ToList();
+                    }))).ToList();
 
                 var videoPaths = discoveryResult.Items
                     .Where(d => SupportedVideoExtensions.Contains(Path.GetExtension(d.FilePath)))
@@ -2977,44 +3001,6 @@ namespace LivePhotoBox.ViewModels
                 LogService.FileOp($"KeyPhoto scan done: {files.Count} images + {videoPaths.Count} videos, " +
                     $"SingleFileJpeg={singleJpegCount}, SingleFileHeic={singleHeicCount}, " +
                     $"Confirmed={confirmedCount}, Unclassified={files.Count - confirmedCount}");
-
-                // ── 阶段 1.5: 同名快速定位 vivo 双文件 ──
-                // 文件名只用于缩小查找范围；必须由图片与视频内部的 vivo ID 匹配确认。
-                // Apple 留到 Phase 2，通过两边 ContentIdentifier 严格匹配。
-                if (videoPaths.Count > 0)
-                {
-                    var vidByBase = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var vp in videoPaths)
-                    {
-                        string baseName = Path.GetFileNameWithoutExtension(vp);
-                        vidByBase[baseName] = vp;
-                    }
-                    int pairedCount = 0;
-                    foreach (var file in files)
-                    {
-                        if (file.LivePhotoType != LivePhotoType.None) continue;
-                        string baseName = Path.GetFileNameWithoutExtension(file.FilePath);
-                        if (vidByBase.TryGetValue(baseName, out var vidPath))
-                        {
-                            var vivoMatch = LivePhotoMetadataMatcher.MatchVivo(
-                                [file.FilePath], [vidPath]);
-                            if (vivoMatch.Pairs.Count == 0)
-                                continue;
-
-                            file.LivePhotoType = LivePhotoType.DualFile;
-                            file.PairedVideoPath = vidPath;
-                            file.DetectionMethod = LivePhotoDetectionMethod.VivoLivePhoto;
-                            file.DetectedProtocol = LivePhotoProtocolType.Vivo;
-                            videoPaths.Remove(vidPath);
-                            vidByBase.Remove(baseName);
-                            pairedCount++;
-                        }
-                    }
-                    if (pairedCount > 0)
-                        LogService.FileOp(
-                            $"KeyPhoto scan: metadata-confirmed {pairedCount} same-name vivo pair(s)",
-                            LogLevel.Info);
-                }
 
                 _allFileItems = files;
                 RefreshCounts();
@@ -3050,10 +3036,7 @@ namespace LivePhotoBox.ViewModels
         }
 
         /// <summary>
-        /// 混合模式读取元数据 + ContentIdentifier 严格配对。
-        ///   Phase 1 — C# 读文件头二进制取宽高+日期（失败文件记录，Phase 2 exiftool 兜底）。
-        ///   Phase 2 — exiftool 为读取失败项补宽高+日期；仅对同名图片/视频候选读取
-        ///             ContentIdentifier，并要求文件名与 UUID 同时匹配。
+        /// Read dimensions and paired-source facts from Native inspection.
         /// </summary>
         private async Task ReadResolutionsAsync(List<EditFileItem> files, List<string> videoPaths, CancellationToken token)
         {
@@ -3096,47 +3079,25 @@ namespace LivePhotoBox.ViewModels
                 var videos = existingPaths
                     .Where(p => SupportedVideoExtensions.Contains(Path.GetExtension(p)))
                     .ToList();
-                bool autoPair = AppSettingsService.GetValue("IsDragDropAutoPairEnabled", false);
-                var videoByBaseName = videos
-                    .GroupBy(p => Path.GetFileNameWithoutExtension(p), StringComparer.OrdinalIgnoreCase)
-                    .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
-
-                if (autoPair)
-                {
-                    foreach (string imagePath in images)
-                    {
-                        string? directory = Path.GetDirectoryName(imagePath);
-                        if (directory == null) continue;
-                        string baseName = Path.GetFileNameWithoutExtension(imagePath);
-                        string? adjacentVideo = Directory.EnumerateFiles(directory)
-                            .FirstOrDefault(p => SupportedVideoExtensions.Contains(Path.GetExtension(p)) &&
-                                string.Equals(Path.GetFileNameWithoutExtension(p), baseName, StringComparison.OrdinalIgnoreCase));
-                        if (adjacentVideo != null)
-                            videoByBaseName.TryAdd(baseName, adjacentVideo);
-                    }
-                }
 
                 var inspector = new SourceInspector();
                 var pairedVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var pairedImages = new Dictionary<string, (string VideoPath, SourceProtocol Protocol)>(StringComparer.OrdinalIgnoreCase);
                 foreach (string imagePath in images)
                 {
-                    string baseName = Path.GetFileNameWithoutExtension(imagePath);
-                    if (!videoByBaseName.TryGetValue(baseName, out string? videoPath)) continue;
-                    SourceProtocol protocol = SourceProtocol.Unknown;
-                    try
+                    // Candidate pairing is deliberately metadata-first. Every
+                    // selected video is checked by Native, allowing renamed
+                    // metadata-matched pairs while rejecting same-basename noise.
+                    foreach (string videoPath in videos)
                     {
                         var facts = await inspector.InspectAsync(imagePath, videoPath, CancellationToken.None).ConfigureAwait(false);
-                        protocol = facts.Protocol;
-                    }
-                    catch (Exception ex)
-                    {
-                        LogService.FileOp($"Drop[Rebuilt] Native pair inspection failed: {ex.Message}", LogLevel.Warning);
-                    }
-                    if (protocol is SourceProtocol.AppleLivePhoto or SourceProtocol.VivoLegacyDualFile)
-                    {
-                        pairedImages[imagePath] = (videoPath, protocol);
-                        pairedVideos.Add(videoPath);
+                        if (facts.Protocol is SourceProtocol.AppleLivePhoto or SourceProtocol.VivoLegacyDualFile &&
+                            facts.MotionVideo is { IsPresent: true, SourceIndex: 1 })
+                        {
+                            pairedImages[imagePath] = (videoPath, facts.Protocol);
+                            pairedVideos.Add(videoPath);
+                            break;
+                        }
                     }
                 }
 
@@ -3148,7 +3109,10 @@ namespace LivePhotoBox.ViewModels
                     string ext = Path.GetExtension(rawPath);
                     bool isImage = IsSupportedImageExtension(ext);
                     LivePhotoType type = LivePhotoType.None;
-                    LivePhotoDetectionMethod method = LivePhotoDetectionMethod.FilenamePairing;
+                    LivePhotoDetectionMethod method = ext.Equals(".heic", StringComparison.OrdinalIgnoreCase) ||
+                        ext.Equals(".heif", StringComparison.OrdinalIgnoreCase)
+                        ? LivePhotoDetectionMethod.HeicVideoTrack
+                        : LivePhotoDetectionMethod.JpegByteMarkers;
                     string? pairedVideoPath = null;
                     long appendedVideoLength = 0;
                     SourceProtocol sourceProtocol = SourceProtocol.NonLive;
@@ -3164,24 +3128,18 @@ namespace LivePhotoBox.ViewModels
                     }
                     else if (isImage)
                     {
-                        try
+                        var facts = await inspector.InspectAsync(rawPath, null, CancellationToken.None).ConfigureAwait(false);
+                        sourceProtocol = facts.Protocol;
+                        if (facts.MotionVideo is { IsPresent: true, SourceIndex: 0 } motionVideo &&
+                            sourceProtocol is not (SourceProtocol.NonLive or SourceProtocol.Unknown))
                         {
-                            var facts = await inspector.InspectAsync(rawPath, null, CancellationToken.None).ConfigureAwait(false);
-                            sourceProtocol = facts.Protocol;
-                            if (facts.MotionVideo?.IsPresent == true && sourceProtocol != SourceProtocol.NonLive)
-                            {
-                                type = ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
-                                    ? LivePhotoType.SingleFileJpeg
-                                    : LivePhotoType.SingleFileHeic;
-                                method = type == LivePhotoType.SingleFileJpeg
-                                    ? LivePhotoDetectionMethod.JpegByteMarkers
-                                    : LivePhotoDetectionMethod.HeicVideoTrack;
-                                appendedVideoLength = facts.MotionVideo.ByteLength;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            LogService.FileOp($"Drop[Rebuilt] Native inspection failed: {ex.Message}", LogLevel.Warning);
+                            type = ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
+                                ? LivePhotoType.SingleFileJpeg
+                                : LivePhotoType.SingleFileHeic;
+                            method = type == LivePhotoType.SingleFileJpeg
+                                ? LivePhotoDetectionMethod.JpegByteMarkers
+                                : LivePhotoDetectionMethod.HeicVideoTrack;
+                            appendedVideoLength = motionVideo.ByteLength;
                         }
                     }
 
@@ -3230,10 +3188,18 @@ namespace LivePhotoBox.ViewModels
                 return await tcs.Task.ConfigureAwait(false);
             }
             catch (OperationCanceledException) { return null; }
+            catch (SourceInspectionException ex)
+            {
+                LogService.FileOp(
+                    $"Drop[Rebuilt] Native inspection failed " +
+                    $"({ex.Category}/{ex.Stage}, capability=0x{ex.Capability:X}): {ex.Message}",
+                    LogLevel.Warning);
+                throw;
+            }
             catch (Exception ex)
             {
                 LogService.FileOp($"Drop[Rebuilt] failed: {ex.Message}", LogLevel.Warning);
-                return null;
+                throw;
             }
             finally
             {
@@ -3256,21 +3222,14 @@ namespace LivePhotoBox.ViewModels
         private static async Task ReadRebuiltResolutionsAsync(
             List<EditFileItem> files, CancellationToken token)
         {
-            await Task.Run(() =>
+            var inspector = new SourceInspector();
+            foreach (var file in files)
             {
-                foreach (var file in files)
-                {
-                    token.ThrowIfCancellationRequested();
-                    try
-                    {
-                        var (width, height, _) = FastMetadataReader.Read(file.FilePath);
-                        if (width > 0 && height > 0)
-                            file.Resolution = $"{width} × {height}";
-                    }
-                    catch (IOException) { }
-                    catch (UnauthorizedAccessException) { }
-                }
-            }, token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                var facts = await inspector.InspectAsync(file.FilePath, file.PairedVideoPath, token).ConfigureAwait(false);
+                if (facts.PrimaryImage is { IsPresent: true, Width: > 0, Height: > 0 } imageFacts)
+                    file.Resolution = $"{imageFacts.Width} × {imageFacts.Height}";
+            }
         }
 
     }

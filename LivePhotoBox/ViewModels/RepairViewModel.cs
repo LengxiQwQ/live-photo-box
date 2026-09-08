@@ -13,6 +13,8 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Collections;
 using LivePhotoBox.Helpers;
+using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Media.Models;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
@@ -892,63 +894,22 @@ namespace LivePhotoBox.ViewModels
                     }
                 }, token);
 
-                // ── 按文件名配对（参照 MergeScanService）──
-                var imgDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                var vidDict = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-                foreach (var file in files)
-                {
-                    string ext = Path.GetExtension(file).ToLowerInvariant();
-
-                    // 递归扫描时用包含子文件夹的 key 避免跨文件夹同名文件冲突
-                    string key = PathHelper.GetPairingKey(InputDirectory, file);
-
-                    if (ext == ".jpg" || ext == ".jpeg" || ext == ".heic" || ext == ".heif")
-                    {
-                        imgDict[key] = file;
-                    }
-                    else if (ext == ".mov" || ext == ".mp4")
-                    {
-                        vidDict[key] = file;
-                    }
-                }
-
-                // 组装各组工作列表，各组内按文件名排序
-                var pairList = new List<(string imagePath, string videoPath, string baseName)>();
-                var standaloneImgList = new List<(string imagePath, string baseName)>();
-                var standaloneVidList = new List<(string videoPath, string baseName)>();
-
-                foreach (var kvp in imgDict)
-                {
-                    if (vidDict.TryGetValue(kvp.Key, out var vidPath))
-                    {
-                        pairList.Add((kvp.Value, vidPath, kvp.Key));
-                        vidDict.Remove(kvp.Key); // 已配对，不再作为单独视频
-                    }
-                    else
-                    {
-                        standaloneImgList.Add((kvp.Value, kvp.Key));
-                    }
-                }
-                foreach (var kvp in vidDict)
-                {
-                    standaloneVidList.Add((kvp.Value, kvp.Key));
-                }
-
-                // 各组内按文件名排序
-                pairList.Sort((a, b) => string.Compare(a.baseName, b.baseName, StringComparison.OrdinalIgnoreCase));
-                standaloneImgList.Sort((a, b) => string.Compare(a.baseName, b.baseName, StringComparison.OrdinalIgnoreCase));
-                standaloneVidList.Sort((a, b) => string.Compare(a.baseName, b.baseName, StringComparison.OrdinalIgnoreCase));
-
-                // 组装有序工作列表：实况照片组合（文件名匹配）→ 单独照片 → 单独视频
+                // Do not pair by basename (or any managed key).  Every source is
+                // inspected independently first; a dual-file task is created
+                // only after Native SourceInspector confirms the candidate pair.
                 var pairedWorkItems = new List<(string? imagePath, string? videoPath, string baseName, bool isPaired)>();
                 var standaloneWorkItems = new List<(string? imagePath, string? videoPath, string baseName, bool isPaired)>();
-                foreach (var (img, vid, name) in pairList)
-                    pairedWorkItems.Add((img, vid, name, true));
-                foreach (var (img, name) in standaloneImgList)
-                    standaloneWorkItems.Add((img, null, name, false));
-                foreach (var (vid, name) in standaloneVidList)
-                    standaloneWorkItems.Add((null, vid, name, false));
+                foreach (var file in files.OrderBy(
+                    path => Path.GetFileNameWithoutExtension(path),
+                    StringComparer.OrdinalIgnoreCase))
+                {
+                    string ext = Path.GetExtension(file).ToLowerInvariant();
+                    string baseName = Path.GetFileNameWithoutExtension(file);
+                    if (ext is ".jpg" or ".jpeg" or ".heic" or ".heif")
+                        standaloneWorkItems.Add((file, null, baseName, false));
+                    else if (ext is ".mov" or ".mp4")
+                        standaloneWorkItems.Add((null, file, baseName, false));
+                }
 
                 // ── Apple 设备预检测：收集 Apple 文件路径集，不跳过文件 ──
                 bool appleOnlyScan = AppSettingsService.GetValue("IsAppleOnlyScanEnabled", true);
@@ -967,19 +928,12 @@ namespace LivePhotoBox.ViewModels
                         if (item.videoPath != null) allFilePaths.Add(item.videoPath);
                     }
 
-                    try
-                    {
-                        appleFiles = await LivePhotoMetadataMatcher.FilterAppleDevicesAsync(
-                            allFilePaths, token);
+                    appleFiles = await LivePhotoMetadataMatcher.FilterAppleDevicesAsync(
+                        allFilePaths, token);
 
-                        LogService.Repair(
-                            $"Apple-only scan: {appleFiles.Count}/{allFilePaths.Count} Apple files detected, " +
-                            $"non-Apple files will be marked as skipped");
-                    }
-                    catch (Exception ex)
-                    {
-                        LogService.Repair($"Apple-only scan failed: {ex.Message}", LogLevel.Warning);
-                    }
+                    LogService.Repair(
+                        $"Apple-only scan: {appleFiles.Count}/{allFilePaths.Count} Apple files detected, " +
+                        $"non-Apple files will be marked as skipped");
                 }
 
                 // 计算统计
@@ -1085,64 +1039,9 @@ namespace LivePhotoBox.ViewModels
                             if (imageEntry != null) { entryIndex++; processedCount++; }
                             if (videoEntry != null) { entryIndex++; processedCount++; }
 
-                            // 未启用"修复非实况照片视频" → 时长 > 3.5s 的视频直接标为已跳过
-                            bool repairNonLivePhoto = AppSettingsService.GetValue("IsNonLivePhotoVideoRepairEnabled", false);
-                            if (!repairNonLivePhoto && videoEntry?.AnalysisResult != null
-                                && videoEntry.AnalysisResult.VideoDurationSeconds > LivePhotoConstants.MaxLivePhotoVideoDurationSeconds)
-                            {
-                                videoEntry.NeedsRepair = false;
-                                videoEntry.Details = ResourceService.GetString("RepairPage_Task_SkippedDuration");
-                            }
-
-                            // 检查视频时长：> 3.5s 不是实况照片，已配对的拆开
-                            bool isLivePhotoVideo = videoEntry != null
-                                && (videoEntry.AnalysisResult?.VideoDurationSeconds ?? 0) <= LivePhotoConstants.MaxLivePhotoVideoDurationSeconds;
-                            bool effectivePaired = isLivePhotoVideo;
-
-                            // ── 更严格的实况照片扫描：通过 ContentIdentifier UUID 验证配对 ──
-                            bool strictScan = AppSettingsService.GetValue("IsStrictLivePhotoScanEnabled", false);
-                            if (strictScan && effectivePaired && imageEntry != null && videoEntry != null)
-                            {
-                                string? imgCid = imageEntry.AnalysisResult?.ContentIdentifier;
-                                string? vidCid = videoEntry.AnalysisResult?.ContentIdentifier;
-                                bool bothHaveCid = !string.IsNullOrWhiteSpace(imgCid) && !string.IsNullOrWhiteSpace(vidCid);
-                                bool cidsMatch = bothHaveCid && string.Equals(imgCid, vidCid, StringComparison.OrdinalIgnoreCase);
-                                if (!cidsMatch)
-                                {
-                                    effectivePaired = false;
-                                    LogService.Repair($"Strict scan: unpaired '{baseName}' — ContentIdentifier mismatch (img={imgCid ?? "none"}, vid={vidCid ?? "none"})");
-                                }
-                            }
-
-                            if (!effectivePaired)
-                            {
-                                // 文件名配对被 strict scan / 时长检查拆开 → 直接创建独立 Task
-                                if (imageEntry != null)
-                                {
-                                    int imgIdx = entryIndex - (videoEntry != null ? 1 : 0);
-                                    var imgTask = new RepairTask(imgIdx, 0, baseName, false, imageEntry, null);
-                                    imgTask.Index = taskGridIndex;
-                                    itemBuffer.Add(imgTask);
-                                }
-                                if (videoEntry != null)
-                                {
-                                    var vidTask = new RepairTask(entryIndex, 0, baseName, false, videoEntry, null);
-                                    vidTask.Index = taskGridIndex + 1;
-                                    itemBuffer.Add(vidTask);
-                                }
-                            }
-                            else
-                            {
-                                // 有效的实况照片配对
-                                var file1 = imageEntry ?? videoEntry!;
-                                var file2 = (imageEntry != null ? videoEntry : imageEntry);
-                                int file1Idx = imageEntry != null ? entryIndex - 1 : entryIndex;
-                                int file2Idx = entryIndex;
-
-                                var repairTask = new RepairTask(file1Idx, file2Idx, baseName, true, file1, file2);
-                                repairTask.Index = taskGridIndex;
-                                itemBuffer.Add(repairTask);
-                            }
+                            // This list is intentionally empty: basename pairs are
+                            // never trusted.  Confirmed pairs are materialized in
+                            // the Native metadata matching pass below.
 
                             scanProgress.Report(new WorkProgressSnapshot(totalFiles, processedCount));
                         }
@@ -1171,14 +1070,6 @@ namespace LivePhotoBox.ViewModels
                             if (imageEntry != null)
                             {
                                 entryIndex++; processedCount++;
-
-                                // 严格模式下标记"曾是实况照片但视频缺失"的独立照片
-                                bool strictScan = AppSettingsService.GetValue("IsStrictLivePhotoScanEnabled", false);
-                                if (strictScan && imageEntry.AnalysisResult?.HasContentIdentifier == true)
-                                {
-                                    imageEntry.IssueDescription = ResourceService.GetString("RepairPage_LivePhotoVideoMissing") ?? "Live Photo (video missing)";
-                                    imageEntry.NeedsRepair = false;
-                                }
 
                                 pendingStandaloneImages.Add((baseName, imageEntry, entryIndex));
 
@@ -1225,72 +1116,91 @@ namespace LivePhotoBox.ViewModels
                         }
                     }
 
-                    // ── 元数据匹配：尝试将独立文件重新配对 ──
+                    // ── Native metadata matching: candidate pairing is never
+                    // inferred from the repair DTO or a filename. ──
                     // 收集元数据匹配后的最终独立文件 Task 列表
                     // （第二遍循环中已通过临时独立 Task 逐步显示到 UI，元数据匹配后可能需要重组）
                     var finalStandaloneTasks = new List<RepairTask>();
                     bool metadataMatchesFound = false;
-                    // Always run ContentIdentifier UUID matching for remaining standalone files
                     if (pendingStandaloneImages.Count > 0 && pendingStandaloneVideos.Count > 0
                         && !token.IsCancellationRequested)
                     {
-                        try
-                        {
-                            var imgAnalysisList = pendingStandaloneImages
-                                .Select(e => (path: e.entry.FilePath, analysis: e.entry.AnalysisResult!))
-                                .Where(x => x.analysis != null)
-                                .ToList();
-                            var vidAnalysisList = pendingStandaloneVideos
-                                .Select(e => (path: e.entry.FilePath, analysis: e.entry.AnalysisResult!))
-                                .Where(x => x.analysis != null)
-                                .ToList();
+                        var imagePaths = pendingStandaloneImages.Select(e => e.entry.FilePath).ToList();
+                        var videoPaths = pendingStandaloneVideos.Select(e => e.entry.FilePath).ToList();
+                        var appleMatches = await LivePhotoMetadataMatcher.MatchAsync(
+                            imagePaths, videoPaths, token).ConfigureAwait(false);
+                        var confirmedPairs = appleMatches.Pairs.ToList();
 
-                            if (imgAnalysisList.Count > 0 && vidAnalysisList.Count > 0)
+                        var matchedImages = new HashSet<string>(
+                            confirmedPairs.Select(p => p.ImagePath), StringComparer.OrdinalIgnoreCase);
+                        var matchedVideos = new HashSet<string>(
+                            confirmedPairs.Select(p => p.VideoPath), StringComparer.OrdinalIgnoreCase);
+                        var vivoMatches = LivePhotoMetadataMatcher.MatchVivo(
+                            imagePaths.Where(path => !matchedImages.Contains(path)).ToList(),
+                            videoPaths.Where(path => !matchedVideos.Contains(path)).ToList());
+                        confirmedPairs.AddRange(vivoMatches.Pairs);
+
+                        var inspector = new SourceInspector();
+                        var matchedImgPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                        var matchedVidPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                        foreach (var pair in confirmedPairs)
+                        {
+                            SourceMediaFacts facts;
+                            try
                             {
-                                var matchOutput = LivePhotoMetadataMatcher.MatchFromAnalysis(imgAnalysisList, vidAnalysisList);
-
-                                if (matchOutput.Pairs.Count > 0)
-                                {
-                                    metadataMatchesFound = true;
-                                }
-
-                                // 元数据匹配成功 → 创建配对 RepairTask（加入最终列表）
-                                var matchedImgPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                                var matchedVidPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-                                foreach (var pair in matchOutput.Pairs)
-                                {
-                                    var imgData = pendingStandaloneImages.First(e => e.entry.FilePath == pair.ImagePath);
-                                    var vidData = pendingStandaloneVideos.First(e => e.entry.FilePath == pair.VideoPath);
-
-                                    matchedImgPaths.Add(pair.ImagePath);
-                                    matchedVidPaths.Add(pair.VideoPath);
-
-                                    string pairBaseName = Path.GetFileNameWithoutExtension(pair.ImagePath);
-                                    taskGridIndex++;
-                                    var pairedTask = new RepairTask(
-                                        imgData.analysisEntryIndex,
-                                        vidData.analysisEntryIndex,
-                                        pairBaseName, true, imgData.entry, vidData.entry);
-                                    pairedTask.Index = taskGridIndex;
-                                    finalStandaloneTasks.Add(pairedTask);
-
-                                    LogService.Repair($"Metadata matching: paired '{pairBaseName}' via {pair.Source}");
-                                }
-
-                                // 移除已匹配的，保留剩余的
-                                pendingStandaloneImages.RemoveAll(e => matchedImgPaths.Contains(e.entry.FilePath));
-                                pendingStandaloneVideos.RemoveAll(e => matchedVidPaths.Contains(e.entry.FilePath));
-
-                                // 更新独立文件计数
-                                standaloneImg = pendingStandaloneImages.Count;
-                                standaloneVid = pendingStandaloneVideos.Count;
+                                // Repair performs its own final dual-file
+                                // inspection immediately before creating IsPaired.
+                                facts = await inspector.InspectAsync(
+                                    pair.ImagePath, pair.VideoPath, token).ConfigureAwait(false);
                             }
+                            catch (SourceInspectionException ex) when (
+                                ex.Category == SourceInspectionFailureCategory.Unsupported &&
+                                ex.Stage == SourceInspectionStage.Pairing)
+                            {
+                                // Explicit candidate rejection is not a pair.
+                                continue;
+                            }
+
+                            if (facts.Protocol is SourceProtocol.NonLive or SourceProtocol.Unknown ||
+                                facts.PrimaryImage is not { IsPresent: true } ||
+                                facts.MotionVideo is not { IsPresent: true, SourceIndex: 1 } motion ||
+                                motion.ByteOffset < 0 || motion.ByteLength <= 0 ||
+                                string.IsNullOrWhiteSpace(facts.PrimarySha256) ||
+                                string.IsNullOrWhiteSpace(facts.SecondarySha256))
+                            {
+                                // Unsupported/unrecognized candidates remain
+                                // standalone; no synthetic IsPaired task.
+                                continue;
+                            }
+
+                            var imgData = pendingStandaloneImages.FirstOrDefault(
+                                e => string.Equals(e.entry.FilePath, pair.ImagePath, StringComparison.OrdinalIgnoreCase));
+                            var vidData = pendingStandaloneVideos.FirstOrDefault(
+                                e => string.Equals(e.entry.FilePath, pair.VideoPath, StringComparison.OrdinalIgnoreCase));
+                            if (imgData.entry is null || vidData.entry is null)
+                                continue;
+
+                            matchedImgPaths.Add(pair.ImagePath);
+                            matchedVidPaths.Add(pair.VideoPath);
+                            metadataMatchesFound = true;
+
+                            string pairBaseName = Path.GetFileNameWithoutExtension(pair.ImagePath);
+                            taskGridIndex++;
+                            var pairedTask = new RepairTask(
+                                imgData.analysisEntryIndex,
+                                vidData.analysisEntryIndex,
+                                pairBaseName, true, imgData.entry, vidData.entry);
+                            pairedTask.Index = taskGridIndex;
+                            finalStandaloneTasks.Add(pairedTask);
+
+                            LogService.Repair($"Native metadata matching: paired '{pairBaseName}' via {pair.Source}");
                         }
-                        catch (Exception ex)
-                        {
-                            LogService.Repair($"Metadata matching failed, keeping standalone as-is: {ex.Message}", LogLevel.Warning);
-                        }
+
+                        pendingStandaloneImages.RemoveAll(e => matchedImgPaths.Contains(e.entry.FilePath));
+                        pendingStandaloneVideos.RemoveAll(e => matchedVidPaths.Contains(e.entry.FilePath));
+                        standaloneImg = pendingStandaloneImages.Count;
+                        standaloneVid = pendingStandaloneVideos.Count;
                     }
 
                     // ── 正常扫描完成才报告 100% ──
@@ -1422,6 +1332,15 @@ namespace LivePhotoBox.ViewModels
                 });
 
                 AppViewModel.Instance.ResetFooterScanCounters();
+            }
+            catch (SourceInspectionException ex)
+            {
+                LogService.Repair(
+                    $"ScanDirectory Native inspection failed " +
+                    $"({ex.Category}/{ex.Stage}, capability=0x{ex.Capability:X}): {ex.Message}",
+                    LogLevel.Error,
+                    ex);
+                SetStatus("Status_Error", $"{ex.Category}/{ex.Stage}: {ex.Message}");
             }
             catch (Exception ex)
             {

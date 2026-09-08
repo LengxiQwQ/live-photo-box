@@ -9,6 +9,7 @@ public sealed record SourceMediaFacts
     public required ImageFacts PrimaryImage { get; init; }
     public VideoFacts? MotionVideo { get; init; }
     public GainMapFacts? GainMap { get; init; }
+    public System.Collections.Generic.IReadOnlyList<AuxiliaryMediaFacts> AuxiliaryItems { get; init; } = [];
     public TimingFacts Timing { get; init; } = new();
     public long ProtocolTailOffset { get; init; }
     public long ProtocolTailLength { get; init; }
@@ -17,6 +18,21 @@ public sealed record SourceMediaFacts
     public string? SecondarySha256 { get; init; }
     public System.Collections.Generic.IReadOnlyList<ConfirmedProtocolResidue> ConfirmedResidues { get; init; } = [];
 }
+
+public sealed record AuxiliaryMediaFacts
+{
+    public bool IsPresent { get; init; }
+    public ImageContainer Container { get; init; }
+    public AuxiliaryRepresentation Representation { get; init; }
+    public AuxiliaryOwnership Ownership { get; init; }
+    public uint ItemId { get; init; }
+    public long ByteOffset { get; init; }
+    public long ByteLength { get; init; }
+    public string Relationship { get; init; } = string.Empty;
+}
+
+public enum AuxiliaryRepresentation { Embedded, Detached, Materialized }
+public enum AuxiliaryOwnership { Primary, Auxiliary }
 
 public sealed record ImageFacts
 {
@@ -48,8 +64,14 @@ public sealed record GainMapFacts
 {
     public bool IsPresent { get; init; }
     public ImageContainer Container { get; init; }
+    public AuxiliaryRepresentation Representation { get; init; }
+    public AuxiliaryOwnership Ownership { get; init; }
+    public MediaArtifactKind OwnerArtifactRole { get; init; }
+    public uint AuxiliaryIndex { get; init; } = uint.MaxValue;
+    public uint ItemId { get; init; }
     public long ByteOffset { get; init; }
     public long ByteLength { get; init; }
+    public string Relationship { get; init; } = string.Empty;
 }
 
 public sealed record TimingFacts

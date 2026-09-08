@@ -170,9 +170,29 @@ public sealed class ExtractorExactnessTests
             {
                 IsPresent = true,
                 Container = ImageContainer.Jpeg,
+                Representation = AuxiliaryRepresentation.Embedded,
+                Ownership = AuxiliaryOwnership.Primary,
+                OwnerArtifactRole = MediaArtifactKind.PrimaryImage,
+                AuxiliaryIndex = 0,
+                ItemId = 0,
                 ByteOffset = gmOffset,
-                ByteLength = gmLen
+                ByteLength = gmLen,
+                Relationship = "gain-map"
             },
+            AuxiliaryItems =
+            [
+                new AuxiliaryMediaFacts
+                {
+                    IsPresent = true,
+                    Container = ImageContainer.Jpeg,
+                    Representation = AuxiliaryRepresentation.Embedded,
+                    Ownership = AuxiliaryOwnership.Primary,
+                    ItemId = 0,
+                    ByteOffset = gmOffset,
+                    ByteLength = gmLen,
+                    Relationship = "gain-map"
+                }
+            ],
             MotionVideo = new VideoFacts
             {
                 IsPresent = true,

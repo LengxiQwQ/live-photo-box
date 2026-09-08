@@ -44,7 +44,7 @@ namespace LivePhotoBox.Interop
     public static class NativeRuntime
     {
         /// <summary>The ABI version supported by this managed interop layer.</summary>
-        public const uint SupportedAbiVersion = 2;
+        public const uint SupportedAbiVersion = NativeMethods.RequiredAbiVersion;
 
         /// <summary>Foundation capability exposed by the Phase 1 native runtime.</summary>
         public const ulong FoundationCapability = 1UL << 0;
@@ -59,6 +59,9 @@ namespace LivePhotoBox.Interop
         public const ulong SamsungJpegCapability = 1UL << 14;
         public const ulong SamsungHeicCapability = 1UL << 15;
         public const ulong AppleCapability = 1UL << 16;
+
+        /// <summary>The fixed native ABI capacity for auxiliary item facts.</summary>
+        internal const int MaxAuxiliaryItems = 8;
 
         /// <summary>
         /// Loads the native runtime, validates the ABI, and creates a temporary context.

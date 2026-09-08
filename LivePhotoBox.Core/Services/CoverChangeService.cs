@@ -1,5 +1,6 @@
 using LivePhotoBox.Models;
 using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Media.Models;
 using System;
 using System.IO;
 using System.Threading;
@@ -57,151 +58,62 @@ namespace LivePhotoBox.Services
             string imagePath,
             LivePhotoProtocolType protocol,
             string workDir,
-            CancellationToken token)
+            CancellationToken token,
+            ISourceInspector? sourceInspector = null)
         {
             token.ThrowIfCancellationRequested();
+            // The protocol argument is UI context only. Range/container authority
+            // always comes from the Native-backed inspector, so a stale protocol
+            // label can never select a managed parser or a guessed tail range.
+            _ = protocol;
+            var facts = await (sourceInspector ?? new SourceInspector())
+                .InspectAsync(imagePath, null, token).ConfigureAwait(false);
+            var video = facts.MotionVideo;
+            if (facts.Protocol is SourceProtocol.NonLive or SourceProtocol.Unknown ||
+                video is not { IsPresent: true } || video.SourceIndex != 0)
+                return null;
+            if (video.ByteOffset < 0 || video.ByteLength <= 0)
+                throw new InvalidDataException("Native source inspection returned an invalid embedded video range.");
+            if (video.Container is not (VideoContainer.Mp4 or VideoContainer.Mov))
+                throw new InvalidDataException("Native source inspection returned an unsupported embedded video container.");
 
-            if (protocol == LivePhotoProtocolType.Huawei)
-                return await ExtractHuaweiVideoAsync(imagePath, workDir, token).ConfigureAwait(false);
-
-            if (protocol is LivePhotoProtocolType.Samsung or LivePhotoProtocolType.Fusion)
-                return await ExtractSamsungVideoAsync(imagePath, workDir, token).ConfigureAwait(false);
-
-            if (protocol == LivePhotoProtocolType.GoogleV2 && HeicConverterService.IsHeicFile(imagePath))
-                return await ExtractHeicMpvdVideoAsync(imagePath, workDir, token).ConfigureAwait(false);
-
-            return await ExtractXmpVideoAsync(imagePath, protocol, workDir, token).ConfigureAwait(false);
+            string extension = video.Container == VideoContainer.Mov ? ".mov" : ".mp4";
+            string targetPath = Path.Combine(workDir, "video" + extension);
+            await CopyByteRangeAsync(imagePath, targetPath, video.ByteOffset, video.ByteLength, token).ConfigureAwait(false);
+            return targetPath;
         }
 
-        private static Task<string> ExtractHuaweiVideoAsync(
-            string imagePath,
-            string workDir,
+        private static async Task CopyByteRangeAsync(
+            string sourcePath,
+            string destPath,
+            long start,
+            long length,
             CancellationToken token)
         {
-            var range = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(imagePath);
-            if (range == null)
-                throw new InvalidDataException("Cannot locate embedded MP4 in Huawei file.");
+            if (start < 0 || length <= 0)
+                throw new InvalidDataException("Invalid embedded video range.");
 
-            string targetPath = Path.Combine(workDir, "video.mp4");
-            CopyByteRange(imagePath, targetPath, range.Value.videoStart, range.Value.videoLength);
-            token.ThrowIfCancellationRequested();
-            return Task.FromResult(targetPath);
-        }
+            await using var src = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite,
+                bufferSize: 81920, useAsync: true);
+            if (start > src.Length || length > src.Length - start)
+                throw new InvalidDataException("Embedded video range is outside the source file.");
 
-        private static Task<string> ExtractSamsungVideoAsync(
-            string imagePath,
-            string workDir,
-            CancellationToken token)
-        {
-            string targetPath = Path.Combine(workDir, "video.mp4");
-
-            if (HeicConverterService.IsHeicFile(imagePath))
-            {
-                long videoStart = LivePhotoMergeService.GetMpvdVideoStart(imagePath);
-                long videoLength = LivePhotoMergeService.GetMpvdVideoLength(imagePath);
-                if (videoStart <= 0 || videoLength <= 0)
-                    throw new InvalidDataException("Cannot locate mpvd box / embedded video in Samsung HEIC file.");
-
-                CopyByteRange(imagePath, targetPath, videoStart, videoLength);
-                token.ThrowIfCancellationRequested();
-                return Task.FromResult(targetPath);
-            }
-
-            var range = LivePhotoSplitService.FindSamsungJpegVideoRange(imagePath);
-            if (range == null)
-                throw new InvalidDataException("Cannot locate Samsung MotionPhoto_Data video.");
-
-            long fileSize = new FileInfo(imagePath).Length;
-            long start = range.Value.videoStart;
-            long length = fileSize - start;
-            if (length <= 0)
-                throw new InvalidDataException("Invalid Samsung embedded video range.");
-
-            CopyByteRange(imagePath, targetPath, start, length);
-            token.ThrowIfCancellationRequested();
-            return Task.FromResult(targetPath);
-        }
-
-        private static Task<string> ExtractHeicMpvdVideoAsync(
-            string imagePath,
-            string workDir,
-            CancellationToken token)
-        {
-            long videoStart = LivePhotoMergeService.GetMpvdVideoStart(imagePath);
-            long videoLength = LivePhotoMergeService.GetMpvdVideoLength(imagePath);
-            if (videoStart <= 0 || videoLength <= 0)
-                throw new InvalidDataException("Cannot locate mpvd box / embedded video in HEIC file.");
-
-            string targetPath = Path.Combine(workDir, "video.mp4");
-            CopyByteRange(imagePath, targetPath, videoStart, videoLength);
-            token.ThrowIfCancellationRequested();
-            return Task.FromResult(targetPath);
-        }
-
-        private static Task<string> ExtractXmpVideoAsync(
-            string imagePath,
-            LivePhotoProtocolType protocol,
-            string workDir,
-            CancellationToken token)
-        {
-            string xmpText = LivePhotoSplitService.ReadMetadataTextSync(imagePath);
-            long appendedVideoLength = LivePhotoSplitService.GetAppendedVideoLength(xmpText);
-            if (appendedVideoLength <= 0)
-                throw new InvalidDataException("Cannot determine embedded video length from XMP metadata.");
-
-            long videoLength = appendedVideoLength;
-
-            if (protocol == LivePhotoProtocolType.OPPO)
-            {
-                long pureLength = LivePhotoSplitService.GetOppoPureVideoLength(xmpText);
-                if (pureLength > 0 && pureLength <= videoLength)
-                    videoLength = pureLength;
-            }
-
-            long fileSize = new FileInfo(imagePath).Length;
-            long videoOffset = fileSize - appendedVideoLength;
-            if (videoOffset < 0 || videoLength <= 0)
-                throw new InvalidDataException("Invalid embedded video range in XMP live photo.");
-
-            string targetPath = Path.Combine(workDir, "video.mp4");
-            CopyByteRange(imagePath, targetPath, videoOffset, videoLength);
-            token.ThrowIfCancellationRequested();
-            return Task.FromResult(targetPath);
-        }
-
-        private static void CopyByteRange(string sourcePath, string destPath, long start, long length)
-        {
-            using var src = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            using var dst = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None);
+            await using var dst = new FileStream(destPath, FileMode.Create, FileAccess.Write, FileShare.None,
+                bufferSize: 81920, useAsync: true);
             src.Seek(start, SeekOrigin.Begin);
 
             var buffer = new byte[81920];
             long remaining = length;
             while (remaining > 0)
             {
-                int read = src.Read(buffer, 0, (int)Math.Min(buffer.Length, remaining));
+                token.ThrowIfCancellationRequested();
+                int read = await src.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), token).ConfigureAwait(false);
                 if (read == 0)
-                    break;
-                dst.Write(buffer, 0, read);
+                    throw new EndOfStreamException("Source changed while extracting the inspected video range.");
+                await dst.WriteAsync(buffer.AsMemory(0, read), token).ConfigureAwait(false);
                 remaining -= read;
             }
         }
 
-        internal static async Task<string?> ReadContentIdentifierAsync(string filePath, CancellationToken token)
-        {
-            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
-                return null;
-
-            try
-            {
-                var inspector = new SourceInspector();
-                var facts = await inspector.InspectAsync(filePath, null, token).ConfigureAwait(false);
-                return facts.PairingIdentifier;
-            }
-            catch
-            {
-                return null;
-            }
-        }
     }
 }

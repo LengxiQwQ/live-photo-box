@@ -84,8 +84,8 @@ Convert a **dual-file Live Photo** (or any image + video pair) into a **single-f
 
 | Merge Protocol | Target Devices | Status |
 |---|---|---|
-| Google - Micro Video (v1) | Windows / Xiaomi (legacy MIUI) / Pixel | ✅ Supported |
-| Google - Motion Photo (v2) | Windows / Xiaomi / Pixel | ✅ Supported |
+| Google - Micro Video (V1) | Windows / Xiaomi (legacy MIUI) / Pixel | ✅ Supported |
+| Google - Motion Photo (V2) | Windows / Xiaomi / Pixel | ✅ Supported |
 | OPPO - O-Live Photo | Windows / Xiaomi / OPPO | ✅ Supported |
 | HUAWEI - Moving Photo | Huawei / Honor | ✅ Supported |
 | Samsung - Motion Photo | Windows / Samsung | ✅ Supported |
@@ -105,7 +105,7 @@ Split a **Live Photo** (single-file format) into a **dual-file Live Photo**, or 
 | Split Protocol | Target Devices | Status |
 |---|---|---|
 | Apple - Live Photo | iPhone / iPad | ✅ Supported |
-| vivo - Live Photo | vivo (≤ x200) | 🟡 In Testing |
+| vivo - Live Photo | vivo (≤ x200) | ✅ Supported |
 
 ### 🛠️ Repair Live Photo
 

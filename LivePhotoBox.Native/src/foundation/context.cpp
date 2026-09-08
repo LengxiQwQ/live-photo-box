@@ -19,6 +19,19 @@ void set_error(lpb_context* context, const char* message) noexcept
     }
 }
 
+void set_inspection_status(lpb_context* context, lpb_inspection_failure_category category,
+    lpb_inspection_stage stage, uint64_t capability) noexcept
+{
+    if (context == nullptr) return;
+    try {
+        std::scoped_lock lock(context->error_mutex);
+        context->inspection_status.struct_size = sizeof(lpb_inspection_status);
+        context->inspection_status.category = category;
+        context->inspection_status.stage = stage;
+        context->inspection_status.capability = capability;
+    } catch (...) { }
+}
+
 void log_message(lpb_context* context, lpb_log_level level, const char* message) noexcept
 {
     if (context == nullptr || context->log_callback == nullptr || message == nullptr)
@@ -273,4 +286,16 @@ lpb_result LPB_CALL lpb_get_last_error(
     {
         return LPB_RESULT_INTERNAL_ERROR;
     }
+}
+
+lpb_result LPB_CALL lpb_get_last_inspection_status(
+    lpb_context* context, lpb_inspection_status* status)
+{
+    if (context == nullptr || status == nullptr) return LPB_RESULT_INVALID_ARGUMENT;
+    try {
+        std::scoped_lock lock(context->error_mutex);
+        if (status->struct_size < sizeof(lpb_inspection_status)) return LPB_RESULT_INVALID_ARGUMENT;
+        *status = context->inspection_status;
+        return LPB_RESULT_OK;
+    } catch (...) { return LPB_RESULT_INTERNAL_ERROR; }
 }

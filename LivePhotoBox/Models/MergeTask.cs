@@ -1,5 +1,6 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using LivePhotoBox.Helpers;
+using LivePhotoBox.Media.Models;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -64,6 +65,13 @@ namespace LivePhotoBox.Models
         public long TotalSizeBytes { get; set; }
         // 合并后输出文件的基本名称（不含扩展名）
         public string BaseName { get; set; } = string.Empty;
+
+        // Native-confirmed protocol provenance and exact motion-video facts.
+        public LivePhotoProtocolType Protocol { get; set; } = LivePhotoProtocolType.Unknown;
+        public LivePhotoDetectionMethod DetectionMethod { get; set; }
+        public long MotionVideoByteOffset { get; set; }
+        public long MotionVideoByteLength { get; set; }
+        public VideoContainer MotionVideoContainer { get; set; } = VideoContainer.Unknown;
 
         // 截断后的图片显示名（过长时省略中间）
         public string DisplayImageName => FileNameFormatter.Truncate(ImageFileName);

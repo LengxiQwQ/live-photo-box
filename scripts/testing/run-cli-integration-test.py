@@ -24,6 +24,8 @@ import struct
 import re
 import time
 import tempfile
+import zlib
+import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime
 
@@ -280,7 +282,7 @@ def meta_has(meta: dict | None, field: str, *, group: str | None = None) -> bool
 # These checks intentionally do not use Live Photo Box's readers.  A release
 # gate must be able to catch a writer and reader that agree on the same wrong
 # layout.  The rules below are the byte-level requirements documented in
-# docs/实况照片协议完整分析报告.md.
+# docs/实况照片协议分析文档/（全部文档）.
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -346,6 +348,219 @@ def isobmff_boxes(data: bytes, start: int = 0, end: int | None = None) -> list[t
         result.append((pos, size, typ, header))
         pos += size
     return result
+
+
+def strict_top_level_boxes(data: bytes) -> tuple[list[tuple[int, int, bytes, int]], str]:
+    """Parse a complete top-level ISOBMFF sequence, including its boundaries."""
+    boxes = isobmff_boxes(data)
+    if not boxes:
+        return [], "no top-level boxes"
+    if boxes[0][0] != 0:
+        return boxes, f"first box starts at {boxes[0][0]}"
+    cursor = 0
+    for start, size, _typ, _header in boxes:
+        if start != cursor:
+            return boxes, f"gap/overlap at {cursor}->{start}"
+        cursor = start + size
+    if cursor != len(data):
+        return boxes, f"unparsed trailing bytes at {cursor} (size={len(data)})"
+    return boxes, "complete top-level box sequence"
+
+
+def _jpeg_eoi_end(data: bytes) -> int | None:
+    """Return the end of the first structurally valid JPEG in *data*."""
+    if len(data) < 4 or data[:2] != b"\xff\xd8":
+        return None
+    pos = 2
+    while pos < len(data):
+        if data[pos] != 0xFF:
+            return None
+        while pos < len(data) and data[pos] == 0xFF:
+            pos += 1
+        if pos >= len(data):
+            return None
+        marker = data[pos]
+        pos += 1
+        if marker == 0xD9:
+            return pos
+        if marker == 0xDA:  # SOS: scan entropy-coded bytes until the EOI marker.
+            if pos + 2 > len(data):
+                return None
+            segment_length = int.from_bytes(data[pos:pos + 2], "big")
+            if segment_length < 2 or pos + segment_length > len(data):
+                return None
+            pos += segment_length
+            while pos + 1 < len(data):
+                if data[pos] != 0xFF:
+                    pos += 1
+                    continue
+                next_byte = data[pos + 1]
+                if next_byte == 0x00 or 0xD0 <= next_byte <= 0xD7:
+                    pos += 2
+                    continue
+                if next_byte == 0xD9:
+                    return pos + 2
+                # A legal progressive JPEG may start another scan or marker
+                # segment here. Leave the marker for the outer parser.
+                break
+            else:
+                return None
+            continue
+        if marker == 0xD8 or marker == 0x01 or 0xD0 <= marker <= 0xD7:
+            continue
+        if pos + 2 > len(data):
+            return None
+        segment_length = int.from_bytes(data[pos:pos + 2], "big")
+        if segment_length < 2 or pos + segment_length > len(data):
+            return None
+        pos += segment_length
+    return None
+
+
+def _validate_png(data: bytes) -> tuple[bool, str]:
+    """Validate a complete PNG residue (including chunk bounds and CRCs)."""
+    signature = b"\x89PNG\r\n\x1a\n"
+    if not data.startswith(signature):
+        return False, "missing PNG signature"
+    pos = len(signature)
+    seen_ihdr = False
+    seen_idat = False
+    seen_iend = False
+    while pos < len(data):
+        if pos + 12 > len(data):
+            return False, "truncated PNG chunk"
+        length = int.from_bytes(data[pos:pos + 4], "big")
+        chunk_type = data[pos + 4:pos + 8]
+        end = pos + 12 + length
+        if end > len(data) or not re.fullmatch(rb"[A-Za-z]{4}", chunk_type):
+            return False, "invalid PNG chunk bounds/type"
+        payload = data[pos + 8:pos + 8 + length]
+        actual_crc = int.from_bytes(data[pos + 8 + length:end], "big")
+        expected_crc = zlib.crc32(chunk_type + payload) & 0xFFFFFFFF
+        if actual_crc != expected_crc:
+            return False, f"CRC mismatch for {chunk_type.decode('ascii', 'replace')}"
+        if chunk_type == b"IHDR":
+            if seen_ihdr or length != 13 or pos != len(signature):
+                return False, "invalid/duplicate IHDR"
+            width = int.from_bytes(payload[0:4], "big")
+            height = int.from_bytes(payload[4:8], "big")
+            if width == 0 or height == 0:
+                return False, "zero-sized IHDR"
+            seen_ihdr = True
+        elif not seen_ihdr:
+            return False, "PNG chunk precedes IHDR"
+        elif chunk_type == b"IDAT":
+            seen_idat = True
+        elif chunk_type == b"IEND":
+            if length != 0 or not seen_idat or end != len(data):
+                return False, "IEND is not the final complete PNG chunk"
+            seen_iend = True
+        pos = end
+        if seen_iend:
+            break
+    return (seen_ihdr and seen_idat and seen_iend,
+            "complete PNG auxiliary" if seen_ihdr and seen_idat and seen_iend else "missing PNG IHDR/IDAT/IEND")
+
+
+_XMP_APP1_SIGNATURE = b"http://ns.adobe.com/xap/1.0/\x00"
+_MICAMERA_URI = "http://ns.xiaomi.com/photos/1.0/camera/"
+_XML_DECLARATION_RE = re.compile(
+    r"^[\x09\x0A\x0D\x20]*<\?xml"
+    r"[\x09\x0A\x0D\x20]+version[\x09\x0A\x0D\x20]*=[\x09\x0A\x0D\x20]*"
+    r"(?P<version_quote>['\"])(?P<version>1\.[0-9]+)(?P=version_quote)"
+    r"(?:[\x09\x0A\x0D\x20]+encoding[\x09\x0A\x0D\x20]*=[\x09\x0A\x0D\x20]*"
+    r"(?P<encoding_quote>['\"])[A-Za-z][A-Za-z0-9._-]*(?P=encoding_quote))?"
+    r"(?:[\x09\x0A\x0D\x20]+standalone[\x09\x0A\x0D\x20]*=[\x09\x0A\x0D\x20]*"
+    r"(?P<standalone_quote>['\"])(?:yes|no)(?P=standalone_quote))?"
+    r"[\x09\x0A\x0D\x20]*\?>",
+    re.S,
+)
+
+
+def _xmp_xml_roots(data: bytes) -> tuple[list[ET.Element], str]:
+    """Read namespace-aware XMP packets from structurally framed JPEG APP1s."""
+    if len(data) < 2 or data[:2] != b"\xff\xd8":
+        return [], "not a JPEG"
+    roots: list[ET.Element] = []
+    errors: list[str] = []
+    pos = 2
+    while pos + 4 <= len(data):
+        if data[pos] != 0xFF:
+            return roots, "malformed JPEG marker boundary"
+        while pos < len(data) and data[pos] == 0xFF:
+            pos += 1
+        if pos >= len(data):
+            return roots, "truncated JPEG marker"
+        marker = data[pos]
+        pos += 1
+        if marker in (0xDA, 0xD9):
+            break
+        if marker == 0x01 or 0xD0 <= marker <= 0xD7:
+            continue
+        if pos + 2 > len(data):
+            return roots, "truncated JPEG segment length"
+        length = int.from_bytes(data[pos:pos + 2], "big")
+        if length < 2 or pos + length > len(data):
+            return roots, "invalid JPEG segment length"
+        payload = data[pos + 2:pos + length]
+        pos += length
+        if marker != 0xE1 or not payload.startswith(_XMP_APP1_SIGNATURE):
+            continue
+        packet = payload[len(_XMP_APP1_SIGNATURE):].rstrip(b"\x00 \t\r\n")
+        try:
+            roots.append(ET.fromstring(packet.decode("utf-8")))
+        except (UnicodeDecodeError, ET.ParseError) as exc:
+            errors.append(str(exc))
+    if errors:
+        return roots, "malformed XMP packet: " + "; ".join(errors[:2])
+    return roots, "namespace-owned XMP packets parsed" if roots else "no XMP packet"
+
+
+def parse_micamera_xmpmeta(data: bytes) -> tuple[list[dict] | None, str]:
+    """Parse MiCamera:XMPMeta resource ownership without trusting ExifTool."""
+    roots, packet_detail = _xmp_xml_roots(data)
+    if packet_detail.startswith("malformed XMP packet"):
+        return None, packet_detail
+    values: list[str] = []
+    attr_name = f"{{{_MICAMERA_URI}}}XMPMeta"
+    for root in roots:
+        for element in root.iter():
+            if attr_name in element.attrib:
+                values.append(element.attrib[attr_name])
+    if len(values) != 1:
+        return None, f"MiCamera:XMPMeta count={len(values)} ({packet_detail})"
+    resource_xml = values[0]
+    declaration = _XML_DECLARATION_RE.match(resource_xml)
+    if declaration:
+        resource_xml = resource_xml[declaration.end():]
+    if "<?" in resource_xml:
+        return None, "MiCamera:XMPMeta contains non-leading, duplicate, or other processing instruction"
+    try:
+        resource_root = ET.fromstring(f"<MiCameraResources>{resource_xml}</MiCameraResources>")
+    except ET.ParseError as exc:
+        return None, f"MiCamera:XMPMeta XML malformed: {exc}"
+    children = list(resource_root)
+    if resource_root.text and resource_root.text.strip():
+        return None, "MiCamera:XMPMeta has non-whitespace leading text"
+    expected = {"lenswatermark", "subimage"}
+    names = [child.tag.rsplit("}", 1)[-1].lower() for child in children]
+    if len(children) != 2 or set(names) != expected or len(set(names)) != 2:
+        return None, f"MiCamera:XMPMeta resources={names}"
+    resources: list[dict] = []
+    for child, name in zip(children, names):
+        if list(child) or (child.text and child.text.strip()) or (child.tail and child.tail.strip()):
+            return None, f"MiCamera:{name} has nested/remaining XML content"
+        attrs = {key.rsplit("}", 1)[-1].lower(): value for key, value in child.attrib.items()}
+        if "offset" not in attrs or "length" not in attrs:
+            return None, f"MiCamera:{name} lacks offset/length"
+        if not re.fullmatch(r"[0-9]+", attrs["offset"]) or not re.fullmatch(r"[0-9]+", attrs["length"]):
+            return None, f"MiCamera:{name} offset/length is not decimal"
+        offset = int(attrs["offset"])
+        length = int(attrs["length"])
+        if offset <= 0 or length <= 0:
+            return None, f"MiCamera:{name} offset/length must be positive"
+        resources.append({"name": name, "offset": offset, "length": length})
+    return resources, "unique namespace-owned lenswatermark/subimage declarations"
 
 
 def ffprobe_bytes(data: bytes, suffix: str = ".mp4") -> tuple[bool, str]:
@@ -444,7 +659,9 @@ def verify_v2_container_layout(filepath: Path, *, require_gainmap: bool = False,
     return checks
 
 
-def verify_microvideo_layout(filepath: Path, offset: int | None) -> list[Check]:
+def verify_microvideo_layout(filepath: Path, offset: int | None,
+                             resources: list[dict] | None = None,
+                             resources_detail: str = "") -> list[Check]:
     data = read_bytes(filepath)
     checks: list[Check] = []
     checks.append(Check("MicroVideoOffset is within file", offset is not None and 8 < offset < len(data),
@@ -454,12 +671,82 @@ def verify_microvideo_layout(filepath: Path, offset: int | None) -> list[Check]:
     start = len(data) - offset
     checks.append(Check("MicroVideoOffset points to ftyp", data[start + 4:start + 8] == b"ftyp",
                         "ftyp at EOF-offset", data[start:start + 8].hex()))
-    eoi = data.rfind(b"\xff\xd9", 0, start)
-    padding = start - (eoi + 2) if eoi >= 0 else -1
-    checks.append(Check("JPEG primary boundary precedes MicroVideo",
-                        eoi >= 0 and 0 <= padding <= 4096,
-                        "JPEG EOI before video (at most 4KB padding)",
-                        f"padding={padding}"))
+    primary_end = _jpeg_eoi_end(data[:start])
+    checks.append(Check("JPEG primary has a structural EOI before MicroVideo",
+                        primary_end is not None and primary_end <= start,
+                        "valid JPEG EOI before video", str(primary_end)))
+    residue = data[primary_end:start] if primary_end is not None else b""
+    ownership_ok = True
+    range_detail = resources_detail or "missing MiCamera:XMPMeta"
+    if residue:
+        ownership_ok = resources is not None
+        if resources is None:
+            checks.append(Check("MiCamera:XMPMeta owns V1 residue", False,
+                                "unique lenswatermark/subimage declarations", range_detail))
+        else:
+            ranges: list[tuple[int, int, dict]] = []
+            names: set[str] = set()
+            for resource in resources:
+                name = str(resource.get("name", ""))
+                offset_value = resource.get("offset")
+                length_value = resource.get("length")
+                if name in names or not isinstance(offset_value, int) or not isinstance(length_value, int):
+                    ownership_ok = False
+                    continue
+                names.add(name)
+                resource_start = len(data) - offset_value
+                resource_end = resource_start + length_value
+                ranges.append((resource_start, resource_end, resource))
+            ranges.sort(key=lambda item: item[0])
+            expected_names = {"lenswatermark", "subimage"}
+            ownership_ok = ownership_ok and len(ranges) == 2 and names == expected_names
+            if primary_end is None or not ranges:
+                ownership_ok = False
+            else:
+                ownership_ok = ownership_ok and ranges[0][0] == primary_end
+                ownership_ok = ownership_ok and ranges[-1][1] == start
+                for previous, current in zip(ranges, ranges[1:]):
+                    ownership_ok = ownership_ok and previous[1] == current[0]
+                for resource_start, resource_end, resource in ranges:
+                    if not (0 <= resource_start < resource_end <= start):
+                        resource_ok, resource_detail = False, "range outside EOI->video"
+                    else:
+                        resource_bytes = data[resource_start:resource_end]
+                        if resource["name"] == "subimage":
+                            jpeg_end = _jpeg_eoi_end(resource_bytes)
+                            resource_ok = jpeg_end == len(resource_bytes)
+                            resource_detail = (
+                                "complete JPEG through EOI"
+                                if resource_ok else f"JPEG end={jpeg_end}, size={len(resource_bytes)}"
+                            )
+                        elif resource["name"] == "lenswatermark":
+                            resource_ok, resource_detail = _validate_png(resource_bytes)
+                        else:
+                            resource_ok, resource_detail = False, "unknown auxiliary resource name"
+                    ownership_ok = ownership_ok and resource_ok
+                    checks.append(Check(
+                        f"V1 {resource['name']} has the declared media structure",
+                        resource_ok,
+                        "subimage=complete JPEG; lenswatermark=complete PNG",
+                        resource_detail))
+            range_detail = "; ".join(
+                f"{item[2]['name']}={item[0]}..{item[1]}" for item in ranges
+            ) or range_detail
+            checks.append(Check("MiCamera:XMPMeta residue ranges are contiguous and owned",
+                                ownership_ok,
+                                "EOF-relative resources exactly cover JPEG EOI to video",
+                                range_detail))
+    else:
+        checks.append(Check("MicroVideo interstitial residue is legal",
+                            primary_end is not None,
+                            "empty residue or declared auxiliary range",
+                            "no residue" if primary_end is not None else "missing JPEG EOI"))
+    checks.append(Check("MicroVideo residue has no unexplained bytes",
+                        primary_end is not None and ownership_ok,
+                        "all EOI->video bytes are owned", range_detail))
+    checks.append(Check("MicroVideo range consumes the file tail",
+                        start + offset == len(data),
+                        "video ends at EOF", f"video_end={start + offset}, eof={len(data)}"))
     ok, detail = ffprobe_bytes(data[start:], ".mp4")
     checks.append(Check("MicroVideo byte range is ffprobe-readable", ok, "ffprobe OK", detail))
     return checks
@@ -469,8 +756,11 @@ _SAMSUNG_SEF_TAGS = {
     0x0A01: b"Image_UTC_Data",
     0x0AA1: b"MCC_Data",
     0x0D01: b"Camera_Scene_Info",
+    0x0D21: b"Camera_Scene_Info",
     0x0CC1: b"Color_Display_P3",
     0x0C61: b"Camera_Capture_Mode_Info",
+    0x0CD2: b"Photo_HDR_Info",
+    0x0A33: b"MotionPhoto_AutoPlay",
     0x0A30: b"MotionPhoto_Data",
     0x0A31: b"MotionPhoto_Version",
 }
@@ -484,18 +774,20 @@ def _u32be(data: bytes, pos: int) -> int | None:
     return int.from_bytes(data[pos:pos + 4], "big") if pos + 4 <= len(data) else None
 
 
-def parse_samsung_sef(data: bytes, sefh: int) -> tuple[list[dict], str]:
-    """Parse the backwards-referenced Samsung SEF index without ExifTool."""
-    if data[sefh:sefh + 4] != b"SEFH":
+def parse_samsung_sef(data: bytes, sefh: int, *, region_start: int = 0,
+                      region_end: int | None = None) -> tuple[list[dict], str]:
+    """Parse a complete Samsung SEF directory and its backwards references."""
+    region_end = len(data) if region_end is None else region_end
+    if sefh < region_start or sefh + 12 > region_end or data[sefh:sefh + 4] != b"SEFH":
         return [], "SEFH not found"
     version = _u32le(data, sefh + 4)
     count = _u32le(data, sefh + 8)
-    if count is None or count > 64:
+    if version is None or count is None or version != 107 or count == 0 or count > 64:
         return [], f"invalid field count {count}"
     entries: list[dict] = []
     for i in range(count):
         pos = sefh + 12 + i * 12
-        if pos + 12 > len(data):
+        if pos + 12 > region_end:
             return entries, "truncated index"
         marker = int.from_bytes(data[pos + 2:pos + 4], "little")
         offset = _u32le(data, pos + 4)
@@ -503,50 +795,88 @@ def parse_samsung_sef(data: bytes, sefh: int) -> tuple[list[dict], str]:
         tag_start = sefh - offset if offset is not None else -1
         entries.append({"marker": marker, "offset": offset, "size": size, "start": tag_start})
     footer = sefh + 12 + count * 12
+    if footer + 8 > region_end:
+        return entries, "truncated footer"
     total_size = _u32le(data, footer)
     if data[footer + 4:footer + 8] != b"SEFT":
         return entries, "missing SEFT"
-    if total_size != (footer + 8 - sefh):
-        return entries, f"SEF total size={total_size}, actual={footer + 8 - sefh}"
-    return entries, f"version={version}, fields={count}"
+    actual_size = footer + 8 - sefh
+    region_size = region_end - sefh
+    # Samsung samples use both conventions: total size through the index
+    # (excluding the 8-byte total-size/SEFT footer) and total size including
+    # that footer. Both remain bounded by the same formal footer and box.
+    total_matches = total_size in (actual_size, actual_size - 8)
+    if not total_matches or actual_size != region_size:
+        return entries, f"SEF total size={total_size}, actual={actual_size}, region={region_size}"
+    return entries, f"version={version}, fields={count}, total={total_size}"
 
 
-def verify_samsung_sef(data: bytes, sefh: int) -> tuple[list[Check], dict | None]:
-    """Verify all seven report-defined SEF tags and their cross references."""
+def verify_samsung_sef(data: bytes, sefh: int, *, region_start: int = 0,
+                       region_end: int | None = None,
+                       require_region_start: bool = True) -> tuple[list[Check], dict | None]:
+    """Verify SEF entry boundaries, names, offsets, and unique video ownership."""
+    region_end = len(data) if region_end is None else region_end
     checks: list[Check] = []
-    entries, detail = parse_samsung_sef(data, sefh)
-    checks.append(Check("Samsung SEF index parses", bool(entries), "valid SEFH/SEFT", detail))
+    entries, detail = parse_samsung_sef(data, sefh, region_start=region_start, region_end=region_end)
+    parsed = bool(entries) and detail.startswith("version=")
+    checks.append(Check("Samsung SEF index parses", parsed, "valid SEFH/SEFT", detail))
     markers = {entry["marker"] for entry in entries}
-    checks.append(Check("Samsung SEF has seven required tags", markers == set(_SAMSUNG_SEF_TAGS),
-                        "0a01,0aa1,0d01,0cc1,0c61,0a30,0a31",
+    checks.append(Check("Samsung SEF entries are unique", len(markers) == len(entries),
+                        "no duplicate marker entries",
                         ",".join(f"{marker:04x}" for marker in sorted(markers))))
     motion: dict | None = None
     references_valid = True
     reference_detail: list[str] = []
+    ranges: list[tuple[int, int]] = []
     for entry in entries:
         start, size, marker = entry["start"], entry["size"], entry["marker"]
         expected_name = _SAMSUNG_SEF_TAGS.get(marker)
-        if start < 0 or size is None or size < 8 or start + size > sefh:
+        if start < region_start or size is None or size < 8 or start + size > sefh:
             references_valid = False
             reference_detail.append(f"{marker:04x}:range")
             continue
         name_len = _u32le(data, start + 4)
-        if name_len is None or 8 + name_len > size:
+        if name_len is None or name_len == 0 or 8 + name_len > size:
             references_valid = False
             reference_detail.append(f"{marker:04x}:name")
             continue
         name = data[start + 8:start + 8 + name_len]
+        if not name or b"\x00" in name:
+            references_valid = False
+            reference_detail.append(f"{marker:04x}:invalid-name")
+        entry["name"] = name
+        ranges.append((start, start + size))
         if expected_name is not None and name != expected_name:
             references_valid = False
             reference_detail.append(f"{marker:04x}:{name!r}")
         if marker == 0x0A30:
             motion = dict(entry)
+            motion["name"] = name
             motion["payload_start"] = start + 8 + name_len
             motion["payload_size"] = size - 8 - name_len
-    checks.append(Check("Samsung SEF offsets and tag names agree", references_valid,
+            if motion["payload_size"] <= 0:
+                references_valid = False
+                reference_detail.append("0a30:empty-payload")
+    ranges.sort()
+    boundaries_valid = bool(ranges) and ranges[-1][1] == sefh
+    if require_region_start:
+        boundaries_valid = boundaries_valid and ranges[0][0] == region_start
+    for previous, current in zip(ranges, ranges[1:]):
+        if previous[1] != current[0]:
+            boundaries_valid = False
+            reference_detail.append("entry-gap-or-overlap")
+    checks.append(Check("Samsung SEF entry boundaries are contiguous", boundaries_valid,
+                        "entries are contiguous through SEFH", str(ranges)))
+    checks.append(Check("Samsung SEF offsets and tag names agree", references_valid and parsed,
                         "every index resolves to its named tag", "; ".join(reference_detail) or "OK"))
-    checks.append(Check("Samsung MotionPhoto_Data index exists", motion is not None,
-                        "marker 0a30", "present" if motion else "missing"))
+    named_motion = [entry for entry in entries if entry.get("name") == b"MotionPhoto_Data"]
+    formal_motion = [entry for entry in named_motion if entry.get("marker") == 0x0A30]
+    checks.append(Check("Samsung has one formal MotionPhoto_Data entry",
+                        len(named_motion) == 1 and len(formal_motion) == 1,
+                        "exactly one marker 0a30 named MotionPhoto_Data",
+                        f"named={len(named_motion)}, formal={len(formal_motion)}"))
+    if len(named_motion) != 1 or len(formal_motion) != 1:
+        motion = None
     return checks, motion
 
 
@@ -645,7 +975,12 @@ def _chk_v1(meta, filepath) -> list[Check]:
     ts = meta_get(meta, "MicroVideoPresentationTimestampUs")
     cc.append(Check("PresentationTimestampUs",
               ts is not None, "present", str(ts)))
-    cc.extend(verify_microvideo_layout(filepath, parse_int(str(mvo)) if mvo is not None else None))
+    resources, resources_detail = parse_micamera_xmpmeta(read_bytes(filepath))
+    cc.extend(verify_microvideo_layout(
+        filepath,
+        parse_int(str(mvo)) if mvo is not None else None,
+        resources,
+        resources_detail))
     return cc
 
 
@@ -739,76 +1074,99 @@ def _chk_samsung(meta, filepath) -> list[Check]:
     ext = filepath.suffix.lower()
     # HEIC points from its V2 XMP into mpvd; unlike JPEG it does not use a
     # final appended Item range, so validate that pointer/container below.
-    cc = _chk_v2(meta, filepath, verify_layout=ext in (".jpg", ".jpeg"))
+    cc = _chk_v2(meta, filepath, verify_layout=False)
     if ext in (".jpg", ".jpeg"):
         data = read_bytes(filepath)
-        tail = data[-8:]
-        cc.append(Check("SEFT trailer", b"SEFT" in tail,
-                        "SEFT in tail", tail.hex()))
-        cc.append(Check("Samsung SEFH header", b"SEFH" in data,
-                        "SEFH present", "present" if b"SEFH" in data else "missing"))
-        cc.append(Check("Samsung MotionPhoto_Data tag", b"MotionPhoto_Data\x00" in data,
-                        "tag present", "present" if b"MotionPhoto_Data\x00" in data else "missing"))
-        cc.append(Check("Samsung MotionPhoto_Version tag", b"MotionPhoto_Version" in data,
-                        "tag present", "present" if b"MotionPhoto_Version" in data else "missing"))
         cc.extend(verify_v2_container_layout(filepath, samsung=True))
-        sefh = data.rfind(b"SEFH")
-        if sefh >= 0:
-            sef_checks, motion = verify_samsung_sef(data, sefh)
+        jpeg_end = _jpeg_eoi_end(data)
+        cc.append(Check("Samsung JPEG primary has structural EOI", jpeg_end is not None,
+                        "valid JPEG EOI", str(jpeg_end)))
+        sefh_candidates = ([jpeg_end + match.start() for match in re.finditer(b"SEFH", data[jpeg_end:])]
+                           if jpeg_end is not None else [])
+        cc.append(Check("Samsung JPEG has one formal SEFH index", len(sefh_candidates) == 1,
+                        "exactly one SEFH", str(sefh_candidates)))
+        if jpeg_end is not None and len(sefh_candidates) == 1:
+            sefh = sefh_candidates[0]
+            sef_checks, motion = verify_samsung_sef(
+                data, sefh, region_start=jpeg_end, region_end=len(data),
+                require_region_start=False)
             cc.extend(sef_checks)
             if motion is not None:
                 start = motion["payload_start"]
                 size = motion["payload_size"]
                 video = data[start:start + size]
-                cc.append(Check("Samsung SEF video starts with ftyp", len(video) >= 8 and video[4:8] == b"ftyp",
+                cc.append(Check("Samsung formal MotionPhoto_Data starts with ftyp",
+                                len(video) >= 8 and video[4:8] == b"ftyp",
                                 "ftyp at MotionPhoto_Data payload", video[:8].hex()))
                 ok, detail = ffprobe_bytes(video)
-                cc.append(Check("Samsung SEF video is ffprobe-readable", ok, "ffprobe OK", detail))
+                cc.append(Check("Samsung formal video is ffprobe-readable", ok, "ffprobe OK", detail))
     elif ext in (".heic", ".heif"):
-        # Check for mpvd box – search near the image end
+        # Samsung HEIC uses adjacent top-level mpvd and sefd boxes.  The
+        # sefd directory owns a formal MotionPhoto_Data pointer into mpvd;
+        # neither box is inferred from an arbitrary byte-string hit.
         try:
-            with open(filepath, "rb") as f:
-                data = f.read()
-            cc.append(Check("mpvd box", b"mpvd" in data,
-                            "mpvd present", "found" if b"mpvd" in data else "missing"))
-            cc.append(Check("sefd box", b"sefd" in data,
-                            "sefd present", "found" if b"sefd" in data else "missing"))
-            boxes = isobmff_boxes(data)
-            mpvd = next((box for box in boxes if box[2] == b"mpvd"), None)
-            if mpvd:
-                start, size, _, header = mpvd
-                payload = data[start + header:start + size]
-                cc.append(Check("mpvd contains ftyp video", len(payload) >= 8 and payload[4:8] == b"ftyp",
-                                "ftyp after mpvd header", payload[:8].hex()))
-                sefd_at = payload.find(b"sefd")
-                sefd_start = start + header + sefd_at - 4 if sefd_at >= 4 else -1
-                cc.append(Check("Samsung HEIC sefd is nested in mpvd", sefd_start >= start + header,
-                                "nested sefd box after MP4", str(sefd_start)))
-                video = payload if sefd_at < 4 else payload[:sefd_at - 4]
-                ok, detail = ffprobe_bytes(video)
+            data = read_bytes(filepath)
+            boxes, box_detail = strict_top_level_boxes(data)
+            cc.append(Check("Samsung HEIC top-level boxes are structurally complete",
+                            bool(boxes) and box_detail == "complete top-level box sequence",
+                            "complete ISOBMFF sequence", box_detail))
+            mpvd_boxes = [box for box in boxes if box[2] == b"mpvd"]
+            sefd_boxes = [box for box in boxes if box[2] == b"sefd"]
+            cc.append(Check("Samsung HEIC has one top-level mpvd", len(mpvd_boxes) == 1,
+                            "exactly one top-level mpvd", str(len(mpvd_boxes))))
+            cc.append(Check("Samsung HEIC has one top-level sefd", len(sefd_boxes) == 1,
+                            "exactly one top-level sefd", str(len(sefd_boxes))))
+            if len(mpvd_boxes) == 1 and len(sefd_boxes) == 1:
+                mpvd_start, mpvd_size, _type, mpvd_header = mpvd_boxes[0]
+                sefd_start, sefd_size, _type, sefd_header = sefd_boxes[0]
+                mpvd_video_start = mpvd_start + mpvd_header
+                mpvd_video_end = mpvd_start + mpvd_size
+                mpvd_video = data[mpvd_video_start:mpvd_video_end]
+                cc.append(Check("Samsung mpvd owns an ftyp video range",
+                                len(mpvd_video) >= 8 and mpvd_video[4:8] == b"ftyp",
+                                "ftyp at mpvd payload start", mpvd_video[:8].hex()))
+                ok, detail = ffprobe_bytes(mpvd_video)
                 cc.append(Check("Samsung mpvd video is ffprobe-readable", ok, "ffprobe OK", detail))
-                if sefd_start >= 0:
-                    sefh = data.find(b"SEFH", sefd_start)
-                    cc.append(Check("Samsung HEIC SEF header is inside sefd", sefh >= sefd_start and sefh < start + size,
-                                    "SEFH inside sefd", str(sefh)))
-                    if sefh >= 0:
-                        sef_checks, motion = verify_samsung_sef(data, sefh)
-                        cc.extend(sef_checks)
-                        if motion is not None:
-                            p = motion["payload_start"]
-                            n = motion["payload_size"]
-                            pointer = data[p:p + n]
-                            offset = _u32be(pointer, 4) if pointer[:4] == b"mpv2" else None
-                            length = _u32be(pointer, 8) if pointer[:4] == b"mpv2" else None
-                            pointer_video = data[start + offset:start + offset + length] if offset is not None and length is not None else b""
-                            cc.append(Check("Samsung HEIC MotionPhoto_Data is mpv2 pointer", pointer[:4] == b"mpv2" and n == 12,
-                                            "mpv2 + BE offset + BE size", pointer[:4].decode("ascii", "replace") + f", length={n}"))
-                            cc.append(Check("Samsung HEIC pointer targets mpvd video", len(pointer_video) == (length or 0) and pointer_video[:8] == payload[:8],
-                                            "pointer starts at mpvd ftyp video", f"offset={offset}, size={length}"))
-                            ok, detail = ffprobe_bytes(pointer_video)
-                            cc.append(Check("Samsung HEIC pointer video is ffprobe-readable", ok, "ffprobe OK", detail))
+
+                sefd_end = sefd_start + sefd_size
+                sefh_candidates = [match.start() for match in re.finditer(b"SEFH", data[sefd_start + sefd_header:sefd_end])]
+                sefh_candidates = [sefd_start + sefd_header + candidate for candidate in sefh_candidates]
+                cc.append(Check("Samsung HEIC sefd has one formal SEFH index",
+                                len(sefh_candidates) == 1,
+                                "exactly one SEFH inside sefd", str(sefh_candidates)))
+                if len(sefh_candidates) == 1:
+                    sef_checks, motion = verify_samsung_sef(
+                        data, sefh_candidates[0],
+                        region_start=sefd_start + sefd_header, region_end=sefd_end)
+                    cc.extend(sef_checks)
+                    if motion is not None:
+                        pointer_start = motion["payload_start"]
+                        pointer_size = motion["payload_size"]
+                        pointer = data[pointer_start:pointer_start + pointer_size]
+                        offset = _u32be(pointer, 4) if pointer[:4] == b"mpv2" else None
+                        length = _u32be(pointer, 8) if pointer[:4] == b"mpv2" else None
+                        pointer_video = data[offset:offset + length] if offset is not None and length is not None else b""
+                        pointer_shape_ok = pointer[:4] == b"mpv2" and pointer_size == 12
+                        cc.append(Check("Samsung HEIC MotionPhoto_Data is an owned mpv2 pointer",
+                                        pointer_shape_ok,
+                                        "mpv2 + BE absolute offset + BE length (12B)",
+                                        pointer[:4].decode("ascii", "replace") + f", length={pointer_size}"))
+                        range_ok = (
+                            offset is not None and length is not None
+                            and offset == mpvd_video_start
+                            and length == mpvd_video_end - mpvd_video_start
+                            and mpvd_video_start >= mpvd_start + mpvd_header
+                            and offset + length == mpvd_video_end
+                            and offset + length <= sefd_start
+                        )
+                        cc.append(Check("Samsung HEIC pointer owns exactly the mpvd video range",
+                                        range_ok,
+                                        "offset/length exactly cover mpvd payload without overlap",
+                                        f"offset={offset}, length={length}, expected={mpvd_video_start}:{mpvd_video_end}"))
+                        ok, detail = ffprobe_bytes(pointer_video)
+                        cc.append(Check("Samsung HEIC pointer video is ffprobe-readable", ok, "ffprobe OK", detail))
         except Exception as e:
-            cc.append(Check("mpvd box", False, "mpvd present", str(e)))
+            cc.append(Check("Samsung HEIC structural verification", False, "valid top-level mpvd/sefd", str(e)))
     return cc
 
 
@@ -1403,18 +1761,26 @@ def generate_report(merge, split, cover, repair) -> int:
         total_ok += ok
         lines.append(f"| {cat.capitalize()} | {n} | {ok} | {n - ok} |")
     observed_fail = total - total_ok
-    # Device source audits are evidence about the fixture, not release output.
-    # They remain prominently reported, but only generated products decide the
-    # release gate. This prevents an old vendor variation from hiding a green
-    # or red product result.
+    # Generated products and untouched source audits are separate categories,
+    # but both are part of this verifier's real gate. Source failures must not
+    # be reported as observed-only evidence while the process exits 0.
+    source_total = len(source)
+    source_ok = sum(1 for r in source if r.all_passed)
+    source_fail = source_total - source_ok
     gated = [r for r in everything if r.category != "source"]
-    gated_total = len(gated)
-    gated_ok = sum(1 for r in gated if r.all_passed)
-    total_fail = gated_total - gated_ok
+    generated_total = len(gated)
+    generated_ok = sum(1 for r in gated if r.all_passed)
+    generated_fail = generated_total - generated_ok
+    total_fail = generated_fail + source_fail
     lines.append(
         f"| **Observed total** | **{total}** | **{total_ok}** | **{observed_fail}** |")
     lines.append(
-        f"| **Release gate (generated products)** | **{gated_total}** | **{gated_ok}** | **{total_fail}** |\n")
+        f"| **Generated-product gate** | **{generated_total}** | **{generated_ok}** | **{generated_fail}** |")
+    lines.append(
+        f"| **P1 source-audit gate** | **{source_total}** | **{source_ok}** | **{source_fail}** |")
+    lines.append(
+        f"| **Overall gate** | **{generated_total + source_total}** | "
+        f"**{generated_ok + source_ok}** | **{total_fail}** |\n")
 
     # ── Merge ──────────────────────────────────────────────────
     lines.append("## 1. Merge Results\n")
@@ -1439,9 +1805,8 @@ def generate_report(merge, split, cover, repair) -> int:
 
     # ── Source protocol audit ──────────────────────────────────
     lines.append("## 2. Untouched Source Protocol Audit\n")
-    lines.append("> Read-only checks of the copied device samples. These are deliberately "
-                 "separate from split-output results so a legacy sample discrepancy cannot "
-                 "be mistaken for a product regression.\n")
+    lines.append("> Read-only checks of the copied device samples. These are reported "
+                 "separately from generated products and remain part of the P1 gate.\n")
     for r in source:
         ok = sum(1 for c in r.checks if c.passed)
         n = len(r.checks)
@@ -1539,7 +1904,8 @@ def generate_report(merge, split, cover, repair) -> int:
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text("\n".join(lines), encoding="utf-8")
     log(f"Report → {REPORT_PATH}")
-    log(f"Total: {total} | ✅ {total_ok} | ❌ {total_fail}")
+    log(f"Total: {total} | ✅ {total_ok} | ❌ {observed_fail} | "
+        f"generated_fail={generated_fail} | source_audit_fail={source_fail}")
 
     return total_fail
 

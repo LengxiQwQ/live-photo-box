@@ -47,10 +47,9 @@ namespace LivePhotoBox.Services
     // 仅通过唯一标识符精确匹配，无日期/GPS 兜底：
     //   - ContentIdentifier UUID: Apple Live Photo 配对
     //   - com.android.camera.livephoto ID: vivo 双文件配对
-    // 两种调用路径：
-    //   - MatchAsync: Merge 页面，使用 Native SourceInspector 提取 ContentIdentifier
-    //   - MatchFromAnalysis: Repair 页面，复用已有的 RepairAnalysisResult
-    //   - MatchVivo: Merge 页面，纯文件 I/O 解析 vivo JSON 尾部
+    // 调用路径：
+    //   - MatchAsync: 使用 Native SourceInspector 提取 ContentIdentifier
+    //   - MatchVivo: 使用 Native SourceInspector 确认 vivo 双文件候选
     public static partial class LivePhotoMetadataMatcher
     {
         /// <summary>
@@ -67,11 +66,6 @@ namespace LivePhotoBox.Services
             if (!File.Exists(imagePath) || !File.Exists(videoPath))
                 return LivePhotoProtocolType.Unknown;
 
-            string imageBaseName = Path.GetFileNameWithoutExtension(imagePath);
-            string videoBaseName = Path.GetFileNameWithoutExtension(videoPath);
-            if (!imageBaseName.Equals(videoBaseName, StringComparison.OrdinalIgnoreCase))
-                return LivePhotoProtocolType.Unknown;
-
             token.ThrowIfCancellationRequested();
 
             try
@@ -84,7 +78,13 @@ namespace LivePhotoBox.Services
                     return LivePhotoProtocolType.Vivo;
             }
             catch (OperationCanceledException) { throw; }
-            catch { /* fallback to Unknown */ }
+            catch (SourceInspectionException ex) when (
+                ex.Category == SourceInspectionFailureCategory.Unsupported &&
+                ex.Stage is SourceInspectionStage.Protocol or SourceInspectionStage.Pairing)
+            {
+                // An explicitly rejected candidate is not a pair.  All
+                // malformed, ambiguous, and I/O failures remain observable.
+            }
 
             return LivePhotoProtocolType.Unknown;
         }
@@ -132,10 +132,8 @@ namespace LivePhotoBox.Services
                         contentIdMap[filePath] = facts.PairingIdentifier;
                 }
                 catch (OperationCanceledException) { throw; }
-                catch (Exception ex)
-                {
-                    LogService.Scan($"CID match: native inspect failed for {Path.GetFileName(filePath)}: {ex.Message}", LogLevel.Warning);
-                }
+                catch (SourceInspectionException) { throw; }
+                catch (IOException) { throw; }
             }
 
             // Match by UUID
@@ -143,21 +141,30 @@ namespace LivePhotoBox.Services
             var remainingImages = new HashSet<string>(unmatchedImagePaths, StringComparer.OrdinalIgnoreCase);
             var remainingVideos = new HashSet<string>(unmatchedVideoPaths, StringComparer.OrdinalIgnoreCase);
 
-            var cidToImage = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var imgPath in remainingImages.ToList())
+            var imageGroups = remainingImages
+                .Where(path => contentIdMap.ContainsKey(path))
+                .GroupBy(path => contentIdMap[path], StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var videoGroups = remainingVideos
+                .Where(path => contentIdMap.ContainsKey(path))
+                .GroupBy(path => contentIdMap[path], StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (imageGroups.Any(group => group.Count() > 1) || videoGroups.Any(group => group.Count() > 1))
             {
-                if (contentIdMap.TryGetValue(imgPath, out var cid) && !string.IsNullOrWhiteSpace(cid))
-                {
-                    if (!cidToImage.ContainsKey(cid))
-                        cidToImage[cid] = imgPath;
-                }
+                throw new SourceInspectionException(
+                    SourceInspectionFailureCategory.Ambiguous,
+                    SourceInspectionStage.Pairing,
+                    LivePhotoBox.Interop.NativeRuntime.AppleCapability,
+                    "Multiple image or video candidates share the same ContentIdentifier.");
             }
 
-            foreach (var vidPath in remainingVideos.ToList())
+            var imageById = imageGroups.ToDictionary(group => group.Key, group => group.Single(), StringComparer.OrdinalIgnoreCase);
+            var videoById = videoGroups.ToDictionary(group => group.Key, group => group.Single(), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var (cid, matchedImgPath) in imageById)
             {
-                if (contentIdMap.TryGetValue(vidPath, out var vidCid)
-                    && !string.IsNullOrWhiteSpace(vidCid)
-                    && cidToImage.TryGetValue(vidCid, out var matchedImgPath))
+                if (videoById.TryGetValue(cid, out var vidPath))
                 {
                     try
                     {
@@ -172,16 +179,17 @@ namespace LivePhotoBox.Services
                             });
                             remainingImages.Remove(matchedImgPath);
                             remainingVideos.Remove(vidPath);
-                            cidToImage.Remove(vidCid);
                         }
                     }
                     catch (OperationCanceledException)
                     {
                         throw;
                     }
-                    catch
+                    catch (SourceInspectionException ex) when (
+                        ex.Category == SourceInspectionFailureCategory.Unsupported &&
+                        ex.Stage is SourceInspectionStage.Protocol or SourceInspectionStage.Pairing)
                     {
-                        // Candidate dual file did not validate as Apple Live Photo, skip pairing as ContentIdentifier
+                        // Explicit candidate rejection is not a pairing authority.
                     }
                 }
             }
@@ -194,75 +202,6 @@ namespace LivePhotoBox.Services
             };
         }
 
-        // ──────────────────────────────────────────────
-        //  Repair 页面路径：复用已有的 RepairAnalysisResult
-        // ──────────────────────────────────────────────
-
-        // 使用已有的 RepairAnalysisResult 进行元数据匹配（Repair 页面专用）。
-        // 不需要额外启动 exiftool — 分析数据已在扫描阶段提取。
-        // images: 独立照片（路径 + 分析结果）
-        // videos: 独立视频（路径 + 分析结果）
-        // 返回: 额外匹配到的配对 + 剩余未匹配计数
-        // Repair: ContentIdentifier UUID exact match only.
-        public static MetadataMatchOutput MatchFromAnalysis(
-            IReadOnlyList<(string path, RepairAnalysisResult analysis)> images,
-            IReadOnlyList<(string path, RepairAnalysisResult analysis)> videos)
-        {
-            var contentIdMap = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var (path, analysis) in images)
-            {
-                if (!string.IsNullOrWhiteSpace(analysis.ContentIdentifier))
-                    contentIdMap[path] = analysis.ContentIdentifier;
-            }
-
-            foreach (var (path, analysis) in videos)
-            {
-                if (!string.IsNullOrWhiteSpace(analysis.ContentIdentifier))
-                    contentIdMap[path] = analysis.ContentIdentifier;
-            }
-
-            var pairs = new List<MetadataPair>();
-            var remainingImages = new HashSet<string>(
-                images.Select(x => x.path), StringComparer.OrdinalIgnoreCase);
-            var remainingVideos = new HashSet<string>(
-                videos.Select(x => x.path), StringComparer.OrdinalIgnoreCase);
-
-            var cidToImage = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var imgPath in remainingImages.ToList())
-            {
-                if (contentIdMap.TryGetValue(imgPath, out var cid) && !string.IsNullOrWhiteSpace(cid))
-                {
-                    if (!cidToImage.ContainsKey(cid))
-                        cidToImage[cid] = imgPath;
-                }
-            }
-
-            foreach (var vidPath in remainingVideos.ToList())
-            {
-                if (contentIdMap.TryGetValue(vidPath, out var vidCid)
-                    && !string.IsNullOrWhiteSpace(vidCid)
-                    && cidToImage.TryGetValue(vidCid, out var matchedImgPath))
-                {
-                    pairs.Add(new MetadataPair
-                    {
-                        ImagePath = matchedImgPath,
-                        VideoPath = vidPath,
-                        Source = MatchSource.ContentIdentifier
-                    });
-                    remainingImages.Remove(matchedImgPath);
-                    remainingVideos.Remove(vidPath);
-                    cidToImage.Remove(vidCid);
-                }
-            }
-
-            return new MetadataMatchOutput
-            {
-                Pairs = pairs,
-                RemainingImages = remainingImages.Count,
-                RemainingVideos = remainingVideos.Count
-            };
-        }
         // ── vivo 双文件配对 ─────────────────────────────────────────
 
         /// <summary>
@@ -275,7 +214,6 @@ namespace LivePhotoBox.Services
             IReadOnlyList<string> unmatchedVideoPaths,
             Action<int>? onFileProcessed = null)
         {
-            var pairs = new List<MetadataPair>();
             var remainingImages = new HashSet<string>(unmatchedImagePaths, StringComparer.OrdinalIgnoreCase);
             var remainingVideos = new HashSet<string>(unmatchedVideoPaths, StringComparer.OrdinalIgnoreCase);
 
@@ -283,85 +221,76 @@ namespace LivePhotoBox.Services
             {
                 return new MetadataMatchOutput
                 {
-                    Pairs = pairs,
+                    Pairs = Array.Empty<MetadataPair>(),
                     RemainingImages = remainingImages.Count,
                     RemainingVideos = remainingVideos.Count
                 };
             }
 
+            // The Native inspector owns vivo ID extraction and dual-file
+            // confirmation.  A single orphan image intentionally fails closed,
+            // so do not recover its ID with managed byte parsing here.  Probe
+            // candidate pairs through Native and retain only unambiguous
+            // one-to-one confirmations.
             var inspector = new SourceInspector();
-            var imgIdToPath = new Dictionary<string, string>(StringComparer.Ordinal);
+            var candidates = new List<(string Image, string Video)>();
             int processed = 0;
-
-            foreach (var imgPath in remainingImages.ToList())
+            foreach (var imgPath in remainingImages)
             {
-                onFileProcessed?.Invoke(++processed);
                 string ext = Path.GetExtension(imgPath).ToLowerInvariant();
                 if (ext != ".jpg" && ext != ".jpeg") continue;
-
-                try
+                foreach (var vidPath in remainingVideos)
                 {
-                    SourceMediaFacts facts = inspector.InspectAsync(imgPath).GetAwaiter().GetResult();
-                    if (!string.IsNullOrWhiteSpace(facts.PairingIdentifier) && facts.PairingIdentifier.Length > 8)
+                    onFileProcessed?.Invoke(++processed);
+                    try
                     {
-                        if (!imgIdToPath.ContainsKey(facts.PairingIdentifier))
-                            imgIdToPath[facts.PairingIdentifier] = imgPath;
+                        SourceMediaFacts facts = inspector.InspectAsync(imgPath, vidPath).GetAwaiter().GetResult();
+                        if (facts.Protocol == SourceProtocol.VivoLegacyDualFile)
+                            candidates.Add((imgPath, vidPath));
                     }
-                }
-                catch
-                {
-                    // Skip if inspection fails
+                    catch (SourceInspectionException ex) when (
+                        ex.Category == SourceInspectionFailureCategory.Unsupported &&
+                        ex.Stage is SourceInspectionStage.Protocol or SourceInspectionStage.Pairing)
+                    {
+                        // A rejected candidate is not evidence of a match.
+                    }
+                    catch (IOException)
+                    {
+                        throw;
+                    }
                 }
             }
 
-            if (imgIdToPath.Count == 0)
+            var imageGroups = candidates
+                .GroupBy(x => x.Image, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var videoGroups = candidates
+                .GroupBy(x => x.Video, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            if (imageGroups.Any(group => group.Count() > 1) || videoGroups.Any(group => group.Count() > 1))
             {
-                return new MetadataMatchOutput
-                {
-                    Pairs = pairs,
-                    RemainingImages = remainingImages.Count,
-                    RemainingVideos = remainingVideos.Count
-                };
+                throw new SourceInspectionException(
+                    SourceInspectionFailureCategory.Ambiguous,
+                    SourceInspectionStage.Pairing,
+                    LivePhotoBox.Interop.NativeRuntime.VivoLegacyCapability,
+                    "Multiple vivo candidates share the same pairing identity.");
             }
 
-            foreach (var vidPath in remainingVideos.ToList())
+            var onePerImage = imageGroups
+                .SelectMany(group => group)
+                .ToList();
+            var onePerVideo = onePerImage;
+            var pairs = new List<MetadataPair>();
+            foreach (var candidate in onePerVideo)
             {
-                onFileProcessed?.Invoke(++processed);
-                string ext = Path.GetExtension(vidPath).ToLowerInvariant();
-                if (ext != ".mp4") continue;
-
-                try
+                pairs.Add(new MetadataPair
                 {
-                    SourceMediaFacts facts = inspector.InspectAsync(vidPath).GetAwaiter().GetResult();
-                    if (!string.IsNullOrWhiteSpace(facts.PairingIdentifier) &&
-                        imgIdToPath.TryGetValue(facts.PairingIdentifier, out var matchedImg))
-                    {
-                        try
-                        {
-                            SourceMediaFacts dualFacts = inspector.InspectAsync(matchedImg, vidPath).GetAwaiter().GetResult();
-                            if (dualFacts.Protocol == SourceProtocol.VivoLegacyDualFile)
-                            {
-                                pairs.Add(new MetadataPair
-                                {
-                                    ImagePath = matchedImg,
-                                    VideoPath = vidPath,
-                                    Source = MatchSource.VivoLivePhoto
-                                });
-                                remainingImages.Remove(matchedImg);
-                                remainingVideos.Remove(vidPath);
-                                imgIdToPath.Remove(facts.PairingIdentifier);
-                            }
-                        }
-                        catch
-                        {
-                            // Dual inspection rejected candidate
-                        }
-                    }
-                }
-                catch
-                {
-                    // Skip
-                }
+                    ImagePath = candidate.Image,
+                    VideoPath = candidate.Video,
+                    Source = MatchSource.VivoLivePhoto
+                });
+                remainingImages.Remove(candidate.Image);
+                remainingVideos.Remove(candidate.Video);
             }
 
             return new MetadataMatchOutput
@@ -405,7 +334,14 @@ namespace LivePhotoBox.Services
                     if (!string.IsNullOrWhiteSpace(facts.PairingIdentifier) || facts.Protocol == SourceProtocol.AppleLivePhoto)
                         appleFiles.Add(path);
                 }
-                catch { /* skip */ }
+                catch (SourceInspectionException ex) when (
+                    ex.Category == SourceInspectionFailureCategory.Unsupported &&
+                    ex.Stage == SourceInspectionStage.Protocol)
+                {
+                    // A source that explicitly does not implement Apple
+                    // pairing is simply outside this optional filter.  Other
+                    // categories must fail closed.
+                }
             }
             return appleFiles;
         }

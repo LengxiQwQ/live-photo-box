@@ -1,5 +1,7 @@
 using LivePhotoBox.Services.Protocols;
 using LivePhotoBox.Models;
+using LivePhotoBox.Interop;
+using LivePhotoBox.Media.Models;
 using ImageMagick;
 using System;
 using System.Collections.Generic;
@@ -25,22 +27,57 @@ public static class StandardHdrConversionService
 
     public static bool HasStandardJpegGainMap(string sourcePath, CancellationToken token = default)
     {
-        // 优先按 XMP 容器语义检测。vivo/一加/小米等文件里 exiftool 的
-        // -GainMapImage 会错取成追加的视频（MPF 第二张图），只有 XMP 容器
-        // 清单（Item:Semantic="GainMap"）才是权威来源。
-        if (TryGetGainMapItemLength(sourcePath, out _))
-        {
-            return true;
-        }
-
-        string tags = ReadExifTags(sourcePath, token, "-s", "-GainMapImage");
-        return tags.Contains("GainMapImage", StringComparison.Ordinal);
+        return HasNativeGainMap(sourcePath, ImageContainer.Jpeg, token);
     }
 
     public static bool HasAppleHeicGainMap(string sourcePath, CancellationToken token = default)
     {
-        string tags = ReadExifTags(sourcePath, token, "-s", "-AuxiliaryImageType");
-        return tags.Contains("urn:com:apple:photo:2020:aux:hdrgainmap", StringComparison.Ordinal);
+        return HasNativeGainMap(sourcePath, ImageContainer.Heic, token);
+    }
+
+    private static bool HasNativeGainMap(
+        string sourcePath, ImageContainer expectedContainer, CancellationToken token)
+    {
+        SourceMediaFacts facts = NativeMediaService.InspectMediaAsync(
+            sourcePath, null, token).GetAwaiter().GetResult();
+        if (!facts.PrimaryImage.IsPresent || facts.PrimaryImage.Container != expectedContainer)
+        {
+            return false;
+        }
+
+        GainMapFacts? gainMap = facts.GainMap;
+        if (gainMap is null || !gainMap.IsPresent)
+        {
+            return false;
+        }
+        ValidateNativeGainMapBinding(facts, gainMap, expectedContainer);
+        return true;
+    }
+
+    private static void ValidateNativeGainMapBinding(
+        SourceMediaFacts facts, GainMapFacts gainMap, ImageContainer expectedContainer)
+    {
+        MediaArtifactKind expectedOwnerRole = gainMap.Ownership == AuxiliaryOwnership.Primary
+            ? MediaArtifactKind.PrimaryImage
+            : MediaArtifactKind.AuxiliaryItem;
+        if (gainMap.Container != expectedContainer || gainMap.ByteLength <= 0 ||
+            gainMap.OwnerArtifactRole != expectedOwnerRole ||
+            gainMap.AuxiliaryIndex >= (uint)facts.AuxiliaryItems.Count)
+        {
+            throw new InvalidDataException("Native GainMap binding is incomplete.");
+        }
+
+        AuxiliaryMediaFacts auxiliary = facts.AuxiliaryItems[(int)gainMap.AuxiliaryIndex];
+        if (!auxiliary.IsPresent || auxiliary.Container != gainMap.Container ||
+            auxiliary.Representation != gainMap.Representation ||
+            auxiliary.Ownership != gainMap.Ownership ||
+            auxiliary.ItemId != gainMap.ItemId ||
+            auxiliary.ByteOffset != gainMap.ByteOffset ||
+            auxiliary.ByteLength != gainMap.ByteLength ||
+            !string.Equals(auxiliary.Relationship, gainMap.Relationship, StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("Native GainMap binding does not match its auxiliary item.");
+        }
     }
 
     public static async Task<string> ConvertJpegToHeicAsync(
@@ -54,9 +91,11 @@ public static class StandardHdrConversionService
 
         try
         {
+            string? sourceContentId = TryReadFormalSourceContentIdentifier(sourcePath, token);
             if (!await TryExtractJpegGainMapAsync(sourcePath, isoGainMapPath, token))
             {
-                throw new InvalidDataException("Source JPEG does not contain a standard Ultra HDR gain map.");
+                throw new InvalidDataException(
+                    "Native source facts did not bind a standard Ultra HDR GainMap for conversion.");
             }
 
             // 元数据优先从源文件主 XMP 读（hdrgm 命名空间属主容器所有），
@@ -79,7 +118,9 @@ public static class StandardHdrConversionService
             }
 
             await InjectAppleHdrGainMapXmpAsync(heicPath, token);
-            InjectAppleHdrMakerNote(heicPath, headroom);
+            InjectAppleHdrMakerNote(
+                heicPath, headroom,
+                sourceContentId ?? Guid.NewGuid().ToString("D").ToUpperInvariant());
 
             return heicPath;
         }
@@ -95,6 +136,25 @@ public static class StandardHdrConversionService
             TryDelete(isoGainMapPath);
             TryDelete(appleGainMapPath);
         }
+    }
+
+    private static string? TryReadFormalSourceContentIdentifier(
+        string sourcePath, CancellationToken token)
+    {
+        SourceMediaFacts facts = NativeMediaService.InspectMediaAsync(
+            sourcePath, null, token).GetAwaiter().GetResult();
+        if (string.IsNullOrWhiteSpace(facts.PairingIdentifier))
+        {
+            return null;
+        }
+
+        if (!Guid.TryParseExact(facts.PairingIdentifier, "D", out _))
+        {
+            throw new InvalidDataException(
+                "Native source facts exposed a malformed formal ContentIdentifier.");
+        }
+
+        return facts.PairingIdentifier;
     }
 
     public static async Task<string> ConvertHeicToJpegAsync(
@@ -118,7 +178,8 @@ public static class StandardHdrConversionService
         }
 
         double headroom = ReadAppleHeadroom(sourcePath, token)
-            ?? throw new InvalidDataException("Source HEIC does not contain Apple HDRHeadroom/HDRGain MakerNote values.");
+            ?? throw new InvalidDataException(
+                "Apple HDRHeadroom/HDRGain MakerNote values could not be formally extracted by the rebuilt path.");
 
         string outputPath = TempFileService.AllocateTempPath(outputDirectory, "ultrahdr", "jpg");
         string computedGainMapPath = workspace.AllocatePath("iso_gainmap", "jpg");
@@ -325,135 +386,24 @@ public static class StandardHdrConversionService
     private static async Task<bool> TryExtractJpegGainMapAsync(
         string sourcePath, string outputPath, CancellationToken token)
     {
-        // 1) 优先按 XMP 容器语义定位增益图字节（vivo/一加/小米等文件
-        //    exiftool -GainMapImage 会错取成追加的视频，必须按 Item:Length 切片）。
-        if (TrySliceGainMapFromContainer(sourcePath, outputPath))
+        SourceMediaFacts facts = await NativeMediaService.InspectMediaAsync(
+            sourcePath, null, token).ConfigureAwait(false);
+        if (!facts.PrimaryImage.IsPresent || facts.PrimaryImage.Container != ImageContainer.Jpeg ||
+            facts.GainMap is null || !facts.GainMap.IsPresent)
         {
-            return File.Exists(outputPath) && new FileInfo(outputPath).Length > 0;
-        }
-        // 2) ExifTool fallback removed in Rebuilt
-        return false;
-    }
-
-    // ── XMP 容器语义定位增益图 ──────────────────────────────────────────
-
-    // 从源 JPEG 的 XMP 里找 Container:Directory 中 Semantic=GainMap 的
-    // Item:Length（增益图字节数）。XMP 是主容器的权威描述，不依赖 exiftool
-    // 对 MPF 的解析。返回 false 表示源文件没有可用的 GainMap 容器项。
-    private static bool TryGetGainMapItemLength(string sourcePath, out long length)
-    {
-        length = 0;
-        try
-        {
-            byte[] data = File.ReadAllBytes(sourcePath);
-            string xmp = ExtractXmpText(data);
-            if (string.IsNullOrEmpty(xmp))
-            {
-                return false;
-            }
-
-            foreach (Match li in Regex.Matches(
-                xmp,
-                @"<rdf:li\b[^>]*>(?<inner>.*?)</rdf:li>",
-                RegexOptions.Singleline | RegexOptions.CultureInvariant))
-            {
-                string inner = li.Groups["inner"].Value;
-                Match semantic = Regex.Match(
-                    inner,
-                    @"Item:Semantic\s*=\s*""(?<v>[^""]+)""",
-                    RegexOptions.CultureInvariant);
-                if (!semantic.Success
-                    || !semantic.Groups["v"].Value.Equals("GainMap", StringComparison.Ordinal))
-                {
-                    continue;
-                }
-
-                Match itemLength = Regex.Match(
-                    inner,
-                    @"Item:Length\s*=\s*""(?<v>\d+)""",
-                    RegexOptions.CultureInvariant);
-                if (itemLength.Success
-                    && long.TryParse(
-                        itemLength.Groups["v"].Value,
-                        NumberStyles.Integer,
-                        CultureInfo.InvariantCulture,
-                        out length)
-                    && length > 0)
-                {
-                    return true;
-                }
-            }
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            LogService.Warn(
-                $"Failed to read GainMap item length from XMP of {Path.GetFileName(sourcePath)}: {ex.Message}",
-                source: LogSource.Merge);
-        }
-
-        return false;
-    }
-
-    // 按「主 JPEG 的 EOI 之后紧接增益图 JPEG，长度取 XMP Item:Length」切片。
-    // 该布局是 Google Ultra HDR / ISO 21496-1 的标准三段式（主图 + 增益图 + 视频）。
-    private static bool TrySliceGainMapFromContainer(string sourcePath, string outputPath)
-    {
-        try
-        {
-            if (!TryGetGainMapItemLength(sourcePath, out long gainMapLength))
-            {
-                return false;
-            }
-
-            byte[] data = File.ReadAllBytes(sourcePath);
-            if (!TryFindPrimaryJpegEoi(data, out int eoiPos))
-            {
-                return false;
-            }
-
-            int gainMapStart = eoiPos + 1;
-            if (gainMapStart + 2 > data.Length
-                || data[gainMapStart] != 0xFF
-                || data[gainMapStart + 1] != 0xD8)
-            {
-                // 主图 EOI 后不是 JPEG（例如重封装的实况照片视频紧跟在主图后），
-                // 交给 exiftool 回退路径。
-                return false;
-            }
-
-            if (gainMapLength > int.MaxValue || gainMapStart + gainMapLength > data.Length)
-            {
-                return false;
-            }
-
-            // 增益图应以 EOI 结束；若 XMP 长度包含尾部 padding，截到最后一个 EOI。
-            int sliceEnd = gainMapStart + (int)gainMapLength;
-            int lastEoi = -1;
-            for (int i = sliceEnd - 2; i >= gainMapStart; i--)
-            {
-                if (data[i] == 0xFF && data[i + 1] == 0xD9)
-                {
-                    lastEoi = i;
-                    break;
-                }
-            }
-
-            if (lastEoi < 0)
-            {
-                // 切片内没有 EOI，说明 XMP 长度与字节不吻合，放弃切片。
-                return false;
-            }
-
-            File.WriteAllBytes(outputPath, data.AsSpan(gainMapStart, lastEoi + 2 - gainMapStart).ToArray());
-            return true;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            LogService.Warn(
-                $"Gain map container slicing failed for {Path.GetFileName(sourcePath)}: {ex.Message}",
-                source: LogSource.Merge);
             return false;
         }
+
+        ValidateNativeGainMapBinding(facts, facts.GainMap, ImageContainer.Jpeg);
+        await NativeMediaService.ExtractMediaAsync(
+            sourcePath, null, facts, null, null, outputPath, token).ConfigureAwait(false);
+
+        if (!File.Exists(outputPath) || new FileInfo(outputPath).Length == 0)
+        {
+            throw new InvalidDataException("Native GainMap extraction produced no JPEG auxiliary output.");
+        }
+
+        return true;
     }
 
     // 提取 JPEG 所有 APP1 XMP 段（以 "http://ns.adobe.com/xap/1.0/\0" 开头的段）并拼接文本。
@@ -523,57 +473,6 @@ public static class StandardHdrConversionService
         }
 
         return sb.ToString();
-    }
-
-    // 从文件头开始走 JPEG 标记直到主图 EOI（0xFF 0xD9），返回 EOI 第二个字节的下标。
-    // 与 LivePhotoMergeService.MeasureGainMapLength 的遍历逻辑一致。
-    private static bool TryFindPrimaryJpegEoi(byte[] data, out int eoiPos)
-    {
-        eoiPos = -1;
-        int p = 2; // 跳过 SOI
-        while (p + 4 <= data.Length)
-        {
-            if (data[p] != 0xFF)
-            {
-                p++;
-                continue;
-            }
-
-            byte marker = data[p + 1];
-            if (marker == 0x00 || marker == 0xFF)
-            {
-                p += 2;
-                continue;
-            }
-
-            if (marker == 0xD8)
-            {
-                p += 2;
-                continue;
-            }
-
-            if (marker == 0xD9)
-            {
-                eoiPos = p + 1;
-                return true;
-            }
-
-            if (marker >= 0xD0 && marker <= 0xD7 || marker == 0x01)
-            {
-                p += 2;
-                continue;
-            }
-
-            int segmentLength = (data[p + 2] << 8) | data[p + 3];
-            if (segmentLength < 2 || p + 2 + segmentLength > data.Length)
-            {
-                return false;
-            }
-
-            p += 2 + segmentLength;
-        }
-
-        return false;
     }
 
     // 从文件的 XMP 文本解析 hdrgm 属性（GainMapMin/Max、Gamma、OffsetSDR/HDR、
@@ -670,10 +569,41 @@ public static class StandardHdrConversionService
         throw new NotSupportedException("heif-enc is not supported in the Rebuilt Native engine.");
     }
 
-    private static Task RunHeifDecWithAuxAsync(
+    private static async Task RunHeifDecWithAuxAsync(
         string sourcePath, string primaryOutputPath, CancellationToken token)
     {
-        throw new NotSupportedException("heif-dec is not supported in the Rebuilt Native engine.");
+        SourceMediaFacts facts = await NativeMediaService.InspectMediaAsync(
+            sourcePath, null, token).ConfigureAwait(false);
+        if (!facts.PrimaryImage.IsPresent || facts.PrimaryImage.Container != ImageContainer.Heic ||
+            facts.GainMap is null || !facts.GainMap.IsPresent)
+        {
+            throw new InvalidDataException(
+                "Native source facts did not bind an Apple HEIC GainMap for preservation.");
+        }
+
+        ValidateNativeGainMapBinding(facts, facts.GainMap, ImageContainer.Heic);
+
+        string directory = Path.GetDirectoryName(primaryOutputPath)
+            ?? throw new InvalidDataException("HEIC HDR workspace has no output directory.");
+        string baseName = Path.GetFileNameWithoutExtension(primaryOutputPath);
+        string gainMapOutputPath = Path.Combine(
+            directory, $"{baseName}-urn_com_apple_photo_2020_aux_hdrgainmap.jpg");
+
+        await NativeMediaService.ExtractMediaAsync(
+            sourcePath,
+            null,
+            facts,
+            primaryOutputPath,
+            null,
+            gainMapOutputPath,
+            token).ConfigureAwait(false);
+
+        if (!File.Exists(primaryOutputPath) || new FileInfo(primaryOutputPath).Length == 0 ||
+            !File.Exists(gainMapOutputPath) || new FileInfo(gainMapOutputPath).Length == 0)
+        {
+            throw new InvalidDataException(
+                "Native HEIC extraction did not preserve both primary and GainMap artifacts.");
+        }
     }
 
     private static string ReadExifTags(string sourcePath, CancellationToken token, params string[] args)
@@ -681,26 +611,25 @@ public static class StandardHdrConversionService
         return string.Empty;
     }
 
-    private static void InjectAppleHdrMakerNote(string heicPath, double headroom)
+    private static void InjectAppleHdrMakerNote(
+        string heicPath, double headroom, string contentId)
     {
         (HdrSignedRational maker33, HdrSignedRational maker48) = HdrGainMapCodec.ComputeAppleMakerValues(headroom);
-        string? contentId = null;
-        if (AppleMakerNoteWriter.TryReadContentIdentifierFromImage(heicPath, out string? cid, out string? readError))
+        if (!Guid.TryParseExact(contentId, "D", out _))
         {
-            contentId = cid;
-        }
-        else
-        {
-            LogService.Warn(
-                $"Apple[HDR] ContentIdentifier not preserved ({readError}); HDR MakerNote written without CID",
-                source: LogSource.Merge);
+            throw new InvalidOperationException(
+                "Apple[HDR] target ContentIdentifier is not a valid generated or formally sourced UUID.");
         }
 
         byte[] makerNote = AppleMakerNoteWriter.BuildHdrMakerNote(maker33, maker48, contentId);
-        if (!AppleMakerNoteWriter.TryInjectMakerNoteIntoHeic(heicPath, makerNote, out string? error))
+        byte[] source = File.ReadAllBytes(heicPath);
+        if (!NativeAppleMakerNoteWriter.TryInjectMakerNoteIntoHeic(
+                source, makerNote, out byte[]? rewritten, out string? error)
+            || rewritten is null)
         {
             throw new InvalidOperationException($"Failed to inject Apple HDR MakerNote: {error}");
         }
+        File.WriteAllBytes(heicPath, rewritten);
     }
 
     private static Task InjectAppleHdrGainMapXmpAsync(string heicPath, CancellationToken token)
