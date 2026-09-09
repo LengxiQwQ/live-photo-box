@@ -1,10 +1,10 @@
 # P4 — Native Platform / Media Backend / Build Foundation
 
 > **Status:** Planned / HARD GATE BEFORE P5  
-> **Goal:** 在 Converter 收口前，把 Native 长期平台边界、media backend、build/dependency 与默认技术栈一次定型。  
+> **Goal:** 在 Converter 收口前，收紧 Windows production 所需的 Native/media/build 边界，并只保留未来可选接入所需的最小接口缝。
 > **Current production target:** Windows x64  
-> **Future architecture target:** WebAssembly first; Linux/macOS deferred  
-> **Important:** P4 不再从零重选全部媒体库。V4.0 已拍板默认方向；P4 的职责是实现 foundation、验证默认方案、对少数真正竞争的 backend 做 differential benchmark。
+> **Future platform stance:** WebAssembly/Linux/macOS 仅保留可能性，当前不实现、不排期、不预先选定其 backend。
+> **Important:** P4 不为假设的跨平台需求增加抽象层。只有当 Windows-specific 依赖确实会污染协议/容器真相时，才放到一个小而稳定的 interface 后面。未来真要接入新平台时另立任务。
 
 ---
 
@@ -13,22 +13,18 @@
 P4 必须建立：
 
 ```text
-Portable Native Core
+Windows production Native Core
 +
-Platform Backend Contract
+small PlatformFilesystem seam where Windows APIs are unavoidable
 +
-Media Backend Contract
+small Media Backend seam where codec/backend substitution is real
 +
-CMake canonical build
-+
-reproducible dependency manifest
+reproducible Windows build/dependency identity
 +
 capability/runtime identity
-+
-Windows production backend
-+
-future platform extension points
 ```
+
+不要在 P4 预先实现 Web/WASM/Linux/macOS backend。“未来可接”只意味着当前边界不被无理写死，不意味着必须接入。
 
 P4 完成后，P5–P10 不应再直接在业务模块中随意引入：
 

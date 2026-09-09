@@ -1,4 +1,6 @@
 using LivePhotoBox.Cli.Infrastructure;
+using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Media.Models;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using System;
@@ -597,8 +599,30 @@ namespace LivePhotoBox.Cli.Commands
         private static bool PassesPairingFilter(string filePath, LivePhotoType type, LivePhotoProtocolType? target)
         {
             if (target == null) return true;
-            return LivePhotoProtocolDetector.Detect(filePath, type) == target.Value;
+            if (type == LivePhotoType.None || type == LivePhotoType.DualFile) return false;
+            try
+            {
+                var facts = new SourceInspector().InspectAsync(filePath).GetAwaiter().GetResult();
+                return MapNativeProtocol(facts.Protocol) == target.Value;
+            }
+            catch (SourceInspectionException)
+            {
+                throw;
+            }
+            catch { return false; }
         }
+
+        private static LivePhotoProtocolType MapNativeProtocol(SourceProtocol protocol) => protocol switch
+        {
+            SourceProtocol.AppleLivePhoto => LivePhotoProtocolType.Apple,
+            SourceProtocol.GoogleMicroVideoV1 => LivePhotoProtocolType.GoogleV1,
+            SourceProtocol.GoogleMotionPhotoV2 => LivePhotoProtocolType.GoogleV2,
+            SourceProtocol.OppoLivePhoto => LivePhotoProtocolType.OPPO,
+            SourceProtocol.VivoLivePhoto or SourceProtocol.VivoLegacyDualFile => LivePhotoProtocolType.Vivo,
+            SourceProtocol.SamsungMotionPhotoJpeg or SourceProtocol.SamsungMotionPhotoHeic => LivePhotoProtocolType.Samsung,
+            SourceProtocol.HuaweiMovingPhoto or SourceProtocol.HonorMovingPhoto => LivePhotoProtocolType.Huawei,
+            _ => LivePhotoProtocolType.Unknown
+        };
 
         private static async Task<int> SplitSingleAsync(
             string sourcePath, string outputDir, int protocolIndex, int formatIndex,

@@ -9,7 +9,7 @@
  *   - HEIC 布局：[带 V2 XMP 的 HEIC] + [mpvd box 内含 MP4 视频 + sefd box 内含 Tag data + SEFH/SEFT]；
  *     HEIC 中 MotionPhoto_Data 存 12 字节指针（"mpv2" + offset + size）而非视频本体
  *
- * 参考：PetrVys/MotionPhoto2、doodspav/motionphoto、docs/实况照片协议完整分析报告.md
+ * 参考：PetrVys/MotionPhoto2、doodspav/motionphoto、docs/实况照片协议分析文档/（全部文档）
  */
 
 using System;

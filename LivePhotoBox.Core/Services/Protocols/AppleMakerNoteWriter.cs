@@ -2,6 +2,9 @@ using System;
 using System.Buffers.Binary;
 using System.IO;
 using System.Text;
+using LivePhotoBox.Interop;
+using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Media.Models;
 
 namespace LivePhotoBox.Services.Protocols
 {
@@ -126,60 +129,28 @@ namespace LivePhotoBox.Services.Protocols
             error = null;
             try
             {
-                byte[] data = File.ReadAllBytes(imagePath);
-                // 扫描文件内全部 Apple MakerNote 签名：JPEG 注入路径会把新 MN 追加在旧 MN
-                // （CID 已被剥离的空壳）之后，只读第一个会拿到空壳导致 CID 误判为缺失。
-                // 取第一个带 0x0011 ContentIdentifier 条目的 MN。
-                int searchFrom = 0;
-                bool foundAny = false;
-                while (true)
+                var facts = NativeMediaService.InspectMediaAsync(imagePath)
+                    .GetAwaiter().GetResult();
+                if (!facts.PrimaryImage.IsPresent ||
+                    facts.PrimaryImage.Container is not ImageContainer.Jpeg and not ImageContainer.Heic)
                 {
-                    int mnStart = FindAppleMakerNote(data, searchFrom);
-                    if (mnStart < 0)
-                    {
-                        break;
-                    }
-                    foundAny = true;
-
-                    if (mnStart + 16 > data.Length)
-                    {
-                        searchFrom = mnStart + 1;
-                        continue;
-                    }
-
-                    // 布局：magic(12) + "MM"(2) + 条目数(2) + 条目(12×n) + next-IFD(4)，
-                    // 值与偏移均按大端；值偏移相对 MakerNote 起点。
-                    int count = Read16(data, mnStart + 14, bigEndian: true);
-                    if (count > 4096)
-                    {
-                        searchFrom = mnStart + 1;
-                        continue;
-                    }
-                    int p = mnStart + 16;
-                    for (int i = 0; i < count && p + 12 <= data.Length; i++)
-                    {
-                        ushort tag = Read16(data, p, bigEndian: true);
-                        ushort type = Read16(data, p + 2, bigEndian: true);
-                        uint fcnt = (uint)Read32(data, p + 4, bigEndian: true);
-                        if (tag == 0x0011 && type == 2 && fcnt > 0)
-                        {
-                            long valueOffset = Read32(data, p + 8, bigEndian: true);
-                            int start = checked((int)(mnStart + valueOffset));
-                            int len = checked((int)fcnt - 1);
-                            if (start >= 0 && len > 0 && start + len <= data.Length)
-                            {
-                                contentId = Encoding.ASCII.GetString(data, start, len);
-                                return true;
-                            }
-                        }
-                        p += 12;
-                    }
-                    searchFrom = mnStart + 1;
+                    error = "Native SourceInspector did not confirm a JPEG or HEIF image owner for ContentIdentifier.";
+                    return false;
                 }
 
-                error = foundAny
-                    ? "ContentIdentifier (0x0011) entry not found in any Apple MakerNote."
-                    : "No Apple MakerNote found.";
+                string? candidate = facts.PairingIdentifier;
+                if (string.IsNullOrWhiteSpace(candidate) || !Guid.TryParseExact(candidate, "D", out _))
+                {
+                    error = "Native SourceInspector did not confirm a formally owned Apple ContentIdentifier.";
+                    return false;
+                }
+
+                contentId = candidate;
+                return true;
+            }
+            catch (SourceInspectionException ex)
+            {
+                error = $"Native SourceInspector rejected the image: {ex.Message}";
                 return false;
             }
             catch (Exception ex)

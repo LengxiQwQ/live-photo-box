@@ -14,6 +14,18 @@ namespace LivePhotoBox.Interop
         InternalError = 5
     }
 
+    internal enum NativeInspectionFailureCategory { None = 0, Unsupported = 1, Ambiguous = 2, Malformed = 3, InvalidArgument = 4, Io = 5 }
+    internal enum NativeInspectionStage { None = 0, Read = 1, Container = 2, Metadata = 3, Protocol = 4, Pairing = 5 }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeInspectionStatus
+    {
+        public uint StructSize;
+        public NativeInspectionFailureCategory Category;
+        public NativeInspectionStage Stage;
+        public ulong Capability;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct NativeRuntimeInfoData
     {
@@ -25,6 +37,9 @@ namespace LivePhotoBox.Interop
     internal static partial class NativeMethods
     {
         internal const string LibraryName = "LivePhotoBox.Native";
+        // ABI v4 appends the explicit GainMap/auxiliary binding contract and
+        // is intentionally incompatible with the published v3 facts layout.
+        internal const uint RequiredAbiVersion = 4;
 
         [LibraryImport(LibraryName, EntryPoint = "lpb_get_abi_version")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
@@ -61,6 +76,12 @@ namespace LivePhotoBox.Interop
             nint utf8Buffer,
             nuint bufferSize,
             out nuint requiredSize);
+
+        [LibraryImport(LibraryName, EntryPoint = "lpb_get_last_inspection_status")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+        internal static partial NativeResult GetLastInspectionStatus(
+            nint context, ref NativeInspectionStatus status);
 
         [LibraryImport(LibraryName, EntryPoint = "lpb_vivo_rewrite_image_metadata")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]

@@ -8,11 +8,17 @@
  */
 
 using CommunityToolkit.Mvvm.ComponentModel;
+using LivePhotoBox.Media.Inspection;
 
 namespace LivePhotoBox.ViewModels
 {
     public abstract partial class ViewModelBase : ObservableObject
     {
+        // P1 inspection failures remain machine-readable at the GUI boundary;
+        // status text and logs are presentation only, not the error contract.
+        [ObservableProperty]
+        private SourceInspectionException? _lastSourceInspectionFailure;
+
         // 页面导航栏状态标签。返回 null 表示不在导航栏显示状态。
         public virtual string? PageStatusTag => null;
 

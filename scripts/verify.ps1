@@ -3,6 +3,7 @@
     Runs the repository's repeatable verification gates without packaging release artifacts.
 
 .DESCRIPTION
+    Build   restores and builds Native + GUI + CLI, including Native ABI smoke tests.
     Fast    restores, builds Native + GUI + CLI, and runs Core/CLI tests.
     Full    adds a complete solution build through Visual Studio MSBuild.
     Release adds the real-sample CLI integration workflow after the Full gate.
@@ -12,7 +13,7 @@
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('Fast', 'Full', 'Release')]
+    [ValidateSet('Build', 'Fast', 'Full', 'Release')]
     [string]$Scope = 'Fast',
 
     [ValidateSet('Debug', 'Release')]
@@ -108,6 +109,11 @@ try {
             -p:SkipNativeBuild=true `
             --no-restore `
             --nologo
+    }
+
+    if ($Scope -eq 'Build') {
+        Write-Host "`nVerification gate passed: $Scope ($Configuration x64)." -ForegroundColor Green
+        return
     }
 
     Invoke-VerificationStep -Name "Run Core tests ($Configuration x64)" -Action {

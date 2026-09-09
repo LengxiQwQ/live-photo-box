@@ -37,6 +37,31 @@ static bool find_box(
     return false;
 }
 
+static bool find_unique_box_local(
+    const uint8_t* data, size_t start, size_t end, const char* type,
+    size_t& box_start, size_t& box_len, size_t& body_start, bool& duplicate) {
+    duplicate = false;
+    if (!data || !type || start > end) return false;
+    bool found = false;
+    size_t p = start;
+    while (p < end) {
+        isobmff_box_header box{};
+        if (!try_read_box_header(data, p, end, box)) return false;
+        if (is_box_type(data + p, type)) {
+            if (found) {
+                duplicate = true;
+                return false;
+            }
+            found = true;
+            box_start = p;
+            box_len = box.size;
+            body_start = p + box.header_size;
+        }
+        p += box.size;
+    }
+    return found;
+}
+
 static bool has_complete_box_sequence(const uint8_t* data, size_t data_size) noexcept
 {
     if (!data || data_size < 8) return false;
@@ -226,22 +251,6 @@ static bool try_relocate_exif_to_mdat_end(
     return true;
 }
 
-// Helper to find Apple MakerNote signature: "Apple iOS\0" + 0x00 0x01 + "MM"
-static ptrdiff_t find_apple_makernote(const uint8_t* data, size_t size, size_t search_from = 0) {
-    if (size < 14 || search_from > size - 14) return -1;
-    const uint8_t sig[] = {'A','p','p','l','e',' ','i','O','S','\0'};
-    for (size_t i = search_from; i <= size - 14; i++) {
-        if (data[i] == 'A' && data[i+1] == 'p') {
-            if (std::memcmp(data + i, sig, 10) == 0 &&
-                data[i+10] == 0x00 && data[i+11] == 0x01 &&
-                data[i+12] == 'M' && data[i+13] == 'M') {
-                return static_cast<ptrdiff_t>(i);
-            }
-        }
-    }
-    return -1;
-}
-
 // Convert Exif type to length (0 if inline value)
 static int type_to_data_length(uint16_t type, uint32_t count) {
     int unit = 0;
@@ -293,95 +302,11 @@ static bool read_tiff_u32(const uint8_t* data, size_t start, size_t end, size_t 
     return true;
 }
 
-static bool find_tiff_tag(const uint8_t* data, size_t tiff_start, size_t tiff_end, uint32_t ifd_offset,
-    bool little, uint16_t wanted_tag, uint16_t& out_type, uint32_t& out_count, uint32_t& out_value) noexcept {
-    if (ifd_offset > tiff_end - tiff_start || tiff_start + ifd_offset > tiff_end || tiff_end - (tiff_start + ifd_offset) < 2) return false;
-    const size_t ifd = tiff_start + ifd_offset;
-    uint16_t count = 0;
-    if (!read_tiff_u16(data, tiff_start, tiff_end, ifd, little, count) || count > 4096 ||
-        static_cast<size_t>(count) > (tiff_end - (ifd + 2)) / 12) return false;
-    for (uint16_t i = 0; i < count; ++i) {
-        const size_t entry = ifd + 2 + static_cast<size_t>(i) * 12;
-        uint16_t tag = 0;
-        if (!read_tiff_u16(data, tiff_start, tiff_end, entry, little, tag)) return false;
-        if (tag != wanted_tag) continue;
-        if (!read_tiff_u16(data, tiff_start, tiff_end, entry + 2, little, out_type) ||
-            !read_tiff_u32(data, tiff_start, tiff_end, entry + 4, little, out_count) ||
-            !read_tiff_u32(data, tiff_start, tiff_end, entry + 8, little, out_value)) return false;
-        return true;
-    }
-    return false;
-}
-
-static bool find_structural_maker_note_region(const uint8_t* data, size_t size, size_t expected_start,
-    maker_note_region& out) noexcept {
-    if (!data || expected_start >= size) return false;
-    for (size_t tiff = 0; tiff + 8 <= expected_start; ++tiff) {
-        const bool little = data[tiff] == 'I' && data[tiff + 1] == 'I';
-        const bool big = data[tiff] == 'M' && data[tiff + 1] == 'M';
-        if ((!little && !big) || (little && data[tiff + 2] != 0x2A) || (little && data[tiff + 3] != 0x00) ||
-            (big && read_be16u(data + tiff + 2) != 42)) continue;
-        uint32_t ifd0 = 0;
-        if (!read_tiff_u32(data, tiff, size, tiff + 4, !big, ifd0)) continue;
-        uint16_t type = 0; uint32_t count = 0; uint32_t value = 0;
-        bool found = find_tiff_tag(data, tiff, size, ifd0, !big, 0x927C, type, count, value);
-        if (!found) {
-            uint16_t exif_type = 0; uint32_t exif_count = 0; uint32_t exif_ifd = 0;
-            if (find_tiff_tag(data, tiff, size, ifd0, !big, 0x8769, exif_type, exif_count, exif_ifd) &&
-                exif_type == 4 && exif_count == 1) {
-                found = find_tiff_tag(data, tiff, size, exif_ifd, !big, 0x927C, type, count, value);
-            }
-        }
-        if (!found || type != 7 || count == 0 || value > size - tiff || count > size - tiff - value) continue;
-        const size_t note_start = tiff + static_cast<size_t>(value);
-        if (note_start == expected_start && count <= size - note_start && count >= 14 &&
-            std::memcmp(data + note_start, "Apple iOS\0", 10) == 0) {
-            out = { note_start, note_start + static_cast<size_t>(count) };
-            return true;
-        }
-    }
-    return false;
-}
-
-static bool derive_maker_note_region_from_contents(const uint8_t* data, size_t size, size_t start,
-    maker_note_region& out) noexcept {
-    if (!data || start > size || size - start < 20 || std::memcmp(data + start, "Apple iOS\0", 10) != 0) return false;
-    const uint16_t count = read_be16u(data + start + 14);
-    if (count > 64 || static_cast<size_t>(count) > (size - start - 16) / 12) return false;
-    const size_t entries = start + 16;
-    const size_t directory_end = maker_note_directory_end(data, size, start, count);
-    if (directory_end > size) return false;
-    size_t end = directory_end;
-    if (count == 0) {
-        // A previous in-place strip leaves the old value area zeroed. For the
-        // unwrapped ABI test/utility buffer, retain that zero-owned region but
-        // stop at the first non-zero byte instead of treating the whole file
-        // as MakerNote storage.
-        while (end < size && data[end] == 0) ++end;
-    }
-    for (uint16_t i = 0; i < count; ++i) {
-        const size_t entry = entries + static_cast<size_t>(i) * 12;
-        const uint16_t type = read_be16u(data + entry + 2);
-        const uint32_t value_count = read_be32u(data + entry + 4);
-        const uint64_t unit = type == 1 || type == 2 || type == 6 || type == 7 ? 1 :
-            (type == 3 || type == 8 ? 2 : (type == 4 || type == 9 || type == 11 || type == 13 || type == 14 ? 4 :
-            (type == 5 || type == 10 || type == 12 || type == 16 ? 8 : 0)));
-        if (unit == 0 || value_count > std::numeric_limits<size_t>::max() / unit) continue;
-        const size_t value_size = static_cast<size_t>(unit * value_count);
-        if (value_size > 4) {
-            const uint32_t relative = read_be32u(data + entry + 8);
-            if (relative > size - start || value_size > size - start - relative) return false;
-            end = std::max(end, start + static_cast<size_t>(relative) + value_size);
-        }
-    }
-    out = { start, end };
-    return true;
-}
-
-static bool find_maker_note_region(const uint8_t* data, size_t size, size_t start, maker_note_region& out) noexcept {
-    if (find_structural_maker_note_region(data, size, start, out)) return true;
-    return derive_maker_note_region_from_contents(data, size, start, out);
-}
+// Mutation entry points must resolve MakerNote ownership through a real
+// JPEG/HEIF hierarchy.  This is defined after the formal Exif parser below.
+static bool locate_formal_makernote_owner(
+    lpb_context* context, const uint8_t* data, size_t data_size,
+    maker_note_region& out) noexcept;
 
 static std::vector<uint8_t> build_heif_exif_item(const uint8_t* makernote, size_t makernote_size) {
     // HEIF Exif item: a four-byte TIFF-header offset, the Exif marker, then a
@@ -411,6 +336,73 @@ static std::vector<uint8_t> build_heif_exif_item(const uint8_t* makernote, size_
     return item;
 }
 
+static bool append_heif_exif_cdsc(
+    const uint8_t* input, size_t iref_start, size_t iref_len,
+    const std::vector<uint32_t>& item_ids, uint32_t primary_item_id,
+    uint32_t exif_item_id, std::vector<uint8_t>& output) {
+    if (!input || iref_len < 12 || iref_start > std::numeric_limits<size_t>::max() - iref_len) return false;
+    const size_t end = iref_start + iref_len;
+    const size_t body = iref_start + 8;
+    if (input[body] > 1 || input[body + 1] != 0 || input[body + 2] != 0 || input[body + 3] != 0) return false;
+    const uint8_t version = input[body];
+    const size_t id_width = version == 0 ? 2 : 4;
+    if (std::find(item_ids.begin(), item_ids.end(), primary_item_id) == item_ids.end() ||
+        std::find(item_ids.begin(), item_ids.end(), exif_item_id) != item_ids.end()) return false;
+
+    size_t p = body + 4;
+    std::vector<std::pair<uint32_t, uint32_t>> seen_relations;
+    while (p < end) {
+        isobmff_box_header reference{};
+        if (!try_read_box_header(input, p, end, reference)) return false;
+        const size_t reference_end = p + reference.size;
+        if (is_box_type(input + p, "cdsc")) {
+            size_t rp = p + reference.header_size;
+            if (rp > reference_end || reference_end - rp < id_width + 2) return false;
+            const uint32_t from = id_width == 2 ? read_be16u(input + rp) : read_be32u(input + rp);
+            rp += id_width;
+            const uint16_t count = read_be16u(input + rp);
+            rp += 2;
+            if (count == 0 || std::find(item_ids.begin(), item_ids.end(), from) == item_ids.end()) return false;
+            std::vector<uint32_t> targets;
+            targets.reserve(count);
+            for (uint16_t index = 0; index < count; ++index) {
+                if (rp > reference_end || reference_end - rp < id_width) return false;
+                const uint32_t to = id_width == 2 ? read_be16u(input + rp) : read_be32u(input + rp);
+                rp += id_width;
+                if (to == from || std::find(item_ids.begin(), item_ids.end(), to) == item_ids.end() ||
+                    std::find(targets.begin(), targets.end(), to) != targets.end()) return false;
+                if (std::find(seen_relations.begin(), seen_relations.end(), std::pair<uint32_t, uint32_t>{from, to}) != seen_relations.end()) return false;
+                seen_relations.push_back({from, to});
+                targets.push_back(to);
+            }
+            if (rp != reference_end) return false;
+            if (from == exif_item_id) return false;
+        }
+        p = reference_end;
+    }
+    if (p != end) return false;
+
+    const size_t child_size = 8 + id_width + 2 + id_width;
+    if (iref_len > std::numeric_limits<size_t>::max() - child_size ||
+        iref_len + child_size > std::numeric_limits<uint32_t>::max()) return false;
+    output.assign(input + iref_start, input + end);
+    output.resize(iref_len + child_size, 0);
+    write_be32(output.data(), static_cast<uint32_t>(output.size()));
+    uint8_t* child = output.data() + iref_len;
+    write_be32(child, static_cast<uint32_t>(child_size));
+    std::memcpy(child + 4, "cdsc", 4);
+    if (id_width == 2) {
+        write_be16(child + 8, static_cast<uint16_t>(exif_item_id));
+        write_be16(child + 10, 1);
+        write_be16(child + 12, static_cast<uint16_t>(primary_item_id));
+    } else {
+        write_be32(child + 8, exif_item_id);
+        write_be16(child + 12, 1);
+        write_be32(child + 14, primary_item_id);
+    }
+    return true;
+}
+
 static bool add_heif_exif_item(
     lpb_context* context,
     const uint8_t* input, size_t input_size,
@@ -427,24 +419,98 @@ static bool add_heif_exif_item(
         return false;
     }
     size_t meta_end = meta_start + meta_len;
-    size_t iinf_start, iinf_len, iinf_body;
-    size_t iloc_start, iloc_len, iloc_body;
+    if (meta_body + 4 > meta_end || !has_complete_box_sequence(input + meta_body + 4, meta_end - (meta_body + 4))) {
+        set_error(context, "HEIF meta child region is malformed while creating Exif item.");
+        return false;
+    }
+    size_t iinf_start = 0, iinf_len = 0, iinf_body = 0;
+    size_t iloc_start = 0, iloc_len = 0, iloc_body = 0;
+    size_t pitm_start = 0, pitm_len = 0, pitm_body = 0;
+    size_t iref_start = 0, iref_len = 0, iref_body = 0;
     size_t idat_start = 0, idat_len = 0, idat_body = 0;
-    if (!find_box(input, meta_body + 4, meta_end, "iinf", iinf_start, iinf_len, iinf_body) ||
-        !find_box(input, meta_body + 4, meta_end, "iloc", iloc_start, iloc_len, iloc_body)) {
+    bool duplicate = false;
+    if (!find_unique_box_local(input, meta_body + 4, meta_end, "iinf", iinf_start, iinf_len, iinf_body, duplicate) || duplicate ||
+        !find_unique_box_local(input, meta_body + 4, meta_end, "iloc", iloc_start, iloc_len, iloc_body, duplicate) || duplicate ||
+        !find_unique_box_local(input, meta_body + 4, meta_end, "pitm", pitm_start, pitm_len, pitm_body, duplicate) || duplicate) {
         set_error(context, "HEIF meta lacks iinf or iloc for Exif item creation.");
+        return false;
+    }
+    bool have_iref = find_unique_box_local(input, meta_body + 4, meta_end, "iref", iref_start, iref_len, iref_body, duplicate);
+    if (duplicate) {
+        set_error(context, "HEIF meta contains duplicate iref boxes for Exif item creation.");
         return false;
     }
     const bool have_idat = find_box(input, meta_body + 4, meta_end, "idat", idat_start, idat_len, idat_body);
 
     const size_t iinf_end = iinf_start + iinf_len;
-    if (iinf_body > iinf_end || iinf_end - iinf_body < 6 || input[iinf_body] != 0) {
+    if (iinf_body > iinf_end || iinf_end - iinf_body < 6 || input[iinf_body] != 0 ||
+        input[iinf_body + 1] != 0 || input[iinf_body + 2] != 0 || input[iinf_body + 3] != 0) {
         set_error(context, "Unsupported HEIF iinf layout for Exif item creation.");
+        return false;
+    }
+    const uint16_t iinf_count = read_be16u(input + iinf_body + 4);
+    std::vector<uint32_t> existing_item_ids;
+    existing_item_ids.reserve(iinf_count);
+    size_t iinf_child = iinf_body + 6;
+    for (uint16_t index = 0; index < iinf_count; ++index) {
+        isobmff_box_header infe{};
+        if (!try_read_box_header(input, iinf_child, iinf_end, infe) || !is_box_type(input + iinf_child, "infe") ||
+            infe.size < infe.header_size + 8) {
+            set_error(context, "HEIF iinf contains a malformed infe while creating Exif item.");
+            return false;
+        }
+        const size_t infe_body = iinf_child + infe.header_size;
+        const uint8_t infe_version = input[infe_body];
+        uint32_t item_id = 0;
+        size_t item_type_pos = 0;
+        if (infe_version == 2) {
+            if (infe.size < infe.header_size + 8) return false;
+            item_id = read_be16u(input + infe_body + 4);
+            item_type_pos = infe_body + 8;
+        } else if (infe_version == 3) {
+            if (infe.size < infe.header_size + 10) return false;
+            item_id = read_be32u(input + infe_body + 4);
+            item_type_pos = infe_body + 10;
+        } else {
+            set_error(context, "Unsupported HEIF infe version while creating Exif item.");
+            return false;
+        }
+        if (item_id == 0 || std::find(existing_item_ids.begin(), existing_item_ids.end(), item_id) != existing_item_ids.end()) {
+            set_error(context, "HEIF iinf contains duplicate or zero item ids.");
+            return false;
+        }
+        if (item_type_pos + 4 > iinf_child + infe.size) return false;
+        if (std::memcmp(input + item_type_pos, "Exif", 4) == 0) {
+            set_error(context, "HEIF already contains an Exif item without a unique new owner graph.");
+            return false;
+        }
+        existing_item_ids.push_back(item_id);
+        iinf_child += infe.size;
+    }
+    if (iinf_child != iinf_end) {
+        set_error(context, "HEIF iinf has trailing bytes while creating Exif item.");
+        return false;
+    }
+    if (pitm_body > meta_end || pitm_len < 14) {
+        set_error(context, "HEIF pitm is malformed while creating Exif item.");
+        return false;
+    }
+    const uint8_t pitm_version = input[pitm_body];
+    if (pitm_version > 1 || input[pitm_body + 1] != 0 || input[pitm_body + 2] != 0 || input[pitm_body + 3] != 0 ||
+        (pitm_version == 0 && pitm_len < 14) || (pitm_version == 1 && pitm_len < 16)) {
+        set_error(context, "HEIF pitm version or flags are malformed while creating Exif item.");
+        return false;
+    }
+    const uint32_t primary_item_id = pitm_version == 0
+        ? read_be16u(input + pitm_body + 4) : read_be32u(input + pitm_body + 4);
+    if (primary_item_id == 0 || std::find(existing_item_ids.begin(), existing_item_ids.end(), primary_item_id) == existing_item_ids.end()) {
+        set_error(context, "HEIF pitm does not identify an existing primary item.");
         return false;
     }
 
     const size_t iloc_end = iloc_start + iloc_len;
     if (iloc_body + 8 > iloc_end || input[iloc_body] != 1 ||
+        input[iloc_body + 1] != 0 || input[iloc_body + 2] != 0 || input[iloc_body + 3] != 0 ||
         (input[iloc_body + 4] >> 4) != 4 || (input[iloc_body + 4] & 0x0F) != 4 ||
         (input[iloc_body + 5] >> 4) != 0 || (input[iloc_body + 5] & 0x0F) != 0) {
         set_error(context, "Unsupported HEIF iloc layout for Exif item creation.");
@@ -454,6 +520,7 @@ static bool add_heif_exif_item(
     uint32_t item_count = (static_cast<uint16_t>(input[iloc_body + 6]) << 8) | input[iloc_body + 7];
     size_t p = iloc_body + 8;
     uint32_t max_item_id = 0;
+    for (uint32_t id : existing_item_ids) max_item_id = std::max(max_item_id, id);
     for (uint32_t i = 0; i < item_count; ++i) {
         if (p + 8 > iloc_end) {
             set_error(context, "Truncated HEIF iloc while creating Exif item.");
@@ -463,6 +530,10 @@ static bool add_heif_exif_item(
         uint16_t construction_method = (static_cast<uint16_t>(input[p + 2]) << 8) | input[p + 3];
         uint16_t extent_count = (static_cast<uint16_t>(input[p + 6]) << 8) | input[p + 7];
         max_item_id = std::max(max_item_id, item_id);
+        if (std::find(existing_item_ids.begin(), existing_item_ids.end(), item_id) == existing_item_ids.end()) {
+            set_error(context, "HEIF iloc references an unknown item while creating Exif item.");
+            return false;
+        }
         if (construction_method == 0 || construction_method == 1) {
             size_t extent = p + 8;
             for (uint16_t e = 0; e < extent_count; ++e) {
@@ -471,7 +542,7 @@ static bool add_heif_exif_item(
                     return false;
                 }
                 uint32_t old_offset = read_be32u(input + extent);
-                if (old_offset > 0xFFFFFFFFu - 37u) {
+                if (old_offset > 0xFFFFFFFFu - (21u + 16u)) {
                     set_error(context, "HEIF iloc offset overflow while creating Exif item.");
                     return false;
                 }
@@ -503,15 +574,50 @@ static bool add_heif_exif_item(
 
     if (iinf_len > std::numeric_limits<size_t>::max() - 21 ||
         iloc_len > std::numeric_limits<size_t>::max() - 16 ||
-        input_size > std::numeric_limits<size_t>::max() - 37 ||
+        input_size > std::numeric_limits<size_t>::max() - (21 + 16) ||
         makernote_size > std::numeric_limits<size_t>::max() - 32) {
         set_error(context, "HEIF Exif item size overflow.");
         return false;
     }
 
-    // The new iinf entry and iloc entry add 21 + 16 bytes to meta. Existing
-    // absolute extents move with the enlarged meta box, so shift them by 37.
-    constexpr size_t metadata_delta = 21 + 16;
+    const uint32_t exif_item_id = max_item_id + 1;
+    if (exif_item_id == 0 || exif_item_id > 0xFFFFu) {
+        set_error(context, "HEIF Exif item id cannot be represented by the selected iloc/iinf layout.");
+        return false;
+    }
+    std::vector<uint8_t> new_iref;
+    if (have_iref) {
+        if (!append_heif_exif_cdsc(input, iref_start, iref_len, existing_item_ids,
+            primary_item_id, exif_item_id, new_iref)) {
+            set_error(context, "HEIF iref is malformed, duplicated, or cannot own the new Exif item.");
+            return false;
+        }
+    } else {
+        constexpr size_t child_size = 14;
+        new_iref.assign(8 + 4 + child_size, 0);
+        write_be32(new_iref.data(), static_cast<uint32_t>(new_iref.size()));
+        std::memcpy(new_iref.data() + 4, "iref", 4);
+        write_be32(new_iref.data() + 8, static_cast<uint32_t>(0));
+        write_be32(new_iref.data() + 12, static_cast<uint32_t>(child_size));
+        std::memcpy(new_iref.data() + 16, "cdsc", 4);
+        write_be16(new_iref.data() + 20, static_cast<uint16_t>(exif_item_id));
+        write_be16(new_iref.data() + 22, 1);
+        write_be16(new_iref.data() + 24, static_cast<uint16_t>(primary_item_id));
+    }
+    if (new_iref.size() < (have_iref ? iref_len : 0)) return false;
+    const size_t iref_delta = new_iref.size() - (have_iref ? iref_len : 0);
+    if (iref_delta > std::numeric_limits<size_t>::max() - 37 ||
+        input_size > std::numeric_limits<size_t>::max() - (37 + iref_delta)) {
+        set_error(context, "HEIF Exif metadata graph size overflows the host size type.");
+        return false;
+    }
+    // The new iinf entry, iloc entry and cdsc owner relation enlarge meta.
+    // Existing absolute extents move with the enlarged metadata box.
+    const size_t metadata_delta = 21 + 16 + iref_delta;
+    if (metadata_delta > std::numeric_limits<uint32_t>::max()) {
+        set_error(context, "HEIF Exif metadata graph delta exceeds 32-bit box fields.");
+        return false;
+    }
     std::vector<uint8_t> new_iinf(input + iinf_start, input + iinf_start + iinf_len);
     new_iinf.resize(iinf_len + 21, 0);
     if (new_iinf.size() > std::numeric_limits<uint32_t>::max()) {
@@ -529,7 +635,7 @@ static bool add_heif_exif_item(
     write_be32(infe, 21);
     std::memcpy(infe + 4, "infe", 4);
     infe[8] = 2;
-    write_be16(infe + 12, static_cast<uint16_t>(max_item_id + 1));
+    write_be16(infe + 12, static_cast<uint16_t>(exif_item_id));
     std::memcpy(infe + 16, "Exif", 4);
 
     std::vector<uint8_t> new_iloc(input + iloc_start, input + iloc_start + iloc_len);
@@ -550,13 +656,17 @@ static bool add_heif_exif_item(
             size_t extent = p + 8;
             for (uint16_t e = 0; e < extent_count; ++e) {
                 uint32_t old_offset = read_be32u(new_iloc.data() + extent);
+                if (old_offset > std::numeric_limits<uint32_t>::max() - metadata_delta) {
+                    set_error(context, "HEIF iloc offset overflows after metadata owner update.");
+                    return false;
+                }
                 write_be32(new_iloc.data() + extent, old_offset + static_cast<uint32_t>(metadata_delta));
                 extent += 8;
             }
         }
         p += 8 + static_cast<size_t>(extent_count) * 8;
     }
-    write_be16(new_iloc.data() + p, static_cast<uint16_t>(max_item_id + 1));
+    write_be16(new_iloc.data() + p, static_cast<uint16_t>(exif_item_id));
     write_be16(new_iloc.data() + p + 2, 0);
     write_be16(new_iloc.data() + p + 4, 0);
     write_be16(new_iloc.data() + p + 6, 1);
@@ -595,9 +705,15 @@ static bool add_heif_exif_item(
         const std::vector<uint8_t>* replacement = nullptr;
         if (p == iinf_start) replacement = &new_iinf;
         if (p == iloc_start) replacement = &new_iloc;
+        if (have_iref && p == iref_start) replacement = &new_iref;
         if (replacement != nullptr) new_meta.insert(new_meta.end(), replacement->begin(), replacement->end());
         else new_meta.insert(new_meta.end(), input + p, input + p + box_size);
         p += box_size;
+    }
+    if (!have_iref) new_meta.insert(new_meta.end(), new_iref.begin(), new_iref.end());
+    if (new_meta.size() != meta_len + metadata_delta) {
+        set_error(context, "HEIF Exif metadata graph size does not match its rewritten children.");
+        return false;
     }
 
     std::vector<uint8_t> new_mdat(8 + exif_item.size(), 0);
@@ -631,95 +747,83 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries_select
         return LPB_RESULT_OK;
     }
 
+    maker_note_region region{};
+    if (!locate_formal_makernote_owner(context, data, data_size, region)) {
+        set_error(context, "Apple MakerNote is not uniquely owned by an ExifIFD MakerNote tag.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const size_t mnStart = region.start;
+    if (mnStart > region.end || region.end > data_size || region.end - mnStart < 16) {
+        set_error(context, "Apple MakerNote ownership range is malformed.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    const uint16_t entry_count = read_be16u(data + mnStart + 14);
+    if (entry_count == 0 || entry_count > 64 ||
+        static_cast<size_t>(entry_count) > (region.end - mnStart - 16) / 12) {
+        set_error(context, "Apple MakerNote directory is malformed.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const size_t entries_start = mnStart + 16;
+    const size_t entries_len = static_cast<size_t>(entry_count) * 12;
+    const size_t directory_end = maker_note_directory_end(data, region.end, mnStart, entry_count);
+    if (directory_end < entries_start || directory_end > region.end) {
+        set_error(context, "Apple MakerNote directory exceeds its owned range.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    std::vector<size_t> keep;
+    std::vector<std::pair<size_t, size_t>> clear_ranges;
     std::vector<uint16_t> stripped_tags_acc;
-    size_t search_from = 0;
-    bool malformed_candidate = false;
-    while (true) {
-        ptrdiff_t mn_start = find_apple_makernote(data, data_size, search_from);
-        if (mn_start < 0) {
-            if (malformed_candidate) {
-                set_error(context, "Malformed Apple MakerNote candidate.");
+    for (uint16_t i = 0; i < entry_count; ++i) {
+        const size_t entry = entries_start + static_cast<size_t>(i) * 12;
+        const uint16_t tag = read_be16u(data + entry);
+        const bool is_live_entry = tag == 0x0011 || tag == 0x0017 || tag == 0x0025 || tag == 0x002b;
+        bool is_authorized = false;
+        for (size_t a = 0; a < authorized_count; ++a) {
+            if (authorized_tags[a] == tag) { is_authorized = true; break; }
+        }
+
+        const uint16_t type = read_be16u(data + entry + 2);
+        const uint32_t count = read_be32u(data + entry + 4);
+        const int data_len = type_to_data_length(type, count);
+        if (data_len < 0) {
+            set_error(context, "Apple MakerNote entry type or count overflows its value range.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if (data_len > 0) {
+            const uint32_t offset = read_be32u(data + entry + 8);
+            const size_t relative_end = region.end - mnStart;
+            const size_t value_size = static_cast<size_t>(data_len);
+            if (offset < directory_end - mnStart || offset > relative_end || value_size > relative_end - offset) {
+                set_error(context, "Apple MakerNote entry points outside its owned payload range.");
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
-            break;
+            if (is_live_entry && is_authorized) clear_ranges.emplace_back(
+                mnStart + static_cast<size_t>(offset), mnStart + static_cast<size_t>(offset) + value_size);
         }
 
-        size_t mnStart = static_cast<size_t>(mn_start);
-        maker_note_region region{};
-        if (!find_maker_note_region(data, data_size, mnStart, region)) {
-            malformed_candidate = true;
-            search_from = mnStart + 14;
-            continue;
+        if (!is_live_entry || !is_authorized) {
+            keep.push_back(i);
+        } else if (std::find(stripped_tags_acc.begin(), stripped_tags_acc.end(), tag) == stripped_tags_acc.end()) {
+            stripped_tags_acc.push_back(tag);
         }
-        // Continue after the signature even when this candidate is malformed, so a later
-        // valid MakerNote is never hidden by an unrelated byte sequence.
-        search_from = mnStart + 14;
-        if (mnStart + 16 > region.end || region.end > data_size) { malformed_candidate = true; continue; }
+    }
 
-        uint16_t entry_count = read_be16u(data + mnStart + 14);
-        if (entry_count == 0 || entry_count > 64) { malformed_candidate = true; continue; }
-
-        size_t entriesStart = mnStart + 16;
-        size_t entriesLen = entry_count * 12;
-        const size_t directoryEnd = maker_note_directory_end(data, data_size, mnStart, entry_count);
-        if (entriesLen > region.end - entriesStart || directoryEnd > region.end) {
-            malformed_candidate = true;
-            continue;
+    // All ownership, bounds, and authorization checks above happen before any
+    // mutation.  Only the formally-owned Exif MakerNote is touched below.
+    for (const auto& range : clear_ranges) std::memset(data + range.first, 0, range.second - range.first);
+    if (keep.size() != entry_count) {
+        for (size_t k = 0; k < keep.size(); ++k) {
+            const size_t src = entries_start + keep[k] * 12;
+            const size_t dst = entries_start + k * 12;
+            if (src != dst) std::memmove(data + dst, data + src, 12);
         }
-
-        std::vector<size_t> keep;
-        for (uint16_t i = 0; i < entry_count; i++) {
-            size_t e = entriesStart + i * 12;
-            uint16_t tag = read_be16u(data + e);
-            bool isLiveEntry = (tag == 0x0011 || tag == 0x0017 || tag == 0x0025 || tag == 0x002b);
-            bool isAuthorized = false;
-            for (size_t a = 0; a < authorized_count; ++a) {
-                if (authorized_tags[a] == tag) {
-                    isAuthorized = true;
-                    break;
-                }
-            }
-
-            if (!isLiveEntry || !isAuthorized) {
-                keep.push_back(i);
-                continue;
-            }
-
-            uint16_t type = read_be16u(data + e + 2);
-            uint32_t count = read_be32u(data + e + 4);
-            uint32_t offset = read_be32u(data + e + 8);
-            int dataLen = type_to_data_length(type, count);
-
-            const size_t relative_directory_end = directoryEnd - mnStart;
-            if (dataLen < 0 || (dataLen > 0 && (offset < relative_directory_end ||
-                offset > region.end - mnStart || static_cast<size_t>(dataLen) > region.end - mnStart - offset))) {
-                malformed_candidate = true;
-                continue;
-            }
-            size_t absData = mnStart + offset;
-            if (dataLen > 0) {
-                std::memset(data + absData, 0, static_cast<size_t>(dataLen));
-            }
-            if (std::find(stripped_tags_acc.begin(), stripped_tags_acc.end(), tag) == stripped_tags_acc.end()) {
-                stripped_tags_acc.push_back(tag);
-            }
-        }
-
-        if (keep.size() == entry_count) continue;
-
-        for (size_t k = 0; k < keep.size(); k++) {
-            size_t src = entriesStart + keep[k] * 12;
-            size_t dst = entriesStart + k * 12;
-            if (src != dst) {
-                std::memmove(data + dst, data + src, 12);
-            }
-        }
-
-        size_t newCount = keep.size();
-        size_t newEntriesLen = newCount * 12;
-        size_t tail = entriesStart + entriesLen;
-        std::memset(data + entriesStart + newEntriesLen, 0, tail - (entriesStart + newEntriesLen));
-        write_be16(data + mnStart + 14, static_cast<uint16_t>(newCount));
+        const size_t new_count = keep.size();
+        const size_t new_entries_len = new_count * 12;
+        const size_t tail = entries_start + entries_len;
+        std::memset(data + entries_start + new_entries_len, 0, tail - (entries_start + new_entries_len));
+        write_be16(data + mnStart + 14, static_cast<uint16_t>(new_count));
     }
 
     if (out_stripped_count) *out_stripped_count = stripped_tags_acc.size();
@@ -749,22 +853,20 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_write_content_identifier(
 {
     if (!context || !data || !content_id) return LPB_RESULT_INVALID_ARGUMENT;
 
-    ptrdiff_t mn_start = find_apple_makernote(data, data_size);
-    if (mn_start < 0) {
-        set_error(context, "No existing Apple MakerNote found.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-
     maker_note_region region{};
-    if (!find_maker_note_region(data, data_size, static_cast<size_t>(mn_start), region)) {
-        set_error(context, "Apple MakerNote ownership range could not be established.");
-        return LPB_RESULT_INVALID_ARGUMENT;
+    if (!locate_formal_makernote_owner(context, data, data_size, region)) {
+        set_error(context, "No uniquely owned Apple MakerNote found.");
+        return LPB_RESULT_INTERNAL_ERROR;
     }
 
     std::string cid(content_id);
     cid.push_back('\0'); // null-terminated UUID
 
-    const size_t mn_start_size = static_cast<size_t>(mn_start);
+    const size_t mn_start_size = region.start;
+    if (region.end > data_size || region.end < mn_start_size || region.end - mn_start_size < 16) {
+        set_error(context, "Apple MakerNote ownership range could not be established.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     const uint16_t old_count = read_be16u(data + mn_start_size + 14);
     if (old_count > 64 || static_cast<size_t>(old_count) > (region.end - mn_start_size - 16) / 12) {
         set_error(context, "Apple MakerNote directory is malformed.");
@@ -1151,36 +1253,152 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_heic(
 
 namespace lpb::protocols::apple {
 
-bool apple_makernote_has_tag(const uint8_t* data, size_t start, size_t end, uint16_t target_tag) {
-    if (!data || start > end || end - start < 30) return false;
-    const char signature[] = "Apple iOS\0";
-    for (size_t p = start; p + 16 <= end; ++p) {
-        if (std::memcmp(data + p, signature, 10) != 0 || data[p + 10] != 0 || data[p + 11] != 1 ||
-            data[p + 12] != 'M' || data[p + 13] != 'M') continue;
-        const uint16_t count = read_be16u(data + p + 14);
-        if (count == 0 || count > 64 || count > (end - p - 16) / 12) continue;
-        const size_t entries = p + 16;
-        for (uint16_t i = 0; i < count; ++i) {
-            const size_t entry = entries + static_cast<size_t>(i) * 12;
-            const uint16_t tag = read_be16u(data + entry);
-            if (tag == target_tag) return true;
-        }
+struct owned_makernote {
+    size_t start{};
+    size_t end{};
+    const uint8_t* tiff{};
+    size_t tiff_start{};
+    bool little{};
+};
+
+static bool find_unique_tiff_tag(const uint8_t* data, size_t tiff_start, size_t tiff_end,
+    uint32_t ifd_offset, bool little, uint16_t wanted, uint16_t& type, uint32_t& count,
+    uint32_t& value, bool& found) noexcept
+{
+    found = false;
+    if (!data || tiff_start > tiff_end || ifd_offset > tiff_end - tiff_start) return false;
+    const size_t ifd = tiff_start + ifd_offset;
+    uint16_t entries = 0;
+    if (!read_tiff_u16(data, tiff_start, tiff_end, ifd, little, entries) ||
+        entries > 4096 || static_cast<size_t>(entries) > (tiff_end - ifd - 2) / 12) return false;
+    for (uint16_t i = 0; i < entries; ++i) {
+        const size_t entry = ifd + 2 + static_cast<size_t>(i) * 12;
+        uint16_t tag = 0;
+        if (!read_tiff_u16(data, tiff_start, tiff_end, entry, little, tag)) return false;
+        if (tag != wanted) continue;
+        if (found) return false;
+        if (!read_tiff_u16(data, tiff_start, tiff_end, entry + 2, little, type) ||
+            !read_tiff_u32(data, tiff_start, tiff_end, entry + 4, little, count) ||
+            !read_tiff_u32(data, tiff_start, tiff_end, entry + 8, little, value)) return false;
+        found = true;
     }
+    return true;
+}
+
+static uint64_t tiff_type_size(uint16_t type) noexcept
+{
+    switch (type) {
+    case 1: case 2: case 6: case 7: return 1;
+    case 3: case 8: return 2;
+    case 4: case 9: case 11: case 13: case 14: return 4;
+    case 5: case 10: case 12: case 16: return 8;
+    default: return 0;
+    }
+}
+
+static bool validate_tiff_ifd_chain(const uint8_t* data, size_t tiff_start, size_t tiff_end,
+    uint32_t initial_offset, bool little, std::vector<uint32_t>& visited, size_t& makernote_count) noexcept
+{
+    uint32_t offset = initial_offset;
+    while (offset != 0) {
+        if (std::find(visited.begin(), visited.end(), offset) != visited.end() || visited.size() >= 64) return false;
+        visited.push_back(offset);
+        if (offset > tiff_end - tiff_start) return false;
+        const size_t ifd = tiff_start + static_cast<size_t>(offset);
+        uint16_t count = 0;
+        if (!read_tiff_u16(data, tiff_start, tiff_end, ifd, little, count) || count > 4096 || tiff_end - ifd < 2) return false;
+        const size_t table_bytes = static_cast<size_t>(count) * 12;
+        if (table_bytes > tiff_end - ifd - 2 || tiff_end - ifd - 2 - table_bytes < 4) return false;
+        for (uint16_t i = 0; i < count; ++i) {
+            const size_t entry = ifd + 2 + static_cast<size_t>(i) * 12;
+            uint16_t tag = 0; uint16_t type = 0; uint32_t value_count = 0; uint32_t value = 0;
+            if (!read_tiff_u16(data, tiff_start, tiff_end, entry, little, tag) ||
+                !read_tiff_u16(data, tiff_start, tiff_end, entry + 2, little, type) ||
+                !read_tiff_u32(data, tiff_start, tiff_end, entry + 4, little, value_count) ||
+                !read_tiff_u32(data, tiff_start, tiff_end, entry + 8, little, value)) return false;
+            const uint64_t unit = tiff_type_size(type);
+            if (unit == 0 || static_cast<uint64_t>(value_count) > std::numeric_limits<uint64_t>::max() / unit) return false;
+            const uint64_t value_bytes = unit * value_count;
+            if (value_bytes > 4) {
+                if (value > tiff_end - tiff_start || value_bytes > tiff_end - tiff_start - value) return false;
+            }
+            if (tag == 0x927C) ++makernote_count;
+        }
+        const size_t next_at = ifd + 2 + table_bytes;
+        uint32_t next = 0;
+        if (!read_tiff_u32(data, tiff_start, tiff_end, next_at, little, next)) return false;
+        offset = next;
+    }
+    return true;
+}
+
+static bool locate_owned_makernote(const uint8_t* data, size_t start, size_t end,
+    owned_makernote& out) noexcept
+{
+    if (!data || start >= end) return false;
+    size_t tiff_start = start;
+    if (end - start >= 10 && data[start] == 0 && data[start + 1] == 0 && data[start + 2] == 0 &&
+        data[start + 3] == 6 && std::memcmp(data + start + 4, "Exif\0\0", 6) == 0) {
+        tiff_start += 10;
+    }
+    if (tiff_start + 8 > end) return false;
+    const bool little = data[tiff_start] == 'I' && data[tiff_start + 1] == 'I';
+    const bool big = data[tiff_start] == 'M' && data[tiff_start + 1] == 'M';
+    if ((!little && !big) || (little && (data[tiff_start + 2] != 0x2A || data[tiff_start + 3] != 0)) ||
+        (big && read_be16u(data + tiff_start + 2) != 42)) return false;
+    uint32_t ifd0 = 0;
+    if (!read_tiff_u32(data, tiff_start, end, tiff_start + 4, little, ifd0)) return false;
+    if (ifd0 == 0) return false;
+    std::vector<uint32_t> ifd0_chain;
+    size_t ifd0_makernote_count = 0;
+    if (!validate_tiff_ifd_chain(data, tiff_start, end, ifd0, little, ifd0_chain, ifd0_makernote_count) || ifd0_makernote_count != 0) return false;
+    uint16_t shadow_type = 0; uint32_t shadow_count = 0; uint32_t shadow_offset = 0; bool shadow_found = false;
+    if (!find_unique_tiff_tag(data, tiff_start, end, ifd0, little, 0x927C,
+        shadow_type, shadow_count, shadow_offset, shadow_found) || shadow_found) return false;
+    uint16_t exif_type = 0; uint32_t exif_count = 0; uint32_t exif_offset = 0; bool exif_found = false;
+    if (!find_unique_tiff_tag(data, tiff_start, end, ifd0, little, 0x8769,
+        exif_type, exif_count, exif_offset, exif_found) || !exif_found || exif_type != 4 || exif_count != 1 ||
+        exif_offset == 0 || std::find(ifd0_chain.begin(), ifd0_chain.end(), exif_offset) != ifd0_chain.end()) return false;
+    std::vector<uint32_t> exif_chain;
+    size_t exif_makernote_count = 0;
+    if (!validate_tiff_ifd_chain(data, tiff_start, end, exif_offset, little, exif_chain, exif_makernote_count) || exif_makernote_count != 1) return false;
+    uint16_t note_type = 0; uint32_t note_count = 0; uint32_t note_offset = 0; bool note_found = false;
+    if (!find_unique_tiff_tag(data, tiff_start, end, exif_offset, little, 0x927C,
+        note_type, note_count, note_offset, note_found) || !note_found || note_type != 7 || note_count < 14) return false;
+    if (note_count < 16 || note_offset > end - tiff_start || note_count > end - tiff_start - note_offset) return false;
+    const size_t note_start = tiff_start + static_cast<size_t>(note_offset);
+    if (note_start + 16 > end || std::memcmp(data + note_start, "Apple iOS\0", 10) != 0) return false;
+    const uint16_t directory_count = read_be16u(data + note_start + 14);
+    if (directory_count > 64 || directory_count > (end - note_start - 16) / 12) return false;
+    std::vector<uint16_t> maker_tags;
+    maker_tags.reserve(directory_count);
+    for (uint16_t i = 0; i < directory_count; ++i) {
+        const uint16_t tag = read_be16u(data + note_start + 16 + static_cast<size_t>(i) * 12);
+        if (std::find(maker_tags.begin(), maker_tags.end(), tag) != maker_tags.end()) return false;
+        maker_tags.push_back(tag);
+    }
+    out = { note_start, note_start + static_cast<size_t>(note_count), data, tiff_start, little };
+    return true;
+}
+
+bool apple_makernote_has_tag(const uint8_t* data, size_t start, size_t end, uint16_t target_tag) {
+    owned_makernote note{};
+    if (!locate_owned_makernote(data, start, end, note)) return false;
+    const size_t entries = note.start + 16;
+    const uint16_t count = read_be16u(data + note.start + 14);
+    for (uint16_t i = 0; i < count; ++i)
+        if (read_be16u(data + entries + static_cast<size_t>(i) * 12) == target_tag) return true;
     return false;
 }
 
 bool apple_makernote_get_tag_fingerprint(
     const uint8_t* data, size_t start, size_t end, uint16_t target_tag, std::string& out_fp)
 {
-    if (!data || start > end || end - start < 30) return false;
-    const char signature[] = "Apple iOS\0";
-    for (size_t p = start; p + 16 <= end; ++p) {
-        if (std::memcmp(data + p, signature, 10) != 0 || data[p + 10] != 0 || data[p + 11] != 1 ||
-            data[p + 12] != 'M' || data[p + 13] != 'M') continue;
-        const uint16_t entry_count = read_be16u(data + p + 14);
-        if (entry_count == 0 || entry_count > 64 || entry_count > (end - p - 16) / 12) continue;
-        const size_t entries = p + 16;
-        for (uint16_t i = 0; i < entry_count; ++i) {
+    owned_makernote note{};
+    if (!locate_owned_makernote(data, start, end, note)) return false;
+    const uint16_t entry_count = read_be16u(data + note.start + 14);
+    const size_t entries = note.start + 16;
+    for (uint16_t i = 0; i < entry_count; ++i) {
             const size_t entry = entries + static_cast<size_t>(i) * 12;
             const uint16_t tag = read_be16u(data + entry);
             if (tag == target_tag) {
@@ -1206,13 +1424,12 @@ bool apple_makernote_get_tag_fingerprint(
                 if (val_len <= 4) {
                     val_ptr = data + entry + 8;
                 } else {
-                    if (offset > end - p || val_len > (end - p - offset)) return false;
-                    val_ptr = data + p + offset;
+                    if (offset > note.end - note.start || val_len > (note.end - note.start - offset)) return false;
+                    val_ptr = data + note.start + offset;
                 }
                 out_fp = lpb::crypto::compute_apple_makernote_tag_fingerprint(tag, type, count, val_ptr, val_len);
                 return true;
             }
-        }
     }
     return false;
 }
@@ -1292,3 +1509,65 @@ bool apple_image_get_tag_fingerprint(
 }
 
 } // namespace lpb::protocols::apple
+
+namespace {
+
+static bool locate_formal_makernote_owner(
+    lpb_context* context, const uint8_t* data, size_t data_size,
+    maker_note_region& out) noexcept
+{
+    if (!data || data_size < 2) return false;
+
+    // JPEG ownership is the APP1 Exif/TIFF hierarchy. Do not inspect bytes
+    // after SOS/EOI or accept a second Exif APP1 as a shadow owner.
+    if (data[0] == 0xFF && data[1] == 0xD8) {
+        size_t p = 2;
+        bool found_owner = false;
+        while (p < data_size) {
+            if (p + 2 > data_size || data[p] != 0xFF) return false;
+            ++p;
+            while (p < data_size && data[p] == 0xFF) ++p;
+            if (p >= data_size) return false;
+            const uint8_t marker = data[p++];
+            if (marker == 0xD9) break;
+            if (marker == 0xDA) {
+                if (p + 2 > data_size) return false;
+                const size_t segment_length = (static_cast<size_t>(data[p]) << 8) | data[p + 1];
+                return segment_length >= 2 && segment_length <= data_size - p && found_owner;
+            }
+            if (marker == 0xD8 || (marker >= 0xD0 && marker <= 0xD7)) continue;
+            if (p + 2 > data_size) return false;
+            const size_t segment_length = (static_cast<size_t>(data[p]) << 8) | data[p + 1];
+            if (segment_length < 2 || segment_length > data_size - p) return false;
+            const size_t payload = p + 2;
+            const size_t payload_size = segment_length - 2;
+            if (marker == 0xE1 && payload_size >= 6 &&
+                std::memcmp(data + payload, "Exif\0\0", 6) == 0) {
+                if (found_owner) return false;
+                lpb::protocols::apple::owned_makernote note{};
+                if (!lpb::protocols::apple::locate_owned_makernote(
+                    data, payload + 6, payload + payload_size, note)) return false;
+                out = { note.start, note.end };
+                found_owner = true;
+            }
+            p = payload + payload_size;
+        }
+        return found_owner;
+    }
+
+    // HEIF ownership is the unique Exif item returned by the validated item
+    // graph. A raw MakerNote signature elsewhere in the file is irrelevant.
+    if (!context) return false;
+    uint64_t exif_offset = 0;
+    uint64_t exif_length = 0;
+    if (lpb_heif_locate_exif_item(context, data, data_size, &exif_offset, &exif_length) != LPB_RESULT_OK ||
+        exif_offset > data_size || exif_length > data_size - static_cast<size_t>(exif_offset)) return false;
+    lpb::protocols::apple::owned_makernote note{};
+    if (!lpb::protocols::apple::locate_owned_makernote(
+        data, static_cast<size_t>(exif_offset),
+        static_cast<size_t>(exif_offset + exif_length), note)) return false;
+    out = { note.start, note.end };
+    return true;
+}
+
+} // namespace

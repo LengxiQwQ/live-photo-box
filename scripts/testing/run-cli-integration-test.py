@@ -280,7 +280,7 @@ def meta_has(meta: dict | None, field: str, *, group: str | None = None) -> bool
 # These checks intentionally do not use Live Photo Box's readers.  A release
 # gate must be able to catch a writer and reader that agree on the same wrong
 # layout.  The rules below are the byte-level requirements documented in
-# docs/实况照片协议完整分析报告.md.
+# docs/实况照片协议分析文档/.
 # ═══════════════════════════════════════════════════════════════════
 
 

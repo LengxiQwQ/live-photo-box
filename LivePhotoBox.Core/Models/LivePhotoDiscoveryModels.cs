@@ -9,6 +9,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using LivePhotoBox.Media.Models;
 
 namespace LivePhotoBox.Models
 {
@@ -112,6 +113,12 @@ namespace LivePhotoBox.Models
 
         /// <summary>单文件 JPEG 实况照片：内嵌视频段字节数</summary>
         public long AppendedVideoLength { get; set; }
+
+        /// <summary>Native-confirmed protocol and exact motion-video facts.</summary>
+        public SourceProtocol Protocol { get; set; } = SourceProtocol.Unknown;
+        public long MotionVideoByteOffset { get; set; }
+        public long MotionVideoByteLength { get; set; }
+        public VideoContainer MotionVideoContainer { get; set; } = VideoContainer.Unknown;
 
         /// <summary>Apple ContentIdentifier UUID（exiftool 查询结果，未查询则为 null）</summary>
         public string? ContentIdentifier { get; set; }

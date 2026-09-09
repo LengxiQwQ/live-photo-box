@@ -88,6 +88,41 @@ internal sealed class NativeContext : IDisposable
     {
         if (res == NativeResult.Ok) return;
 
+        if (res == NativeResult.InvalidArgument)
+        {
+            unsafe
+            {
+                var status = new NativeInspectionStatus
+                {
+                    StructSize = checked((uint)sizeof(NativeInspectionStatus))
+                };
+                if (NativeMethods.GetLastInspectionStatus(_contextHandle, ref status) == NativeResult.Ok &&
+                    status.Category != NativeInspectionFailureCategory.None)
+                {
+                    string? diagnostic = GetLastError();
+                    throw new LivePhotoBox.Media.Inspection.SourceInspectionException(
+                        status.Category switch
+                        {
+                            NativeInspectionFailureCategory.Unsupported => LivePhotoBox.Media.Inspection.SourceInspectionFailureCategory.Unsupported,
+                            NativeInspectionFailureCategory.Ambiguous => LivePhotoBox.Media.Inspection.SourceInspectionFailureCategory.Ambiguous,
+                            NativeInspectionFailureCategory.Malformed => LivePhotoBox.Media.Inspection.SourceInspectionFailureCategory.Malformed,
+                            NativeInspectionFailureCategory.InvalidArgument => LivePhotoBox.Media.Inspection.SourceInspectionFailureCategory.InvalidArgument,
+                            _ => LivePhotoBox.Media.Inspection.SourceInspectionFailureCategory.Io
+                        },
+                        status.Stage switch
+                        {
+                            NativeInspectionStage.Read => LivePhotoBox.Media.Inspection.SourceInspectionStage.Read,
+                            NativeInspectionStage.Container => LivePhotoBox.Media.Inspection.SourceInspectionStage.Container,
+                            NativeInspectionStage.Metadata => LivePhotoBox.Media.Inspection.SourceInspectionStage.Metadata,
+                            NativeInspectionStage.Pairing => LivePhotoBox.Media.Inspection.SourceInspectionStage.Pairing,
+                            _ => LivePhotoBox.Media.Inspection.SourceInspectionStage.Protocol
+                        },
+                        status.Capability,
+                        diagnostic ?? "Native source inspection failed.");
+                }
+            }
+        }
+
         string? msg = GetLastError();
         if (!string.IsNullOrWhiteSpace(msg))
         {

@@ -18,7 +18,7 @@ namespace LivePhotoBox.Cli.Commands
             "Windows / Xiaomi (legacy MIUI) / Pixel", // 1 micro video
             "Windows / Xiaomi / Pixel",               // 2 motion photo
             "Windows / Xiaomi / OPPO",                // 3 oppo
-            "Windows / vivo (≥ X300)",                // 4 vivo
+            "Windows / vivo (≥ x300)",                // 4 vivo
             "Windows / Samsung",                      // 5 samsung
             "HUAWEI / Honor",                         // 6 huawei
         ];

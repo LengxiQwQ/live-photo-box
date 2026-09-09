@@ -67,7 +67,7 @@ public sealed class VivoNativeMetadataDifferentialTests
         byte[] input = [.. ftyp, .. moov, .. oldUuid, .. mdat];
 
         string directory = Path.Combine(
-            FindRepositoryRoot(), "ai-tmp", "test-runs", $"lpb_native_vivo_{Guid.NewGuid():N}");
+            FindRepositoryRoot(), ".ai-tmp", "test-runs", $"lpb_native_vivo_{Guid.NewGuid():N}");
         Directory.CreateDirectory(directory);
         string legacyPath = Path.Combine(directory, "legacy.mp4");
         try

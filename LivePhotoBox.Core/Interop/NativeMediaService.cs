@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using LivePhotoBox.Media.Models;
+using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Protocols.Cleaning;
 
 namespace LivePhotoBox.Interop;
@@ -15,14 +16,38 @@ namespace LivePhotoBox.Interop;
 /// </summary>
 public static class NativeMediaService
 {
+    static NativeMediaService() => ValidateNativeFactsLayout();
+
+    private static void ValidateNativeFactsLayout()
+    {
+        if (Marshal.SizeOf<NativeGainMapItemFacts>() != 112 ||
+            (int)Marshal.OffsetOf<NativeGainMapItemFacts>(nameof(NativeGainMapItemFacts.FileRange)) != 32 ||
+            (int)Marshal.OffsetOf<NativeGainMapItemFacts>(nameof(NativeGainMapItemFacts.Relationship)) != 48 ||
+            Marshal.SizeOf<NativeSourceMediaFacts>() != 1320 ||
+            (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.GainMap)) != 128 ||
+            (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.Timing)) != 240 ||
+            (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.PrimarySha256)) != 416 ||
+            (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.SecondarySha256)) != 448 ||
+            (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.HasSecondarySource)) != 480 ||
+            (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.AuxiliaryCount)) != 484)
+        {
+            throw new InvalidOperationException("Managed Native facts layout does not match ABI v4.");
+        }
+    }
+
     public static Task<SourceMediaFacts> InspectMediaAsync(
         string primaryPath,
         string? secondaryPath = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!File.Exists(primaryPath))
-            throw new FileNotFoundException("Primary media file not found.", primaryPath);
+        ArgumentNullException.ThrowIfNull(primaryPath);
+        PreflightInspectionPath(primaryPath, "Primary");
+        if (secondaryPath is not null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PreflightInspectionPath(secondaryPath, "Secondary");
+        }
 
         return Task.Run(() =>
         {
@@ -85,6 +110,69 @@ public static class NativeMediaService
             }
         }, cancellationToken);
     }
+
+    private static void PreflightInspectionPath(string path, string role)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            throw CreateInspectionIoFailure($"{role} media path is empty or whitespace.");
+        }
+
+        try
+        {
+            // Resolve only to validate path syntax. Keep the caller's path for
+            // the ABI call so preflight cannot change alias semantics.
+            _ = Path.GetFullPath(path);
+            using var stream = new FileStream(
+                path,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                bufferSize: 1,
+                options: FileOptions.SequentialScan);
+            _ = stream.ReadByte();
+        }
+        catch (ArgumentException ex)
+        {
+            throw CreateInspectionIoFailure($"{role} media path is invalid.", ex);
+        }
+        catch (NotSupportedException ex)
+        {
+            throw CreateInspectionIoFailure($"{role} media path is invalid.", ex);
+        }
+        catch (FileNotFoundException ex)
+        {
+            throw CreateInspectionIoFailure($"{role} media path is missing or unreadable.", ex);
+        }
+        catch (DirectoryNotFoundException ex)
+        {
+            throw CreateInspectionIoFailure($"{role} media path is missing or unreadable.", ex);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw CreateInspectionIoFailure($"{role} media path is missing or unreadable.", ex);
+        }
+        catch (IOException ex)
+        {
+            throw CreateInspectionIoFailure($"{role} media path is missing or unreadable.", ex);
+        }
+    }
+
+    private static SourceInspectionException CreateInspectionIoFailure(
+        string reason,
+        Exception? innerException = null) =>
+        innerException is null
+            ? new SourceInspectionException(
+                SourceInspectionFailureCategory.Io,
+                SourceInspectionStage.Read,
+                NativeRuntime.FoundationCapability,
+                reason)
+            : new SourceInspectionException(
+                SourceInspectionFailureCategory.Io,
+                SourceInspectionStage.Read,
+                NativeRuntime.FoundationCapability,
+                reason,
+                innerException);
 
     public static Task ExtractMediaAsync(
         string primaryPath,
@@ -278,6 +366,26 @@ public static class NativeMediaService
             secondaryShaHex = Convert.ToHexString(secondarySha);
         }
 
+        if (native.AuxiliaryCount > NativeRuntime.MaxAuxiliaryItems)
+        {
+            throw new SourceInspectionException(
+                SourceInspectionFailureCategory.Unsupported,
+                SourceInspectionStage.Container,
+                NativeRuntime.FoundationCapability,
+                $"Native source facts contain {native.AuxiliaryCount} auxiliary items, exceeding the ABI capacity of {NativeRuntime.MaxAuxiliaryItems}.");
+        }
+
+        var auxiliaryItems = new List<AuxiliaryMediaFacts>();
+        int auxiliaryCount = checked((int)native.AuxiliaryCount);
+        if (auxiliaryCount > 0) auxiliaryItems.Add(MapAuxiliary(native.Auxiliary0));
+        if (auxiliaryCount > 1) auxiliaryItems.Add(MapAuxiliary(native.Auxiliary1));
+        if (auxiliaryCount > 2) auxiliaryItems.Add(MapAuxiliary(native.Auxiliary2));
+        if (auxiliaryCount > 3) auxiliaryItems.Add(MapAuxiliary(native.Auxiliary3));
+        if (auxiliaryCount > 4) auxiliaryItems.Add(MapAuxiliary(native.Auxiliary4));
+        if (auxiliaryCount > 5) auxiliaryItems.Add(MapAuxiliary(native.Auxiliary5));
+        if (auxiliaryCount > 6) auxiliaryItems.Add(MapAuxiliary(native.Auxiliary6));
+        if (auxiliaryCount > 7) auxiliaryItems.Add(MapAuxiliary(native.Auxiliary7));
+
         return new SourceMediaFacts
         {
             Protocol = (SourceProtocol)native.Protocol,
@@ -293,13 +401,10 @@ public static class NativeMediaService
                 ByteLength = (long)native.PrimaryImage.FileRange.Length
             },
             MotionVideo = native.MotionVideo.IsPresent != 0 ? MapFromNativeVideoFacts(native.MotionVideo) : null,
-            GainMap = native.GainMap.IsPresent != 0 ? new GainMapFacts
-            {
-                IsPresent = true,
-                Container = (ImageContainer)native.GainMap.Container,
-                ByteOffset = (long)native.GainMap.FileRange.Offset,
-                ByteLength = (long)native.GainMap.FileRange.Length
-            } : null,
+            GainMap = native.GainMap.IsPresent != 0
+                ? MapGainMap(native.GainMap, auxiliaryItems)
+                : null,
+            AuxiliaryItems = auxiliaryItems,
             Timing = new TimingFacts
             {
                 CoverTimestampUs = native.Timing.CoverTimestampUs,
@@ -311,6 +416,98 @@ public static class NativeMediaService
             ProtocolTailLength = checked((long)native.ProtocolTailRange.Length),
             PairingIdentifier = pairingId,
             ConfirmedResidues = confirmedResidues ?? Array.Empty<ConfirmedProtocolResidue>()
+        };
+    }
+
+    private static unsafe AuxiliaryMediaFacts MapAuxiliary(NativeAuxiliaryItemFacts native)
+    {
+        if (native.StructSize < (uint)sizeof(NativeAuxiliaryItemFacts))
+        {
+            throw new SourceInspectionException(
+                SourceInspectionFailureCategory.Ambiguous,
+                SourceInspectionStage.Container,
+                NativeRuntime.FoundationCapability,
+                "Native auxiliary item facts have an incompatible struct_size.");
+        }
+        string relationship = string.Empty;
+        int nativeSize = Marshal.SizeOf<NativeAuxiliaryItemFacts>();
+        nint nativePtr = Marshal.AllocHGlobal(nativeSize);
+        try
+        {
+            Marshal.StructureToPtr(native, nativePtr, false);
+            int offset = (int)Marshal.OffsetOf<NativeAuxiliaryItemFacts>(nameof(NativeAuxiliaryItemFacts.Relationship));
+            byte[] bytes = new byte[64];
+            Marshal.Copy(nativePtr + offset, bytes, 0, bytes.Length);
+            int length = Array.IndexOf(bytes, (byte)0);
+            relationship = Encoding.UTF8.GetString(bytes, 0, length < 0 ? bytes.Length : length);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(nativePtr);
+        }
+        return new AuxiliaryMediaFacts
+        {
+            IsPresent = native.IsPresent != 0,
+            Container = (ImageContainer)native.Container,
+            Representation = (AuxiliaryRepresentation)native.Representation,
+            Ownership = (AuxiliaryOwnership)native.Ownership,
+            ItemId = native.ItemId,
+            ByteOffset = checked((long)native.FileRange.Offset),
+            ByteLength = checked((long)native.FileRange.Length),
+            Relationship = relationship
+        };
+    }
+
+    private static unsafe GainMapFacts MapGainMap(
+        NativeGainMapItemFacts native,
+        IReadOnlyList<AuxiliaryMediaFacts> auxiliaryItems)
+    {
+        if (native.StructSize < (uint)sizeof(NativeGainMapItemFacts) ||
+            native.AuxiliaryIndex >= (uint)auxiliaryItems.Count)
+        {
+            throw new SourceInspectionException(
+                SourceInspectionFailureCategory.Ambiguous,
+                SourceInspectionStage.Container,
+                NativeRuntime.FoundationCapability,
+                "Native GainMap facts do not identify a unique auxiliary entry.");
+        }
+
+        var auxiliary = auxiliaryItems[(int)native.AuxiliaryIndex];
+        string relationship;
+        byte* pRelationship = native.Relationship;
+        relationship = ReadFixedUtf8String(pRelationship, 64);
+
+        if (!auxiliary.IsPresent ||
+            auxiliary.Container != (ImageContainer)native.Container ||
+            auxiliary.Representation != (AuxiliaryRepresentation)native.Representation ||
+            auxiliary.Ownership != (AuxiliaryOwnership)native.Ownership ||
+            native.OwnerArtifactRole != (native.Ownership == (int)AuxiliaryOwnership.Primary
+                ? (int)MediaArtifactKind.PrimaryImage
+                : (int)MediaArtifactKind.AuxiliaryItem) ||
+            auxiliary.ItemId != native.ItemId ||
+            auxiliary.ByteOffset != checked((long)native.FileRange.Offset) ||
+            auxiliary.ByteLength != checked((long)native.FileRange.Length) ||
+            !string.Equals(auxiliary.Relationship, relationship, StringComparison.Ordinal))
+        {
+            throw new SourceInspectionException(
+                SourceInspectionFailureCategory.Ambiguous,
+                SourceInspectionStage.Container,
+                NativeRuntime.FoundationCapability,
+                "Native GainMap facts are not bound to the referenced auxiliary entry.");
+        }
+
+        return new GainMapFacts
+        {
+            IsPresent = true,
+            Container = (ImageContainer)native.Container,
+            Representation = (AuxiliaryRepresentation)native.Representation,
+            Ownership = (AuxiliaryOwnership)native.Ownership,
+            OwnerArtifactRole = (MediaArtifactKind)native.OwnerArtifactRole,
+            AuxiliaryIndex = native.AuxiliaryIndex,
+            ItemId = native.ItemId,
+            ByteOffset = checked((long)native.FileRange.Offset),
+            ByteLength = checked((long)native.FileRange.Length),
+            Relationship = relationship
         };
     }
 
@@ -490,19 +687,69 @@ public static class NativeMediaService
         }
 
         native.GainMap.StructSize = checked((uint)sizeof(NativeGainMapItemFacts));
+        if (facts.AuxiliaryItems.Count > NativeRuntime.MaxAuxiliaryItems)
+        {
+            throw new LivePhotoBox.Media.Extraction.ExtractionException(
+                LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidFacts,
+                $"Auxiliary item count exceeds the native ABI capacity of {NativeRuntime.MaxAuxiliaryItems}.");
+        }
+
+        native.AuxiliaryCount = (uint)facts.AuxiliaryItems.Count;
+        for (int i = 0; i < facts.AuxiliaryItems.Count; i++)
+        {
+            NativeAuxiliaryItemFacts auxiliary = MapToNativeAuxiliary(facts.AuxiliaryItems[i]);
+            switch (i)
+            {
+                case 0: native.Auxiliary0 = auxiliary; break;
+                case 1: native.Auxiliary1 = auxiliary; break;
+                case 2: native.Auxiliary2 = auxiliary; break;
+                case 3: native.Auxiliary3 = auxiliary; break;
+                case 4: native.Auxiliary4 = auxiliary; break;
+                case 5: native.Auxiliary5 = auxiliary; break;
+                case 6: native.Auxiliary6 = auxiliary; break;
+                case 7: native.Auxiliary7 = auxiliary; break;
+            }
+        }
+
         if (facts.GainMap != null)
         {
+            if (!facts.GainMap.IsPresent ||
+                facts.GainMap.AuxiliaryIndex >= (uint)facts.AuxiliaryItems.Count)
+            {
+                throw new LivePhotoBox.Media.Extraction.ExtractionException(
+                    LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidFacts,
+                    "GainMap facts must reference one unique auxiliary item.");
+            }
+
+            var auxiliary = facts.AuxiliaryItems[(int)facts.GainMap.AuxiliaryIndex];
+            if (!IsGainMapBindingConsistent(facts.GainMap, auxiliary))
+            {
+                throw new LivePhotoBox.Media.Extraction.ExtractionException(
+                    LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidFacts,
+                    "GainMap facts do not match their referenced auxiliary item.");
+            }
+
             native.GainMap = new NativeGainMapItemFacts
             {
                 StructSize = checked((uint)sizeof(NativeGainMapItemFacts)),
-                IsPresent = facts.GainMap.IsPresent ? 1 : 0,
+                IsPresent = 1,
                 Container = (int)facts.GainMap.Container,
+                Representation = (int)facts.GainMap.Representation,
+                Ownership = (int)facts.GainMap.Ownership,
+                OwnerArtifactRole = (int)facts.GainMap.OwnerArtifactRole,
+                AuxiliaryIndex = facts.GainMap.AuxiliaryIndex,
+                ItemId = facts.GainMap.ItemId,
                 FileRange = new NativeMediaRange
                 {
                     Offset = (ulong)facts.GainMap.ByteOffset,
                     Length = (ulong)facts.GainMap.ByteLength
                 }
             };
+            byte* pRelationship = native.GainMap.Relationship;
+            byte[] relationship = Encoding.UTF8.GetBytes(facts.GainMap.Relationship ?? string.Empty);
+            int copyLength = Math.Min(relationship.Length, 63);
+            for (int i = 0; i < copyLength; i++) pRelationship[i] = relationship[i];
+            pRelationship[copyLength] = 0;
         }
 
         native.Timing = new NativeTimingFacts
@@ -522,6 +769,43 @@ public static class NativeMediaService
 
         return native;
     }
+
+    private static unsafe NativeAuxiliaryItemFacts MapToNativeAuxiliary(AuxiliaryMediaFacts facts)
+    {
+        var native = new NativeAuxiliaryItemFacts
+        {
+            StructSize = checked((uint)sizeof(NativeAuxiliaryItemFacts)),
+            IsPresent = facts.IsPresent ? 1 : 0,
+            Container = (int)facts.Container,
+            Representation = (int)facts.Representation,
+            Ownership = (int)facts.Ownership,
+            ItemId = facts.ItemId,
+            FileRange = new NativeMediaRange
+            {
+                Offset = (ulong)facts.ByteOffset,
+                Length = (ulong)facts.ByteLength
+            }
+        };
+        byte* pRelationship = native.Relationship;
+        byte[] relationship = Encoding.UTF8.GetBytes(facts.Relationship ?? string.Empty);
+        int copyLength = Math.Min(relationship.Length, 63);
+        for (int i = 0; i < copyLength; i++) pRelationship[i] = relationship[i];
+        pRelationship[copyLength] = 0;
+        return native;
+    }
+
+    private static bool IsGainMapBindingConsistent(GainMapFacts gainMap, AuxiliaryMediaFacts auxiliary)
+        => auxiliary.IsPresent &&
+           gainMap.OwnerArtifactRole == (gainMap.Ownership == AuxiliaryOwnership.Primary
+               ? MediaArtifactKind.PrimaryImage
+               : MediaArtifactKind.AuxiliaryItem) &&
+           auxiliary.Container == gainMap.Container &&
+           auxiliary.Representation == gainMap.Representation &&
+           auxiliary.Ownership == gainMap.Ownership &&
+           auxiliary.ItemId == gainMap.ItemId &&
+           auxiliary.ByteOffset == gainMap.ByteOffset &&
+           auxiliary.ByteLength == gainMap.ByteLength &&
+           string.Equals(auxiliary.Relationship, gainMap.Relationship, StringComparison.Ordinal);
 
     public static Task ReassembleJpegGainMapAsync(
         string primaryJpegPath,

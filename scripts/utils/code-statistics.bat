@@ -28,7 +28,7 @@ rem Exclude generated output, packages, samples, caches, and documentation.
     "LivePhotoBox.Native" ^
     "tests" ^
     "scripts" ^
-    --exclude-dir=bin,obj,Tools,artifacts,publish,backups,designs,ai-tmp,.git,.vs > "%TEMP%\cloc.tmp"
+    --exclude-dir=bin,obj,Tools,artifacts,publish,backups,designs,.ai-tmp,ai-tmp,.git,.vs > "%TEMP%\cloc.tmp"
 type "%TEMP%\cloc.tmp"
 
 for /f "tokens=3-5" %%a in ('findstr /b "SUM:" "%TEMP%\cloc.tmp"') do set /a _total=%%a+%%b+%%c

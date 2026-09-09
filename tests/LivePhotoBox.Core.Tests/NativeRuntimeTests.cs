@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using LivePhotoBox.Interop;
+using LivePhotoBox.Media.Inspection;
 using Xunit;
 
 namespace LivePhotoBox.Core.Tests;
@@ -34,15 +35,32 @@ public sealed class NativeRuntimeTests
     }
 
     [Fact]
-    public void SupportedAbiVersion_IsTwo()
+    public void SupportedAbiVersion_IsFour()
     {
-        Assert.Equal(2u, NativeRuntime.SupportedAbiVersion);
+        Assert.Equal(4u, NativeRuntime.SupportedAbiVersion);
+    }
+
+    [Fact]
+    public unsafe void SourceFacts_AuxiliaryCapacityDoesNotTruncate()
+    {
+        var native = new NativeSourceMediaFacts
+        {
+            StructSize = (uint)sizeof(NativeSourceMediaFacts),
+            AuxiliaryCount = 9
+        };
+
+        SourceInspectionException error = Assert.Throws<SourceInspectionException>(() =>
+            NativeMediaService.MapFromNativeFacts(native));
+        Assert.Equal(SourceInspectionFailureCategory.Unsupported, error.Category);
+        Assert.Equal(SourceInspectionStage.Container, error.Stage);
+        Assert.Equal(NativeRuntime.FoundationCapability, error.Capability);
     }
 
     [Theory]
     [InlineData(1u)]
     [InlineData(0u)]
     [InlineData(3u)]
+    [InlineData(5u)]
     [InlineData(999u)]
     public unsafe void CreateContext_MismatchedAbiVersion_FailsClosed(uint wrongAbi)
     {
@@ -76,13 +94,24 @@ public sealed class NativeRuntimeTests
     [Fact]
     public unsafe void NativeStructs_LayoutAgreement_MatchesNativeDefinition()
     {
+        Assert.Equal(16, sizeof(NativeMediaRange));
+        Assert.Equal(40, sizeof(NativeImageItemFacts));
         Assert.Equal(80, sizeof(NativeVideoItemFacts));
         Assert.Equal(72, (int)Marshal.OffsetOf<NativeVideoItemFacts>("SourceIndex"));
 
-        Assert.Equal(408, sizeof(NativeSourceMediaFacts));
-        Assert.Equal(336, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("PrimarySha256"));
-        Assert.Equal(368, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("SecondarySha256"));
-        Assert.Equal(400, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("HasSecondarySource"));
+        Assert.Equal(112, sizeof(NativeGainMapItemFacts));
+        Assert.Equal(32, (int)Marshal.OffsetOf<NativeGainMapItemFacts>("FileRange"));
+        Assert.Equal(48, (int)Marshal.OffsetOf<NativeGainMapItemFacts>("Relationship"));
+        Assert.Equal(104, sizeof(NativeAuxiliaryItemFacts));
+        Assert.Equal(32, sizeof(NativeTimingFacts));
+
+        Assert.Equal(1320, sizeof(NativeSourceMediaFacts));
+        Assert.Equal(128, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("GainMap"));
+        Assert.Equal(240, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("Timing"));
+        Assert.Equal(416, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("PrimarySha256"));
+        Assert.Equal(448, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("SecondarySha256"));
+        Assert.Equal(480, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("HasSecondarySource"));
+        Assert.Equal(484, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("AuxiliaryCount"));
 
         Assert.Equal(348, sizeof(NativeConfirmedResidue));
         Assert.Equal(336, (int)Marshal.OffsetOf<NativeConfirmedResidue>("CoordinateSpace"));
@@ -91,6 +120,8 @@ public sealed class NativeRuntimeTests
         Assert.Equal(336, (int)Marshal.OffsetOf<NativeCleanupAction>("CoordinateSpace"));
         Assert.Equal(340, (int)Marshal.OffsetOf<NativeCleanupAction>("RemovalMode"));
         Assert.Equal(344, (int)Marshal.OffsetOf<NativeCleanupAction>("IsMandatory"));
+        Assert.Equal(56, sizeof(NativeCleanupArtifactBinding));
+        Assert.Equal(524, sizeof(NativeRemovedProtocolFact));
     }
 
     [Fact]

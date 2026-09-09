@@ -9,8 +9,15 @@ namespace LivePhotoBox.Core.Tests;
 [Trait("Category", "NativeDifferential")]
 public sealed class HeifBoxParserDifferentialTests
 {
-    private static byte[] CreateValidItemFile(string itemType, string? mimeType = null)
+    private static byte[] CreateValidItemFile(string itemType, string? mimeType = null, bool includeExtraUnownedExif = false)
     {
+        byte[] primaryMime = "image/heic\0"u8.ToArray();
+        byte[] primaryInfePayload = new byte[2 + 2 + 4 + 1 + primaryMime.Length];
+        BinaryPrimitives.WriteUInt16BigEndian(primaryInfePayload.AsSpan(0), 1);
+        "mime"u8.CopyTo(primaryInfePayload.AsSpan(4));
+        primaryMime.CopyTo(primaryInfePayload, 9);
+        byte[] primaryInfe = BuildFullBox("infe", 2, 0, primaryInfePayload);
+
         byte[] itemTypeBytes = System.Text.Encoding.ASCII.GetBytes(itemType);
         byte[] mimeBytes = mimeType == null ? Array.Empty<byte>() : System.Text.Encoding.ASCII.GetBytes(mimeType + "\0");
         byte[] infePayload = new byte[2 + 2 + 4 + 1 + mimeBytes.Length];
@@ -18,20 +25,45 @@ public sealed class HeifBoxParserDifferentialTests
         itemTypeBytes.CopyTo(infePayload.AsSpan(4));
         mimeBytes.CopyTo(infePayload, 9);
         byte[] infe = BuildFullBox("infe", 2, 0, infePayload);
-        byte[] iinfPayload = new byte[2 + infe.Length];
-        BinaryPrimitives.WriteUInt16BigEndian(iinfPayload.AsSpan(0), 1);
-        infe.CopyTo(iinfPayload, 2);
+        byte[] extraInfe = Array.Empty<byte>();
+        if (includeExtraUnownedExif)
+        {
+            byte[] extraPayload = new byte[2 + 2 + 4 + 1];
+            BinaryPrimitives.WriteUInt16BigEndian(extraPayload.AsSpan(0), 43);
+            "Exif"u8.CopyTo(extraPayload.AsSpan(4));
+            extraInfe = BuildFullBox("infe", 2, 0, extraPayload);
+        }
+        byte[] iinfPayload = new byte[2 + primaryInfe.Length + infe.Length + extraInfe.Length];
+        BinaryPrimitives.WriteUInt16BigEndian(iinfPayload.AsSpan(0), (ushort)(includeExtraUnownedExif ? 3 : 2));
+        primaryInfe.CopyTo(iinfPayload, 2);
+        infe.CopyTo(iinfPayload, 2 + primaryInfe.Length);
+        if (includeExtraUnownedExif)
+            extraInfe.CopyTo(iinfPayload, 2 + primaryInfe.Length + infe.Length);
         byte[] iinf = BuildFullBox("iinf", 0, 0, iinfPayload);
 
-        byte[] ilocPayload = new byte[18];
+        byte[] ilocPayload = new byte[includeExtraUnownedExif ? 46 : 32];
         ilocPayload[0] = 0x44;
-        BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(2), 1);
-        BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(4), 42);
+        BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(2), (ushort)(includeExtraUnownedExif ? 3 : 2));
+        BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(4), 1);
         BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(8), 1);
-        BinaryPrimitives.WriteUInt32BigEndian(ilocPayload.AsSpan(10), 100);
-        BinaryPrimitives.WriteUInt32BigEndian(ilocPayload.AsSpan(14), 200);
+        BinaryPrimitives.WriteUInt32BigEndian(ilocPayload.AsSpan(10), 0);
+        BinaryPrimitives.WriteUInt32BigEndian(ilocPayload.AsSpan(14), 1);
+        BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(18), 42);
+        BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(22), 1);
+        BinaryPrimitives.WriteUInt32BigEndian(ilocPayload.AsSpan(24), 100);
+        BinaryPrimitives.WriteUInt32BigEndian(ilocPayload.AsSpan(28), 200);
+        if (includeExtraUnownedExif)
+        {
+            BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(32), 43);
+            BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(36), 1);
+            BinaryPrimitives.WriteUInt32BigEndian(ilocPayload.AsSpan(38), 300);
+            BinaryPrimitives.WriteUInt32BigEndian(ilocPayload.AsSpan(42), 100);
+        }
         byte[] iloc = BuildFullBox("iloc", 0, 0, ilocPayload);
-        return [.. BuildBox("ftyp", new byte[16]), .. BuildFullBox("meta", 0, 0, [.. iinf, .. iloc]), .. new byte[500]];
+        byte[] pitm = BuildFullBox("pitm", 0, 0, [0, 1]);
+        byte[] cdsc = BuildBox("cdsc", [0, 42, 0, 1, 0, 1]);
+        byte[] iref = BuildFullBox("iref", 0, 0, cdsc);
+        return [.. BuildBox("ftyp", new byte[16]), .. BuildFullBox("meta", 0, 0, [.. pitm, .. iinf, .. iloc, .. iref]), .. new byte[500]];
     }
 
     private static byte[] CreateValidExifFile()
@@ -65,46 +97,7 @@ public sealed class HeifBoxParserDifferentialTests
     [Fact]
     public void LocateExifItem_IsIdenticalToLegacyParser()
     {
-        // Construct a mock ISOBMFF meta box containing iinf and iloc
-        // iinf: 1 entry, item_id = 42, item_type = "Exif"
-        // iloc: 1 entry, item_id = 42, construction_method = 0, offset = 100, length = 200
-
-        byte[] infePayload = new byte[9];
-        BinaryPrimitives.WriteUInt16BigEndian(infePayload.AsSpan(0), 42); // item_id
-        BinaryPrimitives.WriteUInt16BigEndian(infePayload.AsSpan(2), 0); // item_protection_index
-        infePayload[4] = (byte)'E';
-        infePayload[5] = (byte)'x';
-        infePayload[6] = (byte)'i';
-        infePayload[7] = (byte)'f';
-        // Null terminated item_name
-        byte[] infe = BuildFullBox("infe", 2, 0, infePayload);
-
-        byte[] iinfPayload = new byte[2 + infe.Length];
-        BinaryPrimitives.WriteUInt16BigEndian(iinfPayload.AsSpan(0), 1); // entry_count
-        infe.CopyTo(iinfPayload, 2);
-        byte[] iinf = BuildFullBox("iinf", 0, 0, iinfPayload);
-
-        byte[] ilocPayload = new byte[18];
-        ilocPayload[0] = (4 << 4) | 4; // offset_size=4, length_size=4
-        ilocPayload[1] = (0 << 4) | 0; // base_offset_size=0, index_size=0
-        BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(2), 1); // item_count
-        
-        // Item 0
-        BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(4), 42); // item_id
-        BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(6), 0); // data_reference_index
-        BinaryPrimitives.WriteUInt16BigEndian(ilocPayload.AsSpan(8), 1); // extent_count
-        // Extent 0
-        BinaryPrimitives.WriteUInt32BigEndian(ilocPayload.AsSpan(10), 100); // extent_offset
-        BinaryPrimitives.WriteUInt32BigEndian(ilocPayload.AsSpan(14), 200); // extent_length
-        
-        byte[] iloc = BuildFullBox("iloc", 0, 0, ilocPayload);
-
-        byte[] metaPayload = [.. iinf, .. iloc];
-        byte[] meta = BuildFullBox("meta", 0, 0, metaPayload);
-        
-        // Wrap in a larger file payload to verify safe parsing
-        byte[] ftyp = BuildBox("ftyp", new byte[16]);
-        byte[] file = [.. ftyp, .. meta, .. new byte[500]];
+        byte[] file = CreateValidExifFile();
 
         // Test Legacy C# parser
         bool legacySuccess = HeifBoxParser.TryLocateExifItem(file, out long legacyOffset, out long legacyLength, out string? legacyError);
@@ -198,7 +191,9 @@ public sealed class HeifBoxParserDifferentialTests
     {
         byte[] malformedIinf = CreateValidExifFile();
         int iinf = malformedIinf.AsSpan().IndexOf("iinf"u8) - 4;
-        BinaryPrimitives.WriteUInt16BigEndian(malformedIinf.AsSpan(iinf + 12), 2);
+        // The valid fixture contains two iinf entries (primary + Exif); use
+        // a genuinely inconsistent count so the mutation cannot be a no-op.
+        BinaryPrimitives.WriteUInt16BigEndian(malformedIinf.AsSpan(iinf + 12), 3);
         Assert.False(NativeHeifBoxParser.TryLocateExifItem(malformedIinf, out _, out _, out string? iinfError));
         Assert.DoesNotContain("Confirmed absent", iinfError, StringComparison.Ordinal);
 
@@ -221,5 +216,37 @@ public sealed class HeifBoxParserDifferentialTests
         BinaryPrimitives.WriteUInt32BigEndian(truncatedChild.AsSpan(infe, 4), infeSize + 1);
         Assert.False(NativeHeifBoxParser.TryLocateExifItem(truncatedChild, out _, out _, out string? truncatedError));
         Assert.DoesNotContain("Confirmed absent", truncatedError, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LocateExifItem_RejectsDuplicatePrimaryCdscRelation()
+    {
+        byte[] source = CreateValidExifFile();
+        int iref = source.AsSpan().IndexOf("iref"u8) - 4;
+        int meta = source.AsSpan().IndexOf("meta"u8) - 4;
+        Assert.True(iref >= 8 && meta >= 8);
+        int irefSize = checked((int)BinaryPrimitives.ReadUInt32BigEndian(source.AsSpan(iref, 4)));
+        int metaSize = checked((int)BinaryPrimitives.ReadUInt32BigEndian(source.AsSpan(meta, 4)));
+        const int cdscSize = 14;
+        byte[] duplicate = new byte[source.Length + cdscSize];
+        int insertion = iref + irefSize;
+        Buffer.BlockCopy(source, 0, duplicate, 0, insertion);
+        Buffer.BlockCopy(source, iref + 12, duplicate, insertion, cdscSize);
+        Buffer.BlockCopy(source, insertion, duplicate, insertion + cdscSize, source.Length - insertion);
+        BinaryPrimitives.WriteUInt32BigEndian(duplicate.AsSpan(iref, 4), checked((uint)(irefSize + cdscSize)));
+        BinaryPrimitives.WriteUInt32BigEndian(duplicate.AsSpan(meta, 4), checked((uint)(metaSize + cdscSize)));
+
+        Assert.False(NativeHeifBoxParser.TryLocateExifItem(duplicate, out _, out _, out string? error));
+        Assert.DoesNotContain("Confirmed absent", error, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void LocateExifItem_RejectsExtraUnownedExifItem()
+    {
+        byte[] file = CreateValidItemFile("Exif", includeExtraUnownedExif: true);
+
+        Assert.False(NativeHeifBoxParser.TryLocateExifItem(file, out _, out _, out string? error));
+        Assert.DoesNotContain("Confirmed absent", error, StringComparison.Ordinal);
+        Assert.Contains("multiple Exif", error, StringComparison.OrdinalIgnoreCase);
     }
 }

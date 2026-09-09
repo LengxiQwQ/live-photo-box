@@ -1,4 +1,6 @@
 using LivePhotoBox.Models;
+using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Media.Models;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -29,7 +31,7 @@ namespace LivePhotoBox.Services
     /// <summary>
     /// cover 命令输入解析器。
     ///
-    /// 统一处理单文件 / 双文件输入，并复用 Core 的协议检测与配对能力。
+    /// 统一处理单文件 / 双文件输入，并只消费 Native source facts。
     /// </summary>
     public static class CoverInputResolver
     {
@@ -67,19 +69,14 @@ namespace LivePhotoBox.Services
                     return null;
                 }
 
-                string xmpText = LivePhotoSplitService.ReadMetadataTextSync(pair.Value.Image);
-                string? explicitPairContentIdentifier = await CoverChangeService.ReadContentIdentifierAsync(
-                    pair.Value.Image, token).ConfigureAwait(false);
-
-                var protocol = LivePhotoProtocolDetector.Detect(
-                    pair.Value.Image,
-                    LivePhotoType.DualFile,
-                    explicitPairContentIdentifier,
-                    xmpText);
-
-                if (protocol == LivePhotoProtocolType.Unknown)
+                var pairFacts = await new SourceInspector().InspectAsync(
+                    pair.Value.Image, pair.Value.Video, token).ConfigureAwait(false);
+                var protocol = MapSourceProtocol(pairFacts.Protocol);
+                if (pairFacts.PrimaryImage is not { IsPresent: true } ||
+                    pairFacts.MotionVideo is not { IsPresent: true, SourceIndex: 1 } ||
+                    protocol == LivePhotoProtocolType.Unknown)
                 {
-                    LogService.Info("[Cover] Resolve failed: dual-file protocol detection returned Unknown", LogSource.System);
+                    LogService.Info("[Cover] Resolve failed: Native facts did not confirm a dual-file live-photo pair", LogSource.System);
                     return null;
                 }
 
@@ -106,48 +103,38 @@ namespace LivePhotoBox.Services
                 return null;
             }
 
-            string imageXmp = LivePhotoSplitService.ReadMetadataTextSync(imagePath);
-
-            // 1. 先尝试单文件实况检测。
-            LivePhotoType singleFileType = await LivePhotoDiscoveryService.DetectSingleFileTypeAsync(
-                imagePath, token).ConfigureAwait(false);
-
-            if (singleFileType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic)
+            // 1. Inspect the selected source once and consume its exact facts.
+            var singleFacts = await new SourceInspector().InspectAsync(imagePath, null, token).ConfigureAwait(false);
+            var singleProtocol = MapSourceProtocol(singleFacts.Protocol);
+            if (singleFacts.PrimaryImage is { IsPresent: true } &&
+                singleFacts.MotionVideo is { IsPresent: true, SourceIndex: 0 } &&
+                singleProtocol != LivePhotoProtocolType.Unknown)
             {
-                var protocol = LivePhotoProtocolDetector.Detect(
-                    imagePath, singleFileType, xmpText: imageXmp);
-
-                if (protocol != LivePhotoProtocolType.Unknown)
+                return new CoverInputResolution
                 {
-                    return new CoverInputResolution
-                    {
-                        ImagePath = imagePath,
-                        LivePhotoType = singleFileType,
-                        Protocol = protocol
-                    };
-                }
+                    ImagePath = imagePath,
+                    LivePhotoType = ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
+                        ? LivePhotoType.SingleFileJpeg
+                        : LivePhotoType.SingleFileHeic,
+                    Protocol = singleProtocol
+                };
             }
 
             // 2. 单文件检测未命中时，按双文件实况尝试配对。
-            string? pairedVideo = await FindPairedVideoAsync(imagePath, imageXmp, token).ConfigureAwait(false);
+            string? pairedVideo = await FindPairedVideoAsync(imagePath, token).ConfigureAwait(false);
             if (pairedVideo == null)
             {
-                LogService.Info($"[Cover] Resolve failed: single-file detection ({singleFileType}) missed, no paired video found for '{imagePath}'", LogSource.System);
+                LogService.Info($"[Cover] Resolve failed: Native single-file facts missed, no paired video found for '{imagePath}'", LogSource.System);
                 return null;
             }
 
-            string? contentIdentifier = await CoverChangeService.ReadContentIdentifierAsync(
-                imagePath, token).ConfigureAwait(false);
-
-            var dualProtocol = LivePhotoProtocolDetector.Detect(
-                imagePath,
-                LivePhotoType.DualFile,
-                contentIdentifier,
-                imageXmp);
-
-            if (dualProtocol == LivePhotoProtocolType.Unknown)
+            var dualFacts = await new SourceInspector().InspectAsync(imagePath, pairedVideo, token).ConfigureAwait(false);
+            var dualProtocol = MapSourceProtocol(dualFacts.Protocol);
+            if (dualFacts.PrimaryImage is not { IsPresent: true } ||
+                dualFacts.MotionVideo is not { IsPresent: true, SourceIndex: 1 } ||
+                dualProtocol == LivePhotoProtocolType.Unknown)
             {
-                LogService.Info($"[Cover] Resolve failed: paired dual-file protocol detection returned Unknown for '{imagePath}'", LogSource.System);
+                LogService.Info($"[Cover] Resolve failed: Native facts did not confirm a paired live photo for '{imagePath}'", LogSource.System);
                 return null;
             }
 
@@ -178,23 +165,12 @@ namespace LivePhotoBox.Services
             return null;
         }
 
-        private static async Task<string?> FindPairedVideoAsync(
-            string imagePath,
-            string xmpText,
-            CancellationToken token)
+        private static async Task<string?> FindPairedVideoAsync(string imagePath, CancellationToken token)
         {
             string dir = Path.GetDirectoryName(imagePath)!;
-            string baseName = Path.GetFileNameWithoutExtension(imagePath);
-
-            // 1. 同 basename 的视频优先。
-            foreach (string ext in VideoExtensions)
-            {
-                string candidate = Path.Combine(dir, baseName + ext);
-                if (File.Exists(candidate))
-                    return candidate;
-            }
-
-            // 2. Apple ContentIdentifier 匹配目录中的视频。
+            // Protocol pairing is metadata-authoritative. A same-name file is
+            // only a candidate for explicit user composition and cannot be
+            // returned as a detected source pair here.
             var videoPaths = Directory
                 .EnumerateFiles(dir, "*.*")
                 .Where(f => VideoExtensions.Contains(Path.GetExtension(f)))
@@ -203,23 +179,24 @@ namespace LivePhotoBox.Services
             if (videoPaths.Count == 0)
                 return null;
 
-            try
-            {
-                var match = await LivePhotoMetadataMatcher.MatchAsync(
-                    new[] { imagePath },
-                    videoPaths,
-                    token).ConfigureAwait(false);
+            var match = await LivePhotoMetadataMatcher.MatchAsync(
+                new[] { imagePath },
+                videoPaths,
+                token).ConfigureAwait(false);
 
-                return match.Pairs.FirstOrDefault()?.VideoPath;
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch
-            {
-                return null;
-            }
+            return match.Pairs.FirstOrDefault()?.VideoPath;
         }
+
+        private static LivePhotoProtocolType MapSourceProtocol(SourceProtocol protocol) => protocol switch
+        {
+            SourceProtocol.AppleLivePhoto => LivePhotoProtocolType.Apple,
+            SourceProtocol.GoogleMicroVideoV1 => LivePhotoProtocolType.GoogleV1,
+            SourceProtocol.GoogleMotionPhotoV2 => LivePhotoProtocolType.GoogleV2,
+            SourceProtocol.OppoLivePhoto => LivePhotoProtocolType.OPPO,
+            SourceProtocol.VivoLivePhoto or SourceProtocol.VivoLegacyDualFile => LivePhotoProtocolType.Vivo,
+            SourceProtocol.SamsungMotionPhotoJpeg or SourceProtocol.SamsungMotionPhotoHeic => LivePhotoProtocolType.Samsung,
+            SourceProtocol.HuaweiMovingPhoto or SourceProtocol.HonorMovingPhoto => LivePhotoProtocolType.Huawei,
+            _ => LivePhotoProtocolType.Unknown
+        };
     }
 }

@@ -36,6 +36,7 @@ struct lpb_context
     void* user_data{};
     std::mutex error_mutex;
     std::string last_error;
+    lpb_inspection_status inspection_status{};
     lpb_extractor_test_hook extractor_hook{};
     lpb_cleaner_snapshot_callback cleaner_post_snapshot_callback{nullptr};
     void* cleaner_callback_user_data{nullptr};
@@ -45,6 +46,8 @@ constexpr size_t context_options_v1_size =
     offsetof(lpb_context_options, user_data) + sizeof(lpb_context_options::user_data);
 
 void set_error(lpb_context* context, const char* message) noexcept;
+void set_inspection_status(lpb_context* context, lpb_inspection_failure_category category,
+    lpb_inspection_stage stage, uint64_t capability = 0) noexcept;
 void log_message(lpb_context* context, lpb_log_level level, const char* message) noexcept;
 std::filesystem::path utf8_to_path(const char* utf8_str) noexcept;
 std::string path_to_utf8(const std::filesystem::path& path) noexcept;

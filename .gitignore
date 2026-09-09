@@ -37,15 +37,19 @@ bld/
 .vs/
 
 # AI assistant files
-.claude/
+/.ai/
+/.agents/
+/.claude/
+/.codex/
+/.antigravity/
+/.gemini/
+/.mcp.json
+/AGENTS.md
+/CLAUDE.md
+/.github/copilot-instructions.md
 .codegraph/
 graphify-out/
-ai-tmp/
-.codex/
-.agents/
-/AGENTS.md
-/.github/copilot-instructions.md
-CLAUDE.md
+.ai-tmp/
 
 .backups/
 .tmp-ico/
@@ -403,7 +407,7 @@ FodyWeavers.xsd
 /LivePhotoBox.CLI/LivePhotoBox.CLI.multifile.bak.csproj
 
 docs/实况照片协议完整分析报告.md
-/docs/LivePhotoBox-Native-Refactor/
+docs/实况照片协议分析文档
 
 # CLI integration test workspace (large binary samples & output)
 /cli-integration-test/

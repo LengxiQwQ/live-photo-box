@@ -68,7 +68,8 @@ public enum MediaArtifactKind
     PrimaryImage,
     MotionVideo,
     GainMap,
-    AuxiliaryItem
+    AuxiliaryItem,
+    SourceContainer
 }
 
 /// <summary>

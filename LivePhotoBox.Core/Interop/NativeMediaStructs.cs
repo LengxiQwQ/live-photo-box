@@ -37,13 +37,32 @@ internal struct NativeVideoItemFacts
     public int SourceIndex;
 }
 
-[StructLayout(LayoutKind.Sequential)]
-internal struct NativeGainMapItemFacts
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+internal unsafe struct NativeGainMapItemFacts
 {
     public uint StructSize;
     public int IsPresent;
     public int Container;
+    public int Representation;
+    public int Ownership;
+    public int OwnerArtifactRole;
+    public uint AuxiliaryIndex;
+    public uint ItemId;
     public NativeMediaRange FileRange;
+    public unsafe fixed byte Relationship[64];
+}
+
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+internal unsafe struct NativeAuxiliaryItemFacts
+{
+    public uint StructSize;
+    public int IsPresent;
+    public int Container;
+    public int Representation;
+    public int Ownership;
+    public uint ItemId;
+    public NativeMediaRange FileRange;
+    public fixed byte Relationship[64];
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -70,6 +89,15 @@ internal unsafe struct NativeSourceMediaFacts
     public fixed byte PrimarySha256[32];
     public fixed byte SecondarySha256[32];
     public int HasSecondarySource;
+    public uint AuxiliaryCount;
+    public NativeAuxiliaryItemFacts Auxiliary0;
+    public NativeAuxiliaryItemFacts Auxiliary1;
+    public NativeAuxiliaryItemFacts Auxiliary2;
+    public NativeAuxiliaryItemFacts Auxiliary3;
+    public NativeAuxiliaryItemFacts Auxiliary4;
+    public NativeAuxiliaryItemFacts Auxiliary5;
+    public NativeAuxiliaryItemFacts Auxiliary6;
+    public NativeAuxiliaryItemFacts Auxiliary7;
 }
 
 [StructLayout(LayoutKind.Sequential)]

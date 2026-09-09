@@ -11,19 +11,19 @@
 ```text
 docs/LivePhotoBox-Current-Roadmap/
 ├─ 00-重构总纲-唯一执行路线.md
-├─ 01-P0-Rebuilt-only-Runtime-Closeout.md
-├─ 02-P1-Source-Inspector-Reliability.md
-├─ 03-P2-Extractor-Reliability.md
-├─ 04-P3-Cleaner-Reliability.md
-├─ 05-P4-Native-Media-Toolchain-Evaluation-and-Foundation.md
-├─ 06-P5-Converter-Reliability.md
-├─ 07-P6-Neutral-Pipeline-Closeout.md
-├─ 08-P7-System-Torture-and-Regression-Campaign.md
-├─ 09-P8-Split-Merge-Product-Foundation.md
-├─ 10-P9-Target-Protocol-Writers-and-Validators.md
-├─ 11-P10-Repair.md
-├─ 12-Neutral-Media-Contract.md
-├─ 13-Future-Work-Backlog.md
+├─ 01-P0-仅Rebuilt运行时收尾.md
+├─ 02-P1-来源检测器可靠性.md
+├─ 03-P2-提取器可靠性.md
+├─ 04-P3-清理器可靠性.md
+├─ 05-P4-Native平台与媒体后端及构建基础.md
+├─ 06-P5-转换器可靠性.md
+├─ 07-P6-中性流水线收尾.md
+├─ 08-P7-系统高压与回归测试 campaign.md
+├─ 09-P8-拆分与合成产品骨架.md
+├─ 10-P9-目标协议写入器与验证器.md
+├─ 11-P10-修复功能.md
+├─ 12-中性媒体契约.md
+├─ 13-未来工作规划.md
 └─ Historical/
 ```
 
@@ -69,9 +69,8 @@ Windows x64
 ## 3.2 未来优先级
 
 ```text
-Web/WASM first
-Linux later
-macOS optional/deferred
+Web/WASM, Linux, macOS 均仅保留可能的接口缝
+无当前优先级或交付承诺
 ```
 
 ## 3.3 平台规则
@@ -289,12 +288,11 @@ Writer/Validator 不因 backend 改变 correctness rules。
 Future Work 明确：
 
 ```text
-Web/WASM first
-Linux second
-macOS optional
+Web/WASM, Linux, macOS 只是可选未来方向
+当前不排序、不实现
 ```
 
-Web 优先静态网站 + 本地 WASM，能力可小于 Windows desktop。
+如未来用户明确启动 Web，可再评估静态网站 + 本地 WASM；当前不构成产品计划。
 
 ---
 
