@@ -257,7 +257,7 @@ python scripts/testing/run-cli-integration-test.py
 **热门来源（近 14 天）：** github.com · Google · Bing · chatgpt.com · noisedh.cn · t.co  
 **热门内容（近 14 天）：** releases · releases/tag/v2.2.1 · README.zh-CN.md · tree/master
 
-> 数据开始：2026-08-02 · 最后更新：2026-09-08 (UTC+8)
+> 数据开始：2026-08-02 · 最后更新：2026-09-09 (UTC+8)
 <!-- INSIGHTS:END -->
 
 ---
