@@ -46,7 +46,7 @@ public sealed class ExtractorW4AdversarialTests
                     sourcePath,
                     null,
                     workspace,
-                    context => context.SetExtractorFault(
+                    context => TestNativeHarness.SetExtractorFault(context,
                         NativeExtractorFault.TempPublishBarrier,
                         targetArtifact: 0,
                         triggerAfterBytes: 0,
@@ -115,7 +115,7 @@ public sealed class ExtractorW4AdversarialTests
                     context =>
                     {
                         state.DestinationPath = destinationPath;
-                        context.SetExtractorFault(
+                        TestNativeHarness.SetExtractorFault(context,
                             NativeExtractorFault.None,
                             targetArtifact: 0,
                             triggerAfterBytes: 0,
@@ -169,7 +169,7 @@ public sealed class ExtractorW4AdversarialTests
                     context =>
                     {
                         state.DestinationPath = workspace.AllocatedPaths["primary"];
-                        context.SetExtractorFault(
+                        TestNativeHarness.SetExtractorFault(context,
                             NativeExtractorFault.PostPublishBarrier,
                             targetArtifact: 0,
                             triggerAfterBytes: 0,
@@ -436,6 +436,43 @@ public sealed class ExtractorW4AdversarialTests
         });
     }
 
+    [Fact]
+    [Trait("Category", "Extractor")]
+    [Trait("Category", "RealSamples")]
+    [Trait("Category", "W4")]
+    public async Task ManagedPostNativeSameByteReplacement_IsPreservedByOwnershipCleanup()
+    {
+        W2SampleSnapshot heic = await W2SampleEvidence.CacheAsync("苹果双文件.HEIC");
+        W2SampleSnapshot mov = await W2SampleEvidence.CacheAsync("苹果双文件.MOV");
+        using var workspace = new W4ManagedMutationWorkspace("managed-post-native-same-byte-replacement", heic.CachePath, replaceWithSameBytes: true);
+        using InspectedSource inspected = await new SourceInspector().InspectWithPlanAsync(heic.CachePath, mov.CachePath);
+
+        ExtractionException exception = await Assert.ThrowsAsync<ExtractionException>(() =>
+            new SourceExtractor().ExtractAsync(
+                inspected.ExtractionPlan,
+                heic.CachePath,
+                mov.CachePath,
+                workspace));
+
+        Assert.Equal(ExtractionFailureCategory.SourceChanged, exception.Category);
+        Assert.True(workspace.ReplacementInjected);
+        Assert.True(workspace.ReplacedWithSameBytes);
+        Assert.NotNull(workspace.PrimaryOutputPath);
+        Assert.True(File.Exists(workspace.PrimaryOutputPath));
+        Assert.Equal(workspace.OriginalPublishedSha256, await workspace.ComputeFileSha256Async(workspace.PrimaryOutputPath));
+        Assert.NotNull(workspace.MotionOutputPath);
+        Assert.False(File.Exists(workspace.MotionOutputPath), "The still-owned motion artifact was not cleaned up.");
+
+        WriteEvidence(workspace.Inner, "result.json", new
+        {
+            test = nameof(ManagedPostNativeSameByteReplacement_IsPreservedByOwnershipCleanup),
+            classification = "production plan + same-byte different-file-object replacement",
+            result = exception.Category.ToString(),
+            replacement = DescribeFile(workspace.PrimaryOutputPath),
+            outputFiles = ListFiles(workspace.RootDirectory)
+        });
+    }
+
     private static async Task<(string SourcePath, SourceMediaFacts Facts, byte[] SourceBytes)> CreateSyntheticInputAsync(
         W4EvidenceWorkspace workspace)
     {
@@ -667,10 +704,13 @@ public sealed class ExtractorW4AdversarialTests
         private readonly string _primarySourcePath;
         private int _primarySourceShaReads;
 
-        internal W4ManagedMutationWorkspace(string caseName, string primarySourcePath)
+        private readonly bool _replaceWithSameBytes;
+
+        internal W4ManagedMutationWorkspace(string caseName, string primarySourcePath, bool replaceWithSameBytes = false)
         {
             _inner = new W4EvidenceWorkspace(caseName);
             _primarySourcePath = primarySourcePath;
+            _replaceWithSameBytes = replaceWithSameBytes;
         }
 
         internal W4EvidenceWorkspace Inner => _inner;
@@ -679,6 +719,8 @@ public sealed class ExtractorW4AdversarialTests
         internal string? MotionOutputPath { get; private set; }
         internal byte[] Sentinel { get; } = [0x91, 0x92, 0x93, 0x94];
         internal bool ReplacementInjected { get; private set; }
+        internal bool ReplacedWithSameBytes { get; private set; }
+        internal string? OriginalPublishedSha256 { get; private set; }
 
         public string AllocateFilePath(string prefix, string extension)
         {
@@ -700,9 +742,14 @@ public sealed class ExtractorW4AdversarialTests
                 // Native has returned and closed its output handle.  Delete
                 // the old object and create a foreign replacement at the
                 // same path before managed post-native validation finishes.
+                byte[] replacement = _replaceWithSameBytes
+                    ? await File.ReadAllBytesAsync(primaryOutput, cancellationToken)
+                    : Sentinel;
+                OriginalPublishedSha256 = await _inner.ComputeFileSha256Async(primaryOutput, cancellationToken);
                 File.Delete(primaryOutput);
-                await File.WriteAllBytesAsync(primaryOutput, Sentinel, cancellationToken);
+                await File.WriteAllBytesAsync(primaryOutput, replacement, cancellationToken);
                 ReplacementInjected = true;
+                ReplacedWithSameBytes = _replaceWithSameBytes;
                 return new string('0', 64);
             }
 

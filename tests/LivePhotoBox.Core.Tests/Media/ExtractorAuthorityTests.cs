@@ -678,7 +678,7 @@ public sealed class ExtractorAuthorityTests
             imagePath,
             videoPath,
             workspace,
-            context => context.SetExtractorFault(NativeExtractorFault.WriteFail, targetArtifact: 0)));
+            context => TestNativeHarness.SetExtractorFault(context, NativeExtractorFault.WriteFail, targetArtifact: 0)));
         Assert.Equal(ExtractionFailureCategory.OutputWriteFailed, failure.Category);
 
         ExtractionException replay = await Assert.ThrowsAsync<ExtractionException>(() => NativeMediaService.ExtractMediaAsync(
@@ -781,7 +781,7 @@ public sealed class ExtractorAuthorityTests
                 imagePath,
                 videoPath,
                 workspace,
-                context => context.SetExtractorFault(
+                context => TestNativeHarness.SetExtractorFault(context,
                     NativeExtractorFault.None,
                     targetArtifact: 0,
                     triggerAfterBytes: 0,
@@ -833,7 +833,7 @@ public sealed class ExtractorAuthorityTests
                 imagePath,
                 videoPath,
                 workspace,
-                context => context.SetExtractorFault(
+                context => TestNativeHarness.SetExtractorFault(context,
                     NativeExtractorFault.None,
                     targetArtifact: 0,
                     triggerAfterBytes: 0,
@@ -874,7 +874,7 @@ public sealed class ExtractorAuthorityTests
     {
         (string imagePath, string videoPath, _) = PrepareAppleDualCache();
         using var context = TestNativeContext.Create();
-        ulong contextId = TestNativeAccounting.GetContextId(context.Handle);
+        ulong contextId = TestNativeHarness.GetContextId(context.Handle);
         Assert.NotEqual(0UL, contextId);
 
         (nint Token, ulong Generation, nuint RecordAddress)[] plans = Enumerable.Range(0, 3)
@@ -888,7 +888,7 @@ public sealed class ExtractorAuthorityTests
             Assert.NotEqual(0U, plan.RecordAddress);
         });
 
-        NativePlanAccounting issued = TestNativeAccounting.GetLiveAccounting(context.Handle);
+        NativePlanAccounting issued = TestNativeHarness.GetLivePlanAccounting(context.Handle);
         Assert.Equal(contextId, issued.ContextId);
         Assert.Equal(3UL, issued.Issued);
         Assert.Equal(0UL, issued.Claimed);
@@ -904,7 +904,7 @@ public sealed class ExtractorAuthorityTests
         // lpb_context* or lpb_extraction_plan* pointer.
         context.Dispose();
 
-        NativePlanAccounting destroyed = TestNativeAccounting.GetDestroyedAccounting(contextId);
+        NativePlanAccounting destroyed = TestNativeHarness.GetDestroyedPlanAccounting(contextId);
         Assert.Equal(contextId, destroyed.ContextId);
         Assert.Equal(3UL, destroyed.Issued);
         Assert.Equal(0UL, destroyed.Claimed);
@@ -920,7 +920,7 @@ public sealed class ExtractorAuthorityTests
         for (int i = 0; i < plans.Length; i++)
         {
             planTokens[i] = $"0x{plans[i].Token.ToInt64():X16}";
-            probeResults[i] = TestNativeAccounting.ProbeDestroyedPlan(
+            probeResults[i] = TestNativeHarness.ProbeDestroyedPlan(
                 contextId,
                 unchecked((ulong)plans[i].Token.ToInt64()));
             Assert.Equal(NativeResult.PlanReplayed, probeResults[i]);
@@ -982,52 +982,6 @@ public sealed class ExtractorAuthorityTests
             .OrderBy(entry => entry, StringComparer.Ordinal)
             .ToArray();
         return entries.Length == 0 ? "<empty>" : string.Join("|", entries);
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct NativePlanAccounting
-    {
-        public ulong ContextId;
-        public ulong Issued;
-        public ulong Claimed;
-        public ulong Consumed;
-        public ulong Released;
-        public ulong LivePlanCount;
-        public ulong RegistryRecordCount;
-        public ulong ReleasedOnContextDestroy;
-        public uint ContextDestroyed;
-        public uint Reserved;
-    }
-
-    private static class TestNativeAccounting
-    {
-        private const string LibraryName = "LivePhotoBox.Native.TestHarness";
-
-        [DllImport(LibraryName, EntryPoint = "lpb_test_get_context_id", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern ulong GetContextId(nint context);
-
-        [DllImport(LibraryName, EntryPoint = "lpb_test_get_plan_accounting", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        private static extern NativeResult GetPlanAccounting(nint context, out NativePlanAccounting accounting);
-
-        [DllImport(LibraryName, EntryPoint = "lpb_test_get_destroyed_plan_accounting", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        private static extern NativeResult GetDestroyedPlanAccounting(ulong contextId, out NativePlanAccounting accounting);
-
-        [DllImport(LibraryName, EntryPoint = "lpb_test_probe_destroyed_plan", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
-        internal static extern NativeResult ProbeDestroyedPlan(ulong contextId, ulong planToken);
-
-        internal static NativePlanAccounting GetLiveAccounting(nint context)
-        {
-            NativeResult result = GetPlanAccounting(context, out NativePlanAccounting accounting);
-            Assert.Equal(NativeResult.Ok, result);
-            return accounting;
-        }
-
-        internal static NativePlanAccounting GetDestroyedAccounting(ulong contextId)
-        {
-            NativeResult result = GetDestroyedPlanAccounting(contextId, out NativePlanAccounting accounting);
-            Assert.Equal(NativeResult.Ok, result);
-            return accounting;
-        }
     }
 
     [Theory]

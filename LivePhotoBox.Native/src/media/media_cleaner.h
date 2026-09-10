@@ -26,6 +26,8 @@ lpb_result clean_source_protocol_with_plan(
     size_t target_count,
     const char* input_image_path,
     const char* input_video_path,
+    const char* cleanup_source_path,
+    const lpb_cleanup_artifact_binding* cleanup_source_target,
     const char* output_image_path,
     const char* output_video_path,
     lpb_removed_protocol_fact* out_facts,

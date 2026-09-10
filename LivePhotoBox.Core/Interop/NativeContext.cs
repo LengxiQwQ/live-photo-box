@@ -114,12 +114,6 @@ internal sealed class NativeContext : IDisposable
         }
     }
 
-    internal void SetExtractorFault(NativeExtractorFault fault, int targetArtifact = 0, ulong triggerAfterBytes = 0, nint callback = 0, nint userData = 0)
-    {
-        using NativeContextLease lease = AcquireOperationLease(allowDisposeRequested: true);
-        NativeMethods.TestSetExtractorFault(lease.Handle, fault, targetArtifact, triggerAfterBytes, callback, userData);
-    }
-
     internal void BindOperationCancellation(CancellationToken cancellationToken)
     {
         lock (_lifecycleGate)

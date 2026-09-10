@@ -23,7 +23,18 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
 {
     private readonly ISourceInspector _inspector;
     private readonly ITargetedPostCleanVerifier _postCleanVerifier;
-    private readonly Func<SourceMediaFacts, IReadOnlyList<PlannedCleanupAction>, IReadOnlyList<PlannedArtifactTarget>?, string, string?, string?, string?, CancellationToken, Task<IReadOnlyList<RemovedProtocolFact>>> _cleanInvoker;
+    private readonly Func<
+        SourceMediaFacts,
+        IReadOnlyList<PlannedCleanupAction>,
+        IReadOnlyList<PlannedArtifactTarget>?,
+        string,
+        string?,
+        string?,
+        PlannedArtifactTarget?,
+        string,
+        string?,
+        CancellationToken,
+        Task<IReadOnlyList<RemovedProtocolFact>>> _cleanInvoker;
 
     /// <summary>
     /// Test seam for deterministic fault injection and mid-operation cancellation in tests.
@@ -55,7 +66,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
     {
         _inspector = inspector ?? new SourceInspector();
         _postCleanVerifier = postCleanVerifier ?? new TargetedPostCleanVerifier(_inspector);
-        _cleanInvoker = (facts, actions, targets, inImg, inVid, outImg, outVid, ct) =>
+        _cleanInvoker = (facts, actions, targets, inImg, inVid, cleanupSource, cleanupSourceTarget, outImg, outVid, ct) =>
             cleanInvoker(facts, actions, inImg, inVid, outImg, outVid, ct);
     }
 
@@ -66,7 +77,10 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
     {
         _inspector = inspector ?? new SourceInspector();
         _postCleanVerifier = postCleanVerifier ?? new TargetedPostCleanVerifier(_inspector);
-        _cleanInvoker = cleanInvoker ?? NativeCleanService.CleanSourceProtocolAsync;
+        _cleanInvoker = cleanInvoker == null
+            ? NativeCleanService.CleanSourceProtocolAsync
+            : (facts, actions, targets, inImg, inVid, cleanupSource, cleanupSourceTarget, outImg, outVid, ct) =>
+                cleanInvoker(facts, actions, targets, inImg, inVid, outImg, outVid, ct);
     }
 
     public async Task<ProtocolCleanResult> CleanAsync(
@@ -145,6 +159,47 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     MediaArtifactKind.GainMap);
             }
 
+            bool requiresCleanupSource = facts.Protocol == SourceProtocol.SamsungMotionPhotoJpeg &&
+                facts.PreservationCarriers.Any(carrier =>
+                    carrier.Kind == PreservationCarrierKind.SamsungSef && carrier.SourceIndex == 0);
+            if (requiresCleanupSource && bundle.CleanupSource == null)
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.ArtifactFactMismatch,
+                    CleanerFailureStage.Preflight,
+                    facts.Protocol,
+                    "Samsung SEF preservation requires a separate full source-container cleanup artifact.",
+                    MediaArtifactKind.SourceContainer);
+            }
+
+            if (bundle.CleanupSource != null)
+            {
+                if (!requiresCleanupSource || bundle.CleanupSource.Kind != MediaArtifactKind.SourceContainer ||
+                    bundle.CleanupSource.SourceOffset != 0 ||
+                    string.Equals(bundle.CleanupSource.Path, bundle.PrimaryImage.Path, StringComparison.OrdinalIgnoreCase) ||
+                    (bundle.MotionVideo != null &&
+                     string.Equals(bundle.CleanupSource.Path, bundle.MotionVideo.Path, StringComparison.OrdinalIgnoreCase)))
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.ArtifactFactMismatch,
+                        CleanerFailureStage.Preflight,
+                        facts.Protocol,
+                        "CleanupSource is not a distinct, supported source-container artifact.",
+                        MediaArtifactKind.SourceContainer);
+                }
+
+                if (!IsValidSha256(facts.PrimarySha256) ||
+                    !string.Equals(bundle.CleanupSource.Sha256, facts.PrimarySha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                        CleanerFailureStage.Preflight,
+                        facts.Protocol,
+                        "CleanupSource does not match the Inspector-confirmed primary source identity.",
+                        MediaArtifactKind.SourceContainer);
+                }
+            }
+
             // -------------------------------------------------------------
             // Step 2: Verify P2 Artifact Identity
             // -------------------------------------------------------------
@@ -158,6 +213,10 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             if (bundle.GainMap != null)
             {
                 await VerifyArtifactIntegrityAsync(bundle.GainMap, "GainMap", facts.Protocol, cancellationToken).ConfigureAwait(false);
+            }
+            if (bundle.CleanupSource != null)
+            {
+                await VerifyArtifactIntegrityAsync(bundle.CleanupSource, "CleanupSource", facts.Protocol, cancellationToken, requireFileIdentity: true).ConfigureAwait(false);
             }
             await VerifyAuxiliaryArtifactIntegrityAsync(bundle, facts.Protocol, cancellationToken).ConfigureAwait(false);
 
@@ -268,11 +327,23 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 });
             }
 
+            PlannedArtifactTarget? cleanupSourceTarget = null;
+            if (bundle.CleanupSource != null)
+            {
+                cleanupSourceTarget = new PlannedArtifactTarget
+                {
+                    Role = MediaArtifactKind.SourceContainer,
+                    ExpectedByteLength = bundle.CleanupSource.ByteLength,
+                    ExpectedSha256 = bundle.CleanupSource.Sha256!
+                };
+            }
+
             var cleanupPlan = new ProtocolCleanupPlan
             {
                 Protocol = facts.Protocol,
                 Actions = planActions,
-                ArtifactTargets = targets
+                ArtifactTargets = targets,
+                CleanupSourceTarget = cleanupSourceTarget
             };
 
             // Capture frozen preservation baseline before destructive execution
@@ -311,6 +382,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     cleanupPlan.ArtifactTargets,
                     bundle.PrimaryImage.Path,
                     bundle.MotionVideo?.Path,
+                    bundle.CleanupSource?.Path,
+                    cleanupPlan.CleanupSourceTarget,
                     stagedImgPath,
                     stagedVidPath,
                     cancellationToken).ConfigureAwait(false);
@@ -680,7 +753,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         MediaArtifact artifact,
         string roleName,
         SourceProtocol protocol,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool requireFileIdentity = false)
     {
         if (!File.Exists(artifact.Path))
         {
@@ -708,6 +782,47 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 CleanerFailureStage.ArtifactVerification,
                 protocol,
                 $"{roleName} artifact SHA-256 is missing, malformed, or all-zeroes: '{artifact.Sha256}'.");
+        }
+
+        if (requireFileIdentity && artifact.FileIdentity == null)
+        {
+            throw new CleanerException(
+                CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                CleanerFailureStage.ArtifactVerification,
+                protocol,
+                $"{roleName} artifact is missing the Windows file identity captured at extraction.",
+                artifact.Kind);
+        }
+
+        if (artifact.FileIdentity != null)
+        {
+            WindowsFileIdentity currentIdentity;
+            try
+            {
+                currentIdentity = WindowsFileIdentity.Capture(artifact.Path);
+            }
+            catch (Exception ex)
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                    CleanerFailureStage.ArtifactVerification,
+                    protocol,
+                    $"Unable to revalidate the Windows file identity for {roleName} artifact '{artifact.Path}'.",
+                    artifact.Kind,
+                    ex);
+            }
+
+            if (currentIdentity.IsReparsePoint ||
+                !currentIdentity.Matches(artifact.FileIdentity) ||
+                currentIdentity.LinkCount != 1)
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                    CleanerFailureStage.ArtifactVerification,
+                    protocol,
+                    $"{roleName} artifact is not the same Windows file object captured at extraction.",
+                    artifact.Kind);
+            }
         }
 
         using var fs = File.OpenRead(artifact.Path);

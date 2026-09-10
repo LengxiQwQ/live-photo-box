@@ -219,8 +219,13 @@ void finish_plan_attempt(lpb_context* context, uint64_t token) noexcept
         }
 
         record->native_call_active = false;
-        record->managed_claim_active = false;
-        if (record->state == lpb_plan_state::Claimed)
+        // A managed caller may explicitly claim the plan before invoking the
+        // extractor so it can verify or exactly roll back the published
+        // objects before FinishExtractionPlan consumes the authority.  Do not
+        // consume that claim merely because this one native call has returned.
+        // The legacy/direct native path never sets managed_claim_active and is
+        // still consumed here as before.
+        if (record->state == lpb_plan_state::Claimed && !record->managed_claim_active)
         {
             record->state = lpb_plan_state::Consumed;
 #if defined(LPB_NATIVE_TEST_HARNESS)
@@ -229,6 +234,7 @@ void finish_plan_attempt(lpb_context* context, uint64_t token) noexcept
         }
         else if (record->state == lpb_plan_state::ReleaseRequested)
         {
+            record->managed_claim_active = false;
             record->state = lpb_plan_state::Released;
 #if defined(LPB_NATIVE_TEST_HARNESS)
             ++context->test_released;

@@ -24,6 +24,7 @@ extern "C" {
 
 typedef struct lpb_context lpb_context;
 typedef struct lpb_extraction_plan lpb_extraction_plan;
+typedef struct lpb_cleanup_plan lpb_cleanup_plan;
 typedef struct lpb_confirmed_residue lpb_confirmed_residue;
 
 typedef enum lpb_result
@@ -682,6 +683,38 @@ LPB_API lpb_result LPB_CALL lpb_extract_media_with_plan_outputs(
     const lpb_extraction_output* auxiliary_outputs,
     size_t auxiliary_output_count);
 
+/* Authority-preserving extraction entry point used by the P2 -> P3 handoff.
+ * cleanup_source_path is an optional full, byte-exact copy of the primary
+ * source container.  When supplied it is created and published by the same
+ * handle-owned transaction as the semantic media artifacts, so later cleanup
+ * never has to infer ownership by reopening a path. */
+LPB_API lpb_result LPB_CALL lpb_extract_media_with_plan_outputs_v2(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    const char* primary_path,
+    const char* secondary_path,
+    const char* output_image_path,
+    const char* output_video_path,
+    const char* output_gainmap_path,
+    const char* cleanup_source_path,
+    const lpb_extraction_output* auxiliary_outputs,
+    size_t auxiliary_output_count);
+
+/* Rolls back only file objects whose identity was captured by Native while
+ * the extraction transaction still owned their handles.  A different object
+ * at the same path, even with identical bytes, is never deleted. */
+LPB_API lpb_result LPB_CALL lpb_rollback_extraction_outputs(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    uint64_t generation);
+
+/* Revalidates every published extraction artifact against the object identity
+ * Native captured before closing its transaction handles. */
+LPB_API lpb_result LPB_CALL lpb_verify_extraction_outputs(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    uint64_t generation);
+
 #if defined(LPB_NATIVE_TEST_HARNESS)
 /* Test-harness-only resource accounting. These declarations are intentionally
    absent from production builds and are never part of the production export
@@ -734,6 +767,7 @@ typedef void(LPB_CALL* lpb_extractor_step_callback)(
     uint64_t bytes_processed);
 
 /* Test-only hook for deterministic fault injection and mid-stream synchronization */
+#if defined(LPB_NATIVE_TEST_HARNESS)
 LPB_API lpb_result LPB_CALL lpb_test_set_extractor_fault(
     lpb_context* context,
     lpb_extractor_fault fault,
@@ -741,10 +775,12 @@ LPB_API lpb_result LPB_CALL lpb_test_set_extractor_fault(
     uint64_t trigger_after_bytes,
     lpb_extractor_step_callback callback,
     void* user_data);
+#endif
 
 /* Test-only hook for verifying that cleaner consumes pinned in-memory snapshot and never reopens source path */
 typedef void(LPB_CALL* lpb_cleaner_snapshot_callback)(void* user_data);
 
+#if defined(LPB_NATIVE_TEST_HARNESS)
 LPB_API lpb_result LPB_CALL lpb_test_set_cleaner_snapshot_hook(
     lpb_context* context,
     lpb_cleaner_snapshot_callback callback,
@@ -760,6 +796,7 @@ LPB_API lpb_result LPB_CALL lpb_test_sha256_buffer(
 LPB_API lpb_result LPB_CALL lpb_test_sha256_file(
     void* file_handle,
     uint8_t out_hash[32]);
+#endif
 
 /*
  * Probes a video file natively (ISOBMFF box tree traversal: moov/trak/stsd/tkhd/stts/mvhd)
@@ -823,7 +860,8 @@ typedef enum lpb_media_artifact_kind
     LPB_ARTIFACT_PRIMARY_IMAGE = 0,
     LPB_ARTIFACT_MOTION_VIDEO = 1,
     LPB_ARTIFACT_GAIN_MAP = 2,
-    LPB_ARTIFACT_AUXILIARY_ITEM = 3
+    LPB_ARTIFACT_AUXILIARY_ITEM = 3,
+    LPB_ARTIFACT_SOURCE_CONTAINER = 4
 } lpb_media_artifact_kind;
 
 typedef enum lpb_residue_structure_kind
@@ -931,6 +969,27 @@ LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_plan(
     size_t target_count,
     const char* input_image_path,
     const char* input_video_path,
+    const char* output_image_path,
+    const char* output_video_path,
+    lpb_removed_protocol_fact* out_facts,
+    size_t facts_capacity,
+    size_t* out_facts_count);
+
+/* Same cleanup contract with an explicit full source-container snapshot for
+ * protocols whose semantic PrimaryImage is only a slice of that container.
+ * The separate SourceContainer target is mandatory when this entry point is
+ * used; it is not interchangeable with the PrimaryImage target. */
+LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_plan_and_cleanup_source(
+    lpb_context* context,
+    const lpb_source_media_facts* facts,
+    const lpb_cleanup_action* actions,
+    size_t action_count,
+    const lpb_cleanup_artifact_binding* targets,
+    size_t target_count,
+    const char* input_image_path,
+    const char* input_video_path,
+    const char* cleanup_source_path,
+    const lpb_cleanup_artifact_binding* cleanup_source_target,
     const char* output_image_path,
     const char* output_video_path,
     lpb_removed_protocol_fact* out_facts,

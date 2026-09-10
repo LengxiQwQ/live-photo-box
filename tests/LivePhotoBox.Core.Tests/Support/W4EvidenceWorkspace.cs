@@ -24,7 +24,7 @@ internal sealed class W4EvidenceWorkspace : IMediaWorkspace
             W4EvidencePaths.RepositoryRoot,
             ".ai-tmp",
             "workspace",
-            "p2-w4",
+            "p2-w1-w4-final-audit",
             safeCase);
         if (Directory.Exists(RootDirectory))
         {

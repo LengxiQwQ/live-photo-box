@@ -139,7 +139,7 @@ public sealed class NativeRuntimeTests
         // 1. Empty string
         fixed (byte* pHash = outHash)
         {
-            NativeResult res = NativeMethods.TestSha256Buffer(null, 0, pHash);
+            NativeResult res = TestNativeHarness.Sha256Buffer(null, 0, pHash);
             Assert.Equal(NativeResult.Ok, res);
             byte[] expected = System.Security.Cryptography.SHA256.HashData([]);
             Assert.True(outHash.SequenceEqual(expected));
@@ -149,7 +149,7 @@ public sealed class NativeRuntimeTests
         byte[] abcBytes = "abc"u8.ToArray();
         fixed (byte* pData = abcBytes, pHash = outHash)
         {
-            NativeResult res = NativeMethods.TestSha256Buffer(pData, (nuint)abcBytes.Length, pHash);
+            NativeResult res = TestNativeHarness.Sha256Buffer(pData, (nuint)abcBytes.Length, pHash);
             Assert.Equal(NativeResult.Ok, res);
             byte[] expected = System.Security.Cryptography.SHA256.HashData(abcBytes);
             Assert.True(outHash.SequenceEqual(expected));
@@ -160,7 +160,7 @@ public sealed class NativeRuntimeTests
         Array.Fill(multiBlock, (byte)'a');
         fixed (byte* pData = multiBlock, pHash = outHash)
         {
-            NativeResult res = NativeMethods.TestSha256Buffer(pData, (nuint)multiBlock.Length, pHash);
+            NativeResult res = TestNativeHarness.Sha256Buffer(pData, (nuint)multiBlock.Length, pHash);
             Assert.Equal(NativeResult.Ok, res);
             byte[] expected = System.Security.Cryptography.SHA256.HashData(multiBlock);
             Assert.True(outHash.SequenceEqual(expected));
@@ -184,7 +184,7 @@ public sealed class NativeRuntimeTests
             long initialPos = fs.Position;
             fixed (byte* pHash = outHash)
             {
-                NativeResult res = NativeMethods.TestSha256File(fs.SafeFileHandle.DangerousGetHandle(), pHash);
+                NativeResult res = TestNativeHarness.Sha256File(fs.SafeFileHandle.DangerousGetHandle(), pHash);
                 Assert.Equal(NativeResult.Ok, res);
             }
             Assert.True(outHash.SequenceEqual(expectedHash));
@@ -207,7 +207,7 @@ public sealed class NativeRuntimeTests
             Span<byte> outHash = stackalloc byte[32];
             fixed (byte* pHash = outHash)
             {
-                NativeResult res = NativeMethods.TestSha256File(fs.SafeFileHandle.DangerousGetHandle(), pHash);
+                NativeResult res = TestNativeHarness.Sha256File(fs.SafeFileHandle.DangerousGetHandle(), pHash);
                 Assert.NotEqual(NativeResult.Ok, res);
                 int win32Err = Marshal.GetLastPInvokeError();
                 Assert.True(win32Err != 0, $"Expected non-zero Win32 error, got {win32Err}");

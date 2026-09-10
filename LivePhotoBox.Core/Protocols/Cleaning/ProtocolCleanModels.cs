@@ -74,6 +74,11 @@ public sealed record ProtocolCleanupPlan
     public required SourceProtocol Protocol { get; init; }
     public required IReadOnlyList<PlannedCleanupAction> Actions { get; init; }
     public required IReadOnlyList<PlannedArtifactTarget> ArtifactTargets { get; init; }
+    /// <summary>
+    /// Identity of a separate full source container used by a same-container
+    /// cleaner.  It is not the semantic PrimaryImage target.
+    /// </summary>
+    public PlannedArtifactTarget? CleanupSourceTarget { get; init; }
     public long PrimaryArtifactLength => PrimaryTarget?.ExpectedByteLength ?? 0;
     public string PrimaryArtifactSha256 => PrimaryTarget?.ExpectedSha256 ?? "";
     public long? SecondaryArtifactLength => VideoTarget?.ExpectedByteLength;

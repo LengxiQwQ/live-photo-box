@@ -411,6 +411,30 @@ LPB_API lpb_result LPB_CALL lpb_test_extract_media_from_facts(
         output_image_path, output_video_path, output_gainmap_path, nullptr, 0);
 }
 
+LPB_API lpb_result LPB_CALL lpb_test_extract_media_from_facts_outputs(
+    lpb_context* context,
+    const char* primary_path,
+    const char* secondary_path,
+    const lpb_source_media_facts* facts,
+    const char* output_image_path,
+    const char* output_video_path,
+    const char* output_gainmap_path,
+    const lpb_extraction_output* auxiliary_outputs,
+    size_t auxiliary_output_count)
+{
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired())
+    {
+        set_error(context, "[AuthorityViolation] Native context is unavailable for the test harness extraction.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+    if (!validate_gainmap_binding(context, facts)) return LPB_RESULT_INVALID_ARGUMENT;
+    return extract_source_internal(
+        context, primary_path, secondary_path, facts,
+        output_image_path, output_video_path, output_gainmap_path,
+        nullptr, nullptr, auxiliary_outputs, auxiliary_output_count);
+}
+
 /* Test-harness-only introspection used to prove that the public token is not
    the address of the authoritative registry record.  This symbol is absent
    from every production configuration. */
@@ -489,7 +513,8 @@ LPB_API lpb_result LPB_CALL lpb_extract_media_with_plan(
 {
     return extract_source_with_plan(
         context, plan, primary_path, secondary_path,
-        output_image_path, output_video_path, output_gainmap_path);
+        output_image_path, output_video_path, output_gainmap_path,
+        nullptr, nullptr, 0);
 }
 
 LPB_API lpb_result LPB_CALL lpb_extract_media_with_plan_outputs(
@@ -506,9 +531,44 @@ LPB_API lpb_result LPB_CALL lpb_extract_media_with_plan_outputs(
     return extract_source_with_plan(
         context, plan, primary_path, secondary_path,
         output_image_path, output_video_path, output_gainmap_path,
-        auxiliary_outputs, auxiliary_output_count);
+        nullptr, auxiliary_outputs, auxiliary_output_count);
 }
 
+LPB_API lpb_result LPB_CALL lpb_extract_media_with_plan_outputs_v2(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    const char* primary_path,
+    const char* secondary_path,
+    const char* output_image_path,
+    const char* output_video_path,
+    const char* output_gainmap_path,
+    const char* cleanup_source_path,
+    const lpb_extraction_output* auxiliary_outputs,
+    size_t auxiliary_output_count)
+{
+    return extract_source_with_plan(
+        context, plan, primary_path, secondary_path,
+        output_image_path, output_video_path, output_gainmap_path,
+        cleanup_source_path, auxiliary_outputs, auxiliary_output_count);
+}
+
+LPB_API lpb_result LPB_CALL lpb_rollback_extraction_outputs(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    uint64_t generation)
+{
+    return rollback_extraction_outputs_with_plan(context, plan, generation);
+}
+
+LPB_API lpb_result LPB_CALL lpb_verify_extraction_outputs(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    uint64_t generation)
+{
+    return verify_extraction_outputs_with_plan(context, plan, generation);
+}
+
+#if defined(LPB_NATIVE_TEST_HARNESS)
 LPB_API lpb_result LPB_CALL lpb_test_set_extractor_fault(
     lpb_context* context,
     lpb_extractor_fault fault,
@@ -557,6 +617,7 @@ LPB_API lpb_result LPB_CALL lpb_test_sha256_file(
     }
     return LPB_RESULT_OK;
 }
+#endif
 
 
 LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_plan(
@@ -582,6 +643,37 @@ LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_plan(
         context, facts, actions, action_count,
         targets, target_count,
         input_image_path, input_video_path,
+        nullptr, nullptr,
+        output_image_path, output_video_path,
+        out_facts, facts_capacity, out_facts_count);
+}
+
+LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_plan_and_cleanup_source(
+    lpb_context* context,
+    const lpb_source_media_facts* facts,
+    const lpb_cleanup_action* actions,
+    size_t action_count,
+    const lpb_cleanup_artifact_binding* targets,
+    size_t target_count,
+    const char* input_image_path,
+    const char* input_video_path,
+    const char* cleanup_source_path,
+    const lpb_cleanup_artifact_binding* cleanup_source_target,
+    const char* output_image_path,
+    const char* output_video_path,
+    lpb_removed_protocol_fact* out_facts,
+    size_t facts_capacity,
+    size_t* out_facts_count)
+{
+    if (!validate_gainmap_binding(context, facts)) {
+        if (out_facts_count) *out_facts_count = 0;
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    return clean_source_protocol_with_plan(
+        context, facts, actions, action_count,
+        targets, target_count,
+        input_image_path, input_video_path,
+        cleanup_source_path, cleanup_source_target,
         output_image_path, output_video_path,
         out_facts, facts_capacity, out_facts_count);
 }

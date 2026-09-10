@@ -16,6 +16,7 @@ namespace LivePhotoBox.Interop;
 internal static class NativeCleanService
 {
     internal static Action? TestPostSnapshotHook { get; set; }
+    internal static Action<NativeContext, nint>? TestCleanerSnapshotConfigurator { get; set; }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void NativePostSnapshotCallback(nint userData)
@@ -59,7 +60,17 @@ internal static class NativeCleanService
                 ExpectedSha256 = hash
             });
         }
-        return CleanSourceProtocolAsync(facts, actions, targets, inputImagePath, inputVideoPath, outputImagePath, outputVideoPath, cancellationToken);
+        return CleanSourceProtocolAsync(
+            facts,
+            actions,
+            targets,
+            inputImagePath,
+            inputVideoPath,
+            null,
+            null,
+            outputImagePath ?? throw new ArgumentNullException(nameof(outputImagePath)),
+            outputVideoPath,
+            cancellationToken);
     }
 
     internal static Task<IReadOnlyList<RemovedProtocolFact>> CleanSourceProtocolAsync(
@@ -69,6 +80,29 @@ internal static class NativeCleanService
         string inputImagePath,
         string? inputVideoPath,
         string? outputImagePath,
+        string? outputVideoPath,
+        CancellationToken cancellationToken = default) =>
+        CleanSourceProtocolAsync(
+            facts,
+            actions,
+            targets,
+            inputImagePath,
+            inputVideoPath,
+            null,
+            null,
+            outputImagePath ?? throw new ArgumentNullException(nameof(outputImagePath)),
+            outputVideoPath,
+            cancellationToken);
+
+    internal static Task<IReadOnlyList<RemovedProtocolFact>> CleanSourceProtocolAsync(
+        SourceMediaFacts facts,
+        IReadOnlyList<PlannedCleanupAction> actions,
+        IReadOnlyList<PlannedArtifactTarget>? targets,
+        string inputImagePath,
+        string? inputVideoPath,
+        string? cleanupSourcePath,
+        PlannedArtifactTarget? cleanupSourceTarget,
+        string outputImagePath,
         string? outputVideoPath,
         CancellationToken cancellationToken = default)
     {
@@ -82,7 +116,7 @@ internal static class NativeCleanService
                 unsafe
                 {
                     delegate* unmanaged[Cdecl]<nint, void> fn = &NativePostSnapshotCallback;
-                    NativeMethods.TestSetCleanerSnapshotHook(ctx.Handle, (nint)fn, nint.Zero);
+                    TestCleanerSnapshotConfigurator?.Invoke(ctx, (nint)fn);
                 }
             }
             NativeSourceMediaFacts nativeFacts = NativeMediaService.MapToNativeFacts(facts);
@@ -135,6 +169,39 @@ internal static class NativeCleanService
                     targetsBuf[i].HasExpectedSha256 = 1;
                 }
 
+                NativeCleanupArtifactBinding cleanupSourceBuf = default;
+                NativeCleanupArtifactBinding* pCleanupSourceTarget = null;
+                if (cleanupSourcePath != null || cleanupSourceTarget != null)
+                {
+                    if (cleanupSourcePath == null || cleanupSourceTarget == null ||
+                        cleanupSourceTarget.Role != MediaArtifactKind.SourceContainer)
+                    {
+                        throw new ArgumentException(
+                            "CleanupSource path and a SourceContainer cleanup target must be supplied together.");
+                    }
+                    if (cleanupSourceTarget.ExpectedByteLength <= 0 ||
+                        string.IsNullOrWhiteSpace(cleanupSourceTarget.ExpectedSha256) ||
+                        cleanupSourceTarget.ExpectedSha256.Length != 64)
+                    {
+                        throw new ArgumentException("CleanupSource must have a positive length and a valid SHA-256.");
+                    }
+
+                    cleanupSourceBuf.StructSize = (uint)sizeof(NativeCleanupArtifactBinding);
+                    cleanupSourceBuf.ArtifactRole = (int)cleanupSourceTarget.Role;
+                    cleanupSourceBuf.ExpectedLength = (ulong)cleanupSourceTarget.ExpectedByteLength;
+                    byte[] cleanupSourceHashBytes = Convert.FromHexString(cleanupSourceTarget.ExpectedSha256);
+                    if (cleanupSourceHashBytes.Length != 32)
+                    {
+                        throw new ArgumentException("CleanupSource SHA-256 does not decode to 32 bytes.");
+                    }
+                    for (int i = 0; i < cleanupSourceHashBytes.Length; i++)
+                    {
+                        cleanupSourceBuf.ExpectedSha256[i] = cleanupSourceHashBytes[i];
+                    }
+                    cleanupSourceBuf.HasExpectedSha256 = 1;
+                    pCleanupSourceTarget = &cleanupSourceBuf;
+                }
+
                 Span<NativeRemovedProtocolFact> factsBuf = stackalloc NativeRemovedProtocolFact[64];
                 fixed (NativeCleanupAction* pActions = actionsBuf)
                 fixed (NativeCleanupArtifactBinding* pTargets = targetsBuf)
@@ -145,20 +212,44 @@ internal static class NativeCleanService
                         pFacts[i].StructSize = (uint)sizeof(NativeRemovedProtocolFact);
                     }
 
-                    NativeResult res = NativeMethods.CleanSourceProtocolWithPlan(
-                        ctx.Handle,
-                        in nativeFacts,
-                        pActions,
-                        (nuint)actionCount,
-                        pTargets,
-                        (nuint)targetCount,
-                        inputImagePath,
-                        inputVideoPath,
-                        outputImagePath,
-                        outputVideoPath,
-                        pFacts,
-                        (nuint)factsBuf.Length,
-                        out nuint outCount);
+                    NativeResult res;
+                    nuint outCount;
+                    if (cleanupSourcePath != null)
+                    {
+                        res = NativeMethods.CleanSourceProtocolWithPlanAndCleanupSource(
+                            ctx.Handle,
+                            in nativeFacts,
+                            pActions,
+                            (nuint)actionCount,
+                            pTargets,
+                            (nuint)targetCount,
+                            inputImagePath,
+                            inputVideoPath,
+                            cleanupSourcePath,
+                            pCleanupSourceTarget,
+                            outputImagePath,
+                            outputVideoPath,
+                            pFacts,
+                            (nuint)factsBuf.Length,
+                            out outCount);
+                    }
+                    else
+                    {
+                        res = NativeMethods.CleanSourceProtocolWithPlan(
+                            ctx.Handle,
+                            in nativeFacts,
+                            pActions,
+                            (nuint)actionCount,
+                            pTargets,
+                            (nuint)targetCount,
+                            inputImagePath,
+                            inputVideoPath,
+                            outputImagePath,
+                            outputVideoPath,
+                            pFacts,
+                            (nuint)factsBuf.Length,
+                            out outCount);
+                    }
 
                     if (res != NativeResult.Ok)
                     {

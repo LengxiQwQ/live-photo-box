@@ -629,6 +629,8 @@ lpb_result clean_source_protocol_with_plan(
     size_t target_count,
     const char* input_image_path,
     const char* input_video_path,
+    const char* cleanup_source_path,
+    const lpb_cleanup_artifact_binding* cleanup_source_target,
     const char* output_image_path,
     const char* output_video_path,
     lpb_removed_protocol_fact* out_facts,
@@ -677,6 +679,27 @@ lpb_result clean_source_protocol_with_plan(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
+    if ((cleanup_source_path == nullptr) != (cleanup_source_target == nullptr)) {
+        set_error(context, "Cleanup source path and SourceContainer target must be supplied together.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (cleanup_source_path && cleanup_source_target) {
+        if (facts->protocol != LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG ||
+            cleanup_source_path[0] == '\0' ||
+            cleanup_source_target->artifact_role != LPB_ARTIFACT_SOURCE_CONTAINER ||
+            cleanup_source_target->has_expected_sha256 != 1 ||
+            cleanup_source_target->expected_length == 0 ||
+            is_all_zeroes_32(cleanup_source_target->expected_sha256)) {
+            set_error(context, "Cleanup source is supported only as a complete Samsung JPEG SourceContainer snapshot.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if (is_all_zeroes_32(facts->primary_sha256) ||
+            std::memcmp(cleanup_source_target->expected_sha256, facts->primary_sha256, 32) != 0) {
+            set_error(context, "Cleanup source SHA-256 does not match the Inspector-confirmed primary source identity.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+    }
+
     constexpr uint64_t kMaxSnapshotBytes = 2ULL * 1024 * 1024 * 1024; // 2GB limit for in-memory snapshot
     if (primary_target->expected_length > kMaxSnapshotBytes) {
         set_error(context, "Primary image artifact exceeds maximum supported in-memory snapshot size (2GB).");
@@ -684,6 +707,10 @@ lpb_result clean_source_protocol_with_plan(
     }
     if (video_target && video_target->expected_length > kMaxSnapshotBytes) {
         set_error(context, "Motion video artifact exceeds maximum supported in-memory snapshot size (2GB). Low-memory streaming is deferred.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (cleanup_source_target && cleanup_source_target->expected_length > kMaxSnapshotBytes) {
+        set_error(context, "Cleanup source exceeds maximum supported in-memory snapshot size (2GB).");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
@@ -701,6 +728,25 @@ lpb_result clean_source_protocol_with_plan(
     if (std::memcmp(actual_image_sha, primary_target->expected_sha256, 32) != 0) {
         set_error(context, "TOCTOU check failed: input image artifact SHA-256 mismatch.");
         return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    std::vector<uint8_t> cleanup_source_bytes;
+    if (cleanup_source_path && cleanup_source_target) {
+        if (!read_file_binary(cleanup_source_path, cleanup_source_bytes)) {
+            set_error(context, "Failed to read cleanup source container snapshot.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+        if (cleanup_source_bytes.size() != cleanup_source_target->expected_length) {
+            set_error(context, "TOCTOU check failed: cleanup source container length mismatch.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        uint8_t actual_cleanup_source_sha[32]{};
+        lpb::crypto::sha256_buffer(
+            cleanup_source_bytes.data(), cleanup_source_bytes.size(), actual_cleanup_source_sha);
+        if (std::memcmp(actual_cleanup_source_sha, cleanup_source_target->expected_sha256, 32) != 0) {
+            set_error(context, "TOCTOU check failed: cleanup source container SHA-256 mismatch.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
     }
 
     std::vector<uint8_t> input_video_bytes;
@@ -760,8 +806,10 @@ lpb_result clean_source_protocol_with_plan(
 
     if (paths_alias(input_image_path, output_image_path) ||
         (input_video_path && output_image_path && paths_alias(input_video_path, output_image_path)) ||
+        (cleanup_source_path && output_image_path && paths_alias(cleanup_source_path, output_image_path)) ||
         (input_image_path && output_video_path && paths_alias(input_image_path, output_video_path)) ||
         (input_video_path && output_video_path && paths_alias(input_video_path, output_video_path)) ||
+        (cleanup_source_path && output_video_path && paths_alias(cleanup_source_path, output_video_path)) ||
         (output_image_path && output_video_path && paths_alias(output_image_path, output_video_path))) {
         set_error(context, "Cleaning outputs must not overwrite source files or each other.");
         return LPB_RESULT_INVALID_ARGUMENT;
@@ -803,7 +851,18 @@ lpb_result clean_source_protocol_with_plan(
             break;
 
         case LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG:
-            res = protocols::clean::clean_samsung_sef_jpeg(context, input_image_bytes, output_image_path, actions, action_count, removed_facts);
+            if (facts->preservation_carrier_count > 0 && !cleanup_source_path) {
+                set_error(context, "Samsung SEF preservation requires a complete cleanup source container.");
+                res = LPB_RESULT_INVALID_ARGUMENT;
+                break;
+            }
+            res = protocols::clean::clean_samsung_sef_jpeg(
+                context,
+                cleanup_source_bytes.empty() ? input_image_bytes : cleanup_source_bytes,
+                output_image_path,
+                actions,
+                action_count,
+                removed_facts);
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
                 res = write_file_binary(output_video_path, input_video_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             }

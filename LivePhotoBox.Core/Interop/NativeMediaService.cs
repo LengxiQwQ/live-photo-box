@@ -283,7 +283,7 @@ public static class NativeMediaService
         CancellationToken cancellationToken = default) =>
         ExtractMediaAsync(plan, primaryPath, secondaryPath, outputImagePath, outputVideoPath, outputGainmapPath, null, cancellationToken);
 
-    internal static Task ExtractMediaAsync(
+    internal static async Task ExtractMediaAsync(
         ExtractionPlan plan,
         string primaryPath,
         string? secondaryPath,
@@ -294,19 +294,21 @@ public static class NativeMediaService
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        ExtractionPlanAttempt attempt = plan.BeginExtractionAttempt(cancellationToken);
-        return ExtractMediaAsync(
+        using ExtractionPlanAttempt attempt = plan.BeginExtractionAttempt(cancellationToken);
+        await ExtractMediaAsync(
             attempt,
             primaryPath,
             secondaryPath,
             outputImagePath,
             outputVideoPath,
             outputGainmapPath,
-            configureContext,
-            cancellationToken);
+            auxiliaryOutputs: null,
+            cleanupSourcePath: null,
+            configureContext: configureContext,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
-    internal static Task ExtractMediaAsync(
+    internal static unsafe Task ExtractMediaAsync(
         ExtractionPlanAttempt attempt,
         string primaryPath,
         string? secondaryPath,
@@ -323,10 +325,11 @@ public static class NativeMediaService
             outputVideoPath,
             outputGainmapPath,
             auxiliaryOutputs: null,
+            cleanupSourcePath: null,
             configureContext,
             cancellationToken);
 
-    internal static Task ExtractMediaAsync(
+    internal static unsafe Task ExtractMediaAsync(
         ExtractionPlanAttempt attempt,
         string primaryPath,
         string? secondaryPath,
@@ -334,32 +337,40 @@ public static class NativeMediaService
         string? outputVideoPath,
         string? outputGainmapPath,
         IReadOnlyList<NativeAuxiliaryOutputBinding>? auxiliaryOutputs,
+        string? cleanupSourcePath,
         Action<NativeContext>? configureContext,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(attempt);
-        try
+        // Cancellation is deliberately not passed to Task.Run: a pre-cancelled
+        // token must not prevent the caller-owned attempt from being finished.
+        return Task.Run(() =>
         {
-            // Cancellation is deliberately not passed to Task.Run: a
-            // pre-cancelled token must not prevent the already-claimed
-            // attempt's finally block from consuming the plan.
-            return Task.Run(() =>
-            {
-                try
-                {
                     configureContext?.Invoke(attempt.Context);
                     cancellationToken.ThrowIfCancellationRequested();
 
                     if (auxiliaryOutputs is null || auxiliaryOutputs.Count == 0)
                     {
-                        NativeResult res = NativeMethods.ExtractMediaWithPlan(
-                            attempt.ContextLease.Handle,
-                            attempt.NativeHandle,
-                            primaryPath,
-                            secondaryPath,
-                            outputImagePath,
-                            outputVideoPath,
-                            outputGainmapPath);
+                        NativeResult res = cleanupSourcePath is null
+                            ? NativeMethods.ExtractMediaWithPlan(
+                                attempt.ContextLease.Handle,
+                                attempt.NativeHandle,
+                                primaryPath,
+                                secondaryPath,
+                                outputImagePath,
+                                outputVideoPath,
+                                outputGainmapPath)
+                            : NativeMethods.ExtractMediaWithPlanOutputsV2(
+                                attempt.ContextLease.Handle,
+                                attempt.NativeHandle,
+                                primaryPath,
+                                secondaryPath,
+                                outputImagePath,
+                                outputVideoPath,
+                                outputGainmapPath,
+                                cleanupSourcePath,
+                                null,
+                                0);
                         attempt.Context.ThrowIfFailed(res);
                     }
                     else
@@ -385,16 +396,28 @@ public static class NativeMediaService
                                     allocatedPaths.Add(nativeOutputs[i].OutputPath);
                                 }
 
-                                NativeResult res = NativeMethods.ExtractMediaWithPlanOutputs(
-                                    attempt.ContextLease.Handle,
-                                    attempt.NativeHandle,
-                                    primaryPath,
-                                    secondaryPath,
-                                    outputImagePath,
-                                    outputVideoPath,
-                                    outputGainmapPath,
-                                    nativeOutputs,
-                                    (nuint)auxiliaryOutputs.Count);
+                                NativeResult res = cleanupSourcePath is null
+                                    ? NativeMethods.ExtractMediaWithPlanOutputs(
+                                        attempt.ContextLease.Handle,
+                                        attempt.NativeHandle,
+                                        primaryPath,
+                                        secondaryPath,
+                                        outputImagePath,
+                                        outputVideoPath,
+                                        outputGainmapPath,
+                                        nativeOutputs,
+                                        (nuint)auxiliaryOutputs.Count)
+                                    : NativeMethods.ExtractMediaWithPlanOutputsV2(
+                                        attempt.ContextLease.Handle,
+                                        attempt.NativeHandle,
+                                        primaryPath,
+                                        secondaryPath,
+                                        outputImagePath,
+                                        outputVideoPath,
+                                        outputGainmapPath,
+                                        cleanupSourcePath,
+                                        nativeOutputs,
+                                        (nuint)auxiliaryOutputs.Count);
                                 attempt.Context.ThrowIfFailed(res);
                             }
                             finally
@@ -404,18 +427,7 @@ public static class NativeMediaService
                             }
                         }
                     }
-                }
-                finally
-                {
-                    attempt.Dispose();
-                }
-            }, CancellationToken.None);
-        }
-        catch
-        {
-            attempt.Dispose();
-            throw;
-        }
+        }, CancellationToken.None);
     }
 
     internal sealed record NativeAuxiliaryOutputBinding(uint AuxiliaryIndex, string Path);

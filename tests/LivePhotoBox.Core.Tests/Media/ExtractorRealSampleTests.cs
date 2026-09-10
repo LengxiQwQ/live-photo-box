@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -125,35 +126,70 @@ public sealed class ExtractorRealSampleTests
         // 4. GainMap Validation & Byte Exactness (e.g. vivo.jpg)
         if (facts.GainMap is { IsPresent: true } gmFacts)
         {
-            expectedArtifactCount++;
-            Assert.NotNull(bundle.GainMap);
-            Assert.True(File.Exists(bundle.GainMap.Path));
-            Assert.Equal(gmFacts.ByteLength, bundle.GainMap.ByteLength);
-            string oracleGmSha = await ComputeSliceSha256Async(samplePath, gmFacts.ByteOffset, gmFacts.ByteLength);
-            Assert.Equal(oracleGmSha, bundle.GainMap.Sha256);
+            AuxiliaryMediaDescriptor gainMapDescriptor = Assert.Single(
+                bundle.AuxiliaryMedia,
+                descriptor => descriptor.ArtifactRole == MediaArtifactKind.GainMap);
+            if (gainMapDescriptor.MaterializedArtifact is { } gainMapArtifact)
+            {
+                expectedArtifactCount++;
+                Assert.NotNull(bundle.GainMap);
+                Assert.True(File.Exists(gainMapArtifact.Path));
+                Assert.Equal(gmFacts.ByteLength, gainMapArtifact.ByteLength);
+                string oracleGmSha = await ComputeSliceSha256Async(samplePath, gmFacts.ByteOffset, gmFacts.ByteLength);
+                Assert.Equal(oracleGmSha, gainMapArtifact.Sha256);
 
-            byte[] gmHeader = new byte[2];
-            using (var fs = File.OpenRead(bundle.GainMap.Path))
-            {
-                fs.ReadExactly(gmHeader, 0, 2);
-            }
-            if (gmFacts.Container == ImageContainer.Jpeg)
-            {
-                Assert.Equal(0xFF, gmHeader[0]);
-                Assert.Equal(0xD8, gmHeader[1]);
-            }
+                byte[] gmHeader = new byte[2];
+                using (var fs = File.OpenRead(gainMapArtifact.Path))
+                {
+                    fs.ReadExactly(gmHeader, 0, 2);
+                }
+                if (gmFacts.Container == ImageContainer.Jpeg)
+                {
+                    Assert.Equal(0xFF, gmHeader[0]);
+                    Assert.Equal(0xD8, gmHeader[1]);
+                }
 
-            await AssertImageDecodableAndDimensionsMatchAsync(bundle.GainMap.Path, new ImageFacts
+                await AssertImageDecodableAndDimensionsMatchAsync(gainMapArtifact.Path, new ImageFacts
+                {
+                    Container = gmFacts.Container,
+                    ByteOffset = gmFacts.ByteOffset,
+                    ByteLength = gmFacts.ByteLength,
+                    IsPresent = true
+                });
+            }
+            else
             {
-                Container = gmFacts.Container,
-                ByteOffset = gmFacts.ByteOffset,
-                ByteLength = gmFacts.ByteLength,
-                IsPresent = true
-            });
+                Assert.Null(bundle.GainMap);
+                Assert.Null(gainMapDescriptor.MaterializedArtifact);
+            }
+        }
+
+        foreach (AuxiliaryMediaDescriptor descriptor in bundle.AuxiliaryMedia)
+        {
+            if (descriptor.ArtifactRole != MediaArtifactKind.GainMap &&
+                descriptor.MaterializedArtifact is not null)
+            {
+                expectedArtifactCount++;
+            }
+        }
+
+        bool expectsCleanupSource = facts.Protocol == SourceProtocol.SamsungMotionPhotoJpeg &&
+            facts.PreservationCarriers.Any(carrier =>
+                carrier.Kind == PreservationCarrierKind.SamsungSef && carrier.SourceIndex == 0);
+        Assert.Equal(expectsCleanupSource, bundle.CleanupSource is not null);
+        if (bundle.CleanupSource is { } cleanupSource)
+        {
+            Assert.Equal(MediaArtifactKind.SourceContainer, cleanupSource.Kind);
+            Assert.True(File.Exists(cleanupSource.Path));
+            Assert.Equal(new FileInfo(samplePath).Length, cleanupSource.ByteLength);
+            Assert.Equal(facts.PrimarySha256, cleanupSource.Sha256);
+            Assert.Equal(facts.PrimarySha256, await ComputeFileSha256Async(cleanupSource.Path));
         }
 
         // 5. Workspace Cleanliness
-        var workspaceFiles = Directory.GetFiles(workspace.RootDirectory, "*", SearchOption.AllDirectories);
+        var workspaceFiles = Directory.GetFiles(workspace.RootDirectory, "*", SearchOption.AllDirectories)
+            .Where(path => !string.Equals(path, bundle.CleanupSource?.Path, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
         Assert.Equal(expectedArtifactCount, workspaceFiles.Length);
         Assert.DoesNotContain(workspaceFiles, f => Path.GetFileName(f).Contains("tmp", StringComparison.OrdinalIgnoreCase));
 
@@ -215,6 +251,8 @@ public sealed class ExtractorRealSampleTests
 
         await AssertImageDecodableAndDimensionsMatchAsync(bundle.PrimaryImage.Path, facts.PrimaryImage);
         await AssertVideoProbedValidAsync(bundle.MotionVideo.Path, facts.MotionVideo!);
+
+        Assert.Null(bundle.CleanupSource);
 
         // 4. Workspace Cleanliness
         var workspaceFiles = Directory.GetFiles(workspace.RootDirectory, "*", SearchOption.AllDirectories);

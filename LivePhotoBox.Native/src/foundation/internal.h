@@ -39,6 +39,23 @@ struct lpb_file_identity
     uint32_t link_count{};
 };
 
+/* Identity captured before an extraction-owned handle is closed.  The
+ * artifact role is descriptive; the Windows file id plus final path is the
+ * ownership proof used by rollback and by the later cleanup authority. */
+struct lpb_published_artifact_record
+{
+    int32_t artifact_role{};
+    uint32_t auxiliary_index{UINT32_MAX};
+    lpb_file_identity identity{};
+    std::wstring final_path;
+    uint64_t byte_length{};
+    std::array<uint8_t, 32> sha256{};
+    /* A duplicated transaction-owned handle retained only until commit or
+     * rollback.  It lets rollback delete the original object after its path
+     * has been replaced, without ever resolving the replacement by name. */
+    void* rollback_handle{};
+};
+
 /*
  * The public lpb_extraction_plan* is only an opaque token carrier.  It is
  * never dereferenced and is deliberately not the address of this record.
@@ -61,11 +78,17 @@ struct lpb_extraction_plan_record
     uint64_t token{};
     uint64_t generation{};
     lpb_source_media_facts facts{};
+    std::vector<lpb_confirmed_residue> confirmed_residues;
     lpb_file_identity primary_identity{};
     lpb_file_identity secondary_identity{};
     bool has_secondary{};
     std::wstring primary_final_path;
     std::wstring secondary_final_path;
+    std::vector<lpb_published_artifact_record> published_artifacts;
+    bool extraction_succeeded{};
+    bool rollback_active{};
+    bool rollback_completed{};
+    bool cleanup_authority_issued{};
     lpb_plan_state state{lpb_plan_state::Issued};
     bool managed_claim_active{};
     bool native_call_active{};

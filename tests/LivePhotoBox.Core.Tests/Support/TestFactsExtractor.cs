@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
@@ -207,16 +208,98 @@ internal static class TestFactsExtractor
 
         string imageExtension = facts.PrimaryImage.Container == ImageContainer.Heic ? ".heic" : ".jpg";
         string outputImagePath = workspace.AllocateFilePath("primary", imageExtension);
+        bool needsCleanupSource = facts.Protocol == SourceProtocol.SamsungMotionPhotoJpeg &&
+            facts.PreservationCarriers.Any(carrier =>
+                carrier.Kind == PreservationCarrierKind.SamsungSef && carrier.SourceIndex == 0);
+        string? cleanupSourcePath = needsCleanupSource
+            ? workspace.AllocateFilePath("cleanup-source", imageExtension)
+            : null;
+        string? cleanupSourceSha256 = needsCleanupSource ? beforePrimarySha : null;
+        bool cleanupSourceCreated = false;
         string? outputVideoPath = facts.MotionVideo is { IsPresent: true }
             ? workspace.AllocateFilePath("motion", facts.MotionVideo.Container == VideoContainer.Mov ? ".mov" : ".mp4")
             : null;
-        string? outputGainmapPath = facts.GainMap is { IsPresent: true }
-            ? workspace.AllocateFilePath("gainmap", facts.GainMap.Container == ImageContainer.Heic ? ".heic" : ".jpg")
+
+        bool canMaterializeTypedGainMap = false;
+        if (facts.GainMap is { IsPresent: true } typedGainMap &&
+            typedGainMap.AuxiliaryIndex < (uint)facts.AuxiliaryItems.Count)
+        {
+            AuxiliaryMediaFacts typedAuxiliary = facts.AuxiliaryItems[(int)typedGainMap.AuxiliaryIndex];
+            if (typedAuxiliary.Container == ImageContainer.Heic &&
+                typedAuxiliary.Representation != AuxiliaryRepresentation.Embedded)
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.UnsupportedLayout,
+                    "HEIF GainMap materialization requires a complete standalone item graph; raw iloc extents are not artifacts.",
+                    MediaArtifactKind.GainMap);
+            }
+            canMaterializeTypedGainMap = typedAuxiliary.Container == ImageContainer.Jpeg;
+        }
+
+        string? outputGainmapPath = canMaterializeTypedGainMap
+            ? workspace.AllocateFilePath("gainmap", ".jpg")
             : null;
+        var auxiliaryOutputBindings = new List<NativeMediaService.NativeAuxiliaryOutputBinding>();
+        var auxiliaryOutputPaths = new Dictionary<int, string>();
+        for (int i = 0; i < facts.AuxiliaryItems.Count; i++)
+        {
+            AuxiliaryMediaFacts auxiliary = facts.AuxiliaryItems[i];
+            if (!auxiliary.IsPresent) continue;
+
+            if (auxiliary.Container == ImageContainer.Heic &&
+                auxiliary.Representation == AuxiliaryRepresentation.Materialized)
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.UnsupportedLayout,
+                    $"HEIF auxiliary '{auxiliary.StableIdentity}' does not have a legal standalone materialization.",
+                    MediaArtifactKind.AuxiliaryItem);
+            }
+
+            bool isGainMap = facts.GainMap is { IsPresent: true } gainMapBinding &&
+                gainMapBinding.AuxiliaryIndex == (uint)i;
+            if (isGainMap && canMaterializeTypedGainMap)
+            {
+                auxiliaryOutputPaths[i] = outputGainmapPath!;
+                continue;
+            }
+
+            if (auxiliary.Representation != AuxiliaryRepresentation.Materialized) continue;
+
+            string extension = auxiliary.Container switch
+            {
+                ImageContainer.Jpeg => ".jpg",
+                ImageContainer.Heic => ".heic",
+                _ => throw new ExtractionException(
+                    ExtractionFailureCategory.UnsupportedLayout,
+                    $"Auxiliary item {i} has an unsupported container.",
+                    MediaArtifactKind.AuxiliaryItem)
+            };
+            string outputPath = workspace.AllocateFilePath($"aux-{i}", extension);
+            auxiliaryOutputPaths.Add(i, outputPath);
+            auxiliaryOutputBindings.Add(new NativeMediaService.NativeAuxiliaryOutputBinding(
+                (uint)i,
+                outputPath));
+        }
 
         bool nativeExtractionSucceeded = false;
         try
         {
+            if (cleanupSourcePath is not null)
+            {
+                cleanupSourceCreated = true;
+                File.Copy(primaryPath, cleanupSourcePath, overwrite: false);
+                string actualCleanupSourceSha = await workspace
+                    .ComputeFileSha256Async(cleanupSourcePath, cancellationToken)
+                    .ConfigureAwait(false);
+                if (!string.Equals(actualCleanupSourceSha, cleanupSourceSha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new ExtractionException(
+                        ExtractionFailureCategory.SourceChanged,
+                        "Source container changed while its cleanup copy was being materialized.",
+                        sourcePath: primaryPath);
+                }
+            }
+
             await ExtractNativeAsyncWithConfiguration(
                 primaryPath,
                 secondaryPath,
@@ -224,6 +307,7 @@ internal static class TestFactsExtractor
                 outputImagePath,
                 outputVideoPath,
                 outputGainmapPath,
+                auxiliaryOutputBindings,
                 configureContext,
                 cancellationToken).ConfigureAwait(false);
             nativeExtractionSucceeded = true;
@@ -234,6 +318,16 @@ internal static class TestFactsExtractor
                 throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, "Native test harness did not produce a motion video artifact.");
             if (outputGainmapPath is not null && !File.Exists(outputGainmapPath))
                 throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, "Native test harness did not produce a GainMap artifact.");
+            foreach (string outputPath in auxiliaryOutputPaths.Values)
+            {
+                if (!File.Exists(outputPath))
+                {
+                    throw new ExtractionException(
+                        ExtractionFailureCategory.OutputWriteFailed,
+                        $"Native test harness did not produce the confirmed auxiliary artifact '{outputPath}'.",
+                        MediaArtifactKind.AuxiliaryItem);
+                }
+            }
 
             string afterPrimarySha = await workspace
                 .ComputeFileSha256Async(primaryPath, cancellationToken)
@@ -258,6 +352,22 @@ internal static class TestFactsExtractor
                         $"Source file immutability violation: secondary source '{secondaryPath}' was modified during extraction!",
                         sourcePath: secondaryPath);
                 }
+            }
+
+            MediaArtifact? cleanupSourceArtifact = null;
+            if (cleanupSourcePath is not null)
+            {
+                cleanupSourceArtifact = new MediaArtifact
+                {
+                    Path = cleanupSourcePath,
+                    Kind = MediaArtifactKind.SourceContainer,
+                    MimeType = facts.PrimaryImage.Container == ImageContainer.Heic ? "image/heic" : "image/jpeg",
+                    ImageContainer = facts.PrimaryImage.Container,
+                    ImageCodec = facts.PrimaryImage.Container == ImageContainer.Heic ? ImageCodec.Hevc : ImageCodec.Jpeg,
+                    ByteLength = new FileInfo(cleanupSourcePath).Length,
+                    SourceOffset = 0,
+                    Sha256 = cleanupSourceSha256
+                };
             }
 
             MediaArtifact primaryArtifact = new()
@@ -304,6 +414,59 @@ internal static class TestFactsExtractor
                 };
             }
 
+            var auxiliaryDescriptors = new List<AuxiliaryMediaDescriptor>(facts.AuxiliaryItems.Count);
+            for (int i = 0; i < facts.AuxiliaryItems.Count; i++)
+            {
+                AuxiliaryMediaFacts auxiliary = facts.AuxiliaryItems[i];
+                if (!auxiliary.IsPresent) continue;
+
+                bool isGainMap = facts.GainMap is { IsPresent: true } gainMapBinding &&
+                    gainMapBinding.AuxiliaryIndex == (uint)i;
+                MediaArtifact? materializedArtifact = null;
+                if (auxiliaryOutputPaths.TryGetValue(i, out string? materializedPath))
+                {
+                    materializedArtifact = isGainMap
+                        ? gainmapArtifact
+                        : new MediaArtifact
+                        {
+                            Path = materializedPath,
+                            Kind = MediaArtifactKind.AuxiliaryItem,
+                            MimeType = auxiliary.Container == ImageContainer.Heic ? "image/heic" : "image/jpeg",
+                            ImageContainer = auxiliary.Container,
+                            ImageCodec = auxiliary.Codec switch
+                            {
+                                AuxiliaryCodec.Jpeg => ImageCodec.Jpeg,
+                                AuxiliaryCodec.Hevc => ImageCodec.Hevc,
+                                _ => ImageCodec.Unknown
+                            },
+                            ByteLength = new FileInfo(materializedPath).Length,
+                            SourceOffset = auxiliary.ByteOffset,
+                            Sha256 = await workspace.ComputeFileSha256Async(materializedPath, cancellationToken).ConfigureAwait(false)
+                        };
+                }
+
+                auxiliaryDescriptors.Add(new AuxiliaryMediaDescriptor
+                {
+                    ArtifactRole = isGainMap ? MediaArtifactKind.GainMap : MediaArtifactKind.AuxiliaryItem,
+                    StableIdentity = auxiliary.StableIdentity,
+                    Semantic = auxiliary.Semantic,
+                    OwnerIdentity = auxiliary.OwnerIdentity,
+                    Relationship = auxiliary.Relationship,
+                    SourceIndex = auxiliary.SourceIndex,
+                    SourceOffset = auxiliary.ByteOffset,
+                    SourceLength = auxiliary.ByteLength,
+                    SourceSha256 = auxiliary.Sha256,
+                    ImageContainer = auxiliary.Container,
+                    Codec = auxiliary.Codec,
+                    Representation = auxiliary.Representation,
+                    Ownership = auxiliary.Ownership,
+                    ItemType = auxiliary.ItemType,
+                    GraphComplete = auxiliary.GraphComplete,
+                    Dependencies = auxiliary.Dependencies,
+                    MaterializedArtifact = materializedArtifact
+                });
+            }
+
             var extractedFacts = new List<RemovedProtocolFact>();
             if (facts.MotionVideo is { IsPresent: true, SourceIndex: 0 })
             {
@@ -341,17 +504,22 @@ internal static class TestFactsExtractor
                 PrimaryImage = primaryArtifact,
                 MotionVideo = videoArtifact,
                 GainMap = gainmapArtifact,
+                CleanupSource = cleanupSourceArtifact,
                 SourceFacts = facts,
-                ExtractedProtocolFacts = extractedFacts
+                ExtractedProtocolFacts = extractedFacts,
+                AuxiliaryMedia = auxiliaryDescriptors,
+                PreservationCarriers = facts.PreservationCarriers
             };
         }
         catch (Exception ex)
         {
+            string? cleanupFailedFile = null;
+            Exception? cleanupError = null;
             if (nativeExtractionSucceeded)
             {
-                string? cleanupFailedFile = null;
-                Exception? cleanupError = null;
-                foreach (string? path in new[] { outputImagePath, outputVideoPath, outputGainmapPath })
+                var outputPaths = new List<string?> { outputImagePath, outputVideoPath, outputGainmapPath };
+                outputPaths.AddRange(auxiliaryOutputPaths.Values);
+                foreach (string? path in outputPaths)
                 {
                     if (path is null || !File.Exists(path)) continue;
                     try { File.Delete(path); }
@@ -373,6 +541,28 @@ internal static class TestFactsExtractor
                         originalCategory: originalCategory);
                 }
             }
+
+            if (cleanupSourceCreated && cleanupSourcePath is not null && File.Exists(cleanupSourcePath))
+            {
+                try { File.Delete(cleanupSourcePath); }
+                catch (Exception cleanupSourceException)
+                {
+                    cleanupFailedFile ??= cleanupSourcePath;
+                    cleanupError ??= cleanupSourceException;
+                }
+            }
+
+            if (cleanupFailedFile is not null && !nativeExtractionSucceeded)
+            {
+                ExtractionFailureCategory originalCategory = ex is ExtractionException extraction
+                    ? extraction.Category
+                    : ExtractionFailureCategory.InternalError;
+                throw new ExtractionException(
+                    ExtractionFailureCategory.CleanupFailed,
+                    $"Post-extraction cleanup failed: unable to delete artifact '{cleanupFailedFile}'. Original error: {ex.Message}",
+                    innerException: cleanupError,
+                    originalCategory: originalCategory);
+            }
             throw;
         }
     }
@@ -384,6 +574,7 @@ internal static class TestFactsExtractor
         string? outputImagePath,
         string? outputVideoPath,
         string? outputGainmapPath,
+        IReadOnlyList<NativeMediaService.NativeAuxiliaryOutputBinding> auxiliaryOutputBindings,
         Action<TestNativeContext>? configureContext,
         CancellationToken cancellationToken) =>
         Task.Run(() =>
@@ -398,7 +589,8 @@ internal static class TestFactsExtractor
                 in nativeFacts,
                 outputImagePath,
                 outputVideoPath,
-                outputGainmapPath);
+                outputGainmapPath,
+                auxiliaryOutputBindings);
             context.ThrowIfFailed(result);
         }, CancellationToken.None);
 

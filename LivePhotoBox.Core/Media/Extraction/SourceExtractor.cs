@@ -19,6 +19,17 @@ namespace LivePhotoBox.Media.Extraction;
 /// </summary>
 public sealed class SourceExtractor : ISourceExtractor
 {
+    private static readonly AsyncLocal<CleanupSourceCopyTestHooks?> s_cleanupSourceCopyTestHooks = new();
+
+    internal static IDisposable PushCleanupSourceCopyTestHooks(
+        Action<string, long>? afterChunk,
+        Action<string>? afterFailure)
+    {
+        CleanupSourceCopyTestHooks? previous = s_cleanupSourceCopyTestHooks.Value;
+        s_cleanupSourceCopyTestHooks.Value = new CleanupSourceCopyTestHooks(afterChunk, afterFailure);
+        return new TestHookScope(previous);
+    }
+
     public Task<ExtractedMediaBundle> ExtractAsync(
         ExtractionPlan plan,
         string primaryPath,
@@ -332,6 +343,17 @@ public sealed class SourceExtractor : ISourceExtractor
         if (File.Exists(outputImagePath))
             throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, $"Destination file already exists: {outputImagePath}");
 
+        bool needsCleanupSource = facts.Protocol == SourceProtocol.SamsungMotionPhotoJpeg &&
+            facts.PreservationCarriers.Any(carrier =>
+                carrier.Kind == PreservationCarrierKind.SamsungSef && carrier.SourceIndex == 0);
+        string? cleanupSourcePath = needsCleanupSource
+            ? workspace.AllocateFilePath("cleanup-source", imgExt)
+            : null;
+        string? cleanupSourceSha256 = needsCleanupSource ? beforePrimarySha : null;
+        // Samsung's full source-container artifact is now copied by the same
+        // Native handle-owned transaction as the extracted media.  Managed
+        // code must never establish its ownership by reopening a path.
+
         string? outputVideoPath = null;
         if (facts.MotionVideo != null && facts.MotionVideo.IsPresent)
         {
@@ -443,46 +465,7 @@ public sealed class SourceExtractor : ISourceExtractor
         // validates the same slice while its transaction-owned output handle
         // is still open; this second record lets managed rollback prove that
         // it is still looking at that transaction's object.
-        var ownedArtifactExpectations = new Dictionary<string, OwnedArtifactExpectation>(StringComparer.OrdinalIgnoreCase);
-        await AddOwnedArtifactExpectationAsync(
-            ownedArtifactExpectations,
-            outputImagePath,
-            primaryPath,
-            facts.PrimaryImage.ByteOffset,
-            facts.PrimaryImage.ByteLength,
-            cancellationToken).ConfigureAwait(false);
-
-        if (outputVideoPath != null && facts.MotionVideo is { IsPresent: true } motionFacts && videoSource != null)
-        {
-            await AddOwnedArtifactExpectationAsync(
-                ownedArtifactExpectations,
-                outputVideoPath,
-                videoSource,
-                motionFacts.ByteOffset,
-                motionFacts.ByteLength,
-                cancellationToken).ConfigureAwait(false);
-        }
-
-        for (int i = 0; i < facts.AuxiliaryItems.Count; i++)
-        {
-            if (!auxiliaryOutputByIndex.TryGetValue(i, out string? materializedPath) || materializedPath == null)
-                continue;
-
-            AuxiliaryMediaFacts auxiliary = facts.AuxiliaryItems[i];
-            string auxiliarySource = auxiliary.SourceIndex == 1
-                ? secondaryPath!
-                : primaryPath;
-            await AddOwnedArtifactExpectationAsync(
-                ownedArtifactExpectations,
-                materializedPath,
-                auxiliarySource,
-                auxiliary.ByteOffset,
-                auxiliary.ByteLength,
-                cancellationToken).ConfigureAwait(false);
-        }
-
         bool nativeExtractionSucceeded = false;
-        var publishedArtifactIdentities = new Dictionary<string, PublishedArtifactIdentity>(StringComparer.OrdinalIgnoreCase);
         try
         {
             await NativeMediaService.ExtractMediaAsync(
@@ -493,18 +476,50 @@ public sealed class SourceExtractor : ISourceExtractor
                 outputVideoPath,
                 outputGainmapPath,
                 auxiliaryOutputBindings,
+                cleanupSourcePath,
                 configureContext,
                 cancellationToken).ConfigureAwait(false);
 
             nativeExtractionSucceeded = true;
 
-            foreach (OwnedArtifactExpectation expectation in ownedArtifactExpectations.Values)
+            // Freeze the object identities at the extraction handoff. Native
+            // has already recorded and owns these outputs; the immediate
+            // Native verification below closes the capture/verification race
+            // before the bundle exposes the managed evidence to the cleaner.
+            var publishedArtifactIdentities = new Dictionary<string, WindowsFileIdentity>(StringComparer.OrdinalIgnoreCase);
+            WindowsFileIdentity CapturePublishedIdentity(string path, MediaArtifactKind kind)
             {
-                PublishedArtifactIdentity identity = await CapturePublishedArtifactIdentityAsync(
-                    expectation,
-                    cancellationToken).ConfigureAwait(false);
-                publishedArtifactIdentities.Add(expectation.Path, identity);
+                try
+                {
+                    WindowsFileIdentity identity = WindowsFileIdentity.Capture(path);
+                    publishedArtifactIdentities[path] = identity;
+                    return identity;
+                }
+                catch (Exception ex)
+                {
+                    throw new ExtractionException(
+                        ExtractionFailureCategory.OutputPublishFailed,
+                        $"Unable to capture the Windows file identity for published {kind} artifact '{path}'.",
+                        artifactKind: kind,
+                        innerException: ex);
+                }
             }
+
+            CapturePublishedIdentity(outputImagePath, MediaArtifactKind.PrimaryImage);
+            if (outputVideoPath != null)
+                CapturePublishedIdentity(outputVideoPath, MediaArtifactKind.MotionVideo);
+            if (outputGainmapPath != null)
+                CapturePublishedIdentity(outputGainmapPath, MediaArtifactKind.GainMap);
+            if (cleanupSourcePath != null)
+                CapturePublishedIdentity(cleanupSourcePath, MediaArtifactKind.SourceContainer);
+            foreach (string auxiliaryOutputPath in auxiliaryOutputPaths)
+                CapturePublishedIdentity(auxiliaryOutputPath, MediaArtifactKind.AuxiliaryItem);
+
+            NativeResult nativeOutputVerification = NativeMethods.VerifyExtractionOutputs(
+                attempt.ContextLease.Handle,
+                attempt.NativeHandle,
+                attempt.Generation);
+            attempt.Context.ThrowIfFailed(nativeOutputVerification);
 
             if (!File.Exists(outputImagePath))
                 throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, "Native extraction did not produce a primary image artifact.", MediaArtifactKind.PrimaryImage);
@@ -545,6 +560,23 @@ public sealed class SourceExtractor : ISourceExtractor
                 }
             }
 
+            MediaArtifact? cleanupSourceArtifact = null;
+            if (cleanupSourcePath != null)
+            {
+                cleanupSourceArtifact = new MediaArtifact
+                {
+                    Path = cleanupSourcePath,
+                    Kind = MediaArtifactKind.SourceContainer,
+                    MimeType = facts.PrimaryImage.Container == ImageContainer.Heic ? "image/heic" : "image/jpeg",
+                    ImageContainer = facts.PrimaryImage.Container,
+                    ImageCodec = facts.PrimaryImage.Container == ImageContainer.Heic ? ImageCodec.Hevc : ImageCodec.Jpeg,
+                    ByteLength = new FileInfo(cleanupSourcePath).Length,
+                    SourceOffset = 0,
+                    Sha256 = cleanupSourceSha256,
+                    FileIdentity = publishedArtifactIdentities[cleanupSourcePath]
+                };
+            }
+
             var primaryArtifact = new MediaArtifact
             {
                 Path = outputImagePath,
@@ -554,6 +586,7 @@ public sealed class SourceExtractor : ISourceExtractor
                 ImageCodec = facts.PrimaryImage.Container == ImageContainer.Heic ? ImageCodec.Hevc : ImageCodec.Jpeg,
                 ByteLength = new FileInfo(outputImagePath).Length,
                 SourceOffset = facts.PrimaryImage.ByteOffset,
+                FileIdentity = publishedArtifactIdentities[outputImagePath],
                 Sha256 = await workspace.ComputeFileSha256Async(outputImagePath, cancellationToken).ConfigureAwait(false)
             };
 
@@ -569,6 +602,7 @@ public sealed class SourceExtractor : ISourceExtractor
                     VideoCodec = facts.MotionVideo.Codec,
                     ByteLength = new FileInfo(outputVideoPath).Length,
                     SourceOffset = facts.MotionVideo.ByteOffset,
+                    FileIdentity = publishedArtifactIdentities[outputVideoPath],
                     Sha256 = await workspace.ComputeFileSha256Async(outputVideoPath, cancellationToken).ConfigureAwait(false)
                 };
             }
@@ -585,6 +619,7 @@ public sealed class SourceExtractor : ISourceExtractor
                     ImageCodec = facts.GainMap.Container == ImageContainer.Heic ? ImageCodec.Hevc : ImageCodec.Jpeg,
                     ByteLength = new FileInfo(outputGainmapPath).Length,
                     SourceOffset = facts.GainMap.ByteOffset,
+                    FileIdentity = publishedArtifactIdentities[outputGainmapPath],
                     Sha256 = await workspace.ComputeFileSha256Async(outputGainmapPath, cancellationToken).ConfigureAwait(false)
                 };
             }
@@ -619,11 +654,12 @@ public sealed class SourceExtractor : ISourceExtractor
                                 AuxiliaryCodec.Jpeg => ImageCodec.Jpeg,
                                 AuxiliaryCodec.Hevc => ImageCodec.Hevc,
                                 _ => ImageCodec.Unknown
-                            },
-                            ByteLength = new FileInfo(path).Length,
-                            SourceOffset = auxiliary.ByteOffset,
-                            Sha256 = await workspace.ComputeFileSha256Async(path, cancellationToken).ConfigureAwait(false)
-                        };
+                             },
+                             ByteLength = new FileInfo(path).Length,
+                             SourceOffset = auxiliary.ByteOffset,
+                             FileIdentity = publishedArtifactIdentities[path],
+                             Sha256 = await workspace.ComputeFileSha256Async(path, cancellationToken).ConfigureAwait(false)
+                         };
                     }
 
                     if (materializedArtifact?.Sha256 is not { Length: > 0 } materializedSha ||
@@ -676,6 +712,7 @@ public sealed class SourceExtractor : ISourceExtractor
                 PrimaryImage = primaryArtifact,
                 MotionVideo = videoArtifact,
                 GainMap = gainmapArtifact,
+                CleanupSource = cleanupSourceArtifact,
                 SourceFacts = facts,
                 ExtractedProtocolFacts = extractedFacts,
                 AuxiliaryMedia = finalizedAuxiliaryDescriptors,
@@ -693,34 +730,143 @@ public sealed class SourceExtractor : ISourceExtractor
 
             if (nativeExtractionSucceeded)
             {
-                foreach (OwnedArtifactExpectation expectation in ownedArtifactExpectations.Values)
+                NativeResult rollback = NativeMethods.RollbackExtractionOutputs(
+                    attempt.ContextLease.Handle,
+                    attempt.NativeHandle,
+                    attempt.Generation);
+                if (rollback != NativeResult.Ok)
                 {
-                    if (!publishedArtifactIdentities.TryGetValue(expectation.Path, out PublishedArtifactIdentity identity))
-                        continue;
-
-                    CleanupAttempt cleanup = await TryDeleteOwnedArtifactAsync(
-                        expectation,
-                        identity,
-                        CancellationToken.None).ConfigureAwait(false);
-                    if (cleanup.Kind == CleanupAttemptKind.Failed)
-                    {
-                        cleanupFailedFile ??= expectation.Path;
-                        cleanupError ??= cleanup.Error;
-                    }
-                }
-
-                if (cleanupFailedFile != null)
-                {
-                    ExtractionFailureCategory origCat = (ex is ExtractionException ee) ? ee.Category : ExtractionFailureCategory.InternalError;
-                    throw new ExtractionException(
-                        ExtractionFailureCategory.CleanupFailed,
-                        $"Post-extraction cleanup failed: unable to delete artifact '{cleanupFailedFile}'. Original error: {ex.Message}",
-                        innerException: cleanupError,
-                        originalCategory: origCat);
+                    cleanupFailedFile ??= cleanupSourcePath ?? outputImagePath;
+                    cleanupError ??= new IOException(
+                        attempt.Context.GetLastError() ??
+                        $"Native exact-object rollback returned {rollback}.");
                 }
             }
 
+            if (cleanupFailedFile != null)
+            {
+                ExtractionFailureCategory origCat = ex switch
+                {
+                    ExtractionException ee => ee.Category,
+                    OperationCanceledException => ExtractionFailureCategory.Cancelled,
+                    _ => ExtractionFailureCategory.InternalError
+                };
+                throw new ExtractionException(
+                    ExtractionFailureCategory.CleanupFailed,
+                    $"Post-extraction cleanup failed: unable to delete artifact '{cleanupFailedFile}'. Original error: {ex.Message}",
+                    innerException: cleanupError,
+                    originalCategory: origCat);
+            }
+
             throw;
+        }
+    }
+
+    private static async Task CopyVerifiedSourceContainerAsync(
+        string sourcePath,
+        string destinationPath,
+        string expectedSha256,
+        CleanupSourceOwnership ownership,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using (var source = new FileStream(
+                sourcePath,
+                new FileStreamOptions
+                {
+                    Mode = FileMode.Open,
+                    Access = FileAccess.Read,
+                    Share = FileShare.Read,
+                    BufferSize = 64 * 1024,
+                    Options = FileOptions.SequentialScan | FileOptions.Asynchronous
+                }))
+            await using (var destination = new FileStream(
+                destinationPath,
+                new FileStreamOptions
+                {
+                    Mode = FileMode.CreateNew,
+                    Access = FileAccess.Write,
+                    Share = FileShare.None,
+                    BufferSize = 64 * 1024,
+                    Options = FileOptions.SequentialScan | FileOptions.Asynchronous
+                }))
+            {
+                if (!GetFileInformationByHandle(destination.SafeFileHandle, out ByHandleFileInformation info))
+                {
+                    throw new IOException(
+                        $"GetFileInformationByHandle failed for cleanup source with Win32 error {Marshal.GetLastWin32Error()}.");
+                }
+
+                ownership.Identity = ToPublishedArtifactIdentity(info);
+                byte[] buffer = new byte[64 * 1024];
+                long bytesCopied = 0;
+                while (true)
+                {
+                    int read = await source.ReadAsync(buffer.AsMemory(), cancellationToken).ConfigureAwait(false);
+                    if (read == 0) break;
+
+                    await destination.WriteAsync(buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
+                    bytesCopied += read;
+                    s_cleanupSourceCopyTestHooks.Value?.AfterChunk?.Invoke(destinationPath, bytesCopied);
+                }
+                await destination.FlushAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            await using var verification = new FileStream(
+                destinationPath,
+                new FileStreamOptions
+                {
+                    Mode = FileMode.Open,
+                    Access = FileAccess.Read,
+                    Share = FileShare.Read,
+                    BufferSize = 64 * 1024,
+                    Options = FileOptions.SequentialScan | FileOptions.Asynchronous
+                });
+            string actualSha256 = Convert.ToHexString(
+                await SHA256.HashDataAsync(verification, cancellationToken).ConfigureAwait(false));
+            if (!string.Equals(actualSha256, expectedSha256, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.SourceChanged,
+                    "Source container changed while its cleanup copy was being materialized.",
+                    sourcePath: sourcePath);
+            }
+        }
+        catch (ExtractionException)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                s_cleanupSourceCopyTestHooks.Value?.AfterFailure?.Invoke(destinationPath);
+            }
+            catch
+            {
+                // Test-only observers must never replace the production failure.
+            }
+
+            throw;
+        }
+        catch (Exception ex)
+        {
+            try
+            {
+                s_cleanupSourceCopyTestHooks.Value?.AfterFailure?.Invoke(destinationPath);
+            }
+            catch
+            {
+                // Test-only observers must never replace the production failure.
+            }
+
+            throw new ExtractionException(
+                ExtractionFailureCategory.OutputWriteFailed,
+                $"Unable to materialize the cleanup source container '{destinationPath}'.",
+                artifactKind: MediaArtifactKind.SourceContainer,
+                sourcePath: sourcePath,
+                innerException: ex);
         }
     }
 
@@ -884,7 +1030,8 @@ public sealed class SourceExtractor : ISourceExtractor
     private static async Task<CleanupAttempt> TryDeleteOwnedArtifactAsync(
         OwnedArtifactExpectation expectation,
         PublishedArtifactIdentity expectedIdentity,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool requireContentMatch = true)
     {
         try
         {
@@ -900,7 +1047,7 @@ public sealed class SourceExtractor : ISourceExtractor
                 actualIdentity.LinkCount != 1 ||
                 actualIdentity.VolumeSerialNumber != expectedIdentity.VolumeSerialNumber ||
                 actualIdentity.FileIndex != expectedIdentity.FileIndex ||
-                GetFileLength(info) != (ulong)expectation.Length)
+                (requireContentMatch && GetFileLength(info) != (ulong)expectation.Length))
             {
                 // A missing or replaced object is not ours to delete.  The
                 // original extraction failure remains the authoritative
@@ -908,11 +1055,14 @@ public sealed class SourceExtractor : ISourceExtractor
                 return CleanupAttempt.Preserved;
             }
 
-            artifact.Position = 0;
-            string actualSha256 = Convert.ToHexString(
-                await SHA256.HashDataAsync(artifact, cancellationToken).ConfigureAwait(false));
-            if (!string.Equals(actualSha256, expectation.Sha256, StringComparison.OrdinalIgnoreCase))
-                return CleanupAttempt.Preserved;
+            if (requireContentMatch)
+            {
+                artifact.Position = 0;
+                string actualSha256 = Convert.ToHexString(
+                    await SHA256.HashDataAsync(artifact, cancellationToken).ConfigureAwait(false));
+                if (!string.Equals(actualSha256, expectation.Sha256, StringComparison.OrdinalIgnoreCase))
+                    return CleanupAttempt.Preserved;
+            }
 
             var disposition = new FileDispositionInfo { DeleteFile = 1 };
             if (!SetFileInformationByHandle(
@@ -1050,6 +1200,21 @@ public sealed class SourceExtractor : ISourceExtractor
     }
 
     private sealed record OwnedArtifactExpectation(string Path, long Length, string Sha256);
+
+    private sealed class CleanupSourceOwnership(string path)
+    {
+        internal string Path { get; } = path;
+        internal PublishedArtifactIdentity? Identity { get; set; }
+    }
+
+    private sealed record CleanupSourceCopyTestHooks(
+        Action<string, long>? AfterChunk,
+        Action<string>? AfterFailure);
+
+    private sealed class TestHookScope(CleanupSourceCopyTestHooks? previous) : IDisposable
+    {
+        public void Dispose() => s_cleanupSourceCopyTestHooks.Value = previous;
+    }
 
     private readonly record struct PublishedArtifactIdentity(
         uint VolumeSerialNumber,

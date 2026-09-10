@@ -42,6 +42,45 @@ internal static unsafe partial class TestNativeMethods
         nint callback,
         nint userData);
 
+    [LibraryImport(LibraryName, EntryPoint = "lpb_test_set_cleaner_snapshot_hook")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult SetCleanerSnapshotHook(
+        nint context,
+        nint callback,
+        nint userData);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_test_sha256_buffer")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult Sha256Buffer(
+        byte* data,
+        nuint length,
+        byte* outHash);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_test_sha256_file", SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult Sha256File(
+        nint fileHandle,
+        byte* outHash);
+
+    [DllImport(LibraryName, EntryPoint = "lpb_test_get_context_id", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    internal static extern ulong GetContextId(nint context);
+
+    [DllImport(LibraryName, EntryPoint = "lpb_test_get_plan_accounting", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    internal static extern NativeResult GetPlanAccounting(
+        nint context,
+        out NativePlanAccounting accounting);
+
+    [DllImport(LibraryName, EntryPoint = "lpb_test_get_destroyed_plan_accounting", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    internal static extern NativeResult GetDestroyedPlanAccounting(
+        ulong contextId,
+        out NativePlanAccounting accounting);
+
+    [DllImport(LibraryName, EntryPoint = "lpb_test_probe_destroyed_plan", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    internal static extern NativeResult ProbeDestroyedPlan(ulong contextId, ulong planToken);
+
     [DllImport(LibraryName, EntryPoint = "lpb_test_extract_media_from_facts", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     internal static extern NativeResult ExtractMediaFromFacts(
         nint context,
@@ -51,6 +90,18 @@ internal static unsafe partial class TestNativeMethods
         [MarshalAs(UnmanagedType.LPUTF8Str)] string? outputImagePath,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string? outputVideoPath,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string? outputGainmapPath);
+
+    [DllImport(LibraryName, EntryPoint = "lpb_test_extract_media_from_facts_outputs", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    internal static extern NativeResult ExtractMediaFromFactsWithOutputs(
+        nint context,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string primaryPath,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string? secondaryPath,
+        in NativeSourceMediaFacts facts,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string? outputImagePath,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string? outputVideoPath,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string? outputGainmapPath,
+        NativeExtractionOutput* auxiliaryOutputs,
+        nuint auxiliaryOutputCount);
 
     [DllImport(LibraryName, EntryPoint = "lpb_test_get_extraction_plan_record_address", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     internal static extern nuint GetExtractionPlanRecordAddress(nint context, nint plan);
@@ -79,6 +130,103 @@ internal static unsafe partial class TestNativeMethods
         [MarshalAs(UnmanagedType.LPUTF8Str)] string? outputImagePath,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string? outputVideoPath,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string? outputGainmapPath);
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativePlanAccounting
+{
+    public ulong ContextId;
+    public ulong Issued;
+    public ulong Claimed;
+    public ulong Consumed;
+    public ulong Released;
+    public ulong LivePlanCount;
+    public ulong RegistryRecordCount;
+    public ulong ReleasedOnContextDestroy;
+    public uint ContextDestroyed;
+    public uint Reserved;
+}
+
+internal static unsafe class TestNativeHarness
+{
+    internal static void SetExtractorFault(
+        NativeContext context,
+        NativeExtractorFault fault,
+        int targetArtifact = 0,
+        ulong triggerAfterBytes = 0,
+        nint callback = 0,
+        nint userData = 0)
+    {
+        using NativeContextLease lease = context.AcquireOperationLease(allowDisposeRequested: true);
+        SetExtractorFault(lease.Handle, fault, targetArtifact, triggerAfterBytes, callback, userData);
+    }
+
+    internal static void SetExtractorFault(
+        TestNativeContext context,
+        NativeExtractorFault fault,
+        int targetArtifact = 0,
+        ulong triggerAfterBytes = 0,
+        nint callback = 0,
+        nint userData = 0) =>
+        SetExtractorFault(context.Handle, fault, targetArtifact, triggerAfterBytes, callback, userData);
+
+    internal static void ConfigureCleanerSnapshotHook(NativeContext context, nint callback)
+    {
+        using NativeContextLease lease = context.AcquireOperationLease(allowDisposeRequested: true);
+        NativeResult result = TestNativeMethods.SetCleanerSnapshotHook(lease.Handle, callback, nint.Zero);
+        if (result != NativeResult.Ok)
+        {
+            throw new InvalidOperationException($"Failed to configure Native cleaner snapshot hook: {result}");
+        }
+    }
+
+    internal static NativeResult Sha256Buffer(byte* data, nuint length, byte* outHash) =>
+        TestNativeMethods.Sha256Buffer(data, length, outHash);
+
+    internal static NativeResult Sha256File(nint fileHandle, byte* outHash) =>
+        TestNativeMethods.Sha256File(fileHandle, outHash);
+
+    internal static ulong GetContextId(nint context) =>
+        TestNativeMethods.GetContextId(context);
+
+    internal static NativePlanAccounting GetLivePlanAccounting(nint context)
+    {
+        NativeResult result = TestNativeMethods.GetPlanAccounting(context, out NativePlanAccounting accounting);
+        if (result != NativeResult.Ok)
+        {
+            throw new InvalidOperationException($"Failed to read live Native plan accounting: {result}");
+        }
+        return accounting;
+    }
+
+    internal static NativePlanAccounting GetDestroyedPlanAccounting(ulong contextId)
+    {
+        NativeResult result = TestNativeMethods.GetDestroyedPlanAccounting(contextId, out NativePlanAccounting accounting);
+        if (result != NativeResult.Ok)
+        {
+            throw new InvalidOperationException($"Failed to read destroyed Native plan accounting: {result}");
+        }
+        return accounting;
+    }
+
+    internal static NativeResult ProbeDestroyedPlan(ulong contextId, ulong planToken) =>
+        TestNativeMethods.ProbeDestroyedPlan(contextId, planToken);
+
+    private static void SetExtractorFault(
+        nint context,
+        NativeExtractorFault fault,
+        int targetArtifact,
+        ulong triggerAfterBytes,
+        nint callback,
+        nint userData)
+    {
+        NativeResult result = TestNativeMethods.SetExtractorFault(
+            context, fault, targetArtifact, triggerAfterBytes, callback, userData);
+        if (result != NativeResult.Ok)
+        {
+            throw new InvalidOperationException($"Failed to configure Native test harness: {result}");
+        }
+    }
 }
 
 internal sealed unsafe class TestNativeContext : IDisposable
@@ -114,21 +262,6 @@ internal sealed unsafe class TestNativeContext : IDisposable
 
     internal static TestNativeContext Create(CancellationToken cancellationToken = default) =>
         new(cancellationToken);
-
-    internal void SetExtractorFault(
-        NativeExtractorFault fault,
-        int targetArtifact = 0,
-        ulong triggerAfterBytes = 0,
-        nint callback = 0,
-        nint userData = 0)
-    {
-        NativeResult result = TestNativeMethods.SetExtractorFault(
-            _contextHandle, fault, targetArtifact, triggerAfterBytes, callback, userData);
-        if (result != NativeResult.Ok)
-        {
-            throw new InvalidOperationException($"Failed to configure Native test harness: {result}");
-        }
-    }
 
     internal (nint Token, ulong Generation, nuint RecordAddress) InspectPlanToken(
         string primaryPath,
@@ -186,6 +319,69 @@ internal sealed unsafe class TestNativeContext : IDisposable
             outputImagePath,
             outputVideoPath,
             outputGainmapPath);
+
+    internal NativeResult ExtractMediaFromFacts(
+        string primaryPath,
+        string? secondaryPath,
+        in NativeSourceMediaFacts facts,
+        string? outputImagePath,
+        string? outputVideoPath,
+        string? outputGainmapPath,
+        IReadOnlyList<NativeMediaService.NativeAuxiliaryOutputBinding> auxiliaryOutputs)
+    {
+        ArgumentNullException.ThrowIfNull(auxiliaryOutputs);
+        if (auxiliaryOutputs.Count == 0)
+        {
+            return ExtractMediaFromFacts(
+                primaryPath,
+                secondaryPath,
+                in facts,
+                outputImagePath,
+                outputVideoPath,
+                outputGainmapPath);
+        }
+
+        NativeExtractionOutput* nativeOutputs = stackalloc NativeExtractionOutput[auxiliaryOutputs.Count];
+        var allocatedPaths = new List<nint>(auxiliaryOutputs.Count);
+        try
+        {
+            for (int i = 0; i < auxiliaryOutputs.Count; i++)
+            {
+                NativeMediaService.NativeAuxiliaryOutputBinding binding = auxiliaryOutputs[i]
+                    ?? throw new ArgumentException("Auxiliary extraction output binding cannot be null.", nameof(auxiliaryOutputs));
+                if (string.IsNullOrWhiteSpace(binding.Path))
+                {
+                    throw new ArgumentException("Auxiliary extraction output path cannot be empty.", nameof(auxiliaryOutputs));
+                }
+
+                nativeOutputs[i] = new NativeExtractionOutput
+                {
+                    StructSize = checked((uint)sizeof(NativeExtractionOutput)),
+                    AuxiliaryIndex = binding.AuxiliaryIndex,
+                    OutputPath = Marshal.StringToCoTaskMemUTF8(binding.Path)
+                };
+                allocatedPaths.Add(nativeOutputs[i].OutputPath);
+            }
+
+            return TestNativeMethods.ExtractMediaFromFactsWithOutputs(
+                _contextHandle,
+                primaryPath,
+                secondaryPath,
+                in facts,
+                outputImagePath,
+                outputVideoPath,
+                outputGainmapPath,
+                nativeOutputs,
+                (nuint)auxiliaryOutputs.Count);
+        }
+        finally
+        {
+            foreach (nint allocatedPath in allocatedPaths)
+            {
+                Marshal.FreeCoTaskMem(allocatedPath);
+            }
+        }
+    }
 
     internal string? GetLastError()
     {

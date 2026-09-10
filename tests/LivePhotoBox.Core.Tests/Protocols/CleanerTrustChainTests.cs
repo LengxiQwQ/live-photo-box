@@ -749,38 +749,60 @@ public sealed class CleanerTrustChainTests
         System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(makerNote.AsSpan(44, 4), 1);
         System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(makerNote.AsSpan(48, 4), 99999);
 
-        // Wrap into minimal TIFF structure
-        byte[] tiff = new byte[makerNote.Length + 32];
+        // Wrap into a minimal JPEG/APP1/Exif structure with a formally owned
+        // ExifIFD MakerNote. The Native mutation entry point accepts media
+        // containers, not a detached TIFF blob.
+        const int makerNoteOffset = 44;
+        byte[] tiff = new byte[makerNote.Length + makerNoteOffset];
         tiff[0] = (byte)'M'; tiff[1] = (byte)'M';
         tiff[2] = 0; tiff[3] = 42;
         System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(tiff.AsSpan(4, 4), 8); // IFD0 at 8
         System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(tiff.AsSpan(8, 2), 1); // 1 tag in IFD0
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(tiff.AsSpan(10, 2), 0x927C); // MakerNote tag
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(tiff.AsSpan(12, 2), 7); // UNDEFINED
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(tiff.AsSpan(14, 4), (uint)makerNote.Length);
-        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(tiff.AsSpan(18, 4), 26); // Value offset
-        makerNote.CopyTo(tiff, 26);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(tiff.AsSpan(10, 2), 0x8769); // ExifIFD pointer
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(tiff.AsSpan(12, 2), 4); // LONG
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(tiff.AsSpan(14, 4), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(tiff.AsSpan(18, 4), 26); // ExifIFD offset
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(tiff.AsSpan(22, 4), 0); // No next IFD
+
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(tiff.AsSpan(26, 2), 1); // 1 tag in ExifIFD
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(tiff.AsSpan(28, 2), 0x927C); // MakerNote tag
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(tiff.AsSpan(30, 2), 7); // UNDEFINED
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(tiff.AsSpan(32, 4), (uint)makerNote.Length);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(tiff.AsSpan(36, 4), makerNoteOffset); // Value offset
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(tiff.AsSpan(40, 4), 0); // No next IFD
+        makerNote.CopyTo(tiff, makerNoteOffset);
+
+        const int tiffOffset = 12; // SOI + APP1 marker/length + Exif prefix
+        byte[] jpeg = new byte[tiffOffset + tiff.Length + 2];
+        jpeg[0] = 0xFF; jpeg[1] = 0xD8; // SOI
+        jpeg[2] = 0xFF; jpeg[3] = 0xE1; // APP1
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(
+            jpeg.AsSpan(4, 2), checked((ushort)(tiff.Length + 8))); // Exif prefix + TIFF + length field
+        Encoding.ASCII.GetBytes("Exif\0\0").CopyTo(jpeg, 6);
+        tiff.CopyTo(jpeg, tiffOffset);
+        jpeg[^2] = 0xFF; jpeg[^1] = 0xD9; // EOI
 
         // Authorize stripping ONLY tag 0x0011
         ushort[] authorized = new ushort[] { 0x0011 };
-        bool ok = LivePhotoBox.Interop.NativeAppleMakerNoteWriter.TryStripLivePhotoEntriesSelective(tiff, authorized, out string? error);
+        bool ok = LivePhotoBox.Interop.NativeAppleMakerNoteWriter.TryStripLivePhotoEntriesSelective(jpeg, authorized, out string? error);
         Assert.True(ok, error);
 
         // Verify:
-        // Entry count at 26 + 14 should now be 2
-        ushort entryCount = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(tiff.AsSpan(26 + 14, 2));
+        // Entry count at makerNoteOffset + 14 should now be 2
+        int absoluteMakerNoteOffset = tiffOffset + makerNoteOffset;
+        ushort entryCount = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(jpeg.AsSpan(absoluteMakerNoteOffset + 14, 2));
         Assert.Equal(2, entryCount);
 
-        // Tag 2 (0x0017) was preserved and shifted into slot 0 (offset 26 + 16)
-        ushort tagAtSlot0 = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(tiff.AsSpan(26 + 16, 2));
+        // Tag 2 (0x0017) was preserved and shifted into slot 0 (offset makerNoteOffset + 16)
+        ushort tagAtSlot0 = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(jpeg.AsSpan(absoluteMakerNoteOffset + 16, 2));
         Assert.Equal(0x0017, tagAtSlot0);
 
-        // Tag 3 (0x0001) was preserved and shifted into slot 1 (offset 26 + 28)
-        ushort tagAtSlot1 = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(tiff.AsSpan(26 + 28, 2));
+        // Tag 3 (0x0001) was preserved and shifted into slot 1 (offset makerNoteOffset + 28)
+        ushort tagAtSlot1 = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(jpeg.AsSpan(absoluteMakerNoteOffset + 28, 2));
         Assert.Equal(0x0001, tagAtSlot1);
 
-        // Slot 2 (offset 26 + 40) is the reclaimed tail and should be zeroed out
-        ushort slot2 = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(tiff.AsSpan(26 + 40, 2));
+        // Slot 2 (offset makerNoteOffset + 40) is the reclaimed tail and should be zeroed out
+        ushort slot2 = System.Buffers.Binary.BinaryPrimitives.ReadUInt16BigEndian(jpeg.AsSpan(absoluteMakerNoteOffset + 40, 2));
         Assert.Equal(0x0000, slot2);
     }
 
@@ -885,24 +907,26 @@ public sealed class CleanerTrustChainTests
         Assert.Equal(sefResidue.ExpectedFingerprint, sefFact.BeforeFingerprint);
 
         // 2. Adversarial: Tamper 1 byte in the MotionPhoto_Data SEF payload
-        byte[] imgBytes = await File.ReadAllBytesAsync(extracted.PrimaryImage.Path);
+        Assert.NotNull(extracted.CleanupSource);
+        byte[] imgBytes = await File.ReadAllBytesAsync(extracted.CleanupSource.Path);
         int mpDataIdx = imgBytes.AsSpan().IndexOf("MotionPhoto_Data"u8);
         Assert.True(mpDataIdx >= 0, "MotionPhoto_Data marker not found");
+        Assert.True(mpDataIdx + 30 < imgBytes.Length, "MotionPhoto_Data payload is too short to tamper");
 
         byte[] tamperedBytes = (byte[])imgBytes.Clone();
         tamperedBytes[mpDataIdx + 30] ^= 0xFF;
 
-        string tamperedImgPath = workspace.AllocateFilePath("tampered-samsung", ".jpg");
-        await File.WriteAllBytesAsync(tamperedImgPath, tamperedBytes);
+        string tamperedSourcePath = workspace.AllocateFilePath("tampered-samsung-source", ".jpg");
+        await File.WriteAllBytesAsync(tamperedSourcePath, tamperedBytes);
 
         using var sha = SHA256.Create();
         string tamperedSha = Convert.ToHexString(sha.ComputeHash(tamperedBytes));
 
         var tamperedBundle = extracted with
         {
-            PrimaryImage = extracted.PrimaryImage with
+            CleanupSource = extracted.CleanupSource with
             {
-                Path = tamperedImgPath,
+                Path = tamperedSourcePath,
                 Sha256 = tamperedSha,
                 ByteLength = tamperedBytes.Length
             }
@@ -1837,6 +1861,7 @@ public sealed class CleanerTrustChainTests
         byte[] garbageBytes = [0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04];
 
         // Register hook to mutate source path on disk immediately after Native opens and validates the in-memory snapshot
+        LivePhotoBox.Interop.NativeCleanService.TestCleanerSnapshotConfigurator = TestNativeHarness.ConfigureCleanerSnapshotHook;
         LivePhotoBox.Interop.NativeCleanService.TestPostSnapshotHook = () =>
         {
             hookTriggered = true;
@@ -1868,6 +1893,7 @@ public sealed class CleanerTrustChainTests
         finally
         {
             LivePhotoBox.Interop.NativeCleanService.TestPostSnapshotHook = null;
+            LivePhotoBox.Interop.NativeCleanService.TestCleanerSnapshotConfigurator = null;
         }
     }
 

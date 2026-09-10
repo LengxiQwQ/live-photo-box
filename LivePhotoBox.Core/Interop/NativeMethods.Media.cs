@@ -88,6 +88,37 @@ internal static partial class NativeMethods
         NativeExtractionOutput* auxiliaryOutputs,
         nuint auxiliaryOutputCount);
 
+    [LibraryImport(LibraryName, EntryPoint = "lpb_extract_media_with_plan_outputs_v2", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static unsafe partial NativeResult ExtractMediaWithPlanOutputsV2(
+        nint context,
+        nint extractionPlan,
+        string primaryPath,
+        string? secondaryPath,
+        string? outputImagePath,
+        string? outputVideoPath,
+        string? outputGainmapPath,
+        string? cleanupSourcePath,
+        NativeExtractionOutput* auxiliaryOutputs,
+        nuint auxiliaryOutputCount);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_rollback_extraction_outputs")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult RollbackExtractionOutputs(
+        nint context,
+        nint extractionPlan,
+        ulong generation);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_verify_extraction_outputs")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult VerifyExtractionOutputs(
+        nint context,
+        nint extractionPlan,
+        ulong generation);
+
     [LibraryImport(LibraryName, EntryPoint = "lpb_probe_video", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -128,40 +159,6 @@ internal static partial class NativeMethods
         int crf,
         byte* outEncoderUsed,
         nuint encoderBufLen);
-
-    [LibraryImport(LibraryName, EntryPoint = "lpb_test_set_extractor_fault")]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
-    internal static partial NativeResult TestSetExtractorFault(
-        nint context,
-        NativeExtractorFault fault,
-        int targetArtifact,
-        ulong triggerAfterBytes,
-        nint callback,
-        nint userData);
-
-    [LibraryImport(LibraryName, EntryPoint = "lpb_test_set_cleaner_snapshot_hook")]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
-    internal static partial NativeResult TestSetCleanerSnapshotHook(
-        nint context,
-        nint callback,
-        nint userData);
-
-    [LibraryImport(LibraryName, EntryPoint = "lpb_test_sha256_buffer")]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
-    internal static unsafe partial NativeResult TestSha256Buffer(
-        byte* data,
-        nuint length,
-        byte* outHash);
-
-    [LibraryImport(LibraryName, EntryPoint = "lpb_test_sha256_file", SetLastError = true)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
-    internal static unsafe partial NativeResult TestSha256File(
-        nint fileHandle,
-        byte* outHash);
 
     [LibraryImport(LibraryName, EntryPoint = "lpb_reassemble_jpeg_gainmap", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]

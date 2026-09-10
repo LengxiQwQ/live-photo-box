@@ -27,8 +27,13 @@ struct slice_task {
     lpb_file_identity temp_identity{};
     uint8_t expected_slice_sha256[32]{};
     uint8_t staged_sha256[32]{};
+    lpb_file_identity published_identity{};
+    std::wstring published_final_path;
+    uint8_t published_sha256[32]{};
     bool published{false};
     int32_t target_artifact{0}; // 0 = PrimaryImage, 1 = MotionVideo, 2 = GainMap, 3+ = auxiliary index
+    int32_t artifact_role{LPB_ARTIFACT_PRIMARY_IMAGE};
+    uint32_t auxiliary_index{UINT32_MAX};
     const char* artifact_name{"Unknown"};
 };
 
@@ -490,6 +495,111 @@ bool validate_auxiliary_outputs(
     return true;
 }
 
+lpb_result delete_recorded_artifact(
+    lpb_context* context,
+    lpb_published_artifact_record& artifact) noexcept
+{
+    HANDLE handle = static_cast<HANDLE>(artifact.rollback_handle);
+    const bool owns_live_handle = handle != nullptr && handle != INVALID_HANDLE_VALUE;
+    if (!owns_live_handle && artifact.final_path.empty()) return LPB_RESULT_OK;
+    if (!owns_live_handle) {
+        handle = CreateFileW(
+            artifact.final_path.c_str(), GENERIC_READ | DELETE, FILE_SHARE_READ,
+            nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    }
+    if (handle == INVALID_HANDLE_VALUE)
+    {
+        const DWORD error = GetLastError();
+        if (!owns_live_handle && (error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND))
+        {
+            return LPB_RESULT_OK;
+        }
+        set_error(context, "[CleanupFailed] A transaction-owned extraction artifact could not be opened for exact-object rollback.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+
+    lpb_file_identity actual_identity{};
+    std::wstring actual_path;
+    const bool exact_object = capture_file_identity_from_handle(handle, actual_identity, actual_path) &&
+        same_object_identity(actual_identity, artifact.identity) &&
+        actual_identity.link_count == 1 && actual_identity.file_size == artifact.byte_length &&
+        (owns_live_handle || _wcsicmp(actual_path.c_str(), artifact.final_path.c_str()) == 0);
+
+    if (!exact_object)
+    {
+        CloseHandle(handle);
+        artifact.rollback_handle = nullptr;
+        // The path now names a different object.  It is not owned by this
+        // extraction transaction and must be preserved regardless of bytes.
+        return LPB_RESULT_OK;
+    }
+
+    uint8_t actual_hash[32]{};
+    if (!lpb::crypto::sha256_file(handle, actual_hash) ||
+        std::memcmp(actual_hash, artifact.sha256.data(), artifact.sha256.size()) != 0)
+    {
+        CloseHandle(handle);
+        artifact.rollback_handle = nullptr;
+        set_error(context, "[CleanupFailed] The transaction-owned file object changed after publication; rollback preserved it rather than deleting unverified data.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+
+    FILE_DISPOSITION_INFO disposition{};
+    disposition.DeleteFile = TRUE;
+    if (!SetFileInformationByHandle(handle, FileDispositionInfo, &disposition, sizeof(disposition)))
+    {
+        CloseHandle(handle);
+        artifact.rollback_handle = nullptr;
+        set_error(context, "[CleanupFailed] Exact-object extraction rollback could not mark the owned artifact for deletion.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    artifact.rollback_handle = nullptr;
+    if (!CloseHandle(handle))
+    {
+        set_error(context, "[CleanupFailed] Exact-object extraction rollback could not close the owned artifact handle.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    return LPB_RESULT_OK;
+}
+
+lpb_result verify_recorded_artifact(
+    lpb_context* context,
+    const lpb_published_artifact_record& artifact) noexcept
+{
+    if (artifact.final_path.empty()) return LPB_RESULT_AUTHORITY_VIOLATION;
+    HANDLE handle = CreateFileW(
+        artifact.final_path.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT,
+        nullptr);
+    if (handle == INVALID_HANDLE_VALUE)
+    {
+        set_error(context, "[SourceChanged] A Native-published extraction artifact no longer exists at its recorded path.");
+        return LPB_RESULT_SOURCE_CHANGED;
+    }
+
+    lpb_file_identity actual_identity{};
+    std::wstring actual_path;
+    uint8_t actual_hash[32]{};
+    const bool exact = capture_file_identity_from_handle(handle, actual_identity, actual_path) &&
+        same_object_identity(actual_identity, artifact.identity) &&
+        actual_identity.link_count == 1 &&
+        actual_identity.file_size == artifact.byte_length &&
+        _wcsicmp(actual_path.c_str(), artifact.final_path.c_str()) == 0 &&
+        lpb::crypto::sha256_file(handle, actual_hash) &&
+        std::memcmp(actual_hash, artifact.sha256.data(), artifact.sha256.size()) == 0;
+    CloseHandle(handle);
+    if (!exact)
+    {
+        set_error(context, "[SourceChanged] A Native-published extraction artifact was replaced, relinked, or modified after publication.");
+        return LPB_RESULT_SOURCE_CHANGED;
+    }
+    return LPB_RESULT_OK;
+}
+
 } // namespace
 
 lpb_result extract_source_internal(
@@ -503,8 +613,11 @@ lpb_result extract_source_internal(
     const lpb_file_identity* expected_primary_identity,
     const lpb_file_identity* expected_secondary_identity,
     const lpb_extraction_output* auxiliary_outputs,
-    size_t auxiliary_output_count) noexcept
+    size_t auxiliary_output_count,
+    const char* cleanup_source_path,
+    std::vector<lpb_published_artifact_record>* out_published_artifacts) noexcept
 {
+    if (out_published_artifacts != nullptr) out_published_artifacts->clear();
     if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
         set_error(context, "[Cancelled] Source extraction cancelled.");
         return LPB_RESULT_CANCELLED;
@@ -598,6 +711,22 @@ lpb_result extract_source_internal(
         return LPB_RESULT_AUTHORITY_VIOLATION;
     }
 
+    bool has_samsung_sef_carrier = false;
+    for (uint32_t i = 0; i < facts->preservation_carrier_count && i < 8; ++i) {
+        const auto& carrier = facts->preservation_carriers[i];
+        if (carrier.is_present &&
+            carrier.kind == LPB_PRESERVATION_CARRIER_SAMSUNG_SEF &&
+            carrier.source_index == 0) {
+            has_samsung_sef_carrier = true;
+            break;
+        }
+    }
+    if (cleanup_source_path && cleanup_source_path[0] != '\0' &&
+        (facts->protocol != LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG || !has_samsung_sef_carrier)) {
+        set_error(context, "[AuthorityViolation] A full cleanup-source artifact is authorized only for an Inspector-confirmed Samsung JPEG SEF carrier.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
     std::vector<const char*> auxiliary_output_paths;
     auxiliary_output_paths.reserve(auxiliary_output_count);
     for (size_t i = 0; i < auxiliary_output_count; ++i) {
@@ -605,8 +734,8 @@ lpb_result extract_source_internal(
     }
 
     // Path alias verification across all sources and destinations
-    const char* outputs[] = { output_image_path, output_video_path, output_gainmap_path };
-    for (int i = 0; i < 3; ++i) {
+    const char* outputs[] = { output_image_path, output_video_path, output_gainmap_path, cleanup_source_path };
+    for (int i = 0; i < 4; ++i) {
         if (!outputs[i] || outputs[i][0] == '\0') continue;
         if (paths_alias(primary_path, outputs[i])) {
             set_error(context, "[InvalidAlias] Output path aliases primary source file.");
@@ -616,7 +745,7 @@ lpb_result extract_source_internal(
             set_error(context, "[InvalidAlias] Output path aliases secondary source file.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
-        for (int j = i + 1; j < 3; ++j) {
+        for (int j = i + 1; j < 4; ++j) {
             if (outputs[j] && outputs[j][0] != '\0' && paths_alias(outputs[i], outputs[j])) {
                 set_error(context, "[InvalidAlias] Extraction output paths must not alias each other.");
                 return LPB_RESULT_INVALID_ARGUMENT;
@@ -631,7 +760,7 @@ lpb_result extract_source_internal(
             set_error(context, "[InvalidAlias] Auxiliary output path aliases a source file.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
-        for (int j = 0; j < 3; ++j) {
+        for (int j = 0; j < 4; ++j) {
             if (outputs[j] && outputs[j][0] != '\0' && paths_alias(outputs[j], output)) {
                 set_error(context, "[InvalidAlias] Auxiliary output path aliases another extraction output.");
                 return LPB_RESULT_INVALID_ARGUMENT;
@@ -646,7 +775,7 @@ lpb_result extract_source_internal(
     }
 
     // Pre-flight check: destinations must not already exist (preserves user files, no overwrite)
-    for (int i = 0; i < 3; ++i) {
+    for (int i = 0; i < 4; ++i) {
         if (!outputs[i] || outputs[i][0] == '\0') continue;
         auto p_dst = utf8_to_path(outputs[i]);
         DWORD attrs = GetFileAttributesW(p_dst.c_str());
@@ -829,7 +958,7 @@ lpb_result extract_source_internal(
 
     // Plan tasks
     std::vector<slice_task> tasks;
-    tasks.reserve(3 + facts->auxiliary_count);
+    tasks.reserve(4 + facts->auxiliary_count);
 
     // 1. Primary Image
     if (output_image_path && output_image_path[0] != '\0') {
@@ -840,6 +969,7 @@ lpb_result extract_source_internal(
         t.length = facts->primary_image.file_range.length;
         t.dst_path = output_image_path;
         t.target_artifact = 0;
+        t.artifact_role = LPB_ARTIFACT_PRIMARY_IMAGE;
         t.artifact_name = "PrimaryImage";
         tasks.push_back(t);
     }
@@ -858,6 +988,7 @@ lpb_result extract_source_internal(
         t.length = facts->motion_video.file_range.length;
         t.dst_path = output_video_path;
         t.target_artifact = 1;
+        t.artifact_role = LPB_ARTIFACT_MOTION_VIDEO;
         t.artifact_name = "MotionVideo";
         tasks.push_back(t);
     }
@@ -874,6 +1005,8 @@ lpb_result extract_source_internal(
         t.length = facts->gain_map.file_range.length;
         t.dst_path = effective_gainmap_output;
         t.target_artifact = 2;
+        t.artifact_role = LPB_ARTIFACT_GAIN_MAP;
+        t.auxiliary_index = facts->gain_map.auxiliary_index;
         t.artifact_name = "GainMap";
         tasks.push_back(t);
     }
@@ -894,7 +1027,30 @@ lpb_result extract_source_internal(
         t.length = auxiliary.file_range.length;
         t.dst_path = binding.output_path;
         t.target_artifact = static_cast<int32_t>(3u + binding.auxiliary_index);
+        t.artifact_role = LPB_ARTIFACT_AUXILIARY_ITEM;
+        t.auxiliary_index = binding.auxiliary_index;
         t.artifact_name = auxiliary.semantic[0] != '\0' ? auxiliary.semantic : "AuxiliaryItem";
+        tasks.push_back(t);
+    }
+
+    // Full source-container copy used only to preserve non-motion Samsung SEF
+    // entries while removing the authorized live binding.  It is part of the
+    // same no-overwrite, handle-owned transaction as all other outputs.
+    if (cleanup_source_path && cleanup_source_path[0] != '\0') {
+        LARGE_INTEGER primary_size{};
+        if (!GetFileSizeEx(primary_guard.h, &primary_size) || primary_size.QuadPart <= 0) {
+            set_error(context, "[SourceRangeUnreadable] Failed to determine the full cleanup-source container length.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+        slice_task t{};
+        t.src_handle = primary_guard.h;
+        t.src_path = primary_path;
+        t.offset = 0;
+        t.length = static_cast<uint64_t>(primary_size.QuadPart);
+        t.dst_path = cleanup_source_path;
+        t.target_artifact = 100;
+        t.artifact_role = LPB_ARTIFACT_SOURCE_CONTAINER;
+        t.artifact_name = "SourceContainer";
         tasks.push_back(t);
     }
 
@@ -1233,6 +1389,39 @@ lpb_result extract_source_internal(
                 {LPB_RESULT_INTERNAL_ERROR, "[OutputPublishFailed]", "Published artifact identity, length, or hash did not match the streamed source slice for " + std::string(task.artifact_name) + "."},
                 tasks);
         }
+        task.published_identity = final_identity;
+        task.published_final_path = std::move(final_path);
+        std::memcpy(task.published_sha256, final_hash, sizeof(final_hash));
+    }
+
+    if (out_published_artifacts != nullptr) {
+        try {
+            out_published_artifacts->reserve(tasks.size());
+            for (const auto& task : tasks) {
+                lpb_published_artifact_record artifact{};
+                artifact.artifact_role = task.artifact_role;
+                artifact.auxiliary_index = task.auxiliary_index;
+                artifact.identity = task.published_identity;
+                artifact.final_path = task.published_final_path;
+                artifact.byte_length = task.length;
+                std::memcpy(artifact.sha256.data(), task.published_sha256, artifact.sha256.size());
+                HANDLE duplicate = INVALID_HANDLE_VALUE;
+                if (!DuplicateHandle(GetCurrentProcess(), task.temp_handle, GetCurrentProcess(),
+                        &duplicate, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
+                    return rollback_extraction_transaction(
+                        context,
+                        {LPB_RESULT_INTERNAL_ERROR, "[OutputPublishFailed]", "Failed to retain the published artifact handle for exact-object rollback."},
+                        tasks);
+                }
+                artifact.rollback_handle = duplicate;
+                out_published_artifacts->push_back(std::move(artifact));
+            }
+        } catch (...) {
+            return rollback_extraction_transaction(
+                context,
+                {LPB_RESULT_INTERNAL_ERROR, "[InternalError]", "Failed to retain Native ownership identities for published extraction artifacts."},
+                tasks);
+        }
     }
 
     for (auto& task : tasks) {
@@ -1257,6 +1446,7 @@ lpb_result extract_source_with_plan(
     const char* output_image_path,
     const char* output_video_path,
     const char* output_gainmap_path,
+    const char* cleanup_source_path,
     const lpb_extraction_output* auxiliary_outputs,
     size_t auxiliary_output_count) noexcept
 {
@@ -1337,13 +1527,42 @@ lpb_result extract_source_with_plan(
             return LPB_RESULT_AUTHORITY_VIOLATION;
         }
 
-        return extract_source_internal(
+        std::vector<lpb_published_artifact_record> published_artifacts;
+        const lpb_result extraction_result = extract_source_internal(
             context, primary_path, secondary_path, &facts,
             output_image_path, output_video_path, output_gainmap_path,
             &snapshot.primary_identity,
             has_secondary ? &snapshot.secondary_identity : nullptr,
             auxiliary_outputs,
-            auxiliary_output_count);
+            auxiliary_output_count,
+            cleanup_source_path,
+            &published_artifacts);
+        if (extraction_result != LPB_RESULT_OK)
+        {
+            return extraction_result;
+        }
+
+        {
+            std::scoped_lock lock(context->plan_mutex);
+            lpb_extraction_plan_record* record = find_plan_locked(context, plan_token_from_handle(plan));
+            if (record == nullptr || record->owner_context != context ||
+                !record->native_call_active || record->state == lpb_plan_state::Released)
+            {
+                set_error(context, "[AuthorityViolation] Extraction authority disappeared before published identities could be retained.");
+                // The plan registry is no longer trustworthy.  Roll back from
+                // the local handle-captured records before returning.
+                for (auto& artifact : published_artifacts)
+                {
+                    (void)delete_recorded_artifact(context, artifact);
+                }
+                return LPB_RESULT_AUTHORITY_VIOLATION;
+            }
+            record->published_artifacts = std::move(published_artifacts);
+            record->extraction_succeeded = true;
+            record->rollback_active = false;
+            record->rollback_completed = false;
+        }
+        return LPB_RESULT_OK;
     }
     catch (const std::exception& ex)
     {
@@ -1353,6 +1572,127 @@ lpb_result extract_source_with_plan(
     catch (...)
     {
         set_error(context, "[InternalError] Native extraction failed unexpectedly.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+}
+
+lpb_result rollback_extraction_outputs_with_plan(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    uint64_t generation) noexcept
+{
+    if (context == nullptr || plan == nullptr || generation == 0)
+    {
+        set_error(context, "[AuthorityViolation] Context, extraction plan, and generation are required for rollback.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired())
+    {
+        set_error(context, "[AuthorityViolation] Native context is unavailable for extraction rollback.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    const uint64_t token = plan_token_from_handle(plan);
+    try
+    {
+        {
+            std::scoped_lock lock(context->plan_mutex);
+            lpb_extraction_plan_record* record = find_plan_locked(context, token);
+            if (record == nullptr || record->owner_context != context ||
+                record->generation != generation || record->plan_version != 1)
+            {
+                set_error(context, "[AuthorityViolation] Extraction rollback token is not owned by this context or generation.");
+                return LPB_RESULT_AUTHORITY_VIOLATION;
+            }
+            if (record->rollback_completed)
+            {
+                return LPB_RESULT_OK;
+            }
+            if (record->rollback_active || !record->extraction_succeeded ||
+                record->published_artifacts.empty() || record->cleanup_authority_issued)
+            {
+                set_error(context, "[PlanReplayed] Extraction outputs are unavailable, already claimed by cleanup, or already being rolled back.");
+                return LPB_RESULT_PLAN_REPLAYED;
+            }
+            if (!record->managed_claim_active ||
+                (record->state != lpb_plan_state::Claimed && record->state != lpb_plan_state::ReleaseRequested))
+            {
+                set_error(context, "[AuthorityViolation] Exact-object rollback is valid only inside the active managed extraction attempt.");
+                return LPB_RESULT_AUTHORITY_VIOLATION;
+            }
+            record->rollback_active = true;
+            for (auto& artifact : record->published_artifacts)
+            {
+                const lpb_result result = delete_recorded_artifact(context, artifact);
+                if (result != LPB_RESULT_OK)
+                {
+                    record->rollback_active = false;
+                    return result;
+                }
+            }
+            record->published_artifacts.clear();
+            record->extraction_succeeded = false;
+            record->rollback_active = false;
+            record->rollback_completed = true;
+        }
+        return LPB_RESULT_OK;
+    }
+    catch (...)
+    {
+        std::scoped_lock lock(context->plan_mutex);
+        if (lpb_extraction_plan_record* record = find_plan_locked(context, token))
+        {
+            record->rollback_active = false;
+        }
+        set_error(context, "[CleanupFailed] Exact-object extraction rollback failed unexpectedly.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+}
+
+lpb_result verify_extraction_outputs_with_plan(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    uint64_t generation) noexcept
+{
+    if (context == nullptr || plan == nullptr || generation == 0)
+    {
+        set_error(context, "[AuthorityViolation] Context, extraction plan, and generation are required for output verification.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired())
+    {
+        set_error(context, "[AuthorityViolation] Native context is unavailable for output verification.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    try
+    {
+        std::vector<lpb_published_artifact_record> artifacts;
+        {
+            std::scoped_lock lock(context->plan_mutex);
+            lpb_extraction_plan_record* record = find_plan_locked(context, plan_token_from_handle(plan));
+            if (record == nullptr || record->owner_context != context ||
+                record->generation != generation || !record->extraction_succeeded ||
+                record->rollback_completed || record->published_artifacts.empty())
+            {
+                set_error(context, "[AuthorityViolation] No active Native-published extraction artifacts are bound to this plan.");
+                return LPB_RESULT_AUTHORITY_VIOLATION;
+            }
+            artifacts = record->published_artifacts;
+        }
+        for (const auto& artifact : artifacts)
+        {
+            const lpb_result result = verify_recorded_artifact(context, artifact);
+            if (result != LPB_RESULT_OK) return result;
+        }
+        return LPB_RESULT_OK;
+    }
+    catch (...)
+    {
+        set_error(context, "[InternalError] Native extraction output verification failed unexpectedly.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
 }

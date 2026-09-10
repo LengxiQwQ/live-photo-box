@@ -22,4 +22,24 @@ internal static partial class NativeMethods
         NativeRemovedProtocolFact* outFacts,
         nuint factsCapacity,
         out nuint outFactsCount);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_clean_source_protocol_with_plan_and_cleanup_source", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static unsafe partial NativeResult CleanSourceProtocolWithPlanAndCleanupSource(
+        nint context,
+        in NativeSourceMediaFacts facts,
+        NativeCleanupAction* actions,
+        nuint actionCount,
+        NativeCleanupArtifactBinding* targets,
+        nuint targetCount,
+        string inputImagePath,
+        string? inputVideoPath,
+        string cleanupSourcePath,
+        NativeCleanupArtifactBinding* cleanupSourceTarget,
+        string outputImagePath,
+        string? outputVideoPath,
+        NativeRemovedProtocolFact* outFacts,
+        nuint factsCapacity,
+        out nuint outFactsCount);
 }

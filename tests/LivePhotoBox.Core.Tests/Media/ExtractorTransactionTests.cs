@@ -53,7 +53,7 @@ public sealed class ExtractorTransactionTests
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
             TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
-                ctx.SetExtractorFault(NativeExtractorFault.DiskFull, targetArtifact: 0, triggerAfterBytes: 0);
+                TestNativeHarness.SetExtractorFault(ctx, NativeExtractorFault.DiskFull, targetArtifact: 0, triggerAfterBytes: 0);
             }));
 
         Assert.Equal(ExtractionFailureCategory.DiskFull, ex.Category);
@@ -86,7 +86,7 @@ public sealed class ExtractorTransactionTests
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
             TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
-                ctx.SetExtractorFault(NativeExtractorFault.WriteFail, targetArtifact: 1, triggerAfterBytes: 0);
+                TestNativeHarness.SetExtractorFault(ctx, NativeExtractorFault.WriteFail, targetArtifact: 1, triggerAfterBytes: 0);
             }));
 
         Assert.Equal(ExtractionFailureCategory.OutputWriteFailed, ex.Category);
@@ -119,7 +119,7 @@ public sealed class ExtractorTransactionTests
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
             TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
-                ctx.SetExtractorFault(NativeExtractorFault.PublishFail, targetArtifact: 1, triggerAfterBytes: 0);
+                TestNativeHarness.SetExtractorFault(ctx, NativeExtractorFault.PublishFail, targetArtifact: 1, triggerAfterBytes: 0);
             }));
 
         Assert.Equal(ExtractionFailureCategory.OutputPublishFailed, ex.Category);
@@ -151,7 +151,7 @@ public sealed class ExtractorTransactionTests
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
             TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
-                ctx.SetExtractorFault(NativeExtractorFault.ShortRead, targetArtifact: 0, triggerAfterBytes: 0);
+                TestNativeHarness.SetExtractorFault(ctx, NativeExtractorFault.ShortRead, targetArtifact: 0, triggerAfterBytes: 0);
             }));
 
         Assert.Equal(ExtractionFailureCategory.SourceRangeUnreadable, ex.Category);
@@ -235,7 +235,7 @@ public sealed class ExtractorTransactionTests
         var ex = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
-                ctx.SetExtractorFault(NativeExtractorFault.None, targetArtifact: 0, triggerAfterBytes: 0, callbackPtr, nint.Zero);
+                TestNativeHarness.SetExtractorFault(ctx, NativeExtractorFault.None, targetArtifact: 0, triggerAfterBytes: 0, callbackPtr, nint.Zero);
             }, cts.Token));
 
         Assert.True(s_midStreamBytesObserved > 0, "Cancellation did not occur mid-stream after bytes were written!");
@@ -338,7 +338,7 @@ public sealed class ExtractorTransactionTests
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
             TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
-                ctx.SetExtractorFault(NativeExtractorFault.DiskFull, targetArtifact: 1, triggerAfterBytes: 0);
+                TestNativeHarness.SetExtractorFault(ctx, NativeExtractorFault.DiskFull, targetArtifact: 1, triggerAfterBytes: 0);
             }));
 
         Assert.Equal(ExtractionFailureCategory.DiskFull, ex.Category);
@@ -449,7 +449,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
         var bundle = await TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
         {
-            ctx.SetExtractorFault(NativeExtractorFault.None, targetArtifact: 0, triggerAfterBytes: 0, callbackPtr, nint.Zero);
+            TestNativeHarness.SetExtractorFault(ctx, NativeExtractorFault.None, targetArtifact: 0, triggerAfterBytes: 0, callbackPtr, nint.Zero);
         });
 
         Assert.True(s_singleStreamProbesPassed > 0, "Mid-stream source lock probes did not execute or fail sharing contract!");
@@ -557,7 +557,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
         var bundle = await TestFactsExtractor.ExtractAsync(facts, primarySource, secondarySource, workspace, ctx =>
         {
-            ctx.SetExtractorFault(NativeExtractorFault.None, targetArtifact: 0, triggerAfterBytes: 0, callbackPtr, nint.Zero);
+            TestNativeHarness.SetExtractorFault(ctx, NativeExtractorFault.None, targetArtifact: 0, triggerAfterBytes: 0, callbackPtr, nint.Zero);
         });
 
         Assert.True(s_dualStreamProbesPassed > 0, "Dual-file mid-stream source lock probes did not execute or fail sharing contract!");
@@ -591,7 +591,7 @@ public sealed class ExtractorTransactionTests
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
             TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
-                ctx.SetExtractorFault(NativeExtractorFault.FlushDiskFull, targetArtifact: 0, triggerAfterBytes: 0);
+                TestNativeHarness.SetExtractorFault(ctx, NativeExtractorFault.FlushDiskFull, targetArtifact: 0, triggerAfterBytes: 0);
             }));
 
         Assert.Equal(ExtractionFailureCategory.DiskFull, ex.Category);
@@ -621,7 +621,7 @@ public sealed class ExtractorTransactionTests
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
             TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
-                ctx.SetExtractorFault(NativeExtractorFault.FlushWriteFail, targetArtifact: 0, triggerAfterBytes: 0);
+                TestNativeHarness.SetExtractorFault(ctx, NativeExtractorFault.FlushWriteFail, targetArtifact: 0, triggerAfterBytes: 0);
             }));
 
         Assert.Equal(ExtractionFailureCategory.OutputWriteFailed, ex.Category);
@@ -651,7 +651,7 @@ public sealed class ExtractorTransactionTests
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
             TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
-                ctx.SetExtractorFault(NativeExtractorFault.WriteFail | NativeExtractorFault.CleanupFail, targetArtifact: 0, triggerAfterBytes: 0);
+                TestNativeHarness.SetExtractorFault(ctx, NativeExtractorFault.WriteFail | NativeExtractorFault.CleanupFail, targetArtifact: 0, triggerAfterBytes: 0);
             }));
 
         Assert.Equal(ExtractionFailureCategory.CleanupFailed, ex.Category);
@@ -702,7 +702,7 @@ public sealed class ExtractorTransactionTests
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
             TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
-                ctx.SetExtractorFault(NativeExtractorFault.CleanupFail, targetArtifact: 0, triggerAfterBytes: 0, callbackPtr, nint.Zero);
+                TestNativeHarness.SetExtractorFault(ctx, NativeExtractorFault.CleanupFail, targetArtifact: 0, triggerAfterBytes: 0, callbackPtr, nint.Zero);
             }, cts.Token));
 
         Assert.Equal(ExtractionFailureCategory.CleanupFailed, ex.Category);
@@ -732,7 +732,7 @@ public sealed class ExtractorTransactionTests
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
             TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
-                ctx.SetExtractorFault(NativeExtractorFault.PublishFail | NativeExtractorFault.CleanupFail, targetArtifact: 1, triggerAfterBytes: 0);
+                TestNativeHarness.SetExtractorFault(ctx, NativeExtractorFault.PublishFail | NativeExtractorFault.CleanupFail, targetArtifact: 1, triggerAfterBytes: 0);
             }));
 
         Assert.Equal(ExtractionFailureCategory.CleanupFailed, ex.Category);
@@ -1020,7 +1020,7 @@ public sealed class ExtractorTransactionTests
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
             TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
-                ctx.SetExtractorFault(NativeExtractorFault.None, targetArtifact: 0, triggerAfterBytes: 0, callbackPtr, nint.Zero);
+                TestNativeHarness.SetExtractorFault(ctx, NativeExtractorFault.None, targetArtifact: 0, triggerAfterBytes: 0, callbackPtr, nint.Zero);
             }));
 
         Assert.Equal(ExtractionFailureCategory.OutputPublishFailed, ex.Category);

@@ -1413,7 +1413,13 @@ static bool extract_apple_cid_from_makernote(const uint8_t* data, size_t start, 
     if (p + 16 > end || std::memcmp(data + p, signature, 10) != 0 || data[p + 10] != 0 ||
         data[p + 11] != 1 || data[p + 12] != 'M' || data[p + 13] != 'M') return false;
     const uint16_t count = read_be16u(data + p + 14);
-    if (count == 0 || count > 64 || count > (end - p - 16) / 12) return false;
+    if (count == 0 || count > 64 || count > (end - p - 16) / 12) {
+        // The Apple-shaped MakerNote is formally owned, but its directory is
+        // malformed.  Keep this distinct from a valid non-live Apple
+        // MakerNote that simply has no ContentIdentifier after cleaning.
+        out_has_conflict = true;
+        return false;
+    }
     const size_t entries = p + 16;
     for (uint16_t i = 0; i < count; ++i) {
         const size_t entry = entries + static_cast<size_t>(i) * 12;
@@ -1663,7 +1669,11 @@ static bool extract_apple_cid_from_owned_exif(const uint8_t* data, size_t start,
                 bool candidate_conflict = false;
                 if (!extract_apple_cid_from_makernote(data, maker_start,
                         maker_start + maker_length, candidate, candidate_conflict)) {
-                    if (apple_shape || candidate_conflict) out_has_conflict = true;
+                    // A formally-owned Apple MakerNote without tag 0x0011 is
+                    // valid non-live metadata (the cleaner intentionally
+                    // leaves its non-live entries intact).  Only malformed
+                    // or duplicate CID structure is ambiguous here.
+                    if (candidate_conflict) out_has_conflict = true;
                     continue;
                 }
                 if (candidate_conflict) { out_has_conflict = true; continue; }
@@ -4592,8 +4602,7 @@ lpb_result inspect_source_with_plan(
     }
     std::vector<lpb_confirmed_residue> residues;
     const lpb_result inspect_result = inspect_source(
-        context, primary_path, secondary_path, out_facts,
-        out_residues == nullptr ? nullptr : &residues);
+        context, primary_path, secondary_path, out_facts, &residues);
     if (inspect_result != LPB_RESULT_OK)
     {
         return inspect_result;
@@ -4628,6 +4637,7 @@ lpb_result inspect_source_with_plan(
         plan.abi_version = LPB_NATIVE_ABI_VERSION;
         plan.plan_version = 1;
         plan.facts = *out_facts;
+        plan.confirmed_residues = residues;
         plan.primary_identity = primary_identity;
         plan.secondary_identity = secondary_identity;
         plan.has_secondary = has_secondary;
