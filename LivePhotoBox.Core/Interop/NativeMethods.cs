@@ -11,7 +11,10 @@ namespace LivePhotoBox.Interop
         AbiMismatch = 2,
         Cancelled = 3,
         BufferTooSmall = 4,
-        InternalError = 5
+        InternalError = 5,
+        AuthorityViolation = 6,
+        PlanReplayed = 7,
+        SourceChanged = 8
     }
 
     internal enum NativeInspectionFailureCategory { None = 0, Unsupported = 1, Ambiguous = 2, Malformed = 3, InvalidArgument = 4, Io = 5 }
@@ -39,7 +42,7 @@ namespace LivePhotoBox.Interop
         internal const string LibraryName = "LivePhotoBox.Native";
         // ABI v4 appends the explicit GainMap/auxiliary binding contract and
         // is intentionally incompatible with the published v3 facts layout.
-        internal const uint RequiredAbiVersion = 4;
+        internal const uint RequiredAbiVersion = 5;
 
         [LibraryImport(LibraryName, EntryPoint = "lpb_get_abi_version")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]

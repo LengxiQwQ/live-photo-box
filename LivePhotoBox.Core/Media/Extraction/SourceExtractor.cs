@@ -1,8 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Workspace;
@@ -16,28 +20,50 @@ namespace LivePhotoBox.Media.Extraction;
 public sealed class SourceExtractor : ISourceExtractor
 {
     public Task<ExtractedMediaBundle> ExtractAsync(
-        SourceMediaFacts facts,
+        ExtractionPlan plan,
         string primaryPath,
         string? secondaryPath,
         IMediaWorkspace workspace,
         CancellationToken cancellationToken = default)
     {
-        return ExtractAsync(facts, primaryPath, secondaryPath, workspace, configureContext: null, cancellationToken);
+        return ExtractAsync(plan, primaryPath, secondaryPath, workspace, configureContext: null, cancellationToken);
     }
 
     internal async Task<ExtractedMediaBundle> ExtractAsync(
-        SourceMediaFacts facts,
+        ExtractionPlan plan,
         string primaryPath,
         string? secondaryPath,
         IMediaWorkspace workspace,
         Action<NativeContext>? configureContext,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(facts);
+        ArgumentNullException.ThrowIfNull(plan);
+        // Claim before any managed argument validation, cancellation check,
+        // source preflight, workspace allocation, or SHA computation.
+        using ExtractionPlanAttempt attempt = plan.BeginExtractionAttempt(cancellationToken);
+        return await ExtractCoreAsync(
+            attempt,
+            primaryPath,
+            secondaryPath,
+            workspace,
+            configureContext,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<ExtractedMediaBundle> ExtractCoreAsync(
+        ExtractionPlanAttempt attempt,
+        string primaryPath,
+        string? secondaryPath,
+        IMediaWorkspace workspace,
+        Action<NativeContext>? configureContext,
+        CancellationToken cancellationToken)
+    {
+        SourceMediaFacts facts = attempt.Facts;
         ArgumentNullException.ThrowIfNull(primaryPath);
         ArgumentNullException.ThrowIfNull(workspace);
 
         cancellationToken.ThrowIfCancellationRequested();
+        AuxiliaryFactsValidator.Validate(facts);
 
         if (!File.Exists(primaryPath))
             throw new FileNotFoundException("Primary media file not found.", primaryPath);
@@ -182,14 +208,15 @@ public sealed class SourceExtractor : ISourceExtractor
         }
 
         string? beforeSecondarySha = null;
-        if (videoSource == secondaryPath && secondaryPath != null)
+        bool auxiliaryUsesSecondary = facts.AuxiliaryItems.Any(item => item.IsPresent && item.SourceIndex == 1);
+        if ((videoSource == secondaryPath || auxiliaryUsesSecondary) && secondaryPath != null)
         {
             if (string.IsNullOrWhiteSpace(facts.SecondarySha256))
             {
                 throw new ExtractionException(
                     ExtractionFailureCategory.InvalidFacts,
-                    "Secondary source snapshot SHA-256 is required when motion video resides in secondary source.",
-                    artifactKind: MediaArtifactKind.MotionVideo,
+                    "Secondary source snapshot SHA-256 is required when an inspected relationship resides in secondary source.",
+                    artifactKind: auxiliaryUsesSecondary ? MediaArtifactKind.AuxiliaryItem : MediaArtifactKind.MotionVideo,
                     sourcePath: secondaryPath);
             }
 
@@ -240,6 +267,14 @@ public sealed class SourceExtractor : ISourceExtractor
                     sourcePath: secondaryPath);
             }
         }
+        else if (auxiliaryUsesSecondary)
+        {
+            throw new ExtractionException(
+                ExtractionFailureCategory.InvalidFacts,
+                "An inspected auxiliary relationship specifies secondary source, but no secondary file was provided.",
+                artifactKind: MediaArtifactKind.AuxiliaryItem,
+                sourcePath: secondaryPath);
+        }
         else if (!string.IsNullOrWhiteSpace(facts.SecondarySha256) && secondaryPath != null && File.Exists(secondaryPath))
         {
             beforeSecondarySha = await workspace.ComputeFileSha256Async(secondaryPath, cancellationToken).ConfigureAwait(false);
@@ -250,6 +285,46 @@ public sealed class SourceExtractor : ISourceExtractor
                     $"Secondary source file '{secondaryPath}' was modified after inspection: SHA-256 mismatch.",
                     sourcePath: secondaryPath);
             }
+        }
+
+        // Validate every Inspector-confirmed auxiliary before allocating any
+        // output.  The extractor never re-guesses protocol meaning; it only
+        // consumes the immutable range/identity/relationship snapshot.
+        for (int i = 0; i < facts.AuxiliaryItems.Count; i++)
+        {
+            AuxiliaryMediaFacts auxiliary = facts.AuxiliaryItems[i];
+            if (!auxiliary.IsPresent) continue;
+            if (string.IsNullOrWhiteSpace(auxiliary.StableIdentity) ||
+                string.IsNullOrWhiteSpace(auxiliary.Semantic) ||
+                string.IsNullOrWhiteSpace(auxiliary.OwnerIdentity) ||
+                string.IsNullOrWhiteSpace(auxiliary.Relationship) ||
+                string.IsNullOrWhiteSpace(auxiliary.Sha256))
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.InvalidFacts,
+                    $"Auxiliary item {i} is missing stable identity, semantic, ownership, relationship, or SHA-256.",
+                    artifactKind: MediaArtifactKind.AuxiliaryItem,
+                    sourcePath: auxiliary.SourceIndex == 1 ? secondaryPath : primaryPath);
+            }
+
+            string auxiliarySource = auxiliary.SourceIndex switch
+            {
+                0 => primaryPath,
+                1 when !string.IsNullOrWhiteSpace(secondaryPath) && File.Exists(secondaryPath) => secondaryPath!,
+                1 => throw new ExtractionException(
+                    ExtractionFailureCategory.InvalidFacts,
+                    $"Auxiliary item {i} specifies a missing secondary source.",
+                    artifactKind: MediaArtifactKind.AuxiliaryItem,
+                    sourcePath: secondaryPath),
+                _ => throw new ExtractionException(
+                    ExtractionFailureCategory.InvalidFacts,
+                    $"Auxiliary item {i} specifies invalid SourceIndex {auxiliary.SourceIndex}.",
+                    artifactKind: MediaArtifactKind.AuxiliaryItem)
+            };
+            ValidateRange(auxiliary.ByteOffset, auxiliary.ByteLength,
+                new FileInfo(auxiliarySource).Length, $"auxiliary item {i}", auxiliarySource,
+                MediaArtifactKind.AuxiliaryItem);
+            ValidateSha256(auxiliary.Sha256, $"Auxiliary item {i}");
         }
 
         string imgExt = facts.PrimaryImage.Container == ImageContainer.Heic ? ".heic" : ".jpg";
@@ -266,29 +341,170 @@ public sealed class SourceExtractor : ISourceExtractor
                 throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, $"Destination file already exists: {outputVideoPath}");
         }
 
-        string? outputGainmapPath = null;
-        if (facts.GainMap != null && facts.GainMap.IsPresent)
+        bool canMaterializeTypedGainMap = false;
+        if (facts.GainMap is { IsPresent: true } typedGainMap &&
+            typedGainMap.AuxiliaryIndex < (uint)facts.AuxiliaryItems.Count)
         {
-            string gmExt = facts.GainMap.Container == ImageContainer.Heic ? ".heic" : ".jpg";
+            AuxiliaryMediaFacts typedAuxiliary = facts.AuxiliaryItems[(int)typedGainMap.AuxiliaryIndex];
+            // A JPEG GainMap slice is an independently valid working artifact.
+            // HEIF auxiliary items remain Embedded until W3 proves a complete
+            // standalone item graph; never emit a pseudo-.heic extent here.
+            if (typedAuxiliary.Container == ImageContainer.Heic &&
+                typedAuxiliary.Representation != AuxiliaryRepresentation.Embedded)
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.UnsupportedLayout,
+                    "HEIF GainMap materialization requires a complete standalone item graph; raw iloc extents are not artifacts.",
+                    MediaArtifactKind.GainMap);
+            }
+            canMaterializeTypedGainMap = typedAuxiliary.Container == ImageContainer.Jpeg;
+        }
+
+        string? outputGainmapPath = null;
+        if (canMaterializeTypedGainMap)
+        {
+            string gmExt = facts.GainMap?.Container == ImageContainer.Heic ? ".heic" : ".jpg";
             outputGainmapPath = workspace.AllocateFilePath("gainmap", gmExt);
             if (File.Exists(outputGainmapPath))
                 throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, $"Destination file already exists: {outputGainmapPath}");
         }
 
+        var auxiliaryDescriptors = new List<AuxiliaryMediaDescriptor>(facts.AuxiliaryItems.Count);
+        var auxiliaryOutputBindings = new List<NativeMediaService.NativeAuxiliaryOutputBinding>();
+        var auxiliaryOutputPaths = new List<string>();
+        var auxiliaryOutputByIndex = new Dictionary<int, string?>();
+        for (int i = 0; i < facts.AuxiliaryItems.Count; i++)
+        {
+            AuxiliaryMediaFacts auxiliary = facts.AuxiliaryItems[i];
+            if (!auxiliary.IsPresent) continue;
+
+            if (auxiliary.Container == ImageContainer.Heic &&
+                auxiliary.Representation == AuxiliaryRepresentation.Materialized)
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.UnsupportedLayout,
+                    $"HEIF auxiliary '{auxiliary.StableIdentity}' does not have a legal standalone materialization.",
+                    MediaArtifactKind.AuxiliaryItem);
+            }
+
+            bool isGainMap = facts.GainMap is { IsPresent: true } gainMapBinding &&
+                gainMapBinding.AuxiliaryIndex == (uint)i;
+            bool materialize = (isGainMap && canMaterializeTypedGainMap) ||
+                auxiliary.Representation == AuxiliaryRepresentation.Materialized;
+            string? materializedPath = isGainMap
+                ? outputGainmapPath
+                : materialize
+                    ? workspace.AllocateFilePath($"aux-{SanitizeArtifactStem(auxiliary.Semantic)}-{i}",
+                        AuxiliaryExtension(auxiliary))
+                    : null;
+
+            if (materializedPath != null)
+            {
+                if (File.Exists(materializedPath))
+                {
+                    throw new ExtractionException(
+                        ExtractionFailureCategory.OutputWriteFailed,
+                        $"Destination file already exists: {materializedPath}",
+                        artifactKind: isGainMap ? MediaArtifactKind.GainMap : MediaArtifactKind.AuxiliaryItem);
+                }
+                auxiliaryOutputPaths.Add(materializedPath);
+                if (!isGainMap)
+                {
+                    auxiliaryOutputBindings.Add(new NativeMediaService.NativeAuxiliaryOutputBinding(
+                        (uint)i, materializedPath));
+                }
+            }
+            auxiliaryOutputByIndex[i] = materializedPath;
+
+            auxiliaryDescriptors.Add(new AuxiliaryMediaDescriptor
+            {
+                ArtifactRole = isGainMap ? MediaArtifactKind.GainMap : MediaArtifactKind.AuxiliaryItem,
+                StableIdentity = auxiliary.StableIdentity,
+                Semantic = auxiliary.Semantic,
+                OwnerIdentity = auxiliary.OwnerIdentity,
+                Relationship = auxiliary.Relationship,
+                SourceIndex = auxiliary.SourceIndex,
+                SourceOffset = auxiliary.ByteOffset,
+                SourceLength = auxiliary.ByteLength,
+                SourceSha256 = auxiliary.Sha256,
+                ImageContainer = auxiliary.Container,
+                Codec = auxiliary.Codec,
+                Representation = auxiliary.Representation,
+                Ownership = auxiliary.Ownership,
+                ItemType = auxiliary.ItemType,
+                GraphComplete = auxiliary.GraphComplete,
+                Dependencies = auxiliary.Dependencies
+            });
+        }
+
+        // Keep a pre-publish expectation for every artifact that this managed
+        // layer may later clean up.  The expectation is derived from a real
+        // source read handle, not from a path-only post-publish read.  Native
+        // validates the same slice while its transaction-owned output handle
+        // is still open; this second record lets managed rollback prove that
+        // it is still looking at that transaction's object.
+        var ownedArtifactExpectations = new Dictionary<string, OwnedArtifactExpectation>(StringComparer.OrdinalIgnoreCase);
+        await AddOwnedArtifactExpectationAsync(
+            ownedArtifactExpectations,
+            outputImagePath,
+            primaryPath,
+            facts.PrimaryImage.ByteOffset,
+            facts.PrimaryImage.ByteLength,
+            cancellationToken).ConfigureAwait(false);
+
+        if (outputVideoPath != null && facts.MotionVideo is { IsPresent: true } motionFacts && videoSource != null)
+        {
+            await AddOwnedArtifactExpectationAsync(
+                ownedArtifactExpectations,
+                outputVideoPath,
+                videoSource,
+                motionFacts.ByteOffset,
+                motionFacts.ByteLength,
+                cancellationToken).ConfigureAwait(false);
+        }
+
+        for (int i = 0; i < facts.AuxiliaryItems.Count; i++)
+        {
+            if (!auxiliaryOutputByIndex.TryGetValue(i, out string? materializedPath) || materializedPath == null)
+                continue;
+
+            AuxiliaryMediaFacts auxiliary = facts.AuxiliaryItems[i];
+            string auxiliarySource = auxiliary.SourceIndex == 1
+                ? secondaryPath!
+                : primaryPath;
+            await AddOwnedArtifactExpectationAsync(
+                ownedArtifactExpectations,
+                materializedPath,
+                auxiliarySource,
+                auxiliary.ByteOffset,
+                auxiliary.ByteLength,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         bool nativeExtractionSucceeded = false;
+        var publishedArtifactIdentities = new Dictionary<string, PublishedArtifactIdentity>(StringComparer.OrdinalIgnoreCase);
         try
         {
             await NativeMediaService.ExtractMediaAsync(
+                attempt,
                 primaryPath,
                 secondaryPath,
-                facts,
                 outputImagePath,
                 outputVideoPath,
                 outputGainmapPath,
+                auxiliaryOutputBindings,
                 configureContext,
                 cancellationToken).ConfigureAwait(false);
 
             nativeExtractionSucceeded = true;
+
+            foreach (OwnedArtifactExpectation expectation in ownedArtifactExpectations.Values)
+            {
+                PublishedArtifactIdentity identity = await CapturePublishedArtifactIdentityAsync(
+                    expectation,
+                    cancellationToken).ConfigureAwait(false);
+                publishedArtifactIdentities.Add(expectation.Path, identity);
+            }
 
             if (!File.Exists(outputImagePath))
                 throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, "Native extraction did not produce a primary image artifact.", MediaArtifactKind.PrimaryImage);
@@ -296,6 +512,16 @@ public sealed class SourceExtractor : ISourceExtractor
                 throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, "Native extraction did not produce a motion video artifact.", MediaArtifactKind.MotionVideo);
             if (outputGainmapPath != null && !File.Exists(outputGainmapPath))
                 throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, "Native extraction did not produce a GainMap artifact.", MediaArtifactKind.GainMap);
+            foreach (string auxiliaryOutputPath in auxiliaryOutputPaths)
+            {
+                if (!File.Exists(auxiliaryOutputPath))
+                {
+                    throw new ExtractionException(
+                        ExtractionFailureCategory.OutputWriteFailed,
+                        $"Native extraction did not produce the confirmed auxiliary artifact '{auxiliaryOutputPath}'.",
+                        MediaArtifactKind.AuxiliaryItem);
+                }
+            }
 
             // Verify that source files were not modified in-place
             string afterPrimarySha = await workspace.ComputeFileSha256Async(primaryPath, cancellationToken).ConfigureAwait(false);
@@ -363,6 +589,56 @@ public sealed class SourceExtractor : ISourceExtractor
                 };
             }
 
+            var finalizedAuxiliaryDescriptors = new List<AuxiliaryMediaDescriptor>(auxiliaryDescriptors.Count);
+            int descriptorCursor = 0;
+            for (int i = 0; i < facts.AuxiliaryItems.Count; i++)
+            {
+                AuxiliaryMediaFacts auxiliary = facts.AuxiliaryItems[i];
+                if (!auxiliary.IsPresent) continue;
+
+                AuxiliaryMediaDescriptor descriptor = auxiliaryDescriptors[descriptorCursor++];
+                MediaArtifact? materializedArtifact = null;
+                if (auxiliaryOutputByIndex.TryGetValue(i, out string? path) && path != null)
+                {
+                    bool isGainMap = facts.GainMap is { IsPresent: true } gainMapBindingFinal &&
+                        gainMapBindingFinal.AuxiliaryIndex == (uint)i;
+                    if (isGainMap)
+                    {
+                        materializedArtifact = gainmapArtifact;
+                    }
+                    else
+                    {
+                        materializedArtifact = new MediaArtifact
+                        {
+                            Path = path,
+                            Kind = MediaArtifactKind.AuxiliaryItem,
+                            MimeType = auxiliary.Container == ImageContainer.Heic ? "image/heic" : "image/jpeg",
+                            ImageContainer = auxiliary.Container,
+                            ImageCodec = auxiliary.Codec switch
+                            {
+                                AuxiliaryCodec.Jpeg => ImageCodec.Jpeg,
+                                AuxiliaryCodec.Hevc => ImageCodec.Hevc,
+                                _ => ImageCodec.Unknown
+                            },
+                            ByteLength = new FileInfo(path).Length,
+                            SourceOffset = auxiliary.ByteOffset,
+                            Sha256 = await workspace.ComputeFileSha256Async(path, cancellationToken).ConfigureAwait(false)
+                        };
+                    }
+
+                    if (materializedArtifact?.Sha256 is not { Length: > 0 } materializedSha ||
+                        !string.Equals(materializedSha, descriptor.SourceSha256, StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new ExtractionException(
+                            ExtractionFailureCategory.SourceChanged,
+                            $"Materialized auxiliary '{descriptor.StableIdentity}' does not match the Inspector-confirmed source SHA-256.",
+                            artifactKind: descriptor.ArtifactRole,
+                            sourcePath: auxiliary.SourceIndex == 1 ? secondaryPath : primaryPath);
+                    }
+                }
+                finalizedAuxiliaryDescriptors.Add(descriptor with { MaterializedArtifact = materializedArtifact });
+            }
+
             var extractedFacts = new List<RemovedProtocolFact>();
             if (facts.MotionVideo is { IsPresent: true, SourceIndex: 0 })
             {
@@ -401,7 +677,9 @@ public sealed class SourceExtractor : ISourceExtractor
                 MotionVideo = videoArtifact,
                 GainMap = gainmapArtifact,
                 SourceFacts = facts,
-                ExtractedProtocolFacts = extractedFacts
+                ExtractedProtocolFacts = extractedFacts,
+                AuxiliaryMedia = finalizedAuxiliaryDescriptors,
+                PreservationCarriers = facts.PreservationCarriers
             };
         }
         catch (Exception ex)
@@ -415,20 +693,20 @@ public sealed class SourceExtractor : ISourceExtractor
 
             if (nativeExtractionSucceeded)
             {
-                if (File.Exists(outputImagePath))
+                foreach (OwnedArtifactExpectation expectation in ownedArtifactExpectations.Values)
                 {
-                    try { File.Delete(outputImagePath); }
-                    catch (Exception delEx) { cleanupFailedFile ??= outputImagePath; cleanupError ??= delEx; }
-                }
-                if (outputVideoPath != null && File.Exists(outputVideoPath))
-                {
-                    try { File.Delete(outputVideoPath); }
-                    catch (Exception delEx) { cleanupFailedFile ??= outputVideoPath; cleanupError ??= delEx; }
-                }
-                if (outputGainmapPath != null && File.Exists(outputGainmapPath))
-                {
-                    try { File.Delete(outputGainmapPath); }
-                    catch (Exception delEx) { cleanupFailedFile ??= outputGainmapPath; cleanupError ??= delEx; }
+                    if (!publishedArtifactIdentities.TryGetValue(expectation.Path, out PublishedArtifactIdentity identity))
+                        continue;
+
+                    CleanupAttempt cleanup = await TryDeleteOwnedArtifactAsync(
+                        expectation,
+                        identity,
+                        CancellationToken.None).ConfigureAwait(false);
+                    if (cleanup.Kind == CleanupAttemptKind.Failed)
+                    {
+                        cleanupFailedFile ??= expectation.Path;
+                        cleanupError ??= cleanup.Error;
+                    }
                 }
 
                 if (cleanupFailedFile != null)
@@ -445,6 +723,272 @@ public sealed class SourceExtractor : ISourceExtractor
             throw;
         }
     }
+
+    private static async Task AddOwnedArtifactExpectationAsync(
+        IDictionary<string, OwnedArtifactExpectation> expectations,
+        string outputPath,
+        string sourcePath,
+        long sourceOffset,
+        long sourceLength,
+        CancellationToken cancellationToken)
+    {
+        string expectedSha256 = await ComputeSourceSliceSha256Async(
+            sourcePath,
+            sourceOffset,
+            sourceLength,
+            cancellationToken).ConfigureAwait(false);
+
+        var expectation = new OwnedArtifactExpectation(outputPath, sourceLength, expectedSha256);
+        if (expectations.TryGetValue(outputPath, out OwnedArtifactExpectation? existing))
+        {
+            if (existing!.Length != expectation.Length ||
+                !string.Equals(existing.Sha256, expectation.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.InvalidFacts,
+                    $"Output path '{outputPath}' was assigned conflicting source ranges.");
+            }
+            return;
+        }
+
+        expectations.Add(outputPath, expectation);
+    }
+
+    private static async Task<string> ComputeSourceSliceSha256Async(
+        string sourcePath,
+        long sourceOffset,
+        long sourceLength,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var source = new FileStream(
+                sourcePath,
+                new FileStreamOptions
+                {
+                    Mode = FileMode.Open,
+                    Access = FileAccess.Read,
+                    Share = FileShare.Read,
+                    BufferSize = 64 * 1024,
+                    Options = FileOptions.SequentialScan
+                });
+
+            if (sourceOffset < 0 || sourceLength <= 0 || sourceOffset > source.Length ||
+                sourceLength > source.Length - sourceOffset)
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.SourceRangeUnreadable,
+                    $"Source range is outside the source file: offset={sourceOffset}, length={sourceLength}, sourceLength={source.Length}.",
+                    sourcePath: sourcePath,
+                    offset: sourceOffset,
+                    length: sourceLength);
+            }
+
+            source.Position = sourceOffset;
+            using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            byte[] buffer = new byte[64 * 1024];
+            long remaining = sourceLength;
+            while (remaining > 0)
+            {
+                int requested = (int)Math.Min(buffer.Length, remaining);
+                int read = await source.ReadAsync(buffer.AsMemory(0, requested), cancellationToken).ConfigureAwait(false);
+                if (read <= 0)
+                {
+                    throw new EndOfStreamException(
+                        $"Source range ended before {sourceLength} bytes were read from '{sourcePath}'.");
+                }
+
+                hash.AppendData(buffer, 0, read);
+                remaining -= read;
+            }
+
+            return Convert.ToHexString(hash.GetHashAndReset());
+        }
+        catch (ExtractionException)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new ExtractionException(
+                ExtractionFailureCategory.SourceRangeUnreadable,
+                $"Unable to read the expected source slice from '{sourcePath}'.",
+                sourcePath: sourcePath,
+                offset: sourceOffset,
+                length: sourceLength,
+                innerException: ex);
+        }
+    }
+
+    private static async Task<PublishedArtifactIdentity> CapturePublishedArtifactIdentityAsync(
+        OwnedArtifactExpectation expectation,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using FileStream artifact = OpenTransactionArtifactHandle(expectation.Path);
+            if (!GetFileInformationByHandle(artifact.SafeFileHandle, out ByHandleFileInformation info))
+            {
+                throw new IOException(
+                    $"GetFileInformationByHandle failed with Win32 error {Marshal.GetLastWin32Error()}.");
+            }
+
+            PublishedArtifactIdentity identity = ToPublishedArtifactIdentity(info);
+            if (IsReparsePoint(info) || identity.LinkCount != 1)
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.OutputPublishFailed,
+                    $"Published artifact '{expectation.Path}' is a reparse point or has an unexpected link count.");
+            }
+
+            if (GetFileLength(info) != (ulong)expectation.Length)
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.OutputPublishFailed,
+                    $"Published artifact '{expectation.Path}' has an unexpected length.");
+            }
+
+            artifact.Position = 0;
+            string actualSha256 = Convert.ToHexString(
+                await SHA256.HashDataAsync(artifact, cancellationToken).ConfigureAwait(false));
+            if (!string.Equals(actualSha256, expectation.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.OutputPublishFailed,
+                    $"Published artifact '{expectation.Path}' does not match the expected source slice SHA-256.");
+            }
+
+            return identity;
+        }
+        catch (ExtractionException)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new ExtractionException(
+                ExtractionFailureCategory.OutputPublishFailed,
+                $"Unable to validate the published artifact '{expectation.Path}'.",
+                innerException: ex);
+        }
+    }
+
+    private static async Task<CleanupAttempt> TryDeleteOwnedArtifactAsync(
+        OwnedArtifactExpectation expectation,
+        PublishedArtifactIdentity expectedIdentity,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using FileStream artifact = OpenTransactionArtifactHandle(expectation.Path);
+            if (!GetFileInformationByHandle(artifact.SafeFileHandle, out ByHandleFileInformation info))
+            {
+                return CleanupAttempt.Failed(new IOException(
+                    $"GetFileInformationByHandle failed with Win32 error {Marshal.GetLastWin32Error()}.") );
+            }
+
+            PublishedArtifactIdentity actualIdentity = ToPublishedArtifactIdentity(info);
+            if (IsReparsePoint(info) ||
+                actualIdentity.LinkCount != 1 ||
+                actualIdentity.VolumeSerialNumber != expectedIdentity.VolumeSerialNumber ||
+                actualIdentity.FileIndex != expectedIdentity.FileIndex ||
+                GetFileLength(info) != (ulong)expectation.Length)
+            {
+                // A missing or replaced object is not ours to delete.  The
+                // original extraction failure remains the authoritative
+                // category; cleanup must never remove a foreign object.
+                return CleanupAttempt.Preserved;
+            }
+
+            artifact.Position = 0;
+            string actualSha256 = Convert.ToHexString(
+                await SHA256.HashDataAsync(artifact, cancellationToken).ConfigureAwait(false));
+            if (!string.Equals(actualSha256, expectation.Sha256, StringComparison.OrdinalIgnoreCase))
+                return CleanupAttempt.Preserved;
+
+            var disposition = new FileDispositionInfo { DeleteFile = 1 };
+            if (!SetFileInformationByHandle(
+                    artifact.SafeFileHandle,
+                    FileDispositionInfoClass,
+                    ref disposition,
+                    (uint)Marshal.SizeOf<FileDispositionInfo>()))
+            {
+                return CleanupAttempt.Failed(new System.ComponentModel.Win32Exception(
+                    Marshal.GetLastWin32Error(),
+                    $"SetFileInformationByHandle(FileDispositionInfo) failed for '{expectation.Path}'."));
+            }
+
+            return CleanupAttempt.Deleted;
+        }
+        catch (FileNotFoundException)
+        {
+            return CleanupAttempt.Missing;
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return CleanupAttempt.Missing;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            return CleanupAttempt.Failed(ex);
+        }
+    }
+
+    private static FileStream OpenTransactionArtifactHandle(string path)
+    {
+        SafeFileHandle handle = CreateFileW(
+            path,
+            GenericRead | DeleteAccess,
+            FileShareRead,
+            IntPtr.Zero,
+            OpenExisting,
+            OpenReparsePoint,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            int error = Marshal.GetLastWin32Error();
+            handle.Dispose();
+            if (error == 2)
+                throw new FileNotFoundException("Artifact does not exist.", path);
+            if (error == 3)
+                throw new DirectoryNotFoundException($"Artifact directory does not exist for '{path}'.");
+            throw new System.ComponentModel.Win32Exception(error, $"Unable to open artifact '{path}'.");
+        }
+
+        try
+        {
+            return new FileStream(handle, FileAccess.Read, 64 * 1024, isAsync: false);
+        }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
+    }
+
+    private static PublishedArtifactIdentity ToPublishedArtifactIdentity(ByHandleFileInformation info) =>
+        new(
+            info.VolumeSerialNumber,
+            ((ulong)info.FileIndexHigh << 32) | info.FileIndexLow,
+            info.NumberOfLinks);
+
+    private static ulong GetFileLength(ByHandleFileInformation info) =>
+        ((ulong)info.FileSizeHigh << 32) | info.FileSizeLow;
+
+    private static bool IsReparsePoint(ByHandleFileInformation info) =>
+        (info.FileAttributes & ReparsePointAttribute) != 0;
 
     private static void ValidateRange(
         long offset,
@@ -465,4 +1009,126 @@ public sealed class SourceExtractor : ISourceExtractor
                 length: length);
         }
     }
+
+    private static void ValidateSha256(string value, string name)
+    {
+        try
+        {
+            byte[] bytes = Convert.FromHexString(value.Trim());
+            if (bytes.Length != 32) throw new FormatException("SHA-256 must contain 32 bytes.");
+        }
+        catch (FormatException ex)
+        {
+            throw new ExtractionException(
+                ExtractionFailureCategory.InvalidFacts,
+                $"{name} SHA-256 is malformed.",
+                innerException: ex);
+        }
+    }
+
+    private static string AuxiliaryExtension(AuxiliaryMediaFacts facts) => facts.Container switch
+    {
+        ImageContainer.Heic => ".heic",
+        ImageContainer.Jpeg => ".jpg",
+        _ => throw new ExtractionException(
+            ExtractionFailureCategory.UnsupportedLayout,
+            $"Auxiliary item '{facts.Semantic}' has an unsupported container.",
+            artifactKind: MediaArtifactKind.AuxiliaryItem)
+    };
+
+    private static string SanitizeArtifactStem(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "auxiliary";
+        Span<char> buffer = stackalloc char[Math.Min(value.Length, 48)];
+        int length = 0;
+        foreach (char c in value)
+        {
+            if (length >= buffer.Length) break;
+            buffer[length++] = char.IsLetterOrDigit(c) || c is '-' or '_' ? c : '_';
+        }
+        return length == 0 ? "auxiliary" : new string(buffer[..length]);
+    }
+
+    private sealed record OwnedArtifactExpectation(string Path, long Length, string Sha256);
+
+    private readonly record struct PublishedArtifactIdentity(
+        uint VolumeSerialNumber,
+        ulong FileIndex,
+        uint LinkCount);
+
+    private enum CleanupAttemptKind
+    {
+        Missing,
+        Preserved,
+        Deleted,
+        Failed
+    }
+
+    private readonly record struct CleanupAttempt(CleanupAttemptKind Kind, Exception? Error)
+    {
+        internal static CleanupAttempt Missing => new(CleanupAttemptKind.Missing, null);
+        internal static CleanupAttempt Preserved => new(CleanupAttemptKind.Preserved, null);
+        internal static CleanupAttempt Deleted => new(CleanupAttemptKind.Deleted, null);
+        internal static CleanupAttempt Failed(Exception error) => new(CleanupAttemptKind.Failed, error);
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeFileTime
+    {
+        public uint LowDateTime;
+        public uint HighDateTime;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ByHandleFileInformation
+    {
+        public uint FileAttributes;
+        public NativeFileTime CreationTime;
+        public NativeFileTime LastAccessTime;
+        public NativeFileTime LastWriteTime;
+        public uint VolumeSerialNumber;
+        public uint FileSizeHigh;
+        public uint FileSizeLow;
+        public uint NumberOfLinks;
+        public uint FileIndexHigh;
+        public uint FileIndexLow;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FileDispositionInfo
+    {
+        public int DeleteFile;
+    }
+
+    private const uint GenericRead = 0x80000000;
+    private const uint DeleteAccess = 0x00010000;
+    private const uint FileShareRead = 0x00000001;
+    private const uint OpenExisting = 3;
+    private const uint OpenReparsePoint = 0x00200000;
+    private const uint ReparsePointAttribute = 0x00000400;
+    private const int FileDispositionInfoClass = 4;
+
+    [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeFileHandle CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetFileInformationByHandle(
+        SafeFileHandle fileHandle,
+        out ByHandleFileInformation fileInformation);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetFileInformationByHandle(
+        SafeFileHandle fileHandle,
+        int fileInformationClass,
+        ref FileDispositionInfo fileInformation,
+        uint bufferSize);
 }

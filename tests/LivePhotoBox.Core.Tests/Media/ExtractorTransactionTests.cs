@@ -51,7 +51,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
                 ctx.SetExtractorFault(NativeExtractorFault.DiskFull, targetArtifact: 0, triggerAfterBytes: 0);
             }));
@@ -84,7 +84,7 @@ public sealed class ExtractorTransactionTests
 
         // Inject write failure on targetArtifact 1 (MotionVideo)
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
                 ctx.SetExtractorFault(NativeExtractorFault.WriteFail, targetArtifact: 1, triggerAfterBytes: 0);
             }));
@@ -117,7 +117,7 @@ public sealed class ExtractorTransactionTests
 
         // Inject publish failure on artifact 1 (MotionVideo) after artifact 0 (PrimaryImage) was already published
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
                 ctx.SetExtractorFault(NativeExtractorFault.PublishFail, targetArtifact: 1, triggerAfterBytes: 0);
             }));
@@ -149,7 +149,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
                 ctx.SetExtractorFault(NativeExtractorFault.ShortRead, targetArtifact: 0, triggerAfterBytes: 0);
             }));
@@ -182,7 +182,7 @@ public sealed class ExtractorTransactionTests
         cts.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace, cts.Token));
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, cts.Token));
 
         var workspaceFiles = Directory.GetFiles(workspace.RootDirectory, "*", SearchOption.AllDirectories);
         Assert.Empty(workspaceFiles);
@@ -233,7 +233,7 @@ public sealed class ExtractorTransactionTests
         }
 
         var ex = await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
                 ctx.SetExtractorFault(NativeExtractorFault.None, targetArtifact: 0, triggerAfterBytes: 0, callbackPtr, nint.Zero);
             }, cts.Token));
@@ -268,7 +268,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace));
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace));
 
         Assert.Equal(ExtractionFailureCategory.SourceChanged, ex.Category);
 
@@ -299,7 +299,7 @@ public sealed class ExtractorTransactionTests
         string videoDest = Path.Combine(tempDir.Path, "output_video.mp4");
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            NativeMediaService.ExtractMediaAsync(
+            TestFactsExtractor.ExtractNativeAsync(
                 dummySource,
                 null,
                 facts,
@@ -336,7 +336,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
                 ctx.SetExtractorFault(NativeExtractorFault.DiskFull, targetArtifact: 1, triggerAfterBytes: 0);
             }));
@@ -367,7 +367,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
                 // Mutate the source file after beforeSha was captured
                 File.AppendAllText(dummySource, "MUTATION");
@@ -447,7 +447,7 @@ public sealed class ExtractorTransactionTests
 
         using var workspace = new MediaWorkspace();
         var extractor = new SourceExtractor();
-        var bundle = await extractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
+        var bundle = await TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
         {
             ctx.SetExtractorFault(NativeExtractorFault.None, targetArtifact: 0, triggerAfterBytes: 0, callbackPtr, nint.Zero);
         });
@@ -555,7 +555,7 @@ public sealed class ExtractorTransactionTests
 
         using var workspace = new MediaWorkspace();
         var extractor = new SourceExtractor();
-        var bundle = await extractor.ExtractAsync(facts, primarySource, secondarySource, workspace, ctx =>
+        var bundle = await TestFactsExtractor.ExtractAsync(facts, primarySource, secondarySource, workspace, ctx =>
         {
             ctx.SetExtractorFault(NativeExtractorFault.None, targetArtifact: 0, triggerAfterBytes: 0, callbackPtr, nint.Zero);
         });
@@ -589,7 +589,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
                 ctx.SetExtractorFault(NativeExtractorFault.FlushDiskFull, targetArtifact: 0, triggerAfterBytes: 0);
             }));
@@ -619,7 +619,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
                 ctx.SetExtractorFault(NativeExtractorFault.FlushWriteFail, targetArtifact: 0, triggerAfterBytes: 0);
             }));
@@ -649,7 +649,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
                 ctx.SetExtractorFault(NativeExtractorFault.WriteFail | NativeExtractorFault.CleanupFail, targetArtifact: 0, triggerAfterBytes: 0);
             }));
@@ -700,7 +700,7 @@ public sealed class ExtractorTransactionTests
         }
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
                 ctx.SetExtractorFault(NativeExtractorFault.CleanupFail, targetArtifact: 0, triggerAfterBytes: 0, callbackPtr, nint.Zero);
             }, cts.Token));
@@ -730,7 +730,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
                 ctx.SetExtractorFault(NativeExtractorFault.PublishFail | NativeExtractorFault.CleanupFail, targetArtifact: 1, triggerAfterBytes: 0);
             }));
@@ -758,7 +758,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace));
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace));
 
         Assert.Equal(ExtractionFailureCategory.InvalidFacts, ex.Category);
     }
@@ -781,7 +781,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace));
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace));
 
         Assert.Equal(ExtractionFailureCategory.InvalidFacts, ex.Category);
     }
@@ -804,7 +804,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace));
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace));
 
         Assert.Equal(ExtractionFailureCategory.InvalidFacts, ex.Category);
     }
@@ -832,7 +832,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, dummySecondary, workspace));
+            TestFactsExtractor.ExtractAsync(facts, dummySource, dummySecondary, workspace));
 
         Assert.Equal(ExtractionFailureCategory.InvalidFacts, ex.Category);
     }
@@ -860,7 +860,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, dummySecondary, workspace));
+            TestFactsExtractor.ExtractAsync(facts, dummySource, dummySecondary, workspace));
 
         Assert.Equal(ExtractionFailureCategory.InvalidFacts, ex.Category);
     }
@@ -883,7 +883,7 @@ public sealed class ExtractorTransactionTests
         // PrimarySha256 left all zeroes
 
         using var ctx = NativeContext.Create();
-        NativeResult res = NativeMethods.ExtractMedia(
+        NativeResult res = TestNativeMethods.ExtractMediaLegacy(
             ctx.Handle,
             dummySource,
             null,
@@ -892,10 +892,10 @@ public sealed class ExtractorTransactionTests
             null,
             null);
 
-        Assert.Equal(NativeResult.InvalidArgument, res);
+        Assert.Equal(NativeResult.AuthorityViolation, res);
         string? lastErr = ctx.GetLastError();
         Assert.NotNull(lastErr);
-        Assert.StartsWith("[InvalidFacts]", lastErr);
+        Assert.StartsWith("[AuthorityViolation]", lastErr);
     }
 
     [Fact]
@@ -922,7 +922,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
 
         // Even though caller passed secondarySource path, SourceIndex == 0 means embedded video
-        var bundle = await extractor.ExtractAsync(facts, primarySource, secondarySource, workspace);
+        var bundle = await TestFactsExtractor.ExtractAsync(facts, primarySource, secondarySource, workspace);
 
         Assert.NotNull(bundle.MotionVideo);
         Assert.Equal(4096, bundle.MotionVideo.ByteLength);
@@ -1018,7 +1018,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace, ctx =>
             {
                 ctx.SetExtractorFault(NativeExtractorFault.None, targetArtifact: 0, triggerAfterBytes: 0, callbackPtr, nint.Zero);
             }));
@@ -1077,7 +1077,7 @@ public sealed class ExtractorTransactionTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, failingWorkspace));
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, failingWorkspace));
 
         Assert.Equal(ExtractionFailureCategory.SourceChanged, ex.Category);
 

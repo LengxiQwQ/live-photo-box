@@ -140,6 +140,7 @@ public sealed record PreservationBaseline
 
     public string? GainMapSha256 { get; init; }
     public bool GainMapExpected { get; init; }
+    public IReadOnlyList<PreservationCarrier> PreservationCarriers { get; init; } = [];
 
     public DateTimeOffset CapturedAt { get; init; } = DateTimeOffset.UtcNow;
 }
@@ -237,6 +238,8 @@ public sealed record ProtocolCleanResult
     public MediaArtifact? CleanedImage { get; init; }
     public MediaArtifact? CleanedVideo { get; init; }
     public MediaArtifact? CleanedGainMap { get; init; }
+    public IReadOnlyList<AuxiliaryMediaDescriptor> AuxiliaryMedia { get; init; } = [];
+    public IReadOnlyList<PreservationCarrier> PreservationCarriers { get; init; } = [];
     public IReadOnlyList<RemovedProtocolFact> RemovedFacts { get; init; } = [];
     public PreservationOutcome PreservationOutcome { get; init; }
     public PreservationReport? PreservationReport { get; init; }
@@ -265,6 +268,15 @@ public sealed record NeutralArtifactManifest
     public required string Role { get; init; }
     public required string Path { get; init; }
     public required string Sha256 { get; init; }
+    public string StableIdentity { get; init; } = string.Empty;
+    public string Semantic { get; init; } = string.Empty;
+    public string OwnerIdentity { get; init; } = string.Empty;
+    public string Relationship { get; init; } = string.Empty;
+    public AuxiliaryRepresentation Representation { get; init; }
+    public AuxiliaryOwnership Ownership { get; init; }
+    public long SourceOffset { get; init; }
+    public long SourceLength { get; init; }
+    public string SourceSha256 { get; init; } = string.Empty;
     public long ByteLength { get; init; }
     public ImageContainer ImageContainer { get; init; } = ImageContainer.Unknown;
     public VideoContainer VideoContainer { get; init; } = VideoContainer.Unknown;
@@ -287,5 +299,7 @@ public sealed record NeutralMediaBundle
     public required SourceMediaFacts SourceProvenance { get; init; }
     public required IReadOnlyList<RemovedProtocolFact> RemovedProtocolFacts { get; init; }
     public required IReadOnlyList<NeutralArtifactManifest> Manifest { get; init; }
+    public IReadOnlyList<AuxiliaryMediaDescriptor> AuxiliaryMedia { get; init; } = [];
+    public IReadOnlyList<PreservationCarrier> PreservationCarriers { get; init; } = [];
     public TimingFacts Timing { get; init; } = new();
 }

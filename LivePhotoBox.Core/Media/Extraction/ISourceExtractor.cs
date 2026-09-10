@@ -8,7 +8,7 @@ namespace LivePhotoBox.Media.Extraction;
 public interface ISourceExtractor
 {
     Task<ExtractedMediaBundle> ExtractAsync(
-        SourceMediaFacts facts,
+        ExtractionPlan plan,
         string primaryPath,
         string? secondaryPath,
         IMediaWorkspace workspace,

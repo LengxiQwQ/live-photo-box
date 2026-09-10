@@ -38,7 +38,7 @@ public sealed class ExtractorFailureTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace));
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace));
 
         Assert.Equal(ExtractionFailureCategory.InvalidFacts, ex.Category);
         Assert.Equal(beforeSha, await ComputeFileSha256Async(dummySource));
@@ -64,7 +64,7 @@ public sealed class ExtractorFailureTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace));
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace));
 
         Assert.Equal(ExtractionFailureCategory.InvalidFacts, ex.Category);
         Assert.Equal(beforeSha, await ComputeFileSha256Async(dummySource));
@@ -90,7 +90,7 @@ public sealed class ExtractorFailureTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace));
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace));
 
         Assert.Equal(ExtractionFailureCategory.InvalidFacts, ex.Category);
         Assert.Equal(beforeSha, await ComputeFileSha256Async(dummySource));
@@ -116,7 +116,7 @@ public sealed class ExtractorFailureTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace));
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace));
 
         Assert.Equal(ExtractionFailureCategory.InvalidFacts, ex.Category);
         Assert.Equal(beforeSha, await ComputeFileSha256Async(dummySource));
@@ -142,7 +142,7 @@ public sealed class ExtractorFailureTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace));
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace));
 
         Assert.Equal(ExtractionFailureCategory.InvalidFacts, ex.Category);
         Assert.Equal(beforeSha, await ComputeFileSha256Async(dummySource));
@@ -170,7 +170,7 @@ public sealed class ExtractorFailureTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, secondaryPath: null, workspace));
+            TestFactsExtractor.ExtractAsync(facts, dummySource, secondaryPath: null, workspace));
 
         Assert.Equal(ExtractionFailureCategory.InvalidFacts, ex.Category);
         Assert.Equal(beforeSha, await ComputeFileSha256Async(dummySource));
@@ -195,7 +195,7 @@ public sealed class ExtractorFailureTests
         var extractor = new SourceExtractor();
 
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            extractor.ExtractAsync(facts, dummySource, null, workspace));
+            TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace));
 
         Assert.Equal(ExtractionFailureCategory.UnsupportedLayout, ex.Category);
         Assert.Empty(Directory.GetFiles(workspace.RootDirectory));
@@ -218,7 +218,7 @@ public sealed class ExtractorFailureTests
 
         // Directly call NativeMediaService with output path identical to primary source path
         var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
-            NativeMediaService.ExtractMediaAsync(
+            TestFactsExtractor.ExtractNativeAsync(
                 dummySource,
                 null,
                 facts,

@@ -1,10 +1,15 @@
 #include "foundation/internal.h"
+#include "foundation/sha256.h"
 #include "binary/binary_io.h"
 #include "containers/isobmff.h"
 #include <algorithm>
 #include <cstring>
+#include <functional>
 #include <limits>
+#include <map>
+#include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace lpb;
@@ -580,139 +585,518 @@ namespace {
         return locator_result::present;
     }
 
-    struct aux_range { uint32_t id{}; uint64_t offset{}; uint64_t length{}; };
+    struct heif_extent { uint64_t offset{}; uint64_t length{}; };
+
+    struct heif_item_location {
+        uint32_t id{};
+        uint32_t type{};
+        std::string content_type;
+        std::vector<heif_extent> extents;
+        heif_extent contiguous{};
+    };
+
+    struct heif_reference {
+        std::string type;
+        uint32_t from{};
+        std::vector<uint32_t> targets;
+    };
+
+    std::string item_type_string(uint32_t type) {
+        std::string value(4, '\0');
+        value[0] = static_cast<char>((type >> 24) & 0xFFu);
+        value[1] = static_cast<char>((type >> 16) & 0xFFu);
+        value[2] = static_cast<char>((type >> 8) & 0xFFu);
+        value[3] = static_cast<char>(type & 0xFFu);
+        return value;
+    }
+
+    const heif_item_location* find_location(
+        const std::vector<heif_item_location>& locations, uint32_t id) {
+        const auto it = std::find_if(locations.begin(), locations.end(),
+            [id](const heif_item_location& value) { return value.id == id; });
+        return it == locations.end() ? nullptr : &*it;
+    }
+
+    const locator_item* find_item(const std::vector<locator_item>& items, uint32_t id) {
+        const auto it = std::find_if(items.begin(), items.end(),
+            [id](const locator_item& value) { return value.id == id; });
+        return it == items.end() ? nullptr : &*it;
+    }
+
+    bool is_supported_derived_type(uint32_t type) noexcept {
+        return type == 0x67726964u /* grid */ || type == 0x746D6170u /* tmap */;
+    }
 
     bool parse_auxiliary_graph(const uint8_t* input, size_t input_size,
         std::vector<lpb_auxiliary_item_facts>& output, std::string& error) {
         output.clear();
         std::vector<locator_box> top;
-        if (!parse_children_strict(input, 0, input_size, top)) { error = "Malformed HEIF top-level box region."; return false; }
-        const locator_box* meta = nullptr;
-        for (const auto& b : top) if (is_type(b, "meta")) { if (meta) { error = "Duplicate HEIF meta box."; return false; } meta = &b; }
-        if (!meta || meta->body_size < 4) { error = "Missing HEIF meta box."; return false; }
-        const size_t meta_end = meta->start + meta->size;
-        if (input[meta->body_start] != 0 || input[meta->body_start + 1] != 0 || input[meta->body_start + 2] != 0 || input[meta->body_start + 3] != 0) { error = "Unsupported HEIF meta version or flags."; return false; }
-        std::vector<locator_box> children;
-        if (!parse_children_strict(input, meta->body_start + 4, meta_end, children)) { error = "Malformed HEIF meta children."; return false; }
-        const locator_box *pitm=nullptr,*iinf=nullptr,*iloc=nullptr,*iref=nullptr,*idat=nullptr,*iprp=nullptr;
-        for (const auto& b : children) {
-            const locator_box** slot = is_type(b,"pitm") ? &pitm : is_type(b,"iinf") ? &iinf : is_type(b,"iloc") ? &iloc : is_type(b,"iref") ? &iref : is_type(b,"idat") ? &idat : is_type(b,"iprp") ? &iprp : nullptr;
-            if (slot) { if (*slot) { error = "Duplicate HEIF authoritative child box."; return false; } *slot = &b; }
+        if (!parse_children_strict(input, 0, input_size, top)) {
+            error = "Malformed HEIF top-level box region.";
+            return false;
         }
-        if (!pitm || !iinf || !iloc || pitm->body_size < 6) { error = "HEIF primary/item location graph is incomplete."; return false; }
-        uint32_t primary_id = 0;
+
+        const locator_box* meta = nullptr;
+        for (const auto& box : top) {
+            if (!is_type(box, "meta")) continue;
+            if (meta != nullptr) { error = "Duplicate HEIF meta box."; return false; }
+            meta = &box;
+        }
+        if (meta == nullptr || meta->body_size < 4) {
+            error = "Missing HEIF meta box.";
+            return false;
+        }
+        if (input[meta->body_start] != 0 || input[meta->body_start + 1] != 0 ||
+            input[meta->body_start + 2] != 0 || input[meta->body_start + 3] != 0) {
+            error = "Unsupported HEIF meta version or flags.";
+            return false;
+        }
+
+        std::vector<locator_box> children;
+        if (!parse_children_strict(input, meta->body_start + 4, meta->start + meta->size, children)) {
+            error = "Malformed HEIF meta children.";
+            return false;
+        }
+        const locator_box *pitm = nullptr, *iinf = nullptr, *iloc = nullptr,
+            *iref = nullptr, *idat = nullptr, *iprp = nullptr;
+        for (const auto& box : children) {
+            const locator_box** slot =
+                is_type(box, "pitm") ? &pitm :
+                is_type(box, "iinf") ? &iinf :
+                is_type(box, "iloc") ? &iloc :
+                is_type(box, "iref") ? &iref :
+                is_type(box, "idat") ? &idat :
+                is_type(box, "iprp") ? &iprp : nullptr;
+            if (slot != nullptr) {
+                if (*slot != nullptr) { error = "Duplicate HEIF authoritative child box."; return false; }
+                *slot = &box;
+            }
+        }
+        if (pitm == nullptr || iinf == nullptr || iloc == nullptr || pitm->body_size < 6) {
+            error = "HEIF primary/item location graph is incomplete.";
+            return false;
+        }
+
         const uint8_t pitm_version = input[pitm->body_start];
-        if (input[pitm->body_start+1] || input[pitm->body_start+2] || input[pitm->body_start+3] || pitm_version > 1) { error = "Malformed HEIF pitm box."; return false; }
-        if (pitm_version == 0) primary_id = read_be16u(input + pitm->body_start + 4);
-        else { if (pitm->body_size < 8) { error = "Malformed HEIF pitm item id."; return false; } primary_id = read_be32u(input + pitm->body_start + 4); }
-        std::vector<locator_item> items; std::string iinf_error;
-        if (!parse_iinf(input, *iinf, items, &iinf_error)) { error = "Malformed HEIF iinf: " + iinf_error; return false; }
-        bool primary_exists = false; for (const auto& item : items) if (item.id == primary_id) primary_exists = true;
-        if (!primary_exists) { error = "HEIF pitm references an unknown item."; return false; }
+        if (pitm_version > 1 || input[pitm->body_start + 1] != 0 ||
+            input[pitm->body_start + 2] != 0 || input[pitm->body_start + 3] != 0) {
+            error = "Malformed HEIF pitm box.";
+            return false;
+        }
+        uint32_t primary_id = 0;
+        if (pitm_version == 0) {
+            primary_id = read_be16u(input + pitm->body_start + 4);
+        } else {
+            if (pitm->body_size < 8) { error = "Malformed HEIF pitm item id."; return false; }
+            primary_id = read_be32u(input + pitm->body_start + 4);
+        }
+
+        std::vector<locator_item> items;
+        std::string iinf_error;
+        if (!parse_iinf(input, *iinf, items, &iinf_error)) {
+            error = "Malformed HEIF iinf: " + iinf_error;
+            return false;
+        }
+        if (find_item(items, primary_id) == nullptr) {
+            error = "HEIF pitm references an unknown item.";
+            return false;
+        }
 
         std::vector<auxiliary_property> auxiliary_properties;
-        if (iprp && !parse_heif_auxiliary_properties(input, *iprp, items, auxiliary_properties, error)) {
+        if (iprp != nullptr && !parse_heif_auxiliary_properties(
+            input, *iprp, items, auxiliary_properties, error)) {
             return false;
         }
 
         binary_reader reader(input, input_size);
-        if (iloc->body_size < 8 || !reader.try_seek(iloc->body_start)) { error = "Malformed HEIF iloc header."; return false; }
-        uint8_t version=0,f0=0,f1=0,f2=0,b1=0,b2=0;
-        if (!reader.try_read_u8(version)||!reader.try_read_u8(f0)||!reader.try_read_u8(f1)||!reader.try_read_u8(f2)||!reader.try_read_u8(b1)||!reader.try_read_u8(b2) || version>2 || f0||f1||f2) { error = "Malformed HEIF iloc header."; return false; }
-        const uint8_t offset_size=(b1>>4)&15, length_size=b1&15, base_size=(b2>>4)&15, index_size=(version?b2&15:0);
-        const auto valid_size=[](uint8_t x){return x==0||x==4||x==8;}; if(!valid_size(offset_size)||!valid_size(length_size)||!valid_size(base_size)||!valid_size(index_size)){error="Unsupported HEIF iloc field size.";return false;}
-        uint32_t item_count=0; if(version<2){uint16_t n=0;if(!reader.try_read_be16u(n)){error="Malformed HEIF iloc item count.";return false;}item_count=n;}else if(!reader.try_read_be32u(item_count)){error="Malformed HEIF iloc item count.";return false;}
-        std::vector<aux_range> ranges;
-        std::vector<uint32_t> located_items;
-        bool primary_has_location = false;
-        for(uint32_t i=0;i<item_count;++i){
-            uint32_t id=0; if(version<2){uint16_t n=0;if(!reader.try_read_be16u(n)){error="Truncated HEIF iloc item id.";return false;}id=n;}else if(!reader.try_read_be32u(id)){error="Truncated HEIF iloc item id.";return false;}
-            if (id == 0 ||
-                std::find_if(items.begin(), items.end(), [&](const locator_item& item) { return item.id == id; }) == items.end() ||
-                std::find(located_items.begin(), located_items.end(), id) != located_items.end()) {
+        if (iloc->body_size < 8 || !reader.try_seek(iloc->body_start)) {
+            error = "Malformed HEIF iloc header.";
+            return false;
+        }
+        uint8_t version = 0, flags0 = 0, flags1 = 0, flags2 = 0, byte1 = 0, byte2 = 0;
+        if (!reader.try_read_u8(version) || !reader.try_read_u8(flags0) ||
+            !reader.try_read_u8(flags1) || !reader.try_read_u8(flags2) ||
+            !reader.try_read_u8(byte1) || !reader.try_read_u8(byte2) ||
+            version > 2 || flags0 != 0 || flags1 != 0 || flags2 != 0) {
+            error = "Malformed HEIF iloc header.";
+            return false;
+        }
+        const uint8_t offset_size = static_cast<uint8_t>((byte1 >> 4) & 0x0F);
+        const uint8_t length_size = static_cast<uint8_t>(byte1 & 0x0F);
+        const uint8_t base_size = static_cast<uint8_t>((byte2 >> 4) & 0x0F);
+        const uint8_t index_size = version == 0 ? 0 : static_cast<uint8_t>(byte2 & 0x0F);
+        const auto valid_field_size = [](uint8_t value) noexcept {
+            return value == 0 || value == 4 || value == 8;
+        };
+        if (!valid_field_size(offset_size) || !valid_field_size(length_size) ||
+            !valid_field_size(base_size) || !valid_field_size(index_size)) {
+            error = "Unsupported HEIF iloc field size.";
+            return false;
+        }
+
+        uint32_t item_count = 0;
+        if (version < 2) {
+            uint16_t count16 = 0;
+            if (!reader.try_read_be16u(count16)) { error = "Malformed HEIF iloc item count."; return false; }
+            item_count = count16;
+        } else if (!reader.try_read_be32u(item_count)) {
+            error = "Malformed HEIF iloc item count.";
+            return false;
+        }
+
+        std::vector<heif_item_location> locations;
+        locations.reserve(item_count);
+        std::set<uint32_t> located_ids;
+        std::vector<heif_extent> all_extents;
+        for (uint32_t index = 0; index < item_count; ++index) {
+            uint32_t item_id = 0;
+            if (version < 2) {
+                uint16_t id16 = 0;
+                if (!reader.try_read_be16u(id16)) { error = "Truncated HEIF iloc item id."; return false; }
+                item_id = id16;
+            } else if (!reader.try_read_be32u(item_id)) {
+                error = "Truncated HEIF iloc item id.";
+                return false;
+            }
+            if (item_id == 0 || find_item(items, item_id) == nullptr || !located_ids.insert(item_id).second) {
                 error = "HEIF iloc references a duplicate or unknown item.";
                 return false;
             }
-            located_items.push_back(id);
-            uint16_t method=0,ref=0; if(version&&(!reader.try_read_be16u(method)||(method&0xFFF0u)||method>1)){error="Unsupported HEIF iloc construction method.";return false;} if(!reader.try_read_be16u(ref)||ref!=0){error="Unsupported HEIF iloc data reference.";return false;}
-            uint64_t base=0;if(base_size&&!read_uint_local(reader,base_size,base)){error="Truncated HEIF iloc base offset.";return false;} uint16_t count=0;if(!reader.try_read_be16u(count)){error="Truncated HEIF iloc extent count.";return false;}
-            const uint64_t owner_base=method==1?(idat?idat->body_start:0):0; const uint64_t owner_size=method==1?(idat?idat->body_size:0):input_size; if((method==1&&!idat)||base>owner_size){error="HEIF iloc extent owner is invalid.";return false;}
-            uint64_t first_offset=0,total_length=0; bool have_range=false;
-            for(uint16_t j=0;j<count;++j){ uint64_t index=0,eo=0,el=0; if(version&&index_size&&!read_uint_local(reader,index_size,index)){error="Truncated HEIF iloc extent index.";return false;} if(offset_size&&!read_uint_local(reader,offset_size,eo)){error="Truncated HEIF iloc extent offset.";return false;} if(length_size&&!read_uint_local(reader,length_size,el)){error="Truncated HEIF iloc extent length.";return false;} if(el==0||eo>owner_size-base||el>owner_size-base-eo){error="HEIF iloc extent is empty or out of bounds.";return false;} const uint64_t absolute=owner_base+base+eo; if(absolute>input_size||el>input_size-absolute){error="HEIF iloc absolute extent is out of bounds.";return false;} if(!have_range){first_offset=absolute;total_length=el;have_range=true;} else { if(absolute!=first_offset+total_length){error="HEIF iloc multi-extent item is non-contiguous.";return false;} if(total_length>std::numeric_limits<uint64_t>::max()-el){error="HEIF iloc extent length overflow.";return false;} total_length+=el; } }
-            if (id == primary_id) primary_has_location = have_range;
-            if (have_range && count == 1) ranges.push_back({id,first_offset,total_length});
+
+            uint16_t construction_method = 0;
+            if (version != 0) {
+                if (!reader.try_read_be16u(construction_method) || construction_method > 1) {
+                    error = "Unsupported HEIF iloc construction method.";
+                    return false;
+                }
+            }
+            uint16_t data_reference_index = 0;
+            if (!reader.try_read_be16u(data_reference_index) || data_reference_index != 0) {
+                error = "Unsupported HEIF iloc data reference.";
+                return false;
+            }
+            uint64_t base_offset = 0;
+            if (base_size != 0 && !read_uint_local(reader, base_size, base_offset)) {
+                error = "Truncated HEIF iloc base offset.";
+                return false;
+            }
+            uint16_t extent_count = 0;
+            if (!reader.try_read_be16u(extent_count) || extent_count == 0) {
+                error = "HEIF iloc item has no extents.";
+                return false;
+            }
+
+            const uint64_t owner_base = construction_method == 1
+                ? (idat == nullptr ? 0 : static_cast<uint64_t>(idat->body_start)) : 0;
+            const uint64_t owner_size = construction_method == 1
+                ? (idat == nullptr ? 0 : static_cast<uint64_t>(idat->body_size))
+                : static_cast<uint64_t>(input_size);
+            if (construction_method == 1 && idat == nullptr) {
+                error = "HEIF iloc construction method 1 has no idat owner.";
+                return false;
+            }
+            if (base_offset > owner_size) {
+                error = "HEIF iloc extent owner is invalid.";
+                return false;
+            }
+
+            heif_item_location location;
+            location.id = item_id;
+            const locator_item* item = find_item(items, item_id);
+            location.type = item->type;
+            location.content_type = item->content_type;
+            uint64_t total_length = 0;
+            for (uint16_t extent_index = 0; extent_index < extent_count; ++extent_index) {
+                uint64_t ignored_index = 0, extent_offset = 0, extent_length = 0;
+                if (version != 0 && index_size != 0 &&
+                    !read_uint_local(reader, index_size, ignored_index)) {
+                    error = "Truncated HEIF iloc extent index.";
+                    return false;
+                }
+                if (offset_size != 0 && !read_uint_local(reader, offset_size, extent_offset)) {
+                    error = "Truncated HEIF iloc extent offset.";
+                    return false;
+                }
+                if (length_size != 0 && !read_uint_local(reader, length_size, extent_length)) {
+                    error = "Truncated HEIF iloc extent length.";
+                    return false;
+                }
+                if (extent_length == 0 || extent_offset > owner_size - base_offset ||
+                    extent_length > owner_size - base_offset - extent_offset) {
+                    error = "HEIF iloc extent is empty or out of bounds.";
+                    return false;
+                }
+                const uint64_t absolute = owner_base + base_offset + extent_offset;
+                if (absolute > input_size || extent_length > input_size - absolute) {
+                    error = "HEIF iloc absolute extent is out of bounds.";
+                    return false;
+                }
+                location.extents.push_back({ absolute, extent_length });
+                all_extents.push_back({ absolute, extent_length });
+                if (total_length > std::numeric_limits<uint64_t>::max() - extent_length) {
+                    error = "HEIF iloc extent length overflow.";
+                    return false;
+                }
+                total_length += extent_length;
+            }
+            if (location.extents.size() == 1) {
+                location.contiguous = location.extents.front();
+            } else {
+                const heif_extent first = location.extents.front();
+                uint64_t expected = first.offset;
+                for (const heif_extent extent : location.extents) {
+                    if (extent.offset != expected || expected > std::numeric_limits<uint64_t>::max() - extent.length) {
+                        error = "HEIF iloc multi-extent item is non-contiguous.";
+                        return false;
+                    }
+                    expected += extent.length;
+                }
+                location.contiguous = { first.offset, total_length };
+            }
+            locations.push_back(std::move(location));
         }
-        if(reader.position()!=iloc->start+iloc->size){error="HEIF iloc has trailing bytes.";return false;}
-        if (!primary_has_location) {
+        if (reader.position() != iloc->start + iloc->size) {
+            error = "HEIF iloc has trailing bytes.";
+            return false;
+        }
+        if (find_location(locations, primary_id) == nullptr) {
             error = "HEIF primary item has no valid iloc extent.";
             return false;
         }
-        if(!iref) {
-            return true; // A valid primary-only HEIF has no auxiliary relation.
+
+        std::sort(all_extents.begin(), all_extents.end(),
+            [](const heif_extent& left, const heif_extent& right) {
+                return left.offset < right.offset;
+            });
+        for (size_t i = 1; i < all_extents.size(); ++i) {
+            const uint64_t previous_end = all_extents[i - 1].offset + all_extents[i - 1].length;
+            if (all_extents[i].offset < previous_end) {
+                error = "HEIF iloc extents overlap.";
+                return false;
+            }
         }
-        if(iref->body_size<4) {error="Malformed HEIF iref box.";return false;}
-        std::vector<locator_box> refs; if(!parse_children_strict(input,iref->body_start+4,iref->start+iref->size,refs)){error="Malformed HEIF iref children.";return false;}
-        std::vector<uint32_t> seen;
-        for(const auto& refbox:refs){
-            if(!is_type(refbox,"auxl")) continue;
-            size_t p=refbox.body_start;
-            const size_t end=refbox.start+refbox.size;
-            uint8_t rv=input[iref->body_start];
-            uint32_t from=0;
-            if(rv==0){if(p+6>end){error="Truncated HEIF auxl reference.";return false;}from=read_be16u(input+p);p+=2;}
-            else{if(p+8>end){error="Truncated HEIF auxl reference.";return false;}from=read_be32u(input+p);p+=4;}
-            uint16_t count=0;if(p+2>end){error="Truncated HEIF auxl reference count.";return false;}count=read_be16u(input+p);p+=2;
-            if(count==0){error="Empty HEIF auxl reference.";return false;}
-            for(uint16_t i=0;i<count;++i){
-                uint32_t to=0;
-                if(rv==0){if(p+2>end){error="Truncated HEIF auxl target.";return false;}to=read_be16u(input+p);p+=2;}
-                else{if(p+4>end){error="Truncated HEIF auxl target.";return false;}to=read_be32u(input+p);p+=4;}
-                // HEIF auxl is normally authored from the auxiliary item to
-                // its master (Apple's real files use this orientation).  A
-                // few producers emit the inverse relation; accept either
-                // only when exactly one endpoint is the validated primary.
-                uint32_t aux_id=0;
-                if (to==primary_id && from!=primary_id) aux_id=from;
-                else if (from==primary_id && to!=primary_id) aux_id=to;
-                else {
-                    // A HEIF may contain valid auxiliary relationships for a
-                    // non-primary derived/master item.  Validate both graph
-                    // endpoints, but do not publish that unrelated relation
-                    // as an auxiliary of pitm.
-                    const auto from_item = std::find_if(items.begin(), items.end(),
-                        [&](const locator_item& item) { return item.id == from; });
-                    const auto to_item = std::find_if(items.begin(), items.end(),
-                        [&](const locator_item& item) { return item.id == to; });
-                    if (from == to || from_item == items.end() || to_item == items.end()) {
-                        error="HEIF auxl relation references an unknown or identical endpoint.";
-                        return false;
-                    }
-                    continue;
-                }
-                if(std::find(seen.begin(),seen.end(),aux_id)!=seen.end()){error="Duplicate HEIF auxiliary relationship.";return false;}
-                seen.push_back(aux_id);
-                auto ri=std::find_if(ranges.begin(),ranges.end(),[&](const aux_range& r){return r.id==aux_id;});
-                auto ii=std::find_if(items.begin(),items.end(),[&](const locator_item& x){return x.id==aux_id;});
-                if(ri==ranges.end()||ii==items.end()){error="HEIF auxiliary item has no single contiguous iloc extent.";return false;}
-                const auto property = std::find_if(auxiliary_properties.begin(), auxiliary_properties.end(),
-                    [&](const auxiliary_property& value) { return value.item_id == aux_id; });
-                const char* relationship = property == auxiliary_properties.end()
-                    ? "auxl" : property->type.c_str();
-                if (std::strlen(relationship) >= sizeof(lpb_auxiliary_item_facts::relationship)) {
-                    error = "HEIF auxiliary relationship exceeds the source-facts ABI capacity.";
+
+        std::vector<heif_reference> references;
+        if (iref != nullptr) {
+            if (iref->body_size < 4) { error = "Malformed HEIF iref box."; return false; }
+            const uint8_t reference_version = input[iref->body_start];
+            if (reference_version > 1 || input[iref->body_start + 1] != 0 ||
+                input[iref->body_start + 2] != 0 || input[iref->body_start + 3] != 0) {
+                error = "Unsupported HEIF iref version or flags.";
+                return false;
+            }
+            std::vector<locator_box> reference_boxes;
+            if (!parse_children_strict(input, iref->body_start + 4, iref->start + iref->size, reference_boxes)) {
+                error = "Malformed HEIF iref children.";
+                return false;
+            }
+            for (const locator_box& reference_box : reference_boxes) {
+                if (!is_type(reference_box, "dimg") && !is_type(reference_box, "auxl") &&
+                    !is_type(reference_box, "thmb") && !is_type(reference_box, "cdsc")) {
+                    error = "Unsupported HEIF relationship type.";
                     return false;
                 }
-                for (const auto& prior : output) {
-                    const uint64_t prior_end = prior.file_range.offset + prior.file_range.length;
-                    const uint64_t current_end = ri->offset + ri->length;
-                    if (ri->offset < prior_end && prior.file_range.offset < current_end) {
-                        error = "HEIF auxiliary item ranges overlap.";
+                size_t position = reference_box.body_start;
+                const size_t end = reference_box.start + reference_box.size;
+                const size_t id_width = reference_version == 0 ? 2 : 4;
+                if (position + id_width + 2 > end) {
+                    error = "Truncated HEIF relationship reference.";
+                    return false;
+                }
+                auto read_id = [&](uint32_t& value) {
+                    if (position + id_width > end) return false;
+                    value = id_width == 2 ? read_be16u(input + position) : read_be32u(input + position);
+                    position += id_width;
+                    return true;
+                };
+                heif_reference reference;
+                reference.type.assign(reference_box.type, 4);
+                if (!read_id(reference.from)) { error = "Truncated HEIF relationship source."; return false; }
+                uint16_t count = read_be16u(input + position);
+                position += 2;
+                if (count == 0 || find_item(items, reference.from) == nullptr) {
+                    error = "HEIF relationship has an unknown or empty source.";
+                    return false;
+                }
+                std::set<uint32_t> relation_targets;
+                for (uint16_t i = 0; i < count; ++i) {
+                    uint32_t target = 0;
+                    if (!read_id(target)) { error = "Truncated HEIF relationship target."; return false; }
+                    if (find_item(items, target) == nullptr || target == reference.from) {
+                        error = "HEIF relationship references a missing or identical item.";
                         return false;
                     }
+                    if (!relation_targets.insert(target).second) {
+                        error = "Duplicate HEIF relationship dependency edge.";
+                        return false;
+                    }
+                    reference.targets.push_back(target);
                 }
-                lpb_auxiliary_item_facts f{};f.struct_size=sizeof(f);f.is_present=1;f.container=LPB_IMAGE_CONTAINER_HEIC;f.representation=LPB_AUX_REPRESENTATION_EMBEDDED;f.ownership=LPB_AUX_OWNER_AUXILIARY;f.item_id=aux_id;f.file_range={ri->offset,ri->length};strncpy_s(f.relationship,relationship,_TRUNCATE);output.push_back(f);
+                if (position != end) {
+                    error = "HEIF relationship has trailing bytes.";
+                    return false;
+                }
+                references.push_back(std::move(reference));
             }
-            if(p!=end){error="HEIF auxl reference has trailing bytes.";return false;}
+        }
+
+        std::map<uint32_t, std::vector<uint32_t>> dimg_dependencies;
+        std::map<uint32_t, std::vector<uint32_t>> primary_auxiliary_owners;
+        std::set<uint32_t> primary_owned_auxiliary;
+        std::set<std::string> primary_relationships;
+        for (const heif_reference& reference : references) {
+            const locator_item* source_item = find_item(items, reference.from);
+            if (reference.type == "dimg") {
+                if (source_item == nullptr || !is_supported_derived_type(source_item->type)) {
+                    error = "Unsupported HEIF derived item type in dimg relationship.";
+                    return false;
+                }
+                if (!dimg_dependencies.emplace(reference.from, reference.targets).second) {
+                    error = "Shadow HEIF dimg relationship for derived item.";
+                    return false;
+                }
+            } else if (reference.type == "auxl") {
+                uint32_t auxiliary_id = 0;
+                if (reference.from == primary_id && reference.targets.size() == 1) {
+                    auxiliary_id = reference.targets.front();
+                } else if (reference.targets.size() == 1 && reference.targets.front() == primary_id) {
+                    auxiliary_id = reference.from;
+                } else if (reference.from == primary_id ||
+                    std::find(reference.targets.begin(), reference.targets.end(), primary_id) != reference.targets.end()) {
+                    error = "Shadow or ambiguous HEIF auxiliary relationship to primary.";
+                    return false;
+                }
+                if (auxiliary_id != 0) {
+                    if (!primary_owned_auxiliary.insert(auxiliary_id).second) {
+                        error = "Shadow HEIF auxiliary relationship has multiple primary owners.";
+                        return false;
+                    }
+                    const auto property = std::find_if(auxiliary_properties.begin(), auxiliary_properties.end(),
+                        [auxiliary_id](const auxiliary_property& value) { return value.item_id == auxiliary_id; });
+                    const std::string relationship = property == auxiliary_properties.end()
+                        ? "auxl" : property->type;
+                    if (!primary_relationships.insert(relationship).second) {
+                        error = "Shadow HEIF auxiliary relationship is not unique.";
+                        return false;
+                    }
+                    primary_auxiliary_owners[auxiliary_id].push_back(primary_id);
+                }
+            }
+        }
+
+        std::map<uint32_t, uint8_t> visit_state;
+        std::map<uint32_t, std::vector<uint32_t>> transitive_dependencies;
+        std::function<bool(uint32_t)> visit = [&](uint32_t item_id) {
+            uint8_t& state = visit_state[item_id];
+            if (state == 1) { error = "HEIF dimg dependency cycle detected."; return false; }
+            if (state == 2) return true;
+            state = 1;
+            const locator_item* item = find_item(items, item_id);
+            if (item == nullptr || find_location(locations, item_id) == nullptr) {
+                error = "HEIF dimg dependency references a missing tile/item.";
+                return false;
+            }
+            const auto dependency_it = dimg_dependencies.find(item_id);
+            if (dependency_it != dimg_dependencies.end()) {
+                if (!is_supported_derived_type(item->type)) {
+                    error = "Unsupported HEIF derived item type.";
+                    return false;
+                }
+                auto& flattened = transitive_dependencies[item_id];
+                for (uint32_t dependency_id : dependency_it->second) {
+                    if (std::find(flattened.begin(), flattened.end(), dependency_id) != flattened.end()) {
+                        error = "Duplicate HEIF dimg dependency edge.";
+                        return false;
+                    }
+                    if (!visit(dependency_id)) return false;
+                    flattened.push_back(dependency_id);
+                    const auto child_it = transitive_dependencies.find(dependency_id);
+                    if (child_it != transitive_dependencies.end()) {
+                        for (uint32_t nested_id : child_it->second) {
+                            if (std::find(flattened.begin(), flattened.end(), nested_id) != flattened.end()) {
+                                error = "Duplicate HEIF dimg dependency edge.";
+                                return false;
+                            }
+                            flattened.push_back(nested_id);
+                        }
+                    }
+                }
+                if (flattened.size() > LPB_HEIF_MAX_DEPENDENCIES) {
+                    error = "HEIF derived dependency graph exceeds the supported capacity.";
+                    return false;
+                }
+            }
+            state = 2;
+            return true;
+        };
+
+        for (const auto& dependency : dimg_dependencies) {
+            if (!visit(dependency.first)) return false;
+        }
+
+        for (uint32_t auxiliary_id : primary_owned_auxiliary) {
+            const locator_item* item = find_item(items, auxiliary_id);
+            const heif_item_location* location = find_location(locations, auxiliary_id);
+            if (item == nullptr || location == nullptr) {
+                error = "HEIF auxiliary item has a missing iloc range.";
+                return false;
+            }
+            const auto dependency_it = dimg_dependencies.find(auxiliary_id);
+            const std::vector<uint32_t>* dependencies = dependency_it == dimg_dependencies.end()
+                ? nullptr : &dependency_it->second;
+            const auto property = std::find_if(auxiliary_properties.begin(), auxiliary_properties.end(),
+                [auxiliary_id](const auxiliary_property& value) { return value.item_id == auxiliary_id; });
+            const std::string relationship = property == auxiliary_properties.end()
+                ? "auxl" : property->type;
+            if (relationship.size() >= sizeof(lpb_auxiliary_item_facts::relationship)) {
+                error = "HEIF auxiliary relationship exceeds the source-facts ABI capacity.";
+                return false;
+            }
+            lpb_auxiliary_item_facts facts{};
+            facts.struct_size = sizeof(facts);
+            facts.is_present = 1;
+            facts.container = LPB_IMAGE_CONTAINER_HEIC;
+            facts.representation = LPB_AUX_REPRESENTATION_EMBEDDED;
+            facts.ownership = LPB_AUX_OWNER_PRIMARY;
+            facts.item_id = auxiliary_id;
+            facts.file_range = { location->contiguous.offset, location->contiguous.length };
+            facts.codec = item->type == 0x6D696D65u && item->content_type.find("jpeg") != std::string::npos
+                ? LPB_AUX_CODEC_JPEG : LPB_AUX_CODEC_HEVC;
+            facts.source_index = 0;
+            lpb::crypto::sha256_buffer(input + static_cast<size_t>(location->contiguous.offset),
+                static_cast<size_t>(location->contiguous.length), facts.sha256);
+            const std::string item_type = item_type_string(item->type);
+            const std::string stable_identity = "heif:item:" + std::to_string(auxiliary_id);
+            strncpy_s(facts.item_type, item_type.c_str(), _TRUNCATE);
+            strncpy_s(facts.stable_identity, stable_identity.c_str(), _TRUNCATE);
+            strncpy_s(facts.owner_identity, "primary:0", _TRUNCATE);
+            strncpy_s(facts.relationship, relationship.c_str(), _TRUNCATE);
+            strncpy_s(facts.semantic,
+                relationship == "urn:com:apple:photo:2020:aux:hdrgainmap" ||
+                relationship == "urn:com:samsung:photo:2024:aux:hdrgainmap" ? "GainMap" : "Auxiliary",
+                _TRUNCATE);
+            facts.graph_flags = LPB_HEIF_GRAPH_COMPLETE;
+            if (dependencies != nullptr) {
+                facts.graph_flags |= LPB_HEIF_GRAPH_DERIVED | LPB_HEIF_GRAPH_SUPPORTED_DERIVED;
+                facts.dependency_count = static_cast<uint32_t>(dependencies->size());
+                for (size_t i = 0; i < dependencies->size(); ++i) {
+                    const heif_item_location* dependency_location = find_location(locations, (*dependencies)[i]);
+                    const locator_item* dependency_item = find_item(items, (*dependencies)[i]);
+                    if (dependency_location == nullptr || dependency_item == nullptr) {
+                        error = "HEIF dimg dependency references a missing tile/item.";
+                        return false;
+                    }
+                    facts.dependency_item_ids[i] = (*dependencies)[i];
+                    facts.dependency_offsets[i] = dependency_location->contiguous.offset;
+                    facts.dependency_lengths[i] = dependency_location->contiguous.length;
+                    strncpy_s(facts.dependency_item_types[i], item_type_string(dependency_item->type).c_str(), _TRUNCATE);
+                }
+            }
+            output.push_back(facts);
+            if (output.size() > 8) {
+                error = "HEIF auxiliary item count exceeds the source-facts ABI capacity.";
+                return false;
+            }
         }
         return true;
     }

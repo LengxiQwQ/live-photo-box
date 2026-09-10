@@ -47,8 +47,9 @@ namespace LivePhotoBox.Services
         {
             try
             {
-                SourceMediaFacts facts = await new SourceInspector()
-                    .InspectAsync(filePath, null, ct).ConfigureAwait(false);
+                using var inspected = await new SourceInspector()
+                    .InspectWithPlanAsync(filePath, null, ct).ConfigureAwait(false);
+                SourceMediaFacts facts = inspected.Facts;
                 if (facts.MotionVideo is not { IsPresent: true } videoFacts
                     || videoFacts.ByteLength <= 0)
                     return null;
@@ -56,9 +57,9 @@ namespace LivePhotoBox.Services
                 string extension = videoFacts.Container == VideoContainer.Mov ? ".mov" : ".mp4";
                 string outputPath = Path.Combine(Path.GetTempPath(), $"lpb_live_{Guid.NewGuid():N}{extension}");
                 await NativeMediaService.ExtractMediaAsync(
+                    inspected.ExtractionPlan,
                     filePath,
                     null,
-                    facts,
                     null,
                     outputPath,
                     null,

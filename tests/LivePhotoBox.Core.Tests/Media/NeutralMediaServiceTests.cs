@@ -224,12 +224,21 @@ public sealed class NeutralMediaServiceTests
                 PrimaryImage = new ImageFacts { IsPresent = true, Container = ImageContainer.Jpeg }
             });
         }
+
+        public async Task<InspectedSource> InspectWithPlanAsync(
+            string primaryPath,
+            string? secondaryPath = null,
+            CancellationToken cancellationToken = default)
+        {
+            SourceMediaFacts facts = await InspectAsync(primaryPath, secondaryPath, cancellationToken);
+            return InspectedSource.CreateForTests(facts);
+        }
     }
 
     private sealed class FixedExtractor(ExtractedMediaBundle bundle) : ISourceExtractor
     {
         public Task<ExtractedMediaBundle> ExtractAsync(
-            SourceMediaFacts facts,
+            ExtractionPlan plan,
             string primaryPath,
             string? secondaryPath,
             IMediaWorkspace workspace,

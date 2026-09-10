@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using LivePhotoBox.Interop;
+using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
 
 namespace LivePhotoBox.Protocols.Cleaning;
@@ -68,7 +69,8 @@ public static class MetadataPreservationVerifier
             MotionVideoPath = bundle.MotionVideo?.Path,
             VideoObservation = videoObs,
             GainMapSha256 = bundle.GainMap?.Sha256,
-            GainMapExpected = bundle.GainMap != null
+            GainMapExpected = bundle.GainMap != null,
+            PreservationCarriers = bundle.PreservationCarriers
         };
     }
 
@@ -194,7 +196,94 @@ public static class MetadataPreservationVerifier
             });
         }
 
-        return CreateReport(items, allPassed);
+        SourceMediaFacts? postCarrierFacts = null;
+        if (baseline.PreservationCarriers.Any(carrier => carrier.Kind == PreservationCarrierKind.SamsungSef))
+        {
+            try
+            {
+                postCarrierFacts = await new SourceInspector().InspectAsync(
+                    stagedImagePath, null, cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                // The carrier-specific loop below records the typed failure;
+                // the generic Native preservation verdicts remain intact.
+            }
+        }
+
+        bool carriersPassed = true;
+        foreach (PreservationCarrier carrier in baseline.PreservationCarriers)
+        {
+            if (carrier.Kind == PreservationCarrierKind.SamsungSef)
+            {
+                var matchingPostCarriers = postCarrierFacts?.PreservationCarriers
+                    .Where(candidate =>
+                        string.Equals(candidate.StableIdentity, carrier.StableIdentity, StringComparison.Ordinal) &&
+                        candidate.Kind == carrier.Kind &&
+                        candidate.ArtifactRole == carrier.ArtifactRole &&
+                        string.Equals(candidate.Semantic, carrier.Semantic, StringComparison.Ordinal) &&
+                        string.Equals(candidate.OwnerIdentity, carrier.OwnerIdentity, StringComparison.Ordinal) &&
+                        string.Equals(candidate.Relationship, carrier.Relationship, StringComparison.Ordinal))
+                    .ToList() ?? new List<PreservationCarrier>();
+                PreservationCarrier? postCarrier = matchingPostCarriers.Count == 1
+                    ? matchingPostCarriers[0]
+                    : null;
+
+                string? carrierPath = carrier.SourceIndex == 0 ? stagedImagePath : stagedVideoPath;
+                bool structuredCarrierPresent = postCarrier != null && carrierPath != null &&
+                    await VerifySourceRangeIdentityAsync(
+                        carrierPath, postCarrier.SourceOffset, postCarrier.SourceLength, postCarrier.SourceSha256,
+                        cancellationToken).ConfigureAwait(false);
+                if (!structuredCarrierPresent)
+                {
+                    carriersPassed = false;
+                    items.Add(new PreservationReportItem
+                    {
+                        Name = $"Carrier:{carrier.StableIdentity}",
+                        Status = PreservationCheckStatus.Failed,
+                        Details = "Structured Samsung SEF carrier was not found with a verifiable post-clean source range."
+                    });
+                }
+                else
+                {
+                    items.Add(new PreservationReportItem
+                    {
+                        Name = $"Carrier:{carrier.StableIdentity}",
+                        Status = PreservationCheckStatus.VerifiedPreserved,
+                        Details = $"Structured Samsung SEF carrier preserved; source SHA-256={carrier.SourceSha256}, post-clean range SHA-256={postCarrier!.SourceSha256}."
+                    });
+                }
+                continue;
+            }
+
+            string? sourceCarrierPath = carrier.SourceIndex == 0
+                ? stagedImagePath
+                : stagedVideoPath;
+            if (sourceCarrierPath is null ||
+                !await VerifySourceRangeIdentityAsync(
+                    sourceCarrierPath, carrier.SourceOffset, carrier.SourceLength, carrier.SourceSha256,
+                    cancellationToken).ConfigureAwait(false))
+            {
+                carriersPassed = false;
+                items.Add(new PreservationReportItem
+                {
+                    Name = $"Carrier:{carrier.StableIdentity}",
+                    Status = PreservationCheckStatus.Failed,
+                    Details = $"Preservation carrier range/hash could not be verified after cleaning: offset={carrier.SourceOffset}, length={carrier.SourceLength}."
+                });
+            }
+            else
+            {
+                items.Add(new PreservationReportItem
+                {
+                    Name = $"Carrier:{carrier.StableIdentity}",
+                    Status = PreservationCheckStatus.VerifiedPreserved,
+                    Details = $"Preservation carrier SHA-256 verified for source range [{carrier.SourceOffset},{carrier.SourceOffset + carrier.SourceLength})."
+                });
+            }
+        }
+
+        return CreateReport(items, allPassed && carriersPassed);
     }
 
     private static string MapCategoryToName(uint category) => category switch
@@ -249,6 +338,39 @@ public static class MetadataPreservationVerifier
             byte[] hash = await sha.ComputeHashAsync(fs, cancellationToken).ConfigureAwait(false);
             string actualSha = Convert.ToHexString(hash);
             return string.Equals(actualSha, expectedSha256, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static async Task<bool> VerifySourceRangeIdentityAsync(
+        string path,
+        long offset,
+        long length,
+        string expectedSha256,
+        CancellationToken cancellationToken)
+    {
+        if (offset < 0 || length <= 0 || string.IsNullOrWhiteSpace(expectedSha256) || !File.Exists(path)) return false;
+        try
+        {
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+                64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            if (offset > stream.Length || length > stream.Length - offset) return false;
+            stream.Position = offset;
+            using var sha = SHA256.Create();
+            byte[] buffer = new byte[64 * 1024];
+            long remaining = length;
+            while (remaining > 0)
+            {
+                int read = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), cancellationToken).ConfigureAwait(false);
+                if (read <= 0) return false;
+                sha.TransformBlock(buffer, 0, read, buffer, 0);
+                remaining -= read;
+            }
+            sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+            return string.Equals(Convert.ToHexString(sha.Hash!), expectedSha256, StringComparison.OrdinalIgnoreCase);
         }
         catch
         {

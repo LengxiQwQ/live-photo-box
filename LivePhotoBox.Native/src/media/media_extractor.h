@@ -1,16 +1,31 @@
 #pragma once
 
-#include "livephotobox_native.h"
+#include "foundation/internal.h"
 
 namespace lpb::media {
 
-lpb_result extract_source(
+lpb_result extract_source_with_plan(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    const char* primary_path,
+    const char* secondary_path,
+    const char* output_image_path,
+    const char* output_video_path,
+    const char* output_gainmap_path,
+    const lpb_extraction_output* auxiliary_outputs = nullptr,
+    size_t auxiliary_output_count = 0) noexcept;
+
+lpb_result extract_source_internal(
     lpb_context* context,
     const char* primary_path,
     const char* secondary_path,
     const lpb_source_media_facts* facts,
     const char* output_image_path,
     const char* output_video_path,
-    const char* output_gainmap_path) noexcept;
+    const char* output_gainmap_path,
+    const lpb_file_identity* expected_primary_identity = nullptr,
+    const lpb_file_identity* expected_secondary_identity = nullptr,
+    const lpb_extraction_output* auxiliary_outputs = nullptr,
+    size_t auxiliary_output_count = 0) noexcept;
 
 } // namespace lpb::media

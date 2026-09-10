@@ -61,7 +61,8 @@ namespace LivePhotoBox.Interop
         public const ulong AppleCapability = 1UL << 16;
 
         /// <summary>The fixed native ABI capacity for auxiliary item facts.</summary>
-        internal const int MaxAuxiliaryItems = 8;
+    internal const int MaxAuxiliaryItems = 8;
+    internal const int MaxHeifDependencies = 64;
 
         /// <summary>
         /// Loads the native runtime, validates the ABI, and creates a temporary context.

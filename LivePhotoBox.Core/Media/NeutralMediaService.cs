@@ -54,10 +54,15 @@ public sealed class NeutralMediaService : INeutralMediaService
         cancellationToken.ThrowIfCancellationRequested();
 
         // 1. Inspect
-        SourceMediaFacts facts = await _inspector.InspectAsync(primaryPath, secondaryPath, cancellationToken).ConfigureAwait(false);
+        using InspectedSource inspected = await _inspector
+            .InspectWithPlanAsync(primaryPath, secondaryPath, cancellationToken)
+            .ConfigureAwait(false);
+        SourceMediaFacts facts = inspected.Facts;
 
         // 2. Extract
-        ExtractedMediaBundle extracted = await _extractor.ExtractAsync(facts, primaryPath, secondaryPath, workspace, cancellationToken).ConfigureAwait(false);
+        ExtractedMediaBundle extracted = await _extractor
+            .ExtractAsync(inspected.ExtractionPlan, primaryPath, secondaryPath, workspace, cancellationToken)
+            .ConfigureAwait(false);
 
         // 3. Clean source Live/Motion Photo protocol
         ProtocolCleanResult cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
@@ -176,11 +181,50 @@ public sealed class NeutralMediaService : INeutralMediaService
                 $"Neutral media validation failed: Inspector reported {neutralFacts.Protocol} for the cleaned image.");
         }
 
+        // Carry descriptors and opaque preservation evidence across the
+        // Cleaner boundary.  A materialized GainMap is represented once by
+        // the typed GainMap slot; other materialized auxiliary artifacts are
+        // added to the manifest by stable identity below.
+        var auxiliaryHandoff = new List<AuxiliaryMediaDescriptor>(
+            cleanResult.AuxiliaryMedia.Count > 0 ? cleanResult.AuxiliaryMedia : extracted.AuxiliaryMedia);
+        for (int i = 0; i < auxiliaryHandoff.Count; i++)
+        {
+            AuxiliaryMediaDescriptor descriptor = auxiliaryHandoff[i];
+            if (descriptor.MaterializedArtifact != null &&
+                cleanResult.CleanedGainMap != null &&
+                descriptor.MaterializedArtifact.Kind == MediaArtifactKind.GainMap)
+            {
+                auxiliaryHandoff[i] = descriptor with { MaterializedArtifact = cleanResult.CleanedGainMap };
+            }
+        }
+        var preservationCarriers = new List<PreservationCarrier>(
+            cleanResult.PreservationCarriers.Count > 0 ? cleanResult.PreservationCarriers : extracted.PreservationCarriers);
+        await VerifyAuxiliaryHandoffAsync(auxiliaryHandoff, workspace, cancellationToken).ConfigureAwait(false);
+        VerifyPreservationCarrierHandoff(preservationCarriers);
+
         // 5. Build Artifact Manifest with truthful outcomes and unambiguous GainMap ownership
+        AuxiliaryMediaDescriptor? gainMapDescriptor = null;
+        foreach (AuxiliaryMediaDescriptor descriptor in auxiliaryHandoff)
+        {
+            if (descriptor.ArtifactRole == MediaArtifactKind.GainMap ||
+                string.Equals(descriptor.Semantic, "GainMap", StringComparison.Ordinal))
+            {
+                gainMapDescriptor = descriptor;
+                break;
+            }
+        }
+
         GainMapRepresentation gainMapRep = GainMapRepresentation.None;
         if (cleanResult.CleanedGainMap != null)
         {
             gainMapRep = gainMapEmbeddedInPrimary ? GainMapRepresentation.Embedded : GainMapRepresentation.Detached;
+        }
+        else if (gainMapDescriptor is { Representation: AuxiliaryRepresentation.Embedded, Ownership: AuxiliaryOwnership.Primary })
+        {
+            // HEIF grid/derived GainMaps remain semantic members of the
+            // primary container.  The descriptor is represented once in the
+            // manifest, but never gets a detached pseudo-file.
+            gainMapRep = GainMapRepresentation.Embedded;
         }
 
         var manifest = new List<NeutralArtifactManifest>
@@ -220,10 +264,83 @@ public sealed class NeutralMediaService : INeutralMediaService
                 Path = cleanResult.CleanedGainMap.Path,
                 Sha256 = cleanResult.GainMapExpectedSha256
                     ?? throw new InvalidDataException("GainMap manifest identity is missing after verified consumption."),
+                StableIdentity = gainMapDescriptor?.StableIdentity ?? "gainmap:typed",
+                Semantic = gainMapDescriptor?.Semantic ?? "GainMap",
+                OwnerIdentity = gainMapDescriptor?.OwnerIdentity ?? "primary:0",
+                Relationship = gainMapDescriptor?.Relationship ?? "gain-map",
+                Representation = gainMapDescriptor?.Representation ?? AuxiliaryRepresentation.Embedded,
+                Ownership = gainMapDescriptor?.Ownership ?? AuxiliaryOwnership.Primary,
+                SourceOffset = gainMapDescriptor?.SourceOffset ?? 0,
+                SourceLength = gainMapDescriptor?.SourceLength ?? cleanResult.CleanedGainMap.ByteLength,
+                SourceSha256 = gainMapDescriptor?.SourceSha256 ?? cleanResult.GainMapExpectedSha256 ?? string.Empty,
                 ByteLength = cleanResult.CleanedGainMap.ByteLength > 0 ? cleanResult.CleanedGainMap.ByteLength : new FileInfo(cleanResult.CleanedGainMap.Path).Length,
                 ImageContainer = cleanResult.CleanedGainMap.ImageContainer,
                 PreservationOutcome = cleanResult.PreservationOutcome,
                 GainMapRepresentation = gainMapEmbeddedInPrimary ? GainMapRepresentation.Embedded : GainMapRepresentation.Detached
+            });
+        }
+        else if (gainMapDescriptor is { Representation: AuxiliaryRepresentation.Embedded, Ownership: AuxiliaryOwnership.Primary, MaterializedArtifact: null })
+        {
+            manifest.Add(new NeutralArtifactManifest
+            {
+                Role = "GainMap",
+                Path = finalImage.Path,
+                Sha256 = finalImage.Sha256 ?? await workspace.ComputeFileSha256Async(finalImage.Path, cancellationToken).ConfigureAwait(false),
+                StableIdentity = gainMapDescriptor.StableIdentity,
+                Semantic = gainMapDescriptor.Semantic,
+                OwnerIdentity = gainMapDescriptor.OwnerIdentity,
+                Relationship = gainMapDescriptor.Relationship,
+                Representation = gainMapDescriptor.Representation,
+                Ownership = gainMapDescriptor.Ownership,
+                SourceOffset = gainMapDescriptor.SourceOffset,
+                SourceLength = gainMapDescriptor.SourceLength,
+                SourceSha256 = gainMapDescriptor.SourceSha256,
+                ByteLength = finalImage.ByteLength > 0 ? finalImage.ByteLength : new FileInfo(finalImage.Path).Length,
+                ImageContainer = finalImage.ImageContainer,
+                PreservationOutcome = gainMapDescriptor.PreservationOutcome,
+                GainMapRepresentation = GainMapRepresentation.Embedded
+            });
+        }
+
+        var materializedIdentities = new HashSet<string>(StringComparer.Ordinal);
+        foreach (AuxiliaryMediaDescriptor descriptor in auxiliaryHandoff)
+        {
+            MediaArtifact? artifact = descriptor.MaterializedArtifact;
+            if (artifact == null)
+            {
+                continue;
+            }
+
+            if (!materializedIdentities.Add(descriptor.StableIdentity))
+            {
+                throw new InvalidDataException(
+                    $"Auxiliary manifest would contain duplicate stable identity '{descriptor.StableIdentity}'.");
+            }
+
+            if (cleanResult.CleanedGainMap != null &&
+                string.Equals(artifact.Path, cleanResult.CleanedGainMap.Path, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            manifest.Add(new NeutralArtifactManifest
+            {
+                Role = descriptor.ArtifactRole.ToString(),
+                Path = artifact.Path,
+                Sha256 = artifact.Sha256 ?? await workspace.ComputeFileSha256Async(artifact.Path, cancellationToken).ConfigureAwait(false),
+                StableIdentity = descriptor.StableIdentity,
+                Semantic = descriptor.Semantic,
+                OwnerIdentity = descriptor.OwnerIdentity,
+                Relationship = descriptor.Relationship,
+                Representation = descriptor.Representation,
+                Ownership = descriptor.Ownership,
+                SourceOffset = descriptor.SourceOffset,
+                SourceLength = descriptor.SourceLength,
+                SourceSha256 = descriptor.SourceSha256,
+                ByteLength = artifact.ByteLength > 0 ? artifact.ByteLength : new FileInfo(artifact.Path).Length,
+                ImageContainer = artifact.ImageContainer,
+                PreservationOutcome = descriptor.PreservationOutcome,
+                GainMapRepresentation = GainMapRepresentation.None
             });
         }
 
@@ -236,8 +353,110 @@ public sealed class NeutralMediaService : INeutralMediaService
             SourceProvenance = facts,
             RemovedProtocolFacts = [.. extracted.ExtractedProtocolFacts, .. cleanResult.RemovedFacts],
             Manifest = manifest,
+            AuxiliaryMedia = auxiliaryHandoff,
+            PreservationCarriers = preservationCarriers,
             Timing = facts.Timing
         };
+    }
+
+    private static async Task VerifyAuxiliaryHandoffAsync(
+        IReadOnlyList<AuxiliaryMediaDescriptor> descriptors,
+        IMediaWorkspace workspace,
+        CancellationToken cancellationToken)
+    {
+        var stableIdentities = new HashSet<string>(StringComparer.Ordinal);
+        var sourceRelationships = new HashSet<(int SourceIndex, long Offset, long Length, string Semantic)>();
+
+        foreach (AuxiliaryMediaDescriptor descriptor in descriptors)
+        {
+            if (string.IsNullOrWhiteSpace(descriptor.StableIdentity) ||
+                !stableIdentities.Add(descriptor.StableIdentity))
+            {
+                throw new InvalidDataException(
+                    $"Auxiliary handoff contains a missing or duplicate stable identity '{descriptor.StableIdentity}'.");
+            }
+
+            if (!sourceRelationships.Add((
+                    descriptor.SourceIndex,
+                    descriptor.SourceOffset,
+                    descriptor.SourceLength,
+                    descriptor.Semantic)))
+            {
+                throw new InvalidDataException(
+                    $"Auxiliary handoff contains a duplicate source relationship for '{descriptor.StableIdentity}'.");
+            }
+
+            if (!IsValidSha256(descriptor.SourceSha256))
+            {
+                throw new InvalidDataException(
+                    $"Auxiliary '{descriptor.StableIdentity}' is missing a valid Inspector source SHA-256.");
+            }
+
+            if (descriptor.Representation == AuxiliaryRepresentation.Materialized &&
+                descriptor.MaterializedArtifact == null)
+            {
+                throw new InvalidDataException(
+                    $"Materialized auxiliary '{descriptor.StableIdentity}' has no artifact in the neutral handoff.");
+            }
+
+            MediaArtifact? artifact = descriptor.MaterializedArtifact;
+            if (artifact == null)
+            {
+                continue;
+            }
+
+            MediaArtifactKind expectedKind = descriptor.ArtifactRole == MediaArtifactKind.GainMap
+                ? MediaArtifactKind.GainMap
+                : MediaArtifactKind.AuxiliaryItem;
+            if (artifact.Kind != expectedKind || !File.Exists(artifact.Path))
+            {
+                throw new InvalidDataException(
+                    $"Auxiliary '{descriptor.StableIdentity}' has no valid materialized artifact.");
+            }
+
+            string actualSha = await workspace
+                .ComputeFileSha256Async(artifact.Path, cancellationToken)
+                .ConfigureAwait(false);
+            if (!IsValidSha256(artifact.Sha256) ||
+                !string.Equals(actualSha, artifact.Sha256, StringComparison.OrdinalIgnoreCase) ||
+                !string.Equals(actualSha, descriptor.SourceSha256, StringComparison.OrdinalIgnoreCase) ||
+                (descriptor.SourceLength > 0 && new FileInfo(artifact.Path).Length != descriptor.SourceLength))
+            {
+                throw new InvalidDataException(
+                    $"Materialized auxiliary '{descriptor.StableIdentity}' changed before neutral handoff.");
+            }
+        }
+    }
+
+    private static bool IsValidSha256(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length != 64) return false;
+        bool nonZero = false;
+        foreach (char c in value)
+        {
+            bool hex = c is >= '0' and <= '9' or >= 'a' and <= 'f' or >= 'A' and <= 'F';
+            if (!hex) return false;
+            if (c != '0') nonZero = true;
+        }
+        return nonZero;
+    }
+
+    private static void VerifyPreservationCarrierHandoff(IReadOnlyList<PreservationCarrier> carriers)
+    {
+        var stableIdentities = new HashSet<string>(StringComparer.Ordinal);
+        foreach (PreservationCarrier carrier in carriers)
+        {
+            if (string.IsNullOrWhiteSpace(carrier.StableIdentity) ||
+                !stableIdentities.Add(carrier.StableIdentity) ||
+                carrier.Kind == PreservationCarrierKind.Unknown ||
+                carrier.SourceIndex is < 0 or > 1 ||
+                carrier.SourceOffset < 0 || carrier.SourceLength <= 0 ||
+                !IsValidSha256(carrier.SourceSha256))
+            {
+                throw new InvalidDataException(
+                    $"Preservation carrier '{carrier.StableIdentity}' is missing identity, range, or source SHA evidence.");
+            }
+        }
     }
 
     private static PreservationOutcome CombineOutcome(PreservationOutcome a, PreservationOutcome b)

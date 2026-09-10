@@ -21,10 +21,12 @@ internal struct NativeContextOptions
 /// </summary>
 internal sealed class NativeContext : IDisposable
 {
-    private readonly CancellationToken _cancellationToken;
+    private CancellationToken _cancellationToken;
+    private readonly object _lifecycleGate = new();
     private GCHandle _selfHandle;
     private nint _contextHandle;
-    private bool _disposed;
+    private int _activeOperations;
+    private bool _disposeRequested;
 
     private NativeContext(CancellationToken cancellationToken)
     {
@@ -52,11 +54,91 @@ internal sealed class NativeContext : IDisposable
         }
     }
 
-    public nint Handle => _contextHandle;
+    public nint Handle
+    {
+        get
+        {
+            lock (_lifecycleGate)
+            {
+                return _contextHandle;
+            }
+        }
+    }
+
+    internal NativeContextLease AcquireOperationLease(bool allowDisposeRequested = false)
+    {
+        lock (_lifecycleGate)
+        {
+            if (_contextHandle == nint.Zero || (_disposeRequested && !allowDisposeRequested))
+            {
+                throw new ObjectDisposedException(nameof(NativeContext));
+            }
+
+            checked { _activeOperations++; }
+            return new NativeContextLease(this, _contextHandle);
+        }
+    }
+
+    internal void ReleaseOperationForLease()
+    {
+        nint context = nint.Zero;
+        GCHandle self = default;
+        lock (_lifecycleGate)
+        {
+            if (_activeOperations > 0)
+            {
+                _activeOperations--;
+            }
+
+            if (_disposeRequested && _activeOperations == 0 && _contextHandle != nint.Zero)
+            {
+                context = _contextHandle;
+                _contextHandle = nint.Zero;
+                self = _selfHandle;
+                _selfHandle = default;
+            }
+        }
+
+        DestroyDetachedContext(context, self);
+    }
+
+    private static void DestroyDetachedContext(nint context, GCHandle self)
+    {
+        if (context != nint.Zero)
+        {
+            NativeMethods.DestroyContext(context);
+        }
+        if (self.IsAllocated)
+        {
+            self.Free();
+        }
+    }
 
     internal void SetExtractorFault(NativeExtractorFault fault, int targetArtifact = 0, ulong triggerAfterBytes = 0, nint callback = 0, nint userData = 0)
     {
-        NativeMethods.TestSetExtractorFault(_contextHandle, fault, targetArtifact, triggerAfterBytes, callback, userData);
+        using NativeContextLease lease = AcquireOperationLease(allowDisposeRequested: true);
+        NativeMethods.TestSetExtractorFault(lease.Handle, fault, targetArtifact, triggerAfterBytes, callback, userData);
+    }
+
+    internal void BindOperationCancellation(CancellationToken cancellationToken)
+    {
+        lock (_lifecycleGate)
+        {
+            if (_contextHandle == nint.Zero)
+            {
+                throw new ObjectDisposedException(nameof(NativeContext));
+            }
+
+            _cancellationToken = cancellationToken;
+        }
+    }
+
+    private bool IsOperationCancellationRequested()
+    {
+        lock (_lifecycleGate)
+        {
+            return _cancellationToken.IsCancellationRequested;
+        }
     }
 
     public static NativeContext Create(CancellationToken cancellationToken = default)
@@ -66,20 +148,36 @@ internal sealed class NativeContext : IDisposable
 
     public string? GetLastError()
     {
-        if (_contextHandle == nint.Zero) return null;
-        Span<byte> buf = stackalloc byte[512];
-        unsafe
+        NativeContextLease lease;
+        try
         {
-            fixed (byte* pBuf = buf)
+            lease = AcquireOperationLease(allowDisposeRequested: true);
+        }
+        catch (ObjectDisposedException)
+        {
+            return null;
+        }
+
+        try
+        {
+            Span<byte> buf = stackalloc byte[512];
+            unsafe
             {
-                NativeResult res = NativeMethods.GetLastError(_contextHandle, (nint)pBuf, (nuint)buf.Length, out nuint required);
-                if (res == NativeResult.Ok && required > 0)
+                fixed (byte* pBuf = buf)
                 {
-                    int len = 0;
-                    while (len < (int)required && buf[len] != 0) len++;
-                    return Encoding.UTF8.GetString(buf[..len]);
+                    NativeResult res = NativeMethods.GetLastError(lease.Handle, (nint)pBuf, (nuint)buf.Length, out nuint required);
+                    if (res == NativeResult.Ok && required > 0)
+                    {
+                        int len = 0;
+                        while (len < (int)required && buf[len] != 0) len++;
+                        return Encoding.UTF8.GetString(buf[..len]);
+                    }
                 }
             }
+        }
+        finally
+        {
+            lease.Dispose();
         }
         return null;
     }
@@ -87,6 +185,27 @@ internal sealed class NativeContext : IDisposable
     public void ThrowIfFailed(NativeResult res)
     {
         if (res == NativeResult.Ok) return;
+
+        if (res == NativeResult.AuthorityViolation)
+        {
+            throw new LivePhotoBox.Media.Extraction.ExtractionException(
+                LivePhotoBox.Media.Extraction.ExtractionFailureCategory.AuthorityViolation,
+                GetLastError() ?? "Native extraction authority validation failed.");
+        }
+
+        if (res == NativeResult.PlanReplayed)
+        {
+            throw new LivePhotoBox.Media.Extraction.ExtractionException(
+                LivePhotoBox.Media.Extraction.ExtractionFailureCategory.PlanReplay,
+                GetLastError() ?? "The Native extraction plan was already consumed or released.");
+        }
+
+        if (res == NativeResult.SourceChanged)
+        {
+            throw new LivePhotoBox.Media.Extraction.ExtractionException(
+                LivePhotoBox.Media.Extraction.ExtractionFailureCategory.SourceChanged,
+                GetLastError() ?? "The source no longer matches the Inspector-issued extraction plan.");
+        }
 
         if (res == NativeResult.InvalidArgument)
         {
@@ -96,7 +215,7 @@ internal sealed class NativeContext : IDisposable
                 {
                     StructSize = checked((uint)sizeof(NativeInspectionStatus))
                 };
-                if (NativeMethods.GetLastInspectionStatus(_contextHandle, ref status) == NativeResult.Ok &&
+                if (NativeMethods.GetLastInspectionStatus(Handle, ref status) == NativeResult.Ok &&
                     status.Category != NativeInspectionFailureCategory.None)
                 {
                     string? diagnostic = GetLastError();
@@ -205,7 +324,7 @@ internal sealed class NativeContext : IDisposable
             var handle = GCHandle.FromIntPtr(userData);
             if (handle.IsAllocated && handle.Target is NativeContext ctx)
             {
-                return ctx._cancellationToken.IsCancellationRequested ? 1 : 0;
+                return ctx.IsOperationCancellationRequested() ? 1 : 0;
             }
         }
         catch
@@ -217,16 +336,47 @@ internal sealed class NativeContext : IDisposable
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        if (_contextHandle != nint.Zero)
+        nint context = nint.Zero;
+        GCHandle self = default;
+        lock (_lifecycleGate)
         {
-            NativeMethods.DestroyContext(_contextHandle);
-            _contextHandle = nint.Zero;
+            if (_disposeRequested)
+            {
+                return;
+            }
+
+            _disposeRequested = true;
+            if (_activeOperations == 0 && _contextHandle != nint.Zero)
+            {
+                context = _contextHandle;
+                _contextHandle = nint.Zero;
+                self = _selfHandle;
+                _selfHandle = default;
+            }
         }
-        if (_selfHandle.IsAllocated)
+
+        DestroyDetachedContext(context, self);
+    }
+}
+
+internal sealed class NativeContextLease : IDisposable
+{
+    private NativeContext? _owner;
+
+    internal NativeContextLease(NativeContext owner, nint handle)
+    {
+        _owner = owner;
+        Handle = handle;
+    }
+
+    internal nint Handle { get; }
+
+    public void Dispose()
+    {
+        NativeContext? owner = Interlocked.Exchange(ref _owner, null);
+        if (owner is not null)
         {
-            _selfHandle.Free();
+            owner.ReleaseOperationForLease();
         }
     }
 }

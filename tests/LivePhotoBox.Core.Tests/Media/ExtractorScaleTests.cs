@@ -115,7 +115,7 @@ public sealed partial class ExtractorScaleTests
 
         var extractor = new SourceExtractor();
 
-        var bundle = await extractor.ExtractAsync(facts, sparsePath, null, workspace);
+        var bundle = await TestFactsExtractor.ExtractAsync(facts, sparsePath, null, workspace);
 
         // 1. Image assertions
         Assert.NotNull(bundle.PrimaryImage);

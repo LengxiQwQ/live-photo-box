@@ -28,6 +28,14 @@
     <ProjectReference Include="..\..\LivePhotoBox.Core\LivePhotoBox.Core.csproj" />
   </ItemGroup>
 
+  <ItemGroup Condition="Exists('..\..\artifacts\native\TestHarness\win-x64\LivePhotoBox.Native.TestHarness.dll')">
+    <Content Include="..\..\artifacts\native\TestHarness\win-x64\LivePhotoBox.Native.TestHarness.dll">
+      <Link>LivePhotoBox.Native.TestHarness.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
   <ItemGroup>
     <Content Include="..\..\designs\各个机型测试\**\*">
       <Link>samples\%(RecursiveDir)%(Filename)%(Extension)</Link>

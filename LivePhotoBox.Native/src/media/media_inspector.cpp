@@ -2304,13 +2304,23 @@ static void add_residue(
     out_residues->push_back(r);
 }
 
-static bool publish_gainmap_auxiliary(lpb_source_media_facts* facts,
-    lpb_image_container container, lpb_media_range range,
-    lpb_auxiliary_representation representation = LPB_AUX_REPRESENTATION_EMBEDDED,
-    lpb_auxiliary_ownership ownership = LPB_AUX_OWNER_PRIMARY,
-    uint32_t item_id = 0,
-    const char* relationship = "gain-map") noexcept {
-    if (!facts || facts->auxiliary_count >= 8 || range.length == 0 || !relationship) return false;
+static bool publish_auxiliary_item(
+    lpb_source_media_facts* facts,
+    const std::vector<uint8_t>& source_data,
+    lpb_image_container container,
+    lpb_media_range range,
+    lpb_auxiliary_representation representation,
+    lpb_auxiliary_ownership ownership,
+    uint32_t item_id,
+    const char* relationship,
+    const char* semantic,
+    const char* stable_identity,
+    const char* owner_identity,
+    lpb_auxiliary_codec codec = LPB_AUX_CODEC_UNKNOWN,
+    int32_t source_index = 0) noexcept {
+    if (!facts || facts->auxiliary_count >= 8 || range.length == 0 || !relationship ||
+        !semantic || !stable_identity || !owner_identity ||
+        range.offset > source_data.size() || range.length > source_data.size() - static_cast<size_t>(range.offset)) return false;
     const uint32_t auxiliary_index = facts->auxiliary_count;
     auto& item = facts->auxiliary_items[auxiliary_index];
     item.struct_size = sizeof(lpb_auxiliary_item_facts);
@@ -2318,10 +2328,39 @@ static bool publish_gainmap_auxiliary(lpb_source_media_facts* facts,
     item.container = container;
     item.representation = representation;
     item.ownership = ownership;
-    item.item_id = item_id;
+    item.item_id = item_id == 0 ? auxiliary_index + 1 : item_id;
     item.file_range = range;
     strncpy_s(item.relationship, relationship, _TRUNCATE);
+    item.codec = codec;
+    item.source_index = source_index;
+    lpb::crypto::sha256_buffer(source_data.data() + static_cast<size_t>(range.offset),
+        static_cast<size_t>(range.length), item.sha256);
+    strncpy_s(item.stable_identity, stable_identity, _TRUNCATE);
+    strncpy_s(item.owner_identity, owner_identity, _TRUNCATE);
+    strncpy_s(item.semantic, semantic, _TRUNCATE);
     ++facts->auxiliary_count;
+
+    return true;
+}
+
+static bool publish_gainmap_auxiliary(lpb_source_media_facts* facts,
+    const std::vector<uint8_t>& source_data,
+    lpb_image_container container, lpb_media_range range,
+    lpb_auxiliary_representation representation = LPB_AUX_REPRESENTATION_EMBEDDED,
+    lpb_auxiliary_ownership ownership = LPB_AUX_OWNER_PRIMARY,
+    uint32_t item_id = 0,
+    const char* relationship = "gain-map",
+    const char* stable_identity = nullptr) noexcept {
+    const uint32_t next_index = facts ? facts->auxiliary_count : 0;
+    const uint32_t auxiliary_index = next_index;
+    std::string generated_identity = "auxiliary:gainmap:" + std::to_string(next_index);
+    if (!publish_auxiliary_item(
+            facts, source_data, container, range, representation, ownership, item_id,
+            relationship, "GainMap", stable_identity ? stable_identity : generated_identity.c_str(),
+            ownership == LPB_AUX_OWNER_PRIMARY ? "primary:0" : "auxiliary:0",
+            container == LPB_IMAGE_CONTAINER_JPEG ? LPB_AUX_CODEC_JPEG : LPB_AUX_CODEC_HEVC)) {
+        return false;
+    }
 
     auto& gain_map = facts->gain_map;
     gain_map.struct_size = sizeof(lpb_gainmap_item_facts);
@@ -2332,10 +2371,181 @@ static bool publish_gainmap_auxiliary(lpb_source_media_facts* facts,
     gain_map.owner_artifact_role = ownership == LPB_AUX_OWNER_PRIMARY
         ? LPB_ARTIFACT_PRIMARY_IMAGE : LPB_ARTIFACT_AUXILIARY_ITEM;
     gain_map.auxiliary_index = auxiliary_index;
-    gain_map.item_id = item_id;
+    gain_map.item_id = facts->auxiliary_items[auxiliary_index].item_id;
     gain_map.file_range = range;
     strncpy_s(gain_map.relationship, relationship, _TRUNCATE);
     return true;
+}
+
+static bool publish_preservation_carrier(
+    lpb_source_media_facts* facts,
+    const std::vector<uint8_t>& source_data,
+    lpb_preservation_carrier_kind kind,
+    lpb_media_range range,
+    const char* stable_identity,
+    const char* semantic,
+    const char* owner_identity,
+    const char* relationship,
+    int32_t source_index = 0,
+    lpb_image_container container = LPB_IMAGE_CONTAINER_JPEG,
+    lpb_auxiliary_codec codec = LPB_AUX_CODEC_UNKNOWN,
+    lpb_media_artifact_kind artifact_role = LPB_ARTIFACT_PRIMARY_IMAGE) noexcept {
+    if (!facts || facts->preservation_carrier_count >= 8 || range.length == 0 ||
+        !stable_identity || !semantic || !owner_identity || !relationship ||
+        range.offset > source_data.size() || range.length > source_data.size() - static_cast<size_t>(range.offset)) {
+        return false;
+    }
+    auto& carrier = facts->preservation_carriers[facts->preservation_carrier_count];
+    carrier = {};
+    carrier.struct_size = sizeof(lpb_preservation_carrier_facts);
+    carrier.is_present = 1;
+    carrier.kind = kind;
+    carrier.source_index = source_index;
+    carrier.artifact_role = artifact_role;
+    carrier.container = container;
+    carrier.codec = codec;
+    carrier.file_range = range;
+    lpb::crypto::sha256_buffer(source_data.data() + static_cast<size_t>(range.offset),
+        static_cast<size_t>(range.length), carrier.sha256);
+    strncpy_s(carrier.stable_identity, stable_identity, _TRUNCATE);
+    strncpy_s(carrier.semantic, semantic, _TRUNCATE);
+    strncpy_s(carrier.owner_identity, owner_identity, _TRUNCATE);
+    strncpy_s(carrier.relationship, relationship, _TRUNCATE);
+    ++facts->preservation_carrier_count;
+    return true;
+}
+
+struct samsung_sef_preservation_entry {
+    uint16_t marker{0};
+    size_t payload_offset{0};
+    size_t payload_length{0};
+    std::string name;
+};
+
+// Parse the complete Samsung directory and return only non-MotionPhoto
+// entries.  The directory/index itself is returned separately as a carrier;
+// the motion entries are source-protocol residue and are deliberately not
+// represented as preservation data.
+static bool collect_samsung_sef_preservation_entries(
+    const std::vector<uint8_t>& data,
+    uint64_t trailer_offset,
+    bool reject_motion_entries,
+    size_t& out_sefh,
+    std::vector<samsung_sef_preservation_entry>& out_entries) noexcept {
+    out_sefh = 0;
+    out_entries.clear();
+    if (trailer_offset > data.size() || data.size() - static_cast<size_t>(trailer_offset) < 16) return false;
+
+    const size_t start = static_cast<size_t>(trailer_offset);
+    const size_t end = data.size();
+    const size_t footer = end - 8;
+    if (std::memcmp(data.data() + footer + 4, "SEFT", 4) != 0) return false;
+
+    const auto read_le16 = [&](size_t at) noexcept -> uint16_t {
+        return static_cast<uint16_t>(data[at]) | (static_cast<uint16_t>(data[at + 1]) << 8);
+    };
+    const auto read_le32 = [&](size_t at) noexcept -> uint32_t {
+        return static_cast<uint32_t>(data[at]) |
+            (static_cast<uint32_t>(data[at + 1]) << 8) |
+            (static_cast<uint32_t>(data[at + 2]) << 16) |
+            (static_cast<uint32_t>(data[at + 3]) << 24);
+    };
+
+    const uint32_t total_size = read_le32(footer);
+    const size_t trailer_length = end - start;
+    if (total_size < 12 || static_cast<uint64_t>(total_size) > trailer_length - 8) return false;
+    const size_t sefh = footer - static_cast<size_t>(total_size);
+    if (sefh < start || sefh + 12 > footer || std::memcmp(data.data() + sefh, "SEFH", 4) != 0) return false;
+
+    const uint32_t entry_count = read_le32(sefh + 8);
+    if (entry_count > (footer - (sefh + 12)) / 12 ||
+        sefh + 12 + static_cast<size_t>(entry_count) * 12 != footer) return false;
+
+    std::vector<std::pair<size_t, size_t>> payload_ranges;
+    std::vector<std::string> identities;
+    payload_ranges.reserve(entry_count);
+    out_entries.reserve(entry_count);
+    identities.reserve(entry_count);
+
+    for (uint32_t i = 0; i < entry_count; ++i) {
+        const size_t directory_entry = sefh + 12 + static_cast<size_t>(i) * 12;
+        const uint16_t prefix = read_le16(directory_entry);
+        const uint16_t marker = read_le16(directory_entry + 2);
+        const uint32_t back_offset = read_le32(directory_entry + 4);
+        const uint32_t payload_size = read_le32(directory_entry + 8);
+        if (payload_size < 8 || static_cast<uint64_t>(back_offset) > static_cast<uint64_t>(sefh - start) ||
+            payload_size > back_offset) return false;
+
+        const size_t payload = sefh - static_cast<size_t>(back_offset);
+        if (payload < start || payload > sefh - static_cast<size_t>(payload_size)) return false;
+        const size_t payload_end = payload + static_cast<size_t>(payload_size);
+        if (read_le16(payload) != prefix || read_le16(payload + 2) != marker) return false;
+        for (const auto& prior : payload_ranges) {
+            if (payload < prior.second && prior.first < payload_end) return false;
+        }
+        payload_ranges.emplace_back(payload, payload_end);
+
+        const uint32_t name_size = read_le32(payload + 4);
+        if (name_size > payload_size - 8) return false;
+        std::string name(reinterpret_cast<const char*>(data.data() + payload + 8), name_size);
+
+        const bool is_motion_data = marker == 0x0A30;
+        const bool is_motion_version = marker == 0x0A31;
+        if (is_motion_data || is_motion_version) {
+            if (reject_motion_entries) return false;
+            if (is_motion_data) {
+                if (prefix != 0 || name_size != 16 || payload_size < 24 || name != "MotionPhoto_Data" ||
+                    !is_valid_isobmff_media_range(data.data(), data.size(), payload + 24, payload_size - 24)) {
+                    return false;
+                }
+            } else if (prefix != 0 || name_size != 19 || payload_size < 31 || name != "MotionPhoto_Version") {
+                return false;
+            }
+            continue;
+        }
+
+        const std::string identity = "samsung:sef:entry:" + std::to_string(marker) + ":" + name;
+        if (identity.size() >= 96 || name.size() >= 96 ||
+            std::find(identities.begin(), identities.end(), identity) != identities.end()) return false;
+        identities.push_back(identity);
+        out_entries.push_back(samsung_sef_preservation_entry{ marker, payload, payload_size, std::move(name) });
+    }
+
+    out_sefh = sefh;
+    return true;
+}
+
+static bool publish_samsung_sef_preservation_carriers(
+    lpb_source_media_facts* facts,
+    const std::vector<uint8_t>& source_data,
+    uint64_t trailer_offset,
+    bool reject_motion_entries) noexcept {
+    size_t sefh = 0;
+    std::vector<samsung_sef_preservation_entry> entries;
+    if (!collect_samsung_sef_preservation_entries(
+            source_data, trailer_offset, reject_motion_entries, sefh, entries) ||
+        entries.size() + 1 > 8) {
+        return false;
+    }
+
+    for (const auto& entry : entries) {
+        const std::string identity = "samsung:sef:entry:" + std::to_string(entry.marker) + ":" + entry.name;
+        const std::string relationship = "SEFH/SEFT:" + entry.name;
+        if (relationship.size() >= 96 ||
+            !publish_preservation_carrier(
+                facts, source_data, LPB_PRESERVATION_CARRIER_SAMSUNG_SEF,
+                { entry.payload_offset, entry.payload_length }, identity.c_str(), entry.name.c_str(),
+                "primary:0", relationship.c_str(), 0, LPB_IMAGE_CONTAINER_JPEG,
+                LPB_AUX_CODEC_UNKNOWN, LPB_ARTIFACT_PRIMARY_IMAGE)) {
+            return false;
+        }
+    }
+
+    return publish_preservation_carrier(
+        facts, source_data, LPB_PRESERVATION_CARRIER_SAMSUNG_SEF,
+        { sefh, source_data.size() - sefh }, "samsung:sef:index-trailer", "SamsungSEFIndexTrailer",
+        "primary:0", "SEFH/SEFT", 0, LPB_IMAGE_CONTAINER_JPEG, LPB_AUX_CODEC_UNKNOWN,
+        LPB_ARTIFACT_PRIMARY_IMAGE);
 }
 
 // Samsung JPEG keeps the Google Motion Photo directory in XMP, but its
@@ -2441,9 +2651,9 @@ static int bind_samsung_jpeg_gainmap(
     // position rather than the old zero identity so the GainMap cannot be
     // rebound by a caller merely matching a byte range.
     const uint32_t stable_item_id = 2;
-    if (!publish_gainmap_auxiliary(facts, LPB_IMAGE_CONTAINER_JPEG,
+    if (!publish_gainmap_auxiliary(facts, data, LPB_IMAGE_CONTAINER_JPEG,
         { gainmap_offset, gainmap->length }, LPB_AUX_REPRESENTATION_EMBEDDED,
-        LPB_AUX_OWNER_PRIMARY, stable_item_id, "gain-map")) {
+        LPB_AUX_OWNER_PRIMARY, stable_item_id, "gain-map", "samsung-jpeg:container:item:2")) {
         set_error(context, "Samsung JPEG GainMap could not be bound to an auxiliary identity.");
         return -1;
     }
@@ -2453,11 +2663,14 @@ static int bind_samsung_jpeg_gainmap(
 static bool bind_gainmap_from_heif_auxiliary(lpb_context* context,
     lpb_source_media_facts* facts) noexcept {
     if (!context || !facts) return false;
-    constexpr std::string_view gainmap_relationship =
+    constexpr std::string_view apple_gainmap_relationship =
         "urn:com:apple:photo:2020:aux:hdrgainmap";
+    constexpr std::string_view samsung_gainmap_relationship =
+        "urn:com:samsung:photo:2024:aux:hdrgainmap";
     size_t gainmap_index = std::numeric_limits<size_t>::max();
     for (size_t i = 0; i < facts->auxiliary_count; ++i) {
-        if (std::string_view(facts->auxiliary_items[i].relationship) != gainmap_relationship) continue;
+        const std::string_view relationship(facts->auxiliary_items[i].relationship);
+        if (relationship != apple_gainmap_relationship && relationship != samsung_gainmap_relationship) continue;
         if (gainmap_index != std::numeric_limits<size_t>::max()) {
             set_error(context, "HEIF contains duplicate GainMap auxiliary relationships.");
             return false;
@@ -2478,7 +2691,9 @@ static bool bind_gainmap_from_heif_auxiliary(lpb_context* context,
     gain_map.container = auxiliary.container;
     gain_map.representation = static_cast<int32_t>(auxiliary.representation);
     gain_map.ownership = static_cast<int32_t>(auxiliary.ownership);
-    gain_map.owner_artifact_role = LPB_ARTIFACT_AUXILIARY_ITEM;
+    gain_map.owner_artifact_role = auxiliary.ownership == LPB_AUX_OWNER_PRIMARY
+        ? LPB_ARTIFACT_PRIMARY_IMAGE
+        : LPB_ARTIFACT_AUXILIARY_ITEM;
     gain_map.auxiliary_index = static_cast<uint32_t>(gainmap_index);
     gain_map.item_id = auxiliary.item_id;
     gain_map.file_range = auxiliary.file_range;
@@ -2504,6 +2719,31 @@ static bool populate_heif_auxiliary(lpb_context* context, const std::vector<uint
     }
     facts->auxiliary_count = static_cast<uint32_t>(written);
     return true;
+}
+
+static void set_heif_graph_failure_status(lpb_context* context, uint64_t capability) noexcept
+{
+    if (!context) return;
+    std::string diagnostic;
+    {
+        std::scoped_lock lock(context->error_mutex);
+        diagnostic = context->last_error;
+    }
+    const bool unsupported = diagnostic.find("Unsupported") != std::string::npos ||
+        diagnostic.find("unsupported") != std::string::npos;
+    const bool ambiguous = diagnostic.find("duplicate") != std::string::npos ||
+        diagnostic.find("Duplicate") != std::string::npos ||
+        diagnostic.find("cycle") != std::string::npos ||
+        diagnostic.find("Shadow") != std::string::npos ||
+        diagnostic.find("shadow") != std::string::npos ||
+        diagnostic.find("ambiguous") != std::string::npos ||
+        diagnostic.find("Ambiguous") != std::string::npos;
+    set_inspection_status(
+        context,
+        unsupported ? LPB_INSPECTION_FAILURE_UNSUPPORTED :
+            ambiguous ? LPB_INSPECTION_FAILURE_AMBIGUOUS : LPB_INSPECTION_FAILURE_MALFORMED,
+        LPB_INSPECTION_STAGE_CONTAINER,
+        capability);
 }
 
 lpb_result inspect_source(
@@ -2635,7 +2875,7 @@ lpb_result inspect_source(
                         return LPB_RESULT_INVALID_ARGUMENT;
                     }
                     if (!populate_heif_auxiliary(context, primary_data, out_facts)) {
-                        set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS, LPB_INSPECTION_STAGE_CONTAINER, LPB_CAPABILITY_APPLE);
+                        set_heif_graph_failure_status(context, LPB_CAPABILITY_APPLE);
                         return LPB_RESULT_INVALID_ARGUMENT;
                     }
                     if (!bind_gainmap_from_heif_auxiliary(context, out_facts)) {
@@ -2926,7 +3166,7 @@ lpb_result inspect_source(
                     out_facts->gain_map.container = LPB_IMAGE_CONTAINER_JPEG;
                     out_facts->gain_map.file_range.offset = jpeg_end;
                     out_facts->gain_map.file_range.length = gainmap_item->length;
-                    if (!publish_gainmap_auxiliary(out_facts, LPB_IMAGE_CONTAINER_JPEG,
+                    if (!publish_gainmap_auxiliary(out_facts, primary_data, LPB_IMAGE_CONTAINER_JPEG,
                             out_facts->gain_map.file_range)) {
                         set_error(context, "Huawei/Honor GainMap could not be bound to an auxiliary identity.");
                         return LPB_RESULT_INVALID_ARGUMENT;
@@ -3030,6 +3270,14 @@ lpb_result inspect_source(
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
 
+            if (!publish_samsung_sef_preservation_carriers(
+                    out_facts, primary_data, jpeg_end, false)) {
+                set_error(context, "Samsung non-motion SEF preservation entries could not be represented.");
+                set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS,
+                    LPB_INSPECTION_STAGE_CONTAINER, LPB_CAPABILITY_SAMSUNG_JPEG);
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
             if (out_residues) {
                 std::string fp_0a30, fp_0a31;
                 lpb::protocols::samsung_sef_get_entry_fingerprint(primary_data.data(), primary_data.size(), 0x0A30, fp_0a30);
@@ -3091,6 +3339,15 @@ lpb_result inspect_source(
         out_facts->primary_image.is_present = 1;
         out_facts->primary_image.file_range.offset = 0;
         out_facts->primary_image.file_range.length = primary_size;
+        if (jpeg_end >= primary_size ||
+            !is_valid_non_motion_sef_range(primary_data, jpeg_end, primary_size - jpeg_end) ||
+            !publish_samsung_sef_preservation_carriers(
+                out_facts, primary_data, jpeg_end, true)) {
+            set_error(context, "Samsung non-motion SEF trailer could not be represented as a preservation carrier.");
+            set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS,
+                LPB_INSPECTION_STAGE_CONTAINER, LPB_CAPABILITY_SAMSUNG_JPEG);
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         // The remaining structured SEF entries are preserved non-live
         // auxiliary metadata, not an active live-photo protocol tail.
         out_facts->protocol_tail_range.offset = 0;
@@ -3138,8 +3395,7 @@ lpb_result inspect_source(
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
             if (!populate_heif_auxiliary(context, primary_data, out_facts)) {
-                set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS,
-                    LPB_INSPECTION_STAGE_CONTAINER, LPB_CAPABILITY_SAMSUNG_HEIC);
+                set_heif_graph_failure_status(context, LPB_CAPABILITY_SAMSUNG_HEIC);
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
             if (!bind_gainmap_from_heif_auxiliary(context, out_facts)) {
@@ -3313,7 +3569,7 @@ lpb_result inspect_source(
                 out_facts->gain_map.container = LPB_IMAGE_CONTAINER_JPEG;
                 out_facts->gain_map.file_range.offset = gm_off;
                 out_facts->gain_map.file_range.length = gm_len;
-                if (!publish_gainmap_auxiliary(out_facts, LPB_IMAGE_CONTAINER_JPEG,
+                if (!publish_gainmap_auxiliary(out_facts, primary_data, LPB_IMAGE_CONTAINER_JPEG,
                         out_facts->gain_map.file_range)) {
                     set_error(context, "Vivo X300+ GainMap could not be bound to an auxiliary identity.");
                     return LPB_RESULT_INVALID_ARGUMENT;
@@ -3559,6 +3815,14 @@ lpb_result inspect_source(
                     set_error(context, "OPPO Original range is not a valid JPEG.");
                     return LPB_RESULT_INVALID_ARGUMENT;
                 }
+                if (!publish_auxiliary_item(
+                        out_facts, primary_data, LPB_IMAGE_CONTAINER_JPEG,
+                        { orig_off, orig_len }, LPB_AUX_REPRESENTATION_MATERIALIZED,
+                        LPB_AUX_OWNER_PRIMARY, 1, "Original", "Original",
+                        "oppo:container:item:Original", "primary:0", LPB_AUX_CODEC_JPEG)) {
+                    set_error(context, "OPPO Original could not be bound to a unique auxiliary identity.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
                 next_res_offset = orig_off;
             }
 
@@ -3577,7 +3841,7 @@ lpb_result inspect_source(
                 out_facts->gain_map.container = LPB_IMAGE_CONTAINER_JPEG;
                 out_facts->gain_map.file_range.offset = gm_off;
                 out_facts->gain_map.file_range.length = gm_len;
-                if (!publish_gainmap_auxiliary(out_facts, LPB_IMAGE_CONTAINER_JPEG,
+                if (!publish_gainmap_auxiliary(out_facts, primary_data, LPB_IMAGE_CONTAINER_JPEG,
                         out_facts->gain_map.file_range)) {
                     set_error(context, "OPPO GainMap could not be bound to an auxiliary identity.");
                     return LPB_RESULT_INVALID_ARGUMENT;
@@ -3772,8 +4036,7 @@ lpb_result inspect_source(
                     return LPB_RESULT_INVALID_ARGUMENT;
                 }
                 if (!populate_heif_auxiliary(context, primary_data, out_facts)) {
-                    set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS,
-                        LPB_INSPECTION_STAGE_CONTAINER, LPB_CAPABILITY_GOOGLE_V2);
+                    set_heif_graph_failure_status(context, LPB_CAPABILITY_GOOGLE_V2);
                     return LPB_RESULT_INVALID_ARGUMENT;
                 }
                 if (!bind_gainmap_from_heif_auxiliary(context, out_facts)) {
@@ -3996,7 +4259,7 @@ lpb_result inspect_source(
                 out_facts->gain_map.container = LPB_IMAGE_CONTAINER_JPEG;
                 out_facts->gain_map.file_range.offset = gm_offset;
                 out_facts->gain_map.file_range.length = gm_len;
-                if (!publish_gainmap_auxiliary(out_facts, LPB_IMAGE_CONTAINER_JPEG,
+                if (!publish_gainmap_auxiliary(out_facts, primary_data, LPB_IMAGE_CONTAINER_JPEG,
                         out_facts->gain_map.file_range)) {
                     set_error(context, "Google Motion Photo GainMap could not be bound to an auxiliary identity.");
                     return LPB_RESULT_INVALID_ARGUMENT;
@@ -4187,7 +4450,7 @@ lpb_result inspect_source(
                             out_facts->protocol_tail_range.offset = jpeg_end;
                             out_facts->protocol_tail_range.length = gainmap_offset - jpeg_end;
                         }
-                        if (!publish_gainmap_auxiliary(out_facts, LPB_IMAGE_CONTAINER_JPEG,
+                        if (!publish_gainmap_auxiliary(out_facts, primary_data, LPB_IMAGE_CONTAINER_JPEG,
                                 out_facts->gain_map.file_range)) {
                             set_error(context, "Neutral GainMap could not be bound to an auxiliary identity.");
                             set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS,
@@ -4264,7 +4527,7 @@ lpb_result inspect_source(
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         if (!populate_heif_auxiliary(context, primary_data, out_facts)) {
-            set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS, LPB_INSPECTION_STAGE_CONTAINER);
+            set_heif_graph_failure_status(context, 0);
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         if (!bind_gainmap_from_heif_auxiliary(context, out_facts)) {
@@ -4305,6 +4568,104 @@ lpb_result inspect_source(
     set_inspection_status(context, LPB_INSPECTION_FAILURE_UNSUPPORTED, LPB_INSPECTION_STAGE_CONTAINER);
     out_facts->protocol = LPB_SOURCE_PROTOCOL_UNKNOWN;
     return LPB_RESULT_INVALID_ARGUMENT;
+}
+
+lpb_result inspect_source_with_plan(
+    lpb_context* context,
+    const char* primary_path,
+    const char* secondary_path,
+    lpb_source_media_facts* out_facts,
+    lpb_extraction_plan** out_plan,
+    std::vector<lpb_confirmed_residue>* out_residues,
+    uint64_t* out_generation) noexcept
+{
+    if (context == nullptr || out_facts == nullptr || out_plan == nullptr)
+    {
+        set_error(context, "Context, output facts, and output extraction plan are required.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    *out_plan = nullptr;
+    if (out_generation != nullptr)
+    {
+        *out_generation = 0;
+    }
+    std::vector<lpb_confirmed_residue> residues;
+    const lpb_result inspect_result = inspect_source(
+        context, primary_path, secondary_path, out_facts,
+        out_residues == nullptr ? nullptr : &residues);
+    if (inspect_result != LPB_RESULT_OK)
+    {
+        return inspect_result;
+    }
+
+    if (out_residues != nullptr)
+    {
+        *out_residues = residues;
+    }
+
+    lpb_file_identity primary_identity{};
+    std::wstring primary_final_path;
+    if (!capture_file_identity(primary_path, primary_identity, primary_final_path))
+    {
+        set_error(context, "[SourceRangeUnreadable] Inspector could not capture primary source identity.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    const bool has_secondary = secondary_path != nullptr && secondary_path[0] != '\0';
+    lpb_file_identity secondary_identity{};
+    std::wstring secondary_final_path;
+    if (has_secondary && !capture_file_identity(secondary_path, secondary_identity, secondary_final_path))
+    {
+        set_error(context, "[SourceRangeUnreadable] Inspector could not capture secondary source identity.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    try
+    {
+        lpb_extraction_plan_record plan{};
+        plan.owner_context = context;
+        plan.abi_version = LPB_NATIVE_ABI_VERSION;
+        plan.plan_version = 1;
+        plan.facts = *out_facts;
+        plan.primary_identity = primary_identity;
+        plan.secondary_identity = secondary_identity;
+        plan.has_secondary = has_secondary;
+        plan.primary_final_path = std::move(primary_final_path);
+        plan.secondary_final_path = std::move(secondary_final_path);
+        if (!generate_plan_token(context, plan.token))
+        {
+            set_error(context, "[InternalError] Failed to generate an opaque extraction plan token.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+        std::scoped_lock lock(context->plan_mutex);
+        if (context->next_plan_generation == 0)
+        {
+            set_error(context, "[InternalError] Extraction plan generation space is exhausted.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+        const uint64_t generation = plan.generation = context->next_plan_generation++;
+        context->extraction_plans.push_back(std::move(plan));
+#if defined(LPB_NATIVE_TEST_HARNESS)
+        ++context->test_issued;
+#endif
+        *out_plan = plan_handle_from_token(context->extraction_plans.back().token);
+        if (out_generation != nullptr)
+        {
+            *out_generation = generation;
+        }
+        return LPB_RESULT_OK;
+    }
+    catch (const std::exception& ex)
+    {
+        set_error(context, ex.what());
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    catch (...)
+    {
+        set_error(context, "Failed to allocate an extraction authority plan.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
 }
 
 } // namespace lpb::media

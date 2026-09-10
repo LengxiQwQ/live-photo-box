@@ -13,4 +13,6 @@ public sealed record ExtractedMediaBundle
     public MediaArtifact? GainMap { get; init; }
     public required SourceMediaFacts SourceFacts { get; init; }
     public IReadOnlyList<RemovedProtocolFact> ExtractedProtocolFacts { get; init; } = [];
+    public IReadOnlyList<AuxiliaryMediaDescriptor> AuxiliaryMedia { get; init; } = [];
+    public IReadOnlyList<PreservationCarrier> PreservationCarriers { get; init; } = [];
 }

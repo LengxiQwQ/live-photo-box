@@ -93,7 +93,7 @@ public sealed class ExtractorExactnessTests
 
         using var workspace = new MediaWorkspace();
         var extractor = new SourceExtractor();
-        var bundle = await extractor.ExtractAsync(facts, dummySource, null, workspace);
+        var bundle = await TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace);
 
         // 1. Verify primary image output
         Assert.NotNull(bundle.PrimaryImage);
@@ -186,7 +186,7 @@ public sealed class ExtractorExactnessTests
 
         using var workspace = new MediaWorkspace();
         var extractor = new SourceExtractor();
-        var bundle = await extractor.ExtractAsync(facts, dummySource, null, workspace);
+        var bundle = await TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace);
 
         Assert.NotNull(bundle.PrimaryImage);
         Assert.NotNull(bundle.GainMap);
@@ -250,7 +250,7 @@ public sealed class ExtractorExactnessTests
 
         using var workspace = new MediaWorkspace();
         var extractor = new SourceExtractor();
-        var bundle = await extractor.ExtractAsync(facts, dummySource, null, workspace);
+        var bundle = await TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace);
 
         Assert.NotNull(bundle.MotionVideo);
         Assert.Equal(vidLen, bundle.MotionVideo.ByteLength);

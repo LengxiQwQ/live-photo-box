@@ -35,9 +35,9 @@ public sealed class NativeRuntimeTests
     }
 
     [Fact]
-    public void SupportedAbiVersion_IsFour()
+    public void SupportedAbiVersion_IsFive()
     {
-        Assert.Equal(4u, NativeRuntime.SupportedAbiVersion);
+        Assert.Equal(5u, NativeRuntime.SupportedAbiVersion);
     }
 
     [Fact]
@@ -60,7 +60,7 @@ public sealed class NativeRuntimeTests
     [InlineData(1u)]
     [InlineData(0u)]
     [InlineData(3u)]
-    [InlineData(5u)]
+    [InlineData(4u)]
     [InlineData(999u)]
     public unsafe void CreateContext_MismatchedAbiVersion_FailsClosed(uint wrongAbi)
     {
@@ -102,16 +102,23 @@ public sealed class NativeRuntimeTests
         Assert.Equal(112, sizeof(NativeGainMapItemFacts));
         Assert.Equal(32, (int)Marshal.OffsetOf<NativeGainMapItemFacts>("FileRange"));
         Assert.Equal(48, (int)Marshal.OffsetOf<NativeGainMapItemFacts>("Relationship"));
-        Assert.Equal(104, sizeof(NativeAuxiliaryItemFacts));
+        Assert.Equal(2208, sizeof(NativeAuxiliaryItemFacts));
+        Assert.Equal(104, (int)Marshal.OffsetOf<NativeAuxiliaryItemFacts>("Codec"));
+        Assert.Equal(112, (int)Marshal.OffsetOf<NativeAuxiliaryItemFacts>("Sha256"));
+        Assert.Equal(400, (int)Marshal.OffsetOf<NativeAuxiliaryItemFacts>("ItemType"));
+        Assert.Equal(408, (int)Marshal.OffsetOf<NativeAuxiliaryItemFacts>("GraphFlags"));
+        Assert.Equal(412, (int)Marshal.OffsetOf<NativeAuxiliaryItemFacts>("DependencyCount"));
+        Assert.Equal(464, sizeof(NativePreservationCarrierFacts));
         Assert.Equal(32, sizeof(NativeTimingFacts));
 
-        Assert.Equal(1320, sizeof(NativeSourceMediaFacts));
+        Assert.Equal(21872, sizeof(NativeSourceMediaFacts));
         Assert.Equal(128, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("GainMap"));
         Assert.Equal(240, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("Timing"));
         Assert.Equal(416, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("PrimarySha256"));
         Assert.Equal(448, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("SecondarySha256"));
         Assert.Equal(480, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("HasSecondarySource"));
         Assert.Equal(484, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("AuxiliaryCount"));
+        Assert.Equal(18152, (int)Marshal.OffsetOf<NativeSourceMediaFacts>("PreservationCarrierCount"));
 
         Assert.Equal(348, sizeof(NativeConfirmedResidue));
         Assert.Equal(336, (int)Marshal.OffsetOf<NativeConfirmedResidue>("CoordinateSpace"));

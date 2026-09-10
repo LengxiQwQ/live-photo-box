@@ -20,9 +20,11 @@
 extern "C" {
 #endif
 
-#define LPB_NATIVE_ABI_VERSION 4u
+#define LPB_NATIVE_ABI_VERSION 5u
 
 typedef struct lpb_context lpb_context;
+typedef struct lpb_extraction_plan lpb_extraction_plan;
+typedef struct lpb_confirmed_residue lpb_confirmed_residue;
 
 typedef enum lpb_result
 {
@@ -31,7 +33,12 @@ typedef enum lpb_result
     LPB_RESULT_ABI_MISMATCH = 2,
     LPB_RESULT_CANCELLED = 3,
     LPB_RESULT_BUFFER_TOO_SMALL = 4,
-    LPB_RESULT_INTERNAL_ERROR = 5
+    LPB_RESULT_INTERNAL_ERROR = 5,
+    /* Typed extraction authority/status failures.  These values are appended
+       to preserve the existing result-code meanings. */
+    LPB_RESULT_AUTHORITY_VIOLATION = 6,
+    LPB_RESULT_PLAN_REPLAYED = 7,
+    LPB_RESULT_SOURCE_CHANGED = 8
 } lpb_result;
 
 typedef enum lpb_inspection_failure_category
@@ -485,6 +492,13 @@ typedef struct lpb_gainmap_item_facts
 
 typedef enum lpb_auxiliary_representation { LPB_AUX_REPRESENTATION_EMBEDDED = 0, LPB_AUX_REPRESENTATION_DETACHED = 1, LPB_AUX_REPRESENTATION_MATERIALIZED = 2 } lpb_auxiliary_representation;
 typedef enum lpb_auxiliary_ownership { LPB_AUX_OWNER_PRIMARY = 0, LPB_AUX_OWNER_AUXILIARY = 1 } lpb_auxiliary_ownership;
+typedef enum lpb_auxiliary_codec { LPB_AUX_CODEC_UNKNOWN = 0, LPB_AUX_CODEC_JPEG = 1, LPB_AUX_CODEC_HEVC = 2, LPB_AUX_CODEC_H264 = 3, LPB_AUX_CODEC_COPY = 4 } lpb_auxiliary_codec;
+typedef enum lpb_preservation_carrier_kind { LPB_PRESERVATION_CARRIER_UNKNOWN = 0, LPB_PRESERVATION_CARRIER_SAMSUNG_SEF = 1, LPB_PRESERVATION_CARRIER_PROTOCOL_TRAILER = 2, LPB_PRESERVATION_CARRIER_CONTAINER_METADATA = 3, LPB_PRESERVATION_CARRIER_OPAQUE_FRAGMENT = 4 } lpb_preservation_carrier_kind;
+
+#define LPB_HEIF_MAX_DEPENDENCIES 64u
+#define LPB_HEIF_GRAPH_COMPLETE 0x00000001u
+#define LPB_HEIF_GRAPH_DERIVED 0x00000002u
+#define LPB_HEIF_GRAPH_SUPPORTED_DERIVED 0x00000004u
 
 typedef struct lpb_auxiliary_item_facts
 {
@@ -496,7 +510,40 @@ typedef struct lpb_auxiliary_item_facts
     uint32_t item_id;
     lpb_media_range file_range;
     char relationship[64];
+    lpb_auxiliary_codec codec;
+    int32_t source_index;
+    uint8_t sha256[32];
+    char stable_identity[96];
+    char owner_identity[96];
+    char semantic[64];
+    /* HEIF graph facts are appended to preserve the ABI-v5 prefix.  A
+       descriptor range is not a standalone artifact; dependencies carry the
+       complete derived/grid item graph needed for truthful representation. */
+    char item_type[8];
+    uint32_t graph_flags;
+    uint32_t dependency_count;
+    uint32_t dependency_item_ids[LPB_HEIF_MAX_DEPENDENCIES];
+    uint64_t dependency_offsets[LPB_HEIF_MAX_DEPENDENCIES];
+    uint64_t dependency_lengths[LPB_HEIF_MAX_DEPENDENCIES];
+    char dependency_item_types[LPB_HEIF_MAX_DEPENDENCIES][8];
 } lpb_auxiliary_item_facts;
+
+typedef struct lpb_preservation_carrier_facts
+{
+    uint32_t struct_size;
+    int32_t is_present;
+    lpb_preservation_carrier_kind kind;
+    int32_t source_index;
+    int32_t artifact_role;
+    lpb_image_container container;
+    lpb_auxiliary_codec codec;
+    lpb_media_range file_range;
+    uint8_t sha256[32];
+    char stable_identity[96];
+    char owner_identity[96];
+    char relationship[96];
+    char semantic[96];
+} lpb_preservation_carrier_facts;
 
 typedef struct lpb_timing_facts
 {
@@ -524,6 +571,8 @@ typedef struct lpb_source_media_facts
     int32_t has_secondary_source;
     uint32_t auxiliary_count;
     lpb_auxiliary_item_facts auxiliary_items[8];
+    uint32_t preservation_carrier_count;
+    lpb_preservation_carrier_facts preservation_carriers[8];
 } lpb_source_media_facts;
 
 /* Enumerates all HEIF auxiliary items that are formally related to the
@@ -550,8 +599,46 @@ LPB_API lpb_result LPB_CALL lpb_inspect_media(
     lpb_source_media_facts* out_facts);
 
 /*
- * High-level Native extraction of media items into destination files.
- * Reads source files strictly read-only and writes slices/files directly.
+ * Inspector-issued extraction authority.  The returned handle is owned by
+ * `context`, contains the complete confirmed facts and source identities, and
+ * is single-use.  It cannot be constructed by a managed caller.
+ */
+LPB_API lpb_result LPB_CALL lpb_inspect_media_with_plan(
+    lpb_context* context,
+    const char* primary_path,
+    const char* secondary_path,
+    lpb_source_media_facts* out_facts,
+    lpb_extraction_plan** out_plan,
+    lpb_confirmed_residue* out_residues,
+    size_t residues_capacity,
+    size_t* out_residues_count,
+    uint64_t* out_plan_generation);
+
+/* Claims an Inspector-issued plan before managed preflight begins.  The
+   generation is returned at issuance and is part of the authority binding;
+   callers cannot manufacture a valid generation for another token. */
+LPB_API lpb_result LPB_CALL lpb_claim_extraction_plan(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    uint64_t generation);
+
+/* Completes a managed extraction attempt.  This is also used when managed
+   preflight or cancellation fails after the plan has already been claimed. */
+LPB_API lpb_result LPB_CALL lpb_finish_extraction_plan(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    uint64_t generation);
+
+/* Releases an Inspector-issued plan.  Releasing an already released plan is
+   idempotent while its issuing context remains alive. */
+LPB_API lpb_result LPB_CALL lpb_release_extraction_plan(
+    lpb_context* context,
+    lpb_extraction_plan* plan);
+
+/*
+ * Legacy caller-facts extraction ABI retained for binary compatibility only.
+ * It always returns LPB_RESULT_AUTHORITY_VIOLATION; production extraction must
+ * use lpb_extract_media_with_plan below.
  */
 LPB_API lpb_result LPB_CALL lpb_extract_media(
     lpb_context* context,
@@ -562,6 +649,70 @@ LPB_API lpb_result LPB_CALL lpb_extract_media(
     const char* output_video_path,
     const char* output_gainmap_path);
 
+/* Production extraction entry point.  The plan is the sole source of
+   extraction facts and is consumed exactly once. */
+LPB_API lpb_result LPB_CALL lpb_extract_media_with_plan(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    const char* primary_path,
+    const char* secondary_path,
+    const char* output_image_path,
+    const char* output_video_path,
+    const char* output_gainmap_path);
+
+/* Extended production extraction entry point.  Each output descriptor names
+   one Inspector-confirmed auxiliary item that is being materialized.  The
+   descriptor is only a binding for an existing plan fact; it cannot create
+   authority or change the source relationship graph. */
+typedef struct lpb_extraction_output
+{
+    uint32_t struct_size;
+    uint32_t auxiliary_index;
+    const char* output_path;
+} lpb_extraction_output;
+
+LPB_API lpb_result LPB_CALL lpb_extract_media_with_plan_outputs(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    const char* primary_path,
+    const char* secondary_path,
+    const char* output_image_path,
+    const char* output_video_path,
+    const char* output_gainmap_path,
+    const lpb_extraction_output* auxiliary_outputs,
+    size_t auxiliary_output_count);
+
+#if defined(LPB_NATIVE_TEST_HARNESS)
+/* Test-harness-only resource accounting. These declarations are intentionally
+   absent from production builds and are never part of the production export
+   surface. The post-destruction queries use only an archived context id and
+   integer token, never a freed native pointer. */
+typedef struct lpb_test_plan_accounting
+{
+    uint64_t context_id;
+    uint64_t issued;
+    uint64_t claimed;
+    uint64_t consumed;
+    uint64_t released;
+    uint64_t live_plan_count;
+    uint64_t registry_record_count;
+    uint64_t released_on_context_destroy;
+    uint32_t context_destroyed;
+    uint32_t reserved;
+} lpb_test_plan_accounting;
+
+LPB_API uint64_t LPB_CALL lpb_test_get_context_id(lpb_context* context);
+LPB_API lpb_result LPB_CALL lpb_test_get_plan_accounting(
+    lpb_context* context,
+    lpb_test_plan_accounting* out_accounting);
+LPB_API lpb_result LPB_CALL lpb_test_get_destroyed_plan_accounting(
+    uint64_t context_id,
+    lpb_test_plan_accounting* out_accounting);
+LPB_API lpb_result LPB_CALL lpb_test_probe_destroyed_plan(
+    uint64_t context_id,
+    uint64_t plan_token);
+#endif
+
 typedef enum lpb_extractor_fault
 {
     LPB_EXTRACTOR_FAULT_NONE = 0,
@@ -571,6 +722,9 @@ typedef enum lpb_extractor_fault
     LPB_EXTRACTOR_FAULT_SHORT_READ = 4,
     LPB_EXTRACTOR_FAULT_FLUSH_DISK_FULL = 5,
     LPB_EXTRACTOR_FAULT_FLUSH_WRITE_FAIL = 6,
+    /* Deterministic filesystem barriers for adversarial transaction tests. */
+    LPB_EXTRACTOR_FAULT_TEMP_PUBLISH_BARRIER = 7,
+    LPB_EXTRACTOR_FAULT_POST_PUBLISH_BARRIER = 8,
     LPB_EXTRACTOR_FAULT_CLEANUP_FAIL = 0x80
 } lpb_extractor_fault;
 
@@ -965,10 +1119,12 @@ static_assert(sizeof(lpb_media_range) == 16, "lpb_media_range size mismatch");
 static_assert(sizeof(lpb_image_item_facts) == 40, "lpb_image_item_facts size mismatch");
 static_assert(sizeof(lpb_video_item_facts) == 80, "lpb_video_item_facts size mismatch");
 static_assert(sizeof(lpb_gainmap_item_facts) == 112, "lpb_gainmap_item_facts size mismatch");
+static_assert(sizeof(lpb_auxiliary_item_facts) == 2208, "lpb_auxiliary_item_facts size mismatch");
+static_assert(sizeof(lpb_preservation_carrier_facts) == 464, "lpb_preservation_carrier_facts size mismatch");
 static_assert(offsetof(lpb_gainmap_item_facts, file_range) == 32, "lpb_gainmap_item_facts.file_range offset mismatch");
 static_assert(offsetof(lpb_gainmap_item_facts, relationship) == 48, "lpb_gainmap_item_facts.relationship offset mismatch");
 static_assert(sizeof(lpb_timing_facts) == 32, "lpb_timing_facts size mismatch");
-static_assert(sizeof(lpb_source_media_facts) == 1320, "lpb_source_media_facts size mismatch");
+static_assert(sizeof(lpb_source_media_facts) == 21872, "lpb_source_media_facts size mismatch");
 static_assert(sizeof(lpb_confirmed_residue) == 348, "lpb_confirmed_residue size mismatch");
 static_assert(sizeof(lpb_cleanup_action) == 348, "lpb_cleanup_action size mismatch");
 static_assert(sizeof(lpb_cleanup_artifact_binding) == 56, "lpb_cleanup_artifact_binding size mismatch");
@@ -983,6 +1139,8 @@ static_assert(offsetof(lpb_source_media_facts, primary_sha256) == 416, "lpb_sour
 static_assert(offsetof(lpb_source_media_facts, secondary_sha256) == 448, "lpb_source_media_facts.secondary_sha256 offset mismatch");
 static_assert(offsetof(lpb_source_media_facts, has_secondary_source) == 480, "lpb_source_media_facts.has_secondary_source offset mismatch");
 static_assert(offsetof(lpb_source_media_facts, auxiliary_count) == 484, "lpb_source_media_facts.auxiliary_count offset mismatch");
+static_assert(offsetof(lpb_source_media_facts, preservation_carrier_count) == 18152, "lpb_source_media_facts.preservation_carrier_count offset mismatch");
+static_assert(sizeof(lpb_extraction_output) == 16, "lpb_extraction_output size mismatch");
 static_assert(sizeof(lpb_preservation_observation) == 844, "lpb_preservation_observation size mismatch");
 static_assert(sizeof(lpb_preservation_verdict) == 264, "lpb_preservation_verdict size mismatch");
 #endif

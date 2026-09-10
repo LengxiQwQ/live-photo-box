@@ -27,17 +27,66 @@ internal static partial class NativeMethods
         nuint residuesCapacity,
         out nuint outResiduesCount);
 
-    [LibraryImport(LibraryName, EntryPoint = "lpb_extract_media", StringMarshalling = StringMarshalling.Utf8)]
+    [LibraryImport(LibraryName, EntryPoint = "lpb_inspect_media_with_plan", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
-    internal static unsafe partial NativeResult ExtractMedia(
+    internal static unsafe partial NativeResult InspectMediaWithPlan(
         nint context,
         string primaryPath,
         string? secondaryPath,
-        in NativeSourceMediaFacts facts,
+        ref NativeSourceMediaFacts outFacts,
+        out nint extractionPlan,
+        NativeConfirmedResidue* outResidues,
+        nuint residuesCapacity,
+        out nuint outResiduesCount,
+        out ulong planGeneration);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_release_extraction_plan", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult ReleaseExtractionPlan(nint context, nint extractionPlan);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_claim_extraction_plan")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult ClaimExtractionPlan(
+        nint context,
+        nint extractionPlan,
+        ulong generation);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_finish_extraction_plan")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult FinishExtractionPlan(
+        nint context,
+        nint extractionPlan,
+        ulong generation);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_extract_media_with_plan", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult ExtractMediaWithPlan(
+        nint context,
+        nint extractionPlan,
+        string primaryPath,
+        string? secondaryPath,
         string? outputImagePath,
         string? outputVideoPath,
         string? outputGainmapPath);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_extract_media_with_plan_outputs", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static unsafe partial NativeResult ExtractMediaWithPlanOutputs(
+        nint context,
+        nint extractionPlan,
+        string primaryPath,
+        string? secondaryPath,
+        string? outputImagePath,
+        string? outputVideoPath,
+        string? outputGainmapPath,
+        NativeExtractionOutput* auxiliaryOutputs,
+        nuint auxiliaryOutputCount);
 
     [LibraryImport(LibraryName, EntryPoint = "lpb_probe_video", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
@@ -204,5 +253,7 @@ internal enum NativeExtractorFault
     ShortRead = 4,
     FlushDiskFull = 5,
     FlushWriteFail = 6,
+    TempPublishBarrier = 7,
+    PostPublishBarrier = 8,
     CleanupFail = 0x80
 }

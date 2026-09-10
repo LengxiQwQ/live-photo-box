@@ -5,6 +5,8 @@ namespace LivePhotoBox.Media.Extraction;
 /// </summary>
 public enum ExtractionFailureCategory
 {
+    AuthorityViolation,
+    PlanReplay,
     InvalidFacts,
     SourceRangeUnreadable,
     SourceChanged,

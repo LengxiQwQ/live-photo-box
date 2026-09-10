@@ -228,7 +228,7 @@ public sealed class CleanerTrustChainTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(samplePath);
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         // Tamper declared byte length
         var tamperedBundle = extracted with
@@ -257,7 +257,7 @@ public sealed class CleanerTrustChainTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(samplePath);
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         // Tamper declared SHA-256 with a different valid non-zero hash
         var tamperedBundle = extracted with
@@ -286,7 +286,7 @@ public sealed class CleanerTrustChainTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(samplePath);
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         var tamperedBundle = extracted with
         {
@@ -314,7 +314,7 @@ public sealed class CleanerTrustChainTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(samplePath);
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         var tamperedBundle = extracted with
         {
@@ -342,7 +342,7 @@ public sealed class CleanerTrustChainTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(samplePath);
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         var tamperedBundle = extracted with
         {
@@ -371,7 +371,7 @@ public sealed class CleanerTrustChainTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(sampleImg, sampleMov);
-        var extracted = await extractor.ExtractAsync(facts, sampleImg, sampleMov, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, sampleImg, sampleMov, workspace);
         Assert.NotNull(extracted.MotionVideo);
 
         // Tamper declared video SHA-256
@@ -402,7 +402,7 @@ public sealed class CleanerTrustChainTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(sampleImg, sampleMov);
-        var extracted = await extractor.ExtractAsync(facts, sampleImg, sampleMov, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, sampleImg, sampleMov, workspace);
         Assert.NotNull(extracted.MotionVideo);
 
         var tamperedBundle = extracted with
@@ -432,7 +432,7 @@ public sealed class CleanerTrustChainTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(sampleImg, sampleMov);
-        var extracted = await extractor.ExtractAsync(facts, sampleImg, sampleMov, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, sampleImg, sampleMov, workspace);
         Assert.NotNull(extracted.MotionVideo);
 
         var tamperedBundle = extracted with
@@ -513,7 +513,7 @@ public sealed class CleanerTrustChainTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(imgPath, movPath);
-        var extracted = await extractor.ExtractAsync(facts, imgPath, movPath, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
         // Inject hook to simulate duplicate removal fact from native cleaner
         cleaner.FaultInjectionHook = (stage, bundle) =>
@@ -558,7 +558,7 @@ public sealed class CleanerTrustChainTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(imgPath, movPath);
-        var extracted = await extractor.ExtractAsync(facts, imgPath, movPath, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
         // Inject an extra mandatory residue that native cleaner cannot possibly remove
         var list = new System.Collections.Generic.List<ConfirmedProtocolResidue>(facts.ConfirmedResidues);
@@ -600,7 +600,7 @@ public sealed class CleanerTrustChainTests
         var extractor = new SourceExtractor();
 
         var facts = await inspector.InspectAsync(imgPath, movPath);
-        var extracted = await extractor.ExtractAsync(facts, imgPath, movPath, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
         // Require an expected fingerprint that does not match what native cleaner reports
         var list = new System.Collections.Generic.List<ConfirmedProtocolResidue>();
@@ -657,7 +657,7 @@ public sealed class CleanerTrustChainTests
         var inspector = new SourceInspector();
         var extractor = new SourceExtractor();
         var facts = await inspector.InspectAsync(imgPath);
-        var extracted = await extractor.ExtractAsync(facts, imgPath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, null, workspace);
 
         // Tamper 1 byte of the JPEG entropy scan
         byte[] bytes = await File.ReadAllBytesAsync(extracted.PrimaryImage.Path);
@@ -697,7 +697,7 @@ public sealed class CleanerTrustChainTests
         var inspector = new SourceInspector();
         var extractor = new SourceExtractor();
         var facts = await inspector.InspectAsync(imgPath, movPath);
-        var extracted = await extractor.ExtractAsync(facts, imgPath, movPath, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
         Assert.NotNull(extracted.MotionVideo);
 
         // Tamper 1 byte in the mdat box
@@ -801,7 +801,7 @@ public sealed class CleanerTrustChainTests
             Assert.False(string.IsNullOrEmpty(r.ExpectedFingerprint), $"Residue {r.Id} must have non-empty expected fingerprint");
         }
 
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         // 1. Normal clean succeeds and BeforeFingerprint matches ExpectedFingerprint exactly
         var normalResult = await cleaner.CleanAsync(new ProtocolCleanRequest
@@ -872,7 +872,7 @@ public sealed class CleanerTrustChainTests
         Assert.NotNull(sefResidue);
         Assert.False(string.IsNullOrEmpty(sefResidue.ExpectedFingerprint));
 
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         // 1. Normal clean succeeds
         var normalResult = await cleaner.CleanAsync(new ProtocolCleanRequest
@@ -933,7 +933,7 @@ public sealed class CleanerTrustChainTests
         Assert.NotNull(cidResidue);
         Assert.False(string.IsNullOrEmpty(cidResidue.ExpectedFingerprint));
 
-        var extracted = await extractor.ExtractAsync(facts, sampleImg, sampleMov, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, sampleImg, sampleMov, workspace);
 
         // 1. Normal clean succeeds
         var normalResult = await cleaner.CleanAsync(new ProtocolCleanRequest
@@ -988,7 +988,7 @@ public sealed class CleanerTrustChainTests
         var extractor = new SourceExtractor();
 
         var facts = await inspector.InspectAsync(samplePath);
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         // Sub-test A: Tamper RemovalMode
         {
@@ -1160,7 +1160,7 @@ public sealed class CleanerTrustChainTests
         var extractor = new SourceExtractor();
 
         var facts = await inspector.InspectAsync(samplePath);
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         var cleaner = new SourceProtocolCleaner();
         cleaner.FaultInjectionHook = (stage, detail) =>
@@ -1597,7 +1597,7 @@ public sealed class CleanerTrustChainTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(imgPath, movPath);
-        var extracted = await extractor.ExtractAsync(facts, imgPath, movPath, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
         // Tamper one confirmed residue to have foreign OwnerProtocol
         var list = new List<ConfirmedProtocolResidue>();
@@ -1633,7 +1633,7 @@ public sealed class CleanerTrustChainTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(imgPath, movPath);
-        var extracted = await extractor.ExtractAsync(facts, imgPath, movPath, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
         // Verify Inspector assigns StructuredSelector to Apple residues
         Assert.NotEmpty(facts.ConfirmedResidues);
@@ -1943,7 +1943,7 @@ public sealed class CleanerTrustChainTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(samplePath);
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         // Pre-clean successfully
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
@@ -2240,7 +2240,7 @@ public sealed class CleanerTrustChainTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(imgPath, movPath);
-        var extracted = await extractor.ExtractAsync(facts, imgPath, movPath, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
         // Adversarial TOCTOU tampering: modify extracted primary image on disk between extraction and cleaning!
         byte[] imgBytes = await File.ReadAllBytesAsync(extracted.PrimaryImage.Path);
@@ -3008,7 +3008,7 @@ public sealed class CleanerTrustChainTests
         var extractor = new SourceExtractor();
 
         var facts = await inspector.InspectAsync(imgPath, movPath);
-        var bundle = await extractor.ExtractAsync(facts, imgPath, movPath, workspace);
+        var bundle = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
         // A faulty clean invoker that writes cleaned video but leaves the original untouched image (with live MakerNote tags)
         var faultyCleaner = new SourceProtocolCleaner(
@@ -3058,7 +3058,7 @@ public sealed class CleanerTrustChainTests
         var extractor = new SourceExtractor();
 
         var facts = await inspector.InspectAsync(imgPath, movPath);
-        var bundle = await extractor.ExtractAsync(facts, imgPath, movPath, workspace);
+        var bundle = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
         // A faulty clean invoker: cleans image (strips MakerNote), but fails to strip MOV CID
         var faultyCleaner = new SourceProtocolCleaner(

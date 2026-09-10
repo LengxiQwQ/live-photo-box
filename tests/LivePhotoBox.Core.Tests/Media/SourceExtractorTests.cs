@@ -32,7 +32,7 @@ public sealed class SourceExtractorTests
 
         using var workspace = new MediaWorkspace();
         var extractor = new SourceExtractor();
-        var bundle = await extractor.ExtractAsync(facts, sample, null, workspace);
+        var bundle = await TestFactsExtractor.ExtractAsync(facts, sample, null, workspace);
 
         Assert.NotNull(bundle.PrimaryImage);
         Assert.True(File.Exists(bundle.PrimaryImage.Path));
@@ -94,7 +94,7 @@ public sealed class SourceExtractorTests
 
         using var workspace = new MediaWorkspace();
         var extractor = new SourceExtractor();
-        var bundle = await extractor.ExtractAsync(facts, img, mov, workspace);
+        var bundle = await TestFactsExtractor.ExtractAsync(facts, img, mov, workspace);
 
         Assert.NotNull(bundle.PrimaryImage);
         Assert.NotNull(bundle.MotionVideo);

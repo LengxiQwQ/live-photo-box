@@ -101,6 +101,20 @@ public sealed class SourceInspectorTests
         Assert.Equal(ImageContainer.Jpeg, facts.PrimaryImage.Container);
         Assert.Equal(VideoContainer.Mp4, facts.MotionVideo.Container);
         Assert.True(facts.MotionVideo.ByteOffset > facts.PrimaryImage.ByteOffset);
+        Assert.NotEmpty(facts.PreservationCarriers);
+        Assert.Contains(facts.PreservationCarriers, carrier =>
+            carrier.Kind == PreservationCarrierKind.SamsungSef &&
+            carrier.StableIdentity == "samsung:sef:index-trailer" &&
+            carrier.Semantic == "SamsungSEFIndexTrailer" &&
+            carrier.ArtifactRole == MediaArtifactKind.PrimaryImage);
+        Assert.All(facts.PreservationCarriers, carrier =>
+        {
+            Assert.Equal(PreservationCarrierKind.SamsungSef, carrier.Kind);
+            Assert.Equal(MediaArtifactKind.PrimaryImage, carrier.ArtifactRole);
+            Assert.NotEqual("GainMap", carrier.Semantic);
+            Assert.False(string.IsNullOrWhiteSpace(carrier.SourceSha256));
+            Assert.Equal(64, carrier.SourceSha256.Length);
+        });
 
         string afterSha = await ComputeSha256Async(sample);
         Assert.Equal(beforeSha, afterSha);
@@ -124,7 +138,15 @@ public sealed class SourceInspectorTests
         Assert.True(facts.MotionVideo.ByteOffset > 0);
 
         byte[] heic = await File.ReadAllBytesAsync(sample);
-        AssertValidHeifAuxiliaryFacts(facts, heic.LongLength);
+        AssertValidHeifAuxiliaryFacts(facts, heic);
+        AuxiliaryMediaFacts samsungGainMap = Assert.Single(facts.AuxiliaryItems,
+            item => item.Relationship == "urn:com:samsung:photo:2024:aux:hdrgainmap");
+        Assert.Equal("GainMap", samsungGainMap.Semantic);
+        Assert.Equal(AuxiliaryRepresentation.Embedded, samsungGainMap.Representation);
+        Assert.Equal(AuxiliaryOwnership.Primary, samsungGainMap.Ownership);
+        Assert.Equal(AuxiliaryCodec.Hevc, samsungGainMap.Codec);
+        Assert.NotNull(facts.GainMap);
+        Assert.Equal(samsungGainMap.ItemId, facts.GainMap.ItemId);
         Assert.True(NativeHeifBoxParser.TryLocateXmpItem(
             heic, out long xmpOffset, out long xmpLength, out string? xmpError), xmpError);
         Assert.True(xmpLength > 0);
@@ -149,7 +171,7 @@ public sealed class SourceInspectorTests
 
         SourceInspectionException error = await Assert.ThrowsAsync<SourceInspectionException>(
             () => new SourceInspector().InspectAsync(path));
-        Assert.Equal(SourceInspectionFailureCategory.Ambiguous, error.Category);
+        Assert.Equal(SourceInspectionFailureCategory.Malformed, error.Category);
         Assert.Equal(SourceInspectionStage.Container, error.Stage);
         Assert.Equal(NativeRuntime.SamsungHeicCapability, error.Capability);
     }
@@ -171,7 +193,7 @@ public sealed class SourceInspectorTests
 
         SourceInspectionException error = await Assert.ThrowsAsync<SourceInspectionException>(
             () => new SourceInspector().InspectAsync(path));
-        Assert.Equal(SourceInspectionFailureCategory.Ambiguous, error.Category);
+        Assert.Equal(SourceInspectionFailureCategory.Malformed, error.Category);
         Assert.Equal(SourceInspectionStage.Container, error.Stage);
         Assert.Equal(NativeRuntime.SamsungHeicCapability, error.Capability);
     }
@@ -358,7 +380,7 @@ public sealed class SourceInspectorTests
         Assert.Equal(SourceProtocol.NonLive, facts.Protocol);
         Assert.NotNull(facts.PairingIdentifier);
         Assert.Equal("0BCBD05C-F9F4-4D99-A40D-96D3C6CA8F9C", facts.PairingIdentifier);
-        AssertValidHeifAuxiliaryFacts(facts, new FileInfo(img).Length);
+        AssertValidHeifAuxiliaryFacts(facts, await File.ReadAllBytesAsync(img));
     }
 
     [Fact]
@@ -1172,6 +1194,22 @@ public sealed class SourceInspectorTests
         Assert.NotNull(facts.PrimaryImage);
         Assert.NotNull(facts.MotionVideo);
         Assert.True(facts.Timing.CoverTimestampUs != 0);
+        AuxiliaryMediaFacts original = Assert.Single(facts.AuxiliaryItems,
+            item => item.Semantic == "Original");
+        Assert.Equal(3176955, original.ByteOffset);
+        Assert.Equal(11355276 - 3176955, original.ByteLength);
+        Assert.Equal(AuxiliaryRepresentation.Materialized, original.Representation);
+        Assert.Equal(AuxiliaryOwnership.Primary, original.Ownership);
+        Assert.Equal(AuxiliaryCodec.Jpeg, original.Codec);
+        Assert.Equal("oppo:container:item:Original", original.StableIdentity);
+        Assert.Equal("primary:0", original.OwnerIdentity);
+        Assert.Equal("Original", original.Relationship);
+        Assert.Equal("Original", original.Semantic);
+        Assert.Equal(original.Sha256, await ComputeSliceSha256Async(sample, original.ByteOffset, original.ByteLength));
+        Assert.NotEqual(facts.PrimaryImage.ByteOffset, original.ByteOffset);
+        Assert.DoesNotContain(facts.AuxiliaryItems.Where(item => item.Semantic != "Original"),
+            item => item.StableIdentity == original.StableIdentity ||
+                (item.ByteOffset == original.ByteOffset && item.ByteLength == original.ByteLength));
 
         string afterSha = await ComputeSha256Async(sample);
         Assert.Equal(beforeSha, afterSha);
@@ -1285,7 +1323,24 @@ public sealed class SourceInspectorTests
         return Convert.ToHexString(hash);
     }
 
-    private static void AssertValidHeifAuxiliaryFacts(SourceMediaFacts facts, long fileLength)
+    private static async Task<string> ComputeSliceSha256Async(string filePath, long offset, long length)
+    {
+        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+        stream.Position = offset;
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        byte[] buffer = new byte[64 * 1024];
+        long remaining = length;
+        while (remaining > 0)
+        {
+            int read = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)));
+            Assert.True(read > 0);
+            hash.AppendData(buffer, 0, read);
+            remaining -= read;
+        }
+        return Convert.ToHexString(hash.GetHashAndReset());
+    }
+
+    private static void AssertValidHeifAuxiliaryFacts(SourceMediaFacts facts, byte[] sourceBytes)
     {
         Assert.NotEmpty(facts.AuxiliaryItems);
         Assert.Equal(
@@ -1299,11 +1354,24 @@ public sealed class SourceInspectorTests
             Assert.True(item.IsPresent);
             Assert.Equal(ImageContainer.Heic, item.Container);
             Assert.Equal(AuxiliaryRepresentation.Embedded, item.Representation);
-            Assert.Equal(AuxiliaryOwnership.Auxiliary, item.Ownership);
+            Assert.Equal(AuxiliaryOwnership.Primary, item.Ownership);
             Assert.True(item.ItemId > 0);
-            Assert.InRange(item.ByteOffset, 0, fileLength - 1);
-            Assert.InRange(item.ByteLength, 1, fileLength - item.ByteOffset);
+            Assert.InRange(item.ByteOffset, 0, sourceBytes.LongLength - 1);
+            Assert.InRange(item.ByteLength, 1, sourceBytes.LongLength - item.ByteOffset);
             Assert.False(string.IsNullOrWhiteSpace(item.Relationship));
+            Assert.False(string.IsNullOrWhiteSpace(item.StableIdentity));
+            Assert.False(string.IsNullOrWhiteSpace(item.Semantic));
+            Assert.False(string.IsNullOrWhiteSpace(item.OwnerIdentity));
+            Assert.Equal("primary:0", item.OwnerIdentity);
+            if (item.ItemType is "grid" or "tmap")
+            {
+                Assert.True(item.GraphComplete);
+                Assert.NotEmpty(item.Dependencies);
+            }
+            Assert.Equal(64, item.Sha256.Length);
+            byte[] itemBytes = sourceBytes.AsSpan(
+                checked((int)item.ByteOffset), checked((int)item.ByteLength)).ToArray();
+            Assert.Equal(Convert.ToHexString(SHA256.HashData(itemBytes)), item.Sha256);
             if (i > 0)
             {
                 AuxiliaryMediaFacts previous = ordered[i - 1];

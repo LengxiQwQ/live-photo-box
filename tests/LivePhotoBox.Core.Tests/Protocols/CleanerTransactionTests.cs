@@ -47,7 +47,7 @@ public sealed class CleanerTransactionTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(samplePath);
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         using var cts = new CancellationTokenSource();
 
@@ -93,7 +93,7 @@ public sealed class CleanerTransactionTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(samplePath);
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         using var cts = new CancellationTokenSource();
 
@@ -141,7 +141,7 @@ public sealed class CleanerTransactionTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(imgPath, movPath);
-        var extracted = await extractor.ExtractAsync(facts, imgPath, movPath, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
         // Inject simulated failure right after image is published, before video is moved
         cleaner.FaultInjectionHook = (stage, detail) =>
@@ -187,7 +187,7 @@ public sealed class CleanerTransactionTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(samplePath);
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         // Inject commit failure, and then trigger simulated failure during rollback
         cleaner.FaultInjectionHook = (stage, detail) =>
@@ -227,7 +227,7 @@ public sealed class CleanerTransactionTests
         var extractor = new SourceExtractor();
 
         var facts = await realInspector.InspectAsync(imgPath, movPath);
-        var extracted = await extractor.ExtractAsync(facts, imgPath, movPath, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
         // Mock inspector: when inspecting video individually, reports residual AppleLivePhoto
         var stubInspector = new DelegateInspector(async (p, s) =>
@@ -276,7 +276,7 @@ public sealed class CleanerTransactionTests
         var extractor = new SourceExtractor();
 
         var facts = await realInspector.InspectAsync(imgPath, movPath);
-        var extracted = await extractor.ExtractAsync(facts, imgPath, movPath, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
         // Mock inspector: image alone is NonLive, video alone is NonLive, but pair inspection still finds matching pair!
         var stubInspector = new DelegateInspector(async (p, s) =>
@@ -329,8 +329,8 @@ public sealed class CleanerTransactionTests
         var facts1 = await inspector.InspectAsync(samplePath);
         var facts2 = await inspector.InspectAsync(samplePath);
 
-        var extracted1 = await extractor.ExtractAsync(facts1, samplePath, null, workspace1);
-        var extracted2 = await extractor.ExtractAsync(facts2, samplePath, null, workspace2);
+        var extracted1 = await TestFactsExtractor.ExtractAsync(facts1, samplePath, null, workspace1);
+        var extracted2 = await TestFactsExtractor.ExtractAsync(facts2, samplePath, null, workspace2);
 
         var task1 = cleaner.CleanAsync(new ProtocolCleanRequest { ExtractedBundle = extracted1 }, workspace1);
         var task2 = cleaner.CleanAsync(new ProtocolCleanRequest { ExtractedBundle = extracted2 }, workspace2);
@@ -363,7 +363,7 @@ public sealed class CleanerTransactionTests
 
         // Pass 1
         var facts1 = await inspector.InspectAsync(samplePath);
-        var extracted1 = await extractor.ExtractAsync(facts1, samplePath, null, workspace);
+        var extracted1 = await TestFactsExtractor.ExtractAsync(facts1, samplePath, null, workspace);
         var cleanResult1 = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted1
@@ -377,7 +377,7 @@ public sealed class CleanerTransactionTests
         var facts2 = await inspector.InspectAsync(cleanResult1.CleanedImage.Path);
         Assert.Equal(SourceProtocol.NonLive, facts2.Protocol);
 
-        var extracted2 = await extractor.ExtractAsync(facts2, cleanResult1.CleanedImage.Path, null, workspace);
+        var extracted2 = await TestFactsExtractor.ExtractAsync(facts2, cleanResult1.CleanedImage.Path, null, workspace);
         var cleanResult2 = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted2
@@ -446,7 +446,7 @@ public sealed class CleanerTransactionTests
         var facts = await inspector.InspectAsync(imgPath, largeMovPath);
         Assert.Equal(SourceProtocol.AppleLivePhoto, facts.Protocol);
 
-        var extracted = await extractor.ExtractAsync(facts, imgPath, largeMovPath, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, largeMovPath, workspace);
         Assert.NotNull(extracted.MotionVideo);
 
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest

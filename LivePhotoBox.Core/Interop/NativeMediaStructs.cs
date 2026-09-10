@@ -63,6 +63,37 @@ internal unsafe struct NativeAuxiliaryItemFacts
     public uint ItemId;
     public NativeMediaRange FileRange;
     public fixed byte Relationship[64];
+    public int Codec;
+    public int SourceIndex;
+    public fixed byte Sha256[32];
+    public fixed byte StableIdentity[96];
+    public fixed byte OwnerIdentity[96];
+    public fixed byte Semantic[64];
+    public fixed byte ItemType[8];
+    public uint GraphFlags;
+    public uint DependencyCount;
+    public fixed uint DependencyItemIds[64];
+    public fixed ulong DependencyOffsets[64];
+    public fixed ulong DependencyLengths[64];
+    public fixed byte DependencyItemTypes[64 * 8];
+}
+
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+internal unsafe struct NativePreservationCarrierFacts
+{
+    public uint StructSize;
+    public int IsPresent;
+    public int Kind;
+    public int SourceIndex;
+    public int ArtifactRole;
+    public int Container;
+    public int Codec;
+    public NativeMediaRange FileRange;
+    public fixed byte Sha256[32];
+    public fixed byte StableIdentity[96];
+    public fixed byte OwnerIdentity[96];
+    public fixed byte Relationship[96];
+    public fixed byte Semantic[96];
 }
 
 [StructLayout(LayoutKind.Sequential)]
@@ -98,6 +129,23 @@ internal unsafe struct NativeSourceMediaFacts
     public NativeAuxiliaryItemFacts Auxiliary5;
     public NativeAuxiliaryItemFacts Auxiliary6;
     public NativeAuxiliaryItemFacts Auxiliary7;
+    public uint PreservationCarrierCount;
+    public NativePreservationCarrierFacts Carrier0;
+    public NativePreservationCarrierFacts Carrier1;
+    public NativePreservationCarrierFacts Carrier2;
+    public NativePreservationCarrierFacts Carrier3;
+    public NativePreservationCarrierFacts Carrier4;
+    public NativePreservationCarrierFacts Carrier5;
+    public NativePreservationCarrierFacts Carrier6;
+    public NativePreservationCarrierFacts Carrier7;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeExtractionOutput
+{
+    public uint StructSize;
+    public uint AuxiliaryIndex;
+    public nint OutputPath;
 }
 
 [StructLayout(LayoutKind.Sequential)]

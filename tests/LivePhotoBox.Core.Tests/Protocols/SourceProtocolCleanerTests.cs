@@ -46,7 +46,7 @@ public sealed class SourceProtocolCleanerTests
         Assert.Equal(expectedInitialProtocol, facts.Protocol);
 
         // 2. Extract
-        var extracted = await extractor.ExtractAsync(facts, primaryPath, secondaryPath, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, secondaryPath, workspace);
         Assert.NotNull(extracted.PrimaryImage);
         Assert.True(File.Exists(extracted.PrimaryImage.Path));
 
@@ -91,7 +91,7 @@ public sealed class SourceProtocolCleanerTests
 
         // 6. Idempotency test: Cleaning already cleaned media produces NonLive output without error
         using var secondWorkspace = new MediaWorkspace();
-        var secondExtracted = await extractor.ExtractAsync(recheckFacts, cleanedImgPath, secondaryPath != null ? cleanedVidPath : null, secondWorkspace);
+        var secondExtracted = await TestFactsExtractor.ExtractAsync(recheckFacts, cleanedImgPath, secondaryPath != null ? cleanedVidPath : null, secondWorkspace);
         var secondCleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = secondExtracted,
@@ -173,7 +173,7 @@ public sealed class SourceProtocolCleanerTests
 
         var facts = await inspector.InspectAsync(primaryPath);
         Assert.Equal(SourceProtocol.SamsungMotionPhotoHeic, facts.Protocol);
-        var extracted = await extractor.ExtractAsync(facts, primaryPath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, null, workspace);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted,
@@ -223,7 +223,7 @@ public sealed class SourceProtocolCleanerTests
         // Clear all confirmed residues to simulate missing authorization authority
         var tamperedFacts = facts with { ConfirmedResidues = Array.Empty<ConfirmedProtocolResidue>() };
 
-        var extracted = await extractor.ExtractAsync(tamperedFacts, primaryPath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(tamperedFacts, primaryPath, null, workspace);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted,
@@ -286,7 +286,7 @@ public sealed class SourceProtocolCleanerTests
         var extractor = new SourceExtractor();
 
         var facts = await inspector.InspectAsync(primaryPath);
-        var extracted = await extractor.ExtractAsync(facts, primaryPath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, null, workspace);
 
         // Inject a simulated rogue cleaner that reports an unauthorized removal
         var rogueCleaner = new SourceProtocolCleaner(cleanInvoker: async (f, actions, inImg, inVid, outImg, outVid, ct) =>
@@ -351,7 +351,7 @@ public sealed class SourceProtocolCleanerTests
         await File.WriteAllBytesAsync(customImg, outputBytes!);
 
         var facts = await inspector.InspectAsync(customImg);
-        var extracted = await extractor.ExtractAsync(facts, customImg, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, customImg, null, workspace);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted,
@@ -380,7 +380,7 @@ public sealed class SourceProtocolCleanerTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(primaryPath);
-        var extracted = await extractor.ExtractAsync(facts, primaryPath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, null, workspace);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted,
@@ -411,7 +411,7 @@ public sealed class SourceProtocolCleanerTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(primaryPath, secondaryPath);
-        var extracted = await extractor.ExtractAsync(facts, primaryPath, secondaryPath, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, secondaryPath, workspace);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted,
@@ -436,7 +436,7 @@ public sealed class SourceProtocolCleanerTests
         var extractor = new SourceExtractor();
 
         var facts = await inspector.InspectAsync(primaryPath);
-        var extracted = await extractor.ExtractAsync(facts, primaryPath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, null, workspace);
 
         string originalImagePath = extracted.PrimaryImage.Path;
 
@@ -464,7 +464,7 @@ public sealed class SourceProtocolCleanerTests
         // Case B: Tamper by stripping GainMap/HDR metadata on HDR source
         string hdrSourcePath = ResolveSample("三星.heic");
         var hdrFacts = await inspector.InspectAsync(hdrSourcePath);
-        var hdrExtracted = await extractor.ExtractAsync(hdrFacts, hdrSourcePath, null, workspace);
+        var hdrExtracted = await TestFactsExtractor.ExtractAsync(hdrFacts, hdrSourcePath, null, workspace);
 
         // Create a copy of Samsung HEIC and wipe GainMap & hdrgm bytes to simulate HDR loss
         string strippedHdrPath = workspace.AllocateFilePath("tampered-no-gainmap", ".heic");
@@ -558,7 +558,7 @@ public sealed class SourceProtocolCleanerTests
         // Verify that SpecialAuditProp is NOT an authorized protocol residue
         Assert.DoesNotContain(facts.ConfirmedResidues, r => r.Selector.Contains("SpecialAuditProp"));
 
-        var extracted = await extractor.ExtractAsync(facts, customImg, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, customImg, null, workspace);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted,
@@ -602,7 +602,7 @@ public sealed class SourceProtocolCleanerTests
         var facts = await inspector.InspectAsync(primaryPath);
         Assert.Equal(SourceProtocol.SamsungMotionPhotoJpeg, facts.Protocol);
 
-        var extracted = await extractor.ExtractAsync(facts, primaryPath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, null, workspace);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted,

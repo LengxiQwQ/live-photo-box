@@ -65,7 +65,7 @@ public sealed class ExtractorRealSampleTests
 
         using var workspace = new MediaWorkspace();
         var extractor = new SourceExtractor();
-        var bundle = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var bundle = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         // 1. Source Immutability
         string afterSha = await ComputeFileSha256Async(samplePath);
@@ -179,7 +179,7 @@ public sealed class ExtractorRealSampleTests
 
         using var workspace = new MediaWorkspace();
         var extractor = new SourceExtractor();
-        var bundle = await extractor.ExtractAsync(facts, primaryPath, secondaryPath, workspace);
+        var bundle = await TestFactsExtractor.ExtractAsync(facts, primaryPath, secondaryPath, workspace);
 
         // 1. Source Immutability
         string primaryAfterSha = await ComputeFileSha256Async(primaryPath);

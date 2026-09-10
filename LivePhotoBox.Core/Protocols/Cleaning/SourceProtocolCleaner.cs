@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using LivePhotoBox.Interop;
+using LivePhotoBox.Media.Extraction;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Workspace;
@@ -158,6 +159,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             {
                 await VerifyArtifactIntegrityAsync(bundle.GainMap, "GainMap", facts.Protocol, cancellationToken).ConfigureAwait(false);
             }
+            await VerifyAuxiliaryArtifactIntegrityAsync(bundle, facts.Protocol, cancellationToken).ConfigureAwait(false);
 
             // -------------------------------------------------------------
             // Step 3: Load P1 Cleanup Authorization & Handle NonLive
@@ -563,6 +565,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 CleanedImage = cleanImgArtifact,
                 CleanedVideo = cleanVidArtifact,
                 CleanedGainMap = bundle.GainMap,
+                AuxiliaryMedia = bundle.AuxiliaryMedia,
+                PreservationCarriers = bundle.PreservationCarriers,
                 RemovedFacts = removedFacts,
                 PreservationOutcome = preservationReport.OverallOutcome,
                 PreservationReport = preservationReport,
@@ -721,6 +725,75 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         }
     }
 
+    private static async Task VerifyAuxiliaryArtifactIntegrityAsync(
+        ExtractedMediaBundle bundle,
+        SourceProtocol protocol,
+        CancellationToken cancellationToken)
+    {
+        var identities = new HashSet<string>(StringComparer.Ordinal);
+        foreach (AuxiliaryMediaDescriptor descriptor in bundle.AuxiliaryMedia)
+        {
+            if (string.IsNullOrWhiteSpace(descriptor.StableIdentity) ||
+                !identities.Add(descriptor.StableIdentity))
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.ArtifactFactMismatch,
+                    CleanerFailureStage.ArtifactVerification,
+                    protocol,
+                    $"Auxiliary descriptor identity is missing or duplicated: '{descriptor.StableIdentity}'.",
+                    MediaArtifactKind.AuxiliaryItem);
+            }
+
+            if (descriptor.Representation == AuxiliaryRepresentation.Materialized &&
+                descriptor.MaterializedArtifact == null)
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.ArtifactFactMismatch,
+                    CleanerFailureStage.ArtifactVerification,
+                    protocol,
+                    $"Materialized auxiliary '{descriptor.StableIdentity}' has no materialized artifact.",
+                    descriptor.ArtifactRole);
+            }
+
+            MediaArtifact? artifact = descriptor.MaterializedArtifact;
+            if (artifact == null)
+            {
+                continue;
+            }
+
+            MediaArtifactKind expectedKind = descriptor.ArtifactRole == MediaArtifactKind.GainMap
+                ? MediaArtifactKind.GainMap
+                : MediaArtifactKind.AuxiliaryItem;
+            if (artifact.Kind != expectedKind)
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.ArtifactFactMismatch,
+                    CleanerFailureStage.ArtifactVerification,
+                    protocol,
+                    $"Auxiliary '{descriptor.StableIdentity}' has mismatched artifact role {artifact.Kind}; expected {expectedKind}.",
+                    descriptor.ArtifactRole);
+            }
+
+            await VerifyArtifactIntegrityAsync(
+                artifact,
+                $"Auxiliary:{descriptor.StableIdentity}",
+                protocol,
+                cancellationToken).ConfigureAwait(false);
+
+            if (!IsValidSha256(descriptor.SourceSha256) ||
+                !string.Equals(artifact.Sha256, descriptor.SourceSha256, StringComparison.OrdinalIgnoreCase) ||
+                (descriptor.SourceLength > 0 && artifact.ByteLength != descriptor.SourceLength))
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                    CleanerFailureStage.ArtifactVerification,
+                    protocol,
+                    $"Auxiliary '{descriptor.StableIdentity}' no longer matches its Inspector-confirmed source identity.",
+                    descriptor.ArtifactRole);
+            }
+        }
+    }
+
     private static async Task<ProtocolCleanResult> ExecuteNonLiveNoOpAsync(
         ExtractedMediaBundle bundle,
         IMediaWorkspace workspace,
@@ -776,18 +849,29 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
 
         sw.Stop();
 
+        var nonLivePreservationItems = new List<PreservationReportItem>
+        {
+            new PreservationReportItem
+            {
+                Name = "NonLiveNoOp",
+                Status = PreservationCheckStatus.VerifiedPreserved,
+                Details = $"NonLive source verified 0 modification (Primary image SHA-256 match: {bundle.PrimaryImage.Sha256})."
+            }
+        };
+        foreach (PreservationCarrier carrier in bundle.PreservationCarriers)
+        {
+            nonLivePreservationItems.Add(new PreservationReportItem
+            {
+                Name = $"Carrier:{carrier.StableIdentity}",
+                Status = PreservationCheckStatus.VerifiedPreserved,
+                Details = $"Carrier range [{carrier.SourceOffset},{carrier.SourceOffset + carrier.SourceLength}) is covered by the verified verbatim primary artifact copy."
+            });
+        }
+
         var report = new PreservationReport
         {
             OverallOutcome = PreservationOutcome.Preserved,
-            Items =
-            [
-                new PreservationReportItem
-                {
-                    Name = "NonLiveNoOp",
-                    Status = PreservationCheckStatus.VerifiedPreserved,
-                    Details = $"NonLive source verified 0 modification (Primary image SHA-256 match: {bundle.PrimaryImage.Sha256})."
-                }
-            ],
+            Items = nonLivePreservationItems,
             Summary = "Source is NonLive; artifacts carried through verbatim with verified identical SHA-256."
         };
 
@@ -799,6 +883,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             CleanedImage = cleanImgArtifact,
             CleanedVideo = cleanVidArtifact,
             CleanedGainMap = bundle.GainMap,
+            AuxiliaryMedia = bundle.AuxiliaryMedia,
+            PreservationCarriers = bundle.PreservationCarriers,
             RemovedFacts = [],
             PreservationOutcome = PreservationOutcome.Preserved,
             PreservationReport = report,

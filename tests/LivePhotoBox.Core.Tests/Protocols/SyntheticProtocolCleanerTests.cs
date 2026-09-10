@@ -27,7 +27,7 @@ public sealed class SyntheticProtocolCleanerTests
         var facts = await _inspector.InspectAsync(inputPath, null);
         Assert.Equal(SourceProtocol.GoogleMicroVideoV1, facts.Protocol);
 
-        var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted
@@ -53,7 +53,7 @@ public sealed class SyntheticProtocolCleanerTests
         var facts = await _inspector.InspectAsync(inputPath, null);
         Assert.Equal(SourceProtocol.GoogleMotionPhotoV2, facts.Protocol);
 
-        var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted
@@ -79,7 +79,7 @@ public sealed class SyntheticProtocolCleanerTests
         var facts = await _inspector.InspectAsync(inputPath, null);
         Assert.Equal(SourceProtocol.OppoLivePhoto, facts.Protocol);
 
-        var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted
@@ -107,7 +107,7 @@ public sealed class SyntheticProtocolCleanerTests
         var facts = await _inspector.InspectAsync(inputPath, null);
         Assert.Equal(SourceProtocol.VivoLivePhoto, facts.Protocol);
 
-        var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted
@@ -133,7 +133,7 @@ public sealed class SyntheticProtocolCleanerTests
         var facts = await _inspector.InspectAsync(imgPath, vidPath);
         Assert.Equal(SourceProtocol.VivoLegacyDualFile, facts.Protocol);
 
-        var extracted = await _extractor.ExtractAsync(facts, imgPath, vidPath, ws);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, vidPath, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted
@@ -163,7 +163,7 @@ public sealed class SyntheticProtocolCleanerTests
         var facts = await _inspector.InspectAsync(inputPath, null);
         Assert.Equal(SourceProtocol.SamsungMotionPhotoJpeg, facts.Protocol);
 
-        var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted
@@ -190,7 +190,7 @@ public sealed class SyntheticProtocolCleanerTests
         var facts = await _inspector.InspectAsync(inputPath, null);
         Assert.Equal(SourceProtocol.SamsungMotionPhotoHeic, facts.Protocol);
 
-        var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted
@@ -214,7 +214,7 @@ public sealed class SyntheticProtocolCleanerTests
         var facts = await _inspector.InspectAsync(inputPath, null);
         Assert.Equal(SourceProtocol.HuaweiMovingPhoto, facts.Protocol);
 
-        var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted
@@ -241,7 +241,7 @@ public sealed class SyntheticProtocolCleanerTests
         var facts = await _inspector.InspectAsync(imgPath, movPath);
         Assert.Equal(SourceProtocol.AppleLivePhoto, facts.Protocol);
 
-        var extracted = await _extractor.ExtractAsync(facts, imgPath, movPath, ws);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted
@@ -266,7 +266,7 @@ public sealed class SyntheticProtocolCleanerTests
         SyntheticProtocolFixtures.CreateGoogleV2Jpeg(inputPath, withGainMap: true);
 
         var facts = await _inspector.InspectAsync(inputPath, null);
-        var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult1 = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted
@@ -278,7 +278,7 @@ public sealed class SyntheticProtocolCleanerTests
         var recheckFacts = await _inspector.InspectAsync(cleanResult1.CleanedImage!.Path, null);
         Assert.Equal(SourceProtocol.NonLive, recheckFacts.Protocol);
 
-        var extracted2 = await _extractor.ExtractAsync(recheckFacts, cleanResult1.CleanedImage.Path, null, ws);
+        var extracted2 = await TestFactsExtractor.ExtractAsync(recheckFacts, cleanResult1.CleanedImage.Path, null, ws);
         var cleanResult2 = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted2
@@ -302,7 +302,7 @@ public sealed class SyntheticProtocolCleanerTests
         var facts = await _inspector.InspectAsync(inputPath, null);
         Assert.Equal(SourceProtocol.NonLive, facts.Protocol);
 
-        var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted
@@ -325,7 +325,7 @@ public sealed class SyntheticProtocolCleanerTests
 
         var facts = await _inspector.InspectAsync(inputPath, null);
         Assert.Equal(SourceProtocol.GoogleMotionPhotoV2, facts.Protocol);
-        var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
         var result = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted
@@ -350,7 +350,7 @@ public sealed class SyntheticProtocolCleanerTests
 
         var facts = await _inspector.InspectAsync(inputPath, null);
         Assert.Equal(SourceProtocol.GoogleMotionPhotoV2, facts.Protocol);
-        var extracted = await _extractor.ExtractAsync(facts, inputPath, null, ws);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
         var result = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted

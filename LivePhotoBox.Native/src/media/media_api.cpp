@@ -117,6 +117,224 @@ LPB_API lpb_result LPB_CALL lpb_inspect_media(
     return result;
 }
 
+LPB_API lpb_result LPB_CALL lpb_inspect_media_with_plan(
+    lpb_context* context,
+    const char* primary_path,
+    const char* secondary_path,
+    lpb_source_media_facts* out_facts,
+    lpb_extraction_plan** out_plan,
+    lpb_confirmed_residue* out_residues,
+    size_t residues_capacity,
+    size_t* out_residues_count,
+    uint64_t* out_plan_generation)
+{
+    if (out_plan == nullptr || out_residues_count == nullptr || out_plan_generation == nullptr)
+    {
+        set_error(context, "Output extraction plan, generation, and residue count are required.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    *out_plan = nullptr;
+    *out_residues_count = 0;
+    *out_plan_generation = 0;
+
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired())
+    {
+        set_error(context, "[AuthorityViolation] Native context is being destroyed.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    std::vector<lpb_confirmed_residue> residues;
+    const lpb_result result = inspect_source_with_plan(
+        context, primary_path, secondary_path, out_facts, out_plan, &residues,
+        out_plan_generation);
+    if (result != LPB_RESULT_OK)
+    {
+        classify_inspection_failure(context, result);
+        return result;
+    }
+
+    *out_residues_count = residues.size();
+    if (residues.size() > residues_capacity)
+    {
+        set_error(context, "The supplied residues buffer is too small for the issued extraction plan.");
+        if (*out_plan != nullptr)
+        {
+            (void)lpb_release_extraction_plan(context, *out_plan);
+            *out_plan = nullptr;
+        }
+        return LPB_RESULT_BUFFER_TOO_SMALL;
+    }
+    if (out_residues != nullptr && !residues.empty())
+    {
+        std::memcpy(out_residues, residues.data(), residues.size() * sizeof(lpb_confirmed_residue));
+    }
+    classify_inspection_failure(context, LPB_RESULT_OK);
+    return LPB_RESULT_OK;
+}
+
+LPB_API lpb_result LPB_CALL lpb_claim_extraction_plan(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    uint64_t generation)
+{
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired() || plan == nullptr || generation == 0)
+    {
+        set_error(context, "[AuthorityViolation] Context, plan, and generation are required to claim an extraction plan.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    try
+    {
+        const uint64_t token = plan_token_from_handle(plan);
+        std::scoped_lock lock(context->plan_mutex);
+        lpb_extraction_plan_record* record = find_plan_locked(context, token);
+        if (record == nullptr || record->owner_context != context)
+        {
+            set_error(context, "[AuthorityViolation] Extraction plan token is not owned by this Native context.");
+            return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+        if (record->generation != generation || record->abi_version != LPB_NATIVE_ABI_VERSION ||
+            record->plan_version != 1 || record->generation == 0)
+        {
+            set_error(context, "[AuthorityViolation] Extraction plan generation or metadata does not match the issued authority.");
+            return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+        if (record->state != lpb_plan_state::Issued || record->native_call_active)
+        {
+            set_error(context, "[PlanReplayed] Extraction plan is already claimed, released, or consumed.");
+            return LPB_RESULT_PLAN_REPLAYED;
+        }
+        record->state = lpb_plan_state::Claimed;
+        record->managed_claim_active = true;
+#if defined(LPB_NATIVE_TEST_HARNESS)
+        ++context->test_claimed;
+#endif
+        return LPB_RESULT_OK;
+    }
+    catch (...)
+    {
+        set_error(context, "[InternalError] Failed to claim the extraction authority plan.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+}
+
+LPB_API lpb_result LPB_CALL lpb_finish_extraction_plan(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    uint64_t generation)
+{
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired() || plan == nullptr || generation == 0)
+    {
+        set_error(context, "[AuthorityViolation] Context, plan, and generation are required to finish an extraction plan.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    try
+    {
+        const uint64_t token = plan_token_from_handle(plan);
+        std::scoped_lock lock(context->plan_mutex);
+        lpb_extraction_plan_record* record = find_plan_locked(context, token);
+        if (record == nullptr || record->owner_context != context)
+        {
+            set_error(context, "[AuthorityViolation] Extraction plan token is not owned by this Native context.");
+            return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+        if (record->generation != generation)
+        {
+            set_error(context, "[AuthorityViolation] Extraction plan generation does not match the issued authority.");
+            return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+        if (record->native_call_active)
+        {
+            set_error(context, "[PlanReplayed] Cannot finish an extraction plan while its native operation is active.");
+            return LPB_RESULT_PLAN_REPLAYED;
+        }
+        record->managed_claim_active = false;
+        if (record->state == lpb_plan_state::Claimed || record->state == lpb_plan_state::ReleaseRequested)
+        {
+            const bool release_requested = record->state == lpb_plan_state::ReleaseRequested;
+            record->state = release_requested ? lpb_plan_state::Released : lpb_plan_state::Consumed;
+#if defined(LPB_NATIVE_TEST_HARNESS)
+            if (release_requested)
+            {
+                ++context->test_released;
+            }
+            else
+            {
+                ++context->test_consumed;
+            }
+#endif
+        }
+        return LPB_RESULT_OK;
+    }
+    catch (...)
+    {
+        set_error(context, "[InternalError] Failed to finish the extraction authority plan.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+}
+
+LPB_API lpb_result LPB_CALL lpb_release_extraction_plan(
+    lpb_context* context,
+    lpb_extraction_plan* plan)
+{
+    if (context == nullptr || plan == nullptr)
+    {
+        set_error(context, "Context and extraction plan are required.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired())
+    {
+        set_error(context, "[AuthorityViolation] Native context is being destroyed.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    try
+    {
+        const uint64_t token = plan_token_from_handle(plan);
+        std::scoped_lock lock(context->plan_mutex);
+        lpb_extraction_plan_record* record = find_plan_locked(context, token);
+        if (record == nullptr || record->owner_context != context)
+        {
+            set_error(context, "[AuthorityViolation] Extraction plan token is not owned by this Native context.");
+            return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+        if (record->state == lpb_plan_state::Issued)
+        {
+            record->state = lpb_plan_state::Released;
+#if defined(LPB_NATIVE_TEST_HARNESS)
+            ++context->test_released;
+#endif
+        }
+        else if (record->state == lpb_plan_state::Claimed)
+        {
+            record->state = (record->managed_claim_active || record->native_call_active)
+                ? lpb_plan_state::ReleaseRequested
+                : lpb_plan_state::Released;
+        }
+        else if (record->state == lpb_plan_state::Consumed)
+        {
+            record->state = lpb_plan_state::Released;
+#if defined(LPB_NATIVE_TEST_HARNESS)
+            ++context->test_released;
+#endif
+        }
+        // ReleaseRequested and Released are idempotent.  A native call that
+        // is still active retains the record until its operation lease exits.
+        return LPB_RESULT_OK;
+    }
+    catch (...)
+    {
+        set_error(context, "[InternalError] Failed to release the extraction authority plan.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+}
+
 LPB_API lpb_result LPB_CALL lpb_inspect_media_with_residues(
     lpb_context* context,
     const char* primary_path,
@@ -156,8 +374,139 @@ LPB_API lpb_result LPB_CALL lpb_extract_media(
     const char* output_video_path,
     const char* output_gainmap_path)
 {
+    (void)primary_path;
+    (void)secondary_path;
+    (void)facts;
+    (void)output_image_path;
+    (void)output_video_path;
+    (void)output_gainmap_path;
+    lpb_context_operation context_operation(context);
+    if (context != nullptr && !context_operation.acquired())
+    {
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+    set_error(context, "[AuthorityViolation] Raw facts-based extraction is disabled; use an Inspector-issued extraction plan.");
+    return LPB_RESULT_AUTHORITY_VIOLATION;
+}
+
+#if defined(LPB_NATIVE_TEST_HARNESS)
+LPB_API lpb_result LPB_CALL lpb_test_extract_media_from_facts(
+    lpb_context* context,
+    const char* primary_path,
+    const char* secondary_path,
+    const lpb_source_media_facts* facts,
+    const char* output_image_path,
+    const char* output_video_path,
+    const char* output_gainmap_path)
+{
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired())
+    {
+        set_error(context, "[AuthorityViolation] Native context is unavailable for the test harness extraction.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
     if (!validate_gainmap_binding(context, facts)) return LPB_RESULT_INVALID_ARGUMENT;
-    return extract_source(context, primary_path, secondary_path, facts, output_image_path, output_video_path, output_gainmap_path);
+    return extract_source_internal(
+        context, primary_path, secondary_path, facts,
+        output_image_path, output_video_path, output_gainmap_path, nullptr, 0);
+}
+
+/* Test-harness-only introspection used to prove that the public token is not
+   the address of the authoritative registry record.  This symbol is absent
+   from every production configuration. */
+LPB_API uintptr_t LPB_CALL lpb_test_get_extraction_plan_record_address(
+    lpb_context* context,
+    lpb_extraction_plan* plan)
+{
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired() || plan == nullptr)
+    {
+        return 0;
+    }
+    std::scoped_lock lock(context->plan_mutex);
+    lpb_extraction_plan_record* record = find_plan_locked(context, plan_token_from_handle(plan));
+    return record == nullptr || record->owner_context != context
+        ? 0
+        : reinterpret_cast<uintptr_t>(record);
+}
+
+LPB_API uint64_t LPB_CALL lpb_test_get_context_id(lpb_context* context)
+{
+    lpb_context_operation context_operation(context);
+    return context_operation.acquired() ? test_context_id(context) : 0;
+}
+
+LPB_API lpb_result LPB_CALL lpb_test_get_plan_accounting(
+    lpb_context* context,
+    lpb_test_plan_accounting* out_accounting)
+{
+    if (out_accounting == nullptr)
+    {
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    *out_accounting = {};
+
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired())
+    {
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+    return test_get_plan_accounting(context, *out_accounting)
+        ? LPB_RESULT_OK
+        : LPB_RESULT_INTERNAL_ERROR;
+}
+
+LPB_API lpb_result LPB_CALL lpb_test_get_destroyed_plan_accounting(
+    uint64_t context_id,
+    lpb_test_plan_accounting* out_accounting)
+{
+    if (out_accounting == nullptr)
+    {
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    *out_accounting = {};
+    return test_get_destroyed_plan_accounting(context_id, *out_accounting)
+        ? LPB_RESULT_OK
+        : LPB_RESULT_AUTHORITY_VIOLATION;
+}
+
+LPB_API lpb_result LPB_CALL lpb_test_probe_destroyed_plan(
+    uint64_t context_id,
+    uint64_t plan_token)
+{
+    return test_probe_destroyed_plan(context_id, plan_token);
+}
+#endif
+
+LPB_API lpb_result LPB_CALL lpb_extract_media_with_plan(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    const char* primary_path,
+    const char* secondary_path,
+    const char* output_image_path,
+    const char* output_video_path,
+    const char* output_gainmap_path)
+{
+    return extract_source_with_plan(
+        context, plan, primary_path, secondary_path,
+        output_image_path, output_video_path, output_gainmap_path);
+}
+
+LPB_API lpb_result LPB_CALL lpb_extract_media_with_plan_outputs(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    const char* primary_path,
+    const char* secondary_path,
+    const char* output_image_path,
+    const char* output_video_path,
+    const char* output_gainmap_path,
+    const lpb_extraction_output* auxiliary_outputs,
+    size_t auxiliary_output_count)
+{
+    return extract_source_with_plan(
+        context, plan, primary_path, secondary_path,
+        output_image_path, output_video_path, output_gainmap_path,
+        auxiliary_outputs, auxiliary_output_count);
 }
 
 LPB_API lpb_result LPB_CALL lpb_test_set_extractor_fault(

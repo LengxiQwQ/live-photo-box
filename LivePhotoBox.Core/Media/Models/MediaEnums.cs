@@ -73,6 +73,30 @@ public enum MediaArtifactKind
 }
 
 /// <summary>
+/// Codec identity for an Inspector-confirmed auxiliary item.  Auxiliary
+/// items are not assumed to be images merely because they live in an image
+/// container; the codec is carried independently for preservation handoff.
+/// </summary>
+public enum AuxiliaryCodec
+{
+    Unknown = 0,
+    Jpeg = 1,
+    Hevc = 2,
+    H264 = 3,
+    Copy = 4
+}
+
+/// <summary>Typed source-container preservation carrier category.</summary>
+public enum PreservationCarrierKind
+{
+    Unknown = 0,
+    SamsungSef = 1,
+    ProtocolTrailer = 2,
+    ContainerMetadata = 3,
+    OpaqueFragment = 4
+}
+
+/// <summary>
 /// HDR GainMap preservation policy.
 /// </summary>
 public enum PreservationPolicy
@@ -96,5 +120,6 @@ public enum PreservationOutcome
     TranscodedLossless,
     DegradedToSdr,
     DiscardedNotApplicable,
-    PartiallyPreserved
+    PartiallyPreserved,
+    Unsupported
 }

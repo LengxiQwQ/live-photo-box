@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using LivePhotoBox.Media.Extraction;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Protocols.Cleaning;
@@ -23,15 +25,23 @@ public static class NativeMediaService
         if (Marshal.SizeOf<NativeGainMapItemFacts>() != 112 ||
             (int)Marshal.OffsetOf<NativeGainMapItemFacts>(nameof(NativeGainMapItemFacts.FileRange)) != 32 ||
             (int)Marshal.OffsetOf<NativeGainMapItemFacts>(nameof(NativeGainMapItemFacts.Relationship)) != 48 ||
-            Marshal.SizeOf<NativeSourceMediaFacts>() != 1320 ||
+            Marshal.SizeOf<NativeAuxiliaryItemFacts>() != 2208 ||
+            (int)Marshal.OffsetOf<NativeAuxiliaryItemFacts>(nameof(NativeAuxiliaryItemFacts.Codec)) != 104 ||
+            (int)Marshal.OffsetOf<NativeAuxiliaryItemFacts>(nameof(NativeAuxiliaryItemFacts.Sha256)) != 112 ||
+            (int)Marshal.OffsetOf<NativeAuxiliaryItemFacts>(nameof(NativeAuxiliaryItemFacts.ItemType)) != 400 ||
+            (int)Marshal.OffsetOf<NativeAuxiliaryItemFacts>(nameof(NativeAuxiliaryItemFacts.GraphFlags)) != 408 ||
+            (int)Marshal.OffsetOf<NativeAuxiliaryItemFacts>(nameof(NativeAuxiliaryItemFacts.DependencyCount)) != 412 ||
+            Marshal.SizeOf<NativePreservationCarrierFacts>() != 464 ||
+            Marshal.SizeOf<NativeSourceMediaFacts>() != 21872 ||
             (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.GainMap)) != 128 ||
             (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.Timing)) != 240 ||
             (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.PrimarySha256)) != 416 ||
             (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.SecondarySha256)) != 448 ||
             (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.HasSecondarySource)) != 480 ||
-            (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.AuxiliaryCount)) != 484)
+            (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.AuxiliaryCount)) != 484 ||
+            (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.PreservationCarrierCount)) != 18152)
         {
-            throw new InvalidOperationException("Managed Native facts layout does not match ABI v4.");
+            throw new InvalidOperationException("Managed Native facts layout does not match ABI v5.");
         }
     }
 
@@ -111,6 +121,95 @@ public static class NativeMediaService
         }, cancellationToken);
     }
 
+    /// <summary>
+    /// Inspects the source and keeps the issuing Native context alive inside an
+    /// opaque, single-use extraction plan. The returned facts are diagnostic
+    /// data; extraction authority remains in the plan handle.
+    /// </summary>
+    public static Task<InspectedSource> InspectMediaWithPlanAsync(
+        string primaryPath,
+        string? secondaryPath = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(primaryPath);
+        PreflightInspectionPath(primaryPath, "Primary");
+        if (secondaryPath is not null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PreflightInspectionPath(secondaryPath, "Secondary");
+        }
+
+        return Task.Run(() =>
+        {
+            NativeContext ctx = NativeContext.Create(cancellationToken);
+            try
+            {
+                unsafe
+                {
+                    var nativeFacts = new NativeSourceMediaFacts
+                    {
+                        StructSize = checked((uint)sizeof(NativeSourceMediaFacts)),
+                        PrimaryImage = new NativeImageItemFacts { StructSize = checked((uint)sizeof(NativeImageItemFacts)) },
+                        MotionVideo = new NativeVideoItemFacts { StructSize = checked((uint)sizeof(NativeVideoItemFacts)) },
+                        GainMap = new NativeGainMapItemFacts { StructSize = checked((uint)sizeof(NativeGainMapItemFacts)) },
+                        Timing = new NativeTimingFacts { StructSize = checked((uint)sizeof(NativeTimingFacts)) }
+                    };
+
+                    Span<NativeConfirmedResidue> residuesBuf = stackalloc NativeConfirmedResidue[64];
+                    fixed (NativeConfirmedResidue* pResidues = residuesBuf)
+                    {
+                        for (int i = 0; i < residuesBuf.Length; i++)
+                        {
+                            pResidues[i].StructSize = checked((uint)sizeof(NativeConfirmedResidue));
+                        }
+
+                        NativeResult res = NativeMethods.InspectMediaWithPlan(
+                            ctx.Handle,
+                            primaryPath,
+                            secondaryPath,
+                            ref nativeFacts,
+                            out nint nativePlan,
+                            pResidues,
+                            (nuint)residuesBuf.Length,
+                            out nuint outResiduesCount,
+                            out ulong planGeneration);
+                        ctx.ThrowIfFailed(res);
+
+                        var residuesList = new List<ConfirmedProtocolResidue>();
+                        int count = Math.Min((int)outResiduesCount, residuesBuf.Length);
+                        for (int i = 0; i < count; i++)
+                        {
+                            residuesList.Add(new ConfirmedProtocolResidue
+                            {
+                                Id = ReadFixedUtf8String(pResidues[i].ResidueId, 64),
+                                OwnerProtocol = (SourceProtocol)pResidues[i].OwnerProtocol,
+                                ArtifactRole = (MediaArtifactKind)pResidues[i].ArtifactRole,
+                                StructureKind = (ResidueStructureKind)pResidues[i].StructureKind,
+                                Selector = ReadFixedUtf8String(pResidues[i].Selector, 128),
+                                ExpectedSemantic = EmptyToNull(ReadFixedUtf8String(pResidues[i].ExpectedSemantic, 64)),
+                                ExpectedFingerprint = EmptyToNull(ReadFixedUtf8String(pResidues[i].ExpectedFingerprint, 64)),
+                                CoordinateSpace = (CoordinateSpace)pResidues[i].CoordinateSpace,
+                                RemovalMode = (ResidueRemovalMode)pResidues[i].RemovalMode,
+                                RequiredAfterExtraction = pResidues[i].RequiredAfterExtraction != 0
+                            });
+                        }
+
+                        SourceMediaFacts facts = MapFromNativeFacts(nativeFacts, residuesList);
+                        return new InspectedSource(facts, new ExtractionPlan(ctx, nativePlan, planGeneration, facts));
+                    }
+                }
+            }
+            catch
+            {
+                ctx.Dispose();
+                throw;
+            }
+        }, cancellationToken);
+    }
+
+    private static string? EmptyToNull(string value) => string.IsNullOrEmpty(value) ? null : value;
+
     private static void PreflightInspectionPath(string path, string role)
     {
         if (string.IsNullOrWhiteSpace(path))
@@ -175,45 +274,151 @@ public static class NativeMediaService
                 innerException);
 
     public static Task ExtractMediaAsync(
+        ExtractionPlan plan,
         string primaryPath,
         string? secondaryPath,
-        SourceMediaFacts facts,
         string? outputImagePath,
         string? outputVideoPath,
         string? outputGainmapPath,
         CancellationToken cancellationToken = default) =>
-        ExtractMediaAsync(primaryPath, secondaryPath, facts, outputImagePath, outputVideoPath, outputGainmapPath, null, cancellationToken);
+        ExtractMediaAsync(plan, primaryPath, secondaryPath, outputImagePath, outputVideoPath, outputGainmapPath, null, cancellationToken);
 
     internal static Task ExtractMediaAsync(
+        ExtractionPlan plan,
         string primaryPath,
         string? secondaryPath,
-        SourceMediaFacts facts,
         string? outputImagePath,
         string? outputVideoPath,
         string? outputGainmapPath,
         Action<NativeContext>? configureContext,
         CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        return Task.Run(() =>
-        {
-            using var ctx = NativeContext.Create(cancellationToken);
-            configureContext?.Invoke(ctx);
-            NativeSourceMediaFacts nativeFacts = MapToNativeFacts(facts);
-
-            NativeResult res = NativeMethods.ExtractMedia(
-                ctx.Handle,
-                primaryPath,
-                secondaryPath,
-                in nativeFacts,
-                outputImagePath,
-                outputVideoPath,
-                outputGainmapPath);
-
-            ctx.ThrowIfFailed(res);
-        }, cancellationToken);
+        ArgumentNullException.ThrowIfNull(plan);
+        ExtractionPlanAttempt attempt = plan.BeginExtractionAttempt(cancellationToken);
+        return ExtractMediaAsync(
+            attempt,
+            primaryPath,
+            secondaryPath,
+            outputImagePath,
+            outputVideoPath,
+            outputGainmapPath,
+            configureContext,
+            cancellationToken);
     }
+
+    internal static Task ExtractMediaAsync(
+        ExtractionPlanAttempt attempt,
+        string primaryPath,
+        string? secondaryPath,
+        string? outputImagePath,
+        string? outputVideoPath,
+        string? outputGainmapPath,
+        Action<NativeContext>? configureContext,
+        CancellationToken cancellationToken = default)
+        => ExtractMediaAsync(
+            attempt,
+            primaryPath,
+            secondaryPath,
+            outputImagePath,
+            outputVideoPath,
+            outputGainmapPath,
+            auxiliaryOutputs: null,
+            configureContext,
+            cancellationToken);
+
+    internal static Task ExtractMediaAsync(
+        ExtractionPlanAttempt attempt,
+        string primaryPath,
+        string? secondaryPath,
+        string? outputImagePath,
+        string? outputVideoPath,
+        string? outputGainmapPath,
+        IReadOnlyList<NativeAuxiliaryOutputBinding>? auxiliaryOutputs,
+        Action<NativeContext>? configureContext,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(attempt);
+        try
+        {
+            // Cancellation is deliberately not passed to Task.Run: a
+            // pre-cancelled token must not prevent the already-claimed
+            // attempt's finally block from consuming the plan.
+            return Task.Run(() =>
+            {
+                try
+                {
+                    configureContext?.Invoke(attempt.Context);
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    if (auxiliaryOutputs is null || auxiliaryOutputs.Count == 0)
+                    {
+                        NativeResult res = NativeMethods.ExtractMediaWithPlan(
+                            attempt.ContextLease.Handle,
+                            attempt.NativeHandle,
+                            primaryPath,
+                            secondaryPath,
+                            outputImagePath,
+                            outputVideoPath,
+                            outputGainmapPath);
+                        attempt.Context.ThrowIfFailed(res);
+                    }
+                    else
+                    {
+                        unsafe
+                        {
+                            NativeExtractionOutput* nativeOutputs = stackalloc NativeExtractionOutput[auxiliaryOutputs.Count];
+                            var allocatedPaths = new List<nint>(auxiliaryOutputs.Count);
+                            try
+                            {
+                                for (int i = 0; i < auxiliaryOutputs.Count; i++)
+                                {
+                                    NativeAuxiliaryOutputBinding binding = auxiliaryOutputs[i]
+                                        ?? throw new ArgumentException("Auxiliary extraction output binding cannot be null.", nameof(auxiliaryOutputs));
+                                    if (string.IsNullOrWhiteSpace(binding.Path))
+                                        throw new ArgumentException("Auxiliary extraction output path cannot be empty.", nameof(auxiliaryOutputs));
+                                    nativeOutputs[i] = new NativeExtractionOutput
+                                    {
+                                        StructSize = checked((uint)sizeof(NativeExtractionOutput)),
+                                        AuxiliaryIndex = binding.AuxiliaryIndex,
+                                        OutputPath = Marshal.StringToCoTaskMemUTF8(binding.Path)
+                                    };
+                                    allocatedPaths.Add(nativeOutputs[i].OutputPath);
+                                }
+
+                                NativeResult res = NativeMethods.ExtractMediaWithPlanOutputs(
+                                    attempt.ContextLease.Handle,
+                                    attempt.NativeHandle,
+                                    primaryPath,
+                                    secondaryPath,
+                                    outputImagePath,
+                                    outputVideoPath,
+                                    outputGainmapPath,
+                                    nativeOutputs,
+                                    (nuint)auxiliaryOutputs.Count);
+                                attempt.Context.ThrowIfFailed(res);
+                            }
+                            finally
+                            {
+                                foreach (nint allocatedPath in allocatedPaths)
+                                    Marshal.FreeCoTaskMem(allocatedPath);
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    attempt.Dispose();
+                }
+            }, CancellationToken.None);
+        }
+        catch
+        {
+            attempt.Dispose();
+            throw;
+        }
+    }
+
+    internal sealed record NativeAuxiliaryOutputBinding(uint AuxiliaryIndex, string Path);
 
     public static Task<VideoFacts> ProbeVideoAsync(
         string videoPath,
@@ -386,6 +591,26 @@ public static class NativeMediaService
         if (auxiliaryCount > 6) auxiliaryItems.Add(MapAuxiliary(native.Auxiliary6));
         if (auxiliaryCount > 7) auxiliaryItems.Add(MapAuxiliary(native.Auxiliary7));
 
+        if (native.PreservationCarrierCount > NativeRuntime.MaxAuxiliaryItems)
+        {
+            throw new SourceInspectionException(
+                SourceInspectionFailureCategory.Unsupported,
+                SourceInspectionStage.Container,
+                NativeRuntime.FoundationCapability,
+                $"Native source facts contain {native.PreservationCarrierCount} preservation carriers, exceeding the ABI capacity of {NativeRuntime.MaxAuxiliaryItems}.");
+        }
+
+        var preservationCarriers = new List<PreservationCarrier>();
+        int carrierCount = checked((int)native.PreservationCarrierCount);
+        if (carrierCount > 0) preservationCarriers.Add(MapCarrier(native.Carrier0));
+        if (carrierCount > 1) preservationCarriers.Add(MapCarrier(native.Carrier1));
+        if (carrierCount > 2) preservationCarriers.Add(MapCarrier(native.Carrier2));
+        if (carrierCount > 3) preservationCarriers.Add(MapCarrier(native.Carrier3));
+        if (carrierCount > 4) preservationCarriers.Add(MapCarrier(native.Carrier4));
+        if (carrierCount > 5) preservationCarriers.Add(MapCarrier(native.Carrier5));
+        if (carrierCount > 6) preservationCarriers.Add(MapCarrier(native.Carrier6));
+        if (carrierCount > 7) preservationCarriers.Add(MapCarrier(native.Carrier7));
+
         return new SourceMediaFacts
         {
             Protocol = (SourceProtocol)native.Protocol,
@@ -415,7 +640,8 @@ public static class NativeMediaService
             ProtocolTailOffset = checked((long)native.ProtocolTailRange.Offset),
             ProtocolTailLength = checked((long)native.ProtocolTailRange.Length),
             PairingIdentifier = pairingId,
-            ConfirmedResidues = confirmedResidues ?? Array.Empty<ConfirmedProtocolResidue>()
+            ConfirmedResidues = confirmedResidues ?? Array.Empty<ConfirmedProtocolResidue>(),
+            PreservationCarriers = preservationCarriers
         };
     }
 
@@ -429,21 +655,32 @@ public static class NativeMediaService
                 NativeRuntime.FoundationCapability,
                 "Native auxiliary item facts have an incompatible struct_size.");
         }
-        string relationship = string.Empty;
-        int nativeSize = Marshal.SizeOf<NativeAuxiliaryItemFacts>();
-        nint nativePtr = Marshal.AllocHGlobal(nativeSize);
-        try
+        string relationship = ReadFixedUtf8String(native.Relationship, 64);
+        string stableIdentity = ReadFixedUtf8String(native.StableIdentity, 96);
+        string ownerIdentity = ReadFixedUtf8String(native.OwnerIdentity, 96);
+        string semantic = ReadFixedUtf8String(native.Semantic, 64);
+        string itemType = ReadFixedUtf8String(native.ItemType, 8);
+        string sha256 = ReadFixedSha256(native.Sha256);
+        if (native.DependencyCount > NativeRuntime.MaxHeifDependencies)
         {
-            Marshal.StructureToPtr(native, nativePtr, false);
-            int offset = (int)Marshal.OffsetOf<NativeAuxiliaryItemFacts>(nameof(NativeAuxiliaryItemFacts.Relationship));
-            byte[] bytes = new byte[64];
-            Marshal.Copy(nativePtr + offset, bytes, 0, bytes.Length);
-            int length = Array.IndexOf(bytes, (byte)0);
-            relationship = Encoding.UTF8.GetString(bytes, 0, length < 0 ? bytes.Length : length);
+            throw new SourceInspectionException(
+                SourceInspectionFailureCategory.Unsupported,
+                SourceInspectionStage.Container,
+                NativeRuntime.FoundationCapability,
+                "Native HEIF auxiliary dependency count exceeds the supported graph capacity.");
         }
-        finally
+
+        var dependencies = new List<HeifDependencyFacts>((int)native.DependencyCount);
+        for (int i = 0; i < native.DependencyCount; i++)
         {
-            Marshal.FreeHGlobal(nativePtr);
+            string dependencyType = ReadFixedUtf8String(native.DependencyItemTypes + (i * 8), 8);
+            dependencies.Add(new HeifDependencyFacts
+            {
+                ItemId = native.DependencyItemIds[i],
+                ItemType = dependencyType,
+                ByteOffset = checked((long)native.DependencyOffsets[i]),
+                ByteLength = checked((long)native.DependencyLengths[i])
+            });
         }
         return new AuxiliaryMediaFacts
         {
@@ -454,8 +691,78 @@ public static class NativeMediaService
             ItemId = native.ItemId,
             ByteOffset = checked((long)native.FileRange.Offset),
             ByteLength = checked((long)native.FileRange.Length),
-            Relationship = relationship
+            Relationship = relationship,
+            StableIdentity = stableIdentity,
+            Semantic = semantic,
+            OwnerIdentity = ownerIdentity,
+            Sha256 = sha256,
+            Codec = (AuxiliaryCodec)native.Codec,
+            SourceIndex = native.SourceIndex,
+            ItemType = itemType,
+            GraphComplete = (native.GraphFlags & 0x1u) != 0,
+            Dependencies = dependencies
         };
+    }
+
+    private static unsafe PreservationCarrier MapCarrier(NativePreservationCarrierFacts native)
+    {
+        if (native.StructSize < (uint)sizeof(NativePreservationCarrierFacts))
+        {
+            throw new SourceInspectionException(
+                SourceInspectionFailureCategory.Ambiguous,
+                SourceInspectionStage.Container,
+                NativeRuntime.FoundationCapability,
+                "Native preservation carrier facts have an incompatible struct_size.");
+        }
+
+        string stableIdentity = ReadFixedUtf8String(native.StableIdentity, 96);
+        string semantic = ReadFixedUtf8String(native.Semantic, 96);
+        string ownerIdentity = ReadFixedUtf8String(native.OwnerIdentity, 96);
+        string relationship = ReadFixedUtf8String(native.Relationship, 96);
+        string sourceSha256 = ReadFixedSha256(native.Sha256);
+        if (native.IsPresent == 0 || native.Kind == (int)PreservationCarrierKind.Unknown ||
+            native.ArtifactRole < (int)MediaArtifactKind.PrimaryImage ||
+            native.ArtifactRole > (int)MediaArtifactKind.SourceContainer ||
+            native.SourceIndex is < 0 or > 1 || native.FileRange.Length == 0 ||
+            string.IsNullOrWhiteSpace(stableIdentity) || string.IsNullOrWhiteSpace(semantic) ||
+            string.IsNullOrWhiteSpace(ownerIdentity) || string.IsNullOrWhiteSpace(relationship) ||
+            string.IsNullOrWhiteSpace(sourceSha256))
+        {
+            throw new SourceInspectionException(
+                SourceInspectionFailureCategory.Ambiguous,
+                SourceInspectionStage.Container,
+                NativeRuntime.FoundationCapability,
+                "Native preservation carrier facts are incomplete or inconsistent.");
+        }
+
+        return new PreservationCarrier
+        {
+            ArtifactRole = (MediaArtifactKind)native.ArtifactRole,
+            StableIdentity = stableIdentity,
+            Semantic = semantic,
+            OwnerIdentity = ownerIdentity,
+            Relationship = relationship,
+            SourceSha256 = sourceSha256,
+            Kind = (PreservationCarrierKind)native.Kind,
+            SourceIndex = native.SourceIndex,
+            SourceOffset = checked((long)native.FileRange.Offset),
+            SourceLength = checked((long)native.FileRange.Length),
+            ImageContainer = (ImageContainer)native.Container,
+            Codec = (AuxiliaryCodec)native.Codec,
+            Representation = AuxiliaryRepresentation.Embedded,
+            Ownership = AuxiliaryOwnership.Primary,
+            Outcome = PreservationOutcome.Preserved
+        };
+    }
+
+    private static unsafe string ReadFixedSha256(byte* ptr)
+    {
+        bool allZero = true;
+        for (int i = 0; i < 32; i++)
+        {
+            if (ptr[i] != 0) { allZero = false; break; }
+        }
+        return allZero ? string.Empty : Convert.ToHexString(new ReadOnlySpan<byte>(ptr, 32));
     }
 
     private static unsafe GainMapFacts MapGainMap(
@@ -539,6 +846,8 @@ public static class NativeMediaService
 
     internal static unsafe NativeSourceMediaFacts MapToNativeFacts(SourceMediaFacts facts)
     {
+        AuxiliaryFactsValidator.Validate(facts);
+
         var native = new NativeSourceMediaFacts
         {
             StructSize = checked((uint)sizeof(NativeSourceMediaFacts)),
@@ -602,12 +911,14 @@ public static class NativeMediaService
             native.PrimarySha256[i] = primSha[i];
         }
 
-        bool requiresSecondary = facts.MotionVideo is { IsPresent: true, SourceIndex: 1 };
+        bool requiresSecondary =
+            facts.MotionVideo is { IsPresent: true, SourceIndex: 1 } ||
+            facts.AuxiliaryItems.Any(item => item.IsPresent && item.SourceIndex == 1);
         if (requiresSecondary && string.IsNullOrWhiteSpace(facts.SecondarySha256))
         {
             throw new LivePhotoBox.Media.Extraction.ExtractionException(
                 LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidFacts,
-                "Secondary source snapshot SHA-256 is required when motion video resides in secondary source.");
+                "Secondary source snapshot SHA-256 is required when an inspected relationship resides in secondary source.");
         }
 
         if (!string.IsNullOrWhiteSpace(facts.SecondarySha256))
@@ -697,7 +1008,7 @@ public static class NativeMediaService
         native.AuxiliaryCount = (uint)facts.AuxiliaryItems.Count;
         for (int i = 0; i < facts.AuxiliaryItems.Count; i++)
         {
-            NativeAuxiliaryItemFacts auxiliary = MapToNativeAuxiliary(facts.AuxiliaryItems[i]);
+            NativeAuxiliaryItemFacts auxiliary = MapToNativeAuxiliary(facts.AuxiliaryItems[i], i);
             switch (i)
             {
                 case 0: native.Auxiliary0 = auxiliary; break;
@@ -708,6 +1019,30 @@ public static class NativeMediaService
                 case 5: native.Auxiliary5 = auxiliary; break;
                 case 6: native.Auxiliary6 = auxiliary; break;
                 case 7: native.Auxiliary7 = auxiliary; break;
+            }
+        }
+
+        if (facts.PreservationCarriers.Count > NativeRuntime.MaxAuxiliaryItems)
+        {
+            throw new LivePhotoBox.Media.Extraction.ExtractionException(
+                LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidFacts,
+                $"Preservation carrier count exceeds the native ABI capacity of {NativeRuntime.MaxAuxiliaryItems}.");
+        }
+
+        native.PreservationCarrierCount = (uint)facts.PreservationCarriers.Count;
+        for (int i = 0; i < facts.PreservationCarriers.Count; i++)
+        {
+            NativePreservationCarrierFacts carrier = MapToNativeCarrier(facts.PreservationCarriers[i]);
+            switch (i)
+            {
+                case 0: native.Carrier0 = carrier; break;
+                case 1: native.Carrier1 = carrier; break;
+                case 2: native.Carrier2 = carrier; break;
+                case 3: native.Carrier3 = carrier; break;
+                case 4: native.Carrier4 = carrier; break;
+                case 5: native.Carrier5 = carrier; break;
+                case 6: native.Carrier6 = carrier; break;
+                case 7: native.Carrier7 = carrier; break;
             }
         }
 
@@ -770,7 +1105,7 @@ public static class NativeMediaService
         return native;
     }
 
-    private static unsafe NativeAuxiliaryItemFacts MapToNativeAuxiliary(AuxiliaryMediaFacts facts)
+    private static unsafe NativeAuxiliaryItemFacts MapToNativeAuxiliary(AuxiliaryMediaFacts facts, int sourceIndex)
     {
         var native = new NativeAuxiliaryItemFacts
         {
@@ -784,14 +1119,98 @@ public static class NativeMediaService
             {
                 Offset = (ulong)facts.ByteOffset,
                 Length = (ulong)facts.ByteLength
-            }
+            },
+            Codec = (int)facts.Codec,
+            SourceIndex = facts.SourceIndex
         };
         byte* pRelationship = native.Relationship;
         byte[] relationship = Encoding.UTF8.GetBytes(facts.Relationship ?? string.Empty);
         int copyLength = Math.Min(relationship.Length, 63);
         for (int i = 0; i < copyLength; i++) pRelationship[i] = relationship[i];
         pRelationship[copyLength] = 0;
+
+        byte[] stableIdentity = Encoding.UTF8.GetBytes(facts.StableIdentity);
+        byte* pStable = native.StableIdentity;
+        copyLength = Math.Min(stableIdentity.Length, 95);
+        for (int i = 0; i < copyLength; i++) pStable[i] = stableIdentity[i];
+        pStable[copyLength] = 0;
+
+        byte[] ownerIdentity = Encoding.UTF8.GetBytes(facts.OwnerIdentity);
+        byte* pOwner = native.OwnerIdentity;
+        copyLength = Math.Min(ownerIdentity.Length, 95);
+        for (int i = 0; i < copyLength; i++) pOwner[i] = ownerIdentity[i];
+        pOwner[copyLength] = 0;
+
+        byte[] semantic = Encoding.UTF8.GetBytes(facts.Semantic);
+        byte* pSemantic = native.Semantic;
+        copyLength = Math.Min(semantic.Length, 63);
+        for (int i = 0; i < copyLength; i++) pSemantic[i] = semantic[i];
+        pSemantic[copyLength] = 0;
+
+        byte[] sha = Convert.FromHexString(facts.Sha256);
+        if (sha.Length != 32) throw new ArgumentException("Auxiliary SHA-256 must be 32 bytes.", nameof(facts));
+        for (int i = 0; i < 32; i++) native.Sha256[i] = sha[i];
+        CopyUtf8(native.ItemType, facts.ItemType ?? string.Empty, 8);
+        if (facts.Dependencies.Count > NativeRuntime.MaxHeifDependencies)
+        {
+            throw new ArgumentException(
+                $"HEIF dependency count exceeds the native ABI capacity of {NativeRuntime.MaxHeifDependencies}.",
+                nameof(facts));
+        }
+        native.GraphFlags = facts.GraphComplete ? 0x1u : 0u;
+        native.DependencyCount = (uint)facts.Dependencies.Count;
+        for (int i = 0; i < facts.Dependencies.Count; i++)
+        {
+            HeifDependencyFacts dependency = facts.Dependencies[i];
+            if (dependency.ItemId == 0 || dependency.ByteOffset < 0 || dependency.ByteLength <= 0)
+            {
+                throw new ArgumentException("HEIF dependencies must have positive item ids and ranges.", nameof(facts));
+            }
+            native.DependencyItemIds[i] = dependency.ItemId;
+            native.DependencyOffsets[i] = (ulong)dependency.ByteOffset;
+            native.DependencyLengths[i] = (ulong)dependency.ByteLength;
+            CopyUtf8(native.DependencyItemTypes + (i * 8), dependency.ItemType ?? string.Empty, 8);
+        }
         return native;
+    }
+
+    private static unsafe NativePreservationCarrierFacts MapToNativeCarrier(PreservationCarrier carrier)
+    {
+        var native = new NativePreservationCarrierFacts
+        {
+            StructSize = checked((uint)sizeof(NativePreservationCarrierFacts)),
+            IsPresent = 1,
+            Kind = (int)carrier.Kind,
+            SourceIndex = carrier.SourceIndex,
+            ArtifactRole = (int)carrier.ArtifactRole,
+            Container = (int)carrier.ImageContainer,
+            Codec = (int)carrier.Codec,
+            FileRange = new NativeMediaRange
+            {
+                Offset = (ulong)carrier.SourceOffset,
+                Length = (ulong)carrier.SourceLength
+            }
+        };
+
+        CopyUtf8(native.StableIdentity, carrier.StableIdentity, 96);
+        CopyUtf8(native.OwnerIdentity, carrier.OwnerIdentity, 96);
+        CopyUtf8(native.Relationship, carrier.Relationship, 96);
+        CopyUtf8(native.Semantic, carrier.Semantic, 96);
+        if (!string.IsNullOrWhiteSpace(carrier.SourceSha256))
+        {
+            byte[] sha = Convert.FromHexString(carrier.SourceSha256);
+            if (sha.Length != 32) throw new ArgumentException("Preservation carrier SHA-256 must be 32 bytes.", nameof(carrier));
+            for (int i = 0; i < 32; i++) native.Sha256[i] = sha[i];
+        }
+        return native;
+    }
+
+    private static unsafe void CopyUtf8(byte* destination, string value, int capacity)
+    {
+        byte[] bytes = Encoding.UTF8.GetBytes(value ?? string.Empty);
+        int copyLength = Math.Min(bytes.Length, capacity - 1);
+        for (int i = 0; i < copyLength; i++) destination[i] = bytes[i];
+        destination[copyLength] = 0;
     }
 
     private static bool IsGainMapBindingConsistent(GainMapFacts gainMap, AuxiliaryMediaFacts auxiliary)

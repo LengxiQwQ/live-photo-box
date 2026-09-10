@@ -68,7 +68,7 @@ public sealed class CleanerRealFilesystemTransactionTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(samplePath);
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         // Pre-create and lock destination file with exclusive FileShare.None
         string lockedPath = Path.Combine(workspace.RootDirectory, "locked-destination.jpg");
@@ -109,7 +109,7 @@ public sealed class CleanerRealFilesystemTransactionTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(samplePath);
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         using var cts = new CancellationTokenSource();
         // Cancel token immediately before clean to trigger real OS cancellation in async path
@@ -144,7 +144,7 @@ public sealed class CleanerRealFilesystemTransactionTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(samplePath);
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         using var cts = new CancellationTokenSource();
         // Trigger real cancellation in-flight when staging starts
@@ -178,7 +178,7 @@ public sealed class CleanerRealFilesystemTransactionTests
         var extractor = new SourceExtractor();
 
         var facts = await inspector.InspectAsync(samplePath);
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         using var cts = new CancellationTokenSource();
         string? partiallyWrittenStagedPath = null;
@@ -238,7 +238,7 @@ public sealed class CleanerRealFilesystemTransactionTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(samplePath);
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         using var cts = new CancellationTokenSource();
         string? observedStagedFile = null;
@@ -299,7 +299,7 @@ public sealed class CleanerRealFilesystemTransactionTests
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(samplePath);
-        var extracted = await extractor.ExtractAsync(facts, samplePath, null, workspace);
+        var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         // Create a subfolder with ReadOnly attribute and allocate destination inside it
         string readOnlySubdir = Path.Combine(workspace.RootDirectory, "readonly_dest");

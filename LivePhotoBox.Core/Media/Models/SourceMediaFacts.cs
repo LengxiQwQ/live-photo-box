@@ -17,6 +17,7 @@ public sealed record SourceMediaFacts
     public string PrimarySha256 { get; init; } = string.Empty;
     public string? SecondarySha256 { get; init; }
     public System.Collections.Generic.IReadOnlyList<ConfirmedProtocolResidue> ConfirmedResidues { get; init; } = [];
+    public System.Collections.Generic.IReadOnlyList<PreservationCarrier> PreservationCarriers { get; init; } = [];
 }
 
 public sealed record AuxiliaryMediaFacts
@@ -29,6 +30,15 @@ public sealed record AuxiliaryMediaFacts
     public long ByteOffset { get; init; }
     public long ByteLength { get; init; }
     public string Relationship { get; init; } = string.Empty;
+    public string StableIdentity { get; init; } = string.Empty;
+    public string Semantic { get; init; } = string.Empty;
+    public string OwnerIdentity { get; init; } = string.Empty;
+    public string Sha256 { get; init; } = string.Empty;
+    public AuxiliaryCodec Codec { get; init; } = AuxiliaryCodec.Unknown;
+    public int SourceIndex { get; init; }
+    public string ItemType { get; init; } = string.Empty;
+    public bool GraphComplete { get; init; }
+    public System.Collections.Generic.IReadOnlyList<HeifDependencyFacts> Dependencies { get; init; } = [];
 }
 
 public enum AuxiliaryRepresentation { Embedded, Detached, Materialized }
