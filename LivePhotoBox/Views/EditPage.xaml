@@ -1,13 +1,3 @@
-<!--
-    KeyPhotoPage.xaml — 第七轮精修
-
-    照片：📷大小/分辨率/日期 + 🎬视频/编码 + 协议 · 按钮在缩略图下
-    EXIF 左上对齐自动换行 · 地图 50/50
-
-    时间轴：ItemsRepeater + ScrollViewer（替代 ListView）
-    · 中心锚点竖线固定 · 吸附动画可开关 · 惯性可独立禁用
-    · 帧卡片选中态通过 x:Bind → FrameBorderBrush/FrameBackground 驱动
--->
 <Page
     x:Class="LivePhotoBox.Views.EditPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -17,1567 +7,329 @@
     xmlns:models="using:LivePhotoBox.Models"
     xmlns:converters="using:LivePhotoBox.Converters"
     xmlns:controls="using:LivePhotoBox.Controls"
-    xmlns:ctk="using:CommunityToolkit.WinUI.Controls"
-    xmlns:ic="using:FluentIcons.WinUI"
     mc:Ignorable="d"
     Background="Transparent"
     NavigationCacheMode="Required">
 
     <Page.Resources>
-        <!-- ══════════════════════════════════════════════════════════════ -->
-        <!--  自定义 ScrollBar 样式：永驻粗态（禁用 ConsciousStates 收缩动画）  -->
-        <!--  根因：WinUI 3 ScrollBar 的 C++ 层根据鼠标位置切换                -->
-        <!--        ConsciousStates (Expanded ↔ Collapsed)。托管代码无法          -->
-        <!--        阻止此切换，只能通过替换模板消除视觉差异。                      -->
-        <!--        此模板移除了 ConsciousStates 组，并把所有元素默认值             -->
-        <!--        设成 ExpandedWithoutAnimation 等同态。                        -->
-        <!-- ══════════════════════════════════════════════════════════════ -->
-        <Style x:Key="AlwaysThickScrollBarStyle" TargetType="ScrollBar"
-               BasedOn="{StaticResource DefaultScrollBarStyle}">
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ScrollBar">
-                        <Grid x:Name="Root">
-                            <Grid.Resources>
-                                <!-- 子模板与默认 ScrollBar 一致，供内部引用 -->
-                                <ControlTemplate x:Key="RepeatButtonTemplate" TargetType="RepeatButton">
-                                    <Grid x:Name="Root" Background="Transparent" />
-                                </ControlTemplate>
-                                <ControlTemplate x:Key="HorizontalIncrementTemplate" TargetType="RepeatButton">
-                                    <Grid x:Name="Root" Background="{ThemeResource ScrollBarButtonBackground}" BorderBrush="{ThemeResource ScrollBarButtonBorderBrush}" Padding="{ThemeResource ScrollBarHorizontalIncreaseMargin}">
-                                        <FontIcon x:Name="Arrow" RenderTransformOrigin="0.5,0.5" FontFamily="{ThemeResource SymbolThemeFontFamily}" Glyph="&#xEDDA;" Foreground="{ThemeResource ScrollBarButtonArrowForeground}" FontSize="{StaticResource ScrollBarButtonArrowIconFontSize}" MirroredWhenRightToLeft="True">
-                                            <FontIcon.RenderTransform><ScaleTransform x:Name="ScaleTransform" ScaleX="1" ScaleY="1"/></FontIcon.RenderTransform>
-                                        </FontIcon>
-                                    </Grid>
-                                </ControlTemplate>
-                                <ControlTemplate x:Key="HorizontalDecrementTemplate" TargetType="RepeatButton">
-                                    <Grid x:Name="Root" Background="{ThemeResource ScrollBarButtonBackground}" BorderBrush="{ThemeResource ScrollBarButtonBorderBrush}" Padding="{ThemeResource ScrollBarHorizontalDecreaseMargin}">
-                                        <FontIcon x:Name="Arrow" RenderTransformOrigin="0.5,0.5" FontFamily="{ThemeResource SymbolThemeFontFamily}" Glyph="&#xEDD9;" Foreground="{ThemeResource ScrollBarButtonArrowForeground}" FontSize="{StaticResource ScrollBarButtonArrowIconFontSize}" MirroredWhenRightToLeft="True">
-                                            <FontIcon.RenderTransform><ScaleTransform x:Name="ScaleTransform" ScaleX="1" ScaleY="1"/></FontIcon.RenderTransform>
-                                        </FontIcon>
-                                    </Grid>
-                                </ControlTemplate>
-                                <ControlTemplate x:Key="VerticalIncrementTemplate" TargetType="RepeatButton">
-                                    <Grid x:Name="Root" Background="{ThemeResource ScrollBarButtonBackground}" BorderBrush="{ThemeResource ScrollBarButtonBorderBrush}" Padding="{ThemeResource ScrollBarVerticalIncreaseMargin}">
-                                        <FontIcon x:Name="Arrow" RenderTransformOrigin="0.5,0.5" FontFamily="{ThemeResource SymbolThemeFontFamily}" Glyph="&#xEDDC;" Foreground="{ThemeResource ScrollBarButtonArrowForeground}" FontSize="{StaticResource ScrollBarButtonArrowIconFontSize}">
-                                            <FontIcon.RenderTransform><ScaleTransform x:Name="ScaleTransform" ScaleX="1" ScaleY="1"/></FontIcon.RenderTransform>
-                                        </FontIcon>
-                                    </Grid>
-                                </ControlTemplate>
-                                <ControlTemplate x:Key="VerticalDecrementTemplate" TargetType="RepeatButton">
-                                    <Grid x:Name="Root" Background="{ThemeResource ScrollBarButtonBackground}" BorderBrush="{ThemeResource ScrollBarButtonBorderBrush}" Padding="{ThemeResource ScrollBarVerticalDecreaseMargin}">
-                                        <FontIcon x:Name="Arrow" RenderTransformOrigin="0.5,0.5" FontFamily="{ThemeResource SymbolThemeFontFamily}" Glyph="&#xEDDB;" Foreground="{ThemeResource ScrollBarButtonArrowForeground}" FontSize="{StaticResource ScrollBarButtonArrowIconFontSize}">
-                                            <FontIcon.RenderTransform><ScaleTransform x:Name="ScaleTransform" ScaleX="1" ScaleY="1"/></FontIcon.RenderTransform>
-                                        </FontIcon>
-                                    </Grid>
-                                </ControlTemplate>
-
-                                <!-- Thumb 模板：省略 VSM（默认态即展开态），必须保留 ThumbVisual 名称等 -->
-                                <ControlTemplate x:Key="VerticalThumbTemplate" TargetType="Thumb">
-                                    <Rectangle x:Name="ThumbVisual" Fill="{TemplateBinding Background}" Stroke="{TemplateBinding BorderBrush}" StrokeThickness="{ThemeResource ScrollBarThumbStrokeThickness}" RadiusX="{Binding CornerRadius, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource TopLeftCornerRadiusDoubleValueConverter}}" RadiusY="{Binding CornerRadius, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource BottomRightCornerRadiusDoubleValueConverter}}" />
-                                </ControlTemplate>
-                                <ControlTemplate x:Key="HorizontalThumbTemplate" TargetType="Thumb">
-                                    <Rectangle x:Name="ThumbVisual" Fill="{TemplateBinding Background}" Stroke="{TemplateBinding BorderBrush}" StrokeThickness="{ThemeResource ScrollBarThumbStrokeThickness}" RadiusX="{Binding CornerRadius, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource TopLeftCornerRadiusDoubleValueConverter}}" RadiusY="{Binding CornerRadius, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource BottomRightCornerRadiusDoubleValueConverter}}" />
-                                </ControlTemplate>
-                            </Grid.Resources>
-
-                            <VisualStateManager.VisualStateGroups>
-                                <!-- CommonStates（仅 Disabled）—— 保留默认逻辑 -->
-                                <VisualStateGroup x:Name="CommonStates">
-                                    <VisualState x:Name="Normal" />
-                                    <VisualState x:Name="Disabled">
-                                        <VisualState.Setters>
-                                            <Setter Target="Root.Background" Value="{ThemeResource ScrollBarBackgroundDisabled}" />
-                                            <Setter Target="Root.BorderBrush" Value="{ThemeResource ScrollBarBorderBrushDisabled}" />
-                                            <Setter Target="Root.Opacity" Value="0.5" />
-                                            <Setter Target="HorizontalTrackRect.Stroke" Value="{ThemeResource ScrollBarTrackStrokeDisabled}" />
-                                            <Setter Target="VerticalTrackRect.Stroke" Value="{ThemeResource ScrollBarTrackStrokeDisabled}" />
-                                            <Setter Target="HorizontalTrackRect.Fill" Value="{ThemeResource ScrollBarTrackFillDisabled}" />
-                                            <Setter Target="VerticalTrackRect.Fill" Value="{ThemeResource ScrollBarTrackFillDisabled}" />
-                                            <Setter Target="HorizontalPanningThumb.Background" Value="{ThemeResource ScrollBarPanningThumbBackgroundDisabled}" />
-                                            <Setter Target="VerticalPanningThumb.Background" Value="{ThemeResource ScrollBarPanningThumbBackgroundDisabled}" />
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                </VisualStateGroup>
-
-                                <!-- ScrollingIndicatorStates —— 保留，确保 MouseIndicator 下元素 hit-testable -->
-                                <VisualStateGroup x:Name="ScrollingIndicatorStates">
-                                    <VisualState x:Name="TouchIndicator">
-                                        <VisualState.Setters>
-                                            <Setter Target="HorizontalRoot.Visibility" Value="Collapsed" />
-                                            <Setter Target="VerticalRoot.Visibility" Value="Collapsed" />
-                                            <Setter Target="HorizontalPanningRoot.Opacity" Value="1" />
-                                            <Setter Target="VerticalPanningRoot.Opacity" Value="1" />
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                    <VisualState x:Name="MouseIndicator">
-                                        <VisualState.Setters>
-                                            <Setter Target="HorizontalPanningRoot.Visibility" Value="Collapsed" />
-                                            <Setter Target="VerticalPanningRoot.Visibility" Value="Collapsed" />
-                                            <Setter Target="HorizontalRoot.IsHitTestVisible" Value="True" />
-                                            <Setter Target="VerticalRoot.IsHitTestVisible" Value="True" />
-                                            <Setter Target="HorizontalThumb.Opacity" Value="1" />
-                                            <Setter Target="VerticalThumb.Opacity" Value="1" />
-                                        </VisualState.Setters>
-                                    </VisualState>
-                                    <VisualState x:Name="NoIndicator">
-                                        <VisualState.Setters>
-                                            <Setter Target="HorizontalThumb.Background" Value="{ThemeResource ScrollBarPanningThumbBackground}" />
-                                            <Setter Target="VerticalThumb.Background" Value="{ThemeResource ScrollBarPanningThumbBackground}" />
-                                        </VisualState.Setters>
-                                        <Storyboard>
-                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="VerticalSmallIncrease" Storyboard.TargetProperty="Opacity" To="0" />
-                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="VerticalLargeIncrease" Storyboard.TargetProperty="Opacity" To="0" />
-                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="VerticalLargeDecrease" Storyboard.TargetProperty="Opacity" To="0" />
-                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="VerticalThumb" Storyboard.TargetProperty="Opacity" To="0" />
-                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="VerticalSmallDecrease" Storyboard.TargetProperty="Opacity" To="0" />
-                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="VerticalTrackRect" Storyboard.TargetProperty="Opacity" To="0" />
-                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="HorizontalSmallIncrease" Storyboard.TargetProperty="Opacity" To="0" />
-                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="HorizontalLargeIncrease" Storyboard.TargetProperty="Opacity" To="0" />
-                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="HorizontalLargeDecrease" Storyboard.TargetProperty="Opacity" To="0" />
-                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="HorizontalThumb" Storyboard.TargetProperty="Opacity" To="0" />
-                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="HorizontalSmallDecrease" Storyboard.TargetProperty="Opacity" To="0" />
-                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="HorizontalTrackRect" Storyboard.TargetProperty="Opacity" To="0" />
-                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="HorizontalRoot" Storyboard.TargetProperty="Visibility">
-                                                <DiscreteObjectKeyFrame KeyTime="{StaticResource ScrollBarOpacityChangeDuration}"><DiscreteObjectKeyFrame.Value><Visibility>Collapsed</Visibility></DiscreteObjectKeyFrame.Value></DiscreteObjectKeyFrame>
-                                            </ObjectAnimationUsingKeyFrames>
-                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="VerticalRoot" Storyboard.TargetProperty="Visibility">
-                                                <DiscreteObjectKeyFrame KeyTime="{StaticResource ScrollBarOpacityChangeDuration}"><DiscreteObjectKeyFrame.Value><Visibility>Collapsed</Visibility></DiscreteObjectKeyFrame.Value></DiscreteObjectKeyFrame>
-                                            </ObjectAnimationUsingKeyFrames>
-                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="HorizontalPanningRoot" Storyboard.TargetProperty="Opacity" To="0" />
-                                            <DoubleAnimation Duration="{StaticResource ScrollBarOpacityChangeDuration}" Storyboard.TargetName="VerticalPanningRoot" Storyboard.TargetProperty="Opacity" To="0" />
-                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="HorizontalPanningRoot" Storyboard.TargetProperty="Visibility">
-                                                <DiscreteObjectKeyFrame KeyTime="{StaticResource ScrollBarContractDuration}"><DiscreteObjectKeyFrame.Value><Visibility>Collapsed</Visibility></DiscreteObjectKeyFrame.Value></DiscreteObjectKeyFrame>
-                                            </ObjectAnimationUsingKeyFrames>
-                                            <ObjectAnimationUsingKeyFrames Storyboard.TargetName="VerticalPanningRoot" Storyboard.TargetProperty="Visibility">
-                                                <DiscreteObjectKeyFrame KeyTime="{StaticResource ScrollBarContractDuration}"><DiscreteObjectKeyFrame.Value><Visibility>Collapsed</Visibility></DiscreteObjectKeyFrame.Value></DiscreteObjectKeyFrame>
-                                            </ObjectAnimationUsingKeyFrames>
-                                        </Storyboard>
-                                    </VisualState>
-                                </VisualStateGroup>
-
-                                <!-- ▸▸▸ ConsciousStates 已移除 —— 这是核心修改 ▸▸▸
-                                     所有元素默认值直接设为展开态（Opacity=1, Thumb 宽度=ScrollBarSize, Offset=0）。
-                                     ScrollBar C++ 层仍会调用 GoToState("Expanded"/"Collapsed")，
-                                     但找不到状态组 → 无操作 → 滚动条始终维持展开外观。 -->
-                            </VisualStateManager.VisualStateGroups>
-
-                            <!-- ═══════════ 横向滚动条 ═══════════ -->
-                            <Grid x:Name="HorizontalRoot" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" IsHitTestVisible="False" CornerRadius="{TemplateBinding CornerRadius}">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <!-- Opacity/尺寸全部改为展开态默认值 -->
-                                <Rectangle x:Name="HorizontalTrackRect" RadiusX="{Binding CornerRadius, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource TopLeftCornerRadiusDoubleValueConverter2x}}" RadiusY="{Binding CornerRadius, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource BottomRightCornerRadiusDoubleValueConverter2x}}" Opacity="1" Grid.ColumnSpan="5" Margin="0" StrokeThickness="{ThemeResource ScrollBarTrackBorderThemeThickness}">
-                                    <Rectangle.Fill>
-                                        <SolidColorBrush Color="{ThemeResource SystemBaseMediumLowColor}" Opacity="0.10" />
-                                    </Rectangle.Fill>
-                                    <Rectangle.Stroke>
-                                        <SolidColorBrush Color="{ThemeResource SystemBaseMediumLowColor}" Opacity="0.16" />
-                                    </Rectangle.Stroke>
-                                </Rectangle>
-                                <RepeatButton x:Name="HorizontalSmallDecrease" Grid.Column="0" Opacity="1" MinHeight="{StaticResource ScrollBarSize}" IsTabStop="False" Interval="50" Padding="{ThemeResource ScrollBarHorizontalDecreaseMargin}" Template="{StaticResource HorizontalDecrementTemplate}" Width="{StaticResource ScrollBarSize}" AllowFocusOnInteraction="False" VerticalAlignment="Center" />
-                                <RepeatButton x:Name="HorizontalLargeDecrease" Opacity="1" Grid.Column="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsTabStop="False" Interval="50" Template="{StaticResource RepeatButtonTemplate}" Width="0" AllowFocusOnInteraction="False" />
-                                <Thumb x:Name="HorizontalThumb" Opacity="1" Grid.Column="2" Background="{ThemeResource ScrollBarPanningThumbBackground}" BorderBrush="{ThemeResource ScrollBarThumbBorderBrush}" Template="{StaticResource HorizontalThumbTemplate}" Height="{StaticResource ScrollBarSize}" MinWidth="{StaticResource ScrollBarHorizontalThumbMinWidth}" AutomationProperties.AccessibilityView="Raw" RenderTransformOrigin="0.5,1" CornerRadius="{TemplateBinding CornerRadius}">
-                                    <Thumb.RenderTransform><TranslateTransform x:Name="HorizontalThumbTransform" Y="0" /></Thumb.RenderTransform>
-                                </Thumb>
-                                <RepeatButton x:Name="HorizontalLargeIncrease" Opacity="1" Grid.Column="3" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsTabStop="False" Interval="50" AllowFocusOnInteraction="False" Template="{StaticResource RepeatButtonTemplate}" />
-                                <RepeatButton x:Name="HorizontalSmallIncrease" Grid.Column="4" Opacity="1" MinHeight="{StaticResource ScrollBarSize}" IsTabStop="False" Interval="50" Padding="{ThemeResource ScrollBarHorizontalIncreaseMargin}" Template="{StaticResource HorizontalIncrementTemplate}" Width="{StaticResource ScrollBarSize}" AllowFocusOnInteraction="False" VerticalAlignment="Center" />
-                            </Grid>
-
-                            <!-- 触控平移指示器（TouchIndicator 模式时才显示） -->
-                            <Grid x:Name="HorizontalPanningRoot" MinWidth="24" Visibility="Collapsed" Opacity="0" CornerRadius="{TemplateBinding CornerRadius}">
-                                <Border x:Name="HorizontalPanningThumb" VerticalAlignment="Bottom" HorizontalAlignment="Left" Background="{ThemeResource ScrollBarPanningThumbBackground}" BorderThickness="0" Height="2" MinWidth="32" Margin="0,2,0,2" />
-                            </Grid>
-
-                            <!-- ═══════════ 纵向滚动条 ═══════════ -->
-                            <Grid x:Name="VerticalRoot" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" IsHitTestVisible="False">
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" />
-                                </Grid.RowDefinitions>
-                                <!-- Opacity/尺寸全部改为展开态默认值 -->
-                                <Rectangle x:Name="VerticalTrackRect" RadiusX="{Binding CornerRadius, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource TopLeftCornerRadiusDoubleValueConverter2x}}" RadiusY="{Binding CornerRadius, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource BottomRightCornerRadiusDoubleValueConverter2x}}" Opacity="1" Grid.RowSpan="5" Margin="0" StrokeThickness="{ThemeResource ScrollBarTrackBorderThemeThickness}">
-                                    <Rectangle.Fill>
-                                        <SolidColorBrush Color="{ThemeResource SystemBaseMediumLowColor}" Opacity="0.10" />
-                                    </Rectangle.Fill>
-                                    <Rectangle.Stroke>
-                                        <SolidColorBrush Color="{ThemeResource SystemBaseMediumLowColor}" Opacity="0.16" />
-                                    </Rectangle.Stroke>
-                                </Rectangle>
-                                <RepeatButton x:Name="VerticalSmallDecrease" Grid.Row="0" Opacity="1" Height="{StaticResource ScrollBarSize}" MinWidth="{StaticResource ScrollBarSize}" IsTabStop="False" Interval="50" Padding="{ThemeResource ScrollBarVerticalDecreaseMargin}" Template="{StaticResource VerticalDecrementTemplate}" HorizontalAlignment="Center" />
-                                <RepeatButton x:Name="VerticalLargeDecrease" Opacity="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Height="0" IsTabStop="False" Interval="50" Grid.Row="1" AllowFocusOnInteraction="False" Template="{StaticResource RepeatButtonTemplate}" />
-                                <!-- ▸▸▸ 核心：Thumb Width 设为 ScrollBarSize（12px），不再是 MinWidth（8px）▸▸▸ -->
-                                <Thumb x:Name="VerticalThumb" Opacity="1" Grid.Row="2" Background="{ThemeResource ScrollBarPanningThumbBackground}" BorderBrush="{ThemeResource ScrollBarThumbBorderBrush}" Template="{StaticResource VerticalThumbTemplate}" Width="{StaticResource ScrollBarSize}" MinHeight="{StaticResource ScrollBarVerticalThumbMinHeight}" AutomationProperties.AccessibilityView="Raw" RenderTransformOrigin="1,0.5" CornerRadius="{TemplateBinding CornerRadius}">
-                                    <!-- ▸▸▸ 核心：Transform X 设为 0，不再是 ScrollBarThumbOffset（2）▸▸▸ -->
-                                    <Thumb.RenderTransform><TranslateTransform x:Name="VerticalThumbTransform" X="0" /></Thumb.RenderTransform>
-                                </Thumb>
-                                <RepeatButton x:Name="VerticalLargeIncrease" Opacity="1" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" IsTabStop="False" Interval="50" Grid.Row="3" AllowFocusOnInteraction="False" Template="{StaticResource RepeatButtonTemplate}" />
-                                <RepeatButton x:Name="VerticalSmallIncrease" Grid.Row="4" Opacity="1" Height="{StaticResource ScrollBarSize}" MinWidth="{StaticResource ScrollBarSize}" IsTabStop="False" Interval="50" Padding="{ThemeResource ScrollBarVerticalIncreaseMargin}" Template="{StaticResource VerticalIncrementTemplate}" HorizontalAlignment="Center" />
-                            </Grid>
-
-                            <!-- 触控平移指示器 -->
-                            <Grid x:Name="VerticalPanningRoot" MinHeight="24" Visibility="Collapsed" Opacity="0" CornerRadius="{TemplateBinding CornerRadius}">
-                                <Border x:Name="VerticalPanningThumb" VerticalAlignment="Top" HorizontalAlignment="Right" Background="{ThemeResource ScrollBarPanningThumbBackground}" BorderThickness="0" Width="2" MinHeight="32" Margin="2,0,2,0" />
-                            </Grid>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- 隐式 ScrollBar 样式：页面内所有 ScrollBar 默认保持粗态 -->
-        <Style TargetType="ScrollBar" BasedOn="{StaticResource AlwaysThickScrollBarStyle}" />
-
-        <Style x:Key="CardBorderStyle" TargetType="Border">
-            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
-            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="Padding" Value="12"/>
-        </Style>
-        <Style x:Key="InfoCardBorderStyle" TargetType="Border">
-            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
-            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="Padding" Value="10"/>
-        </Style>
-        <Style x:Key="LeftFileListSurface" TargetType="Border">
-            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
-            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
-            <Setter Property="BorderThickness" Value="1"/>
-            <Setter Property="CornerRadius" Value="4"/>
-            <Setter Property="Padding" Value="0"/>
-        </Style>
-        <Style x:Key="CardTitleStyle" TargetType="TextBlock">
-            <Setter Property="FontWeight" Value="SemiBold"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
-            <Setter Property="VerticalAlignment" Value="Center"/>
-        </Style>
-        <Style x:Key="SecondaryTextStyle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="11"/>
-            <Setter Property="Foreground" Value="{ThemeResource TextFillColorTertiaryBrush}"/>
-            <Setter Property="TextTrimming" Value="CharacterEllipsis"/>
-        </Style>
-        <Style x:Key="InfoRowButtonStyle" TargetType="Button">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="Margin" Value="0"/>
-            <Setter Property="HorizontalAlignment" Value="Stretch"/>
-            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-            <Setter Property="CornerRadius" Value="4"/>
-        </Style>
-        <converters:StringNotEmptyConverter x:Key="StringNotEmptyConverter"/>
         <converters:VisibilityConverter x:Key="VisibilityConverter"/>
+        <Style x:Key="EditorCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="8"/>
+        </Style>
+        <Style x:Key="ToolSectionTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
+        </Style>
+        <Style x:Key="SecondaryLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </Style>
+
+        <!-- Timeline layer B: cover markers + frame number. No cover consumes an item. -->
+        <DataTemplate x:Key="TimelineMarkerTemplate" x:DataType="models:EditTimelinePresentationItem">
+            <Grid Width="72" Height="42">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="15"/>
+                    <RowDefinition Height="15"/>
+                    <RowDefinition Height="12"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="当前封面 ▼" FontSize="9" FontWeight="SemiBold"
+                           Foreground="#FFF2C744" HorizontalAlignment="Center"
+                           Visibility="{x:Bind IsCurrentCoverMarker, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"/>
+                <TextBlock Grid.Row="1" Text="原始封面 ▼" FontSize="9" FontWeight="SemiBold"
+                           Foreground="#FFA76CF5" HorizontalAlignment="Center"
+                           Visibility="{x:Bind IsOriginalCoverMarker, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"/>
+                <TextBlock Grid.Row="2" Text="{x:Bind DisplayNumber}" FontSize="10"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           HorizontalAlignment="Center" VerticalAlignment="Bottom"/>
+            </Grid>
+        </DataTemplate>
+
+        <!-- Timeline layer C: every real video frame is a strict 1:1 square. -->
+        <DataTemplate x:Key="TimelineThumbnailTemplate" x:DataType="models:EditTimelinePresentationItem">
+            <Border Width="72" Height="72" CornerRadius="6"
+                    Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                    Tapped="TimelineThumbnail_Tapped">
+                <Grid>
+                    <FontIcon Glyph="&#xE722;" FontSize="18"
+                              Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                              Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                    <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
+                    <Border BorderBrush="{ThemeResource AccentFillColorDefaultBrush}" BorderThickness="3"
+                            CornerRadius="6" IsHitTestVisible="False"
+                            Visibility="{x:Bind IsSelected, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"/>
+                </Grid>
+            </Border>
+        </DataTemplate>
     </Page.Resources>
 
-    <Grid>
+    <Grid x:Name="PageRoot" Padding="16,12,16,14" RowSpacing="12">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition x:Name="HeaderRow" Height="Auto"/>
+            <RowDefinition Height="*" MinHeight="280"/>
+            <RowDefinition x:Name="TimelineRow" Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <!-- ============================================================ -->
-        <!-- Row 0：标题 + CommandBar（透明背景）                              -->
-        <!-- ============================================================ -->
-        <!-- 备选：包裹卡片面板版本（想去掉上面的面板又想换回来时取消注释）
-        <Border Grid.Row="0" Style="{StaticResource CardBorderStyle}"
-                Margin="8,2,8,2" Padding="4,8,4,8">
-            <Grid x:Name="TopBarGrid">
-            ... 内容不变 ...
-            </Grid>
-        </Border>
-        -->
-        <Grid x:Name="TopBarGrid" Grid.Row="0">
-            <CommandBar DefaultLabelPosition="Right"
-                        HorizontalAlignment="Stretch" IsDynamicOverflowEnabled="False"
-                        Background="Transparent">
-                <AppBarButton x:Uid="EditPage_ConvertProtocol"
-                              Command="{x:Bind ViewModel.ConvertProtocolCommand}"
-                              Label="转换协议">
-                    <AppBarButton.Icon><ic:SymbolIcon Symbol="ArrowSwap" FontSize="14"/></AppBarButton.Icon>
-                </AppBarButton>
-                <AppBarSeparator/>
-                <AppBarButton x:Name="ExportButton" x:Uid="EditPage_Export"
-                              IsEnabled="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay}">
-                    <AppBarButton.Icon><ic:SymbolIcon Symbol="ImageArrowForward" FontSize="14"/></AppBarButton.Icon>
-                    <AppBarButton.Flyout>
-                        <MenuFlyout x:Name="ExportFlyout" Placement="Bottom">
-                            <!-- 1. 导出当前帧：有照片即可（含缺失视频的实况） -->
-                            <MenuFlyoutItem x:Uid="EditPage_ExportFrame"
-                                            Command="{x:Bind ViewModel.ExportCurrentFrameCommand}"
-                                            IsEnabled="{x:Bind ViewModel.CanExportCurrentFrame, Mode=OneWay}">
-                                <MenuFlyoutItem.Icon>
-                                    <ic:SymbolIcon Symbol="SendCopy"/>
-                                </MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
-                            <!-- 2. 导出所有帧：需有时间轴 -->
-                            <MenuFlyoutItem x:Uid="EditPage_ExportAllFrames"
-                                            Command="{x:Bind ViewModel.ExportAllFramesCommand}"
-                                            IsEnabled="{x:Bind ViewModel.CanExportMultiFrame, Mode=OneWay}">
-                                <MenuFlyoutItem.Icon>
-                                    <ic:SymbolIcon Symbol="SendCopy"/>
-                                </MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
-
-                            <MenuFlyoutSeparator/>
-
-                            <!-- 3. 导出为视频：需有时间轴 -->
-                            <MenuFlyoutItem x:Uid="EditPage_ExportVideo"
-                                            Command="{x:Bind ViewModel.ExportVideoCommand}"
-                                            IsEnabled="{x:Bind ViewModel.CanExportMultiFrame, Mode=OneWay}">
-                                <MenuFlyoutItem.Icon>
-                                    <ic:SymbolIcon Symbol="VideoClip"/>
-                                </MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
-
-                            <!-- 4. 导出为 GIF 动图：需有时间轴 -->
-                            <MenuFlyoutItem x:Uid="EditPage_ExportGif"
-                                            Command="{x:Bind ViewModel.ExportGifCommand}"
-                                            IsEnabled="{x:Bind ViewModel.CanExportMultiFrame, Mode=OneWay}">
-                                <MenuFlyoutItem.Icon>
-                                    <ic:SymbolIcon Symbol="Gif"/>
-                                </MenuFlyoutItem.Icon>
-                            </MenuFlyoutItem>
+        <!-- Header -->
+        <Grid x:Name="HeaderBar" Grid.Row="0" MinHeight="40">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
+                <TextBlock Text="实况照片编辑" FontSize="20" FontWeight="SemiBold"/>
+                <TextBlock Text="{x:Bind ViewModel.ExportProgressText, Mode=OneWay}" FontSize="12"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <Button Content="撤销" IsEnabled="False" ToolTipService.ToolTip="本轮仅保留 UI 入口"/>
+                <Button Content="重做" IsEnabled="False" ToolTipService.ToolTip="本轮仅保留 UI 入口"/>
+                <Border Width="1" Height="20" Margin="4,0" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                <Button x:Name="ExportFramesButton" Content="导出帧..."
+                        IsEnabled="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay}">
+                    <Button.Flyout>
+                        <MenuFlyout>
+                            <MenuFlyoutItem Text="导出当前帧" Command="{x:Bind ViewModel.ExportCurrentFrameCommand}"
+                                            IsEnabled="{x:Bind ViewModel.CanExportCurrentFrame, Mode=OneWay}"/>
+                            <MenuFlyoutItem Text="导出所有帧" Command="{x:Bind ViewModel.ExportAllFramesCommand}"
+                                            IsEnabled="{x:Bind ViewModel.CanExportMultiFrame, Mode=OneWay}"/>
                         </MenuFlyout>
-                    </AppBarButton.Flyout>
-                </AppBarButton>
-                <AppBarButton x:Uid="EditPage_SaveAs" Command="{x:Bind ViewModel.SaveAsCommand}"
-                              IsEnabled="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"
-                              Label="另存为">
-                    <AppBarButton.Icon><FontIcon Glyph="&#xE792;" FontSize="14"/></AppBarButton.Icon>
-                </AppBarButton>
-                <AppBarSeparator/>
-                <AppBarButton x:Uid="EditPage_Save" Command="{x:Bind ViewModel.SaveCommand}"
-                              IsEnabled="{x:Bind ViewModel.IsSetKeyPhotoEnabled, Mode=OneWay}"
-                              Label="设为封面并保存为副本">
-                    <AppBarButton.Icon><FontIcon Glyph="&#xE74E;" FontSize="14"/></AppBarButton.Icon>
-                </AppBarButton>
-            </CommandBar>
-
-            <!-- 标题 + 导出进度（标题栏左侧，贴着标题） -->
-            <StackPanel Orientation="Horizontal"
-                        VerticalAlignment="Center" HorizontalAlignment="Left"
-                        Margin="8,0,0,0">
-                <TextBlock x:Uid="EditPage_PageTitle"
-                           FontSize="16" FontWeight="SemiBold"
-                           VerticalAlignment="Center" Margin="8,0,0,0"
-                           IsHitTestVisible="False"
-                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-
-                <StackPanel x:Name="ExportProgressPanel"
-                            Visibility="{x:Bind ViewModel.IsExporting, Converter={StaticResource VisibilityConverter}, Mode=OneWay}"
-                            Orientation="Horizontal" Spacing="6"
-                            Margin="16,0,0,0"
-                            VerticalAlignment="Center">
-                    <Grid Width="20" Height="20" IsHitTestVisible="False">
-                        <ProgressRing IsActive="{x:Bind ViewModel.IsExporting, Mode=OneWay}"
-                                      Width="20" Height="20"
-                                      Visibility="{x:Bind ViewModel.IsSpinnerVisible, Converter={StaticResource VisibilityConverter}, Mode=OneWay}"/>
-                        <FontIcon Glyph="&#xE8FB;" FontSize="14"
-                                  Width="20" Height="20"
-                                  Visibility="{x:Bind ViewModel.IsShowingSaveComplete, Converter={StaticResource VisibilityConverter}, Mode=OneWay}"
-                                  HorizontalAlignment="Center" VerticalAlignment="Center"
-                                  Foreground="{ThemeResource SystemFillColorSuccessBrush}"/>
-                        <FontIcon Glyph="&#xE711;" FontSize="14"
-                                  Width="20" Height="20"
-                                  Visibility="{x:Bind ViewModel.IsShowingSaveError, Converter={StaticResource VisibilityConverter}, Mode=OneWay}"
-                                  HorizontalAlignment="Center" VerticalAlignment="Center"
-                                  Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
-                    </Grid>
-                    <TextBlock Text="{x:Bind ViewModel.ProgressPrefixText, Mode=OneWay}"
-                               IsHitTestVisible="False"
-                               FontSize="13"
-                               VerticalAlignment="Center"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <TextBlock Text="{x:Bind ViewModel.ExportProgressText, Mode=OneWay}"
-                               IsHitTestVisible="False"
-                               VerticalAlignment="Center"
-                               FontSize="13"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <!-- 输出文件夹（完成/失败时显示） -->
-                    <Button Command="{x:Bind ViewModel.OpenExportOutputFolderCommand}"
-                            Visibility="{x:Bind ViewModel.IsCompletionWithOutputDir, Converter={StaticResource VisibilityConverter}, Mode=OneWay}"
-                            Width="28" Height="28" Padding="0"
-                            Margin="6,0,0,0"
-                            VerticalAlignment="Center"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            CornerRadius="4">
-                        <FontIcon Glyph="&#xE838;" FontSize="14"
-                                  VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                    </Button>
-                    <!-- 错误详情（仅失败时显示） -->
-                    <Button Visibility="{x:Bind ViewModel.IsCompletionWithError, Converter={StaticResource VisibilityConverter}, Mode=OneWay}"
-                            Width="28" Height="28" Padding="0"
-                            Margin="4,0,0,0"
-                            VerticalAlignment="Center"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            CornerRadius="4">
-                        <FontIcon Glyph="&#xE814;" FontSize="14"
-                                  VerticalAlignment="Center" HorizontalAlignment="Center"
-                                  Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
-                        <Button.Flyout>
-                            <Flyout>
-                                <StackPanel MaxWidth="360" Padding="8">
-                                    <TextBlock Text="{x:Bind ViewModel.LastExportError, Mode=OneWay}"
-                                               FontSize="13" TextWrapping="Wrap"
-                                               IsTextSelectionEnabled="True"
-                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                                </StackPanel>
-                            </Flyout>
-                        </Button.Flyout>
-                    </Button>
-                </StackPanel>
+                    </Button.Flyout>
+                </Button>
+                <Button Content="保存副本" Command="{x:Bind ViewModel.SaveCommand}"
+                        IsEnabled="{x:Bind ViewModel.IsSetKeyPhotoEnabled, Mode=OneWay}"/>
             </StackPanel>
         </Grid>
 
-        <!-- ============================================================ -->
-        <!-- Row 1：主内容                                                   -->
-        <!-- ============================================================ -->
-        <Grid x:Name="MainContentGrid" Grid.Row="1" Padding="8,0,8,6" SizeChanged="ContentGrid_SizeChanged">
+        <!-- Upper editor: Preview left, Edit Tools right -->
+        <Grid x:Name="EditorTopGrid" Grid.Row="1" ColumnSpacing="12">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition x:Name="LeftPanelColumn" Width="4*"/>
-                <ColumnDefinition x:Name="PanelSpacerColumn" Width="Auto"/>
-                <ColumnDefinition Width="21*" MinWidth="420"/>
+                <ColumnDefinition Width="*" MinWidth="360"/>
+                <ColumnDefinition x:Name="ToolsColumn" Width="340" MinWidth="300" MaxWidth="380"/>
             </Grid.ColumnDefinitions>
 
-            <!-- ························································ -->
-            <!-- 左侧面板                                                     -->
-            <!-- ························································ -->
-            <Border x:Name="LeftPanelBorder" Grid.Column="0" Style="{StaticResource LeftFileListSurface}"
-                    AllowDrop="True">
-                <!-- 外层 Grid：让原始内容 + DragOverlay 叠加（Border 只能有一个子元素） -->
+            <Border x:Name="PreviewBorder" Style="{StaticResource EditorCardStyle}">
                 <Grid>
-                    <Grid>
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>   <!-- 标题行 -->
-                            <RowDefinition Height="Auto"/>   <!-- 控件区 -->
-                            <RowDefinition Height="Auto"/>   <!-- 文件统计 -->
-                            <RowDefinition Height="*"/>      <!-- ListView -->
-                        </Grid.RowDefinitions>
+                    <controls:PhotoViewer x:Name="PhotoViewer"
+                                          ImageSource="{x:Bind ViewModel.PreviewImageSource, Mode=OneWay}"
+                                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+                    <controls:PureMediaViewer x:Name="PureMediaViewer" Visibility="Collapsed"
+                                              ShowTransportControls="False" ShowCloseButton="False"
+                                              AutoCloseOnEnd="False" CloseRequested="PureMediaViewer_CloseRequested"
+                                              HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
 
-                    <!-- ── 标题行：资源浏览 + 加载动画 + 折叠按钮 ── -->
-                    <Grid Grid.Row="0" Margin="10,14,10,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <TextBlock x:Name="PanelTitleText" x:Uid="EditPage_PanelTitle"
-                                       Text="资源浏览"
-                                       FontSize="14" FontWeight="SemiBold"
-                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                       VerticalAlignment="Center"/>
-                            <ProgressRing Width="12" Height="12"
-                                          IsActive="{x:Bind ViewModel.IsScanning, Mode=OneWay}"
-                                          VerticalAlignment="Center"
-                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"/>
-                        </StackPanel>
-                        <Button Grid.Column="2" x:Name="CollapsePanelButton"
-                                Width="28" Height="28" Padding="0"
-                                HorizontalAlignment="Right" VerticalAlignment="Center"
-                                Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                BorderThickness="1" CornerRadius="5"
-                                Click="CollapsePanelButton_Click"
-                                Visibility="{x:Bind ViewModel.HasAnyFiles, Mode=OneWay}"
-                                x:Uid="EditPage_CollapsePanel">
-                            <FontIcon x:Name="CollapseButtonIcon" Glyph="&#xE76B;"
-                                      FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <StackPanel x:Name="ZoomControlsPanel" Orientation="Horizontal" Spacing="4"
+                                HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8"
+                                Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay, Converter={StaticResource VisibilityConverter}}">
+                        <Button Width="32" Height="30" Padding="0" Click="ZoomOutButton_Click" ToolTipService.ToolTip="缩小">
+                            <FontIcon Glyph="&#xE949;" FontSize="12"/>
                         </Button>
-                    </Grid>
-
-                    <StackPanel x:Name="PanelControlsArea" Grid.Row="1" Margin="10,8,10,8" Spacing="8">
-                        <!-- ── 文件夹路径 ── -->
-                        <Grid ColumnSpacing="6">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <TextBox Grid.Column="0" x:Uid="EditPage_CurrentDirBox"
-                                     x:Name="CurrentDirTextBox"
-                                     Text="{x:Bind ViewModel.CurrentDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                     PlaceholderText="当前目录..."
-                                     FontSize="12" MinHeight="28" Height="28" Padding="10,5,10,5"
-                                     VerticalContentAlignment="Center" VerticalAlignment="Center"
-                                     LostFocus="CurrentDirTextBox_LostFocus"
-                                     TextChanged="CurrentDirTextBox_TextChanged">
-                                <TextBox.Resources>
-                                    <x:Double x:Key="TextControlThemeMinHeight">28</x:Double>
-                                </TextBox.Resources>
-                            </TextBox>
-                            <Button Grid.Column="1" x:Uid="EditPage_BrowseFolderBtn"
-                                    Width="28" Height="28" Padding="0" CornerRadius="5"
-                                    VerticalAlignment="Center"
-                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                    Click="BrowseFolder_Click"
-                                    PointerPressed="BrowseFolder_PointerPressed">
-                                <FontIcon Glyph="&#xE838;" FontSize="12"
-                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </Button>
-                            <!-- 目录有内容 → 刷新按钮；目录为空 → 清空按钮 -->
-                            <Button Grid.Column="2" x:Name="RefreshDirBtn"
-                                    Width="28" Height="28" Padding="0" CornerRadius="5"
-                                    VerticalAlignment="Center"
-                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                    Click="RefreshOrClearDir_Click">
-                                <FontIcon x:Name="RefreshDirIcon" Glyph="&#xE711;" FontSize="12"
-                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </Button>
-                        </Grid>
-                        <!-- ── 搜索 + 排序 ── -->
-                        <Grid ColumnSpacing="6">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <AutoSuggestBox Grid.Column="0" x:Uid="EditPage_SearchBox"
-                                            Text="{x:Bind ViewModel.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                            PlaceholderText="搜索文件..."
-                                            FontSize="12" Height="28" MinHeight="28" Padding="10,0,30,0"
-                                            VerticalContentAlignment="Center" VerticalAlignment="Center">
-                                <AutoSuggestBox.Resources>
-                                    <x:Double x:Key="TextControlThemeMinHeight">28</x:Double>
-                                </AutoSuggestBox.Resources>
-                            </AutoSuggestBox>
-                            <ComboBox Grid.Column="1" x:Name="SortComboBox"
-                                      SelectedIndex="{x:Bind ViewModel.SelectedSortIndex, Mode=TwoWay}"
-                                      FontSize="12" MinHeight="28" Height="28" Padding="10,3,6,3"
-                                      VerticalAlignment="Center">
-                                <ComboBoxItem x:Uid="EditPage_Sort_Name" Content="名称"/>
-                                <ComboBoxItem x:Uid="EditPage_Sort_Date" Content="日期"/>
-                                <ComboBoxItem x:Uid="EditPage_Sort_Size" Content="大小"/>
-                            </ComboBox>
-                            <Button Grid.Column="2" x:Uid="EditPage_SortDirectionBtn"
-                                    Width="28" Height="28" Padding="0" CornerRadius="5"
-                                    VerticalAlignment="Center"
-                                    Command="{x:Bind ViewModel.ToggleSortDirectionCommand}"
-                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                    >
-                                <FontIcon Glyph="{x:Bind ViewModel.SortDirectionGlyph, Mode=OneWay}" FontSize="12"
-                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </Button>
-                            <Button Grid.Column="3" x:Uid="EditPage_FilterBtn"
-                                    Width="28" Height="28" Padding="0" CornerRadius="5"
-                                    VerticalAlignment="Center"
-                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1">
-                                <Button.Flyout>
-                                    <MenuFlyout Placement="Bottom" Opening="FilterFlyout_Opening">
-                                        <MenuFlyoutItem x:Uid="EditPage_FilterMenu_All" Click="FilterMenuItem_Click" Tag="0"/>
-                                        <MenuFlyoutItem x:Uid="EditPage_FilterMenu_Live" Click="FilterMenuItem_Click" Tag="1"/>
-                                        <MenuFlyoutItem x:Uid="EditPage_FilterMenu_BrokenLive" Click="FilterMenuItem_Click" Tag="2"/>
-                                        <MenuFlyoutItem x:Uid="EditPage_FilterMenu_RegularPhoto" Click="FilterMenuItem_Click" Tag="3"/>
-                                        <MenuFlyoutItem x:Uid="EditPage_FilterMenu_RegularVideo" Click="FilterMenuItem_Click" Tag="4"/>
-                                    </MenuFlyout>
-                                </Button.Flyout>
-                                <FontIcon Glyph="&#xE71C;" FontSize="12"
-                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </Button>
-                        </Grid>
+                        <Button x:Name="ZoomPercentButton" Width="48" Height="30" Padding="0"
+                                Click="ZoomPercentButton_Click" ToolTipService.ToolTip="100% / 适应窗口">
+                            <TextBlock x:Name="ZoomPercentText" Text="100%" FontSize="10" FontWeight="SemiBold"/>
+                        </Button>
+                        <Button Width="32" Height="30" Padding="0" Click="ZoomInButton_Click" ToolTipService.ToolTip="放大">
+                            <FontIcon Glyph="&#xE948;" FontSize="12"/>
+                        </Button>
+                        <Border Width="1" Height="18" Margin="3,0" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                        <Button x:Name="MaximizeButton" Width="32" Height="30" Padding="0"
+                                Click="MaximizeButton_Click" ToolTipService.ToolTip="最大化预览">
+                            <FontIcon x:Name="MaximizeButtonIcon" Glyph="&#xE740;" FontSize="12"/>
+                        </Button>
                     </StackPanel>
-                    <!-- ── 文件统计（单行横向：总计 / 实况 / 残缺 / 其他）── -->
-                    <Grid Grid.Row="2" Margin="10,8,10,10" ColumnSpacing="6">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
-                        <StackPanel x:Name="FileCountText" Grid.Column="0"
-                                    Orientation="Horizontal" VerticalAlignment="Center" Spacing="16">
-                            <!-- 总计 -->
-                            <StackPanel Orientation="Horizontal" Spacing="2">
-                                <TextBlock x:Uid="EditPage_TotalLabel" Text="总计" FontSize="11"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                <TextBlock Text="：" FontSize="11"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                <TextBlock FontSize="11" FontWeight="SemiBold"
-                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                           Text="{x:Bind ViewModel.TotalCount, Mode=OneWay}"/>
-                            </StackPanel>
-                            <!-- 实况 -->
-                            <StackPanel Orientation="Horizontal" Spacing="2">
-                                <TextBlock x:Uid="EditPage_LivePhotoLabel" Text="实况" FontSize="11"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                <TextBlock Text="：" FontSize="11"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                <TextBlock FontSize="11"
-                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                           Text="{x:Bind ViewModel.LivePhotoCount, Mode=OneWay}"/>
-                            </StackPanel>
-                            <!-- 残缺（为 0 时隐藏） -->
-                            <StackPanel Orientation="Horizontal" Spacing="2"
-                                        Visibility="{x:Bind ViewModel.HasBrokenLive, Mode=OneWay, Converter={StaticResource VisibilityConverter}}">
-                                <TextBlock x:Uid="EditPage_BrokenLiveLabel" Text="残缺" FontSize="11"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                <TextBlock Text="：" FontSize="11"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                <TextBlock FontSize="11"
-                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                           Text="{x:Bind ViewModel.BrokenLiveCount, Mode=OneWay}"/>
-                            </StackPanel>
-                            <!-- 其他 -->
-                            <StackPanel Orientation="Horizontal" Spacing="2">
-                                <TextBlock x:Uid="EditPage_OtherFileLabel" Text="其他" FontSize="11"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                <TextBlock Text="：" FontSize="11"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                <TextBlock FontSize="11"
-                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"
-                                           Text="{x:Bind ViewModel.OtherCount, Mode=OneWay}"/>
-                            </StackPanel>
-                        </StackPanel>
-                    </Grid>
-                    <!-- ▸▸▸ ListView + 渐变遮罩（折叠时遮住文字，只露缩略图）▸▸▸ -->
-                    <Grid Grid.Row="3">
-                        <ListView x:Name="FileItemListView"
-                                  ItemsSource="{x:Bind ViewModel.FileItems}"
-                                  SelectionMode="Single" ShowsScrollingPlaceholders="False"
-                                  Padding="0,0,14,0" Margin="3,5,3,0"
-                                  SelectionChanged="FileItemListView_SelectionChanged">
 
-                        <!-- 最简 ItemContainer：固定行高 76px（56px图+16px padding+4px border），便于虚拟化精确布局 -->
-                        <ListView.ItemContainerStyle>
-                            <Style TargetType="ListViewItem">
-                                <Setter Property="Height" Value="76"/>
-                                <Setter Property="MinHeight" Value="0"/>
-                                <Setter Property="IsTabStop" Value="False"/>
-                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="ListViewItem">
-                                            <ContentPresenter x:Name="ContentPresenter"
-                                                              HorizontalContentAlignment="Stretch"
-                                                              HorizontalAlignment="Stretch"/>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                            </Style>
-                        </ListView.ItemContainerStyle>
-
-                        <ListView.ItemTemplate>
-                            <DataTemplate x:DataType="models:EditFileItem">
-                                <!-- 核心修复：BorderThickness 始终 2px，未选中时透明 → 内容位置纹丝不动 -->
-                                <Border x:Name="CardRoot" CornerRadius="4" Padding="8,8,8,8"
-                                        Margin="0" Background="Transparent"
-                                        BorderBrush="Transparent" BorderThickness="2"
-                                        Loaded="CardRoot_Loaded"
-                                        DataContextChanged="CardRoot_DataContextChanged"
-                                        PointerEntered="CardRoot_PointerEntered"
-                                        PointerExited="CardRoot_PointerExited"
-                                        PointerPressed="CardRoot_PointerPressed"
-                                        PointerReleased="CardRoot_PointerReleased">
-                                    <Grid ColumnSpacing="8">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="56"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <!-- 缩略图：抄 SplitPage 的 Grid + FontIcon占位 + Image 模式 -->
-                                        <Border Grid.Column="0" Width="56" Height="56" CornerRadius="5"
-                                                Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}"
-                                                VerticalAlignment="Center">
-                                            <Grid>
-                                                <FontIcon Glyph="&#xE722;" FontSize="18"
-                                                          Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
-                                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
-                                            </Grid>
-                                        </Border>
-                                        <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="2">
-                                            <TextBlock controls:AdaptiveFileName.FileName="{x:Bind FullDisplayFileName, Mode=OneWay}"
-                                                       FontSize="12" FontWeight="Bold"
-                                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                                            <TextBlock Text="{x:Bind FileInfoSubLine, Mode=OneWay}"
-                                                       FontSize="11"
-                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                       TextTrimming="CharacterEllipsis" MaxLines="1"/>
-                                            <!-- 日期 + LIVE 徽标横排 -->
-                                            <Grid>
-                                                <TextBlock Text="{x:Bind DateTaken}" FontSize="11"
-                                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                           MaxLines="1" HorizontalAlignment="Left"/>
-                                                <Border Background="{x:Bind LiveBadgeBackground, Mode=OneWay}"
-                                                        CornerRadius="3" Padding="4,1"
-                                                        HorizontalAlignment="Right" VerticalAlignment="Center"
-                                                        Visibility="{x:Bind LivePhotoBadgeVisibility, Mode=OneWay}">
-                                                    <TextBlock x:Uid="EditPage_ListItemLiveBadge" FontSize="8" FontWeight="Bold"
-                                                               Foreground="White"/>
-                                                </Border>
-                                            </Grid>
-                                        </StackPanel>
-                                    </Grid>
-                                </Border>
-                            </DataTemplate>
-                        </ListView.ItemTemplate>
-                    </ListView>
-
-                    <!-- 空状态提示：无文件时显示。拖拽时由代码隐藏避免与遮罩重叠。 -->
-                    <Grid x:Name="LeftEmptyHint" Grid.Row="3"
-                          Visibility="{x:Bind ViewModel.HasAnyFiles, Mode=OneWay, Converter={StaticResource InverseVisibilityConverter}}"
-                          IsHitTestVisible="False">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="0.4*"/>
-                            <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="0.6*"/>
-                        </Grid.RowDefinitions>
-                        <StackPanel Grid.Row="1" HorizontalAlignment="Center" Spacing="16">
-                            <FontIcon Glyph="&#xE838;" FontSize="28"
-                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                      HorizontalAlignment="Center"/>
-                            <!-- 无目录：提示用户选择目录 -->
-                            <StackPanel x:Name="NoDirHint" Spacing="12" HorizontalAlignment="Center"
-                                        Visibility="{x:Bind ViewModel.HasFilesLoaded, Mode=OneWay, Converter={StaticResource InverseVisibilityConverter}}">
-                                <TextBlock x:Uid="EditPage_LeftPanelEmptyHint_Line1"
-                                           FontSize="12"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                           HorizontalAlignment="Center"
-                                           TextWrapping="WrapWholeWords"
-                                           MaxWidth="160"
-                                           TextAlignment="Center"/>
-                                <TextBlock x:Uid="EditPage_LeftPanelEmptyHint_Line2"
-                                           FontSize="12"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                           HorizontalAlignment="Center"
-                                           TextWrapping="WrapWholeWords"
-                                           MaxWidth="160"
-                                           TextAlignment="Center"/>
-                            </StackPanel>
-                            <!-- 筛选为空：目录有文件但无匹配项 -->
-                            <TextBlock x:Uid="EditPage_FilterEmptyHint"
-                                       x:Name="FilterEmptyHint"
-                                       FontSize="12"
-                                       Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                       HorizontalAlignment="Center"
-                                       TextWrapping="WrapWholeWords"
-                                       MaxWidth="160"
-                                       TextAlignment="Center"
-                                       Visibility="{x:Bind ViewModel.HasFilesLoaded, Mode=OneWay}"/>
-                        </StackPanel>
-                    </Grid>
+                    <StackPanel x:Name="PreviewEmptyState" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Spacing="10" IsHitTestVisible="False">
+                        <FontIcon Glyph="&#xE91B;" FontSize="38" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                        <TextBlock x:Name="PreviewEmptyText" Text="选择一个实况照片开始编辑" FontSize="13"
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                    </StackPanel>
                 </Grid>
-            </Grid>
-
-            <!-- 拖拽视觉反馈覆盖层（后渲染 → 始终在 ListView 之上）。
-                 三层结构：半透明遮罩 + 虚线描边 + 图标文字，各层独立 Opacity 互不传染。 -->
-            <Grid x:Name="DragOverlay" Visibility="Collapsed" IsHitTestVisible="False">
-                <!-- Layer 0：半透明黑遮暗背景，让白色文字清晰可读 -->
-                <Border Background="#90000000" CornerRadius="4"/>
-                <!-- Layer 1：虚线描边（强调色，{ThemeResource} 自动跟随系统变化） -->
-                <Rectangle Stroke="White"
-                           StrokeThickness="2" StrokeDashArray="6,3"
-                           RadiusX="4" RadiusY="4" Margin="4"/>
-                <!-- Layer 2：文件夹图标 + 提示文字 -->
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
-                    <FontIcon Glyph="&#xE838;" FontSize="36"
-                              Foreground="White"/>
-                    <TextBlock x:Uid="EditPage_DropToBrowse"
-                               FontSize="14" FontWeight="SemiBold"
-                               Foreground="White"
-                               HorizontalAlignment="Center"/>
-                </StackPanel>
-            </Grid>
-            </Grid>   <!-- 关闭外层 Grid（Border 的子元素） -->
             </Border>
 
-            <!-- ── 拖拽分隔条 ── -->
-            <Grid Grid.Column="1" Width="4">
-                <Grid x:Name="GridSplitterColumn" Width="4" VerticalAlignment="Stretch">
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="20*"/>
-                        <RowDefinition Height="80*"/>
-                    </Grid.RowDefinitions>
-                    <Border x:Name="GridSplitterBar" Grid.RowSpan="2" Width="4"
-                            Background="Transparent" VerticalAlignment="Stretch"
-                            PointerPressed="Splitter_PointerPressed"
-                            PointerMoved="Splitter_PointerMoved"
-                            PointerReleased="Splitter_PointerReleased"
-                            PointerCaptureLost="Splitter_PointerCaptureLost"
-                            PointerEntered="Splitter_PointerEntered"
-                            PointerExited="Splitter_PointerExited"
-                            DoubleTapped="Splitter_DoubleTapped" />
-                </Grid>
-            </Grid>
+            <Border x:Name="EditToolsBorder" Grid.Column="1" Style="{StaticResource EditorCardStyle}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Padding="16" Spacing="18">
+                        <TextBlock Text="编辑工具" FontSize="16" FontWeight="SemiBold"/>
 
-            <!-- ························································ -->
-            <!-- 右侧：Border 包裹作为拖拽目标                              -->
-            <!-- ························································ -->
-            <Border x:Name="RightPanelBorder" Grid.Column="2"
-                    AllowDrop="True" Background="Transparent">
-                <Grid>
-                    <!-- 内层 Grid：原右侧三行内容 -->
-                    <Grid>
+                        <StackPanel Spacing="12">
+                            <TextBlock Text="封面" Style="{StaticResource ToolSectionTitleStyle}"/>
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="当前封面" FontWeight="SemiBold" FontSize="12"/>
+                                <Border Height="150" CornerRadius="6" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
+                                    <Image Source="{x:Bind ViewModel.CurrentCoverThumbnail, Mode=OneWay}" Stretch="Uniform"/>
+                                </Border>
+                                <TextBlock Text="独立静态图像" Style="{StaticResource SecondaryLabelStyle}"/>
+                                <TextBlock Text="{x:Bind ViewModel.CurrentCoverAssociationText, Mode=OneWay}"
+                                           Style="{StaticResource SecondaryLabelStyle}" TextWrapping="Wrap"/>
+                                <Button Content="使用当前帧作为封面" HorizontalAlignment="Stretch"
+                                        Click="UseCurrentFrameAsCover_Click"
+                                        IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}"/>
+                            </StackPanel>
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="原始封面" FontWeight="SemiBold" FontSize="12"/>
+                                <Border Height="150" CornerRadius="6" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
+                                    <Image Source="{x:Bind ViewModel.OriginalCoverThumbnail, Mode=OneWay}" Stretch="Uniform"/>
+                                </Border>
+                                <TextBlock Text="独立静态图像" Style="{StaticResource SecondaryLabelStyle}"/>
+                                <TextBlock Text="{x:Bind ViewModel.OriginalCoverAssociationText, Mode=OneWay}"
+                                           Style="{StaticResource SecondaryLabelStyle}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </StackPanel>
+
+                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                        <StackPanel Spacing="10">
+                            <TextBlock Text="播放范围" Style="{StaticResource ToolSectionTitleStyle}"/>
+                            <Grid ColumnSpacing="8" RowSpacing="8">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock Grid.Row="0" Text="开始时间" Style="{StaticResource SecondaryLabelStyle}"/>
+                                <TextBlock Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.PlaybackRangeStartText, Mode=OneWay}"/>
+                                <TextBlock Grid.Row="1" Text="结束时间" Style="{StaticResource SecondaryLabelStyle}"/>
+                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.PlaybackRangeEndText, Mode=OneWay}"/>
+                                <TextBlock Grid.Row="2" Text="持续时间" Style="{StaticResource SecondaryLabelStyle}"/>
+                                <TextBlock Grid.Row="2" Grid.Column="1" Text="{x:Bind ViewModel.PlaybackRangeSummaryText, Mode=OneWay}"/>
+                                <Button Grid.Row="3" Grid.Column="1" Content="重置" Click="ResetPlaybackRange_Click"/>
+                            </Grid>
+                        </StackPanel>
+
+                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                        <Expander Header="替换动态视频">
+                            <StackPanel Spacing="8" Padding="0,8,0,4">
+                                <TextBlock Text="本轮仅提供界面入口，不执行媒体替换。" Style="{StaticResource SecondaryLabelStyle}" TextWrapping="Wrap"/>
+                                <Button Content="选择视频..." IsEnabled="False" HorizontalAlignment="Left"/>
+                            </StackPanel>
+                        </Expander>
+                        <Expander Header="替换静态图像">
+                            <StackPanel Spacing="8" Padding="0,8,0,4">
+                                <TextBlock Text="本轮仅提供界面入口，不执行媒体替换。" Style="{StaticResource SecondaryLabelStyle}" TextWrapping="Wrap"/>
+                                <Button Content="选择图像..." IsEnabled="False" HorizontalAlignment="Left"/>
+                            </StackPanel>
+                        </Expander>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <!-- Full-width Timeline, exactly A/B/C/D visual layers -->
+        <Border x:Name="TimelinePanel" Grid.Row="2" Style="{StaticResource EditorCardStyle}" Padding="12">
+            <Grid RowSpacing="8">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
-                <!-- ── 图片预览（PhotoViewer：高性能 Image+CompositeTransform 架构）── -->
-                <Border x:Name="PreviewBorder" Grid.Row="0" Style="{StaticResource CardBorderStyle}"
-                        Padding="0" Margin="0,0,0,2">
-                    <Grid>
-                        <!-- 大图查看器：占满整个预览区 -->
-                        <controls:PhotoViewer x:Name="PhotoViewer"
-                                              ImageSource="{x:Bind ViewModel.PreviewImageSource, Mode=OneWay}"
-                                              HorizontalAlignment="Stretch" VerticalAlignment="Stretch"/>
+                <!-- A. Header -->
+                <Grid Grid.Row="0" ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <StackPanel Orientation="Horizontal" Spacing="4">
+                        <ToggleButton x:Name="FilmstripModeButton" Content="胶片模式"
+                                      IsChecked="{x:Bind ViewModel.IsFilmstripPresentationMode, Mode=OneWay}"
+                                      Click="FilmstripModeButton_Click"/>
+                        <ToggleButton x:Name="ClassicModeButton" Content="经典模式"
+                                      IsChecked="{x:Bind ViewModel.IsClassicPresentationMode, Mode=OneWay}"
+                                      Click="ClassicModeButton_Click"/>
+                    </StackPanel>
+                    <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.TimelinePositionText, Mode=OneWay}"
+                               FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               VerticalAlignment="Center" Margin="6,0,0,0"/>
+                    <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
+                        <Button Width="32" Height="30" Padding="0" Click="PreviousFrameButton_Click"
+                                IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}" ToolTipService.ToolTip="上一帧">
+                            <FontIcon Glyph="&#xE892;" FontSize="12"/>
+                        </Button>
+                        <Button x:Name="PlayPauseButton" Width="34" Height="30" Padding="0" Click="PlayPauseButton_Click"
+                                IsEnabled="{x:Bind ViewModel.CanPlayLivePhoto, Mode=OneWay}" ToolTipService.ToolTip="播放 / 暂停">
+                            <FontIcon x:Name="PlaybackIcon" Glyph="&#xE768;" FontSize="12"/>
+                        </Button>
+                        <Button Width="32" Height="30" Padding="0" Click="NextFrameButton_Click"
+                                IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}" ToolTipService.ToolTip="下一帧">
+                            <FontIcon Glyph="&#xE893;" FontSize="12"/>
+                        </Button>
+                        <Button Width="34" Height="30" Padding="0" Click="MuteButton_Click"
+                                IsEnabled="{x:Bind ViewModel.CanPlayLivePhoto, Mode=OneWay}" ToolTipService.ToolTip="静音">
+                            <FontIcon x:Name="MuteIcon" Glyph="&#xE767;" FontSize="12"/>
+                        </Button>
+                    </StackPanel>
+                    <TextBlock Grid.Column="4" Text="⚠" FontSize="15" VerticalAlignment="Center"
+                               ToolTipService.ToolTip="本轮新增编辑入口仅为 UI / Presentation State；未接入帧增删、替换、裁切或重编码后端。"/>
+                    <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4">
+                        <Button Content="删除帧" IsEnabled="False"/>
+                        <Button Content="+ 添加帧" IsEnabled="False"/>
+                        <Button Content="..." Width="34" IsEnabled="False"/>
+                    </StackPanel>
+                </Grid>
 
-                        <!-- ── PureMediaViewer 视频叠加层（盖在 PhotoViewer 上面，默认隐藏）── -->
-                        <controls:PureMediaViewer x:Name="PureMediaViewer"
-                                                  Visibility="Collapsed"
-                                                  CloseRequested="PureMediaViewer_CloseRequested"
-                                                  HorizontalAlignment="Stretch"
-                                                  VerticalAlignment="Stretch"/>
+                <!-- Filmstrip: B and C share one viewport so numbers/markers stay aligned with thumbnails. -->
+                <ScrollViewer x:Name="FilmstripScrollViewer" Grid.Row="1" Grid.RowSpan="2"
+                              Visibility="{x:Bind ViewModel.IsFilmstripPresentationMode, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
+                              HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled"
+                              HorizontalScrollMode="Enabled" VerticalScrollMode="Disabled" ZoomMode="Disabled"
+                              ViewChanged="TimelineScrollViewer_ViewChanged" SizeChanged="TimelineViewport_SizeChanged">
+                    <StackPanel Spacing="4">
+                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.VideoTimelineFrames, Mode=OneWay}"
+                                       ItemTemplate="{StaticResource TimelineMarkerTemplate}">
+                            <ItemsRepeater.Layout><StackLayout Orientation="Horizontal" Spacing="6"/></ItemsRepeater.Layout>
+                        </ItemsRepeater>
+                        <ItemsRepeater ItemsSource="{x:Bind ViewModel.VideoTimelineFrames, Mode=OneWay}"
+                                       ItemTemplate="{StaticResource TimelineThumbnailTemplate}">
+                            <ItemsRepeater.Layout><StackLayout Orientation="Horizontal" Spacing="6"/></ItemsRepeater.Layout>
+                        </ItemsRepeater>
+                    </StackPanel>
+                </ScrollViewer>
 
-                        <!-- 实况照片控制按钮组（浮动在左上角）
-                             LIVE 播放 + 静音切换，两按钮同显同隐 -->
-                        <StackPanel Orientation="Horizontal"
-                                    HorizontalAlignment="Left" VerticalAlignment="Top"
-                                    Margin="6,6,0,0">
-                            <Button x:Name="LivePhotoBadgeButton" x:Uid="EditPage_PlayLivePhoto"
-                                    Height="28" Padding="8,0,10,0" CornerRadius="5"
-                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                    Visibility="{x:Bind ViewModel.CanPlayLivePhoto, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
-                                    Click="LivePhotoBadgeButton_Click"
-                                    PointerEntered="LivePhotoBadgeButton_PointerEntered"
-                                    PointerExited="LivePhotoBadgeButton_PointerExited">
-                                <StackPanel Orientation="Horizontal" Spacing="6"
-                                            VerticalAlignment="Center">
-                                    <Image Width="16" Height="16" Stretch="Uniform"
-                                           RenderTransformOrigin="0.5,0.5"
-                                           VerticalAlignment="Center">
-                                        <Image.Source>
-                                            <SvgImageSource UriSource="ms-appx:///Assets/Icons/tabler-live-photo.svg"/>
-                                        </Image.Source>
-                                        <Image.RenderTransform>
-                                            <CompositeTransform x:Name="LivePhotoIconTransform" ScaleX="1" ScaleY="1"/>
-                                        </Image.RenderTransform>
-                                    </Image>
-                                    <TextBlock x:Uid="EditPage_LiveBadge" FontSize="10" FontWeight="Bold"
-                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                               VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-
-                            <!-- 静音切换按钮：与 LIVE 按钮同显同隐，点击切换 Speaker2 ↔ SpeakerMute -->
-                            <Button x:Name="MuteButton" x:Uid="EditPage_MuteToggle"
-                                    Height="28" Width="28" Padding="0" CornerRadius="5"
-                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                    Margin="6,0,0,0"
-                                    Visibility="{x:Bind ViewModel.CanPlayLivePhoto, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
-                                    Click="MuteButton_Click">
-                                <Grid Width="12" Height="12">
-                                    <ic:SymbolIcon x:Name="MuteIconSpeaker" Symbol="Speaker2" FontSize="12"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                   Visibility="{x:Bind ViewModel.IsMuted, Mode=OneWay, Converter={StaticResource InverseVisibilityConverter}}"/>
-                                    <ic:SymbolIcon x:Name="MuteIconMuted" Symbol="SpeakerMute" FontSize="12"
-                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                   Visibility="{x:Bind ViewModel.IsMuted, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"/>
-                                </Grid>
-                            </Button>
-                        </StackPanel>
-
-                        <!-- 缩放控件 + 最大化（浮动在右上角，有文件选中时才显示） -->
-                        <StackPanel x:Name="ZoomControlsPanel"
-                                    Orientation="Horizontal" Spacing="4"
-                                    HorizontalAlignment="Right" VerticalAlignment="Top"
-                                    Margin="6,6,6,0"
-                                    Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay, Converter={StaticResource VisibilityConverter}}">
-                            <Button x:Uid="EditPage_ZoomOutBtn"
-                                    Width="28" Height="28" Padding="0" CornerRadius="5"
-                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                    Click="ZoomOutButton_Click"
-                                    >
-                                <FontIcon Glyph="&#xE949;" FontSize="12"
-                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </Button>
-                            <Button x:Uid="EditPage_ZoomResetBtn"
-                                    x:Name="ZoomPercentButton"
-                                    Width="36" Height="28" Padding="0" CornerRadius="5"
-                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                    Click="ZoomPercentButton_Click"
-                                    >
-                                <TextBlock x:Name="ZoomPercentText" Text="100%" FontSize="10" FontWeight="SemiBold"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                           VerticalAlignment="Center" HorizontalAlignment="Center"/>
-                            </Button>
-                            <Button x:Uid="EditPage_ZoomInBtn"
-                                    Width="28" Height="28" Padding="0" CornerRadius="5"
-                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                    Click="ZoomInButton_Click"
-                                    >
-                                <FontIcon Glyph="&#xE948;" FontSize="12"
-                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </Button>
-                            <Border Width="1" Height="16"
-                                    Background="{ThemeResource CardStrokeColorDefaultBrush}"
-                                    VerticalAlignment="Center" Margin="2,0"/>
-                            <Button x:Name="MaximizeButton"
-                                    x:Uid="EditPage_MaximizeButton"
-                                    Width="28" Height="28" Padding="0" CornerRadius="5"
-                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                    Click="MaximizeButton_Click"
-                                    >
-                                        <FontIcon x:Name="MaximizeButtonIcon" Glyph="&#xE740;" FontSize="12"
-                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            </Button>
-                        </StackPanel>
-
-                        <!-- 空状态提示：未选择文件时显示。拖拽时隐藏避免与遮罩重叠。 -->
-                        <Grid x:Name="RightEmptyHint" Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay, Converter={StaticResource InverseVisibilityConverter}}"
-                              IsHitTestVisible="False"
-                              VerticalAlignment="Center" HorizontalAlignment="Center">
-                            <StackPanel Spacing="24" HorizontalAlignment="Center">
-                                        <FontIcon Glyph="&#xE91B;" FontSize="42"
-                                          Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                          HorizontalAlignment="Center"/>
-                                <StackPanel Spacing="12" HorizontalAlignment="Center">
-                                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
-                                        <FontIcon Glyph="&#xE72B;" FontSize="14"
-                                                  Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                  VerticalAlignment="Center" Margin="0,2,0,0"/>
-                                        <TextBlock x:Uid="EditPage_PreviewEmptyHint_Line1"
-                                                   FontSize="14"
-                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                   VerticalAlignment="Center"
-                                                   TextWrapping="WrapWholeWords"
-                                                   MaxWidth="240"
-                                                   TextAlignment="Center"/>
-                                    </StackPanel>
-                                    <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
-                                                <FontIcon Glyph="&#xE8E5;" FontSize="14"
-                                                  Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                  VerticalAlignment="Center" Margin="0,2,0,0"/>
-                                        <TextBlock x:Uid="EditPage_PreviewEmptyHint_Line2"
-                                                   FontSize="14"
-                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                   VerticalAlignment="Center"
-                                                   TextWrapping="WrapWholeWords"
-                                                   MaxWidth="240"
-                                                   TextAlignment="Center"/>
-                                    </StackPanel>
-                                </StackPanel>
+                <!-- Classic: current-master center/snap interaction semantics, rehosted over real video frames only. -->
+                <Grid x:Name="ClassicTimelineRoot" Grid.Row="1" Grid.RowSpan="2" Height="118"
+                      Visibility="{x:Bind ViewModel.IsClassicPresentationMode, Mode=OneWay, Converter={StaticResource VisibilityConverter}}">
+                    <ScrollViewer x:Name="ClassicTimelineScrollViewer"
+                                  HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
+                                  HorizontalScrollMode="Enabled" VerticalScrollMode="Disabled" ZoomMode="Disabled"
+                                  ViewChanged="ClassicTimelineScrollViewer_ViewChanged"
+                                  SizeChanged="ClassicTimelineScrollViewer_SizeChanged">
+                        <Border x:Name="ClassicTimelinePaddingBorder" Padding="0">
+                            <StackPanel Spacing="4">
+                                <ItemsRepeater ItemsSource="{x:Bind ViewModel.VideoTimelineFrames, Mode=OneWay}"
+                                               ItemTemplate="{StaticResource TimelineMarkerTemplate}">
+                                    <ItemsRepeater.Layout><StackLayout Orientation="Horizontal" Spacing="6"/></ItemsRepeater.Layout>
+                                </ItemsRepeater>
+                                <ItemsRepeater ItemsSource="{x:Bind ViewModel.VideoTimelineFrames, Mode=OneWay}"
+                                               ItemTemplate="{StaticResource TimelineThumbnailTemplate}">
+                                    <ItemsRepeater.Layout><StackLayout Orientation="Horizontal" Spacing="6"/></ItemsRepeater.Layout>
+                                </ItemsRepeater>
                             </StackPanel>
-                        </Grid>
-                    </Grid>
-                </Border>
+                        </Border>
+                    </ScrollViewer>
+                    <Border Width="76" Height="76" CornerRadius="7" BorderThickness="3"
+                            BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                            HorizontalAlignment="Center" VerticalAlignment="Bottom" IsHitTestVisible="False"/>
+                </Grid>
 
-                <!-- ── 统一信息面板（多选 ToggleButton 选项卡，面板直接铺开）── -->
-                <Border x:Name="UnifiedInfoPanel" Grid.Row="1" Style="{StaticResource CardBorderStyle}"
-                        Padding="8,5,8,4">
-                    <Grid RowSpacing="0">
-                        <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
-
-                        <!-- ── Segmented 选项卡（单选，SelectionChanged 由代码后置处理）── -->
-                        <ctk:Segmented x:Name="InfoTabs" Grid.Row="1"
-                                       HorizontalAlignment="Stretch" Margin="0,6,0,4"
-                                       Loaded="InfoTabs_Loaded"
-                                       SelectionChanged="InfoTabs_SelectionChanged">
-                            <ctk:Segmented.ItemContainerStyle>
-                                <Style TargetType="ctk:SegmentedItem">
-                                    <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}"/>
-                                    <Setter Property="FontSize" Value="12"/>
-                                    <Setter Property="MinHeight" Value="28"/>
-                                    <Setter Property="Padding" Value="8,0"/>
-                                    <!-- 基于 DefaultSegmentedItemStyle 模板，仅将 PART_Pill 指示条从底部移到顶部 -->
-                                    <Setter Property="Template">
-                                        <Setter.Value>
-                                            <ControlTemplate TargetType="ctk:SegmentedItem">
-                                                <Grid x:Name="PART_Root"
-                                                      VerticalAlignment="{TemplateBinding VerticalAlignment}"
-                                                      Background="{TemplateBinding Background}"
-                                                      BorderBrush="{TemplateBinding BorderBrush}"
-                                                      BorderThickness="{TemplateBinding BorderThickness}"
-                                                      Control.IsTemplateFocusTarget="True"
-                                                      CornerRadius="{TemplateBinding CornerRadius}">
-                                                    <VisualStateManager.VisualStateGroups>
-                                                        <VisualStateGroup x:Name="CommonStates">
-                                                            <VisualState x:Name="Normal" />
-                                                            <VisualState x:Name="PointerOver">
-                                                                <VisualState.Setters>
-                                                                    <Setter Target="PART_Hover.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
-                                                                    <Setter Target="PART_ContentPresenter.Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}" />
-                                                                </VisualState.Setters>
-                                                            </VisualState>
-                                                            <VisualState x:Name="Pressed">
-                                                                <VisualState.Setters>
-                                                                    <Setter Target="PART_Hover.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
-                                                                    <Setter Target="PART_ContentPresenter.Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
-                                                                </VisualState.Setters>
-                                                            </VisualState>
-                                                            <VisualState x:Name="Selected">
-                                                                <VisualState.Setters>
-                                                                    <Setter Target="PART_Pill.Opacity" Value="1" />
-                                                                    <Setter Target="PART_Root.Background" Value="{ThemeResource ControlFillColorDefaultBrush}" />
-                                                                </VisualState.Setters>
-                                                            </VisualState>
-                                                            <VisualState x:Name="PointerOverSelected">
-                                                                <VisualState.Setters>
-                                                                    <Setter Target="PART_Pill.Opacity" Value="1" />
-                                                                    <Setter Target="PART_Root.Background" Value="{ThemeResource ControlFillColorDefaultBrush}" />
-                                                                </VisualState.Setters>
-                                                            </VisualState>
-                                                            <VisualState x:Name="PressedSelected">
-                                                                <VisualState.Setters>
-                                                                    <Setter Target="PART_Pill.Opacity" Value="1" />
-                                                                    <Setter Target="PART_Root.Background" Value="{ThemeResource ControlFillColorDefaultBrush}" />
-                                                                </VisualState.Setters>
-                                                            </VisualState>
-                                                        </VisualStateGroup>
-                                                        <VisualStateGroup x:Name="DisabledStates">
-                                                            <VisualState x:Name="Enabled" />
-                                                            <VisualState x:Name="Disabled">
-                                                                <VisualState.Setters>
-                                                                    <Setter Target="PART_Root.Opacity" Value="0.55" />
-                                                                </VisualState.Setters>
-                                                            </VisualState>
-                                                        </VisualStateGroup>
-                                                    </VisualStateManager.VisualStateGroups>
-
-                                                    <Border x:Name="PART_Hover"
-                                                            Margin="3,3,3,3"
-                                                            Background="Transparent"
-                                                            CornerRadius="{TemplateBinding CornerRadius}"
-                                                            RenderTransformOrigin="0.5,0.5">
-                                                        <Border.RenderTransform>
-                                                            <CompositeTransform />
-                                                        </Border.RenderTransform>
-                                                    </Border>
-
-                                                    <StackPanel x:Name="ContentHolder"
-                                                                HorizontalAlignment="Center" VerticalAlignment="Stretch"
-                                                                Orientation="Horizontal" Spacing="8">
-                                                        <ContentPresenter x:Name="PART_ContentPresenter"
-                                                                          Margin="0,6,0,5"
-                                                                          VerticalAlignment="Center"
-                                                                          Content="{TemplateBinding Content}"
-                                                                          FontWeight="{TemplateBinding FontWeight}"
-                                                                          FontSize="{TemplateBinding FontSize}"
-                                                                          Foreground="{TemplateBinding Foreground}" />
-                                                    </StackPanel>
-
-                                                    <!-- ▸▸▸ PART_Pill 从 VerticalAlignment="Bottom" 改为 "Top"，RenderTransformOrigin 相应调整 -->
-                                                    <Rectangle x:Name="PART_Pill"
-                                                               Width="18" Height="3"
-                                                               HorizontalAlignment="Center"
-                                                               VerticalAlignment="Top"
-                                                               Margin="0,0,0,0"
-                                                               Fill="{ThemeResource AccentFillColorDefaultBrush}"
-                                                               Opacity="0"
-                                                               RadiusX="2" RadiusY="2"
-                                                               RenderTransformOrigin="0.5, 1">
-                                                        <Rectangle.RenderTransform>
-                                                            <CompositeTransform ScaleX="1" />
-                                                        </Rectangle.RenderTransform>
-                                                    </Rectangle>
-                                                </Grid>
-                                            </ControlTemplate>
-                                        </Setter.Value>
-                                    </Setter>
-                                </Style>
-                            </ctk:Segmented.ItemContainerStyle>
-                            <ctk:SegmentedItem x:Uid="EditPage_TabCombined" Content="组合查看" Tag="combined"
-                                               IsEnabled="{x:Bind ViewModel.IsTimelineTabDisabled, Mode=OneWay, Converter={StaticResource InverseBoolConverter}}"/>
-                            <ctk:SegmentedItem x:Uid="EditPage_TabFrames" Content="实况照片帧" Tag="frames"
-                                               IsEnabled="{x:Bind ViewModel.IsTimelineTabDisabled, Mode=OneWay, Converter={StaticResource InverseBoolConverter}}"/>
-                            <ctk:SegmentedItem x:Uid="EditPage_TabBasicInfo" Content="文件基础信息" Tag="basicInfo"/>
-                            <ctk:SegmentedItem x:Uid="EditPage_TabDetailProps" Content="更改文件属性" Tag="detailProps"/>
-                        </ctk:Segmented>
-
-                        <!-- ═══════════════════════════════════════════════════════ -->
-                        <!--  面板容器（各面板独立控制可见性，StackPanel 自动折叠空面板） -->
-                        <!-- ═══════════════════════════════════════════════════════ -->
-                        <StackPanel Grid.Row="0">
-
-                            <!-- ──────────────────────────────────────────────── -->
-                            <!--  实况照片帧面板（时间轴：双模式 ListView / 胶片）  -->
-                            <!-- ──────────────────────────────────────────────── -->
-                            <Grid Visibility="{x:Bind ViewModel.IsFramesPanelVisible, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
-                                  Height="84">
-                                <StackPanel Spacing="0">
-                                    <!-- 时间轴（双模式：经典 ListView / 胶片） -->
-                                    <Grid RowSpacing="3">
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="Auto"/>
-                                        </Grid.RowDefinitions>
-
-                                        <!-- ── Row 0：标题 + 帧位置 + FPS ── -->
-                                        <Grid Grid.Row="0">
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="Auto"/>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="5">
-                                                        <FontIcon Glyph="&#xE8B2;" FontSize="13" Margin="0,1,0,0"
-                                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}" VerticalAlignment="Center"/>
-                                                <TextBlock x:Uid="EditPage_TimelineTitle"
-                                                           Text="时间轴" FontWeight="SemiBold" FontSize="11"
-                                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
-                                                <ProgressRing Width="12" Height="12" IsIndeterminate="True"
-                                                              VerticalAlignment="Center" Margin="0,0,0,0"
-                                                              Opacity="{x:Bind ViewModel.TimelineLoadingOpacity, Mode=OneWay}"
-                                                              Foreground="{ThemeResource AccentFillColorDefaultBrush}">
-                                                    <ProgressRing.RenderTransform>
-                                                        <TranslateTransform Y="2"/>
-                                                    </ProgressRing.RenderTransform>
-                                                </ProgressRing>
-                                                <Button x:Uid="EditPage_GoToKeyPhoto"
-                                                        Content="前往封面" FontSize="10"
-                                                        Height="21" Padding="8,0"
-                                                        VerticalAlignment="Center"
-                                                        Visibility="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
-                                                        IsEnabled="{x:Bind ViewModel.IsGoToKeyPhotoEnabled, Mode=OneWay}"
-                                                        Command="{x:Bind ViewModel.GoToKeyPhotoCommand}"/>
-                                                <Button x:Uid="EditPage_GoToOriginalPhoto"
-                                                        Content="前往原始封面" FontSize="10"
-                                                        Height="21" Padding="8,0"
-                                                        VerticalAlignment="Center"
-                                                        Visibility="{x:Bind ViewModel.HasOriginalPhotoFrame, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
-                                                        IsEnabled="{x:Bind ViewModel.IsGoToOriginalPhotoEnabled, Mode=OneWay}"
-                                                        Command="{x:Bind ViewModel.GoToOriginalPhotoCommand}"/>
-                                            </StackPanel>
-                                            <!-- 当前帧位置（跨列叠加居中，不受左右宽度影响） -->
-                                            <TextBlock Grid.ColumnSpan="3"
-                                                       Text="{x:Bind ViewModel.CurrentFramePositionText, Mode=OneWay}"
-                                                       FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                       IsHitTestVisible="False"/>
-                                            <!-- 右侧：时长 · FPS -->
-                                            <StackPanel Grid.Column="2" Orientation="Horizontal"
-                                                        HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="4">
-                                                <TextBlock Text="{x:Bind ViewModel.TimelineInfo, Mode=OneWay}"
-                                                           FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                           VerticalAlignment="Center"/>
-                                                <TextBlock Text="·" FontSize="10"
-                                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                           VerticalAlignment="Center"/>
-                                                <TextBlock Text="{x:Bind ViewModel.FpsDisplayText, Mode=OneWay}"
-                                                           FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                           VerticalAlignment="Center"/>
-                                            </StackPanel>
-                                        </Grid>
-
-                                        <!-- Row 1A：经典模式 ListView（水平滚动帧缩略图） -->
-                                        <Border x:Name="ClassicTimelineBorder" Grid.Row="1"
-                                                Visibility="{x:Bind ViewModel.IsClassicTimelineMode, Mode=OneWay}"
-                                                Height="80" Padding="0">
-                                            <ListView x:Name="TimelineListView"
-                                                      ItemsSource="{x:Bind ViewModel.TimelineFrames, Mode=OneWay}"
-                                                      SelectedItem="{x:Bind ViewModel.SelectedTimelineFrame, Mode=TwoWay}"
-                                                      SelectionMode="Single"
-                                                      ScrollViewer.HorizontalScrollBarVisibility="Visible"
-                                                      ScrollViewer.VerticalScrollBarVisibility="Disabled"
-                                                      ScrollViewer.HorizontalScrollMode="Enabled"
-                                                      ScrollViewer.VerticalScrollMode="Disabled"
-                                                      Padding="0,6,0,14"
-                                                      Loaded="TimelineListView_Loaded"
-                                                      SelectionChanged="TimelineListView_SelectionChanged"
-                                                      ItemContainerTransitions="{x:Null}">
-                                                <ListView.ItemsPanel>
-                                                    <ItemsPanelTemplate>
-                                                        <StackPanel Orientation="Horizontal"/>
-                                                    </ItemsPanelTemplate>
-                                                </ListView.ItemsPanel>
-                                                <ListView.ItemContainerStyle>
-                                                    <Style TargetType="ListViewItem">
-                                                        <Setter Property="Padding" Value="0"/>
-                                                        <Setter Property="Margin" Value="0"/>
-                                                        <Setter Property="MinHeight" Value="0"/>
-                                                        <Setter Property="MinWidth" Value="0"/>
-                                                        <Setter Property="IsTabStop" Value="False"/>
-                                                        <Setter Property="Template">
-                                                            <Setter.Value>
-                                                                <ControlTemplate TargetType="ListViewItem">
-                                                                    <ContentPresenter x:Name="ContentPresenter"/>
-                                                                </ControlTemplate>
-                                                            </Setter.Value>
-                                                        </Setter>
-                                                    </Style>
-                                                </ListView.ItemContainerStyle>
-                                                <ListView.ItemTemplate>
-                                                    <DataTemplate x:DataType="models:TimelineFrame">
-                                                        <Grid x:Name="ClassicTimelineCardRoot" Width="56" Height="56"
-                                                              VerticalAlignment="Top">
-                                                            <!-- 选中环：56×56 叠加层，BorderThickness=2 -->
-                                                            <Border x:Name="ClassicTimelineSelectionRing"
-                                                                    Width="56" Height="56" CornerRadius="5"
-                                                                    BorderThickness="2"
-                                                                    BorderBrush="Transparent"
-                                                                    Background="Transparent"
-                                                                    IsHitTestVisible="False"/>
-                                                            <!-- 缩略图卡片：56×56 与选中环同尺寸叠加，无间隙，任意 DPI 下对齐 -->
-                                                            <Border Width="56" Height="56" CornerRadius="5"
-                                                                    Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}"
-                                                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                                                    HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                                <Grid>
-                                                                    <FontIcon Glyph="&#xE722;" FontSize="18"
-                                                                              Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
-                                                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                                    <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
-                                                                </Grid>
-                                                            </Border>
-                                                            <Border VerticalAlignment="Bottom" HorizontalAlignment="Left"
-                                                                    Margin="2,0,0,2" CornerRadius="2" Padding="2"
-                                                                    Background="{x:Bind FrameBadgeBackground, Mode=OneWay}">
-                                                                <TextBlock Text="{x:Bind FrameBadgeText, Mode=OneWay}"
-                                                                           FontSize="10" Foreground="White"
-                                                                           MinWidth="12" TextAlignment="Center"/>
-                                                            </Border>
-                                                        </Grid>
-                                                    </DataTemplate>
-                                                </ListView.ItemTemplate>
-                                            </ListView>
-                                        </Border>
-
-                                        <!-- Row 1B：胶片模式（居中吸附 ScrollViewer + ItemsRepeater） -->
-                                        <Grid Grid.Row="1"
-                                              Visibility="{x:Bind ViewModel.IsFilmstripTimelineMode, Mode=OneWay}"
-                                              Height="60" x:Name="FilmstripRoot">
-                                            <ScrollViewer x:Name="FilmstripScrollViewer"
-                                                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
-                                                          HorizontalScrollBarVisibility="Hidden"
-                                                          VerticalScrollBarVisibility="Disabled"
-                                                          HorizontalScrollMode="Enabled"
-                                                          VerticalScrollMode="Disabled"
-                                                          HorizontalSnapPointsType="Optional"
-                                                          HorizontalSnapPointsAlignment="Center"
-                                                          ZoomMode="Disabled"
-                                                          Loaded="FilmstripScrollViewer_Loaded"
-                                                          SizeChanged="FilmstripScrollViewer_SizeChanged"
-                                                          ViewChanged="FilmstripScrollViewer_ViewChanged">
-                                                <Border x:Name="FilmstripPaddingBorder" Padding="0">
-                                                    <ItemsRepeater x:Name="TimelineRepeater"
-                                                                   ItemsSource="{x:Bind ViewModel.TimelineFrames, Mode=OneWay}">
-                                                        <ItemsRepeater.Layout>
-                                                            <StackLayout Orientation="Horizontal" Spacing="0"/>
-                                                        </ItemsRepeater.Layout>
-                                                        <ItemsRepeater.ItemTemplate>
-                                                            <DataTemplate x:DataType="models:TimelineFrame">
-                                                                <Border Width="56" Height="56" CornerRadius="5"
-                                                                        Background="Transparent" BorderThickness="0">
-                                                                    <Grid>
-                                                                        <Border Width="56" Height="56" CornerRadius="5"
-                                                                                Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}"
-                                                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                                                                HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                                            <Grid>
-                                                                                <FontIcon Glyph="&#xE722;" FontSize="18"
-                                                                                          Visibility="{x:Bind ThumbnailPlaceholderVisibility, Mode=OneWay}"
-                                                                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                                                          HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                                                <Image Source="{x:Bind Thumbnail, Mode=OneWay}" Stretch="UniformToFill"/>
-                                                                            </Grid>
-                                                                        </Border>
-                                                                        <Border VerticalAlignment="Bottom" HorizontalAlignment="Left"
-                                                                                Margin="2,0,0,2" CornerRadius="2" Padding="2"
-                                                                                Background="{x:Bind FrameBadgeBackground, Mode=OneWay}">
-                                                                            <TextBlock Text="{x:Bind FrameBadgeText, Mode=OneWay}"
-                                                                                       FontSize="8" Foreground="White"
-                                                                                       MinWidth="10" TextAlignment="Center"/>
-                                                                        </Border>
-                                                                    </Grid>
-                                                                </Border>
-                                                            </DataTemplate>
-                                                        </ItemsRepeater.ItemTemplate>
-                                                    </ItemsRepeater>
-                                                </Border>
-                                            </ScrollViewer>
-                                            <Border x:Name="FilmstripSelectionHighlight"
-                                                    Width="58" Height="58" CornerRadius="5"
-                                                    BorderThickness="3"
-                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                    IsHitTestVisible="False"
-                                                    Visibility="{x:Bind ViewModel.FilmstripControlsVisibility, Mode=OneWay}"/>
-                                            <Button x:Name="FilmstripPrevFrameButton"
-                                                    Width="24" Height="24" Padding="0" CornerRadius="12"
-                                                    HorizontalAlignment="Left" VerticalAlignment="Center"
-                                                    Margin="4,0,0,0"
-                                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                                    Click="FilmstripPrevButton_Click"
-                                                    IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}"
-                                                    Visibility="{x:Bind ViewModel.FilmstripControlsVisibility, Mode=OneWay}"
-                                                    x:Uid="EditPage_PrevFrame">
-                                                <FontIcon Glyph="&#xE76B;" FontSize="10"
-                                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                            </Button>
-                                            <Button x:Name="FilmstripNextFrameButton"
-                                                    Width="24" Height="24" Padding="0" CornerRadius="12"
-                                                    HorizontalAlignment="Right" VerticalAlignment="Center"
-                                                    Margin="0,0,4,0"
-                                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                                    Click="FilmstripNextButton_Click"
-                                                    IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}"
-                                                    Visibility="{x:Bind ViewModel.FilmstripControlsVisibility, Mode=OneWay}"
-                                                    x:Uid="EditPage_NextFrame">
-                                                <FontIcon Glyph="&#xE76C;" FontSize="10"
-                                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                            </Button>
-                                        </Grid>
-                                    </Grid>
-
-                                </StackPanel>
-
-                            <!-- 空状态提示：未选择实况照片时显示。拖拽时隐藏 -->
-                            <StackPanel x:Name="TimelineEmptyHint" Orientation="Horizontal" Spacing="6"
-                                        Visibility="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay, Converter={StaticResource InverseVisibilityConverter}}"
-                                        IsHitTestVisible="False"
-                                        VerticalAlignment="Center" HorizontalAlignment="Center">
-                                <FontIcon Glyph="&#xE8B2;" FontSize="16"
-                                          Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                          VerticalAlignment="Center"/>
-                                <TextBlock x:Uid="EditPage_TimelineEmptyHint"
-                                           FontSize="12"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                           VerticalAlignment="Center"
-                                           TextWrapping="WrapWholeWords"
-                                           TextAlignment="Center"/>
-                            </StackPanel>
-                        </Grid>
-
-                        <!-- 分割线（组合查看时显示，分隔时间轴和基础信息） -->
-                            <Border Height="1" Margin="0,6"
-                                    Visibility="{x:Bind ViewModel.IsCombinedView, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
-                                    Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
-
-                            <!-- ──────────────────────────────────────────────── -->
-                            <!--  文件基础信息面板（缩略图 + 照片/视频信息行 + EXIF） -->
-                            <!-- ──────────────────────────────────────────────── -->
-                            <Grid x:Name="InfoPanelGrid"
-                                  Visibility="{x:Bind ViewModel.IsBasicInfoPanelVisible, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
-                                  ColumnSpacing="6" Height="84" SizeChanged="InfoPanel_SizeChanged">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition x:Name="InfoLeftColumn" Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                    <ColumnDefinition x:Name="InfoRightColumn" Width="*"/>
-                                </Grid.ColumnDefinitions>
-
-                                <!-- Col 0：左侧整体 = 缩略图 + 照片/视频信息（一起参与比例分配） -->
-                                <Grid Grid.Column="0" ColumnSpacing="22">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-
-                                    <!-- 缩略图 80×80（1:1 方形，复用列表已加载的缩略图） -->
-                                    <Border Grid.Column="0" x:Name="InfoThumbBorder"
-                                            Width="80" Height="80" CornerRadius="10" VerticalAlignment="Center"
-                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                            Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
-                                        <Grid>
-                                            <FontIcon Glyph="&#xE722;" FontSize="28"
-                                                      Visibility="{x:Bind ViewModel.SelectedFileThumbnailPlaceholderVisibility, Mode=OneWay}"
-                                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                      HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            <Image Source="{x:Bind ViewModel.SelectedFileThumbnail, Mode=OneWay}"
-                                                   Stretch="UniformToFill"/>
-                                        </Grid>
-                                    </Border>
-
-                                    <!-- 照片 + Live Photo 信息行 -->
-                                    <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Top">
-                                        <TextBlock controls:AdaptiveFileName.FileName="{x:Bind ViewModel.FullPhotoFileName, Mode=OneWay}"
-                                                   FontSize="12" FontWeight="SemiBold"
-                                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                                        <Button Style="{StaticResource InfoRowButtonStyle}"
-                                                x:Uid="EditPage_LocatePhoto"
-                                                Click="LocatePhotoFile_Click"
-                                                Visibility="{x:Bind ViewModel.IsPhotoRowVisible, Mode=OneWay}">
-                                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                                <FontIcon Glyph="&#xE722;" FontSize="11"
-                                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                                          VerticalAlignment="Center" Margin="0,1,0,0"
-                                                          Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"/>
-                                                <TextBlock Text="{x:Bind ViewModel.PhotoInfoLine, Mode=OneWay}"
-                                                           Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
-                                            </StackPanel>
-                                        </Button>
-                                        <Button Style="{StaticResource InfoRowButtonStyle}"
-                                                x:Uid="EditPage_LocateVideo"
-                                                Click="LocateVideoFile_Click"
-                                                Visibility="{x:Bind ViewModel.IsVideoRowVisible, Mode=OneWay}">
-                                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                                <FontIcon Glyph="&#xE714;" FontSize="11"
-                                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"
-                                                          VerticalAlignment="Center" Margin="0,1,0,0"
-                                                          Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"/>
-                                                <TextBlock Text="{x:Bind ViewModel.VideoInfoLine, Mode=OneWay}"
-                                                           Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
-                                            </StackPanel>
-                                        </Button>
-                                        <StackPanel Orientation="Horizontal" Spacing="4"
-                                                    Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}">
-                                            <Path Data="M21 32 A11 11 0 1 1 43 32 A11 11 0 1 1 21 32 M26 32 A6 6 0 1 1 38 32 A6 6 0 1 1 26 32 M29.4 13 A2.6 2.6 0 1 1 34.6 13 A2.6 2.6 0 1 1 29.4 13 M40.57 16.63 A2.6 2.6 0 1 1 45.77 16.63 A2.6 2.6 0 1 1 40.57 16.63 M47.47 26.13 A2.6 2.6 0 1 1 52.67 26.13 A2.6 2.6 0 1 1 47.47 26.13 M47.47 37.87 A2.6 2.6 0 1 1 52.67 37.87 A2.6 2.6 0 1 1 47.47 37.87 M40.57 47.37 A2.6 2.6 0 1 1 45.77 47.37 A2.6 2.6 0 1 1 40.57 47.37 M29.4 51 A2.6 2.6 0 1 1 34.6 51 A2.6 2.6 0 1 1 29.4 51 M18.23 47.37 A2.6 2.6 0 1 1 23.43 47.37 A2.6 2.6 0 1 1 18.23 47.37 M11.33 37.87 A2.6 2.6 0 1 1 16.53 37.87 A2.6 2.6 0 1 1 11.33 37.87 M11.33 26.13 A2.6 2.6 0 1 1 16.53 26.13 A2.6 2.6 0 1 1 11.33 26.13 M18.23 16.63 A2.6 2.6 0 1 1 23.43 16.63 A2.6 2.6 0 1 1 18.23 16.63"
-                                                           Width="12" Height="12" Stretch="Uniform"
-                                                           Fill="{x:Bind ViewModel.ProtocolIconBrush, Mode=OneWay}"
-                                                           VerticalAlignment="Center" Margin="-0.25,1,0,0"/>
-                                            <TextBlock Text="{x:Bind ViewModel.ProtocolLine, Mode=OneWay}"
-                                                       Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
-                                        </StackPanel>
-                                    </StackPanel>
-                                </Grid>
-
-                                <!-- Col 1：可拖拽分割手柄（调整左右信息比例，默认 1:1） -->
-                                <Grid Grid.Column="1" Width="10" VerticalAlignment="Stretch">
-                                    <Border Width="1" HorizontalAlignment="Center"
-                                            Background="{ThemeResource DividerStrokeColorDefaultBrush}"
-                                            VerticalAlignment="Stretch" Margin="0,2"
-                                            Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"/>
-                                    <Border x:Name="InfoSplitterBar" Width="10" Background="Transparent"
-                                            PointerPressed="InfoSplitter_PointerPressed"
-                                            PointerMoved="InfoSplitter_PointerMoved"
-                                            PointerReleased="InfoSplitter_PointerReleased"
-                                            PointerCaptureLost="InfoSplitter_PointerCaptureLost"
-                                            PointerEntered="InfoSplitter_PointerEntered"
-                                            PointerExited="InfoSplitter_PointerExited"
-                                            DoubleTapped="InfoSplitter_DoubleTapped"/>
-                                </Grid>
-
-                                <!-- Col 2：EXIF 信息栈（空行自动折叠） -->
-                                <StackPanel Grid.Column="2" Spacing="4" VerticalAlignment="Top">
-                                    <TextBlock Visibility="{x:Bind ViewModel.ExifCamera, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}"
-                                               TextWrapping="NoWrap" IsTextSelectionEnabled="True">
-                                        <Run Text="{x:Bind ViewModel.ExifCamera, Mode=OneWay}"
-                                             FontWeight="SemiBold" FontSize="12"
-                                             Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                                        <Run Text="{x:Bind ViewModel.ExifCameraDateSuffix, Mode=OneWay}"
-                                             FontSize="11"
-                                             Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                    </TextBlock>
-                                    <TextBlock Text="{x:Bind ViewModel.ExifLensParams, Mode=OneWay}"
-                                               Visibility="{x:Bind ViewModel.ExifLensParams, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}"
-                                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="NoWrap"
-                                               IsTextSelectionEnabled="True"/>
-                                    <TextBlock Text="{x:Bind ViewModel.ExifShootingParams, Mode=OneWay}"
-                                               Visibility="{x:Bind ViewModel.ExifShootingParams, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}"
-                                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="NoWrap"
-                                               IsTextSelectionEnabled="True"/>
-                                    <TextBlock Text="{x:Bind ViewModel.ExifPlaceName, Mode=OneWay}"
-                                               Visibility="{x:Bind ViewModel.ExifPlaceName, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}"
-                                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
-                                               IsTextSelectionEnabled="True"/>
-                                </StackPanel>
-
-                                <!-- 空状态覆盖层（无文件选中时，覆盖缩略图/信息/EXIF 区域，竖线居中） -->
-                                <Grid Grid.ColumnSpan="3"
-                                      Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay, Converter={StaticResource InverseVisibilityConverter}}"
-                                      IsHitTestVisible="False">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="80"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-
-                                    <!-- 缩略图占位（保留视觉空间 80px） -->
-                                    <Border Grid.Column="0" Width="80" Height="80" CornerRadius="4"
-                                            VerticalAlignment="Center"
-                                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
-                                            Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
-                                        <FontIcon Glyph="&#xE722;" FontSize="28"
-                                                  Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                    </Border>
-
-                                    <!-- 左侧：基本属性提示 -->
-                                    <StackPanel Grid.Column="1"
-                                                Orientation="Horizontal" Spacing="6"
-                                                HorizontalAlignment="Center" VerticalAlignment="Center">
-                                        <FontIcon Glyph="&#xE946;" FontSize="16"
-                                                  Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                  VerticalAlignment="Center" Margin="0,2,0,0"/>
-                                        <TextBlock x:Uid="EditPage_BasicInfoLeftHint"
-                                                   FontSize="13"
-                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                   VerticalAlignment="Center"
-                                                   TextWrapping="WrapWholeWords"
-                                                   TextAlignment="Center"/>
-                                    </StackPanel>
-
-                                    <!-- 竖线（居中） -->
-                                    <Border Grid.Column="2" Width="1"
-                                            Background="{ThemeResource DividerStrokeColorDefaultBrush}"
-                                            VerticalAlignment="Stretch" Margin="0,16"/>
-
-                                    <!-- 右侧：EXIF 提示 -->
-                                    <StackPanel Grid.Column="3"
-                                                Orientation="Horizontal" Spacing="6"
-                                                HorizontalAlignment="Center" VerticalAlignment="Center">
-                                                <FontIcon Glyph="&#xE737;" FontSize="16"
-                                                  Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                  VerticalAlignment="Center" Margin="0,2,0,0"/>
-                                                <TextBlock x:Uid="EditPage_BasicInfoRightHint"
-                                                   FontSize="13"
-                                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                   VerticalAlignment="Center"
-                                                   TextWrapping="WrapWholeWords"
-                                                   TextAlignment="Center"/>
-                                    </StackPanel>
-                                </Grid>
-                            </Grid>
-
-                            <!-- ──────────────────────────────────────────────── -->
-                            <!--  更改文件属性面板（占位，后续扩展）                -->
-                            <!-- ──────────────────────────────────────────────── -->
-                            <Grid x:Name="DetailPropsPlaceholder" MinHeight="100"
-                                  Visibility="{x:Bind ViewModel.IsDetailPropsPanelVisible, Mode=OneWay, Converter={StaticResource VisibilityConverter}}">
-                                <TextBlock x:Uid="EditPage_DetailPropsPlaceholder"
-                                           FontSize="12"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Grid>
-
-                        </StackPanel>
-                    </Grid>
+                <!-- D. Overview Bar: same full width as the frame viewport, never a playback seek bar. -->
+                <Border x:Name="TimelineOverviewTrack" Grid.Row="3" Height="16" CornerRadius="8"
+                        Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                        SizeChanged="TimelineOverviewTrack_SizeChanged">
+                    <Canvas x:Name="TimelineOverviewCanvas" Height="16">
+                        <Border x:Name="TimelineOverviewViewport" Height="10" CornerRadius="5"
+                                Background="{ThemeResource ControlFillColorTertiaryBrush}" Canvas.Top="3"/>
+                        <Border x:Name="TimelineOverviewPosition" Width="3" Height="12" CornerRadius="2"
+                                Background="{ThemeResource AccentFillColorDefaultBrush}" Canvas.Top="2"/>
+                    </Canvas>
                 </Border>
             </Grid>
-            <!-- 关闭内层 Grid ────────────────────────────── -->
-
-            <!-- 右侧拖拽视觉反馈覆盖层（遮罩 + 虚线 + 图标文字） -->
-            <Grid x:Name="RightDragOverlay" Visibility="Collapsed" IsHitTestVisible="False">
-                <!-- Layer 0：半透明黑遮暗背景 -->
-                <Border Background="#90000000" CornerRadius="4"/>
-                <!-- Layer 1：虚线描边（强调色） -->
-                <Rectangle Stroke="White"
-                           StrokeThickness="2" StrokeDashArray="6,3"
-                           RadiusX="4" RadiusY="4" Margin="4"/>
-                <!-- Layer 2：图标 + 文字 -->
-                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
-                    <FontIcon Glyph="&#xE8B2;" FontSize="36"
-                              Foreground="White"/>
-                    <TextBlock x:Uid="EditPage_DropToView"
-                               FontSize="14" FontWeight="SemiBold"
-                               Foreground="White"
-                               HorizontalAlignment="Center"/>
-                </StackPanel>
-            </Grid>
-        </Grid>
-        <!-- 关闭外层 Grid（Border 子元素） -->
-            </Border>
-            <!-- 关闭 RightPanelBorder ──────────────────────── -->
-        </Grid>
+        </Border>
     </Grid>
 </Page>

@@ -1,932 +1,247 @@
-/*
- * EditPage.xaml.cs
- *
- * 实况照片封面更换页面的代码后置。
- * 处理 UI 事件 + 自定义卡片交互（悬停/选中/按下）+ 预览最大化/缩放。
- *
- * 时间轴支持双模式（在设置页切换）：
- *   经典模式（Classic）  — ListView（原有），卡片选中框跟随选中帧移动。
- *   胶片模式（Filmstrip） — ItemsRepeater + 固定选中框覆盖层，
- *                           选中框始终位于画面中心不动，缩略图从框下划过。
- *                           滚轮每次精确步进一帧，支持边缘 padding
- *                           确保所有帧都能到达画面中心。
- *
- * 左侧文件列表仍使用 ListView（裸 ContentPresenter 模板，消除
- * ListViewItem 内置的 PointerDownThemeAnimation）。
- */
-
-using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.ViewModels;
-using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Windowing;
+using Microsoft.UI.Xaml.Navigation;
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Windows.Media;
 using Windows.Media.Core;
 using Windows.Media.Playback;
-using Windows.Storage;
-using Windows.Storage.Streams;
 
 namespace LivePhotoBox.Views
 {
+    /// <summary>UI/presentation shell only; current-master media/protocol/native services remain authoritative.</summary>
     public sealed partial class EditPage : Page
     {
+        private const double TimelineItemWidth = 72.0;
+        private const double TimelineItemSpacing = 6.0;
+        private const double TimelineItemStep = TimelineItemWidth + TimelineItemSpacing;
+
         public EditViewModel ViewModel => AppViewModel.Instance.Edit;
 
-        // 注册在窗口根元素上的预览键盘输入；EditPage 激活时挂接，离开时卸载。
-        // PreviewKeyDown 在 NavigationView 的焦点导航之前触发，避免方向键被外层导航栏抢走。
-        private UIElement? _editNavigationInputHost;
-
-        // ── 文件列表卡片交互状态 ──
-        private Border? _hoveredCard;
-        private Border? _pressedCard;
-
-        // ── 缓存画刷（系统换强调色时重建）──
-        private SolidColorBrush _selectedBg = null!;
-        private SolidColorBrush _selectedHoverBg = null!;
-        private SolidColorBrush _selectedPressedBg = null!;
-        private SolidColorBrush _selectedBorder = null!;
-        private SolidColorBrush _hoverBg = null!;
-        private SolidColorBrush _pressedBg = null!;
-        private readonly SolidColorBrush _transparent = new(Microsoft.UI.Colors.Transparent);
-
-        // 监听系统强调色变化
-        private readonly Windows.UI.ViewManagement.UISettings _uiSettings = new();
-
-        // ── 左侧面板折叠状态 ──
-        private bool _isLeftPanelCollapsed;
-        private const double LeftPanelExpandedWidth = 320;
-        // 92px = ListView margin(6) + padding(4) + Border padding(20) + Thumb(52) + Spacing(10)
-        // 恰好完整露出缩略图，文字列空间归零自然不可见。
-        private const double LeftPanelCollapsedWidth = 100;
-
-        /// <summary>上次成功触发扫描的目录路径（路径未变时跳过 LostFocus 重复扫描）</summary>
-        private string? _lastScannedPath;
-
-        // ── 视频预览状态 ──
-        /// <summary>SingleFileJpeg 提取的临时视频路径（用于播放后清理）</summary>
-        private string? _previewTempVideoPath;
-        /// <summary>正在切换预览模式（禁止 CloseRequested 重复恢复 UI）</summary>
-        private bool _isApplyingPreviewMode;
-
-        // ── 拖拽类型缓存（DragEnter 异步检测 → DragOver 同步读取）──
-        /// <summary>左侧面板：当前拖入的 StorageItems 是否全是文件夹</summary>
-        private bool _isLeftDropAllFolders;
-        /// <summary>右侧面板：当前拖入的 StorageItems 是否包含媒体文件</summary>
-        private bool _isRightDropHasFiles;
-
-        // ── 预览最大化状态 ──
         private bool _isPreviewMaximized;
-
-        // ── 缩放+平移状态同步（图片 ↔ 实况视频）──
+        private bool _isClassicScrollInternal;
+        private bool _isPlaybackSourcePending;
+        private string? _previewTempVideoPath;
         private double _sharedZoomScale = 1.0;
         private double _sharedPanX = 0.5;
         private double _sharedPanY = 0.5;
 
-        // ── 拖拽分隔条（GridSplitter）──
-        private const double _MinLeftWidth = 260;
-        private const double _MaxLeftWidth = 520;
-        private const double _DesiredRightWidth = 420;
-        private const double _MaxLeftWidthFullscreen = 960;
-        private const string _RatioKeyWindow = "EditPage_LeftPanelRatio_Window";
-        private const string _RatioKeyFullscreen = "EditPage_LeftPanelRatio_Fullscreen";
-
-        private bool _isMaximized;
-        private bool _isSplitterDragging;
-        private double _splitterAnchorX;
-        private double _splitterAnchorWidth;
-
-        // ── 文件基础信息左右比例（组合查看/基础信息页签内的竖线手柄）──
-        private const double _InfoMinLeftWidth = 140;      // 左侧信息最小宽度
-        private const double _InfoMinRightWidth = 160;     // 右侧 EXIF 最小宽度
-        private const double DefaultInfoRatio = 0.5;       // 默认 1:1
-        private const double InfoFixedWidth = 22;          // 手柄 10 + 2×6 列间距
-        private const string _InfoRatioKeyWindow = "EditPage_InfoRatio_Window";
-        private const string _InfoRatioKeyFullscreen = "EditPage_InfoRatio_Fullscreen";
-
-        private bool _isInfoSplitterDragging;
-        private double _infoSplitterAnchorX;
-        private double _infoSplitterAnchorWidth;
-
-        // ════════════════════════════════════════════════════════════
-        //  底部选项卡单选状态（带记忆 + 非实况自动切"文件基础信息"）
-        //
-        //  四个选项卡（单选）对应的面板可见性：
-        //    "combined"     → 时间轴 + 文件基础信息（组合查看）
-        //    "frames"       → 仅时间轴
-        //    "basicInfo"    → 仅文件基础信息
-        //    "detailProps"  → 仅更改文件属性（占位）
-        //
-        //  记忆规则：用户手动切换选项卡时保存到内存（仅本次会话），
-        //           关闭窗口后恢复默认值。
-        //           完整实况照片 → 默认"组合查看"；
-        //           残缺实况 / 非实况照片 → 默认"文件基础信息"。
-        // ════════════════════════════════════════════════════════════
-
-        private const string DefaultInfoTab = "combined";
-
-        /// <summary>防止自动切换选项卡时触发保存</summary>
-        private bool _isAutoSwitchingTab;
-
-        /// <summary>本次会话用户手动选择的选项卡（关闭窗口后清空，恢复默认）</summary>
-        private string _lastUserSelectedTab = DefaultInfoTab;
-
-        /// <summary>
-        /// InfoTabs 加载时恢复本次会话记忆的选项卡（默认"combined"）。
-        /// </summary>
-        private void InfoTabs_Loaded(object sender, RoutedEventArgs e)
-        {
-            var item = FindSegmentedItem(_lastUserSelectedTab) ?? FindSegmentedItem(DefaultInfoTab);
-            InfoTabs.SelectedItem = item;
-        }
-
-        /// <summary>
-        /// Segmented 单选 SelectionChanged 事件处理：
-        ///   1. 根据当前选项卡 Tag 决定各面板可见性
-        ///   2. 非自动切换时保存用户选择到会话内存
-        /// </summary>
-        private void InfoTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            var selectedTag = (InfoTabs.SelectedItem as CommunityToolkit.WinUI.Controls.SegmentedItem)?.Tag as string;
-
-            // "combined" → 组合查看：时间轴 + 基础信息都显示
-            // "frames" / "basicInfo" / "detailProps" → 各自单独显示
-            ViewModel.IsFramesPanelVisible = selectedTag == "combined" || selectedTag == "frames";
-            ViewModel.IsBasicInfoPanelVisible = selectedTag == "combined" || selectedTag == "basicInfo";
-            ViewModel.IsDetailPropsPanelVisible = selectedTag == "detailProps";
-
-            // 记忆用户手动选择的选项卡（自动切换不记忆，仅会话内存）
-            if (!_isAutoSwitchingTab && selectedTag != null)
-            {
-                _lastUserSelectedTab = selectedTag;
-            }
-        }
-
-        /// <summary>
-        /// 根据当前选中文件类型自动调整底部选项卡：
-        ///   残缺实况 / 非实况照片 → 切到"文件基础信息"
-        ///   完整实况照片 → 恢复用户上次选择的选项卡（默认"组合查看"）
-        /// </summary>
-        private void ApplyInfoTabForSelectedFile()
-        {
-            var currentTag = (InfoTabs.SelectedItem as CommunityToolkit.WinUI.Controls.SegmentedItem)?.Tag as string;
-
-            // 配对缺失的实况照片：当普通照片处理，强制切到"文件基础信息"
-            if (ViewModel.IsSelectedPairIncomplete)
-            {
-                if (currentTag == "combined" || currentTag == "frames")
-                {
-                    _isAutoSwitchingTab = true;
-                    InfoTabs.SelectedItem = FindSegmentedItem("basicInfo");
-                    _isAutoSwitchingTab = false;
-                }
-                return;
-            }
-
-            if (ViewModel.HasSelectedFile && !ViewModel.IsSelectedLivePhoto)
-            {
-                // 非实况照片：如果当前在"组合查看"或"实况照片帧"，切到"文件基础信息"
-                if (currentTag == "combined" || currentTag == "frames")
-                {
-                    _isAutoSwitchingTab = true;
-                    InfoTabs.SelectedItem = FindSegmentedItem("basicInfo");
-                    _isAutoSwitchingTab = false;
-                }
-            }
-            else if (ViewModel.IsSelectedLivePhoto)
-            {
-                // 完整实况照片：恢复会话记忆的选项卡（默认"combined"）
-                var item = FindSegmentedItem(_lastUserSelectedTab) ?? FindSegmentedItem(DefaultInfoTab);
-                if (!ReferenceEquals(InfoTabs.SelectedItem, item))
-                {
-                    _isAutoSwitchingTab = true;
-                    InfoTabs.SelectedItem = item;
-                    _isAutoSwitchingTab = false;
-                }
-            }
-        }
-
-        private CommunityToolkit.WinUI.Controls.SegmentedItem? FindSegmentedItem(string tag)
-        {
-            return InfoTabs.Items
-                .OfType<CommunityToolkit.WinUI.Controls.SegmentedItem>()
-                .FirstOrDefault(i => (string)i.Tag == tag);
-        }
-
-        // ── 时间轴常量 ──
-        /// <summary>帧步长：56px 卡片 + 0px 间距 = 56px（Spacing="0"）</summary>
-        private const double FilmstripItemStep = 56.0;
-        private const double FilmstripItemWidth = 56.0;
-
-        // ── 经典模式（ListView）时间轴状态 ──
-        private CancellationTokenSource? _scrollCts;
-        private Panel? _hoveredTimelineCard;
-        private Panel? _pressedTimelineCard;
-        private bool _isClassicTimelineInitialized;
-
-        // ── 胶片模式（ScrollViewer + SnapPanel 吸附）状态 ──
-        private int _filmstripCurrentFrameIndex;
-        private bool _isFilmstripTimelineInitialized;
-        /// <summary>胶片模式滚轮事件委托引用（AddHandler/RemoveHandler 需要同一实例）</summary>
-        private readonly PointerEventHandler _filmstripWheelHandler;
-
-        // ── 精准滚轮累积目标 ──
-        /// <summary>数学绝对目标偏移量（不受动画中途残缺值干扰），-1 表示未初始化</summary>
-        private double _targetScrollOffset = -1;
-        /// <summary>上次滚轮事件时间，用于 250ms 超时重校准</summary>
-        private DateTime _lastWheelTime = DateTime.MinValue;
-        /// <summary>帧合并锁：同一渲染帧内仅提交一次 ChangeView，防高频调用 0xc000027b 崩溃</summary>
-        private bool _isScrollQueued;
-        /// <summary>胶片模式滚动重试取消令牌（布局未就绪时延迟重试）</summary>
-        private CancellationTokenSource? _filmstripScrollRetryCts;
-
-        // 纯视频在 Windows 系统媒体控件中显示的缩略图及异步加载生命周期。
-        private CancellationTokenSource? _systemMediaMetadataCts;
-        private InMemoryRandomAccessStream? _systemMediaThumbnailStream;
-
         public EditPage()
         {
             InitializeComponent();
-
-            // 拖拽事件（Unloaded 中 detach，OnNavigatedTo 中重新 attach）
-            AttachDragEvents();
-
-            RebuildAllBrushes();
-
-            // 存储委托引用，确保 AddHandler / RemoveHandler 使用同一实例
-            _filmstripWheelHandler = new PointerEventHandler(OnFilmstripPointerWheelChanged);
-
-            // 系统换强调色时实时更新（页面缓存，无需 detach，跟随 app 生命周期）
-            _uiSettings.ColorValuesChanged += OnSystemColorValuesChanged;
-
-            // 时间轴照片帧自动滚动（ViewModel 事件，页面缓存期间持续有效）
             ViewModel.RequestScrollToFrame += OnRequestScrollToFrame;
-
-            // 大图预览清空（实况→非实况切换）
             ViewModel.PreviewClearRequested += OnPreviewClearRequested;
-
-            // 导出 Flyout 打开时强刷 x:Bind 绑定
-            ExportFlyout.Opening += (_, _) => Bindings.Update();
-
-            Loaded += EditPage_Loaded;
-            Unloaded += EditPage_Unloaded;
+            ViewModel.PropertyChanged += ViewModel_PropertyChanged;
             PhotoViewer.ScaleChanged += PhotoViewer_ScaleChanged;
-            PureMediaViewer.ScaleChanged += s =>
-            {
-                _sharedZoomScale = s;
-                UpdateZoomPercentDisplay();
-            };
-            FileItemListView.ContainerContentChanging += OnContainerContentChanging;
+            PureMediaViewer.ScaleChanged += PureMediaViewer_ScaleChanged;
+            PureMediaViewer.VideoOpened += PureMediaViewer_VideoOpened;
+            Loaded += EditPage_Loaded;
         }
 
-        /// <summary>重建所有强调色+悬停/按下画刷（系统换主题时调用）</summary>
-        private void RebuildAllBrushes()
+        protected override void OnNavigatedTo(NavigationEventArgs e)
         {
-            var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
-            _selectedBg = new SolidColorBrush(accent) { Opacity = 0.15 };
-            _selectedHoverBg = new SolidColorBrush(accent) { Opacity = 0.25 };
-            _selectedPressedBg = new SolidColorBrush(accent) { Opacity = 0.35 };
-            _selectedBorder = new SolidColorBrush(accent) { Opacity = 0.88 };
-
-            var hoverBrush = (SolidColorBrush)Application.Current.Resources["SystemControlHighlightListLowBrush"];
-            _hoverBg = new SolidColorBrush(hoverBrush.Color) { Opacity = hoverBrush.Opacity };
-            var pressedBrush = (SolidColorBrush)Application.Current.Resources["SystemControlHighlightListMediumBrush"];
-            _pressedBg = new SolidColorBrush(pressedBrush.Color) { Opacity = pressedBrush.Opacity };
-
-            // 同步胶片模式选中框画刷（与文件列表使用相同的强调色画刷）
-            UpdateFilmstripSelectionHighlight();
+            base.OnNavigatedTo(e);
+            Bindings.Update();
+            UpdateEmptyPreviewState();
+            ScrollSelectedFrameIntoView(true);
+            UpdateOverviewBar();
         }
 
-        /// <summary>系统强调色变化 → 重建画刷 + 刷新所有卡片视觉</summary>
-        private void OnSystemColorValuesChanged(Windows.UI.ViewManagement.UISettings sender, object args)
+        private void EditPage_Loaded(object sender, RoutedEventArgs e)
         {
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                RebuildAllBrushes();
-                RefreshAllCardVisuals();
-            });
+            UpdateEmptyPreviewState();
+            UpdateClassicPadding();
+            UpdateZoomPercentDisplay();
+            ApplyMuteState();
+            UpdateOverviewBar();
         }
 
-        /// <summary>遍历所有可见文件列表卡片容器，刷新其视觉状态</summary>
-        private void RefreshAllCardVisuals()
+        private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
-            foreach (var item in FileItemListView.Items)
+            if (e.PropertyName == nameof(EditViewModel.SelectedFilePath))
             {
-                if (FileItemListView.ContainerFromItem(item) is ListViewItem container)
-                {
-                    var card = FindVisualChild<Border>(container);
-                    if (card != null)
-                        UpdateCardVisual(card, IsCardSelected(card),
-                            hovered: _hoveredCard == card, pressed: _pressedCard == card);
-                }
+                StopPlaybackPresentation();
+                CleanupPreviewTempVideo();
+                UpdateEmptyPreviewState();
+            }
+            else if (e.PropertyName == nameof(EditViewModel.SelectedTimelineFrame))
+            {
+                StopPlaybackPresentation();
+                UpdateOverviewBar();
+            }
+            else if (e.PropertyName == nameof(EditViewModel.IsMuted))
+            {
+                ApplyMuteState();
             }
         }
 
-        // ════════════════════════════════════════════════════════════
-        //  左侧面板折叠 / 展开（与分隔条比例联动）
-        // ════════════════════════════════════════════════════════════
+        private bool IsVideoActive() =>
+            PureMediaViewer.Visibility == Visibility.Visible && PureMediaViewer.Opacity > 0.99;
 
-        private void CollapsePanelButton_Click(object sender, RoutedEventArgs e)
+        private void ZoomInButton_Click(object sender, RoutedEventArgs e)
         {
-            _isLeftPanelCollapsed = !_isLeftPanelCollapsed;
-
-            // 隐藏/显示控件区
-            var collapsed = _isLeftPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
-            PanelControlsArea.Visibility = collapsed;
-            FileCountText.Visibility = collapsed;
-            PanelTitleText.Visibility = _isLeftPanelCollapsed
-                ? Visibility.Collapsed : Visibility.Visible;
-
-            // 切换箭头图标
-            CollapseButtonIcon.Glyph = _isLeftPanelCollapsed ? "" : "";
-            ToolTipService.SetToolTip(CollapsePanelButton,
-                _isLeftPanelCollapsed ? "展开面板" : "折叠面板");
-
-            // 折叠时缩小 ListView 右侧留白 + 隐藏文字面板
-            FileItemListView.Padding = new Thickness(
-                0, 0, _isLeftPanelCollapsed ? 4 : 14, 0);
-            var textVis = _isLeftPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
-            foreach (var item in FileItemListView.Items)
-            {
-                if (FileItemListView.ContainerFromItem(item) is ListViewItem c)
-                {
-                    var card = FindVisualChild<Border>(c);
-                    if (card != null)
-                        SetTextPanelVisible(card, textVis);
-                }
-            }
-
-            // 折叠 → 分隔条降级为固定 2px 纯间距；展开 → 恢复 star 比例
-            if (_isLeftPanelCollapsed)
-            {
-                LeftPanelColumn.Width = new GridLength(LeftPanelCollapsedWidth);
-                PanelSpacerColumn.Width = new GridLength(2);
-                GridSplitterBar.Visibility = Visibility.Collapsed;
-            }
-            else
-            {
-                RestoreLeftPanelWidth();
-            }
+            if (IsVideoActive()) PureMediaViewer.ZoomIn(); else PhotoViewer.ZoomIn();
+            UpdateZoomPercentDisplay();
         }
 
-        // ════════════════════════════════════════════════════════════
-        //  预览最大化：隐藏所有面板，只保留预览图
-        // ════════════════════════════════════════════════════════════
+        private void ZoomOutButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (IsVideoActive()) PureMediaViewer.ZoomOut(); else PhotoViewer.ZoomOut();
+            UpdateZoomPercentDisplay();
+        }
+
+        private void ZoomPercentButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (IsVideoActive()) PureMediaViewer.ToggleFitVsPixel(); else PhotoViewer.ToggleFitVsPixel();
+            UpdateZoomPercentDisplay();
+        }
+
+        private void PhotoViewer_ScaleChanged(double scale)
+        {
+            _sharedZoomScale = scale;
+            if (!IsVideoActive()) UpdateZoomPercentDisplay();
+        }
+
+        private void PureMediaViewer_ScaleChanged(double scale)
+        {
+            _sharedZoomScale = scale;
+            if (IsVideoActive()) UpdateZoomPercentDisplay();
+        }
+
+        private void UpdateZoomPercentDisplay()
+        {
+            var scale = IsVideoActive() ? PureMediaViewer.CurrentScale : PhotoViewer.CurrentScale;
+            ZoomPercentText.Text = $"{Math.Round(scale * 100):0}%";
+        }
 
         private void MaximizeButton_Click(object sender, RoutedEventArgs e)
         {
             _isPreviewMaximized = !_isPreviewMaximized;
-
             if (_isPreviewMaximized)
             {
-                TopBarGrid.Visibility = Visibility.Collapsed;
-                LeftPanelColumn.Width = new GridLength(0);
-                PanelSpacerColumn.Width = new GridLength(0);
-                GridSplitterBar.Visibility = Visibility.Collapsed;
-                UnifiedInfoPanel.Visibility = Visibility.Collapsed;
-                MainContentGrid.Padding = new Thickness(0);
+                HeaderBar.Visibility = Visibility.Collapsed;
+                EditToolsBorder.Visibility = Visibility.Collapsed;
+                TimelinePanel.Visibility = Visibility.Collapsed;
+                ToolsColumn.MinWidth = 0;
+                ToolsColumn.Width = new GridLength(0);
+                EditorTopGrid.ColumnSpacing = 0;
+                PageRoot.Padding = new Thickness(0);
+                PageRoot.RowSpacing = 0;
                 PreviewBorder.CornerRadius = new CornerRadius(0);
-                PreviewBorder.Margin = new Thickness(0);
-                MaximizeButtonIcon.Glyph = "";
-                ToolTipService.SetToolTip(MaximizeButton,
-                    ResourceService.GetString("EditPage_RestorePreviewTooltip"));
+                MaximizeButtonIcon.Glyph = "\uE73F";
+                ToolTipService.SetToolTip(MaximizeButton, "还原预览");
             }
             else
             {
-                TopBarGrid.Visibility = Visibility.Visible;
-                PanelSpacerColumn.Width = new GridLength(2);
-                GridSplitterBar.Visibility =
-                    _isLeftPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
-                UnifiedInfoPanel.Visibility = Visibility.Visible;
-                MainContentGrid.Padding = new Thickness(8, 0, 8, 6);
-                PreviewBorder.CornerRadius = ViewModel.IsSelectedFileVideo
-                    ? new CornerRadius(0) : new CornerRadius(4);
-                PreviewBorder.Margin = new Thickness(0, 0, 0, 2);
-                MaximizeButtonIcon.Glyph = "";
-                ToolTipService.SetToolTip(MaximizeButton,
-                    ResourceService.GetString("EditPage_MaximizePreviewTooltip"));
-
-                // 恢复左侧面板宽度（折叠态固定像素，展开态恢复保存比例）
-                if (_isLeftPanelCollapsed)
-                    LeftPanelColumn.Width = new GridLength(LeftPanelCollapsedWidth);
-                else
-                    RestoreLeftPanelWidth();
+                HeaderBar.Visibility = Visibility.Visible;
+                EditToolsBorder.Visibility = Visibility.Visible;
+                TimelinePanel.Visibility = Visibility.Visible;
+                ToolsColumn.MinWidth = 300;
+                ToolsColumn.Width = new GridLength(340);
+                EditorTopGrid.ColumnSpacing = 12;
+                PageRoot.Padding = new Thickness(16, 12, 16, 14);
+                PageRoot.RowSpacing = 12;
+                PreviewBorder.CornerRadius = new CornerRadius(8);
+                MaximizeButtonIcon.Glyph = "\uE740";
+                ToolTipService.SetToolTip(MaximizeButton, "最大化预览");
+                UpdateClassicPadding();
+                UpdateOverviewBar();
             }
         }
 
-        // ════════════════════════════════════════════════════════════
-        //  拖拽分隔条（GridSplitter）
-        // ════════════════════════════════════════════════════════════
+        private void UpdateEmptyPreviewState() =>
+            PreviewEmptyState.Visibility = ViewModel.HasSelectedFile ? Visibility.Collapsed : Visibility.Visible;
 
-        // 当前状态对应的比例存储键
-        private string CurrentRatioKey =>
-            _isMaximized ? _RatioKeyFullscreen : _RatioKeyWindow;
-
-        // 检测窗口是否处于最大化/全屏状态
-        private void UpdateMaximizedState()
+        private async void PlayPauseButton_Click(object sender, RoutedEventArgs e)
         {
-            bool maximized = false;
-            var window = App.MainWindow;
-            if (window != null)
-                maximized = IsZoomed(WinRT.Interop.WindowNative.GetWindowHandle(window));
-            _isMaximized = maximized
-                || App.MainWindow?.AppWindow?.Presenter is FullScreenPresenter;
-        }
-
-        [System.Runtime.InteropServices.DllImport("user32.dll")]
-        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
-        private static extern bool IsZoomed(IntPtr hWnd);
-
-        // 左栏最大宽度：普通窗口维持 520px 上限；最大化/全屏时按内容区宽度放大
-        // （约 50%，绝对上限 960px）。否则宽窗口下分隔条只有 260-520px 可拖，
-        // 右栏宽度几乎无法调整。
-        private double MaxLeftWidthFor(Grid parentGrid)
-        {
-            double total = parentGrid.ActualWidth - 4;
-            if (total <= 0) return _MaxLeftWidth;
-            double rightLimit = Math.Max(_MinLeftWidth, total - _DesiredRightWidth);
-            if (!_isMaximized)
-                return Math.Min(_MaxLeftWidth, rightLimit);
-            return Math.Clamp(total * 0.5, _MinLeftWidth, Math.Min(_MaxLeftWidthFullscreen, rightLimit));
-        }
-
-        // 窗口状态变化时重新检测模式：DidPresenterChange 与状态比对都作为触发条件，
-        // 配合 IsZoomed 的实时检测，最大化 ⇄ 还原时各自恢复对应模式保存的比例。
-        private void AppWindow_Changed(Microsoft.UI.Windowing.AppWindow sender, Microsoft.UI.Windowing.AppWindowChangedEventArgs args)
-        {
-            bool wasMaximized = _isMaximized;
-            UpdateMaximizedState();
-            if (args.DidPresenterChange || wasMaximized != _isMaximized)
+            var player = PureMediaViewer.Player;
+            if (IsVideoActive() && player != null)
             {
-                if (!_isLeftPanelCollapsed)
-                    RestoreLeftPanelWidth();
-                RestoreInfoRatio();
+                var playing = player.PlaybackSession.PlaybackState == MediaPlaybackState.Playing;
+                if (playing) player.Pause(); else player.Play();
+                SetPlaybackIcon(!playing);
+                return;
             }
+            await StartPlaybackPresentationAsync();
         }
 
-        // 分隔条按下：记录锚点（鼠标 X + 左栏宽度）
-        private void Splitter_PointerPressed(object sender, PointerRoutedEventArgs e)
+        // Adapted from current master: paired source -> cache -> Native-backed extractor fallback.
+        private async Task StartPlaybackPresentationAsync()
         {
-            if (_isLeftPanelCollapsed) return;
-            UpdateMaximizedState();
-            _isSplitterDragging = true;
-            var parentGrid = (Grid)LeftPanelBorder.Parent!;
-            var point = e.GetCurrentPoint(parentGrid);
-            _splitterAnchorX = point.Position.X;
-            _splitterAnchorWidth = LeftPanelBorder.ActualWidth;
-            GridSplitterBar.CapturePointer(e.Pointer);
-            e.Handled = true;
-        }
-
-        // 分隔条拖动：鼠标的移动量原样加到左栏宽度上（不直接以鼠标 X 为准，避免像素错位）
-        private void Splitter_PointerMoved(object sender, PointerRoutedEventArgs e)
-        {
-            if (!_isSplitterDragging || _isLeftPanelCollapsed) return;
-            if (LeftPanelBorder.Parent is not Grid parentGrid) return;
-            var point = e.GetCurrentPoint(parentGrid);
-            var newWidth = _splitterAnchorWidth + (point.Position.X - _splitterAnchorX);
-            newWidth = Math.Clamp(newWidth, _MinLeftWidth, MaxLeftWidthFor(parentGrid));
-            parentGrid.ColumnDefinitions[0].Width = new GridLength(newWidth);
-            e.Handled = true;
-        }
-
-        // 分隔条释放：停止拖动，并把当前宽度保存到当前模式的比例
-        private void Splitter_PointerReleased(object sender, PointerRoutedEventArgs e)
-        {
-            _isSplitterDragging = false;
-            GridSplitterBar.ReleasePointerCapture(e.Pointer);
-            SaveCurrentRatio();
-            if (LeftPanelBorder.Parent is Grid parentGrid)
-                ApplyCurrentRatio(parentGrid);
-            e.Handled = true;
-        }
-
-        private void Splitter_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
-        {
-            _isSplitterDragging = false;
-        }
-
-        // 鼠标进入分隔条 → 显示左右拖拽光标
-        private void Splitter_PointerEntered(object sender, PointerRoutedEventArgs e)
-        {
-            if (_isLeftPanelCollapsed) return;
-            this.ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(
-                Microsoft.UI.Input.InputSystemCursorShape.SizeWestEast);
-        }
-
-        // 鼠标离开分隔条 → 恢复默认光标
-        private void Splitter_PointerExited(object sender, PointerRoutedEventArgs e)
-        {
-            this.ProtectedCursor = null;
-        }
-
-        // 双击分隔条：当前模式重置为默认的 1:2 比例
-        private void Splitter_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
-        {
-            if (_isLeftPanelCollapsed) return;
-            if (LeftPanelBorder.Parent is Grid parentGrid)
-            {
-                double applied = ApplyLeftRatio(parentGrid, DefaultRatioFor());
-                SaveCurrentRatio(applied);
-            }
-            e.Handled = true;
-        }
-
-        // 恢复当前模式保存的比例；无保存时按默认 1:2 比例
-        private void RestoreLeftPanelWidth()
-        {
-            if (LeftPanelBorder.Parent is not Grid parentGrid) return;
-            UpdateMaximizedState();
-            ApplyCurrentRatio(parentGrid);
-        }
-
-        // 按当前模式保存的比例设置左栏
-        private void ApplyCurrentRatio(Grid parentGrid)
-        {
-            UpdateMaximizedState();
-            double ratio = Services.AppSettingsService.GetValue(CurrentRatioKey, DefaultRatioFor());
-            ApplyLeftRatio(parentGrid, ratio);
-        }
-
-        // 默认比例：左栏 1 份 : 右栏 2 份（1:2，左栏占 1/3），与窗口宽度无关
-        private static double DefaultRatioFor() => 1.0 / 3.0;
-
-        // 按比例设置左栏并返回实际生效的比例；左右两栏都用 star 列，窗口缩放时由布局引擎
-        // 在同一帧内同步伸缩，分隔条不会滞后（避免"先固定像素、再事后重算"的两遍布局）
-        private double ApplyLeftRatio(Grid parentGrid, double ratio)
-        {
-            double total = parentGrid.ActualWidth - 4;
-            if (total <= 0) return ratio;
-
-            double px = ratio * total;
-            px = Math.Clamp(px, _MinLeftWidth, MaxLeftWidthFor(parentGrid));
-            double leftRatio = px / total;
-
-            parentGrid.ColumnDefinitions[0].Width = new GridLength(leftRatio, GridUnitType.Star);
-            parentGrid.ColumnDefinitions[2].Width = new GridLength(1 - leftRatio, GridUnitType.Star);
-            return leftRatio;
-        }
-
-        // 保存比例到当前模式；不传参时按当前实际宽度换算
-        private void SaveCurrentRatio(double? ratio = null)
-        {
-            UpdateMaximizedState();
-            if (ratio is null)
-            {
-                if (LeftPanelBorder.Parent is not Grid parentGrid) return;
-                double px = LeftPanelBorder.ActualWidth;
-                double total = parentGrid.ActualWidth - 4;
-                if (px <= 0 || total <= 0) return;
-                ratio = Math.Clamp(px / total, 0.10, 0.90);
-            }
-            Services.AppSettingsService.SetValue(CurrentRatioKey, Math.Round(ratio.Value, 4));
-        }
-
-        // 窗口大小变化：始终按当前模式重设比例（star 列重设后仍保持同一比例，
-        // 无副作用）。关键点是最后一次尺寸变化必然发生在最终宽度上，像素钳制
-        // 不会再用过渡中的宽度把比例算歪——否则最大化 ⇄ 还原后左栏会变成
-        // 一个既非用户拖动值、也非默认值的奇怪宽度。
-        private void ContentGrid_SizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            if (sender is not Grid parentGrid) return;
-            if (_isSplitterDragging) return;
-            if (_isLeftPanelCollapsed) return;
-
-            ApplyCurrentRatio(parentGrid);
-        }
-
-        // ════════════════════════════════════════════════════════════
-        //  文件基础信息左右比例（InfoPanel 内竖线拖拽手柄）
-        // ════════════════════════════════════════════════════════════
-
-        // 当前状态对应的比例存储键（与主分隔条共用 IsZoomed 检测）
-        private string CurrentInfoRatioKey => _isMaximized ? _InfoRatioKeyFullscreen : _InfoRatioKeyWindow;
-
-        // 恢复当前模式保存的左右比例；无保存时按默认 1:1
-        private void RestoreInfoRatio()
-        {
-            UpdateMaximizedState();
-            double ratio = Services.AppSettingsService.GetValue(CurrentInfoRatioKey, DefaultInfoRatio);
-            ApplyInfoRatio(ratio);
-        }
-
-        // 按比例设置左右两列（InfoLeftColumn=左信息，InfoRightColumn=右 EXIF），返回实际生效的比例
-        private double ApplyInfoRatio(double ratio)
-        {
-            double total = InfoPanelGrid.ActualWidth - InfoFixedWidth;
-            if (total <= 0) return ratio;
-
-            double maxLeft = Math.Max(_InfoMinLeftWidth, total - _InfoMinRightWidth);
-            double px = Math.Clamp(ratio * total, _InfoMinLeftWidth, maxLeft);
-            double leftRatio = px / total;
-
-            InfoLeftColumn.Width = new GridLength(leftRatio, GridUnitType.Star);
-            InfoRightColumn.Width = new GridLength(1 - leftRatio, GridUnitType.Star);
-            return leftRatio;
-        }
-
-        // 保存比例到当前模式；不传参时按当前实际宽度换算
-        private void SaveInfoRatio(double? ratio = null)
-        {
-            UpdateMaximizedState();
-            if (ratio is null)
-            {
-                double px = InfoLeftColumn.ActualWidth;
-                double total = InfoPanelGrid.ActualWidth - InfoFixedWidth;
-                if (px <= 0 || total <= 0) return;
-                ratio = Math.Clamp(px / total, 0.10, 0.90);
-            }
-            Services.AppSettingsService.SetValue(CurrentInfoRatioKey, Math.Round(ratio.Value, 4));
-        }
-
-        // 基础信息面板宽度变化（窗口缩放、主分隔条拖动、导航栏开合）时保持当前模式比例
-        private void InfoPanel_SizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            if (_isInfoSplitterDragging) return;
-            RestoreInfoRatio();
-        }
-
-        // 手柄按下：记录锚点
-        private void InfoSplitter_PointerPressed(object sender, PointerRoutedEventArgs e)
-        {
-            if (!ViewModel.HasSelectedFile) return;
-            UpdateMaximizedState();
-            _isInfoSplitterDragging = true;
-            var point = e.GetCurrentPoint(InfoPanelGrid);
-            _infoSplitterAnchorX = point.Position.X;
-            _infoSplitterAnchorWidth = InfoLeftColumn.ActualWidth;
-            InfoSplitterBar.CapturePointer(e.Pointer);
-            e.Handled = true;
-        }
-
-        // 手柄拖动：鼠标移动量原样加到左栏宽度上
-        private void InfoSplitter_PointerMoved(object sender, PointerRoutedEventArgs e)
-        {
-            if (!_isInfoSplitterDragging) return;
-            var point = e.GetCurrentPoint(InfoPanelGrid);
-            double newWidth = _infoSplitterAnchorWidth + (point.Position.X - _infoSplitterAnchorX);
-            double total = InfoPanelGrid.ActualWidth - InfoFixedWidth;
-            if (total > 0)
-                ApplyInfoRatio(newWidth / total);
-            e.Handled = true;
-        }
-
-        // 手柄释放：保存当前模式比例并重设 star 列
-        private void InfoSplitter_PointerReleased(object sender, PointerRoutedEventArgs e)
-        {
-            _isInfoSplitterDragging = false;
-            InfoSplitterBar.ReleasePointerCapture(e.Pointer);
-            SaveInfoRatio();
-            RestoreInfoRatio();
-            e.Handled = true;
-        }
-
-        private void InfoSplitter_PointerCaptureLost(object sender, PointerRoutedEventArgs e)
-        {
-            _isInfoSplitterDragging = false;
-        }
-
-        // 悬停显示左右拖拽光标
-        private void InfoSplitter_PointerEntered(object sender, PointerRoutedEventArgs e)
-        {
-            if (!ViewModel.HasSelectedFile) return;
-            this.ProtectedCursor = Microsoft.UI.Input.InputSystemCursor.Create(
-                Microsoft.UI.Input.InputSystemCursorShape.SizeWestEast);
-        }
-
-        private void InfoSplitter_PointerExited(object sender, PointerRoutedEventArgs e)
-        {
-            this.ProtectedCursor = null;
-        }
-
-        // 双击手柄：当前模式重置为默认 1:1
-        private void InfoSplitter_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
-        {
-            if (!ViewModel.HasSelectedFile) return;
-            double applied = ApplyInfoRatio(DefaultInfoRatio);
-            SaveInfoRatio(applied);
-            e.Handled = true;
-        }
-
-        // ════════════════════════════════════════════════════════════
-        // ════════════════════════════════════════════════════════════
-        //  实况照片按钮悬停动画：仅图标放大（文字不动）
-        // ════════════════════════════════════════════════════════════
-
-        private void LivePhotoBadgeButton_PointerEntered(object sender, PointerRoutedEventArgs e)
-        {
-            // 图标顺时针旋转一整圈
-            var rotateAnimation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
-            {
-                From = LivePhotoIconTransform.Rotation,
-                To = LivePhotoIconTransform.Rotation + 360.0,
-                Duration = new Duration(TimeSpan.FromMilliseconds(400)),
-                EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut }
-            };
-            Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(rotateAnimation, LivePhotoIconTransform);
-            Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(rotateAnimation, "Rotation");
-
-            var storyboard = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
-            storyboard.Children.Add(rotateAnimation);
-            storyboard.Begin();
-        }
-
-        private void LivePhotoBadgeButton_PointerExited(object sender, PointerRoutedEventArgs e)
-        {
-            // 图标逆时针转一圈归位
-            var rotateAnimation = new Microsoft.UI.Xaml.Media.Animation.DoubleAnimation
-            {
-                From = LivePhotoIconTransform.Rotation,
-                To = LivePhotoIconTransform.Rotation - 360.0,
-                Duration = new Duration(TimeSpan.FromMilliseconds(400)),
-                EasingFunction = new Microsoft.UI.Xaml.Media.Animation.CubicEase { EasingMode = Microsoft.UI.Xaml.Media.Animation.EasingMode.EaseOut }
-            };
-            Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTarget(rotateAnimation, LivePhotoIconTransform);
-            Microsoft.UI.Xaml.Media.Animation.Storyboard.SetTargetProperty(rotateAnimation, "Rotation");
-
-            var storyboard = new Microsoft.UI.Xaml.Media.Animation.Storyboard();
-            storyboard.Children.Add(rotateAnimation);
-            storyboard.Begin();
-        }
-
-        // ════════════════════════════════════════════════════════════
-        //  实况照片就地视频预览（PureMediaViewer 叠加层交互）
-        //  硬直切，无过渡动画
-        // ════════════════════════════════════════════════════════════
-
-        /// <summary>
-        /// 点击 LIVE 按钮 → 等待 MediaOpened → VideoOpened 事件中同一帧藏照片+亮视频。
-        /// </summary>
-        private async void LivePhotoBadgeButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (PureMediaViewer.Visibility == Visibility.Visible) return;
-
-            var videoPath = await ResolveVideoPathAsync();
-            if (videoPath == null) return;
-
+            if (_isPlaybackSourcePending) return;
+            _isPlaybackSourcePending = true;
             try
             {
-                var mediaSource = MediaSource.CreateFromUri(new Uri(videoPath));
+                var videoPath = await ResolveVideoPathAsync();
+                if (videoPath == null) return;
 
                 PureMediaViewer.AutoCloseOnEnd = true;
-                PureMediaViewer.ShowCloseButton = true;
+                PureMediaViewer.ShowCloseButton = false;
                 PureMediaViewer.ShowTransportControls = false;
                 PureMediaViewer.ZoomEnabled = true;
+                PureMediaViewer.VideoSource = MediaSource.CreateFromUri(new Uri(videoPath));
 
-                PureMediaViewer.VideoSource = mediaSource;
-
-                // 从照片读取完整缩放+平移状态
                 var photoState = PhotoViewer.GetZoomPanState();
                 _sharedZoomScale = photoState.scale;
                 _sharedPanX = photoState.panX;
                 _sharedPanY = photoState.panY;
 
-                // ════════════════════════════════════════════════════════
-                // 原子切换：等视频第一帧就绪后，同一帧内藏照片 + 亮视频 + 同步缩放平移
-                // ════════════════════════════════════════════════════════
-                var tcs = new TaskCompletionSource<bool>();
+                var ready = new TaskCompletionSource<bool>();
                 Action onOpened = null!;
                 onOpened = () =>
                 {
                     PureMediaViewer.VideoOpened -= onOpened;
                     PhotoViewer.Opacity = 0;
                     PureMediaViewer.ShowDirect();
-                    // 应用完整缩放+平移状态（ShowDirect 后布局已就绪）
                     PureMediaViewer.ApplyZoomPanState(_sharedZoomScale, _sharedPanX, _sharedPanY);
-                    tcs.TrySetResult(true);
+                    ready.TrySetResult(true);
                 };
                 PureMediaViewer.VideoOpened += onOpened;
 
-                // 等待视频就绪（含 3 秒超时）
-                await Task.WhenAny(tcs.Task, Task.Delay(3000));
-
-                // 超时或加载失败 → 视频未成功显示，恢复状态
+                await Task.WhenAny(ready.Task, Task.Delay(3000));
                 if (PureMediaViewer.Visibility != Visibility.Visible)
                 {
-                    SyncLivePhotoBadgeVisibility();
-                    ZoomControlsPanel.ClearValue(StackPanel.VisibilityProperty);
+                    PhotoViewer.Opacity = 1;
+                    SetPlaybackIcon(false);
                     return;
                 }
-
-                // 隐藏浮在视频上方的控件——保留 ZoomControlsPanel 供缩放
-                LivePhotoBadgeButton.Visibility = Visibility.Collapsed;
-                MuteButton.Visibility = Visibility.Collapsed;
-
-                // 播放前应用静音状态（ShowDirect 已启动播放）
                 ApplyMuteState();
+                SetPlaybackIcon(true);
             }
-            catch (Exception ex)
+            catch
             {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[EditPage] 视频播放失败: {ex.Message}");
-                PhotoViewer.Opacity = 1;
-                SyncLivePhotoBadgeVisibility();
-                ZoomControlsPanel.ClearValue(StackPanel.VisibilityProperty);
+                StopPlaybackPresentation();
+            }
+            finally
+            {
+                _isPlaybackSourcePending = false;
             }
         }
 
-        /// <summary>
-        /// PureMediaViewer 关闭回调。
-        /// 图片层始终位于视频层下方未被隐藏，只需恢复浮动控件。
-        /// </summary>
-        private void PureMediaViewer_CloseRequested(object? sender, EventArgs e)
-        {
-            if (_isApplyingPreviewMode) return;
-
-            // 从视频读取完整缩放+平移状态
-            var videoState = PureMediaViewer.GetZoomPanState();
-            _sharedZoomScale = videoState.scale;
-            _sharedPanX = videoState.panX;
-            _sharedPanY = videoState.panY;
-
-            // 恢复照片层可见
-            PhotoViewer.Opacity = 1;
-
-            // 将完整状态同步回照片
-            PhotoViewer.ApplyZoomPanState(_sharedZoomScale, _sharedPanX, _sharedPanY);
-
-            SyncLivePhotoBadgeVisibility();
-            ZoomControlsPanel.ClearValue(StackPanel.VisibilityProperty);
-        }
-
-        /// <summary>
-        /// 根据 ViewModel.IsSelectedLivePhoto 显式同步 LIVE + 静音按钮可见性。
-        /// 用于替代 ClearValue，因为 x:Bind 使用直接属性赋值而非 SetBinding，
-        /// ClearValue 后按钮会回退到默认 Visible 状态，x:Bind 不会自动重新应用。
-        /// </summary>
-        private void SyncLivePhotoBadgeVisibility()
-        {
-            var visibility = ViewModel.CanPlayLivePhoto
-                ? Visibility.Visible
-                : Visibility.Collapsed;
-            LivePhotoBadgeButton.Visibility = visibility;
-            MuteButton.Visibility = visibility;
-        }
-
-        /// <summary>
-        /// 将 ViewModel.IsMuted 应用到 PureMediaViewer 的 MediaPlayer。
-        /// 在切换静音、开始播放时调用，确保 UI 状态与播放器同步。
-        /// </summary>
-        private void ApplyMuteState()
-        {
-            PureMediaViewer.IsMuted = ViewModel.IsMuted;
-        }
-
-        /// <summary>
-        /// 点击静音按钮 → 切换静音状态并应用到当前视频播放器。
-        /// </summary>
-        private void MuteButton_Click(object sender, RoutedEventArgs e)
-        {
-            ViewModel.IsMuted = !ViewModel.IsMuted;
-            ApplyMuteState();
-        }
-
-        /// <summary>
-        /// 获取当前选中实况照片的视频路径。
-        /// DualFile → 直接取 PairedVideoPath；
-        /// SingleFileJpeg → 从 JPEG 尾部提取嵌入式 MP4 到临时文件。
-        /// 返回 null 表示无法获取有效视频。
-        /// </summary>
         private async Task<string?> ResolveVideoPathAsync()
         {
-            // 先清理上一次的临时文件
             CleanupPreviewTempVideo();
-
             var selectedPath = ViewModel.SelectedFilePath;
             if (string.IsNullOrEmpty(selectedPath)) return null;
 
-            var item = ViewModel.FileItems
-                .FirstOrDefault(f => f.FilePath == selectedPath);
+            var item = ViewModel.FileItems.FirstOrDefault(f =>
+                string.Equals(f.FilePath, selectedPath, StringComparison.OrdinalIgnoreCase));
             if (item == null) return null;
 
-            // DualFile：直接使用配对视频路径
-            if (item.LivePhotoType == LivePhotoType.DualFile
-                && !string.IsNullOrEmpty(item.PairedVideoPath)
-                && File.Exists(item.PairedVideoPath))
-            {
+            if (item.LivePhotoType == LivePhotoType.DualFile &&
+                !string.IsNullOrEmpty(item.PairedVideoPath) && File.Exists(item.PairedVideoPath))
                 return item.PairedVideoPath;
-            }
 
-            // SingleFile：优先复用 LoadPropertiesAsync 已提取的 temp 视频
-            // （所有单文件协议——Google V2、OPPO、华为——选文件时都已提取过）
             var cachedVideo = ViewModel.CachedTempVideoPath;
-            if (!string.IsNullOrEmpty(cachedVideo) && File.Exists(cachedVideo))
-                return cachedVideo;
+            if (!string.IsNullOrEmpty(cachedVideo) && File.Exists(cachedVideo)) return cachedVideo;
 
-            // Rebuilt 缓存未命中时通过 Native Inspector/Extractor 提取
-            if (item.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic
-                && File.Exists(item.FilePath))
+            if (item.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic && File.Exists(item.FilePath))
             {
                 var nativeVideo = await LivePhotoVideoExtractor.ExtractVideoAutoAsync(
                     item.FilePath, item.AppendedVideoLength, CancellationToken.None);
@@ -937,2005 +252,218 @@ namespace LivePhotoBox.Views
                 }
             }
 
-            return null;
+            return ViewModel.IsSelectedFileVideo && File.Exists(selectedPath) ? selectedPath : null;
         }
 
-        /// <summary>删除上一次提取的临时视频文件，释放磁盘空间</summary>
         private void CleanupPreviewTempVideo()
         {
             if (_previewTempVideoPath == null) return;
-            try
+            try { if (File.Exists(_previewTempVideoPath)) File.Delete(_previewTempVideoPath); } catch { }
+            _previewTempVideoPath = null;
+        }
+
+        private void PureMediaViewer_VideoOpened()
+        {
+            DispatcherQueue.TryEnqueue(() =>
             {
-                if (File.Exists(_previewTempVideoPath))
-                    File.Delete(_previewTempVideoPath);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[EditPage] 临时视频清理失败: {ex.Message}");
-            }
-            finally
-            {
-                _previewTempVideoPath = null;
-            }
-        }
-
-        // ════════════════════════════════════════════════════════════
-        //  缩放按钮（视频活跃时路由到 PureMediaViewer，否则到 PhotoViewer）
-        // ════════════════════════════════════════════════════════════
-
-        /// <summary>视频层是否正在活跃显示</summary>
-        private bool IsVideoActive() =>
-            PureMediaViewer.Visibility == Visibility.Visible && PureMediaViewer.Opacity > 0.99;
-
-        private void ZoomInButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (IsVideoActive())
-                PureMediaViewer.ZoomIn();
-            else
-                PhotoViewer.ZoomIn();
-            UpdateZoomPercentDisplay();
-        }
-
-        private void ZoomOutButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (IsVideoActive())
-                PureMediaViewer.ZoomOut();
-            else
-                PhotoViewer.ZoomOut();
-            UpdateZoomPercentDisplay();
-        }
-
-        private void ZoomPercentButton_Click(object sender, RoutedEventArgs e)
-        {
-            if (IsVideoActive())
-                PureMediaViewer.ToggleFitVsPixel();
-            else
-                PhotoViewer.ToggleFitVsPixel();
-            UpdateZoomPercentDisplay();
-        }
-
-        /// <summary>同步缩放百分比显示（相对于 Fit 的整数百分比）</summary>
-        private void UpdateZoomPercentDisplay()
-        {
-            int percent;
-            if (IsVideoActive())
-                percent = (int)Math.Round(PureMediaViewer.CurrentScale * 100);
-            else
-                percent = (int)Math.Round(PhotoViewer.CurrentScale * 100);
-            ZoomPercentText.Text = $"{percent}%";
-        }
-
-        private void PhotoViewer_ScaleChanged(double newScale)
-        {
-            _sharedZoomScale = newScale;
-            if (!IsVideoActive())
+                ApplyMuteState();
+                SetPlaybackIcon(true);
                 UpdateZoomPercentDisplay();
-        }
-
-        private void EditPage_Loaded(object sender, RoutedEventArgs e)
-        {
-            Loaded -= EditPage_Loaded;
-
-            LivePhotoBox.Helpers.ComboBoxHelper.AutoFitWidth(SortComboBox);
-
-            DispatcherQueue.TryEnqueue(() => ForceScrollBarsAlwaysThick());
-
-            // 恢复上次保存的左栏比例
-            RestoreLeftPanelWidth();
-
-            // 恢复上次保存的基础信息左右比例
-            RestoreInfoRatio();
-
-            // 监听窗口最大化 ⇄ 还原切换，按模式恢复各自保存的比例
-            var appWindow = App.MainWindow?.AppWindow;
-            if (appWindow != null)
-                appWindow.Changed += AppWindow_Changed;
-
-            // 根据模式初始化对应的时间轴
-            if (ViewModel.IsClassicTimelineMode)
-                InitializeClassicTimeline();
-            else
-                InitializeFilmstripTimeline();
-
-            // 初始化缩略图集中调度（可见性优先 + 方向预加载 + 200ms 批量刷新）
-            SetupThumbnailScheduling();
-
-            // 初始化刷新/清除按钮图标（空目录时显示清除 ✕）
-            UpdateRefreshButtonIcon();
-        }
-
-        private void EditPage_Unloaded(object sender, RoutedEventArgs e)
-        {
-            // 卸载窗口事件
-            var appWindow = App.MainWindow?.AppWindow;
-            if (appWindow != null)
-                appWindow.Changed -= AppWindow_Changed;
-        }
-
-        // ═════════════════════════════════════════════════════════════════
-        //  缩略图集中调度（替代 x:Bind getter 中不可控的 Task.Run）
-        // ═════════════════════════════════════════════════════════════════
-
-        private ScrollViewer? _fileListScrollViewer;
-        private DispatcherQueueTimer? _scrollDebounceTimer;
-        private int _lastScrollDirection = 1;  // +1=向下, -1=向上
-        private double _lastScrollOffset;
-
-        private void SetupThumbnailScheduling()
-        {
-            ThumbnailScheduler.Initialize(DispatcherQueue);
-
-            // 找 ListView 内部的 ScrollViewer
-            _fileListScrollViewer = FindVisualChild<ScrollViewer>(FileItemListView);
-            if (_fileListScrollViewer != null)
-            {
-                // 滚轮事件也需要触发调度（ViewChanged 只在惯性滚动结束时触发）
-                _fileListScrollViewer.PointerWheelChanged += (s, e) =>
-                {
-                    if (FileItemListView.Items.Count == 0) return;
-                    // 记录上一次滚动位置以便方向检测
-                    var sv = _fileListScrollViewer;
-                    if (sv != null)
-                    {
-                        _lastScrollDirection = sv.VerticalOffset > _lastScrollOffset ? 1 : -1;
-                        _lastScrollOffset = sv.VerticalOffset;
-                    }
-                    // 防抖重启
-                    _scrollDebounceTimer?.Stop();
-                    _scrollDebounceTimer?.Start();
-                };
-
-                _fileListScrollViewer.ViewChanged += (s, e) =>
-                {
-                    if (e.IsIntermediate) return;
-                    // 防抖重启
-                    _scrollDebounceTimer?.Stop();
-                    _scrollDebounceTimer?.Start();
-                };
-            }
-
-            _scrollDebounceTimer = DispatcherQueue.CreateTimer();
-            _scrollDebounceTimer.Interval = TimeSpan.FromMilliseconds(150);
-            _scrollDebounceTimer.Tick += (s, e) =>
-            {
-                _scrollDebounceTimer.Stop();
-                ScheduleVisibleThumbnails();
-            };
-
-            // ViewModel 数据加载完成后也触发一次
-            ViewModel.FileItems.CollectionChanged += (s, e) =>
-            {
-                if (e.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add
-                    && ViewModel.FileItems.Count > 0)
-                {
-                    // 延迟一帧等布局完成
-                    DispatcherQueue.TryEnqueue(() =>
-                    {
-                        _scrollDebounceTimer?.Stop();
-                        _scrollDebounceTimer?.Start();
-                    });
-                }
-            };
-        }
-
-        private void ScheduleVisibleThumbnails()
-        {
-            var items = ViewModel.FileItems;
-            var sv = _fileListScrollViewer;
-            if (items.Count == 0 || sv == null) return;
-
-            // 固定行高 76px（XAML ListViewItem Height=76），用 ScrollViewer 偏移精确算可见范围
-            var listTransform = FileItemListView.TransformToVisual(sv);
-            double listTop = listTransform.TransformPoint(new Windows.Foundation.Point(0, 0)).Y;
-
-            double viewTop = sv.VerticalOffset - listTop;
-            if (viewTop < 0) viewTop = 0;
-            double viewBottom = viewTop + sv.ViewportHeight;
-
-            const double itemH = 76;
-            int firstVisible = Math.Max(0, (int)(viewTop / itemH));
-            int lastVisible  = Math.Min(items.Count - 1, (int)(viewBottom / itemH) + 1);
-            if (lastVisible < firstVisible) return;
-
-            ThumbnailScheduler.NewGeneration();
-            ThumbnailScheduler.StartBackgroundFill(items);
-
-            // 预加载：可见区外按 3:1 分配算力给滚动方向和反方向，到边缘自动调整
-            int visibleCount = lastVisible - firstVisible + 1;
-            int preloadBudget = Math.Max(visibleCount, 15);
-            int forwardCount  = (int)(preloadBudget * 0.75);
-            int backwardCount = preloadBudget - forwardCount;
-            if (_lastScrollDirection <= 0) (forwardCount, backwardCount) = (backwardCount, forwardCount);
-            if (firstVisible <= 0) { forwardCount += backwardCount; backwardCount = 0; }
-            if (lastVisible >= items.Count - 1) { backwardCount += forwardCount; forwardCount = 0; }
-
-            int preloadStart = Math.Max(0, firstVisible - backwardCount);
-            int preloadEnd   = Math.Min(items.Count - 1, lastVisible + forwardCount);
-
-            for (int i = preloadStart; i <= preloadEnd; i++)
-            {
-                if (items[i] is not Models.EditFileItem item) continue;
-                if (!item.NeedsThumbnail) continue;
-
-                int priority = (i >= firstVisible && i <= lastVisible) ? 0
-                             : (_lastScrollDirection > 0
-                                 ? (i > lastVisible ? 1 : 2)
-                                 : (i < firstVisible ? 1 : 2));
-
-                ThumbnailScheduler.Enqueue(i, item.FilePath, priority,
-                    source => item.Thumbnail = source);
-            }
-
-            ThumbnailScheduler.TrimQueue(firstVisible, lastVisible);
-        }
-
-        // ═════════════════════════════════════════════════════════════════
-        //  经典模式（ListView）时间轴
-        // ═════════════════════════════════════════════════════════════════
-
-        private void InitializeClassicTimeline()
-        {
-            if (_isClassicTimelineInitialized) return;
-            _isClassicTimelineInitialized = true;
-
-            // ListView 的 ContainerContentChanging 在 XAML 中已注册
-            TimelineListView.ContainerContentChanging += OnTimelineContainerContentChanging;
-        }
-
-        private void TimelineListView_Loaded(object sender, RoutedEventArgs e)
-        {
-            if (!ViewModel.IsClassicTimelineMode) return;
-            var sv = FindVisualChild<ScrollViewer>(TimelineListView);
-            if (sv != null)
-                sv.PointerWheelChanged += TimelineListScrollViewer_PointerWheelChanged;
-        }
-
-        private void TimelineListScrollViewer_PointerWheelChanged(object sender, PointerRoutedEventArgs e)
-        {
-            if (sender is ScrollViewer sv)
-            {
-                var delta = e.GetCurrentPoint(null).Properties.MouseWheelDelta;
-                sv.ScrollToHorizontalOffset(sv.HorizontalOffset - delta);
-                e.Handled = true;
-            }
-        }
-
-        // ── 经典模式：ViewModel 通知滚动（带重试）──
-
-        private void ClassicScrollToFrame(TimelineFrame frame,
-            int maxRetries = 5, int delayMs = 120)
-        {
-            _scrollCts?.Cancel();
-            _scrollCts?.Dispose();
-            _scrollCts = new CancellationTokenSource();
-            var ct = _scrollCts.Token;
-
-            TimelineListView.SelectedItem = frame;
-
-            ScheduleClassicScrollRetry(frame, ct, maxRetries, delayMs);
-        }
-
-        private void ScheduleClassicScrollRetry(TimelineFrame frame, CancellationToken ct,
-            int remainingRetries, int delayMs)
-        {
-            if (ct.IsCancellationRequested || remainingRetries <= 0) return;
-
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                if (ct.IsCancellationRequested) return;
-                try
-                {
-                    var sv = FindVisualChild<ScrollViewer>(TimelineListView);
-                    if (sv == null || sv.ViewportWidth <= 0 || sv.ExtentWidth <= 0)
-                    {
-                        _ = ClassicRetryAfterDelay(frame, ct, remainingRetries - 1, delayMs);
-                        return;
-                    }
-
-                    int index = ViewModel.TimelineFrames.IndexOf(frame);
-                    if (index < 0) return;
-
-                    const double itemStep = 56;
-                    double totalWidth = ViewModel.TimelineFrames.Count * itemStep;
-                    double maxOffset = totalWidth - sv.ViewportWidth;
-                    if (maxOffset <= 0) return;
-
-                    double targetOffset = index * itemStep + 28.0 - (sv.ViewportWidth / 2.0);
-                    targetOffset = Math.Max(0, Math.Min(targetOffset, maxOffset));
-
-                    sv.ChangeView(targetOffset, null, null);
-                    _ = ClassicRefreshSelectionAfterScroll(frame, ct, 3);
-                }
-                catch (Exception ex)
-                {
-                    LogService.Debug($"Classic timeline scroll failed: {ex.Message}", LogSource.UI);
-                }
             });
         }
 
-        private async Task ClassicRefreshSelectionAfterScroll(
-            TimelineFrame frame, CancellationToken ct, int remaining)
-        {
-            for (int i = 0; i < remaining; i++)
-            {
-                try { await Task.Delay(50, ct); }
-                catch (TaskCanceledException) { return; }
-                if (ct.IsCancellationRequested) return;
+        private void PureMediaViewer_CloseRequested(object sender, EventArgs e) => StopPlaybackPresentation();
 
-                bool found = false;
-                DispatcherQueue.TryEnqueue(() =>
-                {
-                    try
-                    {
-                        if (TimelineListView.ContainerFromItem(frame) is ListViewItem container)
-                        {
-                            var card = FindVisualChild<Grid>(container);
-                            if (card != null)
-                            {
-                                UpdateTimelineCardVisual(card, isSelected: true,
-                                    hovered: false, pressed: false);
-                                found = true;
-                            }
-                        }
-                    }
-                    catch { }
-                });
-
-                try { await Task.Delay(20, ct); }
-                catch (TaskCanceledException) { return; }
-                if (found) break;
-            }
-        }
-
-        private async Task ClassicRetryAfterDelay(TimelineFrame frame, CancellationToken ct,
-            int remainingRetries, int delayMs)
-        {
-            try
-            {
-                await Task.Delay(delayMs, ct);
-                ScheduleClassicScrollRetry(frame, ct, remainingRetries, delayMs);
-            }
-            catch (TaskCanceledException) { }
-        }
-
-        // ── 经典模式：卡片视觉（选中框+悬停）──
-
-        /// <summary>在 ListViewItem 容器内找到选中环 Border</summary>
-        private static Border? FindTimelineSelectionRing(DependencyObject container)
-        {
-            var grid = FindVisualChild<Grid>(container);
-            return grid?.FindName("ClassicTimelineSelectionRing") as Border;
-        }
-
-        private bool IsTimelineCardSelected(Panel card)
-        {
-            return TimelineListView.SelectedItem != null
-                && card.DataContext == TimelineListView.SelectedItem;
-        }
-
-        private void UpdateTimelineCardVisual(Panel cardRoot, bool isSelected, bool hovered, bool pressed)
-        {
-            var ring = FindTimelineSelectionRing(cardRoot);
-            if (ring != null)
-            {
-                ring.BorderBrush = isSelected ? _selectedBorder : _transparent;
-            }
-
-            if (isSelected)
-            {
-                cardRoot.Background = _transparent;
-            }
-            else
-            {
-                if (pressed)       cardRoot.Background = _pressedBg;
-                else if (hovered)  cardRoot.Background = _hoverBg;
-                else               cardRoot.Background = _transparent;
-            }
-        }
-
-        private void OnTimelineContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
-        {
-            if (!ViewModel.IsClassicTimelineMode) return;
-            if (args.InRecycleQueue)
-            {
-                if (args.ItemContainer is ListViewItem container)
-                {
-                    var card = FindVisualChild<Grid>(container);
-                    if (card != null)
-                    {
-                        card.PointerEntered -= TimelineCard_PointerEntered;
-                        card.PointerExited -= TimelineCard_PointerExited;
-                        card.PointerPressed -= TimelineCard_PointerPressed;
-                        card.PointerReleased -= TimelineCard_PointerReleased;
-                        if (_hoveredTimelineCard == card) _hoveredTimelineCard = null;
-                        if (_pressedTimelineCard == card) _pressedTimelineCard = null;
-                    }
-                }
-                return;
-            }
-
-            if (args.ItemContainer is ListViewItem lvi)
-            {
-                lvi.Loaded += OnTimelineContainerLoaded_WireCardEvents;
-            }
-        }
-
-        private void OnTimelineContainerLoaded_WireCardEvents(object sender, RoutedEventArgs e)
-        {
-            if (sender is ListViewItem container)
-            {
-                container.Loaded -= OnTimelineContainerLoaded_WireCardEvents;
-                var card = FindVisualChild<Grid>(container);
-                if (card != null)
-                {
-                    card.PointerEntered += TimelineCard_PointerEntered;
-                    card.PointerExited += TimelineCard_PointerExited;
-                    card.PointerPressed += TimelineCard_PointerPressed;
-                    card.PointerReleased += TimelineCard_PointerReleased;
-
-                    if (IsTimelineCardSelected(card))
-                        UpdateTimelineCardVisual(card, isSelected: true, hovered: false, pressed: false);
-                }
-            }
-        }
-
-        private void TimelineCard_PointerEntered(object sender, PointerRoutedEventArgs e)
-        {
-            if (sender is Panel card)
-            {
-                _hoveredTimelineCard = card;
-                UpdateTimelineCardVisual(card, IsTimelineCardSelected(card),
-                    hovered: true, pressed: _pressedTimelineCard == card);
-            }
-        }
-
-        private void TimelineCard_PointerExited(object sender, PointerRoutedEventArgs e)
-        {
-            if (sender is Panel card)
-            {
-                if (_hoveredTimelineCard == card) _hoveredTimelineCard = null;
-                UpdateTimelineCardVisual(card, IsTimelineCardSelected(card),
-                    hovered: false, pressed: false);
-            }
-        }
-
-        private void TimelineCard_PointerPressed(object sender, PointerRoutedEventArgs e)
-        {
-            if (sender is Panel card)
-            {
-                _pressedTimelineCard = card;
-                UpdateTimelineCardVisual(card, IsTimelineCardSelected(card),
-                    hovered: _hoveredTimelineCard == card, pressed: true);
-            }
-        }
-
-        private void TimelineCard_PointerReleased(object sender, PointerRoutedEventArgs e)
-        {
-            if (sender is Panel card)
-            {
-                if (_pressedTimelineCard == card) _pressedTimelineCard = null;
-                UpdateTimelineCardVisual(card, IsTimelineCardSelected(card),
-                    hovered: _hoveredTimelineCard == card, pressed: false);
-            }
-        }
-
-        private void TimelineListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            foreach (var item in e.RemovedItems)
-                RefreshTimelineCardVisual(item, isSelected: false);
-            foreach (var item in e.AddedItems)
-                RefreshTimelineCardVisual(item, isSelected: true);
-        }
-
-        private void RefreshTimelineCardVisual(object? item, bool isSelected)
-        {
-            if (item == null) return;
-            if (TimelineListView.ContainerFromItem(item) is ListViewItem container)
-            {
-                var card = FindVisualChild<Grid>(container);
-                if (card != null)
-                    UpdateTimelineCardVisual(card, isSelected,
-                        hovered: _hoveredTimelineCard == card,
-                        pressed: _pressedTimelineCard == card);
-            }
-        }
-
-        // ═════════════════════════════════════════════════════════════════
-        //  胶片模式 — 统一滚动管线
-        //
-        //  所有滚动（滚轮 / ←→ 按钮 / ViewModel 通知）最终都经过
-        //  ScrollTimelineBy → ChangeView → ViewChanged 这条管线，
-        //  ViewChanged 统一负责同步帧索引 + 触发大图双缓冲更新。
-        // ═════════════════════════════════════════════════════════════════
-
-        /// <summary>
-        /// 胶片模式初始化：选中框画刷 + 滚轮劫持。
-        /// </summary>
-        private void InitializeFilmstripTimeline()
-        {
-            if (_isFilmstripTimelineInitialized) return;
-            _isFilmstripTimelineInitialized = true;
-
-            UpdateFilmstripSelectionHighlight();
-            FilmstripScrollViewer.AddHandler(
-                UIElement.PointerWheelChangedEvent,
-                _filmstripWheelHandler,
-                handledEventsToo: true);
-        }
-
-        // ── 统一滚动核心（DispatcherQueue 原生版）──
-
-        /// <summary>
-        /// 绝对目标累加式精确滚动，支持高精度浮点步数。
-        /// 所有输入源（滚轮 / 按钮 / 代码）最终汇入此方法。
-        ///
-        /// DispatcherQueue.TryEnqueue 合并同一渲染帧内的高频滚轮事件：
-        ///   _targetScrollOffset 纯数学累加不丢失任何位移，
-        ///   仅首事件入队 ChangeView(disableAnimation:false)，
-        ///   依赖 WinUI 3 原生物理引擎飞向目标 —— 滚轮偏快、按钮优雅，各走各的原生曲线。
-        /// </summary>
-        private void ScrollTimelineBy(double steps)
-        {
-            if (ViewModel.TimelineFrames.Count == 0) return;
-            // 初始自动滚动期间禁止用户手动操作时间轴
-            if (ViewModel.IsTimelineAutoScrolling) return;
-
-            double itemWidth = 56.0;
-
-            // 停顿超 250ms 或代码跳转到任意位置后 → 对齐网格重校准基准
-            if ((DateTime.Now - _lastWheelTime).TotalMilliseconds > 250 || _targetScrollOffset < 0)
-            {
-                _targetScrollOffset = Math.Round(
-                    FilmstripScrollViewer.HorizontalOffset / itemWidth) * itemWidth;
-            }
-
-            _lastWheelTime = DateTime.Now;
-
-            // 在数学绝对目标上累加，绝不丢失任何一次滚轮位移
-            _targetScrollOffset += steps * itemWidth;
-
-            // 边界钳制
-            if (_targetScrollOffset < 0)
-                _targetScrollOffset = 0;
-            if (_targetScrollOffset > FilmstripScrollViewer.ScrollableWidth)
-                _targetScrollOffset = FilmstripScrollViewer.ScrollableWidth;
-
-            // 帧合并：同一渲染帧内仅首事件入队 ChangeView
-            if (!_isScrollQueued)
-            {
-                _isScrollQueued = true;
-                DispatcherQueue.TryEnqueue(
-                    Microsoft.UI.Dispatching.DispatcherQueuePriority.Normal, () =>
-                {
-                    _isScrollQueued = false;
-                    FilmstripScrollViewer.ChangeView(
-                        _targetScrollOffset, null, null, disableAnimation: false);
-                });
-            }
-        }
-
-        // ── 滚轮事件 → 统一管线（高精度浮点步数）──
-
-        private void OnFilmstripPointerWheelChanged(object sender, PointerRoutedEventArgs e)
-        {
-            if (!ViewModel.IsFilmstripTimelineMode) return;
-            // 初始自动滚动期间禁止用户手动滚时间轴，避免与自动定位冲突
-            if (ViewModel.IsTimelineAutoScrolling) { e.Handled = true; return; }
-
-            double delta = e.GetCurrentPoint(FilmstripScrollViewer).Properties.MouseWheelDelta;
-            // 向上滚 delta>0 → 内容左移（steps<0）
-            double steps = -(delta / 120.0);
-            ScrollTimelineBy(steps);
-            e.Handled = true;
-        }
-
-        // ── ← → 按钮 Click → 统一管线 ──
-
-        private void FilmstripPrevButton_Click(object sender, RoutedEventArgs e)
-        {
-            ScrollTimelineBy(-1);
-        }
-
-        private void FilmstripNextButton_Click(object sender, RoutedEventArgs e)
-        {
-            ScrollTimelineBy(1);
-        }
-
-        // ── ScrollViewer 生命周期 ──
-
-        private void FilmstripScrollViewer_Loaded(object sender, RoutedEventArgs e)
-        {
-            if (!ViewModel.IsFilmstripTimelineMode) return;
-
-            UpdateFilmstripEdgePadding();
-
-            // 同步 ViewModel 选中帧并定位
-            if (ViewModel.CurrentKeyFrame != null)
-            {
-                int idx = ViewModel.TimelineFrames.IndexOf(ViewModel.CurrentKeyFrame);
-                if (idx >= 0) _filmstripCurrentFrameIndex = idx;
-            }
-            FilmstripScrollToFrameIndex(_filmstripCurrentFrameIndex);
-        }
-
-        private void FilmstripScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e)
-        {
-            if (!ViewModel.IsFilmstripTimelineMode) return;
-            UpdateFilmstripEdgePadding();
-
-            // Padding 变更 → 布局偏移 → 等布局刷新完成后瞬间归位（无动画）
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                if (_targetScrollOffset >= 0)
-                {
-                    FilmstripScrollViewer.ChangeView(
-                        _targetScrollOffset, null, null, disableAnimation: true);
-                }
-            });
-        }
-
-        private void UpdateFilmstripEdgePadding()
-        {
-            double vw = FilmstripScrollViewer.ViewportWidth;
-            if (vw <= 0) return;
-
-            double padding = (vw / 2.0) - (FilmstripItemWidth / 2.0);
-            if (padding < 0) padding = 0;
-
-            FilmstripPaddingBorder.Padding = new Thickness(padding, 0, padding, 0);
-        }
-
-        // ── ViewChanged：统一帧选中 + 大图双缓冲触发 ──
-
-        /// <summary>
-        /// 滚动结束 → 反算最近帧索引，同步 ViewModel 选中帧。
-        /// 无论是滚轮、按钮还是 ViewModel 通知的滚动，最终都在这里
-        /// 触发 SelectTimelineFrameInteractively → UpdatePreviewForTimelineFrameAsync
-        /// → PhotoViewer 双缓冲大图更新。
-        /// </summary>
-        private void FilmstripScrollViewer_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
-        {
-            if (ViewModel.TimelineFrames.Count == 0) return;
-            // 初始自动滚动期间跳过中间态事件，等停止后再同步
-            if (ViewModel.IsTimelineAutoScrolling && e.IsIntermediate) return;
-
-            double offset = FilmstripScrollViewer.HorizontalOffset;
-            int nearestIndex = (int)Math.Round(offset / FilmstripItemStep);
-            nearestIndex = Math.Clamp(nearestIndex, 0, ViewModel.TimelineFrames.Count - 1);
-
-            // 滚动停止后强制对齐到最近帧，消除快速滚轮累积的微小偏移
-            if (!e.IsIntermediate)
-            {
-                double snapOffset = nearestIndex * FilmstripItemStep;
-                if (Math.Abs(offset - snapOffset) > 0.5)
-                    FilmstripScrollViewer.ChangeView(snapOffset, null, null, disableAnimation: true);
-            }
-
-            if (nearestIndex != _filmstripCurrentFrameIndex)
-            {
-                _filmstripCurrentFrameIndex = nearestIndex;
-                // 统一走交互式选中 → 自动触发大图双缓冲更新
-                ViewModel.SelectTimelineFrameInteractively(
-                    ViewModel.TimelineFrames[nearestIndex]);
-            }
-        }
-
-        // ── ViewModel 通知跳转（SelectFile 后自动定位到封面帧）──
-
-        /// <summary>
-        /// ViewModel 在文件加载完成后通过 RequestScrollToFrame 事件
-        /// 通知 View 定位到封面帧。同样走 ChangeView → ViewChanged 管线。
-        /// </summary>
-        private void FilmstripScrollToFrameIndex(int index, bool disableAnimation = true)
-        {
-            if (ViewModel.TimelineFrames.Count == 0) return;
-
-            index = Math.Clamp(index, 0, ViewModel.TimelineFrames.Count - 1);
-            _filmstripCurrentFrameIndex = index;
-
-            double targetOffset = index * FilmstripItemStep;
-            _targetScrollOffset = targetOffset;
-
-            // ── 布局未就绪？重试 ──
-            // 根因：Clear() → Add() 后 ItemsRepeater 不会同步完成布局。
-            // ScrollableWidth 可能为 0（首次），也可能残留旧值（Clear 未处理完），
-            // 导致 ChangeView 静默失败 → 封面不居中。
-            //
-            // 策略：先立即尝试一次（无动画），若布局已就绪则一次到位；
-            //       若未就绪（ScrollableWidth == 0 或小于目标偏移），延迟重试。
-            if (FilmstripScrollViewer.ScrollableWidth > 0
-                && targetOffset <= FilmstripScrollViewer.ScrollableWidth)
-            {
-                // 布局已就绪，直接到位
-                FilmstripScrollViewer.ChangeView(targetOffset, null, null, disableAnimation: disableAnimation);
-                return;
-            }
-
-            // 布局未就绪 → 取消旧重试，启动新重试
-            _filmstripScrollRetryCts?.Cancel();
-            _filmstripScrollRetryCts?.Dispose();
-            _filmstripScrollRetryCts = new CancellationTokenSource();
-            _ = FilmstripScrollToFrameRetryAsync(index, disableAnimation, _filmstripScrollRetryCts.Token);
-        }
-
-        /// <summary>
-        /// 胶片模式滚动重试：每 50ms 检查一次 ScrollViewer 是否已完成布局，
-        /// 最多重试 10 次（共 500ms）。布局就绪后立即执行 ChangeView。
-        /// </summary>
-        private async Task FilmstripScrollToFrameRetryAsync(int index, bool disableAnimation, CancellationToken ct, int maxRetries = 10)
-        {
-            for (int i = 0; i < maxRetries; i++)
-            {
-                try { await Task.Delay(50, ct); }
-                catch (TaskCanceledException) { return; }
-
-                double targetOffset = index * FilmstripItemStep;
-                if (FilmstripScrollViewer.ScrollableWidth > 0
-                    && targetOffset <= FilmstripScrollViewer.ScrollableWidth)
-                {
-                    _targetScrollOffset = targetOffset;
-                    FilmstripScrollViewer.ChangeView(targetOffset, null, null, disableAnimation: disableAnimation);
-                    return;
-                }
-            }
-
-            // 最终兜底：即使布局可能还没好，也强制执行一次
-            double fallbackOffset = index * FilmstripItemStep;
-            _targetScrollOffset = fallbackOffset;
-            if (FilmstripScrollViewer.ScrollableWidth > 0)
-                fallbackOffset = Math.Min(fallbackOffset, FilmstripScrollViewer.ScrollableWidth);
-            FilmstripScrollViewer.ChangeView(fallbackOffset, null, null, disableAnimation: disableAnimation);
-        }
-
-        private void UpdateFilmstripSelectionHighlight()
-        {
-            if (FilmstripSelectionHighlight == null) return;
-            FilmstripSelectionHighlight.BorderBrush = _selectedBorder;
-            FilmstripSelectionHighlight.Background = null; // 透明，不对中心帧图片叠加强调色蒙版
-        }
-
-        // ═════════════════════════════════════════════════════════════════
-        //  ViewModel → View 滚动通知（双模式派发）
-        // ═════════════════════════════════════════════════════════════════
-
-        /// <summary>
-        /// ViewModel 通知时间轴选中 cover 帧并居中滚动。
-        /// 根据当前模式分别派发到经典或胶片模式。
-        /// </summary>
-        private void OnRequestScrollToFrame(TimelineFrame frame)
-        {
-            if (ViewModel.IsClassicTimelineMode)
-            {
-                ClassicScrollToFrame(frame);
-            }
-            else if (ViewModel.IsFilmstripTimelineMode)
-            {
-                int index = ViewModel.TimelineFrames.IndexOf(frame);
-                if (index >= 0)
-                    FilmstripScrollToFrameIndex(index, disableAnimation: false);
-            }
-        }
-
-        /// <summary>实况→非实况切换时，强制清空 PhotoViewer 双缓冲层</summary>
         private void OnPreviewClearRequested()
         {
-            PhotoViewer.ClearImage();
-        }
-
-        /// <summary>
-        /// 导航回 EditPage 时调用。如果用户在设置页切换了模式，
-        /// 此时页面已在前台，正式触发 Visibility 切换 + 强刷绑定 + 恢复滚动。
-        ///
-        /// 为什么不在 NotifyTimelineModeChanged 中切 Visibility：
-        /// WinUI 3 在后台（缓存）页面上切换 Visibility 会导致 x:Bind 绑定断裂，
-        /// ListView SelectedItem 双向绑定失效 → 点击缩略图封面不更新、滚动条不响应。
-        /// </summary>
-        protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
-        {
-            base.OnNavigatedTo(e);
-
-            AttachEditNavigationInput();
-
-            // 页面缓存后 Loaded 不会再次初始化；每次进入编辑页都把初始键盘焦点交给资源浏览列表。
-            DispatcherQueue.TryEnqueue(() => FileItemListView.Focus(FocusState.Programmatic));
-
-            if (!ViewModel.NeedsModeSwitchFixup) return;
-            ViewModel.NeedsModeSwitchFixup = false;
-
-            // 1. 暂存当前选中帧进度，防止丢失
-            var currentFrame = ViewModel.SelectedTimelineFrame;
-
-            // 2. 页面已在前台，正式通知 XAML 切换 Visibility
-            ViewModel.TriggerModeVisibilityUpdate();
-
-            DispatcherQueue.TryEnqueue(async () =>
+            DispatcherQueue.TryEnqueue(() =>
             {
-                // 3. 给 WinUI 3 渲染新布局一点时间（生成容器）
-                await Task.Delay(100);
-
-                // 4. 重新初始化对应模式（防重复挂接守卫保持原样）
-                if (ViewModel.IsFilmstripTimelineMode)
-                {
-                    InitializeFilmstripTimeline();
-                    UpdateFilmstripEdgePadding();
-                    UpdateFilmstripSelectionHighlight();
-                }
-                else if (ViewModel.IsClassicTimelineMode)
-                {
-                    InitializeClassicTimeline();
-                    ForceScrollBarsAlwaysThick();
-                }
-
-                // 5. 核心修复：强刷双向绑定，解决"点击缩略图封面不更新"
-                if (currentFrame != null)
-                {
-                    ViewModel.SelectedTimelineFrame = null;
-                    ViewModel.SelectedTimelineFrame = currentFrame;
-
-                    // 6. 无缝恢复滚动条位置
-                    if (ViewModel.IsFilmstripTimelineMode)
-                    {
-                        int idx = ViewModel.TimelineFrames.IndexOf(currentFrame);
-                        if (idx >= 0)
-                            FilmstripScrollToFrameIndex(idx); // disableAnimation: true（瞬间复位）
-                    }
-                    else if (ViewModel.IsClassicTimelineMode)
-                    {
-                        ClassicScrollToFrame(currentFrame, maxRetries: 30, delayMs: 200);
-                    }
-                }
+                StopPlaybackPresentation();
+                PhotoViewer.ClearImage();
             });
         }
 
-        protected override void OnNavigatedFrom(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
+        private void StopPlaybackPresentation()
         {
-            DetachEditNavigationInput();
-            base.OnNavigatedFrom(e);
-        }
-
-        // ════════════════════════════════════════════════════════════
-        //  文件夹浏览 & 路径输入
-        // ════════════════════════════════════════════════════════════
-
-        /// <summary>用户点击了浏览按钮 → 抑制本次 LostFocus 扫描</summary>
-        private bool _suppressLostFocusScan;
-
-        /// <summary>
-        /// 刷新/清除按钮：目录有内容 → 刷新重新扫描；目录为空 → 清空全部内容（等价"大叉号"）。
-        /// CurrentDirectory 变化时同步更新图标。
-        /// </summary>
-        private void RefreshOrClearDir_Click(object sender, RoutedEventArgs e)
-        {
-            var path = ViewModel.CurrentDirectory;
-            if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
+            if (IsVideoActive())
             {
-                _lastScannedPath = path;
-                ViewModel.TriggerScan();
-            }
-            else
-            {
-                // 目录为空或路径不存在 → 清空内容（输入的无效路径也一起清掉）
-                ViewModel.ClearAll();
-                _lastScannedPath = null;
-                UpdateRefreshButtonIcon();
-            }
-        }
-
-        private static FontIcon CreateFilterCheckIcon() => new() { Glyph = "", FontSize = 6 };
-
-        /// <summary>展开筛选菜单时同步选中状态、统一宽度、调整边距。</summary>
-        private void FilterFlyout_Opening(object sender, object e)
-        {
-            if (sender is not MenuFlyout flyout) return;
-
-            // 计算所有菜单项文本的最宽值，统一 MinWidth 保持边距均衡
-            double maxTextWidth = 0;
-            var measureTb = new TextBlock { FontSize = 14, TextWrapping = TextWrapping.NoWrap };
-            foreach (var item in flyout.Items)
-            {
-                if (item is not MenuFlyoutItem mi) continue;
-                measureTb.Text = mi.Text;
-                measureTb.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
-                maxTextWidth = Math.Max(maxTextWidth, measureTb.DesiredSize.Width);
-            }
-            double uniformMinWidth = maxTextWidth + 76;
-
-            var currentIndex = ViewModel.SelectedFilterIndex;
-            foreach (var item in flyout.Items)
-            {
-                if (item is not MenuFlyoutItem mi || mi.Tag is not string tagStr || !int.TryParse(tagStr, out int idx))
-                    continue;
-                mi.MinWidth = uniformMinWidth;
-                mi.Padding = new Thickness(14, 10, 14, 10);
-                mi.MinHeight = 40;
-                mi.Icon = idx == currentIndex ? CreateFilterCheckIcon() : null;
-            }
-        }
-
-        /// <summary>筛选菜单项点击 → 设置过滤索引。</summary>
-        private void FilterMenuItem_Click(object sender, RoutedEventArgs e)
-        {
-            if (sender is MenuFlyoutItem item && item.Tag is string tagStr && int.TryParse(tagStr, out int index))
-            {
-                ViewModel.SelectedFilterIndex = index;
-            }
-        }
-
-        /// <summary>输入框文字变化时实时更新按钮图标（目录有效→↻，无效/空→✕）。</summary>
-        private void CurrentDirTextBox_TextChanged(object sender, TextChangedEventArgs e)
-        {
-            UpdateRefreshButtonIcon();
-        }
-
-        /// <summary>当前路径是否有效 → ↻ 刷新；路径为空或不合法 → ✕ 清空。</summary>
-        private void UpdateRefreshButtonIcon()
-        {
-            var path = ViewModel.CurrentDirectory;
-            var isValid = !string.IsNullOrEmpty(path) && Directory.Exists(path);
-            RefreshDirIcon.Glyph = isValid ? "" : ""; // ↻ vs ✕
-            ToolTipService.SetToolTip(RefreshDirBtn,
-                ResourceService.GetString(isValid
-                    ? "EditPage_RefreshDirTooltip"
-                    : "EditPage_ClearDirTooltip"));
-        }
-
-        /// <summary>浏览按钮按下时设标记（早于 LostFocus 触发），防止 LostFocus 误扫描旧路径</summary>
-        private void BrowseFolder_PointerPressed(object sender, PointerRoutedEventArgs e)
-        {
-            _suppressLostFocusScan = true;
-        }
-
-        /// <summary>浏览按钮：弹出文件夹选择器，选中后填充路径并触发扫描</summary>
-        private async void BrowseFolder_Click(object sender, RoutedEventArgs e)
-        {
-            try
-            {
-                var folder = await FilePickerService.PickFolderAsync();
-                if (folder != null)
-                {
-                    ViewModel.CurrentDirectory = folder.Path;
-                    UpdateRefreshButtonIcon();
-                    // 浏览按钮选择的路径直接触发扫描（不依赖 LostFocus）
-                    _lastScannedPath = folder.Path;
-                    ViewModel.TriggerScan();
-                }
-            }
-            catch (Exception ex)
-            {
-                LogService.FileOp(
-                    $"BrowseFolder CRASH: {ex.GetType().Name}: {ex.Message}",
-                    LogLevel.Error, ex);
-            }
-            finally
-            {
-                // 重置标记（异常时也要重置，防止后续 LostFocus 被永久抑制）
-                _suppressLostFocusScan = false;
-            }
-        }
-
-        /// <summary>点击照片信息行 → 文件资源管理器中定位照片</summary>
-        private void LocatePhotoFile_Click(object sender, RoutedEventArgs e)
-        {
-            var path = ViewModel.SelectedFilePath;
-            if (!string.IsNullOrEmpty(path))
-            {
-                try { FilePickerService.RevealInExplorer(path); }
-                catch (Exception ex) { LogService.Debug($"KeyPhoto reveal photo failed: {ex.Message}", LogSource.UI); }
-            }
-        }
-
-        /// <summary>点击视频信息行 → 文件资源管理器中定位视频。
-        /// 单文件实况照片（JPEG 内嵌 / HEIC 视频轨）直接定位照片本身，
-        /// 双文件实况照片定位配对的视频文件。</summary>
-        private void LocateVideoFile_Click(object sender, RoutedEventArgs e)
-        {
-            var photoPath = ViewModel.SelectedFilePath;
-            if (string.IsNullOrEmpty(photoPath)) return;
-
-            // 查找选中项，判断实况照片类型
-            var item = ViewModel.FileItems.FirstOrDefault(f =>
-                string.Equals(f.FilePath, photoPath, StringComparison.OrdinalIgnoreCase));
-
-            // 单文件实况照片：视频嵌入在照片内 → 直接定位照片
-            if (item?.LivePhotoType == LivePhotoBox.Models.LivePhotoType.SingleFileJpeg
-                || item?.LivePhotoType == LivePhotoBox.Models.LivePhotoType.SingleFileHeic)
-            {
-                try { FilePickerService.RevealInExplorer(photoPath); }
-                catch (Exception ex) { LogService.Debug($"KeyPhoto reveal video (single-file) failed: {ex.Message}", LogSource.UI); }
-                return;
-            }
-
-            // 双文件实况照片：定位配对视频
-            if (item?.LivePhotoType == LivePhotoBox.Models.LivePhotoType.DualFile
-                && !string.IsNullOrEmpty(item.PairedVideoPath))
-            {
-                try { FilePickerService.RevealInExplorer(item.PairedVideoPath); }
-                catch (Exception ex) { LogService.Debug($"KeyPhoto reveal video (paired) failed: {ex.Message}", LogSource.UI); }
-                return;
-            }
-
-            // 回退：按同名查找视频
-            var dir = Path.GetDirectoryName(photoPath);
-            var baseName = Path.GetFileNameWithoutExtension(photoPath);
-            if (string.IsNullOrEmpty(dir)) return;
-
-            foreach (var ext in new[] { ".mov", ".mp4" })
-            {
-                var videoPath = System.IO.Path.Combine(dir, baseName + ext);
-                if (System.IO.File.Exists(videoPath))
-                {
-                    try { FilePickerService.RevealInExplorer(videoPath); }
-                    catch (Exception ex) { LogService.Debug($"KeyPhoto reveal video (fallback) failed: {ex.Message}", LogSource.UI); }
-                    return;
-                }
-            }
-        }
-
-
-
-        /// <summary>路径输入框失去焦点时触发扫描（手动输入路径后点击别处的场景）。
-        /// 路径与上次扫描相同时跳过，避免无变化时的重复扫描。</summary>
-        private void CurrentDirTextBox_LostFocus(object sender, RoutedEventArgs e)
-        {
-            // 用户点击了浏览按钮 → 跳过（由 BrowseFolder_Click 负责触发）
-            if (_suppressLostFocusScan)
-            {
-                _suppressLostFocusScan = false;
-                return;
-            }
-
-            // 路径未变 → 跳过，避免重复扫描
-            var currentPath = ViewModel.CurrentDirectory;
-            if (string.Equals(currentPath, _lastScannedPath, StringComparison.OrdinalIgnoreCase))
-                return;
-
-            _lastScannedPath = currentPath;
-            UpdateRefreshButtonIcon();
-            ViewModel.TriggerScan();
-        }
-
-        // ════════════════════════════════════════════════════════════
-        //  拖拽事件挂接/解除（构造 + OnNavigatedTo → attach，Unloaded → detach）
-        // ════════════════════════════════════════════════════════════
-
-        private void AttachDragEvents()
-        {
-            LeftPanelBorder.DragEnter += LeftPanel_DragEnter;
-            LeftPanelBorder.DragOver += LeftPanel_DragOver;
-            LeftPanelBorder.DragLeave += LeftPanel_DragLeave;
-            LeftPanelBorder.Drop += LeftPanel_Drop;
-            RightPanelBorder.DragEnter += RightPanel_DragEnter;
-            RightPanelBorder.DragOver += RightPanel_DragOver;
-            RightPanelBorder.DragLeave += RightPanel_DragLeave;
-            RightPanelBorder.Drop += RightPanel_Drop;
-        }
-
-        private void DetachDragEvents()
-        {
-            LeftPanelBorder.DragEnter -= LeftPanel_DragEnter;
-            LeftPanelBorder.DragOver -= LeftPanel_DragOver;
-            LeftPanelBorder.DragLeave -= LeftPanel_DragLeave;
-            LeftPanelBorder.Drop -= LeftPanel_Drop;
-            RightPanelBorder.DragEnter -= RightPanel_DragEnter;
-            RightPanelBorder.DragOver -= RightPanel_DragOver;
-            RightPanelBorder.DragLeave -= RightPanel_DragLeave;
-            RightPanelBorder.Drop -= RightPanel_Drop;
-        }
-
-        // ════════════════════════════════════════════════════════════
-        //  拖拽文件夹到左侧面板（Drag & Drop）— 只接受文件夹
-        // ════════════════════════════════════════════════════════════
-
-        /// <summary>拖入时异步检测内容是否全是文件夹，缓存结果</summary>
-        private async void LeftPanel_DragEnter(object sender, DragEventArgs e)
-        {
-            _isLeftDropAllFolders = false;
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
-            {
-                var deferral = e.GetDeferral();
                 try
                 {
-                    var items = await e.DataView.GetStorageItemsAsync();
-                    _isLeftDropAllFolders = items.Count > 0
-                        && items.All(i => i is StorageFolder);
+                    var videoState = PureMediaViewer.GetZoomPanState();
+                    _sharedZoomScale = videoState.scale;
+                    _sharedPanX = videoState.panX;
+                    _sharedPanY = videoState.panY;
+                    PureMediaViewer.Player?.Pause();
                 }
-                catch { _isLeftDropAllFolders = false; }
-                finally { deferral.Complete(); }
+                catch { }
             }
+            PureMediaViewer.Visibility = Visibility.Collapsed;
+            PhotoViewer.Opacity = 1;
+            PhotoViewer.ApplyZoomPanState(_sharedZoomScale, _sharedPanX, _sharedPanY);
+            SetPlaybackIcon(false);
+            UpdateZoomPercentDisplay();
         }
 
-        private void LeftPanel_DragOver(object sender, DragEventArgs e)
+        private void MuteButton_Click(object sender, RoutedEventArgs e)
         {
-            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
-
-            if (_isLeftDropAllFolders)
-            {
-                e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-                e.DragUIOverride.IsGlyphVisible = true;
-                e.DragUIOverride.IsCaptionVisible = false;
-                DragOverlay.Visibility = Visibility.Visible;
-                LeftEmptyHint.Visibility = Visibility.Collapsed;
-            }
-
-            e.Handled = true;
+            ViewModel.IsMuted = !ViewModel.IsMuted;
+            ApplyMuteState();
         }
 
-        private void LeftPanel_DragLeave(object sender, DragEventArgs e)
+        private void ApplyMuteState()
         {
-            DragOverlay.Visibility = Visibility.Collapsed;
-            _isLeftDropAllFolders = false;
+            PureMediaViewer.IsMuted = ViewModel.IsMuted;
+            MuteIcon.Glyph = ViewModel.IsMuted ? "\uE995" : "\uE767";
+        }
+
+        private void SetPlaybackIcon(bool playing) => PlaybackIcon.Glyph = playing ? "\uE769" : "\uE768";
+
+        private void UseCurrentFrameAsCover_Click(object sender, RoutedEventArgs e)
+        {
+            ViewModel.SetCurrentCoverPresentation(ViewModel.SelectedTimelineFrame);
+            UpdateOverviewBar();
+        }
+
+        private void ResetPlaybackRange_Click(object sender, RoutedEventArgs e) =>
+            ViewModel.ResetPlaybackRangePresentation();
+
+        private void FilmstripModeButton_Click(object sender, RoutedEventArgs e)
+        {
+            ViewModel.SetTimelineDisplayMode(EditTimelineDisplayMode.Filmstrip);
+            FilmstripModeButton.IsChecked = true;
+            ClassicModeButton.IsChecked = false;
             Bindings.Update();
-            e.Handled = true;
+            ScrollSelectedFrameIntoView(true);
+            UpdateOverviewBar();
         }
 
-        /// <summary>
-        /// 拖拽释放：提取文件夹路径 → 设置 ViewModel → 触发扫描。
-        /// 优先取拖入的文件夹，若拖入的是文件则取其父目录。
-        /// </summary>
-        private async void LeftPanel_Drop(object sender, DragEventArgs e)
+        private void ClassicModeButton_Click(object sender, RoutedEventArgs e)
         {
-            try
-            {
-                DragOverlay.Visibility = Visibility.Collapsed;
-                // Drop 后扫描完成会更新 HasAnyFiles，x:Bind 自动反映正确状态。
-
-                if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
-                    return;
-
-                var items = await e.DataView.GetStorageItemsAsync();
-                if (items.Count == 0) return;
-
-                // 优先取文件夹，否则取第一个文件的父目录
-                string? targetPath = null;
-                foreach (var item in items)
-                {
-                    if (item is StorageFolder folder)
-                    {
-                        targetPath = folder.Path;
-                        break;
-                    }
-                }
-
-                if (targetPath == null && items[0] is StorageFile file)
-                    targetPath = Path.GetDirectoryName(file.Path);
-
-                if (string.IsNullOrEmpty(targetPath) || !Directory.Exists(targetPath))
-                    return;
-
-                ViewModel.CurrentDirectory = targetPath;
-                _lastScannedPath = targetPath;
-                ViewModel.TriggerScan();
-
-                e.Handled = true;
-            }
-            catch (Exception ex)
-            {
-                LogService.FileOp(
-                    $"Drop[Left] CRASH: {ex.GetType().Name}: {ex.Message}",
-                    LogLevel.Error, ex);
-            }
-        }
-
-        // ════════════════════════════════════════════════════════════
-        //  拖拽单文件到右侧面板 → 自动检测并加载（Drag & Drop）— 只接受文件
-        // ════════════════════════════════════════════════════════════
-
-        /// <summary>拖入时异步检测是否包含媒体文件，缓存结果</summary>
-        private async void RightPanel_DragEnter(object sender, DragEventArgs e)
-        {
-            _isRightDropHasFiles = false;
-            if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
-            {
-                var deferral = e.GetDeferral();
-                try
-                {
-                    var items = await e.DataView.GetStorageItemsAsync();
-                    _isRightDropHasFiles = items.Count > 0
-                        && items.All(i => i is StorageFile)
-                        && items.Cast<StorageFile>().Any(
-                            f => IsSupportedMediaFile(Path.GetExtension(f.Path)));
-                }
-                catch { _isRightDropHasFiles = false; }
-                finally { deferral.Complete(); }
-            }
-        }
-
-        private void RightPanel_DragOver(object sender, DragEventArgs e)
-        {
-            e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
-
-            if (_isRightDropHasFiles)
-            {
-                e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
-                e.DragUIOverride.IsGlyphVisible = true;
-                e.DragUIOverride.IsCaptionVisible = false;
-                RightDragOverlay.Visibility = Visibility.Visible;
-                // 临时隐藏空状态提示文字，避免与遮罩重叠
-                RightEmptyHint.Visibility = Visibility.Collapsed;
-                TimelineEmptyHint.Visibility = Visibility.Collapsed;
-            }
-
-            e.Handled = true;
-        }
-
-        private void RightPanel_DragLeave(object sender, DragEventArgs e)
-        {
-            RightDragOverlay.Visibility = Visibility.Collapsed;
-            _isRightDropHasFiles = false;
-            // 恢复空状态提示（x:Bind 重新评估恢复正确值）
+            ViewModel.SetTimelineDisplayMode(EditTimelineDisplayMode.Classic);
+            ClassicModeButton.IsChecked = true;
+            FilmstripModeButton.IsChecked = false;
             Bindings.Update();
-            e.Handled = true;
+            UpdateClassicPadding();
+            ScrollSelectedFrameIntoView(true);
+            UpdateOverviewBar();
         }
 
-        private async void RightPanel_Drop(object sender, DragEventArgs e)
+        private void TimelineThumbnail_Tapped(object sender, TappedRoutedEventArgs e)
         {
-            try
-            {
-                RightDragOverlay.Visibility = Visibility.Collapsed;
-
-                if (!e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
-                    return;
-
-                var items = await e.DataView.GetStorageItemsAsync();
-                if (items.Count == 0) return;
-
-                // 收集所有拖入的媒体文件路径
-                var filePaths = new List<string>();
-                foreach (var item in items)
-                {
-                    if (item is StorageFile file)
-                    {
-                        var ext = Path.GetExtension(file.Path);
-                        if (IsSupportedMediaFile(ext))
-                            filePaths.Add(file.Path);
-                    }
-                }
-
-                if (filePaths.Count == 0) return;
-
-                LogService.FileOp(
-                    $"Drop[Right] Received {filePaths.Count} file(s): " +
-                    string.Join(", ", filePaths.Select(p => Path.GetFileName(p))),
-                    LogLevel.Info);
-
-                // 交给 ViewModel：自动检测配对、去重、加入列表
-                var firstNewPath = await ViewModel.LoadDroppedFilesAsync(filePaths);
-
-                // 通过 ListView 选中触发 SelectionChanged → SelectFile，
-                // 而不是让 ViewModel 直接调 SelectFile，避免选中态不同步 + 重复加载。
-                if (firstNewPath != null)
-                {
-                    var item = ViewModel.FileItems.FirstOrDefault(f =>
-                        string.Equals(f.FilePath, firstNewPath, StringComparison.OrdinalIgnoreCase));
-                    if (item != null)
-                        FileItemListView.SelectedItem = item;
-                }
-
-                e.Handled = true;
-            }
-            catch (Exception ex)
-            {
-                LogService.FileOp(
-                    $"Drop[Right] CRASH: {ex.GetType().Name}: {ex.Message}",
-                    LogLevel.Error, ex);
-            }
+            if (sender is not FrameworkElement element || element.DataContext is not EditTimelinePresentationItem item) return;
+            ViewModel.SelectTimelineFrameInteractively(item.Frame);
+            if (ViewModel.IsClassicPresentationMode) ScrollClassicToFrame(item.Frame, false);
+            UpdateOverviewBar();
         }
 
-        /// <summary>判断扩展名是否为支持的图片/视频格式（大小写不敏感）</summary>
-        private static bool IsSupportedMediaFile(string ext)
+        private void PreviousFrameButton_Click(object sender, RoutedEventArgs e)
         {
-            var lower = ext.ToLowerInvariant();
-            return lower is ".heic" or ".heif" or ".jpg" or ".jpeg"
-                or ".mov" or ".mp4";
+            if (ViewModel.VideoFrameCount == 0) return;
+            var index = ViewModel.SelectedVideoFrameIndex;
+            if (index <= 0) index = 1;
+            ViewModel.SelectTimelineFrameProgrammatically(
+                ViewModel.VideoTimelineFrames[Math.Max(0, index - 1)].Frame);
         }
 
-        // ════════════════════════════════════════════════════════════
-        //  滚动条常驻
-        // ════════════════════════════════════════════════════════════
-
-        private void ForceScrollBarsAlwaysThick()
+        private void NextFrameButton_Click(object sender, RoutedEventArgs e)
         {
-            // 确保文件列表 ListView 纵向滚动条始终可见
-            var listViewSv = FindVisualChild<ScrollViewer>(FileItemListView);
-            if (listViewSv != null)
-                listViewSv.VerticalScrollBarVisibility = ScrollBarVisibility.Visible;
-
-            // 时间轴：经典模式需要常驻滚动条
-            if (ViewModel.IsClassicTimelineMode)
-            {
-                var timelineSv = FindVisualChild<ScrollViewer>(TimelineListView);
-                if (timelineSv != null)
-                    timelineSv.HorizontalScrollBarVisibility = ScrollBarVisibility.Visible;
-            }
-            // 胶片模式无 ScrollViewer，无需操作
+            if (ViewModel.VideoFrameCount == 0) return;
+            var index = ViewModel.SelectedVideoFrameIndex;
+            var targetIndex = index < 0 ? 0 : Math.Min(ViewModel.VideoFrameCount - 1, index + 1);
+            ViewModel.SelectTimelineFrameProgrammatically(ViewModel.VideoTimelineFrames[targetIndex].Frame);
         }
 
-        private static void SetAllScrollBarsIndicatorMode(DependencyObject parent)
+        private void OnRequestScrollToFrame(TimelineFrame frame)
         {
-            int count = VisualTreeHelper.GetChildrenCount(parent);
-            for (int i = 0; i < count; i++)
+            DispatcherQueue.TryEnqueue(() =>
             {
-                var child = VisualTreeHelper.GetChild(parent, i);
-                if (child is ScrollBar bar)
-                {
-                    // 不再修改 IndicatorMode —— 粗滚动条外观由自定义模板保证
-                    bar.Loaded += (s, _) =>
-                    {
-                        var sb = (ScrollBar)s;
-                        if (sb.Orientation == Orientation.Vertical)
-                            sb.IndicatorMode = ScrollingIndicatorMode.MouseIndicator;
-                    };
-                }
-                SetAllScrollBarsIndicatorMode(child);
-            }
+                if (ViewModel.IsClassicPresentationMode) ScrollClassicToFrame(frame, false);
+                else ScrollFilmstripToFrame(frame, false);
+                UpdateOverviewBar();
+            });
         }
 
-        private static T? FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        private void ScrollSelectedFrameIntoView(bool disableAnimation)
         {
-            int count = VisualTreeHelper.GetChildrenCount(parent);
-            for (int i = 0; i < count; i++)
-            {
-                var child = VisualTreeHelper.GetChild(parent, i);
-                if (child is T match) return match;
-                var result = FindVisualChild<T>(child);
-                if (result != null) return result;
-            }
-            return null;
+            var frame = ViewModel.SelectedTimelineFrame;
+            if (frame == null) return;
+            if (ViewModel.IsClassicPresentationMode) ScrollClassicToFrame(frame, disableAnimation);
+            else ScrollFilmstripToFrame(frame, disableAnimation);
         }
 
-        // ════════════════════════════════════════════════════════════
-        //  自定义卡片交互（悬停 / 按下 / 选中）
-        //
-        //  核心修复：BorderThickness 始终 2px（透明↔强调色），杜绝 0↔2 切换导致的内容位移。
-        //  ListView 使用裸 ContentPresenter 模板 + SelectionMode=Single。
-        // ════════════════════════════════════════════════════════════
-
-        /// <summary>卡片对应的数据项是否为当前选中项</summary>
-        private bool IsCardSelected(Border card)
+        private int IndexOfVideoFrame(TimelineFrame frame)
         {
-            return FileItemListView.SelectedItem != null && card.DataContext == FileItemListView.SelectedItem;
+            for (var i = 0; i < ViewModel.VideoTimelineFrames.Count; i++)
+                if (ReferenceEquals(ViewModel.VideoTimelineFrames[i].Frame, frame)) return i;
+            return -1;
         }
 
-        /// <summary>统一更新卡片的背景与边框。
-        /// 边框始终 2px——只改颜色，彻底消除布局偏移。</summary>
-        private void UpdateCardVisual(Border card, bool isSelected, bool hovered, bool pressed)
+        private void ScrollFilmstripToFrame(TimelineFrame frame, bool disableAnimation)
         {
-            card.BorderThickness = new Thickness(2);
-            card.BorderBrush = isSelected ? _selectedBorder : _transparent;
-
-            if (isSelected)
-            {
-                if (pressed)
-                    card.Background = _selectedPressedBg;
-                else if (hovered)
-                    card.Background = _selectedHoverBg;
-                else
-                    card.Background = _selectedBg;
-            }
-            else
-            {
-                if (pressed)
-                    card.Background = _pressedBg;
-                else if (hovered)
-                    card.Background = _hoverBg;
-                else
-                    card.Background = _transparent;
-            }
+            var index = IndexOfVideoFrame(frame);
+            if (index < 0) return;
+            var target = Math.Max(0, index * TimelineItemStep - FilmstripScrollViewer.ViewportWidth * 0.35);
+            FilmstripScrollViewer.ChangeView(target, null, null, disableAnimation);
         }
 
-        // ── 卡片 Loaded：虚拟化时恢复选中态 ──
-
-        private void CardRoot_Loaded(object sender, RoutedEventArgs e)
+        private void ScrollClassicToFrame(TimelineFrame frame, bool disableAnimation)
         {
-            if (sender is Border card)
-            {
-                // Loaded 在虚拟化回收复用时重新触发。必须无条件刷新视觉状态：
-                // 旧项可能是选中态（蓝色边框），新项不是的话要清除，否则出现"多个选中"假象。
-                bool isSelected = IsCardSelected(card);
-                UpdateCardVisual(card, isSelected, hovered: false, pressed: false);
-            }
+            var index = IndexOfVideoFrame(frame);
+            if (index < 0) return;
+            _isClassicScrollInternal = true;
+            ClassicTimelineScrollViewer.ChangeView(index * TimelineItemStep, null, null, disableAnimation);
+            _isClassicScrollInternal = false;
         }
 
-        /// <summary>
-        /// DataContext 变更时强制刷新卡片视觉（虚拟化回收复用的关键补丁）。
-        /// Loaded 触发时 DataContext 可能还指向旧项 → IsCardSelected 误判。
-        /// DataContextChanged 一定在数据绑定完成后触发 → 判断准确。
-        /// </summary>
-        private void CardRoot_DataContextChanged(FrameworkElement sender, DataContextChangedEventArgs args)
+        private void ClassicTimelineScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e)
         {
-            if (sender is Border card)
-            {
-                bool isSelected = IsCardSelected(card);
-                UpdateCardVisual(card, isSelected, hovered: false, pressed: false);
-            }
+            UpdateClassicPadding();
+            ScrollSelectedFrameIntoView(true);
+            UpdateOverviewBar();
         }
 
-        // ── 指针事件 ──
-
-        private void CardRoot_PointerEntered(object sender, PointerRoutedEventArgs e)
+        private void UpdateClassicPadding()
         {
-            if (sender is Border card)
-            {
-                _hoveredCard = card;
-                UpdateCardVisual(card, IsCardSelected(card), hovered: true, pressed: _pressedCard == card);
-            }
+            var half = Math.Max(0, ClassicTimelineScrollViewer.ViewportWidth / 2 - TimelineItemWidth / 2);
+            ClassicTimelinePaddingBorder.Padding = new Thickness(half, 0, half, 0);
         }
 
-        private void CardRoot_PointerExited(object sender, PointerRoutedEventArgs e)
+        private void ClassicTimelineScrollViewer_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e)
         {
-            if (sender is Border card)
-            {
-                if (_hoveredCard == card) _hoveredCard = null;
-                UpdateCardVisual(card, IsCardSelected(card), hovered: false, pressed: false);
-            }
+            UpdateOverviewBar();
+            if (e.IsIntermediate || _isClassicScrollInternal || ViewModel.VideoFrameCount == 0) return;
+
+            var index = (int)Math.Round(ClassicTimelineScrollViewer.HorizontalOffset / TimelineItemStep);
+            index = Math.Clamp(index, 0, ViewModel.VideoFrameCount - 1);
+            ViewModel.SelectTimelineFrameInteractively(ViewModel.VideoTimelineFrames[index].Frame);
+
+            _isClassicScrollInternal = true;
+            ClassicTimelineScrollViewer.ChangeView(index * TimelineItemStep, null, null, true);
+            _isClassicScrollInternal = false;
         }
 
-        private void CardRoot_PointerPressed(object sender, PointerRoutedEventArgs e)
+        private void TimelineScrollViewer_ViewChanged(object sender, ScrollViewerViewChangedEventArgs e) => UpdateOverviewBar();
+        private void TimelineViewport_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateOverviewBar();
+        private void TimelineOverviewTrack_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateOverviewBar();
+
+        private void UpdateOverviewBar()
         {
-            if (sender is Border card)
-            {
-                _pressedCard = card;
-                UpdateCardVisual(card, IsCardSelected(card), hovered: _hoveredCard == card, pressed: true);
-            }
-        }
+            if (TimelineOverviewTrack.ActualWidth <= 0) return;
+            var viewer = ViewModel.IsClassicPresentationMode ? ClassicTimelineScrollViewer : FilmstripScrollViewer;
+            var trackWidth = TimelineOverviewTrack.ActualWidth;
+            var contentWidth = Math.Max(trackWidth, ViewModel.VideoFrameCount * TimelineItemStep);
+            var viewportRatio = Math.Min(1, Math.Max(1, viewer.ViewportWidth) / contentWidth);
+            TimelineOverviewViewport.Width = Math.Min(trackWidth, Math.Max(24, trackWidth * viewportRatio));
 
-        private void CardRoot_PointerReleased(object sender, PointerRoutedEventArgs e)
-        {
-            if (sender is Border card)
-            {
-                if (_pressedCard == card) _pressedCard = null;
-                UpdateCardVisual(card, IsCardSelected(card), hovered: _hoveredCard == card, pressed: false);
-            }
-        }
+            var viewportTravel = Math.Max(0, trackWidth - TimelineOverviewViewport.Width);
+            var viewportLeft = viewportTravel * Math.Clamp(viewer.HorizontalOffset / Math.Max(1, viewer.ScrollableWidth), 0, 1);
+            Canvas.SetLeft(TimelineOverviewViewport, viewportLeft);
 
-        // ── 选中变更（ListView 内置选择驱动，我们只管视觉同步） ──
-
-        private void AttachEditNavigationInput()
-        {
-            if (_editNavigationInputHost != null || App.MainWindow?.Content is not UIElement host)
-                return;
-
-            host.PreviewKeyDown += EditNavigationHost_PreviewKeyDown;
-            _editNavigationInputHost = host;
-        }
-
-        private void DetachEditNavigationInput()
-        {
-            if (_editNavigationInputHost == null)
-                return;
-
-            _editNavigationInputHost.PreviewKeyDown -= EditNavigationHost_PreviewKeyDown;
-            _editNavigationInputHost = null;
-        }
-
-        private void EditNavigationHost_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
-        {
-            if (App.MainWindow is MainWindow { Lightbox.IsOpen: true })
-                return;
-
-            const Windows.System.VirtualKey oemPlus = (Windows.System.VirtualKey)187;
-            const Windows.System.VirtualKey oemMinus = (Windows.System.VirtualKey)189;
-            bool controlDown = IsModifierDown(Windows.System.VirtualKey.Control);
-            bool shiftDown = IsModifierDown(Windows.System.VirtualKey.Shift);
-            bool altDown = IsModifierDown(Windows.System.VirtualKey.Menu);
-            // 主键盘的 + 与 = 共用 OEM 键；部分键盘布局在 PreviewKeyDown
-            // 阶段无法稳定报告 Shift 状态，因此两者都视为放大快捷键。
-            bool isZoomIn = e.Key == Windows.System.VirtualKey.Add
-                || e.Key == oemPlus;
-            bool isZoomOut = e.Key is Windows.System.VirtualKey.Subtract
-                || e.Key == oemMinus && !shiftDown;
-            bool isArrow = e.Key is Windows.System.VirtualKey.Up
-                or Windows.System.VirtualKey.Down
-                or Windows.System.VirtualKey.Left
-                or Windows.System.VirtualKey.Right;
-            bool isTimelineBoundary = e.Key is Windows.System.VirtualKey.Home
-                or Windows.System.VirtualKey.End;
-
-            DependencyObject? focused = _editNavigationInputHost?.XamlRoot != null
-                ? FocusManager.GetFocusedElement(_editNavigationInputHost.XamlRoot) as DependencyObject
-                : null;
-            if (ShouldPreserveEditShortcut(focused))
-                return;
-
-            bool noModifiers = !controlDown && !shiftDown && !altDown;
-            bool onlyControl = controlDown && !shiftDown && !altDown;
-            bool controlShift = controlDown && shiftDown && !altDown;
-            bool onlyAlt = altDown && !controlDown && !shiftDown;
-
-            if ((noModifiers || (shiftDown && !controlDown && !altDown)) && isZoomIn)
-            {
-                if (ViewModel.HasSelectedFile)
-                {
-                    ZoomInButton_Click(this, e);
-                    e.Handled = true;
-                }
-            }
-            else if (noModifiers && isZoomOut)
-            {
-                if (ViewModel.HasSelectedFile)
-                {
-                    ZoomOutButton_Click(this, e);
-                    e.Handled = true;
-                }
-            }
-            else if (noModifiers && e.Key == Windows.System.VirtualKey.Space)
-            {
-                if (ViewModel.IsSelectedFileVideo)
-                {
-                    PureMediaViewer.TogglePlayback();
-                    e.Handled = true;
-                }
-                else if (ViewModel.CanPlayLivePhoto)
-                {
-                    LivePhotoBadgeButton_Click(LivePhotoBadgeButton, e);
-                    e.Handled = true;
-                }
-            }
-            else if (noModifiers && isArrow)
-            {
-                if (ViewModel.IsSelectedFileVideo
-                    && e.Key is Windows.System.VirtualKey.Left or Windows.System.VirtualKey.Right)
-                {
-                    PureMediaViewer.SeekBy(TimeSpan.FromSeconds(
-                        e.Key == Windows.System.VirtualKey.Left ? -5 : 5));
-                    e.Handled = true;
-                }
-                else
-                {
-                    e.Handled = e.Key is Windows.System.VirtualKey.Up or Windows.System.VirtualKey.Down
-                        ? TryNavigateResourceFile(e.Key)
-                        : TryNavigateTimelineFrame(e.Key);
-                }
-            }
-            else if (noModifiers && isTimelineBoundary)
-            {
-                e.Handled = TryNavigateTimelineFrame(e.Key);
-            }
-            else if (noModifiers && e.Key == Windows.System.VirtualKey.K)
-            {
-                e.Handled = TryExecuteEditCommand(ViewModel.GoToKeyPhotoCommand);
-            }
-            else if (noModifiers && e.Key == Windows.System.VirtualKey.O)
-            {
-                e.Handled = TryExecuteEditCommand(ViewModel.GoToOriginalPhotoCommand);
-            }
-            else if (noModifiers && e.Key == Windows.System.VirtualKey.M)
-            {
-                if (ViewModel.IsSelectedFileVideo)
-                {
-                    PureMediaViewer.ToggleMute();
-                    e.Handled = true;
-                }
-                else if (ViewModel.CanPlayLivePhoto)
-                {
-                    MuteButton_Click(MuteButton, e);
-                    e.Handled = true;
-                }
-            }
-            else if (noModifiers && e.Key == Windows.System.VirtualKey.Number0)
-            {
-                if (ViewModel.HasSelectedFile)
-                {
-                    if (IsVideoActive())
-                        PureMediaViewer.ResetToFit();
-                    else
-                        PhotoViewer.ResetToFit();
-                    UpdateZoomPercentDisplay();
-                    e.Handled = true;
-                }
-            }
-            else if (noModifiers && e.Key == Windows.System.VirtualKey.F11)
-            {
-                if (ViewModel.HasSelectedFile)
-                {
-                    MaximizeButton_Click(MaximizeButton, e);
-                    e.Handled = true;
-                }
-            }
-            else if (noModifiers && e.Key == Windows.System.VirtualKey.Escape)
-            {
-                if (ViewModel.CanPlayLivePhoto && IsVideoActive())
-                {
-                    PureMediaViewer.Close();
-                    e.Handled = true;
-                }
-                else if (_isPreviewMaximized)
-                {
-                    MaximizeButton_Click(MaximizeButton, e);
-                    e.Handled = true;
-                }
-            }
-            else if (noModifiers && e.Key == Windows.System.VirtualKey.C)
-            {
-                if (!string.IsNullOrEmpty(ViewModel.CurrentDirectory) || ViewModel.FileItems.Count > 0)
-                {
-                    ViewModel.ClearAll();
-                    _lastScannedPath = null;
-                    UpdateRefreshButtonIcon();
-                    e.Handled = true;
-                }
-            }
-            else if (onlyControl && e.Key == Windows.System.VirtualKey.S)
-            {
-                e.Handled = TryExecuteEditCommand(ViewModel.SaveCommand);
-            }
-            else if (controlShift && e.Key == Windows.System.VirtualKey.S)
-            {
-                e.Handled = TryExecuteEditCommand(ViewModel.SaveAsCommand);
-            }
-            else if (onlyControl && e.Key == Windows.System.VirtualKey.E)
-            {
-                e.Handled = TryExecuteEditCommand(ViewModel.ExportCurrentFrameCommand);
-            }
-            else if (controlShift && e.Key == Windows.System.VirtualKey.E)
-            {
-                e.Handled = TryExecuteEditCommand(ViewModel.ExportAllFramesCommand);
-            }
-            else if (onlyControl && e.Key == Windows.System.VirtualKey.O)
-            {
-                BrowseFolder_Click(this, e);
-                e.Handled = true;
-            }
-            else if (noModifiers && e.Key == Windows.System.VirtualKey.F5)
-            {
-                var path = ViewModel.CurrentDirectory;
-                if (!string.IsNullOrEmpty(path) && Directory.Exists(path))
-                {
-                    RefreshOrClearDir_Click(this, e);
-                    e.Handled = true;
-                }
-            }
-            else if (onlyAlt && e.Key == Windows.System.VirtualKey.E && ExportButton.IsEnabled)
-            {
-                ExportFlyout.ShowAt(ExportButton);
-                e.Handled = true;
-                return;
-            }
-
-            if (e.Handled)
-                FileItemListView.Focus(FocusState.Programmatic);
-        }
-
-        private static bool TryExecuteEditCommand(System.Windows.Input.ICommand command)
-        {
-            if (!command.CanExecute(null))
-                return false;
-
-            command.Execute(null);
-            return true;
-        }
-
-        private static bool IsModifierDown(Windows.System.VirtualKey key)
-        {
-            if (IsKeyDown(key)) return true;
-            return key switch
-            {
-                Windows.System.VirtualKey.Control =>
-                    IsKeyDown(Windows.System.VirtualKey.LeftControl)
-                    || IsKeyDown(Windows.System.VirtualKey.RightControl),
-                Windows.System.VirtualKey.Shift =>
-                    IsKeyDown(Windows.System.VirtualKey.LeftShift)
-                    || IsKeyDown(Windows.System.VirtualKey.RightShift),
-                Windows.System.VirtualKey.Menu =>
-                    IsKeyDown(Windows.System.VirtualKey.LeftMenu)
-                    || IsKeyDown(Windows.System.VirtualKey.RightMenu),
-                _ => false
-            };
-        }
-
-        private static bool IsKeyDown(Windows.System.VirtualKey key) =>
-            (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(key)
-                & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
-
-        private bool TryNavigateResourceFile(Windows.System.VirtualKey key)
-        {
-            if (ViewModel.FileItems.Count == 0)
-                return false;
-
-            int currentIndex = FileItemListView.SelectedIndex;
-            int nextIndex = currentIndex < 0
-                ? 0
-                : key == Windows.System.VirtualKey.Up
-                    ? Math.Max(0, currentIndex - 1)
-                    : Math.Min(ViewModel.FileItems.Count - 1, currentIndex + 1);
-
-            FileItemListView.SelectedIndex = nextIndex;
-            FileItemListView.ScrollIntoView(ViewModel.FileItems[nextIndex]);
-            return true;
-        }
-
-        private bool TryNavigateTimelineFrame(Windows.System.VirtualKey key)
-        {
-            if (ViewModel.TimelineFrames.Count == 0)
-                return false;
-
-            int currentIndex = ViewModel.SelectedTimelineFrame != null
-                ? ViewModel.TimelineFrames.IndexOf(ViewModel.SelectedTimelineFrame)
-                : -1;
-            int nextIndex = key switch
-            {
-                Windows.System.VirtualKey.Home => 0,
-                Windows.System.VirtualKey.End => ViewModel.TimelineFrames.Count - 1,
-                Windows.System.VirtualKey.Left when currentIndex >= 0 => Math.Max(0, currentIndex - 1),
-                Windows.System.VirtualKey.Right when currentIndex >= 0 =>
-                    Math.Min(ViewModel.TimelineFrames.Count - 1, currentIndex + 1),
-                _ => 0
-            };
-
-            ViewModel.SelectTimelineFrameProgrammatically(ViewModel.TimelineFrames[nextIndex]);
-            return true;
-        }
-
-        // 输入类控件需要保留光标移动、选项切换和数值调节，不接管它们的左右键。
-        private static bool ShouldPreserveEditShortcut(DependencyObject? source)
-        {
-            for (DependencyObject? current = source; current != null; current = VisualTreeHelper.GetParent(current))
-            {
-                if (current is TextBox
-                    or RichEditBox
-                    or PasswordBox
-                    or NumberBox
-                    or ComboBox
-                    or Slider)
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private void FileItemListView_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            foreach (var item in e.RemovedItems)
-                RefreshSingleCardVisual(item as EditFileItem, isSelected: false);
-            foreach (var item in e.AddedItems)
-                RefreshSingleCardVisual(item as EditFileItem, isSelected: true);
-
-            if (FileItemListView.SelectedItem is EditFileItem selected)
-                ViewModel.SelectFile(selected.FilePath);
-            else
-                ViewModel.SelectFile(null);
-
-            // 切换文件 → 重置共享缩放/平移 + 照片 Viewer 归位
-            _sharedZoomScale = 1.0;
-            _sharedPanX = 0.5;
-            _sharedPanY = 0.5;
-            PhotoViewer.ResetToFit();
-
-            // 非实况照片自动切"文件基础信息"；实况照片恢复记忆选项卡
-            ApplyInfoTabForSelectedFile();
-
-            // 根据新选中的文件类型决定显示模式
-            _ = ApplyPreviewModeAsync();
-        }
-
-        /// <summary>
-        /// 根据当前选中文件类型切换预览模式：
-        /// - 纯视频文件 → 自动隐藏 PhotoViewer，显示 PureMediaViewer 播放
-        /// - 实况照片 → 显示 PhotoViewer + LIVE 播放按钮
-        /// - 普通图片 → 显示 PhotoViewer
-        /// - 无选中 → 关闭视频层
-        /// </summary>
-        private async Task ApplyPreviewModeAsync()
-        {
-            _isApplyingPreviewMode = true;
-
-            try
-            {
-                if (PureMediaViewer.Visibility == Visibility.Visible)
-                    PureMediaViewer.Close();
-
-                ResetSystemMediaMetadata();
-
-                if (ViewModel.IsSelectedFileVideo)
-                {
-                    var videoPath = ViewModel.SelectedFilePath;
-                    if (!string.IsNullOrEmpty(videoPath) && File.Exists(videoPath))
-                    {
-                        try
-                        {
-                            var storageFile = await StorageFile.GetFileFromPathAsync(videoPath);
-                            var mediaSource = MediaSource.CreateFromStorageFile(storageFile);
-                            var playbackItem = new MediaPlaybackItem(mediaSource)
-                            {
-                                AutoLoadedDisplayProperties = AutoLoadedDisplayPropertyKind.None
-                            };
-                            var displayProperties = playbackItem.GetDisplayProperties();
-                            displayProperties.Type = MediaPlaybackType.Video;
-                            displayProperties.VideoProperties.Title = Path.GetFileNameWithoutExtension(videoPath);
-                            playbackItem.ApplyDisplayProperties(displayProperties);
-
-                            PureMediaViewer.AutoCloseOnEnd = false;
-                            PureMediaViewer.ShowCloseButton = false;
-                            PureMediaViewer.ShowTransportControls = true;
-                            PureMediaViewer.ZoomEnabled = false;
-
-                            // 视频模式 → 预览面板直角
-                            PreviewBorder.CornerRadius = new CornerRadius(0);
-
-                            // 先透明加载（用户仍看到底层控件）
-                            PureMediaViewer.SetPlaybackSource(playbackItem);
-                            PureMediaViewer.Play();
-
-                            // 系统媒体封面异步提取，不阻塞视频开始播放。
-                            _systemMediaMetadataCts = new CancellationTokenSource();
-                            _ = UpdateSystemMediaThumbnailAsync(
-                                playbackItem, videoPath, _systemMediaMetadataCts.Token);
-
-                            // 等第一帧就绪
-                            await Task.Delay(100);
-
-                            // 隐藏浮动控件（图片层始终可见，被视频覆盖）
-                            LivePhotoBadgeButton.Visibility = Visibility.Collapsed;
-                            MuteButton.Visibility = Visibility.Collapsed;
-                            ZoomControlsPanel.Visibility = Visibility.Collapsed;
-
-                            // 普通视频不受实况照片静音影响，始终非静音
-                            //（用户通过内置传输栏音量按钮自行控制）
-                            PureMediaViewer.IsMuted = false;
-                            return;
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine(
-                                $"[EditPage] 视频自动播放失败: {ex.Message}");
-                        }
-                    }
-                }
-
-                // 非视频文件：恢复图片预览模式 + 圆角
-                PreviewBorder.CornerRadius = new CornerRadius(4);
-                PhotoViewer.Visibility = Visibility.Visible;
-                PhotoViewer.Opacity = 1;
-                SyncLivePhotoBadgeVisibility();
-                ZoomControlsPanel.ClearValue(StackPanel.VisibilityProperty);
-            }
-            finally
-            {
-                _isApplyingPreviewMode = false;
-            }
-        }
-
-        private void ResetSystemMediaMetadata()
-        {
-            _systemMediaMetadataCts?.Cancel();
-            _systemMediaMetadataCts?.Dispose();
-            _systemMediaMetadataCts = null;
-
-            _systemMediaThumbnailStream?.Dispose();
-            _systemMediaThumbnailStream = null;
-        }
-
-        private async Task UpdateSystemMediaThumbnailAsync(
-            MediaPlaybackItem playbackItem,
-            string videoPath,
-            CancellationToken cancellationToken)
-        {
-            try
-            {
-                var (data, _, _) = await ThumbnailService.LoadVideoThumbnailDataAsync(
-                    videoPath, 320, cancellationToken);
-                cancellationToken.ThrowIfCancellationRequested();
-                if (data.Length == 0) return;
-
-                var stream = new InMemoryRandomAccessStream();
-                using (var writer = new DataWriter(stream))
-                {
-                    writer.WriteBytes(data);
-                    await writer.StoreAsync();
-                    await writer.FlushAsync();
-                    writer.DetachStream();
-                }
-                stream.Seek(0);
-
-                if (cancellationToken.IsCancellationRequested)
-                {
-                    stream.Dispose();
-                    return;
-                }
-
-                var displayProperties = playbackItem.GetDisplayProperties();
-                displayProperties.Thumbnail = RandomAccessStreamReference.CreateFromStream(stream);
-                playbackItem.ApplyDisplayProperties(displayProperties);
-
-                _systemMediaThumbnailStream?.Dispose();
-                _systemMediaThumbnailStream = stream;
-            }
-            catch (OperationCanceledException)
-            {
-                // 切换文件或退出纯视频模式时的正常取消。
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[EditPage] 系统媒体缩略图更新失败: {ex.Message}");
-            }
-        }
-
-        /// <summary>通过数据项找到对应容器中的 Border 并刷新视觉</summary>
-        private void RefreshSingleCardVisual(EditFileItem? item, bool isSelected)
-        {
-            if (item == null) return;
-            if (FileItemListView.ContainerFromItem(item) is ListViewItem container)
-            {
-                var card = FindVisualChild<Border>(container);
-                if (card != null)
-                    UpdateCardVisual(card, isSelected,
-                        hovered: _hoveredCard == card, pressed: _pressedCard == card);
-            }
-        }
-
-        // ════════════════════════════════════════════════════════════
-        //  容器生命周期（虚拟化回收 + 事件挂接）
-        // ════════════════════════════════════════════════════════════
-
-        private void OnContainerContentChanging(ListViewBase sender, ContainerContentChangingEventArgs args)
-        {
-            if (args.InRecycleQueue)
-            {
-                if (args.ItemContainer is ListViewItem container)
-                {
-                    var card = FindVisualChild<Border>(container);
-                    if (card != null)
-                    {
-                        card.PointerEntered -= CardRoot_PointerEntered;
-                        card.PointerExited -= CardRoot_PointerExited;
-                        card.PointerPressed -= CardRoot_PointerPressed;
-                        card.PointerReleased -= CardRoot_PointerReleased;
-                        if (_hoveredCard == card) _hoveredCard = null;
-                        if (_pressedCard == card) _pressedCard = null;
-                    }
-                }
-                return;
-            }
-
-            if (args.ItemContainer is ListViewItem lvi)
-            {
-                lvi.Loaded += OnContainerLoaded_WireCardEvents;
-            }
-        }
-
-        private void OnContainerLoaded_WireCardEvents(object sender, RoutedEventArgs e)
-        {
-            if (sender is ListViewItem container)
-            {
-                container.Loaded -= OnContainerLoaded_WireCardEvents;
-                var card = FindVisualChild<Border>(container);
-                if (card != null)
-                {
-                    card.PointerEntered += CardRoot_PointerEntered;
-                    card.PointerExited += CardRoot_PointerExited;
-                    card.PointerPressed += CardRoot_PointerPressed;
-                    card.PointerReleased += CardRoot_PointerReleased;
-
-                    if (IsCardSelected(card))
-                        UpdateCardVisual(card, isSelected: true, hovered: false, pressed: false);
-
-                    // 同步折叠态文字可见性（新加载的容器）
-                    if (_isLeftPanelCollapsed)
-                        SetTextPanelVisible(card, Visibility.Collapsed);
-                }
-            }
-        }
-
-        /// <summary>折叠时隐藏文字 StackPanel + 归零*列宽度 + 缩紧 Border</summary>
-        private static void SetTextPanelVisible(Border card, Visibility vis)
-        {
-            if (card.Child is Grid grid && grid.Children.Count > 1
-                && grid.Children[1] is StackPanel textPanel)
-            {
-                textPanel.Visibility = vis;
-                // 折叠时把文字列宽度归零 + 列间距清零，展开时恢复
-                if (grid.ColumnDefinitions.Count > 1)
-                    grid.ColumnDefinitions[1].Width = vis == Visibility.Collapsed
-                        ? new GridLength(0) : new GridLength(1, GridUnitType.Star);
-                grid.ColumnSpacing = vis == Visibility.Collapsed ? 0 : 8;
-                // 折叠时 Border 紧贴内容，选中框只围缩略图；展开时恢复拉伸
-                card.HorizontalAlignment = vis == Visibility.Collapsed
-                    ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
-            }
+            var selected = ViewModel.SelectedVideoFrameIndex;
+            var positionRatio = ViewModel.VideoFrameCount <= 1 || selected < 0
+                ? 0 : (double)selected / (ViewModel.VideoFrameCount - 1);
+            Canvas.SetLeft(TimelineOverviewPosition,
+                Math.Clamp(positionRatio * (trackWidth - TimelineOverviewPosition.Width), 0, trackWidth));
         }
     }
 }
