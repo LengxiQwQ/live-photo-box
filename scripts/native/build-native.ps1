@@ -13,6 +13,7 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $nativeProject = Join-Path $projectRoot 'LivePhotoBox.Native\LivePhotoBox.Native.vcxproj'
+$testHarnessBuildScript = Join-Path $PSScriptRoot 'build-native-test-harness.ps1'
 $artifactDirectory = Join-Path $projectRoot "artifacts\native\$Configuration\win-$Architecture"
 
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
@@ -99,6 +100,14 @@ if (-not (Test-Path -LiteralPath $nativePdb)) {
 }
 
 if ($RunTests) {
+    Write-Host '[Native] Building the test-only ABI harness before smoke tests...' -ForegroundColor Cyan
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $testHarnessBuildScript `
+        -Configuration $Configuration `
+        -Architecture $Architecture
+    if ($LASTEXITCODE -ne 0) {
+        throw "Native test harness build failed with exit code $LASTEXITCODE."
+    }
+
     Write-Host '[Native] Running managed ABI/runtime smoke tests...' -ForegroundColor Cyan
     & dotnet test (Join-Path $projectRoot 'tests\LivePhotoBox.Core.Tests\LivePhotoBox.Core.Tests.csproj') `
         -c $Configuration `
