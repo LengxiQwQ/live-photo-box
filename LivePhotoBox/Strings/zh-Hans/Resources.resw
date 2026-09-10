@@ -4394,4 +4394,136 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="RepairPage_StartButton.ToolTipService.ToolTip" xml:space="preserve">
     <value>开始修复（Ctrl+Enter）/ 停止（双击 Esc）</value>
   </data>
+<data name="EditPage_Visual_CurrentCoverMarker.Text" xml:space="preserve">
+    <value>当前封面</value>
+  </data>
+  <data name="EditPage_Visual_OriginalCoverMarker.Text" xml:space="preserve">
+    <value>原始封面</value>
+  </data>
+  <data name="EditPage_Visual_Undo.Content" xml:space="preserve">
+    <value>撤销</value>
+  </data>
+  <data name="EditPage_Visual_Redo.Content" xml:space="preserve">
+    <value>重做</value>
+  </data>
+  <data name="EditPage_Visual_ExportFrames.Content" xml:space="preserve">
+    <value>导出帧</value>
+  </data>
+  <data name="EditPage_Visual_ExportCurrentFrame.Text" xml:space="preserve">
+    <value>导出当前帧</value>
+  </data>
+  <data name="EditPage_Visual_ExportAllFrames.Text" xml:space="preserve">
+    <value>导出所有帧</value>
+  </data>
+  <data name="EditPage_Visual_SaveCopy.Content" xml:space="preserve">
+    <value>保存副本</value>
+  </data>
+  <data name="EditPage_Visual_ZoomOut.ToolTipService.ToolTip" xml:space="preserve">
+    <value>缩小预览（-）</value>
+  </data>
+  <data name="EditPage_Visual_ZoomReset.ToolTipService.ToolTip" xml:space="preserve">
+    <value>重置缩放（0）</value>
+  </data>
+  <data name="EditPage_Visual_ZoomIn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>放大预览（+）</value>
+  </data>
+  <data name="EditPage_Visual_Maximize.ToolTipService.ToolTip" xml:space="preserve">
+    <value>最大化预览（F11）</value>
+  </data>
+  <data name="EditPage_Visual_EmptyPrompt.Text" xml:space="preserve">
+    <value>打开或拖入一张实况照片开始编辑</value>
+  </data>
+  <data name="EditPage_Visual_OpenFile.Content" xml:space="preserve">
+    <value>打开实况照片</value>
+  </data>
+  <data name="EditPage_Visual_EditTools.Text" xml:space="preserve">
+    <value>编辑工具</value>
+  </data>
+  <data name="EditPage_Visual_CoverSection.Text" xml:space="preserve">
+    <value>封面</value>
+  </data>
+  <data name="EditPage_Visual_CurrentCover.Text" xml:space="preserve">
+    <value>当前封面</value>
+  </data>
+  <data name="EditPage_Visual_IndependentStill.Text" xml:space="preserve">
+    <value>关联位置：未记录</value>
+  </data>
+  <data name="EditPage_Visual_UseCurrentFrameCover.Content" xml:space="preserve">
+    <value>使用当前帧作为封面</value>
+  </data>
+  <data name="EditPage_Visual_OriginalCover.Text" xml:space="preserve">
+    <value>原始封面</value>
+  </data>
+  <data name="EditPage_Visual_PlaybackRange.Text" xml:space="preserve">
+    <value>播放范围</value>
+  </data>
+  <data name="EditPage_Visual_StartTime.Text" xml:space="preserve">
+    <value>起始时间</value>
+  </data>
+  <data name="EditPage_Visual_EndTime.Text" xml:space="preserve">
+    <value>结束时间</value>
+  </data>
+  <data name="EditPage_Visual_Duration.Text" xml:space="preserve">
+    <value>持续时间</value>
+  </data>
+  <data name="EditPage_Visual_Reset.Content" xml:space="preserve">
+    <value>重置</value>
+  </data>
+  <data name="EditPage_Visual_ReplaceMotionVideo.Header" xml:space="preserve">
+    <value>替换动态视频</value>
+  </data>
+  <data name="EditPage_Visual_SelectVideo.Content" xml:space="preserve">
+    <value>选择视频</value>
+  </data>
+  <data name="EditPage_Visual_ReplaceStillImage.Header" xml:space="preserve">
+    <value>替换静态图片</value>
+  </data>
+  <data name="EditPage_Visual_SelectImage.Content" xml:space="preserve">
+    <value>选择图片</value>
+  </data>
+  <data name="EditPage_Visual_FilmstripMode.Content" xml:space="preserve">
+    <value>胶片模式</value>
+  </data>
+  <data name="EditPage_Visual_ClassicMode.Content" xml:space="preserve">
+    <value>经典模式</value>
+  </data>
+  <data name="EditPage_Visual_PreviousFrame.ToolTipService.ToolTip" xml:space="preserve">
+    <value>上一帧</value>
+  </data>
+  <data name="EditPage_Visual_PlayPause.ToolTipService.ToolTip" xml:space="preserve">
+    <value>播放 / 暂停（空格）</value>
+  </data>
+  <data name="EditPage_Visual_NextFrame.ToolTipService.ToolTip" xml:space="preserve">
+    <value>下一帧</value>
+  </data>
+  <data name="EditPage_Visual_Mute.ToolTipService.ToolTip" xml:space="preserve">
+    <value>静音 / 取消静音（M）</value>
+  </data>
+  <data name="EditPage_Visual_ReencodeWarning.ToolTipService.ToolTip" xml:space="preserve">
+    <value>此操作可能需要重新编码视频</value>
+  </data>
+  <data name="EditPage_Visual_DeleteFrame.Content" xml:space="preserve">
+    <value>删除帧</value>
+  </data>
+  <data name="EditPage_Visual_AddFrame.Content" xml:space="preserve">
+    <value>添加帧</value>
+  </data>
+  <data name="EditPage_Visual_More.ToolTipService.ToolTip" xml:space="preserve">
+    <value>更多操作</value>
+  </data>
+  <data name="EditPage_Visual_CoverAssociationUnknown" xml:space="preserve">
+    <value>关联位置：未记录</value>
+  </data>
+  <data name="EditPage_Visual_CoverAssociationKnown" xml:space="preserve">
+    <value>关联位置：{0} 秒 · 第 {1} 帧</value>
+  </data>
+  <data name="EditPage_Visual_Seconds" xml:space="preserve">
+    <value>{0} 秒</value>
+  </data>
+  <data name="EditPage_Visual_PlaybackRangeSummary" xml:space="preserve">
+    <value>时长 {0} 秒 · {1} 帧</value>
+  </data>
+  <data name="EditPage_Visual_TimelinePosition" xml:space="preserve">
+    <value>第 {0} / {1} 帧 · {2} / {3} 秒</value>
+  </data>
 </root>

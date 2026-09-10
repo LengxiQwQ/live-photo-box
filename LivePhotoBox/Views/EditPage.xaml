@@ -29,20 +29,34 @@
             <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
         </Style>
 
-        <!-- Timeline layer B: cover markers + frame number. No cover consumes an item. -->
+        <!-- Timeline layer B: compact evidence-backed cover markers + independent frame number. -->
         <DataTemplate x:Key="TimelineMarkerTemplate" x:DataType="models:EditTimelinePresentationItem">
-            <Grid Width="72" Height="42">
+            <Grid Width="72" Height="48">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="15"/>
-                    <RowDefinition Height="15"/>
-                    <RowDefinition Height="12"/>
+                    <RowDefinition Height="17"/>
+                    <RowDefinition Height="17"/>
+                    <RowDefinition Height="14"/>
                 </Grid.RowDefinitions>
-                <TextBlock Grid.Row="0" Text="当前封面 ▼" FontSize="9" FontWeight="SemiBold"
-                           Foreground="#FFF2C744" HorizontalAlignment="Center"
-                           Visibility="{x:Bind IsCurrentCoverMarker, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"/>
-                <TextBlock Grid.Row="1" Text="原始封面 ▼" FontSize="9" FontWeight="SemiBold"
-                           Foreground="#FFA76CF5" HorizontalAlignment="Center"
-                           Visibility="{x:Bind IsOriginalCoverMarker, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"/>
+                <Grid Grid.Row="0" Width="72" Height="17"
+                      Visibility="{x:Bind IsCurrentCoverMarker, Mode=OneWay, Converter={StaticResource VisibilityConverter}}">
+                    <Border Height="13" Padding="5,0" CornerRadius="3" HorizontalAlignment="Center" VerticalAlignment="Top"
+                            Background="#FFF2C744">
+                        <TextBlock x:Uid="EditPage_Visual_CurrentCoverMarker" FontSize="8" FontWeight="SemiBold"
+                                   Foreground="#FF322800" VerticalAlignment="Center"/>
+                    </Border>
+                    <Polygon Points="0,0 8,0 4,4" Fill="#FFF2C744"
+                             HorizontalAlignment="Center" VerticalAlignment="Bottom"/>
+                </Grid>
+                <Grid Grid.Row="1" Width="72" Height="17"
+                      Visibility="{x:Bind IsOriginalCoverMarker, Mode=OneWay, Converter={StaticResource VisibilityConverter}}">
+                    <Border Height="13" Padding="5,0" CornerRadius="3" HorizontalAlignment="Center" VerticalAlignment="Top"
+                            Background="#FFA76CF5">
+                        <TextBlock x:Uid="EditPage_Visual_OriginalCoverMarker" FontSize="8" FontWeight="SemiBold"
+                                   Foreground="White" VerticalAlignment="Center"/>
+                    </Border>
+                    <Polygon Points="0,0 8,0 4,4" Fill="#FFA76CF5"
+                             HorizontalAlignment="Center" VerticalAlignment="Bottom"/>
+                </Grid>
                 <TextBlock Grid.Row="2" Text="{x:Bind DisplayNumber}" FontSize="10"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            HorizontalAlignment="Center" VerticalAlignment="Bottom"/>
@@ -83,26 +97,26 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <StackPanel Orientation="Horizontal" Spacing="14" VerticalAlignment="Center">
-                <TextBlock Text="实况照片编辑" FontSize="20" FontWeight="SemiBold"/>
+                <TextBlock x:Uid="EditPage_PageTitle" FontSize="20" FontWeight="SemiBold"/>
                 <TextBlock Text="{x:Bind ViewModel.ExportProgressText, Mode=OneWay}" FontSize="12"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
             </StackPanel>
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                <Button Content="撤销" IsEnabled="False" ToolTipService.ToolTip="本轮仅保留 UI 入口"/>
-                <Button Content="重做" IsEnabled="False" ToolTipService.ToolTip="本轮仅保留 UI 入口"/>
+                <Button x:Uid="EditPage_Visual_Undo" IsEnabled="False"/>
+                <Button x:Uid="EditPage_Visual_Redo" IsEnabled="False"/>
                 <Border Width="1" Height="20" Margin="4,0" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
-                <Button x:Name="ExportFramesButton" Content="导出帧..."
+                <Button x:Name="ExportFramesButton" x:Uid="EditPage_Visual_ExportFrames"
                         IsEnabled="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay}">
                     <Button.Flyout>
                         <MenuFlyout>
-                            <MenuFlyoutItem Text="导出当前帧" Command="{x:Bind ViewModel.ExportCurrentFrameCommand}"
+                            <MenuFlyoutItem x:Uid="EditPage_Visual_ExportCurrentFrame" Command="{x:Bind ViewModel.ExportCurrentFrameCommand}"
                                             IsEnabled="{x:Bind ViewModel.CanExportCurrentFrame, Mode=OneWay}"/>
-                            <MenuFlyoutItem Text="导出所有帧" Command="{x:Bind ViewModel.ExportAllFramesCommand}"
+                            <MenuFlyoutItem x:Uid="EditPage_Visual_ExportAllFrames" Command="{x:Bind ViewModel.ExportAllFramesCommand}"
                                             IsEnabled="{x:Bind ViewModel.CanExportMultiFrame, Mode=OneWay}"/>
                         </MenuFlyout>
                     </Button.Flyout>
                 </Button>
-                <Button Content="保存副本" Command="{x:Bind ViewModel.SaveCommand}"
+                <Button x:Uid="EditPage_Visual_SaveCopy" Command="{x:Bind ViewModel.SaveCommand}"
                         IsEnabled="{x:Bind ViewModel.IsSetKeyPhotoEnabled, Mode=OneWay}"/>
             </StackPanel>
         </Grid>
@@ -127,28 +141,31 @@
                     <StackPanel x:Name="ZoomControlsPanel" Orientation="Horizontal" Spacing="4"
                                 HorizontalAlignment="Right" VerticalAlignment="Top" Margin="8"
                                 Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay, Converter={StaticResource VisibilityConverter}}">
-                        <Button Width="32" Height="30" Padding="0" Click="ZoomOutButton_Click" ToolTipService.ToolTip="缩小">
+                        <Button x:Uid="EditPage_Visual_ZoomOut" Width="32" Height="30" Padding="0" Click="ZoomOutButton_Click">
                             <FontIcon Glyph="&#xE949;" FontSize="12"/>
                         </Button>
                         <Button x:Name="ZoomPercentButton" Width="48" Height="30" Padding="0"
-                                Click="ZoomPercentButton_Click" ToolTipService.ToolTip="100% / 适应窗口">
+                                Click="ZoomPercentButton_Click" x:Uid="EditPage_Visual_ZoomReset">
                             <TextBlock x:Name="ZoomPercentText" Text="100%" FontSize="10" FontWeight="SemiBold"/>
                         </Button>
-                        <Button Width="32" Height="30" Padding="0" Click="ZoomInButton_Click" ToolTipService.ToolTip="放大">
+                        <Button x:Uid="EditPage_Visual_ZoomIn" Width="32" Height="30" Padding="0" Click="ZoomInButton_Click">
                             <FontIcon Glyph="&#xE948;" FontSize="12"/>
                         </Button>
                         <Border Width="1" Height="18" Margin="3,0" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
-                        <Button x:Name="MaximizeButton" Width="32" Height="30" Padding="0"
-                                Click="MaximizeButton_Click" ToolTipService.ToolTip="最大化预览">
+                        <Button x:Name="MaximizeButton" x:Uid="EditPage_Visual_Maximize" Width="32" Height="30" Padding="0"
+                                Click="MaximizeButton_Click">
                             <FontIcon x:Name="MaximizeButtonIcon" Glyph="&#xE740;" FontSize="12"/>
                         </Button>
                     </StackPanel>
 
-                    <StackPanel x:Name="PreviewEmptyState" HorizontalAlignment="Center" VerticalAlignment="Center"
-                                Spacing="10" IsHitTestVisible="False">
-                        <FontIcon Glyph="&#xE91B;" FontSize="38" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                        <TextBlock x:Name="PreviewEmptyText" Text="选择一个实况照片开始编辑" FontSize="13"
-                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                    <StackPanel x:Name="PreviewEmptyState" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                        <FontIcon Glyph="&#xE91B;" FontSize="38" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                  HorizontalAlignment="Center" IsHitTestVisible="False"/>
+                        <TextBlock x:Name="PreviewEmptyText" x:Uid="EditPage_Visual_EmptyPrompt" FontSize="13"
+                                   Foreground="{ThemeResource TextFillColorTertiaryBrush}" HorizontalAlignment="Center"
+                                   IsHitTestVisible="False"/>
+                        <Button x:Name="OpenLivePhotoButton" x:Uid="EditPage_Visual_OpenFile"
+                                HorizontalAlignment="Center" Click="OpenLivePhotoButton_Click"/>
                     </StackPanel>
                 </Grid>
             </Border>
@@ -156,28 +173,28 @@
             <Border x:Name="EditToolsBorder" Grid.Column="1" Style="{StaticResource EditorCardStyle}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Padding="16" Spacing="18">
-                        <TextBlock Text="编辑工具" FontSize="16" FontWeight="SemiBold"/>
+                        <TextBlock x:Uid="EditPage_Visual_EditTools" FontSize="16" FontWeight="SemiBold"/>
 
                         <StackPanel Spacing="12">
-                            <TextBlock Text="封面" Style="{StaticResource ToolSectionTitleStyle}"/>
+                            <TextBlock x:Uid="EditPage_Visual_CoverSection" Style="{StaticResource ToolSectionTitleStyle}"/>
                             <StackPanel Spacing="6">
-                                <TextBlock Text="当前封面" FontWeight="SemiBold" FontSize="12"/>
+                                <TextBlock x:Uid="EditPage_Visual_CurrentCover" FontWeight="SemiBold" FontSize="12"/>
                                 <Border Height="150" CornerRadius="6" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
                                     <Image Source="{x:Bind ViewModel.CurrentCoverThumbnail, Mode=OneWay}" Stretch="Uniform"/>
                                 </Border>
-                                <TextBlock Text="独立静态图像" Style="{StaticResource SecondaryLabelStyle}"/>
+                                <TextBlock x:Uid="EditPage_Visual_IndependentStill" Style="{StaticResource SecondaryLabelStyle}"/>
                                 <TextBlock Text="{x:Bind ViewModel.CurrentCoverAssociationText, Mode=OneWay}"
                                            Style="{StaticResource SecondaryLabelStyle}" TextWrapping="Wrap"/>
-                                <Button Content="使用当前帧作为封面" HorizontalAlignment="Stretch"
+                                <Button x:Uid="EditPage_Visual_UseCurrentFrameCover" HorizontalAlignment="Stretch"
                                         Click="UseCurrentFrameAsCover_Click"
                                         IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}"/>
                             </StackPanel>
                             <StackPanel Spacing="6">
-                                <TextBlock Text="原始封面" FontWeight="SemiBold" FontSize="12"/>
+                                <TextBlock x:Uid="EditPage_Visual_OriginalCover" FontWeight="SemiBold" FontSize="12"/>
                                 <Border Height="150" CornerRadius="6" Background="{ThemeResource LayerOnAccentAcrylicFillColorDefaultBrush}">
                                     <Image Source="{x:Bind ViewModel.OriginalCoverThumbnail, Mode=OneWay}" Stretch="Uniform"/>
                                 </Border>
-                                <TextBlock Text="独立静态图像" Style="{StaticResource SecondaryLabelStyle}"/>
+                                <TextBlock x:Uid="EditPage_Visual_IndependentStill" Style="{StaticResource SecondaryLabelStyle}"/>
                                 <TextBlock Text="{x:Bind ViewModel.OriginalCoverAssociationText, Mode=OneWay}"
                                            Style="{StaticResource SecondaryLabelStyle}" TextWrapping="Wrap"/>
                             </StackPanel>
@@ -185,34 +202,32 @@
 
                         <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
                         <StackPanel Spacing="10">
-                            <TextBlock Text="播放范围" Style="{StaticResource ToolSectionTitleStyle}"/>
+                            <TextBlock x:Uid="EditPage_Visual_PlaybackRange" Style="{StaticResource ToolSectionTitleStyle}"/>
                             <Grid ColumnSpacing="8" RowSpacing="8">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/><RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
-                                <TextBlock Grid.Row="0" Text="开始时间" Style="{StaticResource SecondaryLabelStyle}"/>
+                                <TextBlock Grid.Row="0" x:Uid="EditPage_Visual_StartTime" Style="{StaticResource SecondaryLabelStyle}"/>
                                 <TextBlock Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.PlaybackRangeStartText, Mode=OneWay}"/>
-                                <TextBlock Grid.Row="1" Text="结束时间" Style="{StaticResource SecondaryLabelStyle}"/>
+                                <TextBlock Grid.Row="1" x:Uid="EditPage_Visual_EndTime" Style="{StaticResource SecondaryLabelStyle}"/>
                                 <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.PlaybackRangeEndText, Mode=OneWay}"/>
-                                <TextBlock Grid.Row="2" Text="持续时间" Style="{StaticResource SecondaryLabelStyle}"/>
+                                <TextBlock Grid.Row="2" x:Uid="EditPage_Visual_Duration" Style="{StaticResource SecondaryLabelStyle}"/>
                                 <TextBlock Grid.Row="2" Grid.Column="1" Text="{x:Bind ViewModel.PlaybackRangeSummaryText, Mode=OneWay}"/>
-                                <Button Grid.Row="3" Grid.Column="1" Content="重置" Click="ResetPlaybackRange_Click"/>
+                                <Button Grid.Row="3" Grid.Column="1" x:Uid="EditPage_Visual_Reset" Click="ResetPlaybackRange_Click"/>
                             </Grid>
                         </StackPanel>
 
                         <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
-                        <Expander Header="替换动态视频">
+                        <Expander x:Uid="EditPage_Visual_ReplaceMotionVideo">
                             <StackPanel Spacing="8" Padding="0,8,0,4">
-                                <TextBlock Text="本轮仅提供界面入口，不执行媒体替换。" Style="{StaticResource SecondaryLabelStyle}" TextWrapping="Wrap"/>
-                                <Button Content="选择视频..." IsEnabled="False" HorizontalAlignment="Left"/>
+                                <Button x:Uid="EditPage_Visual_SelectVideo" IsEnabled="False" HorizontalAlignment="Left"/>
                             </StackPanel>
                         </Expander>
-                        <Expander Header="替换静态图像">
+                        <Expander x:Uid="EditPage_Visual_ReplaceStillImage">
                             <StackPanel Spacing="8" Padding="0,8,0,4">
-                                <TextBlock Text="本轮仅提供界面入口，不执行媒体替换。" Style="{StaticResource SecondaryLabelStyle}" TextWrapping="Wrap"/>
-                                <Button Content="选择图像..." IsEnabled="False" HorizontalAlignment="Left"/>
+                                <Button x:Uid="EditPage_Visual_SelectImage" IsEnabled="False" HorizontalAlignment="Left"/>
                             </StackPanel>
                         </Expander>
                     </StackPanel>
@@ -237,10 +252,10 @@
                         <ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
                     <StackPanel Orientation="Horizontal" Spacing="4">
-                        <ToggleButton x:Name="FilmstripModeButton" Content="胶片模式"
+                        <ToggleButton x:Name="FilmstripModeButton" x:Uid="EditPage_Visual_FilmstripMode"
                                       IsChecked="{x:Bind ViewModel.IsFilmstripPresentationMode, Mode=OneWay}"
                                       Click="FilmstripModeButton_Click"/>
-                        <ToggleButton x:Name="ClassicModeButton" Content="经典模式"
+                        <ToggleButton x:Name="ClassicModeButton" x:Uid="EditPage_Visual_ClassicMode"
                                       IsChecked="{x:Bind ViewModel.IsClassicPresentationMode, Mode=OneWay}"
                                       Click="ClassicModeButton_Click"/>
                     </StackPanel>
@@ -249,35 +264,36 @@
                                VerticalAlignment="Center" Margin="6,0,0,0"/>
                     <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="4">
                         <Button Width="32" Height="30" Padding="0" Click="PreviousFrameButton_Click"
-                                IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}" ToolTipService.ToolTip="上一帧">
+                                IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}" x:Uid="EditPage_Visual_PreviousFrame">
                             <FontIcon Glyph="&#xE892;" FontSize="12"/>
                         </Button>
                         <Button x:Name="PlayPauseButton" Width="34" Height="30" Padding="0" Click="PlayPauseButton_Click"
-                                IsEnabled="{x:Bind ViewModel.CanPlayLivePhoto, Mode=OneWay}" ToolTipService.ToolTip="播放 / 暂停">
+                                IsEnabled="{x:Bind ViewModel.CanPlayLivePhoto, Mode=OneWay}" x:Uid="EditPage_Visual_PlayPause">
                             <FontIcon x:Name="PlaybackIcon" Glyph="&#xE768;" FontSize="12"/>
                         </Button>
                         <Button Width="32" Height="30" Padding="0" Click="NextFrameButton_Click"
-                                IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}" ToolTipService.ToolTip="下一帧">
+                                IsEnabled="{x:Bind ViewModel.HasTimelineFrames, Mode=OneWay}" x:Uid="EditPage_Visual_NextFrame">
                             <FontIcon Glyph="&#xE893;" FontSize="12"/>
                         </Button>
                         <Button Width="34" Height="30" Padding="0" Click="MuteButton_Click"
-                                IsEnabled="{x:Bind ViewModel.CanPlayLivePhoto, Mode=OneWay}" ToolTipService.ToolTip="静音">
+                                IsEnabled="{x:Bind ViewModel.CanPlayLivePhoto, Mode=OneWay}" x:Uid="EditPage_Visual_Mute">
                             <FontIcon x:Name="MuteIcon" Glyph="&#xE767;" FontSize="12"/>
                         </Button>
                     </StackPanel>
                     <TextBlock Grid.Column="4" Text="⚠" FontSize="15" VerticalAlignment="Center"
-                               ToolTipService.ToolTip="本轮新增编辑入口仅为 UI / Presentation State；未接入帧增删、替换、裁切或重编码后端。"/>
+                               x:Uid="EditPage_Visual_ReencodeWarning"
+                               Visibility="{x:Bind ViewModel.IsReencodeWarningVisible, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"/>
                     <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="4">
-                        <Button Content="删除帧" IsEnabled="False"/>
-                        <Button Content="+ 添加帧" IsEnabled="False"/>
-                        <Button Content="..." Width="34" IsEnabled="False"/>
+                        <Button x:Uid="EditPage_Visual_DeleteFrame" IsEnabled="False"/>
+                        <Button x:Uid="EditPage_Visual_AddFrame" IsEnabled="False"/>
+                        <Button x:Uid="EditPage_Visual_More" Content="⋯" Width="34" IsEnabled="False"/>
                     </StackPanel>
                 </Grid>
 
                 <!-- Filmstrip: B and C share one viewport so numbers/markers stay aligned with thumbnails. -->
                 <ScrollViewer x:Name="FilmstripScrollViewer" Grid.Row="1" Grid.RowSpan="2"
                               Visibility="{x:Bind ViewModel.IsFilmstripPresentationMode, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
-                              HorizontalScrollBarVisibility="Visible" VerticalScrollBarVisibility="Disabled"
+                              HorizontalScrollBarVisibility="Hidden" VerticalScrollBarVisibility="Disabled"
                               HorizontalScrollMode="Enabled" VerticalScrollMode="Disabled" ZoomMode="Disabled"
                               ViewChanged="TimelineScrollViewer_ViewChanged" SizeChanged="TimelineViewport_SizeChanged">
                     <StackPanel Spacing="4">
@@ -321,7 +337,11 @@
                 <!-- D. Overview Bar: same full width as the frame viewport, never a playback seek bar. -->
                 <Border x:Name="TimelineOverviewTrack" Grid.Row="3" Height="16" CornerRadius="8"
                         Background="{ThemeResource ControlFillColorSecondaryBrush}"
-                        SizeChanged="TimelineOverviewTrack_SizeChanged">
+                        SizeChanged="TimelineOverviewTrack_SizeChanged"
+                        PointerPressed="TimelineOverviewTrack_PointerPressed"
+                        PointerMoved="TimelineOverviewTrack_PointerMoved"
+                        PointerReleased="TimelineOverviewTrack_PointerReleased"
+                        PointerCaptureLost="TimelineOverviewTrack_PointerCaptureLost">
                     <Canvas x:Name="TimelineOverviewCanvas" Height="16">
                         <Border x:Name="TimelineOverviewViewport" Height="10" CornerRadius="5"
                                 Background="{ThemeResource ControlFillColorTertiaryBrush}" Canvas.Top="3"/>

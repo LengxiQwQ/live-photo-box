@@ -1,16 +1,20 @@
 using LivePhotoBox.Models;
+using LivePhotoBox.Services;
 using Microsoft.UI.Xaml.Media;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace LivePhotoBox.ViewModels
 {
     /// <summary>
-    /// Presentation-only state for the master-based EditPage visual refactor.
-    /// This adapter intentionally does not mutate media/protocol/native data.
+    /// View-facing state for the master-based EditPage visual refactor.
+    /// Media/protocol/native services on current master remain authoritative.
     /// </summary>
     public partial class EditViewModel
     {
@@ -18,6 +22,8 @@ namespace LivePhotoBox.ViewModels
         private bool _editPresentationInitialized;
         private bool _presentationRefreshQueued;
         private TimelineFrame? _presentationCurrentCoverFrame;
+        private TimelineFrame? _presentationCurrentCoverAssociationFrame;
+        private TimelineFrame? _presentationOriginalCoverAssociationFrame;
         private EditTimelineDisplayMode _timelineDisplayMode = EditTimelineDisplayMode.Filmstrip;
         private TimeSpan _playbackRangeStart = TimeSpan.Zero;
         private TimeSpan _playbackRangeEnd = TimeSpan.Zero;
@@ -97,7 +103,12 @@ namespace LivePhotoBox.ViewModels
             {
                 var selected = SelectedVideoFrameIndex;
                 var displayIndex = selected >= 0 ? selected + 1 : 0;
-                return $"第 {displayIndex} / {VideoFrameCount} 帧 · {SelectedFrameTimestamp.TotalSeconds:0.00} s / {VideoDuration.TotalSeconds:0.00} s";
+                return ResourceService.Format(
+                    "EditPage_Visual_TimelinePosition",
+                    displayIndex,
+                    VideoFrameCount,
+                    SelectedFrameTimestamp.TotalSeconds.ToString("0.00"),
+                    VideoDuration.TotalSeconds.ToString("0.00"));
             }
         }
 
@@ -124,45 +135,97 @@ namespace LivePhotoBox.ViewModels
         }
 
         public string CurrentCoverAssociationText =>
-            BuildAssociationText(_presentationCurrentCoverFrame ?? FindCurrentCoverAsset());
+            BuildAssociationText(_presentationCurrentCoverAssociationFrame);
 
         public string OriginalCoverAssociationText =>
-            BuildAssociationText(FindOriginalCoverAsset());
+            BuildAssociationText(_presentationOriginalCoverAssociationFrame);
 
-        public string PlaybackRangeStartText => $"{_playbackRangeStart.TotalSeconds:0.00} s";
-        public string PlaybackRangeEndText => $"{_playbackRangeEnd.TotalSeconds:0.00} s";
+        public string PlaybackRangeStartText =>
+            ResourceService.Format("EditPage_Visual_Seconds", _playbackRangeStart.TotalSeconds.ToString("0.00"));
+
+        public string PlaybackRangeEndText =>
+            ResourceService.Format("EditPage_Visual_Seconds", _playbackRangeEnd.TotalSeconds.ToString("0.00"));
+
         public string PlaybackRangeSummaryText =>
-            $"{Math.Max(0, (_playbackRangeEnd - _playbackRangeStart).TotalSeconds):0.00} s · {VideoFrameCount} 帧";
+            ResourceService.Format(
+                "EditPage_Visual_PlaybackRangeSummary",
+                Math.Max(0, (_playbackRangeEnd - _playbackRangeStart).TotalSeconds).ToString("0.00"),
+                VideoFrameCount);
 
         /// <summary>
-        /// True only while the user has made a presentation-only cover choice that has not
-        /// been handed to any media writer.
+        /// No operation in this UI phase mutates the motion video, so nothing here can require
+        /// re-encoding. This remains false until a future backend-backed edit explicitly owns it.
         /// </summary>
-        public bool IsReencodeWarningVisible => _presentationCurrentCoverFrame != null;
+        public bool IsReencodeWarningVisible => false;
 
         public void SetTimelineDisplayMode(EditTimelineDisplayMode mode) => TimelineDisplayMode = mode;
 
         /// <summary>
-        /// UI/session-only cover choice. No writer, encoder, protocol or media-core call occurs here.
+        /// Session cover choice. The selected real video frame is reliable user-provided
+        /// association evidence, so the marker may point to that exact frame. No writer/encoder runs.
         /// </summary>
         public void SetCurrentCoverPresentation(TimelineFrame? frame)
         {
             EnsureEditPresentationInitialized();
             if (frame == null || frame.IsStillPhoto || frame.IsOriginalPhoto) return;
+            if (!_videoTimelineFrames.Any(item => ReferenceEquals(item.Frame, frame))) return;
 
             _presentationCurrentCoverFrame = frame;
+            _presentationCurrentCoverAssociationFrame = frame;
             RefreshCoverMarkers();
             RaiseCoverPresentationProperties();
-            OnPropertyChanged(nameof(IsReencodeWarningVisible));
         }
 
-        /// <summary>Presentation-only reset. No media trimming is performed.</summary>
+        /// <summary>View-state reset only. No media trimming is performed.</summary>
         public void ResetPlaybackRangePresentation()
         {
             EnsureEditPresentationInitialized();
             _playbackRangeStart = TimeSpan.Zero;
             _playbackRangeEnd = VideoDuration;
             RaisePlaybackRangeProperties();
+        }
+
+        /// <summary>
+        /// Minimal single-file entry for the new EditPage. It deliberately delegates discovery,
+        /// pairing and protocol inspection to current master's existing directory scan pipeline.
+        /// </summary>
+        public async Task<bool> OpenSingleFileForEditAsync(string filePath)
+        {
+            if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+                return false;
+            if (!IsSupportedImageExtension(Path.GetExtension(filePath)))
+                return false;
+
+            var directory = Path.GetDirectoryName(filePath);
+            if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
+                return false;
+
+            CurrentDirectory = directory;
+            await ScanDirectoryAsync(directory).ConfigureAwait(false);
+
+            // ApplySortAndFilter enqueues its collection update before this callback. Enqueueing
+            // selection afterwards preserves that ordering without duplicating scanner logic.
+            var dispatcher = App.MainWindow?.DispatcherQueue;
+            if (dispatcher == null) return false;
+
+            var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (!dispatcher.TryEnqueue(() =>
+            {
+                var item = FileItems.FirstOrDefault(candidate =>
+                    string.Equals(candidate.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
+                if (item == null)
+                {
+                    completion.TrySetResult(false);
+                    return;
+                }
+
+                SelectFile(item.FilePath);
+                completion.TrySetResult(true);
+            }))
+            {
+                return false;
+            }
+            return await completion.Task.ConfigureAwait(false);
         }
 
         private void EnsureEditPresentationInitialized()
@@ -190,8 +253,9 @@ namespace LivePhotoBox.ViewModels
             else if (e.PropertyName == nameof(SelectedFilePath))
             {
                 _presentationCurrentCoverFrame = null;
+                _presentationCurrentCoverAssociationFrame = null;
+                _presentationOriginalCoverAssociationFrame = null;
                 QueuePresentationRefresh();
-                OnPropertyChanged(nameof(IsReencodeWarningVisible));
             }
             else if (e.PropertyName == nameof(SelectedFileThumbnail))
             {
@@ -234,6 +298,15 @@ namespace LivePhotoBox.ViewModels
             for (var i = 0; i < videoFrames.Count; i++)
                 _videoTimelineFrames.Add(new EditTimelinePresentationItem(videoFrames[i], i + 1));
 
+            // Associations are evidence-only. If an exact associated frame no longer exists,
+            // discard the association instead of remapping it by Timestamp.
+            if (!ContainsVideoFrame(_presentationCurrentCoverAssociationFrame))
+                _presentationCurrentCoverAssociationFrame = null;
+            if (!ContainsVideoFrame(_presentationOriginalCoverAssociationFrame))
+                _presentationOriginalCoverAssociationFrame = null;
+            if (!ContainsVideoFrame(_presentationCurrentCoverFrame))
+                _presentationCurrentCoverFrame = null;
+
             _playbackRangeStart = TimeSpan.Zero;
             _playbackRangeEnd = VideoDuration;
             RefreshCoverMarkers();
@@ -247,31 +320,16 @@ namespace LivePhotoBox.ViewModels
             RaisePlaybackRangeProperties();
         }
 
+        private bool ContainsVideoFrame(TimelineFrame? frame) =>
+            frame != null && _videoTimelineFrames.Any(item => ReferenceEquals(item.Frame, frame));
+
         private void RefreshCoverMarkers()
         {
             foreach (var item in _videoTimelineFrames)
             {
-                item.IsCurrentCoverMarker = false;
-                item.IsOriginalCoverMarker = false;
+                item.IsCurrentCoverMarker = ReferenceEquals(item.Frame, _presentationCurrentCoverAssociationFrame);
+                item.IsOriginalCoverMarker = ReferenceEquals(item.Frame, _presentationOriginalCoverAssociationFrame);
             }
-
-            MarkClosestFrame(_presentationCurrentCoverFrame ?? FindCurrentCoverAsset(), isCurrent: true);
-            MarkClosestFrame(FindOriginalCoverAsset(), isCurrent: false);
-        }
-
-        private void MarkClosestFrame(TimelineFrame? coverFrame, bool isCurrent)
-        {
-            if (coverFrame == null || _videoTimelineFrames.Count == 0) return;
-
-            var closest = _videoTimelineFrames
-                .OrderBy(item => Math.Abs((item.Frame.Timestamp - coverFrame.Timestamp).Ticks))
-                .FirstOrDefault();
-            if (closest == null) return;
-
-            if (isCurrent)
-                closest.IsCurrentCoverMarker = true;
-            else
-                closest.IsOriginalCoverMarker = true;
         }
 
         private TimelineFrame? FindCurrentCoverAsset() =>
@@ -280,23 +338,29 @@ namespace LivePhotoBox.ViewModels
         private TimelineFrame? FindOriginalCoverAsset() =>
             TimelineFrames.FirstOrDefault(frame => frame.IsOriginalPhoto);
 
-        private string BuildAssociationText(TimelineFrame? coverFrame)
+        private string BuildAssociationText(TimelineFrame? associationFrame)
         {
             EnsureEditPresentationInitialized();
-            if (coverFrame == null || _videoTimelineFrames.Count == 0)
-                return "关联位置：未记录";
+            if (associationFrame == null)
+                return ResourceService.GetString("EditPage_Visual_CoverAssociationUnknown");
 
-            var closest = _videoTimelineFrames
-                .Select((item, index) => new
+            var index = -1;
+            for (var i = 0; i < _videoTimelineFrames.Count; i++)
+            {
+                if (ReferenceEquals(_videoTimelineFrames[i].Frame, associationFrame))
                 {
-                    item,
-                    index,
-                    delta = Math.Abs((item.Frame.Timestamp - coverFrame.Timestamp).Ticks)
-                })
-                .OrderBy(x => x.delta)
-                .First();
+                    index = i;
+                    break;
+                }
+            }
 
-            return $"关联位置：{coverFrame.Timestamp.TotalSeconds:0.00} s · 约第 {closest.index + 1} 帧";
+            if (index < 0)
+                return ResourceService.GetString("EditPage_Visual_CoverAssociationUnknown");
+
+            return ResourceService.Format(
+                "EditPage_Visual_CoverAssociationKnown",
+                associationFrame.Timestamp.TotalSeconds.ToString("0.00"),
+                index + 1);
         }
 
         private void RaiseCoverPresentationProperties()

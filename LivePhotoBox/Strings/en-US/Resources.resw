@@ -4352,4 +4352,136 @@ Then click "Start Split".</value>
   <data name="RepairPage_FilterButton.ToolTipService.ToolTip" xml:space="preserve"><value>Filter tasks (Ctrl+F)</value></data>
   <data name="RepairPage_ClearButton.ToolTipService.ToolTip" xml:space="preserve"><value>Clear list (C) / Pause or resume (P)</value></data>
   <data name="RepairPage_StartButton.ToolTipService.ToolTip" xml:space="preserve"><value>Start repairing (Ctrl+Enter) / Stop (press Esc twice)</value></data>
+<data name="EditPage_Visual_CurrentCoverMarker.Text" xml:space="preserve">
+    <value>Current Cover</value>
+  </data>
+  <data name="EditPage_Visual_OriginalCoverMarker.Text" xml:space="preserve">
+    <value>Original Cover</value>
+  </data>
+  <data name="EditPage_Visual_Undo.Content" xml:space="preserve">
+    <value>Undo</value>
+  </data>
+  <data name="EditPage_Visual_Redo.Content" xml:space="preserve">
+    <value>Redo</value>
+  </data>
+  <data name="EditPage_Visual_ExportFrames.Content" xml:space="preserve">
+    <value>Export Frames</value>
+  </data>
+  <data name="EditPage_Visual_ExportCurrentFrame.Text" xml:space="preserve">
+    <value>Export Current Frame</value>
+  </data>
+  <data name="EditPage_Visual_ExportAllFrames.Text" xml:space="preserve">
+    <value>Export All Frames</value>
+  </data>
+  <data name="EditPage_Visual_SaveCopy.Content" xml:space="preserve">
+    <value>Save Copy</value>
+  </data>
+  <data name="EditPage_Visual_ZoomOut.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Zoom out (-)</value>
+  </data>
+  <data name="EditPage_Visual_ZoomReset.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Reset zoom (0)</value>
+  </data>
+  <data name="EditPage_Visual_ZoomIn.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Zoom in (+)</value>
+  </data>
+  <data name="EditPage_Visual_Maximize.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Maximize preview (F11)</value>
+  </data>
+  <data name="EditPage_Visual_EmptyPrompt.Text" xml:space="preserve">
+    <value>Open or drop a Live Photo to start editing</value>
+  </data>
+  <data name="EditPage_Visual_OpenFile.Content" xml:space="preserve">
+    <value>Open Live Photo</value>
+  </data>
+  <data name="EditPage_Visual_EditTools.Text" xml:space="preserve">
+    <value>Edit Tools</value>
+  </data>
+  <data name="EditPage_Visual_CoverSection.Text" xml:space="preserve">
+    <value>Cover</value>
+  </data>
+  <data name="EditPage_Visual_CurrentCover.Text" xml:space="preserve">
+    <value>Current Cover</value>
+  </data>
+  <data name="EditPage_Visual_IndependentStill.Text" xml:space="preserve">
+    <value>Associated position: Not recorded</value>
+  </data>
+  <data name="EditPage_Visual_UseCurrentFrameCover.Content" xml:space="preserve">
+    <value>Use Current Frame as Cover</value>
+  </data>
+  <data name="EditPage_Visual_OriginalCover.Text" xml:space="preserve">
+    <value>Original Cover</value>
+  </data>
+  <data name="EditPage_Visual_PlaybackRange.Text" xml:space="preserve">
+    <value>Playback Range</value>
+  </data>
+  <data name="EditPage_Visual_StartTime.Text" xml:space="preserve">
+    <value>Start Time</value>
+  </data>
+  <data name="EditPage_Visual_EndTime.Text" xml:space="preserve">
+    <value>End Time</value>
+  </data>
+  <data name="EditPage_Visual_Duration.Text" xml:space="preserve">
+    <value>Duration</value>
+  </data>
+  <data name="EditPage_Visual_Reset.Content" xml:space="preserve">
+    <value>Reset</value>
+  </data>
+  <data name="EditPage_Visual_ReplaceMotionVideo.Header" xml:space="preserve">
+    <value>Replace Motion Video</value>
+  </data>
+  <data name="EditPage_Visual_SelectVideo.Content" xml:space="preserve">
+    <value>Select Video</value>
+  </data>
+  <data name="EditPage_Visual_ReplaceStillImage.Header" xml:space="preserve">
+    <value>Replace Still Image</value>
+  </data>
+  <data name="EditPage_Visual_SelectImage.Content" xml:space="preserve">
+    <value>Select Image</value>
+  </data>
+  <data name="EditPage_Visual_FilmstripMode.Content" xml:space="preserve">
+    <value>Filmstrip</value>
+  </data>
+  <data name="EditPage_Visual_ClassicMode.Content" xml:space="preserve">
+    <value>Classic</value>
+  </data>
+  <data name="EditPage_Visual_PreviousFrame.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Previous frame</value>
+  </data>
+  <data name="EditPage_Visual_PlayPause.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Play / Pause (Space)</value>
+  </data>
+  <data name="EditPage_Visual_NextFrame.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Next frame</value>
+  </data>
+  <data name="EditPage_Visual_Mute.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Mute / Unmute (M)</value>
+  </data>
+  <data name="EditPage_Visual_ReencodeWarning.ToolTipService.ToolTip" xml:space="preserve">
+    <value>This operation may require video re-encoding</value>
+  </data>
+  <data name="EditPage_Visual_DeleteFrame.Content" xml:space="preserve">
+    <value>Delete Frame</value>
+  </data>
+  <data name="EditPage_Visual_AddFrame.Content" xml:space="preserve">
+    <value>Add Frame</value>
+  </data>
+  <data name="EditPage_Visual_More.ToolTipService.ToolTip" xml:space="preserve">
+    <value>More actions</value>
+  </data>
+  <data name="EditPage_Visual_CoverAssociationUnknown" xml:space="preserve">
+    <value>Associated position: Not recorded</value>
+  </data>
+  <data name="EditPage_Visual_CoverAssociationKnown" xml:space="preserve">
+    <value>Associated position: {0}s · Frame {1}</value>
+  </data>
+  <data name="EditPage_Visual_Seconds" xml:space="preserve">
+    <value>{0}s</value>
+  </data>
+  <data name="EditPage_Visual_PlaybackRangeSummary" xml:space="preserve">
+    <value>Duration {0}s · {1} frames</value>
+  </data>
+  <data name="EditPage_Visual_TimelinePosition" xml:space="preserve">
+    <value>Frame {0} / {1} · {2}s / {3}s</value>
+  </data>
 </root>

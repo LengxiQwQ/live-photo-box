@@ -6,7 +6,7 @@ using System.ComponentModel;
 namespace LivePhotoBox.Models
 {
     /// <summary>
-    /// UI-only adapter for one real video frame in EditPage.
+    /// View adapter for one real video frame in EditPage.
     /// Cover/still assets are intentionally excluded from this type's source collection.
     /// </summary>
     public sealed class EditTimelinePresentationItem : ObservableObject
