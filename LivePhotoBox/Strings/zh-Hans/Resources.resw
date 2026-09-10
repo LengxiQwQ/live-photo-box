@@ -2720,13 +2720,13 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>恢复</value>
   </data>
   <data name="EditPage_Save.Label" xml:space="preserve">
-    <value>设为封面并保存为副本</value>
+    <value>保存副本</value>
   </data>
   <data name="EditPage_Save.KeyboardAcceleratorTextOverride" xml:space="preserve">
     <value>Ctrl+S</value>
   </data>
   <data name="EditPage_Save.ToolTipService.ToolTip" xml:space="preserve">
-    <value>设为封面并保存为副本（Ctrl+S）</value>
+    <value>保存副本（Ctrl+S）</value>
   </data>
   <data name="EditPage_SaveAs.Label" xml:space="preserve">
     <value>另存为</value>
@@ -2847,6 +2847,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>第 {0} 帧 / 共 {1} 帧</value>
     <comment>{0}=当前帧序号, {1}=总帧数</comment>
   </data>
+  <data name="EditPage_TimelineSecondsAndTotal.Text" xml:space="preserve">
+    <value>s /</value>
+    <comment>当前帧时间与总时长之间的单位分隔</comment>
+  </data>
   <data name="EditPage_TimelineFps" xml:space="preserve">
     <value>{0} fps</value>
     <comment>{0}=帧率数值，如 30</comment>
@@ -2858,6 +2862,99 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="EditPage_TimelineFrameOriginalPhoto" xml:space="preserve">
     <value>原始封面 · 共 {0} 帧</value>
     <comment>{0}=总帧数</comment>
+  </data>
+  <data name="EditPage_InspectorTitle.Text" xml:space="preserve">
+    <value>编辑工具</value>
+  </data>
+  <data name="EditPage_TimelineModeFilmstrip.Content" xml:space="preserve">
+    <value>胶片模式</value>
+  </data>
+  <data name="EditPage_TimelineModeClassic.Content" xml:space="preserve">
+    <value>经典模式</value>
+  </data>
+  <data name="EditPage_TimelineDeleteFrameLabel.Text" xml:space="preserve">
+    <value>删除帧</value>
+  </data>
+  <data name="EditPage_TimelineAddFrameLabel.Text" xml:space="preserve">
+    <value>添加帧</value>
+  </data>
+  <data name="EditPage_TimelineOriginalCoverMarker.Text" xml:space="preserve">
+    <value>原始封面</value>
+  </data>
+  <data name="EditPage_TimelineCurrentCoverMarker.Text" xml:space="preserve">
+    <value>当前封面</value>
+  </data>
+  <data name="EditPage_InspectorCover.Text" xml:space="preserve">
+    <value>封面</value>
+  </data>
+  <data name="EditPage_InspectorPlaybackRange.Text" xml:space="preserve">
+    <value>播放范围</value>
+  </data>
+  <data name="EditPage_InspectorAudio.Text" xml:space="preserve">
+    <value>音频</value>
+  </data>
+  <data name="EditPage_InspectorReplaceVideo.Text" xml:space="preserve">
+    <value>替换动态视频</value>
+  </data>
+  <data name="EditPage_InspectorReplaceImage.Text" xml:space="preserve">
+    <value>替换静态图像</value>
+  </data>
+  <data name="EditPage_InspectorCurrentCover.AutomationProperties.Name" xml:space="preserve">
+    <value>当前封面</value>
+  </data>
+  <data name="EditPage_InspectorOriginalCover.AutomationProperties.Name" xml:space="preserve">
+    <value>原始封面</value>
+  </data>
+  <data name="EditPage_InspectorCurrentCoverLabel.Text" xml:space="preserve">
+    <value>当前封面</value>
+  </data>
+  <data name="EditPage_InspectorOriginalCoverLabel.Text" xml:space="preserve">
+    <value>原始封面</value>
+  </data>
+  <data name="EditPage_InspectorReplace.Text" xml:space="preserve">
+    <value>替换</value>
+  </data>
+  <data name="EditPage_InspectorStart.Text" xml:space="preserve">
+    <value>开始时间</value>
+  </data>
+  <data name="EditPage_InspectorEnd.Text" xml:space="preserve">
+    <value>结束时间</value>
+  </data>
+  <data name="EditPage_InspectorSeconds.Text" xml:space="preserve">
+    <value>秒</value>
+  </data>
+  <data name="EditPage_InspectorMilliseconds.Text" xml:space="preserve">
+    <value>毫秒</value>
+  </data>
+  <data name="EditPage_InspectorDuration.Text" xml:space="preserve">
+    <value>持续时间</value>
+  </data>
+  <data name="EditPage_InspectorResetRange.Content" xml:space="preserve">
+    <value>重置</value>
+  </data>
+  <data name="EditPage_InspectorVolumeValue.Text" xml:space="preserve">
+    <value>100%</value>
+  </data>
+  <data name="EditPage_InspectorRemoveTrack.Content" xml:space="preserve">
+    <value>移除音轨</value>
+  </data>
+  <data name="EditPage_InspectorCurrentVideo.Text" xml:space="preserve">
+    <value>当前视频：未更换</value>
+  </data>
+  <data name="EditPage_InspectorSelectVideo.AutomationProperties.Name" xml:space="preserve">
+    <value>选择视频</value>
+  </data>
+  <data name="EditPage_InspectorSelectVideoLabel.Text" xml:space="preserve">
+    <value>选择视频</value>
+  </data>
+  <data name="EditPage_InspectorCurrentImage.Text" xml:space="preserve">
+    <value>当前图片：未更换</value>
+  </data>
+  <data name="EditPage_InspectorSelectImage.AutomationProperties.Name" xml:space="preserve">
+    <value>选择图片</value>
+  </data>
+  <data name="EditPage_InspectorSelectImageLabel.Text" xml:space="preserve">
+    <value>选择图片</value>
   </data>
   <data name="EditPage_PhotoInfoTitle.Text" xml:space="preserve">
     <value>当前照片信息</value>

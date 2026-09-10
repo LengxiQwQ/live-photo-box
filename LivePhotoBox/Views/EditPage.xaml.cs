@@ -65,11 +65,11 @@ namespace LivePhotoBox.Views
         private readonly Windows.UI.ViewManagement.UISettings _uiSettings = new();
 
         // ── 左侧面板折叠状态 ──
-        private bool _isLeftPanelCollapsed;
+        // EditPage 现在使用全宽编辑工作区；资源浏览基础设施保留在隐藏节点中。
+        private bool _isLeftPanelCollapsed = true;
+        private bool _isTimelineModeReady;
         private const double LeftPanelExpandedWidth = 320;
-        // 92px = ListView margin(6) + padding(4) + Border padding(20) + Thumb(52) + Spacing(10)
-        // 恰好完整露出缩略图，文字列空间归零自然不可见。
-        private const double LeftPanelCollapsedWidth = 100;
+        private const double LeftPanelCollapsedWidth = 0;
 
         /// <summary>上次成功触发扫描的目录路径（路径未变时跳过 LostFocus 重复扫描）</summary>
         private string? _lastScannedPath;
@@ -222,6 +222,49 @@ namespace LivePhotoBox.Views
             return InfoTabs.Items
                 .OfType<CommunityToolkit.WinUI.Controls.SegmentedItem>()
                 .FirstOrDefault(i => (string)i.Tag == tag);
+        }
+
+        /// <summary>
+        /// 编辑页时间轴模式入口。仅复用设置页已有的模式值和现有时间轴初始化管线，
+        /// 不引入新的帧数据或滚动逻辑。
+        /// </summary>
+        private void TimelineModeSegmented_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (!_isTimelineModeReady)
+                return;
+
+            if (TimelineModeSegmented.SelectedIndex < 0)
+                return;
+
+            int modeIndex = TimelineModeSegmented.SelectedIndex == 0 ? 1 : 0;
+            if (AppViewModel.Instance.Settings.TimelineModeIndex == modeIndex)
+                return;
+
+            var currentFrame = ViewModel.SelectedTimelineFrame;
+            AppViewModel.Instance.Settings.TimelineModeIndex = modeIndex;
+            ViewModel.TriggerModeVisibilityUpdate();
+
+            if (ViewModel.IsFilmstripTimelineMode)
+            {
+                InitializeFilmstripTimeline();
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    UpdateFilmstripEdgePadding();
+                    if (currentFrame != null)
+                    {
+                        int index = ViewModel.TimelineFrames.IndexOf(currentFrame);
+                        if (index >= 0)
+                            FilmstripScrollToFrameIndex(index);
+                    }
+                });
+            }
+            else
+            {
+                InitializeClassicTimeline();
+                ForceScrollBarsAlwaysThick();
+                if (currentFrame != null)
+                    ClassicScrollToFrame(currentFrame);
+            }
         }
 
         // ── 时间轴常量 ──
@@ -547,6 +590,17 @@ namespace LivePhotoBox.Views
         private void RestoreLeftPanelWidth()
         {
             if (LeftPanelBorder.Parent is not Grid parentGrid) return;
+
+            // 资源浏览器不再属于 EditPage 的可见编辑工作区；保持旧节点零宽，
+            // 让现有扫描、选择、拖放和键盘导航代码继续拥有安全的目标节点。
+            if (_isLeftPanelCollapsed)
+            {
+                LeftPanelColumn.Width = new GridLength(0);
+                PanelSpacerColumn.Width = new GridLength(0);
+                GridSplitterBar.Visibility = Visibility.Collapsed;
+                return;
+            }
+
             UpdateMaximizedState();
             ApplyCurrentRatio(parentGrid);
         }
@@ -1016,6 +1070,9 @@ namespace LivePhotoBox.Views
         private void EditPage_Loaded(object sender, RoutedEventArgs e)
         {
             Loaded -= EditPage_Loaded;
+
+            TimelineModeSegmented.SelectedIndex = ViewModel.IsFilmstripTimelineMode ? 0 : 1;
+            _isTimelineModeReady = true;
 
             LivePhotoBox.Helpers.ComboBoxHelper.AutoFitWidth(SortComboBox);
 
@@ -1736,6 +1793,8 @@ namespace LivePhotoBox.Views
             base.OnNavigatedTo(e);
 
             AttachEditNavigationInput();
+
+            TimelineModeSegmented.SelectedIndex = ViewModel.IsFilmstripTimelineMode ? 0 : 1;
 
             // 页面缓存后 Loaded 不会再次初始化；每次进入编辑页都把初始键盘焦点交给资源浏览列表。
             DispatcherQueue.TryEnqueue(() => FileItemListView.Focus(FocusState.Programmatic));

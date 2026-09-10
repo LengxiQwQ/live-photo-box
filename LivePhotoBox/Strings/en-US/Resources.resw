@@ -2720,13 +2720,13 @@ Then click "Start Split".</value>
     <value>Restore</value>
   </data>
   <data name="EditPage_Save.Label" xml:space="preserve">
-    <value>Set as Key Photo &amp; Save Copy</value>
+    <value>Save copy</value>
   </data>
   <data name="EditPage_Save.KeyboardAcceleratorTextOverride" xml:space="preserve">
     <value>Ctrl+S</value>
   </data>
   <data name="EditPage_Save.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Set as Key Photo and save a copy (Ctrl+S)</value>
+    <value>Save a copy (Ctrl+S)</value>
   </data>
   <data name="EditPage_SaveAs.Label" xml:space="preserve">
     <value>Save As</value>
@@ -2847,6 +2847,10 @@ Then click "Start Split".</value>
     <value>Frame {0} of {1}</value>
     <comment>{0}=current frame index (1-based), {1}=total frames</comment>
   </data>
+  <data name="EditPage_TimelineSecondsAndTotal.Text" xml:space="preserve">
+    <value>s /</value>
+    <comment>Unit separator between current frame time and total duration</comment>
+  </data>
   <data name="EditPage_TimelineFps" xml:space="preserve">
     <value>{0} fps</value>
     <comment>{0}=frame rate number, e.g. 30</comment>
@@ -2858,6 +2862,99 @@ Then click "Start Split".</value>
   <data name="EditPage_TimelineFrameOriginalPhoto" xml:space="preserve">
     <value>Original · {0} frames</value>
     <comment>{0}=total frames</comment>
+  </data>
+  <data name="EditPage_InspectorTitle.Text" xml:space="preserve">
+    <value>Edit tools</value>
+  </data>
+  <data name="EditPage_TimelineModeFilmstrip.Content" xml:space="preserve">
+    <value>Filmstrip</value>
+  </data>
+  <data name="EditPage_TimelineModeClassic.Content" xml:space="preserve">
+    <value>Classic</value>
+  </data>
+  <data name="EditPage_TimelineDeleteFrameLabel.Text" xml:space="preserve">
+    <value>Delete frame</value>
+  </data>
+  <data name="EditPage_TimelineAddFrameLabel.Text" xml:space="preserve">
+    <value>Add frame</value>
+  </data>
+  <data name="EditPage_TimelineOriginalCoverMarker.Text" xml:space="preserve">
+    <value>Original cover</value>
+  </data>
+  <data name="EditPage_TimelineCurrentCoverMarker.Text" xml:space="preserve">
+    <value>Current cover</value>
+  </data>
+  <data name="EditPage_InspectorCover.Text" xml:space="preserve">
+    <value>Cover</value>
+  </data>
+  <data name="EditPage_InspectorPlaybackRange.Text" xml:space="preserve">
+    <value>Playback range</value>
+  </data>
+  <data name="EditPage_InspectorAudio.Text" xml:space="preserve">
+    <value>Audio</value>
+  </data>
+  <data name="EditPage_InspectorReplaceVideo.Text" xml:space="preserve">
+    <value>Replace motion video</value>
+  </data>
+  <data name="EditPage_InspectorReplaceImage.Text" xml:space="preserve">
+    <value>Replace still image</value>
+  </data>
+  <data name="EditPage_InspectorCurrentCover.AutomationProperties.Name" xml:space="preserve">
+    <value>Current cover</value>
+  </data>
+  <data name="EditPage_InspectorOriginalCover.AutomationProperties.Name" xml:space="preserve">
+    <value>Original cover</value>
+  </data>
+  <data name="EditPage_InspectorCurrentCoverLabel.Text" xml:space="preserve">
+    <value>Current cover</value>
+  </data>
+  <data name="EditPage_InspectorOriginalCoverLabel.Text" xml:space="preserve">
+    <value>Original cover</value>
+  </data>
+  <data name="EditPage_InspectorReplace.Text" xml:space="preserve">
+    <value>Replace</value>
+  </data>
+  <data name="EditPage_InspectorStart.Text" xml:space="preserve">
+    <value>Start time</value>
+  </data>
+  <data name="EditPage_InspectorEnd.Text" xml:space="preserve">
+    <value>End time</value>
+  </data>
+  <data name="EditPage_InspectorSeconds.Text" xml:space="preserve">
+    <value>sec</value>
+  </data>
+  <data name="EditPage_InspectorMilliseconds.Text" xml:space="preserve">
+    <value>ms</value>
+  </data>
+  <data name="EditPage_InspectorDuration.Text" xml:space="preserve">
+    <value>Duration</value>
+  </data>
+  <data name="EditPage_InspectorResetRange.Content" xml:space="preserve">
+    <value>Reset</value>
+  </data>
+  <data name="EditPage_InspectorVolumeValue.Text" xml:space="preserve">
+    <value>100%</value>
+  </data>
+  <data name="EditPage_InspectorRemoveTrack.Content" xml:space="preserve">
+    <value>Remove audio track</value>
+  </data>
+  <data name="EditPage_InspectorCurrentVideo.Text" xml:space="preserve">
+    <value>Current video: unchanged</value>
+  </data>
+  <data name="EditPage_InspectorSelectVideo.AutomationProperties.Name" xml:space="preserve">
+    <value>Choose video</value>
+  </data>
+  <data name="EditPage_InspectorSelectVideoLabel.Text" xml:space="preserve">
+    <value>Choose video</value>
+  </data>
+  <data name="EditPage_InspectorCurrentImage.Text" xml:space="preserve">
+    <value>Current image: unchanged</value>
+  </data>
+  <data name="EditPage_InspectorSelectImage.AutomationProperties.Name" xml:space="preserve">
+    <value>Choose image</value>
+  </data>
+  <data name="EditPage_InspectorSelectImageLabel.Text" xml:space="preserve">
+    <value>Choose image</value>
   </data>
   <data name="EditPage_PhotoInfoTitle.Text" xml:space="preserve">
     <value>Photo Info</value>
