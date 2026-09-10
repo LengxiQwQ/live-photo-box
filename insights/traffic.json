@@ -147,6 +147,14 @@
     "2026-09-07": {
       "count": 98,
       "uniques": 19
+    },
+    "2026-09-08": {
+      "count": 57,
+      "uniques": 22
+    },
+    "2026-09-09": {
+      "count": 78,
+      "uniques": 29
     }
   },
   "clones": {
@@ -297,6 +305,14 @@
     "2026-09-07": {
       "count": 96,
       "uniques": 41
+    },
+    "2026-09-08": {
+      "count": 638,
+      "uniques": 43
+    },
+    "2026-09-09": {
+      "count": 25,
+      "uniques": 12
     }
   },
   "referrer_snapshots": [
@@ -2767,6 +2783,61 @@
           "referrer": "doubao.com",
           "count": 10,
           "uniques": 7
+        },
+        {
+          "referrer": "yandex.ru",
+          "count": 4,
+          "uniques": 3
+        },
+        {
+          "referrer": "DuckDuckGo",
+          "count": 2,
+          "uniques": 1
+        },
+        {
+          "referrer": "duck.ai",
+          "count": 2,
+          "uniques": 1
+        }
+      ]
+    },
+    {
+      "fetched_at": "2026-09-10T07:18:22Z",
+      "referrers": [
+        {
+          "referrer": "github.com",
+          "count": 609,
+          "uniques": 45
+        },
+        {
+          "referrer": "Google",
+          "count": 94,
+          "uniques": 56
+        },
+        {
+          "referrer": "Bing",
+          "count": 83,
+          "uniques": 44
+        },
+        {
+          "referrer": "chatgpt.com",
+          "count": 32,
+          "uniques": 13
+        },
+        {
+          "referrer": "noisedh.cn",
+          "count": 19,
+          "uniques": 2
+        },
+        {
+          "referrer": "t.co",
+          "count": 13,
+          "uniques": 4
+        },
+        {
+          "referrer": "doubao.com",
+          "count": 12,
+          "uniques": 9
         },
         {
           "referrer": "yandex.ru",
@@ -6101,6 +6172,71 @@
           "uniques": 1
         }
       ]
+    },
+    {
+      "fetched_at": "2026-09-10T07:18:22Z",
+      "paths": [
+        {
+          "path": "/LengxiQwQ/live-photo-box",
+          "title": "Overview",
+          "count": 753,
+          "uniques": 179
+        },
+        {
+          "path": "/lengxiqwq/live-photo-box/releases",
+          "title": "/releases",
+          "count": 102,
+          "uniques": 43
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/releases",
+          "title": "/releases",
+          "count": 70,
+          "uniques": 37
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/releases/tag/v2.2.1",
+          "title": "/releases/tag/v2.2.1",
+          "count": 66,
+          "uniques": 37
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/blob/master/README.zh-CN.md",
+          "title": "/blob/master/README.zh-CN.md",
+          "count": 37,
+          "uniques": 31
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/tree/master",
+          "title": "/tree/master",
+          "count": 23,
+          "uniques": 4
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/commits/master",
+          "title": "/commits/master",
+          "count": 21,
+          "uniques": 1
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/issues",
+          "title": "/issues",
+          "count": 19,
+          "uniques": 11
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/stargazers",
+          "title": "/stargazers",
+          "count": 18,
+          "uniques": 1
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/pulls",
+          "title": "/pulls",
+          "count": 13,
+          "uniques": 4
+        }
+      ]
     }
   ],
   "repo_meta_snapshots": [
@@ -6562,7 +6698,16 @@
       "open_issues": 0,
       "network": 2,
       "pushed_at": "2026-09-09T06:23:30Z"
+    },
+    {
+      "fetched_at": "2026-09-10T07:18:22Z",
+      "stars": 34,
+      "forks": 2,
+      "watchers": 1,
+      "open_issues": 0,
+      "network": 2,
+      "pushed_at": "2026-09-10T05:57:42Z"
     }
   ],
-  "updated_at": "2026-09-09T07:22:48Z"
+  "updated_at": "2026-09-10T07:18:22Z"
 }
