@@ -122,6 +122,7 @@ namespace LivePhotoBox.ViewModels
         /// <summary>页面卸载时清理资源与任务</summary>
         public void Cleanup()
         {
+            InvalidateCurrentOpenSession();
             _propLoadCts?.Cancel();
             _geoCts?.Cancel();
             _timelineCts?.Cancel();
@@ -132,7 +133,6 @@ namespace LivePhotoBox.ViewModels
             CleanupFrameTempFiles();
             CleanupTempVideo();
             CleanupPlayableTempVideo();
-            _openPipeline.Close();
             _previewService.Dispose();
             IsPreviewLoading = false;
             ThumbnailScheduler.Reset();
@@ -2263,12 +2263,21 @@ namespace LivePhotoBox.ViewModels
         }
 
         /// <summary>
+        /// 使当前打开会话立即失效并取消后台异步管线（代数递增 + CTS 取消）。
+        /// 必须在清理 UI / Session 之前调用，以确保后台异步完成时无法触碰 UI 或恢复状态。
+        /// </summary>
+        private void InvalidateCurrentOpenSession()
+        {
+            _openPipeline.Close();
+        }
+
+        /// <summary>
         /// 关闭当前打开的媒体并清理预览与临时资源。
         /// </summary>
         public void CloseMedia()
         {
+            InvalidateCurrentOpenSession();
             ClearFileInfo();
-            _openPipeline.Close();
         }
 
         /// <summary>
@@ -2341,7 +2350,20 @@ namespace LivePhotoBox.ViewModels
                 var doc = _openPipeline.CurrentDocument;
                 if (doc != null && doc.Width > 0 && doc.Height > 0)
                 {
-                    item.Resolution = $"{doc.Width} × {doc.Height}";
+                    string res = $"{doc.Width} × {doc.Height}";
+                    var dispatcher = App.MainWindow?.DispatcherQueue;
+                    if (dispatcher != null && !dispatcher.HasThreadAccess)
+                    {
+                        dispatcher.TryEnqueue(() =>
+                        {
+                            if (string.IsNullOrEmpty(item.Resolution))
+                                item.Resolution = res;
+                        });
+                    }
+                    else
+                    {
+                        item.Resolution = res;
+                    }
                 }
             }
 
@@ -2437,6 +2459,9 @@ namespace LivePhotoBox.ViewModels
         /// <summary>清空信息面板与重置会话状态</summary>
         private void ClearFileInfo()
         {
+            // 优先作废 OpenPipeline 的 generation 并取消后台异步任务，防止迟到回调触碰 UI 或复活旧文档
+            InvalidateCurrentOpenSession();
+
             // 取消进行中的属性/帧加载
             _propLoadCts?.Cancel();
             _timelineCts?.Cancel();
@@ -2737,16 +2762,15 @@ namespace LivePhotoBox.ViewModels
                     pairState,
                     facts);
 
-                if (!IsSelectedFileVideo && doc.Width > 0 && doc.Height > 0)
-                {
-                    if (selectedItem != null && string.IsNullOrEmpty(selectedItem.Resolution))
-                        selectedItem.Resolution = $"{doc.Width} × {doc.Height}";
-                }
-
                 var dispatcher = App.MainWindow?.DispatcherQueue;
                 dispatcher?.TryEnqueue(() =>
                 {
                     if (generation != _selectionGeneration) return;
+                    if (!IsSelectedFileVideo && doc.Width > 0 && doc.Height > 0)
+                    {
+                        if (selectedItem != null && string.IsNullOrEmpty(selectedItem.Resolution))
+                            selectedItem.Resolution = $"{doc.Width} × {doc.Height}";
+                    }
                     CurrentDocument = doc;
                     SessionState = EditSessionState.Ready;
                 });
@@ -2796,6 +2820,7 @@ namespace LivePhotoBox.ViewModels
         /// <summary>清空当前浏览的全部内容：目录、文件列表和预览。</summary>
         public void ClearAll()
         {
+            InvalidateCurrentOpenSession();
             CurrentDirectory = string.Empty;
             _allFileItems.Clear();
             FileItems.Clear();
@@ -2813,16 +2838,18 @@ namespace LivePhotoBox.ViewModels
 
         private async Task ScanDirectoryAsync(string directoryPath)
         {
+            InvalidateCurrentOpenSession();
             _scanCts?.Cancel();
             _scanCts?.Dispose();
             _scanCts = new CancellationTokenSource();
             var token = _scanCts.Token;
             IsScanning = true;
 
-            // 切换到新目录 → 清空旧文件帧缩略图缓存 + 大图预览缓存
+            // 切换到新目录 → 清空旧文件帧缩略图缓存 + 大图预览缓存 + 清空旧文件信息
             _thumbnailCache.Clear();
             _thumbnailCacheOrder.Clear();
             _previewService.Clear();
+            ClearFileInfo();
 
             try
             {
@@ -2997,6 +3024,10 @@ namespace LivePhotoBox.ViewModels
                 var candidates = await _openPipeline.DiscoverCandidatesAsync(filePaths).ConfigureAwait(false);
                 if (candidates.Count == 0) return null;
 
+                var firstCandidate = candidates[0];
+                string firstCandidateToOpen = firstCandidate.PrimaryPath;
+                string? firstCandidateMotionPath = firstCandidate.MotionPath;
+
                 var toAdd = new List<EditFileItem>();
                 foreach (var c in candidates)
                 {
@@ -3027,40 +3058,44 @@ namespace LivePhotoBox.ViewModels
                 }
 
                 var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-                dispatcher.TryEnqueue(async () =>
+                bool queued = dispatcher.TryEnqueue(async () =>
                 {
                     try
                     {
-                        string? firstNewPath = null;
-                        string? firstMotionPath = null;
+                        bool anyAdded = false;
+                        string? firstNewItemAdded = null;
                         foreach (var item in toAdd)
                         {
                             if (FileItems.Any(f => string.Equals(f.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase)))
                                 continue;
                             FileItems.Add(item);
                             _allFileItems.Add(item);
-                            if (firstNewPath == null)
-                            {
-                                firstNewPath = item.FilePath;
-                                firstMotionPath = item.PairedVideoPath;
-                            }
+                            anyAdded = true;
+                            firstNewItemAdded ??= item.FilePath;
                         }
-                        RefreshCounts();
-                        ApplySortAndFilter();
 
-                        // 统一 Open Pipeline：自动打开列表中的第一个主媒体并建立文档
-                        if (firstNewPath != null)
+                        if (anyAdded)
                         {
-                            await OpenMediaAsync(new EditOpenRequest(firstNewPath, firstMotionPath));
+                            RefreshCounts();
+                            ApplySortAndFilter();
                         }
 
-                        tcs.SetResult(firstNewPath);
+                        // 3B. 第一个有效 candidate 无论是否已存在于列表中，都作为本次 Drop 的打开目标
+                        await OpenMediaAsync(new EditOpenRequest(firstCandidateToOpen, firstCandidateMotionPath));
+
+                        tcs.SetResult(firstCandidateToOpen);
                     }
                     catch (Exception ex)
                     {
                         tcs.SetException(ex);
                     }
                 });
+
+                if (!queued)
+                {
+                    tcs.TrySetCanceled();
+                    return null;
+                }
 
                 return await tcs.Task.ConfigureAwait(false);
             }

@@ -296,4 +296,66 @@ public sealed class EditOpenPipelineTests : IDisposable
         Assert.Equal(EditSessionState.Closed, pipeline.SessionState);
         Assert.Null(pipeline.CurrentDocument);
     }
+
+    [Fact]
+    public async Task SlowOpen_ThenClose_LateInspectionFinishes_CurrentDocumentNeverReappears_And_SessionNeverReturnsToReady()
+    {
+        var pathA = CreateTempFile("slow_A.jpg");
+        var inspectionBarrier = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        var inspector = new MockSourceInspector
+        {
+            OnInspect = async (prim, sec, ct) =>
+            {
+                await inspectionBarrier.Task;
+                ct.ThrowIfCancellationRequested();
+                return new SourceMediaFacts
+                {
+                    Protocol = SourceProtocol.NonLive,
+                    PrimaryImage = new ImageFacts { IsPresent = true, Width = 1920, Height = 1080 }
+                };
+            }
+        };
+
+        using var pipeline = new EditOpenPipeline(inspector);
+
+        var docHistory = new List<EditDocument?>();
+        var stateHistory = new List<EditSessionState>();
+
+        pipeline.DocumentChanged += doc => docHistory.Add(doc);
+        pipeline.SessionStateChanged += state => stateHistory.Add(state);
+
+        // 1. 发起慢打开
+        var openTask = pipeline.OpenMediaAsync(pathA);
+
+        Assert.Equal(EditSessionState.Loading, pipeline.SessionState);
+        Assert.NotNull(pipeline.CurrentDocument);
+        Assert.Equal(EditSessionState.Loading, stateHistory.Last());
+        Assert.Same(pipeline.CurrentDocument, docHistory.Last());
+
+        // 2. Clear / Close 操作介入：先作废 generation 并 FailClosed
+        pipeline.Close();
+
+        Assert.Equal(EditSessionState.Closed, pipeline.SessionState);
+        Assert.Null(pipeline.CurrentDocument);
+        Assert.Equal(EditSessionState.Closed, stateHistory.Last());
+        Assert.Null(docHistory.Last());
+
+        int docEventsAtClose = docHistory.Count;
+        int stateEventsAtClose = stateHistory.Count;
+
+        // 3. 放行后台异步 inspection
+        inspectionBarrier.TrySetResult(true);
+        bool openResult = await openTask;
+
+        // 4. 断言：旧请求已被作废，不得重新出现，Session 绝不能回 Ready
+        Assert.False(openResult, "Cancelled/closed open task must return false.");
+        Assert.Null(pipeline.CurrentDocument);
+        Assert.Equal(EditSessionState.Closed, pipeline.SessionState);
+
+        // 5. 断言：Close 后不得有任何迟到事件推送
+        Assert.Equal(docEventsAtClose, docHistory.Count);
+        Assert.Equal(stateEventsAtClose, stateHistory.Count);
+        Assert.DoesNotContain(EditSessionState.Ready, stateHistory.Skip(stateEventsAtClose));
+    }
 }

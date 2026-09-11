@@ -76,6 +76,10 @@ namespace LivePhotoBox.Views
         // ── 视频预览状态 ──
         /// <summary>正在切换预览模式（禁止 CloseRequested 重复恢复 UI）</summary>
         private bool _isApplyingPreviewMode;
+        /// <summary>预览模式切换请求代数，防止异步视频加载时序交错</summary>
+        private int _previewModeGeneration;
+        /// <summary>视频预览异步加载取消令牌源</summary>
+        private CancellationTokenSource? _videoPreviewCts;
 
         // ── 拖拽类型缓存（DragEnter 异步检测 → DragOver 同步读取）──
         /// <summary>左侧面板：当前拖入的 StorageItems 是否包含文件夹或媒体文件</summary>
@@ -1058,6 +1062,10 @@ namespace LivePhotoBox.Views
 
         private void EditPage_Unloaded(object sender, RoutedEventArgs e)
         {
+            _videoPreviewCts?.Cancel();
+            _videoPreviewCts?.Dispose();
+            _videoPreviewCts = null;
+
             // 卸载窗口事件
             var appWindow = App.MainWindow?.AppWindow;
             if (appWindow != null)
@@ -1803,6 +1811,9 @@ namespace LivePhotoBox.Views
 
         protected override void OnNavigatedFrom(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
         {
+            _videoPreviewCts?.Cancel();
+            _videoPreviewCts?.Dispose();
+            _videoPreviewCts = null;
             DetachEditNavigationInput();
             base.OnNavigatedFrom(e);
         }
@@ -2760,6 +2771,20 @@ namespace LivePhotoBox.Views
         /// </summary>
         private async Task ApplyPreviewModeAsync()
         {
+            // 1. 作废并取消前一个 preview-mode 请求
+            int gen = Interlocked.Increment(ref _previewModeGeneration);
+            _videoPreviewCts?.Cancel();
+            _videoPreviewCts?.Dispose();
+            var cts = new CancellationTokenSource();
+            _videoPreviewCts = cts;
+            var token = cts.Token;
+
+            // 2. 捕获当前预期
+            var expectedDoc = ViewModel.CurrentDocument;
+            var expectedPath = expectedDoc?.PrimaryPath ?? ViewModel.SelectedFilePath;
+            var expectedKind = expectedDoc?.MediaKind;
+            bool isVideo = expectedKind == EditMediaKind.Video || ViewModel.IsSelectedFileVideo;
+
             _isApplyingPreviewMode = true;
 
             try
@@ -2769,61 +2794,77 @@ namespace LivePhotoBox.Views
 
                 ResetSystemMediaMetadata();
 
-                if (ViewModel.IsSelectedFileVideo)
+                bool IsStale() =>
+                    token.IsCancellationRequested ||
+                    gen != Volatile.Read(ref _previewModeGeneration) ||
+                    (expectedDoc != null && !ReferenceEquals(ViewModel.CurrentDocument, expectedDoc)) ||
+                    !string.Equals(ViewModel.SelectedFilePath, expectedPath, StringComparison.OrdinalIgnoreCase);
+
+                if (isVideo && !string.IsNullOrEmpty(expectedPath) && File.Exists(expectedPath))
                 {
-                    var videoPath = ViewModel.SelectedFilePath;
-                    if (!string.IsNullOrEmpty(videoPath) && File.Exists(videoPath))
+                    try
                     {
-                        try
+                        var storageFile = await StorageFile.GetFileFromPathAsync(expectedPath);
+                        if (IsStale()) return;
+
+                        var mediaSource = MediaSource.CreateFromStorageFile(storageFile);
+                        var playbackItem = new MediaPlaybackItem(mediaSource)
                         {
-                            var storageFile = await StorageFile.GetFileFromPathAsync(videoPath);
-                            var mediaSource = MediaSource.CreateFromStorageFile(storageFile);
-                            var playbackItem = new MediaPlaybackItem(mediaSource)
-                            {
-                                AutoLoadedDisplayProperties = AutoLoadedDisplayPropertyKind.None
-                            };
-                            var displayProperties = playbackItem.GetDisplayProperties();
-                            displayProperties.Type = MediaPlaybackType.Video;
-                            displayProperties.VideoProperties.Title = Path.GetFileNameWithoutExtension(videoPath);
-                            playbackItem.ApplyDisplayProperties(displayProperties);
+                            AutoLoadedDisplayProperties = AutoLoadedDisplayPropertyKind.None
+                        };
+                        var displayProperties = playbackItem.GetDisplayProperties();
+                        displayProperties.Type = MediaPlaybackType.Video;
+                        displayProperties.VideoProperties.Title = Path.GetFileNameWithoutExtension(expectedPath);
+                        playbackItem.ApplyDisplayProperties(displayProperties);
 
-                            PureMediaViewer.AutoCloseOnEnd = false;
-                            PureMediaViewer.ShowCloseButton = false;
-                            PureMediaViewer.ShowTransportControls = true;
-                            PureMediaViewer.ZoomEnabled = false;
+                        if (IsStale()) return;
 
-                            // 视频模式 → 预览面板直角
-                            PreviewBorder.CornerRadius = new CornerRadius(0);
+                        PureMediaViewer.AutoCloseOnEnd = false;
+                        PureMediaViewer.ShowCloseButton = false;
+                        PureMediaViewer.ShowTransportControls = true;
+                        PureMediaViewer.ZoomEnabled = false;
 
-                            // 先透明加载（用户仍看到底层控件）
-                            PureMediaViewer.SetPlaybackSource(playbackItem);
-                            PureMediaViewer.Play();
+                        // 视频模式 → 预览面板直角
+                        PreviewBorder.CornerRadius = new CornerRadius(0);
 
-                            // 系统媒体封面异步提取，不阻塞视频开始播放。
-                            _systemMediaMetadataCts = new CancellationTokenSource();
-                            _ = UpdateSystemMediaThumbnailAsync(
-                                playbackItem, videoPath, _systemMediaMetadataCts.Token);
+                        // 先透明加载（用户仍看到底层控件）
+                        PureMediaViewer.SetPlaybackSource(playbackItem);
+                        PureMediaViewer.Play();
 
-                            // 等第一帧就绪
-                            await Task.Delay(100);
+                        // 系统媒体封面异步提取，不阻塞视频开始播放。
+                        _systemMediaMetadataCts?.Cancel();
+                        _systemMediaMetadataCts?.Dispose();
+                        _systemMediaMetadataCts = new CancellationTokenSource();
+                        _ = UpdateSystemMediaThumbnailAsync(
+                            playbackItem, expectedPath, _systemMediaMetadataCts.Token);
 
-                            // 隐藏浮动控件（图片层始终可见，被视频覆盖）
-                            LivePhotoBadgeButton.Visibility = Visibility.Collapsed;
-                            MuteButton.Visibility = Visibility.Collapsed;
-                            ZoomControlsPanel.Visibility = Visibility.Collapsed;
+                        // 等第一帧就绪
+                        await Task.Delay(100, token);
+                        if (IsStale()) return;
 
-                            // 普通视频不受实况照片静音影响，始终非静音
-                            //（用户通过内置传输栏音量按钮自行控制）
-                            PureMediaViewer.IsMuted = false;
-                            return;
-                        }
-                        catch (Exception ex)
-                        {
-                            System.Diagnostics.Debug.WriteLine(
-                                $"[EditPage] 视频自动播放失败: {ex.Message}");
-                        }
+                        // 隐藏浮动控件（图片层始终可见，被视频覆盖）
+                        LivePhotoBadgeButton.Visibility = Visibility.Collapsed;
+                        MuteButton.Visibility = Visibility.Collapsed;
+                        ZoomControlsPanel.Visibility = Visibility.Collapsed;
+
+                        // 普通视频不受实况照片静音影响，始终非静音
+                        //（用户通过内置传输栏音量按钮自行控制）
+                        PureMediaViewer.IsMuted = false;
+                        return;
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        if (IsStale()) return;
+                        System.Diagnostics.Debug.WriteLine(
+                            $"[EditPage] 视频自动播放失败: {ex.Message}");
                     }
                 }
+
+                if (IsStale()) return;
 
                 // 非视频文件：恢复图片预览模式 + 圆角
                 PreviewBorder.CornerRadius = new CornerRadius(4);
@@ -2834,7 +2875,10 @@ namespace LivePhotoBox.Views
             }
             finally
             {
-                _isApplyingPreviewMode = false;
+                if (gen == Volatile.Read(ref _previewModeGeneration))
+                {
+                    _isApplyingPreviewMode = false;
+                }
             }
         }
 
