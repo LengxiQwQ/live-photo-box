@@ -49,6 +49,9 @@ public sealed class CleanerTransactionTests
         var facts = await inspector.InspectAsync(samplePath);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
+
         using var cts = new CancellationTokenSource();
 
         // Inject deterministic cancellation right after image staged
@@ -66,7 +69,8 @@ public sealed class CleanerTransactionTests
         {
             await cleaner.CleanAsync(new ProtocolCleanRequest
             {
-                ExtractedBundle = extracted
+                ExtractedBundle = extracted,
+            CleanupPlan = cleanupPlan
             }, workspace, cts.Token);
         });
 
@@ -95,6 +99,9 @@ public sealed class CleanerTransactionTests
         var facts = await inspector.InspectAsync(samplePath);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
+
         using var cts = new CancellationTokenSource();
 
         // Inject deterministic cancellation in commit stage right before publishing
@@ -112,7 +119,8 @@ public sealed class CleanerTransactionTests
         {
             await cleaner.CleanAsync(new ProtocolCleanRequest
             {
-                ExtractedBundle = extracted
+                ExtractedBundle = extracted,
+            CleanupPlan = cleanupPlan
             }, workspace, cts.Token);
         });
 
@@ -143,6 +151,9 @@ public sealed class CleanerTransactionTests
         var facts = await inspector.InspectAsync(imgPath, movPath);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
+
         // Inject simulated failure right after image is published, before video is moved
         cleaner.FaultInjectionHook = (stage, detail) =>
         {
@@ -155,7 +166,8 @@ public sealed class CleanerTransactionTests
 
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted,
+        CleanupPlan = cleanupPlan
         }, workspace);
 
         Assert.False(result.Success);
@@ -189,6 +201,9 @@ public sealed class CleanerTransactionTests
         var facts = await inspector.InspectAsync(samplePath);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
+
         // Inject commit failure, and then trigger simulated failure during rollback
         cleaner.FaultInjectionHook = (stage, detail) =>
         {
@@ -205,7 +220,8 @@ public sealed class CleanerTransactionTests
 
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted,
+        CleanupPlan = cleanupPlan
         }, workspace);
 
         Assert.False(result.Success);
@@ -229,6 +245,9 @@ public sealed class CleanerTransactionTests
         var facts = await realInspector.InspectAsync(imgPath, movPath);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
+
         // Mock inspector: when inspecting video individually, reports residual AppleLivePhoto
         var stubInspector = new DelegateInspector(async (p, s) =>
         {
@@ -250,7 +269,8 @@ public sealed class CleanerTransactionTests
 
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted,
+        CleanupPlan = cleanupPlan
         }, workspace);
 
         Assert.False(result.Success);
@@ -278,6 +298,9 @@ public sealed class CleanerTransactionTests
         var facts = await realInspector.InspectAsync(imgPath, movPath);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
+
         // Mock inspector: image alone is NonLive, video alone is NonLive, but pair inspection still finds matching pair!
         var stubInspector = new DelegateInspector(async (p, s) =>
         {
@@ -299,7 +322,8 @@ public sealed class CleanerTransactionTests
 
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted,
+        CleanupPlan = cleanupPlan
         }, workspace);
 
         Assert.False(result.Success);
@@ -332,8 +356,13 @@ public sealed class CleanerTransactionTests
         var extracted1 = await TestFactsExtractor.ExtractAsync(facts1, samplePath, null, workspace1);
         var extracted2 = await TestFactsExtractor.ExtractAsync(facts2, samplePath, null, workspace2);
 
-        var task1 = cleaner.CleanAsync(new ProtocolCleanRequest { ExtractedBundle = extracted1 }, workspace1);
-        var task2 = cleaner.CleanAsync(new ProtocolCleanRequest { ExtractedBundle = extracted2 }, workspace2);
+        using var nativeContext1 = TestNativeContext.Create();
+        using var cleanupPlan1 = await TestCleanerPlans.IssueFromBundleAsync(nativeContext1, extracted1);
+        using var nativeContext2 = TestNativeContext.Create();
+        using var cleanupPlan2 = await TestCleanerPlans.IssueFromBundleAsync(nativeContext2, extracted2);
+
+        var task1 = cleaner.CleanAsync(new ProtocolCleanRequest { ExtractedBundle = extracted1, CleanupPlan = cleanupPlan1 }, workspace1);
+        var task2 = cleaner.CleanAsync(new ProtocolCleanRequest { ExtractedBundle = extracted2, CleanupPlan = cleanupPlan2 }, workspace2);
 
         await Task.WhenAll(task1, task2);
 
@@ -364,9 +393,12 @@ public sealed class CleanerTransactionTests
         // Pass 1
         var facts1 = await inspector.InspectAsync(samplePath);
         var extracted1 = await TestFactsExtractor.ExtractAsync(facts1, samplePath, null, workspace);
+        using var nativeContext1 = TestNativeContext.Create();
+        using var cleanupPlan1 = await TestCleanerPlans.IssueFromBundleAsync(nativeContext1, extracted1);
         var cleanResult1 = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted1
+            ExtractedBundle = extracted1,
+            CleanupPlan = cleanupPlan1
         }, workspace);
 
         Assert.True(cleanResult1.Success, cleanResult1.ErrorMessage);
@@ -378,9 +410,12 @@ public sealed class CleanerTransactionTests
         Assert.Equal(SourceProtocol.NonLive, facts2.Protocol);
 
         var extracted2 = await TestFactsExtractor.ExtractAsync(facts2, cleanResult1.CleanedImage.Path, null, workspace);
+        using var nativeContext2 = TestNativeContext.Create();
+        using var cleanupPlan2 = await TestCleanerPlans.IssueFromBundleAsync(nativeContext2, extracted2);
         var cleanResult2 = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted2
+            ExtractedBundle = extracted2,
+            CleanupPlan = cleanupPlan2
         }, workspace);
 
         Assert.True(cleanResult2.Success);
@@ -449,9 +484,13 @@ public sealed class CleanerTransactionTests
         var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, largeMovPath, workspace);
         Assert.NotNull(extracted.MotionVideo);
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
+
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted,
+            CleanupPlan = cleanupPlan
         }, workspace);
 
         Assert.True(cleanResult.Success, cleanResult.ErrorMessage);

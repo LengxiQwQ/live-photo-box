@@ -752,6 +752,39 @@ LPB_API lpb_result LPB_CALL lpb_test_get_destroyed_plan_accounting(
 LPB_API lpb_result LPB_CALL lpb_test_probe_destroyed_plan(
     uint64_t context_id,
     uint64_t plan_token);
+
+/* Test-only authority issuance for cleaner unit tests.  It mirrors what the
+   production lpb_issue_cleanup_plan derives from a P2 extraction record, but
+   the artifact identities are captured from the caller-supplied paths at
+   issue time.  This symbol is absent from production builds; production
+   destructive authority always originates from a trusted Native extraction
+   plan. */
+typedef struct lpb_test_cleanup_artifact_spec
+{
+    int32_t artifact_role;
+    uint32_t auxiliary_index;
+    const char* path;
+} lpb_test_cleanup_artifact_spec;
+
+LPB_API lpb_result LPB_CALL lpb_test_issue_cleanup_plan_from_facts(
+    lpb_context* context,
+    const lpb_source_media_facts* facts,
+    const lpb_confirmed_residue* residues,
+    size_t residue_count,
+    const lpb_test_cleanup_artifact_spec* artifacts,
+    size_t artifact_count,
+    lpb_cleanup_plan** out_plan,
+    uint64_t* out_generation);
+
+/* Test-only introspection proving the public cleanup-plan token is not the
+   address of the authoritative registry record. */
+LPB_API uintptr_t LPB_CALL lpb_test_get_cleanup_plan_record_address(
+    lpb_context* context,
+    lpb_cleanup_plan* plan);
+
+LPB_API lpb_result LPB_CALL lpb_test_get_cleanup_plan_accounting(
+    lpb_context* context,
+    lpb_test_plan_accounting* out_accounting);
 #endif
 
 typedef enum lpb_extractor_fault
@@ -792,6 +825,14 @@ typedef void(LPB_CALL* lpb_cleaner_snapshot_callback)(void* user_data);
 LPB_API lpb_result LPB_CALL lpb_test_set_cleaner_snapshot_hook(
     lpb_context* context,
     lpb_cleaner_snapshot_callback callback,
+    void* user_data);
+
+/* Test-only: replaces the context cancellation callback (used by re-entrancy
+ * authority tests that attempt a raw destructive mutation from inside the
+ * cancellation callback on the same thread). */
+LPB_API lpb_result LPB_CALL lpb_test_set_cancel_callback(
+    lpb_context* context,
+    lpb_cancel_callback callback,
     void* user_data);
 
 /* Test-only helper to verify native SHA-256 implementation against standard test vectors */
@@ -940,6 +981,32 @@ typedef struct lpb_cleanup_action
     int32_t is_mandatory;
 } lpb_cleanup_action;
 
+/* Exact filesystem object identity (volume serial + file index + size + link
+ * count).  Two different files can contain identical bytes; this identifies
+ * the object itself. */
+typedef struct lpb_file_identity
+{
+    uint32_t volume_serial;
+    uint64_t file_index;
+    uint64_t file_size;
+    uint32_t link_count;
+} lpb_file_identity;
+
+/* Cleaner staged-output ownership record.  The Native cleaner captures this
+ * from the creating handle at publish time and returns it through
+ * lpb_clean_get_staged_outputs after a clean succeeds OR fails, so managed
+ * rollback only ever targets the exact objects this transaction created.
+ * final_path is a UTF-8 path; records longer than the fixed buffer are
+ * truncated and must be treated as identity-only by the caller. */
+typedef struct lpb_clean_staged_output_record
+{
+    uint32_t struct_size;
+    int32_t artifact_role;
+    uint32_t auxiliary_index;
+    lpb_file_identity identity;
+    char final_path[1024];
+} lpb_clean_staged_output_record;
+
 typedef struct lpb_removed_protocol_fact
 {
     uint32_t struct_size;
@@ -1003,6 +1070,73 @@ LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_plan_and_cleanup_sour
     lpb_removed_protocol_fact* out_facts,
     size_t facts_capacity,
     size_t* out_facts_count);
+
+/* =========================================================================
+ * P3 destructive authority: Native opaque CleanupPlan.
+ *
+ * The two DTO-based entries above are diagnostic/legacy-only: in production
+ * builds they return LPB_RESULT_AUTHORITY_VIOLATION.  Destructive protocol
+ * cleaning is authorized exclusively through a cleanup plan issued from a
+ * trusted Native chain (an Inspector-issued extraction plan whose published
+ * artifact identities were captured while the transaction owned the handles).
+ * ========================================================================= */
+
+/* Issues a cleanup-plan authority from a P2 extraction plan record.  The new
+ * plan inherits the extraction record's published artifact identities (Windows
+ * file id, captured path, byte length, SHA-256) plus the Inspector-confirmed
+ * residues and protocol facts.  After issuance the extraction record can no
+ * longer be rolled back: the artifacts are committed to the cleanup chain.
+ *
+ * Cross-context, stale-generation, and replay attempts fail closed. */
+LPB_API lpb_result LPB_CALL lpb_issue_cleanup_plan(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    uint64_t generation,
+    lpb_cleanup_plan** out_plan,
+    uint64_t* out_generation);
+
+LPB_API lpb_result LPB_CALL lpb_claim_cleanup_plan(
+    lpb_context* context,
+    lpb_cleanup_plan* plan,
+    uint64_t generation);
+
+LPB_API lpb_result LPB_CALL lpb_finish_cleanup_plan(
+    lpb_context* context,
+    lpb_cleanup_plan* plan,
+    uint64_t generation);
+
+LPB_API lpb_result LPB_CALL lpb_release_cleanup_plan(
+    lpb_context* context,
+    lpb_cleanup_plan* plan);
+
+/* Plan-authorized destructive clean.  Before any bytes are read or written,
+ * every input artifact is validated to be the exact filesystem object whose
+ * identity the cleanup plan captured: same volume serial + file index, link
+ * count == 1, non-reparse, recorded path, byte length and SHA-256.  A replaced
+ * object with identical bytes still fails closed.  Outputs are written with
+ * no-overwrite semantics (an existing destination fails closed). */
+LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_cleanup_plan(
+    lpb_context* context,
+    lpb_cleanup_plan* plan,
+    uint64_t generation,
+    const char* input_image_path,
+    const char* input_video_path,
+    const char* cleanup_source_path,
+    const char* output_image_path,
+    const char* output_video_path,
+    lpb_removed_protocol_fact* out_facts,
+    size_t facts_capacity,
+    size_t* out_facts_count);
+
+/* Returns the cleaner-owned staged output records this context recorded while
+ * the last plan-authorized clean ran (successful or failed).  Each record is
+ * captured from the creating handle at publish time; managed code uses these
+ * identities — never a pathname re-scan — as the rollback ownership basis.
+ * Returns the number of records written (<= capacity). */
+LPB_API size_t LPB_CALL lpb_clean_get_staged_outputs(
+    lpb_context* context,
+    lpb_clean_staged_output_record* out_records,
+    size_t capacity);
 /* ========================================================================= */
 /* P3 Preservation Observation — Native media fact capture                   */
 /* ========================================================================= */

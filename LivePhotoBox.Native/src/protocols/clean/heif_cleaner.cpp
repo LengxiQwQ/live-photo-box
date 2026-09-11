@@ -57,7 +57,10 @@ static bool write_atomic(const fs::path& path, const std::vector<uint8_t>& data)
         output.flush();
         if (!output.good()) { output.close(); fs::remove(temp, ec); return false; }
     }
-    if (!MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    // No-overwrite publication: if a foreign object already occupies the
+    // destination, MoveFileExW fails (ERROR_ALREADY_EXISTS) and the foreign
+    // object survives.  Destination races must fail closed.
+    if (!MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_WRITE_THROUGH)) {
         fs::remove(temp, ec);
         return false;
     }

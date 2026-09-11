@@ -121,7 +121,26 @@ internal static unsafe partial class TestNativeMethods
     [DllImport(LibraryName, EntryPoint = "lpb_release_extraction_plan", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     internal static extern NativeResult ReleaseExtractionPlan(nint context, nint plan);
 
-    [DllImport("LivePhotoBox.Native", EntryPoint = "lpb_extract_media", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    [DllImport(LibraryName, EntryPoint = "lpb_test_get_cleanup_plan_record_address", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    internal static extern nuint GetCleanupPlanRecordAddress(nint context, nint plan);
+
+    [DllImport(LibraryName, EntryPoint = "lpb_test_get_cleanup_plan_accounting", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    internal static extern NativeResult GetCleanupPlanAccounting(
+        nint context,
+        out NativePlanAccounting accounting);
+
+    [DllImport(LibraryName, EntryPoint = "lpb_test_issue_cleanup_plan_from_facts", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
+    internal static extern NativeResult IssueCleanupPlanFromFacts(
+        nint context,
+        in NativeSourceMediaFacts facts,
+        NativeConfirmedResidue* residues,
+        nuint residueCount,
+        TestCleanupArtifactSpec* artifacts,
+        nuint artifactCount,
+        out nint plan,
+        out ulong generation);
+
+    [DllImport(LibraryName, EntryPoint = "lpb_extract_media", CallingConvention = CallingConvention.Cdecl, ExactSpelling = true)]
     internal static extern NativeResult ExtractMediaLegacy(
         nint context,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string primaryPath,
@@ -173,7 +192,12 @@ internal static unsafe class TestNativeHarness
     internal static void ConfigureCleanerSnapshotHook(NativeContext context, nint callback)
     {
         using NativeContextLease lease = context.AcquireOperationLease(allowDisposeRequested: true);
-        NativeResult result = TestNativeMethods.SetCleanerSnapshotHook(lease.Handle, callback, nint.Zero);
+        ConfigureCleanerSnapshotHook(lease.Handle, callback);
+    }
+
+    internal static void ConfigureCleanerSnapshotHook(nint contextHandle, nint callback)
+    {
+        NativeResult result = TestNativeMethods.SetCleanerSnapshotHook(contextHandle, callback, nint.Zero);
         if (result != NativeResult.Ok)
         {
             throw new InvalidOperationException($"Failed to configure Native cleaner snapshot hook: {result}");

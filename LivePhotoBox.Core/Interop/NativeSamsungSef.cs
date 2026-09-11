@@ -6,9 +6,15 @@ namespace LivePhotoBox.Interop;
 /// <summary>
 /// Native implementation of Samsung SEF trailer parsing.
 /// </summary>
+/// <summary>
+/// TEST-ONLY contract helper bound to the harness Native build
+/// (LivePhotoBox.Native.TestHarness.dll).  No production code path calls it;
+/// the production DLL gates SEF trailer construction behind an active
+/// cleanup-plan authority, so raw SEF writes cannot bypass the Cleaner.
+/// </summary>
 internal static class NativeSamsungSef
 {
-    [DllImport(NativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_samsung_sef_parse", ExactSpelling = true)]
+    [DllImport(TestHarnessNativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_samsung_sef_parse", ExactSpelling = true)]
     private static extern unsafe NativeResult lpb_samsung_sef_parse(
         nint context, byte* input, nuint inputSize, out ulong outVideoOffset, out ulong outVideoSize);
 
@@ -26,7 +32,7 @@ internal static class NativeSamsungSef
 
         try
         {
-            if (NativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
+            if (TestHarnessNativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
 
             NativeResult result;
             ulong outOffset, outSize;
@@ -54,11 +60,11 @@ internal static class NativeSamsungSef
         }
         finally
         {
-            if (context != nint.Zero) { try { NativeMethods.DestroyContext(context); } catch { } }
+            if (context != nint.Zero) { try { TestHarnessNativeMethods.DestroyContext(context); } catch { } }
         }
     }
 
-    [DllImport(NativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_samsung_sef_build_trailer", ExactSpelling = true)]
+    [DllImport(TestHarnessNativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_samsung_sef_build_trailer", ExactSpelling = true)]
     private static extern unsafe NativeResult lpb_samsung_sef_build_trailer(
         nint context, byte* videoData, nuint videoSize, int isHeic, ulong imageSize, byte* output, nuint outputSize, out nuint outWritten);
 
@@ -67,7 +73,7 @@ internal static class NativeSamsungSef
         nint context = nint.Zero;
         try
         {
-            if (NativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return null;
+            if (TestHarnessNativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return null;
             
             int isHeic = string.Equals(imageType, "heic", StringComparison.OrdinalIgnoreCase) ? 1 : 0;
             
@@ -103,13 +109,13 @@ internal static class NativeSamsungSef
         }
         finally
         {
-            if (context != nint.Zero) { try { NativeMethods.DestroyContext(context); } catch { } }
+            if (context != nint.Zero) { try { TestHarnessNativeMethods.DestroyContext(context); } catch { } }
         }
     }
 
     private static string? ReadLastError(nint context)
     {
-        NativeResult sizeResult = NativeMethods.GetLastError(
+        NativeResult sizeResult = TestHarnessNativeMethods.GetLastError(
             context, nint.Zero, 0, out nuint requiredSize);
         if (sizeResult != NativeResult.BufferTooSmall || requiredSize <= 1)
             return null;
@@ -117,7 +123,7 @@ internal static class NativeSamsungSef
         nint buffer = Marshal.AllocHGlobal(checked((nint)requiredSize));
         try
         {
-            return NativeMethods.GetLastError(context, buffer, requiredSize, out _) == NativeResult.Ok
+            return TestHarnessNativeMethods.GetLastError(context, buffer, requiredSize, out _) == NativeResult.Ok
                 ? Marshal.PtrToStringUTF8(buffer)
                 : null;
         }

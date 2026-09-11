@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using LivePhotoBox.Media.Extraction;
 using LivePhotoBox.Media.Models;
 
 namespace LivePhotoBox.Protocols.Cleaning;
@@ -7,6 +8,9 @@ namespace LivePhotoBox.Protocols.Cleaning;
 /// <summary>
 /// Strongly-typed request to clean source protocol-specific markers from extracted media artifacts.
 /// The single trusted authority is ExtractedBundle; SourceFacts is derived directly from the bundle.
+/// Destructive authority comes from <see cref="ExtractionPlan"/> (production: issued from the
+/// Inspector-created Native plan) or a pre-issued <see cref="CleanupPlan"/> (Native-backed opaque
+/// capability).  A request carrying neither cannot authorize destructive cleaning.
 /// </summary>
 public sealed record ProtocolCleanRequest
 {
@@ -15,6 +19,20 @@ public sealed record ProtocolCleanRequest
     public SourceMediaFacts SourceFacts => ExtractedBundle.SourceFacts;
 
     public PreservationPolicy PreservationPolicy { get; init; } = PreservationPolicy.BestEffort;
+
+    /// <summary>
+    /// Inspector-created Native extraction plan that owns the published artifact identities.
+    /// The Cleaner issues a Native cleanup plan from it; a forged or foreign plan is rejected
+    /// by Native cross-context / generation checks.
+    /// </summary>
+    public ExtractionPlan? ExtractionPlan { get; init; }
+
+    /// <summary>
+    /// Pre-issued Native-backed cleanup plan (typically carried by the extracted bundle from the
+    /// P2 extractor, or issued by the test harness in tests).  Exactly one of
+    /// <see cref="ExtractionPlan"/> / <see cref="CleanupPlan"/> is required for destructive cleaning.
+    /// </summary>
+    public CleanupPlan? CleanupPlan { get; init; }
 }
 
 public enum ProtocolFactKind
@@ -156,6 +174,7 @@ public enum CleanerFailureCategory
     // Authority / Precondition
     FactsNotConfirmed,
     CleanupAuthorizationMissing,
+    NativeAuthorityViolation,
     ArtifactChangedSinceExtraction,
     UnsupportedProtocol,
     AmbiguousProtocol,

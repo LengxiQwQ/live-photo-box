@@ -669,6 +669,18 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_append_mebx_tracks(
     double cover_seconds,
     uint8_t* output, size_t output_size, size_t* out_written)
 {
+#if !defined(LPB_NATIVE_TEST_HARNESS)
+    // Production capability gate: appending Apple MEBX tracks rewrites the
+    // container and requires an active Native cleanup-plan authority.  External
+    // callers can never bypass the Cleaner trust chain through this primitive.
+    if (!context) return LPB_RESULT_INVALID_ARGUMENT;
+    if (!lpb_has_clean_authority(context))
+    {
+        set_error(context, "[AuthorityViolation] Apple MEBX track appending requires an active Native cleanup-plan authority.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+#endif
+
     return append_mebx_tracks_impl(
         context, data, data_size, cover_seconds, nullptr,
         output, output_size, out_written);
@@ -685,6 +697,16 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_append_mebx_tracks_with_content
         set_error(context, "Apple ContentIdentifier is required.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
+#if !defined(LPB_NATIVE_TEST_HARNESS)
+    // Production capability gate (see lpb_apple_append_mebx_tracks).
+    if (!context) return LPB_RESULT_INVALID_ARGUMENT;
+    if (!lpb_has_clean_authority(context))
+    {
+        set_error(context, "[AuthorityViolation] Apple MEBX track appending requires an active Native cleanup-plan authority.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+#endif
+
     return append_mebx_tracks_impl(
         context, data, data_size, cover_seconds, content_id,
         output, output_size, out_written);

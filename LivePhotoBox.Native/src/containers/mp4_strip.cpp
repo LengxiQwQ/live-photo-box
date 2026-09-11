@@ -1043,7 +1043,7 @@ lpb_result stream_clean_mp4_bytes(
         out.flush();
         const bool write_ok = out.good();
         out.close();
-        if (!write_ok || !MoveFileExW(temp.c_str(), p_out.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        if (!write_ok || !MoveFileExW(temp.c_str(), p_out.c_str(), MOVEFILE_WRITE_THROUGH)) {
             std::filesystem::remove(temp, ec);
             set_error(context, "Failed to publish unchanged video.");
             return LPB_RESULT_INTERNAL_ERROR;
@@ -1112,7 +1112,7 @@ lpb_result stream_clean_mp4_bytes(
     }
     out.close();
 
-    if (!MoveFileExW(temp.c_str(), p_out.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    if (!MoveFileExW(temp.c_str(), p_out.c_str(), MOVEFILE_WRITE_THROUGH)) {
         std::filesystem::remove(temp, ec);
         set_error(context, "Failed to publish cleaned video file.");
         return LPB_RESULT_INTERNAL_ERROR;

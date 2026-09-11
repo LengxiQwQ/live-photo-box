@@ -31,14 +31,6 @@ struct lpb_extractor_test_hook
     void* callback_user_data{nullptr};
 };
 
-struct lpb_file_identity
-{
-    uint32_t volume_serial{};
-    uint64_t file_index{};
-    uint64_t file_size{};
-    uint32_t link_count{};
-};
-
 /* Identity captured before an extraction-owned handle is closed.  The
  * artifact role is descriptive; the Windows file id plus final path is the
  * ownership proof used by rollback and by the later cleanup authority. */
@@ -95,6 +87,37 @@ struct lpb_extraction_plan_record
     bool native_call_active{};
 };
 
+/* =========================================================================
+ * P3 destructive authority: Native opaque cleanup plan.
+ *
+ * A cleanup plan is the ONLY way the production Cleaner may request a
+ * destructive protocol mutation.  It is issued by a trusted Native chain:
+ * either from a P2 extraction plan record (which owns the published artifact
+ * identities captured while the transaction handles were open) or, in the
+ * test harness only, from caller-supplied facts whose artifact identities are
+ * captured at issue time.  Managed DTOs (SourceMediaFacts / cleanup actions /
+ * target bindings) never carry destructive authority by themselves.
+ *
+ * The `artifacts` vector is a detached copy of the P2 published-artifact
+ * records: the Windows file id (volume serial + file index) captured from the
+ * transaction-owned handle is the ownership proof, `final_path` is
+ * descriptive, and byte_length + sha256 are content evidence only.
+ * ========================================================================= */
+struct lpb_cleanup_plan_record
+{
+    lpb_context* owner_context{};
+    uint32_t abi_version{};
+    uint32_t plan_version{};
+    uint64_t token{};
+    uint64_t generation{};
+    lpb_source_media_facts facts{};
+    std::vector<lpb_confirmed_residue> confirmed_residues;
+    std::vector<lpb_published_artifact_record> artifacts;
+    lpb_plan_state state{lpb_plan_state::Issued};
+    bool managed_claim_active{};
+    bool native_call_active{};
+};
+
 #if defined(LPB_NATIVE_TEST_HARNESS)
 struct lpb_test_destroyed_context_archive
 {
@@ -121,14 +144,61 @@ struct lpb_context
     std::mutex plan_mutex;
     std::vector<lpb_extraction_plan_record> extraction_plans;
     uint64_t next_plan_generation{1};
+    std::vector<lpb_cleanup_plan_record> cleanup_plans;
+    uint64_t next_cleanup_generation{1};
+    // Non-zero only while a plan-authorized clean invocation is executing on
+    // the thread that entered the cleaner (see cleaner_authority_guard).
+    // Combined with the thread-local binding below, this is the unforgeable
+    // capability token that raw destructive primitives must present.
+    uint64_t active_clean_authority_token{0};
+    // Cleaner-owned staged output records captured from the creating handle at
+    // publish time (never re-guessed from a pathname after the fact).  Managed
+    // code reads these after a clean succeeds OR fails so rollback only ever
+    // targets objects this transaction really created.
+    std::vector<lpb_published_artifact_record> cleaner_staged_outputs;
 #if defined(LPB_NATIVE_TEST_HARNESS)
     uint64_t test_context_id{};
     uint64_t test_issued{};
     uint64_t test_claimed{};
     uint64_t test_consumed{};
     uint64_t test_released{};
+    uint64_t test_cleanup_issued{};
+    uint64_t test_cleanup_claimed{};
+    uint64_t test_cleanup_consumed{};
+    uint64_t test_cleanup_released{};
 #endif
 };
+
+// Thread-local plan-clean authority binding.  Set only while a
+// plan-authorized clean invocation is executing on THIS thread (see
+// cleaner_authority_guard in media_cleaner.cpp).  Low-level in-place
+// destructive primitives verify that the current thread holds an authority for
+// the exact context they are called on, so another thread can never borrow a
+// context-wide capability window, and there is no shared mutable counter.
+// Thread-local plan-clean authority binding.  Set only while a
+// plan-authorized clean invocation is executing on THIS thread (see
+// cleaner_authority_guard in media_cleaner.cpp).  The token half is stored in
+// the context as well; a raw destructive primitive accepts an invocation only
+// when the thread-local binding matches BOTH the context pointer and the
+// context's current capability token, so neither a second thread nor a
+// same-thread re-entrant callback can borrow the window.
+struct lpb_clean_authority_binding
+{
+    const void* context{nullptr};
+    uint64_t token{0};
+};
+inline thread_local lpb_clean_authority_binding tls_cleanup_authority{};
+
+// True when the current thread is inside the plan-authorized clean invocation
+// for the given context (same thread + unforgeable token match).  This is the
+// single gate every low-level destructive primitive checks.
+inline bool lpb_has_clean_authority(const lpb_context* context) noexcept
+{
+    return context != nullptr &&
+        tls_cleanup_authority.context == static_cast<const void*>(context) &&
+        tls_cleanup_authority.token != 0 &&
+        tls_cleanup_authority.token == context->active_clean_authority_token;
+}
 
 class lpb_context_operation
 {
@@ -148,6 +218,27 @@ uint64_t plan_token_from_handle(const lpb_extraction_plan* handle) noexcept;
 lpb_extraction_plan* plan_handle_from_token(uint64_t token) noexcept;
 lpb_extraction_plan_record* find_plan_locked(lpb_context* context, uint64_t token) noexcept;
 bool generate_plan_token(lpb_context* context, uint64_t& token) noexcept;
+
+/* Cleanup-plan registry helpers.  The public lpb_cleanup_plan* is likewise
+ * only an opaque token carrier and is never dereferenced. */
+uint64_t cleanup_plan_token_from_handle(const lpb_cleanup_plan* handle) noexcept;
+void record_cleaner_staged_output(lpb_context* context, int32_t artifact_role,
+    const std::string& path, const lpb_file_identity& identity) noexcept;
+// Opens the published output by path, captures its identity, and registers it
+// as transaction-owned.  Used by Native cleaner sinks that publish directly
+// (mp4_strip / heif / samsung-sef) so that every published staged output is
+// registered from the producing side instead of being re-claimed by pathname.
+bool record_cleaner_staged_output_by_path(lpb_context* context, int32_t artifact_role,
+    const std::string& path) noexcept;
+size_t get_cleaner_staged_outputs(lpb_context* context,
+    lpb_clean_staged_output_record* out_records, size_t capacity) noexcept;
+lpb_cleanup_plan* cleanup_plan_handle_from_token(uint64_t token) noexcept;
+lpb_cleanup_plan_record* find_cleanup_plan_locked(lpb_context* context, uint64_t token) noexcept;
+bool generate_cleanup_plan_token(lpb_context* context, uint64_t& token) noexcept;
+// Token generation that assumes the caller already holds context->plan_mutex.
+// lpb_issue_cleanup_plan uses it to avoid a self-deadlock on the non-recursive
+// plan_mutex (lock -> generate -> lock again).
+bool generate_cleanup_plan_token_unlocked(lpb_context* context, uint64_t& token) noexcept;
 
 struct lpb_plan_snapshot
 {
@@ -190,6 +281,9 @@ lpb_result test_probe_destroyed_plan(
     uint64_t context_id,
     uint64_t plan_token) noexcept;
 void test_archive_destroyed_context(lpb_context* context) noexcept;
+bool test_get_cleanup_plan_accounting(
+    lpb_context* context,
+    lpb_test_plan_accounting& accounting) noexcept;
 #endif
 
 constexpr size_t context_options_v1_size =
@@ -210,6 +304,7 @@ bool capture_file_identity_from_handle(
     void* file_handle,
     lpb_file_identity& identity,
     std::wstring& final_path) noexcept;
+
 lpb_result copy_output(
     lpb_context* context,
     const std::vector<uint8_t>& value,

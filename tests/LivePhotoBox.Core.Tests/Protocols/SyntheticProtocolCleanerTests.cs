@@ -28,9 +28,11 @@ public sealed class SyntheticProtocolCleanerTests
         Assert.Equal(SourceProtocol.GoogleMicroVideoV1, facts.Protocol);
 
         var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, ws);
 
         Assert.True(cleanResult.Success, cleanResult.ErrorMessage);
@@ -54,9 +56,11 @@ public sealed class SyntheticProtocolCleanerTests
         Assert.Equal(SourceProtocol.GoogleMotionPhotoV2, facts.Protocol);
 
         var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, ws);
 
         Assert.True(cleanResult.Success, cleanResult.ErrorMessage);
@@ -80,9 +84,11 @@ public sealed class SyntheticProtocolCleanerTests
         Assert.Equal(SourceProtocol.OppoLivePhoto, facts.Protocol);
 
         var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, ws);
 
         Assert.True(cleanResult.Success, cleanResult.ErrorMessage);
@@ -108,9 +114,11 @@ public sealed class SyntheticProtocolCleanerTests
         Assert.Equal(SourceProtocol.VivoLivePhoto, facts.Protocol);
 
         var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, ws);
 
         Assert.True(cleanResult.Success, cleanResult.ErrorMessage);
@@ -134,9 +142,11 @@ public sealed class SyntheticProtocolCleanerTests
         Assert.Equal(SourceProtocol.VivoLegacyDualFile, facts.Protocol);
 
         var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, vidPath, ws);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, ws);
 
         Assert.True(cleanResult.Success, cleanResult.ErrorMessage);
@@ -164,9 +174,11 @@ public sealed class SyntheticProtocolCleanerTests
         Assert.Equal(SourceProtocol.SamsungMotionPhotoJpeg, facts.Protocol);
 
         var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, ws);
 
         Assert.True(cleanResult.Success, cleanResult.ErrorMessage);
@@ -191,9 +203,11 @@ public sealed class SyntheticProtocolCleanerTests
         Assert.Equal(SourceProtocol.SamsungMotionPhotoHeic, facts.Protocol);
 
         var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, ws);
 
         Assert.True(cleanResult.Success, cleanResult.ErrorMessage);
@@ -215,9 +229,11 @@ public sealed class SyntheticProtocolCleanerTests
         Assert.Equal(SourceProtocol.HuaweiMovingPhoto, facts.Protocol);
 
         var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, ws);
 
         Assert.True(cleanResult.Success, cleanResult.ErrorMessage);
@@ -242,9 +258,11 @@ public sealed class SyntheticProtocolCleanerTests
         Assert.Equal(SourceProtocol.AppleLivePhoto, facts.Protocol);
 
         var extracted = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, ws);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, ws);
 
         Assert.True(cleanResult.Success, cleanResult.ErrorMessage);
@@ -267,9 +285,11 @@ public sealed class SyntheticProtocolCleanerTests
 
         var facts = await _inspector.InspectAsync(inputPath, null);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult1 = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, ws);
 
         Assert.True(cleanResult1.Success, cleanResult1.ErrorMessage);
@@ -279,9 +299,11 @@ public sealed class SyntheticProtocolCleanerTests
         Assert.Equal(SourceProtocol.NonLive, recheckFacts.Protocol);
 
         var extracted2 = await TestFactsExtractor.ExtractAsync(recheckFacts, cleanResult1.CleanedImage.Path, null, ws);
+        using var nativeContext2 = TestNativeContext.Create();
+        using var cleanupPlan2 = await TestCleanerPlans.IssueFromBundleAsync(nativeContext2, extracted2);
         var cleanResult2 = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted2
+            ExtractedBundle = extracted2 with { CleanupPlan = cleanupPlan2 },
         }, ws);
 
         Assert.True(cleanResult2.Success);
@@ -303,9 +325,11 @@ public sealed class SyntheticProtocolCleanerTests
         Assert.Equal(SourceProtocol.NonLive, facts.Protocol);
 
         var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, ws);
 
         Assert.True(cleanResult.Success);
@@ -326,9 +350,11 @@ public sealed class SyntheticProtocolCleanerTests
         var facts = await _inspector.InspectAsync(inputPath, null);
         Assert.Equal(SourceProtocol.GoogleMotionPhotoV2, facts.Protocol);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var result = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, ws);
 
         Assert.True(result.Success, result.ErrorMessage);
@@ -351,9 +377,11 @@ public sealed class SyntheticProtocolCleanerTests
         var facts = await _inspector.InspectAsync(inputPath, null);
         Assert.Equal(SourceProtocol.GoogleMotionPhotoV2, facts.Protocol);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, inputPath, null, ws);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var result = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, ws);
 
         Assert.True(result.Success, result.ErrorMessage);

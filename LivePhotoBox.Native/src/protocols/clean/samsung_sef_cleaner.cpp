@@ -390,7 +390,9 @@ lpb_result clean_samsung_sef_jpeg(
     out.flush();
     const bool write_ok = out.good();
     out.close();
-    if (!write_ok || !MoveFileExW(temp_path.c_str(), p_out.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    // No-overwrite publication: destination races fail closed and a foreign
+    // object already at the destination is never replaced.
+    if (!write_ok || !MoveFileExW(temp_path.c_str(), p_out.c_str(), MOVEFILE_WRITE_THROUGH)) {
         std::filesystem::remove(temp_path, write_ec);
         set_error(context, "Failed to write clean Samsung JPEG.");
         return LPB_RESULT_INTERNAL_ERROR;

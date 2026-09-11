@@ -21,4 +21,14 @@ public sealed record ExtractedMediaBundle
     public IReadOnlyList<RemovedProtocolFact> ExtractedProtocolFacts { get; init; } = [];
     public IReadOnlyList<AuxiliaryMediaDescriptor> AuxiliaryMedia { get; init; } = [];
     public IReadOnlyList<PreservationCarrier> PreservationCarriers { get; init; } = [];
+
+    /// <summary>
+    /// Native cleanup-plan authority issued from the P2 extraction record
+    /// before commit (when this bundle was produced by the Native extractor).
+    /// It carries the transaction-owned artifact identities the Cleaner must
+    /// verify against before any destructive mutation.  Null when the bundle
+    /// was built without a Native trust chain (tests must supply their own
+    /// authority through <see cref="ProtocolCleanRequest.CleanupPlan"/>).
+    /// </summary>
+    public CleanupPlan? CleanupPlan { get; init; }
 }

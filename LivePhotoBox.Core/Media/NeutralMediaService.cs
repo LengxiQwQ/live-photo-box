@@ -68,6 +68,7 @@ public sealed class NeutralMediaService : INeutralMediaService
         ProtocolCleanResult cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted,
+            ExtractionPlan = inspected.ExtractionPlan,
             PreservationPolicy = preservationPolicy
         }, workspace, cancellationToken).ConfigureAwait(false);
 

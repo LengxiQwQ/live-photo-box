@@ -58,7 +58,7 @@ public sealed class ExtractorCleanupSourceTransactionTests
         try
         {
             nint callback = PostPublishReplacementCallback();
-        ExtractionException error = await Assert.ThrowsAsync<ExtractionException>(() =>
+            ExtractionException error = await Assert.ThrowsAsync<ExtractionException>(() =>
                 new SourceExtractor().ExtractAsync(
                     inspected.ExtractionPlan,
                     sourcePath,
@@ -100,7 +100,8 @@ public sealed class ExtractorCleanupSourceTransactionTests
         string beforeSha = await workspace.ComputeFileSha256Async(sourcePath);
         using var cts = new CancellationTokenSource();
         using InspectedSource inspected = await new SourceInspector().InspectWithPlanAsync(sourcePath);
-        GCHandle stateHandle = GCHandle.Alloc(cts);
+        var state = new CleanupSourceRaceState([]) { Cts = cts };
+        GCHandle stateHandle = GCHandle.Alloc(state);
         try
         {
             nint callback = CancellationCallback();
@@ -120,6 +121,7 @@ public sealed class ExtractorCleanupSourceTransactionTests
                     cts.Token));
 
             Assert.True(cts.IsCancellationRequested, "The Native cleanup-source callback did not request cancellation.");
+            Assert.Null(state.CallbackError);
         string cleanupSourcePath = workspace.GetAllocatedPath("cleanup-source");
             Assert.False(File.Exists(cleanupSourcePath), "The transaction-owned partial cleanup source was left behind after cancellation.");
         Assert.Equal(beforeSha, await workspace.ComputeFileSha256Async(sourcePath));
@@ -163,8 +165,18 @@ public sealed class ExtractorCleanupSourceTransactionTests
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void CancelCleanupSourceExtraction(nint userData, int _, ulong bytesProcessed)
     {
-        if (bytesProcessed > 0)
-            ((CancellationTokenSource)GCHandle.FromIntPtr(userData).Target!).Cancel();
+        if (bytesProcessed <= 0) return;
+        var state = (CleanupSourceRaceState?)GCHandle.FromIntPtr(userData).Target;
+        if (state == null) return;
+        Interlocked.Increment(ref state.CallbackInvoked);
+        try
+        {
+            state.Cts?.Cancel();
+        }
+        catch (Exception exception)
+        {
+            state.CallbackError = exception.ToString();
+        }
     }
 
     private sealed class CleanupSourceRaceState(byte[] sentinel)
@@ -173,6 +185,7 @@ public sealed class ExtractorCleanupSourceTransactionTests
         internal string? MovedOwnedPath { get; set; }
         internal byte[] Sentinel { get; } = sentinel;
         internal string? CallbackError { get; set; }
+        internal CancellationTokenSource? Cts { get; set; }
         internal int CallbackInvoked;
     }
 

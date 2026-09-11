@@ -466,6 +466,7 @@ public sealed class SourceExtractor : ISourceExtractor
         // is still open; this second record lets managed rollback prove that
         // it is still looking at that transaction's object.
         bool nativeExtractionSucceeded = false;
+        bool cleanupAuthorityIssued = false;
         try
         {
             await NativeMediaService.ExtractMediaAsync(
@@ -707,11 +708,21 @@ public sealed class SourceExtractor : ISourceExtractor
                 });
             }
 
-            // All managed verification passed. Commit the Native transaction:
-            // this closes the rollback handles so the output files are no
-            // longer locked with write+delete access and can be read normally
-            // by the caller. After commit the artifacts are owned by the
-            // caller/workspace, so a later exception must not roll them back.
+            // All managed verification passed. Before commit, issue the P3
+            // cleanup-plan authority from this extraction record: the plan
+            // inherits the Native-captured published-artifact identities
+            // (volume serial + file index captured while this transaction held
+            // the handles), so the Cleaner never has to re-guess ownership
+            // from pathnames.  Issuing blocks the extractor rollback path
+            // (cleanup_authority_issued) - the exact P2 -> P3 hand-off point.
+            CleanupPlan? cleanupPlanAuthority = CleanupPlan.IssueFrom(attempt.Plan, cancellationToken);
+            cleanupAuthorityIssued = true;
+
+            // Commit the Native transaction: this closes the rollback handles
+            // so the output files are no longer locked with write+delete
+            // access and can be read normally by the caller. After commit the
+            // artifacts are owned by the caller/workspace, so a later
+            // exception must not roll them back.
             NativeResult commitResult = NativeMethods.CommitExtractionOutputs(
                 attempt.ContextLease.Handle,
                 attempt.NativeHandle,
@@ -731,7 +742,8 @@ public sealed class SourceExtractor : ISourceExtractor
                 SourceFacts = facts,
                 ExtractedProtocolFacts = extractedFacts,
                 AuxiliaryMedia = finalizedAuxiliaryDescriptors,
-                PreservationCarriers = facts.PreservationCarriers
+                PreservationCarriers = facts.PreservationCarriers,
+                CleanupPlan = cleanupPlanAuthority
             };
         }
         catch (Exception ex)
@@ -743,7 +755,7 @@ public sealed class SourceExtractor : ISourceExtractor
             string? cleanupFailedFile = null;
             Exception? cleanupError = null;
 
-            if (nativeExtractionSucceeded)
+            if (nativeExtractionSucceeded && !cleanupAuthorityIssued)
             {
                 NativeResult rollback = NativeMethods.RollbackExtractionOutputs(
                     attempt.ContextLease.Handle,

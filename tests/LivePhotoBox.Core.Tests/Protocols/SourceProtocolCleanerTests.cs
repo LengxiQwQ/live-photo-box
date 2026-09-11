@@ -50,10 +50,12 @@ public sealed class SourceProtocolCleanerTests
         Assert.NotNull(extracted.PrimaryImage);
         Assert.True(File.Exists(extracted.PrimaryImage.Path));
 
-        // 3. Clean
+        // 3. Clean (Native cleanup-plan authority, harness-issued for tests)
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted,
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
             PreservationPolicy = PreservationPolicy.BestEffort
         }, workspace);
 
@@ -92,9 +94,12 @@ public sealed class SourceProtocolCleanerTests
         // 6. Idempotency test: Cleaning already cleaned media produces NonLive output without error
         using var secondWorkspace = new MediaWorkspace();
         var secondExtracted = await TestFactsExtractor.ExtractAsync(recheckFacts, cleanedImgPath, secondaryPath != null ? cleanedVidPath : null, secondWorkspace);
+        using var secondNativeContext = TestNativeContext.Create();
+        using var secondCleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(secondNativeContext, secondExtracted);
         var secondCleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = secondExtracted,
+            CleanupPlan = secondCleanupPlan,
             PreservationPolicy = PreservationPolicy.BestEffort
         }, secondWorkspace);
 
@@ -174,9 +179,11 @@ public sealed class SourceProtocolCleanerTests
         var facts = await inspector.InspectAsync(primaryPath);
         Assert.Equal(SourceProtocol.SamsungMotionPhotoHeic, facts.Protocol);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, null, workspace);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted,
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
             PreservationPolicy = PreservationPolicy.BestEffort
         }, workspace);
 
@@ -237,20 +244,18 @@ public sealed class SourceProtocolCleanerTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task Clean_Adversarial_UnauthorizedAction_NativeDoesNotModifyTarget()
+    public async Task Clean_Adversarial_DtoEntryPoint_FailsClosedWithoutAuthority()
     {
         string primaryPath = ResolveSample("小米.jpg");
         using var workspace = new MediaWorkspace();
         var inspector = new SourceInspector();
         var facts = await inspector.InspectAsync(primaryPath);
 
-        string tempImage = workspace.AllocateFilePath("test-adversarial-unauthorized", ".jpg");
+        string tempImage = workspace.AllocateFilePath("test-adversarial-dto", ".jpg");
         File.Copy(primaryPath, tempImage, overwrite: true);
-        string cleanedImage = workspace.AllocateFilePath("test-adversarial-unauthorized-cleaned", ".jpg");
+        string cleanedImage = workspace.AllocateFilePath("test-adversarial-dto-cleaned", ".jpg");
 
-        // Authorize only version and pts, deliberately EXCLUDING google-v2-xmp-motionphoto
         var actions = facts.ConfirmedResidues
-            .Where(r => r.Id != "google-v2-xmp-motionphoto")
             .Select(r => new PlannedCleanupAction
             {
                 ResidueId = r.Id,
@@ -265,15 +270,16 @@ public sealed class SourceProtocolCleanerTests
             })
             .ToList();
 
-        var removedFacts = await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
-            facts, actions, tempImage, null, cleanedImage, null);
+        // The DTO cleanup entry point carries no Native authority: production
+        // fails closed before any file is created, moved, or deleted.  Only a
+        // Native cleanup plan (lpb_issue_cleanup_plan) can authorize cleaning.
+        var ex = await Assert.ThrowsAsync<ExtractionException>(() =>
+            LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
+                facts, actions, tempImage, null, cleanedImage, null));
 
-        // Native must NOT have removed google-v2-xmp-motionphoto
-        Assert.DoesNotContain(removedFacts, f => f.ResidueId == "google-v2-xmp-motionphoto");
-
-        // The cleaned file must still contain GCamera:MotionPhoto because it was unauthorized
-        string text = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(cleanedImage));
-        Assert.Contains("GCamera:MotionPhoto", text);
+        Assert.Equal(ExtractionFailureCategory.AuthorityViolation, ex.Category);
+        Assert.False(File.Exists(cleanedImage), "DTO cleanup must not publish outputs without Native authority.");
+        Assert.Equal(ComputeSha256(primaryPath), ComputeSha256(tempImage));
     }
 
     [Fact]
@@ -288,11 +294,20 @@ public sealed class SourceProtocolCleanerTests
         var facts = await inspector.InspectAsync(primaryPath);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, null, workspace);
 
-        // Inject a simulated rogue cleaner that reports an unauthorized removal
+        // Inject a simulated rogue cleaner that reports an unauthorized removal.
+        // The CleanAsync-level authority is a real harness plan (a forged DTO
+        // like CleanupPlan.CreateFake() is rejected at the Authorization gate
+        // before any invoker runs); the inner native call runs on a separate
+        // harness plan bound to the same bundle the rogue invoker receives.
+        using var rogueNativeContext = TestNativeContext.Create();
+        using var roguePlan = await TestCleanerPlans.IssueFromBundleAsync(rogueNativeContext, extracted);
+        using var cleanerNativeContext = TestNativeContext.Create();
+        using var cleanerPlan = await TestCleanerPlans.IssueFromBundleAsync(cleanerNativeContext, extracted);
         var rogueCleaner = new SourceProtocolCleaner(cleanInvoker: async (f, actions, inImg, inVid, outImg, outVid, ct) =>
         {
-            var realFacts = await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
-                f, actions, inImg, inVid, outImg, outVid, ct);
+            using var attempt = roguePlan.BeginCleanupAttempt(ct);
+            var realFacts = await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+                attempt, inImg, inVid, null, outImg!, outVid, ct);
 
             var tampered = realFacts.ToList();
             // Inject an unauthorized rogue fact
@@ -312,7 +327,7 @@ public sealed class SourceProtocolCleanerTests
 
         var cleanResult = await rogueCleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted,
+            ExtractedBundle = extracted with { CleanupPlan = cleanerPlan },
             PreservationPolicy = PreservationPolicy.BestEffort
         }, workspace);
 
@@ -352,9 +367,11 @@ public sealed class SourceProtocolCleanerTests
 
         var facts = await inspector.InspectAsync(customImg);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, customImg, null, workspace);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted,
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
             PreservationPolicy = PreservationPolicy.BestEffort
         }, workspace);
 
@@ -381,9 +398,11 @@ public sealed class SourceProtocolCleanerTests
 
         var facts = await inspector.InspectAsync(primaryPath);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, null, workspace);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted,
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
             PreservationPolicy = PreservationPolicy.BestEffort
         }, workspace);
 
@@ -412,9 +431,11 @@ public sealed class SourceProtocolCleanerTests
 
         var facts = await inspector.InspectAsync(primaryPath, secondaryPath);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, secondaryPath, workspace);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted,
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
             PreservationPolicy = PreservationPolicy.BestEffort
         }, workspace);
 
@@ -500,9 +521,11 @@ public sealed class SourceProtocolCleanerTests
 
         // Case C: Strict policy must immediately fail closed when preservation fails
         var cleaner = new SourceProtocolCleaner();
+        using var strictNativeContext = TestNativeContext.Create();
+        using var strictCleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(strictNativeContext, hdrExtracted);
         var strictCleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = hdrExtracted,
+            ExtractedBundle = hdrExtracted with { CleanupPlan = strictCleanupPlan },
             PreservationPolicy = PreservationPolicy.Strict
         }, workspace);
 
@@ -559,9 +582,11 @@ public sealed class SourceProtocolCleanerTests
         Assert.DoesNotContain(facts.ConfirmedResidues, r => r.Selector.Contains("SpecialAuditProp"));
 
         var extracted = await TestFactsExtractor.ExtractAsync(facts, customImg, null, workspace);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted,
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
             PreservationPolicy = PreservationPolicy.BestEffort
         }, workspace);
 
@@ -603,9 +628,11 @@ public sealed class SourceProtocolCleanerTests
         Assert.Equal(SourceProtocol.SamsungMotionPhotoJpeg, facts.Protocol);
 
         var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, null, workspace);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted,
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
             PreservationPolicy = PreservationPolicy.BestEffort
         }, workspace);
 

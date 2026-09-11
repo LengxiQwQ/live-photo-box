@@ -31,6 +31,82 @@ namespace fs = std::filesystem;
 
 namespace lpb::media {
 
+/* RAII capability gate: low-level in-place destructive primitives are only
+ * callable while a plan-authorized cleaner operation is active on the
+ * context. */
+/* RAII capability gate: low-level in-place destructive primitives are only
+ * callable while a plan-authorized cleaner operation is active on the current
+ * thread.  Authority is bound to this thread's invocation AND to an
+ * unforgeable per-invocation token that is mirrored in the context: another
+ * thread can never borrow the window, and a same-thread re-entrant external
+ * callback (e.g. a cancellation callback that itself calls a raw writer) is
+ * blocked because every external callback boundary suspends the binding first
+ * (see cleaner_authority_suspend). */
+struct cleaner_authority_guard
+{
+    lpb_clean_authority_binding previous;
+    lpb_context* context;
+    uint64_t token;
+
+    explicit cleaner_authority_guard(lpb_context* c) noexcept
+        : previous(tls_cleanup_authority), context(c), token(next_authority_token())
+    {
+        tls_cleanup_authority = {static_cast<const void*>(c), token};
+        if (c) c->active_clean_authority_token = token;
+    }
+    ~cleaner_authority_guard() noexcept
+    {
+        if (context && context->active_clean_authority_token == token)
+        {
+            context->active_clean_authority_token = 0;
+        }
+        tls_cleanup_authority = previous;
+    }
+
+private:
+    static uint64_t next_authority_token() noexcept
+    {
+        static std::atomic<uint64_t> counter{1};
+        static const uint64_t seed = ([]() noexcept {
+            std::random_device rd;
+            return (static_cast<uint64_t>(rd()) << 32) ^ static_cast<uint64_t>(rd());
+        })();
+        return counter.fetch_add(1, std::memory_order_relaxed) ^ seed;
+    }
+};
+
+/* Temporarily removes the thread-local authority binding while the cleaner
+ * calls OUT to an external callback (cancellation checks, the post-snapshot
+ * test hook, ...).  A re-entrant call into a raw destructive primitive from
+ * inside that callback therefore fails the authority gate instead of borrowing
+ * the cleaner's own capability window. */
+struct cleaner_authority_suspend
+{
+    lpb_clean_authority_binding previous;
+    lpb_context* context;
+    uint64_t token;
+
+    explicit cleaner_authority_suspend(lpb_context* c) noexcept
+        : previous(tls_cleanup_authority), context(c), token(c ? c->active_clean_authority_token : 0)
+    {
+        tls_cleanup_authority = {};
+        if (c) c->active_clean_authority_token = 0;
+    }
+    ~cleaner_authority_suspend() noexcept
+    {
+        if (context) context->active_clean_authority_token = token;
+        tls_cleanup_authority = previous;
+    }
+};
+
+/* Cancellation probe that never runs the external callback while the raw
+ * writer capability is live on this thread. */
+static bool cancellation_requested_suspended(lpb_context* context) noexcept
+{
+    cleaner_authority_suspend suspend(context);
+    return lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED;
+}
+
 static bool is_all_zeroes_32(const uint8_t* hash) noexcept {
     if (!hash) return true;
     for (size_t i = 0; i < 32; ++i) {
@@ -109,7 +185,34 @@ static bool read_file_binary(const std::string& path, std::vector<uint8_t>& out_
     return ifs.gcount() == size;
 }
 
-static bool write_file_binary(const std::string& path, const std::vector<uint8_t>& data) {
+static bool read_file_binary_handle(void* file_handle, std::vector<uint8_t>& out_data) {
+    const HANDLE h = static_cast<HANDLE>(file_handle);
+    if (h == nullptr || h == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER size{};
+    if (!GetFileSizeEx(h, &size) || size.QuadPart < 0) return false;
+    try
+    {
+        out_data.resize(static_cast<size_t>(size.QuadPart));
+    }
+    catch (...)
+    {
+        return false;
+    }
+    if (out_data.empty()) return true;
+    DWORD total = 0;
+    while (total < out_data.size()) {
+        DWORD chunk = 0;
+        const DWORD wanted = static_cast<DWORD>(std::min<size_t>(out_data.size() - total, 32ull * 1024ull * 1024ull));
+        if (!ReadFile(h, out_data.data() + total, wanted, &chunk, nullptr) || chunk == 0) return false;
+        total += chunk;
+    }
+    return true;
+}
+
+static bool write_file_binary(lpb_context* context, int32_t artifact_role,
+    const std::string& path, const std::vector<uint8_t>& data)
+{
+    if (context == nullptr) return false;
     auto p = utf8_to_path(path.c_str());
     std::error_code ec;
     auto temp_dir = p.parent_path();
@@ -118,19 +221,65 @@ static bool write_file_binary(const std::string& path, const std::vector<uint8_t
     wchar_t temp_name[MAX_PATH]{};
     if (GetTempFileNameW(temp_dir.c_str(), L"lpb", 0, temp_name) == 0) return false;
     const fs::path temp(temp_name);
-    // Never expose a partially written artifact. Publish only after the
-    // complete temporary file has been flushed and closed.
-    std::ofstream ofs(temp, std::ios::binary | std::ios::trunc);
-    if (!ofs.is_open()) { fs::remove(temp, ec); return false; }
-    if (!data.empty()) ofs.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
-    ofs.flush();
-    if (!ofs.good()) { ofs.close(); fs::remove(temp, ec); return false; }
-    ofs.close();
-    if (!MoveFileExW(temp.c_str(), p.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+
+    // Keep the creating handle open through the publish so the identity we
+    // record afterwards is provably the object we created — never a pathname
+    // re-open after another process could have replaced the file.
+    HANDLE temp_handle = CreateFileW(
+        temp.c_str(), GENERIC_READ | GENERIC_WRITE | DELETE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (temp_handle == INVALID_HANDLE_VALUE)
+    {
         fs::remove(temp, ec);
         return false;
     }
-    return true;
+
+    bool ok = false;
+    size_t total = 0;
+    while (total < data.size())
+    {
+        DWORD chunk = 0;
+        const DWORD wanted = static_cast<DWORD>(std::min<size_t>(data.size() - total, 32ull * 1024ull * 1024ull));
+        if (!WriteFile(temp_handle, data.data() + total, wanted, &chunk, nullptr) || chunk == 0)
+        {
+            break;
+        }
+        total += chunk;
+    }
+    if (total == data.size() && FlushFileBuffers(temp_handle))
+    {
+        // No-overwrite handle-based publish: an existing destination is a race
+        // or a foreign object and must fail closed, never be replaced.
+        const std::wstring dest = p.native();
+        std::vector<uint8_t> rename_buf(sizeof(FILE_RENAME_INFO) + dest.size() * sizeof(wchar_t));
+        auto* rename_info = reinterpret_cast<FILE_RENAME_INFO*>(rename_buf.data());
+        std::memset(rename_info, 0, rename_buf.size());
+        rename_info->ReplaceIfExists = FALSE;
+        rename_info->RootDirectory = nullptr;
+        rename_info->FileNameLength = static_cast<DWORD>(dest.size() * sizeof(wchar_t));
+        std::memcpy(rename_info->FileName, dest.c_str(), rename_info->FileNameLength);
+        if (SetFileInformationByHandle(temp_handle, FileRenameInfo, rename_info, static_cast<DWORD>(rename_buf.size())))
+        {
+            BY_HANDLE_FILE_INFORMATION info{};
+            if (GetFileInformationByHandle(temp_handle, &info))
+            {
+                lpb_file_identity identity{};
+                identity.volume_serial = info.dwVolumeSerialNumber;
+                identity.file_index = (static_cast<uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
+                identity.file_size = (static_cast<uint64_t>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
+                identity.link_count = info.nNumberOfLinks;
+                record_cleaner_staged_output(context, artifact_role, path, identity);
+            }
+            ok = true;
+        }
+    }
+    CloseHandle(temp_handle);
+    if (!ok)
+    {
+        fs::remove(temp, ec);
+    }
+    return ok;
 }
 
 
@@ -205,7 +354,7 @@ static lpb_result clean_jpeg_xmp(
             set_error(context, "Expected protocol XMP was not found in the image artifact.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
-        return write_file_binary(out_path, data) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
+        return write_file_binary(context, LPB_ARTIFACT_PRIMARY_IMAGE, out_path, data) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
     }
 
     std::string cleaned_xmp;
@@ -215,7 +364,7 @@ static lpb_result clean_jpeg_xmp(
             set_error(context, "Protocol XMP was malformed or contained no validated removable fields.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
-        return write_file_binary(out_path, data) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
+        return write_file_binary(context, LPB_ARTIFACT_PRIMARY_IMAGE, out_path, data) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
     }
 
     std::vector<uint8_t> out_buf(data.size() + cleaned_xmp.size() + 4096);
@@ -239,7 +388,7 @@ static lpb_result clean_jpeg_xmp(
     data = std::move(out_buf);
     out_facts.insert(out_facts.end(), operation_facts.begin(), operation_facts.end());
 
-    if (!write_file_binary(out_path, data)) {
+    if (!write_file_binary(context, LPB_ARTIFACT_PRIMARY_IMAGE, out_path, data)) {
         set_error(context, "Failed to write cleaned JPEG.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
@@ -371,7 +520,7 @@ static lpb_result clean_apple_image(
         }
     }
 
-    if (!write_file_binary(out_path, data)) {
+    if (!write_file_binary(context, LPB_ARTIFACT_PRIMARY_IMAGE, out_path, data)) {
         set_error(context, "Failed to write cleaned Apple image.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
@@ -415,7 +564,7 @@ static lpb_result clean_apple_video(
     }
 
     if (!should_strip_cid && !should_strip_livephoto && track_patterns.empty()) {
-        return write_file_binary(out_path, in_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
+        return write_file_binary(context, LPB_ARTIFACT_MOTION_VIDEO, out_path, in_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
     }
 
     std::vector<const char*> starts;
@@ -441,6 +590,11 @@ static lpb_result clean_apple_video(
     lpb::containers::Mp4StripOutcome outcome{};
     lpb_result res = lpb::containers::stream_clean_mp4_bytes(context, std::span<const uint8_t>(in_bytes.data(), in_bytes.size()), out_path, spec, outcome);
     if (res != LPB_RESULT_OK) return res;
+    if (!record_cleaner_staged_output_by_path(context, LPB_ARTIFACT_MOTION_VIDEO, out_path))
+    {
+        set_error(context, "Failed to register staged video ownership after MP4 publish.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
 
     if (outcome.mdta_removed) {
         for (size_t i = 0; i < mdta_residues.size(); ++i) {
@@ -481,7 +635,7 @@ static lpb_result clean_vivo_legacy_video(
         LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.vivo.gallery.livePhoto", "com.vivo.gallery.livePhoto", LPB_REMOVAL_DELETE);
 
     if (!act_uuid && !act_lp && !act_it && !act_gallery) {
-        return write_file_binary(out_path, in_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
+        return write_file_binary(context, LPB_ARTIFACT_MOTION_VIDEO, out_path, in_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
     }
 
     const uint8_t vivo_uuid[16] = {
@@ -515,6 +669,11 @@ static lpb_result clean_vivo_legacy_video(
     lpb::containers::Mp4StripOutcome outcome{};
     lpb_result res = lpb::containers::stream_clean_mp4_bytes(context, std::span<const uint8_t>(in_bytes.data(), in_bytes.size()), out_path, spec, outcome);
     if (res != LPB_RESULT_OK) return res;
+    if (!record_cleaner_staged_output_by_path(context, LPB_ARTIFACT_MOTION_VIDEO, out_path))
+    {
+        set_error(context, "Failed to register staged video ownership after MP4 publish.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
 
     if (outcome.uuid_removed && act_uuid) {
         add_fact(out_facts, "vivo", "MP4 UUID Box", "Removed vivoMediaExtInfo UUID box",
@@ -552,7 +711,7 @@ static lpb_result clean_huawei_video(
         LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.openharmony.timed_metadata.movingphoto", "com.openharmony.timed_metadata.movingphoto", LPB_REMOVAL_DELETE);
 
     if (!act_openharmony && !act_huawei && !act_covertime && !act_track) {
-        return write_file_binary(out_path, in_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
+        return write_file_binary(context, LPB_ARTIFACT_MOTION_VIDEO, out_path, in_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
     }
 
     std::vector<const char*> starts;
@@ -592,6 +751,11 @@ static lpb_result clean_huawei_video(
     lpb::containers::Mp4StripOutcome outcome{};
     lpb_result res = lpb::containers::stream_clean_mp4_bytes(context, std::span<const uint8_t>(in_bytes.data(), in_bytes.size()), out_path, spec, outcome);
     if (res != LPB_RESULT_OK) return res;
+    if (!record_cleaner_staged_output_by_path(context, LPB_ARTIFACT_MOTION_VIDEO, out_path))
+    {
+        set_error(context, "Failed to register staged video ownership after MP4 publish.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
 
     const char* proto_str = protocol == LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO ? "Honor" : "Huawei";
     if (outcome.mdta_removed) {
@@ -628,8 +792,11 @@ lpb_result clean_source_protocol_with_plan(
     const lpb_cleanup_artifact_binding* targets,
     size_t target_count,
     const char* input_image_path,
+    void* input_image_handle,
     const char* input_video_path,
+    void* input_video_handle,
     const char* cleanup_source_path,
+    void* cleanup_source_handle,
     const lpb_cleanup_artifact_binding* cleanup_source_target,
     const char* output_image_path,
     const char* output_video_path,
@@ -640,7 +807,7 @@ lpb_result clean_source_protocol_with_plan(
     if (!context || !facts || !input_image_path || !output_image_path) {
         return LPB_RESULT_INVALID_ARGUMENT;
     }
-    if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
+    if (cancellation_requested_suspended(context)) {
         return LPB_RESULT_CANCELLED;
     }
     if (!actions || action_count == 0) {
@@ -715,7 +882,10 @@ lpb_result clean_source_protocol_with_plan(
     }
 
     std::vector<uint8_t> input_image_bytes;
-    if (!read_file_binary(input_image_path, input_image_bytes)) {
+    const bool image_read_ok = input_image_handle != nullptr
+        ? read_file_binary_handle(input_image_handle, input_image_bytes)
+        : read_file_binary(input_image_path, input_image_bytes);
+    if (!image_read_ok) {
         set_error(context, "Failed to read primary image artifact snapshot.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
@@ -732,7 +902,10 @@ lpb_result clean_source_protocol_with_plan(
 
     std::vector<uint8_t> cleanup_source_bytes;
     if (cleanup_source_path && cleanup_source_target) {
-        if (!read_file_binary(cleanup_source_path, cleanup_source_bytes)) {
+        const bool source_read_ok = cleanup_source_handle != nullptr
+            ? read_file_binary_handle(cleanup_source_handle, cleanup_source_bytes)
+            : read_file_binary(cleanup_source_path, cleanup_source_bytes);
+        if (!source_read_ok) {
             set_error(context, "Failed to read cleanup source container snapshot.");
             return LPB_RESULT_INTERNAL_ERROR;
         }
@@ -755,7 +928,10 @@ lpb_result clean_source_protocol_with_plan(
             set_error(context, "TOCTOU check failed: valid motion video expected SHA-256 and positive length are mandatory when video input is provided.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
-        if (!read_file_binary(input_video_path, input_video_bytes)) {
+        const bool video_read_ok = input_video_handle != nullptr
+            ? read_file_binary_handle(input_video_handle, input_video_bytes)
+            : read_file_binary(input_video_path, input_video_bytes);
+        if (!video_read_ok) {
             set_error(context, "Failed to read motion video artifact snapshot.");
             return LPB_RESULT_INTERNAL_ERROR;
         }
@@ -772,10 +948,13 @@ lpb_result clean_source_protocol_with_plan(
     }
 
     if (context && context->cleaner_post_snapshot_callback) {
-        context->cleaner_post_snapshot_callback(context->cleaner_callback_user_data);
+        // External callback boundary: suspend the raw-writer capability so a
+        // re-entrant call from the hook can never borrow the cleaner's window.
+        cleaner_authority_suspend suspend(context);
+        context->cleaner_post_snapshot_callback(context);
     }
 
-    if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
+    if (cancellation_requested_suspended(context)) {
         return LPB_RESULT_CANCELLED;
     }
 
@@ -839,12 +1018,12 @@ lpb_result clean_source_protocol_with_plan(
             res = clean_jpeg_xmp(context, input_image_bytes, output_image_path,
                 static_cast<lpb_source_protocol>(facts->protocol), actions, action_count, true, removed_facts);
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-                res = write_file_binary(output_video_path, input_video_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
+                res = write_file_binary(context, LPB_ARTIFACT_MOTION_VIDEO, output_video_path, input_video_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             }
             break;
 
         case LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL:
-            res = write_file_binary(output_image_path, input_image_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
+            res = write_file_binary(context, LPB_ARTIFACT_PRIMARY_IMAGE, output_image_path, input_image_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
                 res = clean_vivo_legacy_video(context, input_video_bytes, output_video_path, actions, action_count, removed_facts);
             }
@@ -863,21 +1042,33 @@ lpb_result clean_source_protocol_with_plan(
                 actions,
                 action_count,
                 removed_facts);
+            if (res == LPB_RESULT_OK && !record_cleaner_staged_output_by_path(context, LPB_ARTIFACT_PRIMARY_IMAGE, output_image_path))
+            {
+                set_error(context, "Failed to register staged Samsung SEF image ownership after publish.");
+                res = LPB_RESULT_INTERNAL_ERROR;
+                break;
+            }
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-                res = write_file_binary(output_video_path, input_video_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
+                res = write_file_binary(context, LPB_ARTIFACT_MOTION_VIDEO, output_video_path, input_video_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             }
             break;
 
         case LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC:
             res = protocols::clean::clean_samsung_heic(context, input_image_bytes, output_image_path, actions, action_count, removed_facts);
+            if (res == LPB_RESULT_OK && !record_cleaner_staged_output_by_path(context, LPB_ARTIFACT_PRIMARY_IMAGE, output_image_path))
+            {
+                set_error(context, "Failed to register staged Samsung HEIC image ownership after publish.");
+                res = LPB_RESULT_INTERNAL_ERROR;
+                break;
+            }
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-                res = write_file_binary(output_video_path, input_video_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
+                res = write_file_binary(context, LPB_ARTIFACT_MOTION_VIDEO, output_video_path, input_video_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             }
             break;
 
         case LPB_SOURCE_PROTOCOL_HUAWEI_MOVING_PHOTO:
         case LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO:
-            res = write_file_binary(output_image_path, input_image_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
+            res = write_file_binary(context, LPB_ARTIFACT_PRIMARY_IMAGE, output_image_path, input_image_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
                 res = clean_huawei_video(context, input_video_bytes, output_video_path,
                     static_cast<lpb_source_protocol>(facts->protocol), actions, action_count, removed_facts);
@@ -886,9 +1077,9 @@ lpb_result clean_source_protocol_with_plan(
 
         case LPB_SOURCE_PROTOCOL_NON_LIVE:
         default:
-            res = write_file_binary(output_image_path, input_image_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
+            res = write_file_binary(context, LPB_ARTIFACT_PRIMARY_IMAGE, output_image_path, input_image_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
-                res = write_file_binary(output_video_path, input_video_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
+                res = write_file_binary(context, LPB_ARTIFACT_MOTION_VIDEO, output_video_path, input_video_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             }
             break;
         }
@@ -918,5 +1109,309 @@ lpb_result clean_source_protocol_with_plan(
         return LPB_RESULT_INTERNAL_ERROR;
     }
 }
+
+static void* verify_and_open_input(
+    lpb_context* context,
+    const lpb_published_artifact_record* expected,
+    const char* input_path,
+    const char* role_name) noexcept
+{
+    // The function is noexcept (ABI contract) but must fail closed instead of
+    // terminating when a filesystem/library allocation throws: the whole body
+    // runs inside a catch-all that converts any exception into an identity
+    // failure.  Any handle opened before the throw is closed here.
+    HANDLE opened = INVALID_HANDLE_VALUE;
+    try
+    {
+        if (expected == nullptr || input_path == nullptr || input_path[0] == '\0')
+        {
+            set_error(context, "[ObjectIdentity] The cleanup plan does not authorize an input object for this role.");
+            return nullptr;
+        }
+
+        const auto path = utf8_to_path(input_path);
+        const DWORD attributes = GetFileAttributesW(path.c_str());
+        if (attributes == INVALID_FILE_ATTRIBUTES)
+        {
+            set_error(context, "[ObjectIdentity] A cleanup input object could not be inspected before mutation.");
+            return nullptr;
+        }
+        if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0)
+        {
+            set_error(context, "[ObjectIdentity] A cleanup input resolves through a reparse point; the plan never authorizes reparse targets.");
+            return nullptr;
+        }
+
+        opened = CreateFileW(
+            path.c_str(),
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL | FILE_FLAG_BACKUP_SEMANTICS,
+            nullptr);
+        if (opened == INVALID_HANDLE_VALUE)
+        {
+            set_error(context, "[ObjectIdentity] A cleanup input object could not be opened for exact-object verification.");
+            return nullptr;
+        }
+
+        lpb_file_identity actual{};
+        std::wstring actual_path;
+        if (!capture_file_identity_from_handle(opened, actual, actual_path))
+        {
+            CloseHandle(opened);
+            opened = INVALID_HANDLE_VALUE;
+            set_error(context, "[ObjectIdentity] A cleanup input object could not be verified from its open handle.");
+            return nullptr;
+        }
+
+        bool path_matches = false;
+        try
+        {
+            path_matches = _wcsicmp(actual_path.c_str(), expected->final_path.c_str()) == 0;
+        }
+        catch (...)
+        {
+            path_matches = false;
+        }
+
+        const bool same_object =
+            actual.volume_serial == expected->identity.volume_serial &&
+            actual.file_index == expected->identity.file_index;
+        const bool single_link = actual.link_count == 1;
+        const bool size_matches = actual.file_size == expected->byte_length;
+
+        if (!same_object || !single_link || !size_matches || !path_matches)
+        {
+            CloseHandle(opened);
+            opened = INVALID_HANDLE_VALUE;
+            std::string message = "[ObjectIdentity] The cleanup input (role: ";
+            message += role_name == nullptr ? "unknown" : role_name;
+            message += ") is not the exact filesystem object the plan authorized (replaced, relinked, or re-pointed object detected).";
+            set_error(context, message.c_str());
+            return nullptr;
+        }
+
+        // The caller reads and mutates through this same handle; no pathname
+        // reopen window exists between verification and the snapshot.
+        return opened;
+    }
+    catch (...)
+    {
+        if (opened != nullptr && opened != INVALID_HANDLE_VALUE)
+        {
+            CloseHandle(opened);
+        }
+        set_error(context, "[ObjectIdentity] Failed to verify the cleanup input object (unhandled native exception); fail closed.");
+        return nullptr;
+    }
+}
+
+struct input_handle_guard
+{
+    void* handle;
+    explicit input_handle_guard(void* h) noexcept : handle(h) {}
+    ~input_handle_guard() noexcept
+    {
+        if (handle != nullptr && handle != INVALID_HANDLE_VALUE)
+        {
+            CloseHandle(static_cast<HANDLE>(handle));
+        }
+    }
+};
+
+lpb_result clean_source_protocol_with_cleanup_plan(
+    lpb_context* context,
+    const lpb_cleanup_plan_record& plan,
+    const char* input_image_path,
+    const char* input_video_path,
+    const char* cleanup_source_path,
+    const char* output_image_path,
+    const char* output_video_path,
+    lpb_removed_protocol_fact* out_facts,
+    size_t facts_capacity,
+    size_t* out_facts_count)
+{
+    if (out_facts_count) *out_facts_count = 0;
+    if (context == nullptr || input_image_path == nullptr || output_image_path == nullptr)
+    {
+        set_error(context, "[AuthorityViolation] Context, input image, and output image paths are required.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+    if (cancellation_requested_suspended(context))
+    {
+        return LPB_RESULT_CANCELLED;
+    }
+    if (plan.confirmed_residues.empty())
+    {
+        set_error(context, "[AuthorityViolation] The cleanup plan authorizes no protocol residues.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    // The whole plan-authorized mutation body is exception-safe: any
+    // allocation/format failure becomes a fail-closed internal error instead
+    // of terminating the process (0xC0000409).  RAII guards still release
+    // handles and the thread-local authority binding during unwinding.
+    try
+    {
+    // Resolve the plan-owned artifacts by role.
+    const lpb_published_artifact_record* primary_record = nullptr;
+    const lpb_published_artifact_record* video_record = nullptr;
+    const lpb_published_artifact_record* source_record = nullptr;
+    for (const auto& artifact : plan.artifacts)
+    {
+        if (artifact.artifact_role == LPB_ARTIFACT_PRIMARY_IMAGE)
+        {
+            if (primary_record != nullptr)
+            {
+                set_error(context, "[AuthorityViolation] The cleanup plan carries duplicate PrimaryImage ownership records.");
+                return LPB_RESULT_AUTHORITY_VIOLATION;
+            }
+            primary_record = &artifact;
+        }
+        else if (artifact.artifact_role == LPB_ARTIFACT_MOTION_VIDEO)
+        {
+            if (video_record != nullptr)
+            {
+                set_error(context, "[AuthorityViolation] The cleanup plan carries duplicate MotionVideo ownership records.");
+                return LPB_RESULT_AUTHORITY_VIOLATION;
+            }
+            video_record = &artifact;
+        }
+        else if (artifact.artifact_role == LPB_ARTIFACT_SOURCE_CONTAINER)
+        {
+            if (source_record != nullptr)
+            {
+                set_error(context, "[AuthorityViolation] The cleanup plan carries duplicate SourceContainer ownership records.");
+                return LPB_RESULT_AUTHORITY_VIOLATION;
+            }
+            source_record = &artifact;
+        }
+    }
+
+    // Exact-object identity gate BEFORE any byte is read or written.  Each
+    // input is opened once, verified from its open handle, and the same handle
+    // is used for the snapshot read: there is no pathname-reopen window in
+    // which a same-content replacement could slip through.
+    void* image_handle = nullptr;
+    void* video_handle = nullptr;
+    void* source_handle = nullptr;
+    // Function-scoped RAII ownership: each verified handle is assigned to its
+    // guard immediately after verification, so every early-return path closes
+    // exactly the handles that were opened, and the guards stay alive until
+    // the shared core has finished reading through them.
+    input_handle_guard image_guard(nullptr);
+    input_handle_guard video_guard(nullptr);
+    input_handle_guard source_guard(nullptr);
+    image_handle = lpb::media::verify_and_open_input(context, primary_record, input_image_path, "primary image");
+    if (image_handle == nullptr) return LPB_RESULT_AUTHORITY_VIOLATION;
+    image_guard.handle = image_handle;
+    if (input_video_path != nullptr && input_video_path[0] != '\0')
+    {
+        video_handle = lpb::media::verify_and_open_input(context, video_record, input_video_path, "motion video");
+        if (video_handle == nullptr) return LPB_RESULT_AUTHORITY_VIOLATION;
+        video_guard.handle = video_handle;
+    }
+    if (cleanup_source_path != nullptr && cleanup_source_path[0] != '\0')
+    {
+        source_handle = lpb::media::verify_and_open_input(context, source_record, cleanup_source_path, "cleanup source");
+        if (source_handle == nullptr) return LPB_RESULT_AUTHORITY_VIOLATION;
+        source_guard.handle = source_handle;
+    }
+    if ((input_video_path == nullptr || input_video_path[0] == '\0') && video_record != nullptr)
+    {
+        set_error(context, "[AuthorityViolation] The cleanup plan owns a MotionVideo object but no motion video input was supplied.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+    if ((cleanup_source_path == nullptr || cleanup_source_path[0] == '\0') && source_record != nullptr)
+    {
+        set_error(context, "[AuthorityViolation] The cleanup plan owns a SourceContainer object but no cleanup source input was supplied.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    // Build the DTO views from the Native plan record.  These are derived
+    // from the authoritative record, never accepted from a caller.
+    std::vector<lpb_cleanup_action> actions;
+    actions.reserve(plan.confirmed_residues.size());
+    for (const auto& residue : plan.confirmed_residues)
+    {
+        lpb_cleanup_action action{};
+        action.struct_size = sizeof(action);
+        strncpy_s(action.residue_id, residue.residue_id, _TRUNCATE);
+        action.owner_protocol = residue.owner_protocol;
+        action.artifact_role = residue.artifact_role;
+        action.structure_kind = residue.structure_kind;
+        strncpy_s(action.selector, residue.selector, _TRUNCATE);
+        strncpy_s(action.expected_semantic, residue.expected_semantic, _TRUNCATE);
+        strncpy_s(action.expected_fingerprint, residue.expected_fingerprint, _TRUNCATE);
+        action.coordinate_space = residue.coordinate_space;
+        action.removal_mode = residue.removal_mode;
+        action.is_mandatory = residue.required_after_extraction;
+        actions.push_back(action);
+    }
+
+    // The shared clean core consumes a Primary/Motion target list plus a
+    // separate SourceContainer target.  The SourceContainer ownership record
+    // must never leak into the generic target list (which rejects it), so it
+    // is projected onto its own dedicated binding.
+    std::vector<lpb_cleanup_artifact_binding> targets;
+    targets.reserve(plan.artifacts.size());
+    lpb_cleanup_artifact_binding source_binding{};
+    source_binding.struct_size = sizeof(source_binding);
+    source_binding.artifact_role = LPB_ARTIFACT_SOURCE_CONTAINER;
+    bool source_present = false;
+    for (const auto& artifact : plan.artifacts)
+    {
+        if (artifact.artifact_role == LPB_ARTIFACT_SOURCE_CONTAINER)
+        {
+            source_binding.expected_length = artifact.byte_length;
+            std::copy(artifact.sha256.begin(), artifact.sha256.end(), source_binding.expected_sha256);
+            source_binding.has_expected_sha256 = 1;
+            source_present = true;
+            continue;
+        }
+        if (artifact.artifact_role != LPB_ARTIFACT_PRIMARY_IMAGE &&
+            artifact.artifact_role != LPB_ARTIFACT_MOTION_VIDEO)
+        {
+            continue;
+        }
+        lpb_cleanup_artifact_binding target{};
+        target.struct_size = sizeof(target);
+        target.artifact_role = artifact.artifact_role;
+        target.expected_length = artifact.byte_length;
+        std::copy(artifact.sha256.begin(), artifact.sha256.end(), target.expected_sha256);
+        target.has_expected_sha256 = 1;
+        targets.push_back(target);
+    }
+
+    const lpb_cleanup_artifact_binding* source_target = source_present ? &source_binding : nullptr;
+
+    // Capability gate for low-level in-place destructive primitives.
+    cleaner_authority_guard authority(context);
+
+    const lpb_result clean_result = clean_source_protocol_with_plan(
+        context, &plan.facts, actions.data(), actions.size(),
+        targets.data(), targets.size(),
+        input_image_path, image_handle,
+        input_video_path, video_handle,
+        cleanup_source_path, source_handle,
+        source_target,
+        output_image_path, output_video_path,
+        out_facts, facts_capacity, out_facts_count);
+    return clean_result;
+    }
+    catch (const std::exception& ex)
+    {
+        set_error(context, ex.what());
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    catch (...)
+    {
+        set_error(context, "[InternalError] Unhandled native exception during plan-authorized cleaning; fail closed.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+}
+
 } // namespace lpb::media
 

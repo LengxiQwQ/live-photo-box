@@ -45,7 +45,9 @@ static bool write_atomic(const fs::path& path, const std::vector<uint8_t>& data)
         out.flush();
         if (!out.good()) { out.close(); fs::remove(temp, ec); return false; }
     }
-    if (!MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    // No-overwrite publication: destination races fail closed and a foreign
+    // object already at the destination is never replaced.
+    if (!MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_WRITE_THROUGH)) {
         fs::remove(temp, ec);
         return false;
     }

@@ -16,11 +16,21 @@ namespace LivePhotoBox.Interop;
 internal static class NativeCleanService
 {
     internal static Action? TestPostSnapshotHook { get; set; }
+    // Optional binding of the post-snapshot hook to one specific Native
+    // context.  A clean invoked on any other context must ignore the hook
+    // instead of running foreign test code against an unrelated (and possibly
+    // already destroyed) context.
+    internal static nint TestPostSnapshotHookContext { get; set; }
     internal static Action<NativeContext, nint>? TestCleanerSnapshotConfigurator { get; set; }
+    internal static Action<nint, nint>? TestCleanerSnapshotHandleConfigurator { get; set; }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static void NativePostSnapshotCallback(nint userData)
+    private static void NativePostSnapshotCallback(nint contextHandle)
     {
+        if (TestPostSnapshotHookContext != nint.Zero && contextHandle != TestPostSnapshotHookContext)
+        {
+            return;
+        }
         TestPostSnapshotHook?.Invoke();
     }
 
@@ -303,6 +313,262 @@ internal static class NativeCleanService
                 }
             }
         }, cancellationToken);
+    }
+
+    /// <summary>
+    /// Plan-authorized destructive clean (P3).  The Native side derives every
+    /// fact, action and target from the cleanup-plan record; this method only
+    /// passes the plan token, generation, and input/output paths.  A plan on a
+    /// harness context is dispatched to the test-harness Native build.
+    /// </summary>
+    internal static Task<IReadOnlyList<RemovedProtocolFact>> CleanSourceProtocolWithCleanupPlanAsync(
+        CleanupPlanAttempt attempt,
+        string inputImagePath,
+        string? inputVideoPath,
+        string? cleanupSourcePath,
+        string outputImagePath,
+        string? outputVideoPath,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(attempt);
+        ArgumentNullException.ThrowIfNull(inputImagePath);
+        ArgumentNullException.ThrowIfNull(outputImagePath);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return Task.Run(() =>
+        {
+            if (TestPostSnapshotHook != null)
+            {
+                unsafe
+                {
+                    delegate* unmanaged[Cdecl]<nint, void> fn = &NativePostSnapshotCallback;
+                    TestCleanerSnapshotHandleConfigurator?.Invoke(attempt.ContextLease.Handle, (nint)fn);
+                }
+            }
+            Span<NativeRemovedProtocolFact> factsBuf = stackalloc NativeRemovedProtocolFact[256];
+            unsafe
+            {
+                fixed (NativeRemovedProtocolFact* pFacts = factsBuf)
+                {
+                    for (int i = 0; i < factsBuf.Length; i++)
+                    {
+                        pFacts[i].StructSize = (uint)sizeof(NativeRemovedProtocolFact);
+                    }
+
+                    nuint outCount = 0;
+                    NativeResult res = attempt.UseHarnessLibrary
+                        ? TestHarnessNativeMethods.CleanSourceProtocolWithCleanupPlan(
+                            attempt.ContextLease.Handle,
+                            attempt.NativeHandle,
+                            attempt.Generation,
+                            inputImagePath,
+                            inputVideoPath,
+                            cleanupSourcePath,
+                            outputImagePath,
+                            outputVideoPath,
+                            pFacts,
+                            (nuint)factsBuf.Length,
+                            out outCount)
+                        : NativeMethods.CleanSourceProtocolWithCleanupPlan(
+                            attempt.ContextLease.Handle,
+                            attempt.NativeHandle,
+                            attempt.Generation,
+                            inputImagePath,
+                            inputVideoPath,
+                            cleanupSourcePath,
+                            outputImagePath,
+                            outputVideoPath,
+                            pFacts,
+                            (nuint)factsBuf.Length,
+                            out outCount);
+
+                    if (res != NativeResult.Ok)
+                    {
+                        string? msg = ReadLastError(attempt.ContextLease.Handle, attempt.UseHarnessLibrary);
+                        if (msg != null &&
+                            (msg.Contains("ObjectIdentity", StringComparison.OrdinalIgnoreCase) ||
+                             msg.Contains("TOCTOU", StringComparison.OrdinalIgnoreCase) ||
+                             msg.Contains("SourceChanged", StringComparison.OrdinalIgnoreCase)))
+                        {
+                            throw new CleanerException(
+                                CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                                CleanerFailureStage.ArtifactVerification,
+                                SourceProtocol.Unknown,
+                                msg);
+                        }
+                        if (res == NativeResult.AuthorityViolation)
+                        {
+                            throw new CleanerException(
+                                CleanerFailureCategory.NativeAuthorityViolation,
+                                CleanerFailureStage.Authorization,
+                                SourceProtocol.Unknown,
+                                msg ?? "Native rejected the cleanup-plan authority.");
+                        }
+                        if (res == NativeResult.PlanReplayed)
+                        {
+                            throw new CleanerException(
+                                CleanerFailureCategory.CleanupAuthorizationMissing,
+                                CleanerFailureStage.Authorization,
+                                SourceProtocol.Unknown,
+                                msg ?? "The Native cleanup plan was replayed, consumed, or released.");
+                        }
+                        throw new InvalidOperationException(
+                            string.IsNullOrWhiteSpace(msg)
+                                ? $"Native cleanup failed with result: {res}"
+                                : $"Native cleanup failed ({res}): {msg}");
+                    }
+
+                    var factsList = new List<RemovedProtocolFact>();
+                    int count = Math.Min((int)outCount, factsBuf.Length);
+                    for (int i = 0; i < count; i++)
+                    {
+                        string proto = ReadFixedUtf8String(pFacts[i].ProtocolName, 64);
+                        string comp = ReadFixedUtf8String(pFacts[i].Component, 64);
+                        string desc = ReadFixedUtf8String(pFacts[i].Description, 128);
+                        string residueId = ReadFixedUtf8String(pFacts[i].ResidueId, 64);
+                        string op = ReadFixedUtf8String(pFacts[i].Operation, 64);
+                        string beforeFp = ReadFixedUtf8String(pFacts[i].BeforeFingerprint, 64);
+                        string afterSt = ReadFixedUtf8String(pFacts[i].AfterStatus, 64);
+
+                        factsList.Add(new RemovedProtocolFact
+                        {
+                            ProtocolName = proto,
+                            Component = comp,
+                            Description = desc,
+                            ResidueId = string.IsNullOrEmpty(residueId) ? null : residueId,
+                            ArtifactRole = (MediaArtifactKind)pFacts[i].ArtifactRole,
+                            StructureKind = (ResidueStructureKind)pFacts[i].StructureKind,
+                            Operation = string.IsNullOrEmpty(op) ? "Strip" : op,
+                            BeforeFingerprint = string.IsNullOrEmpty(beforeFp) ? null : beforeFp,
+                            AfterStatus = string.IsNullOrEmpty(afterSt) ? "Removed" : afterSt
+                        });
+                    }
+
+                    return (IReadOnlyList<RemovedProtocolFact>)factsList;
+                }
+            }
+        }, cancellationToken);
+    }
+
+    /// <summary>Native-captured identity of one staged (pre-commit) cleaner output.</summary>
+    internal readonly record struct CleanStagedOutputRecord(
+        MediaArtifactKind ArtifactRole,
+        uint AuxiliaryIndex,
+        uint VolumeSerial,
+        ulong FileIndex,
+        ulong FileSize,
+        uint LinkCount,
+        string FinalPath);
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeFileIdentity
+    {
+        public uint VolumeSerial;
+        public ulong FileIndex;
+        public ulong FileSize;
+        public uint LinkCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe struct NativeCleanStagedOutputRecord
+    {
+        public uint StructSize;
+        public int ArtifactRole;
+        public uint AuxiliaryIndex;
+        public NativeFileIdentity Identity;
+        public fixed byte FinalPath[1024];
+    }
+
+    /// <summary>
+    /// Reads the staged-output ownership registry that the Native cleaner
+    /// populated from the creating handles (never from pathname re-opens).
+    /// The Managed layer may only ever roll back / publish objects that this
+    /// registry reports: a file that merely appears inside the staging
+    /// directory is foreign until the Native side proves it created it.
+    /// </summary>
+    internal static IReadOnlyList<CleanStagedOutputRecord> QueryStagedOutputs(
+        nint contextHandle,
+        bool useHarnessLibrary)
+    {
+        var result = new List<CleanStagedOutputRecord>();
+        if (contextHandle == nint.Zero)
+        {
+            return result;
+        }
+
+        try
+        {
+            unsafe
+            {
+                nuint count = useHarnessLibrary
+                    ? TestHarnessNativeMethods.CleanGetStagedOutputs(contextHandle, nint.Zero, 0)
+                    : NativeMethods.CleanGetStagedOutputs(contextHandle, nint.Zero, 0);
+                if (count == 0)
+                {
+                    return result;
+                }
+
+                var buf = new NativeCleanStagedOutputRecord[count];
+                fixed (NativeCleanStagedOutputRecord* p = buf)
+                {
+                    nuint written = useHarnessLibrary
+                        ? TestHarnessNativeMethods.CleanGetStagedOutputs(contextHandle, (nint)p, count)
+                        : NativeMethods.CleanGetStagedOutputs(contextHandle, (nint)p, count);
+                    for (nuint i = 0; i < written && i < count; i++)
+                    {
+                        NativeCleanStagedOutputRecord* pRec = &p[i];
+                        string path = ReadFixedUtf8String(pRec->FinalPath, 1024);
+                        result.Add(new CleanStagedOutputRecord(
+                            (MediaArtifactKind)pRec->ArtifactRole,
+                            pRec->AuxiliaryIndex,
+                            pRec->Identity.VolumeSerial,
+                            pRec->Identity.FileIndex,
+                            pRec->Identity.FileSize,
+                            pRec->Identity.LinkCount,
+                            path));
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Ownership registry is best-effort diagnostics; callers fail
+            // closed when a required registry entry is absent.
+        }
+
+        return result;
+    }
+
+    private static string? ReadLastError(nint contextHandle, bool useHarnessLibrary)
+    {
+        try
+        {
+            Span<byte> buf = stackalloc byte[512];
+            unsafe
+            {
+                fixed (byte* pBuf = buf)
+                {
+                    // The error buffer lives in the same Native build that
+                    // executed the operation; reading it through the other
+                    // build is cross-DLL ABI garbage.
+                    nuint required = 0;
+                    NativeResult res = useHarnessLibrary
+                        ? TestHarnessNativeMethods.GetLastError(contextHandle, (nint)pBuf, (nuint)buf.Length, out required)
+                        : NativeMethods.GetLastError(contextHandle, (nint)pBuf, (nuint)buf.Length, out required);
+                    if (res == NativeResult.Ok && required > 0)
+                    {
+                        int len = 0;
+                        while (len < (int)required && buf[len] != 0) len++;
+                        return Encoding.UTF8.GetString(buf[..len]);
+                    }
+                }
+            }
+        }
+        catch
+        {
+            // Best effort.
+        }
+        return null;
     }
 
     private static unsafe void WriteFixedUtf8String(byte* ptr, int maxLen, string? value)

@@ -36,11 +36,27 @@ public sealed record WindowsFileIdentity
                 $"Unable to open '{path}' to capture its Windows file identity.");
         }
 
+        return Capture(handle);
+    }
+
+    /// <summary>
+    /// Captures object identity from an already-open handle.  Used when a file
+    /// was just created/written by the transaction itself, so ownership is
+    /// derived from the object we hold — never re-guessed from a pathname after
+    /// another process could have replaced the file.
+    /// </summary>
+    internal static WindowsFileIdentity Capture(SafeFileHandle handle)
+    {
+        if (handle is null || handle.IsInvalid)
+        {
+            throw new ArgumentException("A valid open file handle is required to capture identity.", nameof(handle));
+        }
+
         if (!GetFileInformationByHandle(handle, out ByHandleFileInformation info))
         {
             throw new System.ComponentModel.Win32Exception(
                 Marshal.GetLastWin32Error(),
-                $"Unable to capture the Windows file identity for '{path}'.");
+                "Unable to capture the Windows file identity from the open handle.");
         }
 
         return new WindowsFileIdentity

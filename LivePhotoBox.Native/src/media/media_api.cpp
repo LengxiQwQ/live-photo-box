@@ -11,6 +11,8 @@
 using namespace lpb;
 using namespace lpb::media;
 
+#pragma warning(disable : 4996)
+
 namespace {
 void classify_inspection_failure(lpb_context* context, lpb_result result) noexcept {
     if (!context) return;
@@ -548,6 +550,7 @@ LPB_API lpb_result LPB_CALL lpb_extract_media_with_plan_outputs_v2(
     const lpb_extraction_output* auxiliary_outputs,
     size_t auxiliary_output_count)
 {
+
     return extract_source_with_plan(
         context, plan, primary_path, secondary_path,
         output_image_path, output_video_path, output_gainmap_path,
@@ -589,10 +592,22 @@ LPB_API lpb_result LPB_CALL lpb_test_set_extractor_fault(
 {
     if (!context) return LPB_RESULT_INVALID_ARGUMENT;
     context->extractor_hook.fault = fault;
+
     context->extractor_hook.target_artifact = target_artifact;
     context->extractor_hook.trigger_after_bytes = trigger_after_bytes;
     context->extractor_hook.step_callback = callback;
     context->extractor_hook.callback_user_data = user_data;
+    return LPB_RESULT_OK;
+}
+
+LPB_API lpb_result LPB_CALL lpb_test_set_cancel_callback(
+    lpb_context* context,
+    lpb_cancel_callback callback,
+    void* user_data)
+{
+    if (!context) return LPB_RESULT_INVALID_ARGUMENT;
+    context->cancel_callback = callback;
+    context->user_data = user_data;
     return LPB_RESULT_OK;
 }
 
@@ -627,8 +642,169 @@ LPB_API lpb_result LPB_CALL lpb_test_sha256_file(
     }
     return LPB_RESULT_OK;
 }
+
+LPB_API lpb_result LPB_CALL lpb_test_issue_cleanup_plan_from_facts(
+    lpb_context* context,
+    const lpb_source_media_facts* facts,
+    const lpb_confirmed_residue* residues,
+    size_t residue_count,
+    const lpb_test_cleanup_artifact_spec* artifacts,
+    size_t artifact_count,
+    lpb_cleanup_plan** out_plan,
+    uint64_t* out_generation)
+{
+    if (out_plan) *out_plan = nullptr;
+    if (out_generation) *out_generation = 0;
+    if (context == nullptr || facts == nullptr ||
+        facts->struct_size < sizeof(lpb_source_media_facts) ||
+        out_plan == nullptr || out_generation == nullptr)
+    {
+        set_error(context, "[AuthorityViolation] Test cleanup-plan issuance requires a context, facts, and output pointers.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+    if (artifact_count > 0 && artifacts == nullptr)
+    {
+        set_error(context, "[AuthorityViolation] Test cleanup-plan artifact specs are required when artifact_count > 0.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+    if (residue_count > 0 && residues == nullptr)
+    {
+        set_error(context, "[AuthorityViolation] Test cleanup-plan residues are required when residue_count > 0.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired())
+    {
+        set_error(context, "[AuthorityViolation] Native context is being destroyed.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    try
+    {
+        uint64_t token = 0;
+        if (!generate_cleanup_plan_token(context, token))
+        {
+            set_error(context, "[InternalError] Failed to allocate a cleanup-plan token.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+
+        lpb_cleanup_plan_record record{};
+        record.owner_context = context;
+        record.abi_version = LPB_NATIVE_ABI_VERSION;
+        record.plan_version = 1;
+        record.token = token;
+        record.generation = context->next_cleanup_generation++;
+        if (record.generation == 0)
+        {
+            record.generation = context->next_cleanup_generation++;
+        }
+        record.facts = *facts;
+        if (residue_count > 0)
+        {
+            record.confirmed_residues.assign(residues, residues + residue_count);
+        }
+        for (size_t i = 0; i < artifact_count; ++i)
+        {
+            const lpb_test_cleanup_artifact_spec& spec = artifacts[i];
+            if (spec.path == nullptr || spec.path[0] == '\0')
+            {
+                set_error(context, "[AuthorityViolation] Test cleanup-plan artifact spec has an empty path.");
+                return LPB_RESULT_AUTHORITY_VIOLATION;
+            }
+            lpb_published_artifact_record artifact{};
+            artifact.artifact_role = spec.artifact_role;
+            artifact.auxiliary_index = spec.auxiliary_index;
+            lpb_file_identity identity{};
+            std::wstring final_path;
+            if (!capture_file_identity(spec.path, identity, final_path))
+            {
+                set_error(context, "[AuthorityViolation] Test cleanup-plan artifact path could not be captured into a filesystem identity.");
+                return LPB_RESULT_AUTHORITY_VIOLATION;
+            }
+            artifact.identity = identity;
+            artifact.final_path = final_path;
+            artifact.byte_length = identity.file_size;
+            // Content evidence captured from the exact object; read the same
+            // way the plan-authorized cleaner will read it back.
+            HANDLE handle = CreateFileW(
+                final_path.c_str(),
+                GENERIC_READ,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                nullptr,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                nullptr);
+            if (handle == INVALID_HANDLE_VALUE)
+            {
+                set_error(context, "[AuthorityViolation] Test cleanup-plan artifact could not be opened for hashing.");
+                return LPB_RESULT_AUTHORITY_VIOLATION;
+            }
+            uint8_t hash[32]{};
+            const bool ok = lpb::crypto::sha256_file(handle, hash);
+            CloseHandle(handle);
+            if (!ok)
+            {
+                set_error(context, "[AuthorityViolation] Test cleanup-plan artifact could not be hashed.");
+                return LPB_RESULT_AUTHORITY_VIOLATION;
+            }
+            std::copy(std::begin(hash), std::end(hash), artifact.sha256.begin());
+            record.artifacts.push_back(std::move(artifact));
+        }
+
+        std::scoped_lock lock(context->plan_mutex);
+        context->cleanup_plans.push_back(std::move(record));
+        ++context->test_cleanup_issued;
+        *out_plan = cleanup_plan_handle_from_token(token);
+        *out_generation = context->cleanup_plans.back().generation;
+        return LPB_RESULT_OK;
+    }
+    catch (...)
+    {
+        set_error(context, "[InternalError] Failed to issue the test cleanup authority plan.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+}
+
+LPB_API uintptr_t LPB_CALL lpb_test_get_cleanup_plan_record_address(
+    lpb_context* context,
+    lpb_cleanup_plan* plan)
+{
+    if (context == nullptr || plan == nullptr) return 0;
+    try
+    {
+        const uint64_t token = cleanup_plan_token_from_handle(plan);
+        std::scoped_lock lock(context->plan_mutex);
+        lpb_cleanup_plan_record* record = find_cleanup_plan_locked(context, token);
+        if (record == nullptr || record->owner_context != context) return 0;
+        return reinterpret_cast<uintptr_t>(record);
+    }
+    catch (...)
+    {
+        return 0;
+    }
+}
+
+LPB_API lpb_result LPB_CALL lpb_test_get_cleanup_plan_accounting(
+    lpb_context* context,
+    lpb_test_plan_accounting* out_accounting)
+{
+    if (out_accounting == nullptr) return LPB_RESULT_INVALID_ARGUMENT;
+    if (context == nullptr || !test_get_cleanup_plan_accounting(context, *out_accounting))
+    {
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    return LPB_RESULT_OK;
+}
 #endif
 
+LPB_API size_t LPB_CALL lpb_clean_get_staged_outputs(
+    lpb_context* context,
+    lpb_clean_staged_output_record* out_records,
+    size_t capacity)
+{
+    return get_cleaner_staged_outputs(context, out_records, capacity);
+}
 
 LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_plan(
     lpb_context* context,
@@ -645,17 +821,16 @@ LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_plan(
     size_t facts_capacity,
     size_t* out_facts_count)
 {
-    if (!validate_gainmap_binding(context, facts)) {
-        if (out_facts_count) *out_facts_count = 0;
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-    return clean_source_protocol_with_plan(
-        context, facts, actions, action_count,
-        targets, target_count,
-        input_image_path, input_video_path,
-        nullptr, nullptr,
-        output_image_path, output_video_path,
-        out_facts, facts_capacity, out_facts_count);
+    (void)facts; (void)actions; (void)action_count; (void)targets; (void)target_count;
+    (void)input_image_path; (void)input_video_path;
+    (void)output_image_path; (void)output_video_path;
+    (void)out_facts; (void)facts_capacity;
+    if (out_facts_count) *out_facts_count = 0;
+    set_error(context,
+        "[AuthorityViolation] DTO cleanup entry points carry no destructive authority; "
+        "issue a Native cleanup plan (lpb_issue_cleanup_plan) and call "
+        "lpb_clean_source_protocol_with_cleanup_plan instead.");
+    return LPB_RESULT_AUTHORITY_VIOLATION;
 }
 
 LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_plan_and_cleanup_source(
@@ -675,17 +850,421 @@ LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_plan_and_cleanup_sour
     size_t facts_capacity,
     size_t* out_facts_count)
 {
-    if (!validate_gainmap_binding(context, facts)) {
-        if (out_facts_count) *out_facts_count = 0;
+    (void)facts; (void)actions; (void)action_count; (void)targets; (void)target_count;
+    (void)input_image_path; (void)input_video_path; (void)cleanup_source_path;
+    (void)cleanup_source_target; (void)output_image_path; (void)output_video_path;
+    (void)out_facts; (void)facts_capacity;
+    if (out_facts_count) *out_facts_count = 0;
+    set_error(context,
+        "[AuthorityViolation] DTO cleanup entry points carry no destructive authority; "
+        "issue a Native cleanup plan (lpb_issue_cleanup_plan) and call "
+        "lpb_clean_source_protocol_with_cleanup_plan instead.");
+    return LPB_RESULT_AUTHORITY_VIOLATION;
+}
+
+LPB_API lpb_result LPB_CALL lpb_issue_cleanup_plan(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    uint64_t generation,
+    lpb_cleanup_plan** out_plan,
+    uint64_t* out_generation)
+{
+    if (out_plan == nullptr || out_generation == nullptr)
+    {
+        set_error(context, "Output cleanup plan and generation are required.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
-    return clean_source_protocol_with_plan(
-        context, facts, actions, action_count,
-        targets, target_count,
-        input_image_path, input_video_path,
-        cleanup_source_path, cleanup_source_target,
-        output_image_path, output_video_path,
-        out_facts, facts_capacity, out_facts_count);
+    *out_plan = nullptr;
+    *out_generation = 0;
+
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired() || plan == nullptr || generation == 0)
+    {
+        set_error(context, "[AuthorityViolation] Context, extraction plan, and generation are required to issue a cleanup plan.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    try
+    {
+        const uint64_t extraction_token = plan_token_from_handle(plan);
+        std::scoped_lock lock(context->plan_mutex);
+        lpb_extraction_plan_record* extraction = find_plan_locked(context, extraction_token);
+        if (extraction == nullptr || extraction->owner_context != context)
+        {
+            set_error(context, "[AuthorityViolation] Cleanup authority must be issued from an extraction plan owned by this Native context.");
+            return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+        if (extraction->generation != generation ||
+            extraction->abi_version != LPB_NATIVE_ABI_VERSION ||
+            extraction->plan_version != 1)
+        {
+            set_error(context, "[AuthorityViolation] Extraction plan generation or metadata does not match the issued authority.");
+            return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+        if (!extraction->extraction_succeeded || extraction->rollback_completed ||
+            extraction->committed || extraction->cleanup_authority_issued)
+        {
+            set_error(context, "[PlanReplayed] Extraction outputs are unavailable or already committed to a cleanup authority.");
+            return LPB_RESULT_PLAN_REPLAYED;
+        }
+        if (extraction->published_artifacts.empty())
+        {
+            set_error(context, "[AuthorityViolation] The extraction plan has no Native-published artifacts to authorize cleanup on.");
+            return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+        if (extraction->native_call_active)
+        {
+            set_error(context, "[PlanReplayed] Cannot issue a cleanup plan while an extraction native operation is still active.");
+            return LPB_RESULT_PLAN_REPLAYED;
+        }
+
+        uint64_t token = 0;
+        if (!generate_cleanup_plan_token_unlocked(context, token))
+        {
+            set_error(context, "[InternalError] Failed to allocate a cleanup-plan token.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+
+        lpb_cleanup_plan_record record{};
+        record.owner_context = context;
+        record.abi_version = LPB_NATIVE_ABI_VERSION;
+        record.plan_version = 1;
+        record.token = token;
+        record.generation = context->next_cleanup_generation++;
+        if (record.generation == 0)
+        {
+            record.generation = context->next_cleanup_generation++;
+        }
+        record.facts = extraction->facts;
+        record.confirmed_residues = extraction->confirmed_residues;
+        record.artifacts = extraction->published_artifacts;
+        // The cleanup chain revalidates objects by path + captured identity at
+        // clean time; it never reuses the extraction transaction handles.
+        for (auto& artifact : record.artifacts)
+        {
+            artifact.rollback_handle = nullptr;
+        }
+        // Hand the artifacts over to the cleanup chain: the extraction record
+        // can no longer roll them back.
+        extraction->cleanup_authority_issued = true;
+        context->cleanup_plans.push_back(std::move(record));
+#if defined(LPB_NATIVE_TEST_HARNESS)
+        ++context->test_cleanup_issued;
+#endif
+        *out_plan = cleanup_plan_handle_from_token(record.token);
+        *out_generation = record.generation;
+        return LPB_RESULT_OK;
+    }
+    catch (...)
+    {
+        set_error(context, "[InternalError] Failed to issue the cleanup authority plan.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+}
+
+LPB_API lpb_result LPB_CALL lpb_claim_cleanup_plan(
+    lpb_context* context,
+    lpb_cleanup_plan* plan,
+    uint64_t generation)
+{
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired() || plan == nullptr || generation == 0)
+    {
+        set_error(context, "[AuthorityViolation] Context, cleanup plan, and generation are required to claim a cleanup plan.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    try
+    {
+        const uint64_t token = cleanup_plan_token_from_handle(plan);
+        std::scoped_lock lock(context->plan_mutex);
+        lpb_cleanup_plan_record* record = find_cleanup_plan_locked(context, token);
+        if (record == nullptr || record->owner_context != context)
+        {
+            set_error(context, "[AuthorityViolation] Cleanup plan token is not owned by this Native context.");
+            return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+        if (record->generation != generation ||
+            record->abi_version != LPB_NATIVE_ABI_VERSION ||
+            record->plan_version != 1)
+        {
+            set_error(context, "[AuthorityViolation] Cleanup plan generation or metadata does not match the issued authority.");
+            return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+        if (record->state != lpb_plan_state::Issued || record->native_call_active)
+        {
+            set_error(context, "[PlanReplayed] Cleanup plan is already claimed, released, or consumed.");
+            return LPB_RESULT_PLAN_REPLAYED;
+        }
+        record->state = lpb_plan_state::Claimed;
+        record->managed_claim_active = true;
+#if defined(LPB_NATIVE_TEST_HARNESS)
+        ++context->test_cleanup_claimed;
+#endif
+        return LPB_RESULT_OK;
+    }
+    catch (...)
+    {
+        set_error(context, "[InternalError] Failed to claim the cleanup authority plan.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+}
+
+LPB_API lpb_result LPB_CALL lpb_finish_cleanup_plan(
+    lpb_context* context,
+    lpb_cleanup_plan* plan,
+    uint64_t generation)
+{
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired() || plan == nullptr || generation == 0)
+    {
+        set_error(context, "[AuthorityViolation] Context, cleanup plan, and generation are required to finish a cleanup plan.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    try
+    {
+        const uint64_t token = cleanup_plan_token_from_handle(plan);
+        std::scoped_lock lock(context->plan_mutex);
+        lpb_cleanup_plan_record* record = find_cleanup_plan_locked(context, token);
+        if (record == nullptr || record->owner_context != context)
+        {
+            set_error(context, "[AuthorityViolation] Cleanup plan token is not owned by this Native context.");
+            return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+        if (record->generation != generation ||
+            record->abi_version != LPB_NATIVE_ABI_VERSION ||
+            record->plan_version != 1)
+        {
+            set_error(context, "[AuthorityViolation] Cleanup plan generation or metadata does not match the issued authority.");
+            return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+        if (record->native_call_active)
+        {
+            set_error(context, "[PlanReplayed] Cleanup plan is still in use by an active native operation.");
+            return LPB_RESULT_PLAN_REPLAYED;
+        }
+        record->managed_claim_active = false;
+        if (record->state == lpb_plan_state::Claimed)
+        {
+            record->state = lpb_plan_state::Consumed;
+#if defined(LPB_NATIVE_TEST_HARNESS)
+            ++context->test_cleanup_consumed;
+#endif
+        }
+        else if (record->state == lpb_plan_state::ReleaseRequested)
+        {
+            record->state = lpb_plan_state::Released;
+#if defined(LPB_NATIVE_TEST_HARNESS)
+            ++context->test_cleanup_released;
+#endif
+        }
+        else if (record->state != lpb_plan_state::Consumed &&
+                 record->state != lpb_plan_state::Released)
+        {
+            set_error(context, "[PlanReplayed] Cleanup plan is not in a finishable state.");
+            return LPB_RESULT_PLAN_REPLAYED;
+        }
+        return LPB_RESULT_OK;
+    }
+    catch (...)
+    {
+        set_error(context, "[InternalError] Failed to finish the cleanup authority plan.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+}
+
+LPB_API lpb_result LPB_CALL lpb_release_cleanup_plan(
+    lpb_context* context,
+    lpb_cleanup_plan* plan)
+{
+    if (context == nullptr || plan == nullptr)
+    {
+        set_error(context, "Context and cleanup plan are required to release a cleanup plan.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired())
+    {
+        set_error(context, "[AuthorityViolation] Native context is being destroyed.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    try
+    {
+        const uint64_t token = cleanup_plan_token_from_handle(plan);
+        std::scoped_lock lock(context->plan_mutex);
+        lpb_cleanup_plan_record* record = find_cleanup_plan_locked(context, token);
+        if (record == nullptr || record->owner_context != context)
+        {
+            set_error(context, "[AuthorityViolation] Cleanup plan token is not owned by this Native context.");
+            return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+        if (record->state == lpb_plan_state::Issued)
+        {
+            record->state = lpb_plan_state::Released;
+#if defined(LPB_NATIVE_TEST_HARNESS)
+            ++context->test_cleanup_released;
+#endif
+        }
+        else if (record->state == lpb_plan_state::Claimed)
+        {
+            if (record->native_call_active)
+            {
+                record->state = lpb_plan_state::ReleaseRequested;
+            }
+            else
+            {
+                record->managed_claim_active = false;
+                record->state = lpb_plan_state::Released;
+#if defined(LPB_NATIVE_TEST_HARNESS)
+                ++context->test_cleanup_released;
+#endif
+            }
+        }
+        else if (record->state == lpb_plan_state::Consumed)
+        {
+            record->state = lpb_plan_state::Released;
+#if defined(LPB_NATIVE_TEST_HARNESS)
+            ++context->test_cleanup_released;
+#endif
+        }
+        // Released or ReleaseRequested: idempotent.
+        return LPB_RESULT_OK;
+    }
+    catch (...)
+    {
+        set_error(context, "[InternalError] Failed to release the cleanup authority plan.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+}
+
+LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_cleanup_plan(
+    lpb_context* context,
+    lpb_cleanup_plan* plan,
+    uint64_t generation,
+    const char* input_image_path,
+    const char* input_video_path,
+    const char* cleanup_source_path,
+    const char* output_image_path,
+    const char* output_video_path,
+    lpb_removed_protocol_fact* out_facts,
+    size_t facts_capacity,
+    size_t* out_facts_count)
+{
+    if (out_facts_count) *out_facts_count = 0;
+    if (context == nullptr || plan == nullptr || generation == 0 ||
+        input_image_path == nullptr || output_image_path == nullptr)
+    {
+        set_error(context, "[AuthorityViolation] Context, cleanup plan, generation, input image, and output image paths are required.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired())
+    {
+        set_error(context, "[AuthorityViolation] Native context is being destroyed.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED)
+    {
+        set_error(context, "Cleanup cancelled.");
+        return LPB_RESULT_CANCELLED;
+    }
+
+    try
+    {
+        const uint64_t token = cleanup_plan_token_from_handle(plan);
+        lpb_cleanup_plan_record snapshot{};
+        {
+            std::scoped_lock lock(context->plan_mutex);
+            lpb_cleanup_plan_record* record = find_cleanup_plan_locked(context, token);
+            if (record == nullptr || record->owner_context != context)
+            {
+                set_error(context, "[AuthorityViolation] Cleanup plan token is not owned by this Native context.");
+                return LPB_RESULT_AUTHORITY_VIOLATION;
+            }
+            if (record->generation != generation ||
+                record->abi_version != LPB_NATIVE_ABI_VERSION ||
+                record->plan_version != 1)
+            {
+                set_error(context, "[AuthorityViolation] Cleanup plan generation or metadata does not match the issued authority.");
+                return LPB_RESULT_AUTHORITY_VIOLATION;
+            }
+            if (record->state == lpb_plan_state::Issued)
+            {
+                record->state = lpb_plan_state::Claimed;
+#if defined(LPB_NATIVE_TEST_HARNESS)
+                ++context->test_cleanup_claimed;
+#endif
+            }
+            else if (record->state != lpb_plan_state::Claimed)
+            {
+                set_error(context, "[PlanReplayed] Cleanup plan is released or has already been consumed.");
+                return LPB_RESULT_PLAN_REPLAYED;
+            }
+            if (record->native_call_active)
+            {
+                set_error(context, "[PlanReplayed] Cleanup plan is already in use by another native operation.");
+                return LPB_RESULT_PLAN_REPLAYED;
+            }
+            record->native_call_active = true;
+            try
+            {
+                snapshot.facts = record->facts;
+                snapshot.confirmed_residues = record->confirmed_residues;
+                snapshot.artifacts = record->artifacts;
+            }
+            catch (...)
+            {
+                record->native_call_active = false;
+                record->state = lpb_plan_state::Consumed;
+#if defined(LPB_NATIVE_TEST_HARNESS)
+                ++context->test_cleanup_consumed;
+#endif
+                set_error(context, "[InternalError] Failed to copy the cleanup authority record.");
+                return LPB_RESULT_INTERNAL_ERROR;
+            }
+        }
+
+        lpb_result result = clean_source_protocol_with_cleanup_plan(
+            context, snapshot,
+            input_image_path, input_video_path, cleanup_source_path,
+            output_image_path, output_video_path,
+            out_facts, facts_capacity, out_facts_count);
+
+        {
+            std::scoped_lock lock(context->plan_mutex);
+            lpb_cleanup_plan_record* record = find_cleanup_plan_locked(context, token);
+            if (record != nullptr && record->owner_context == context)
+            {
+                record->native_call_active = false;
+                if (record->state == lpb_plan_state::Claimed && !record->managed_claim_active)
+                {
+                    record->state = lpb_plan_state::Consumed;
+#if defined(LPB_NATIVE_TEST_HARNESS)
+                    ++context->test_cleanup_consumed;
+#endif
+                }
+                else if (record->state == lpb_plan_state::ReleaseRequested)
+                {
+                    record->managed_claim_active = false;
+                    record->state = lpb_plan_state::Released;
+#if defined(LPB_NATIVE_TEST_HARNESS)
+                    ++context->test_cleanup_released;
+#endif
+                }
+            }
+        }
+        return result;
+    }
+    catch (...)
+    {
+        set_error(context, "[InternalError] Failed to execute the plan-authorized clean.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
 }
 
 LPB_API lpb_result LPB_CALL lpb_probe_video(
@@ -890,5 +1469,4 @@ LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
 }
 
 }
-
 

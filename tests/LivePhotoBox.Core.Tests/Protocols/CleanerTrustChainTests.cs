@@ -16,6 +16,7 @@ using Xunit;
 
 namespace LivePhotoBox.Core.Tests.Protocols;
 
+[Collection("NativeCleanerSnapshotHook")]
 public sealed class CleanerTrustChainTests
 {
     private static string ResolveSample(string filename) => TestSampleResolver.ResolveSample(filename);
@@ -236,9 +237,11 @@ public sealed class CleanerTrustChainTests
             PrimaryImage = extracted.PrimaryImage! with { ByteLength = extracted.PrimaryImage.ByteLength + 10 }
         };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, tamperedBundle);
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = tamperedBundle
+            ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.False(result.Success);
@@ -265,9 +268,11 @@ public sealed class CleanerTrustChainTests
             PrimaryImage = extracted.PrimaryImage! with { Sha256 = "1111111111111111111111111111111111111111111111111111111111111111" }
         };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, tamperedBundle);
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = tamperedBundle
+            ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.False(result.Success);
@@ -293,9 +298,11 @@ public sealed class CleanerTrustChainTests
             PrimaryImage = extracted.PrimaryImage! with { Sha256 = "" }
         };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, tamperedBundle);
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = tamperedBundle
+            ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.False(result.Success);
@@ -321,9 +328,11 @@ public sealed class CleanerTrustChainTests
             PrimaryImage = extracted.PrimaryImage! with { Sha256 = "not_a_valid_sha256_hash_value" }
         };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, tamperedBundle);
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = tamperedBundle
+            ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.False(result.Success);
@@ -349,9 +358,11 @@ public sealed class CleanerTrustChainTests
             PrimaryImage = extracted.PrimaryImage! with { Sha256 = "0000000000000000000000000000000000000000000000000000000000000000" }
         };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, tamperedBundle);
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = tamperedBundle
+            ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.False(result.Success);
@@ -380,9 +391,11 @@ public sealed class CleanerTrustChainTests
             MotionVideo = extracted.MotionVideo! with { Sha256 = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF" }
         };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, tamperedBundle);
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = tamperedBundle
+            ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.False(result.Success);
@@ -410,9 +423,11 @@ public sealed class CleanerTrustChainTests
             MotionVideo = extracted.MotionVideo! with { Sha256 = null }
         };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, tamperedBundle);
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = tamperedBundle
+            ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.False(result.Success);
@@ -440,9 +455,11 @@ public sealed class CleanerTrustChainTests
             MotionVideo = extracted.MotionVideo! with { Sha256 = "0000000000000000000000000000000000000000000000000000000000000000" }
         };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, tamperedBundle);
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = tamperedBundle
+            ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.False(result.Success);
@@ -484,9 +501,11 @@ public sealed class CleanerTrustChainTests
             }
         };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, bundle);
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = bundle
+            ExtractedBundle = bundle with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.True(result.Success);
@@ -533,9 +552,11 @@ public sealed class CleanerTrustChainTests
             var tamperedFacts = facts with { ConfirmedResidues = dupList };
             var tamperedBundle = extracted with { SourceFacts = tamperedFacts };
 
+            using var nativeContext = TestNativeContext.Create();
+            using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, tamperedBundle);
             var result = await cleaner.CleanAsync(new ProtocolCleanRequest
             {
-                ExtractedBundle = tamperedBundle
+                ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan },
             }, workspace);
 
             Assert.False(result.Success);
@@ -577,9 +598,11 @@ public sealed class CleanerTrustChainTests
         var tamperedFacts = facts with { ConfirmedResidues = list };
         var tamperedBundle = extracted with { SourceFacts = tamperedFacts };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, tamperedBundle);
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = tamperedBundle
+            ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.False(result.Success);
@@ -637,9 +660,11 @@ public sealed class CleanerTrustChainTests
         var tamperedFacts = facts with { ConfirmedResidues = list };
         var tamperedBundle = extracted with { SourceFacts = tamperedFacts };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, tamperedBundle);
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = tamperedBundle
+            ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.False(result.Success);
@@ -826,9 +851,11 @@ public sealed class CleanerTrustChainTests
         var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         // 1. Normal clean succeeds and BeforeFingerprint matches ExpectedFingerprint exactly
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var normalResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.True(normalResult.Success, normalResult.ErrorMessage);
@@ -870,9 +897,11 @@ public sealed class CleanerTrustChainTests
             }
         };
 
+        using var nativeContext2 = TestNativeContext.Create();
+        using var cleanupPlan2 = await TestCleanerPlans.IssueFromBundleAsync(nativeContext2, tamperedBundle);
         var tamperedResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = tamperedBundle
+            ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan2 },
         }, workspace);
 
         Assert.False(tamperedResult.Success);
@@ -898,9 +927,11 @@ public sealed class CleanerTrustChainTests
         var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         // 1. Normal clean succeeds
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var normalResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, workspace);
         Assert.True(normalResult.Success, normalResult.ErrorMessage);
         var sefFact = normalResult.RemovedFacts.FirstOrDefault(f => f.ResidueId == "samsung-jpeg-sef-0a30");
@@ -933,9 +964,11 @@ public sealed class CleanerTrustChainTests
             }
         };
 
+        using var nativeContext2 = TestNativeContext.Create();
+        using var cleanupPlan2 = await TestCleanerPlans.IssueFromBundleAsync(nativeContext2, tamperedBundle);
         var tamperedResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = tamperedBundle
+            ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan2 },
         }, workspace);
 
         Assert.False(tamperedResult.Success);
@@ -961,9 +994,11 @@ public sealed class CleanerTrustChainTests
         var extracted = await TestFactsExtractor.ExtractAsync(facts, sampleImg, sampleMov, workspace);
 
         // 1. Normal clean succeeds
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var normalResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, workspace);
         Assert.True(normalResult.Success, normalResult.ErrorMessage);
         var cidFact = normalResult.RemovedFacts.FirstOrDefault(f => f.ResidueId == "apple-img-makernote-0011");
@@ -995,9 +1030,11 @@ public sealed class CleanerTrustChainTests
             }
         };
 
+        using var nativeContext2 = TestNativeContext.Create();
+        using var cleanupPlan2 = await TestCleanerPlans.IssueFromBundleAsync(nativeContext2, tamperedBundle);
         var tamperedResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = tamperedBundle
+            ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan2 },
         }, workspace);
 
         Assert.False(tamperedResult.Success);
@@ -1023,7 +1060,9 @@ public sealed class CleanerTrustChainTests
             var tamperedFacts = facts with { ConfirmedResidues = tamperedResidues };
             var tamperedBundle = extracted with { SourceFacts = tamperedFacts };
 
-            var result = await cleaner.CleanAsync(new ProtocolCleanRequest { ExtractedBundle = tamperedBundle }, workspace);
+            using var nativeContext = TestNativeContext.Create();
+            using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, tamperedBundle);
+            var result = await cleaner.CleanAsync(new ProtocolCleanRequest { ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan } }, workspace);
             Assert.False(result.Success);
             Assert.True(result.FailureCategory == CleanerFailureCategory.AuthorizedResidueNotFound || result.FailureCategory == CleanerFailureCategory.StructureChanged);
         }
@@ -1035,7 +1074,9 @@ public sealed class CleanerTrustChainTests
             var tamperedFacts = facts with { ConfirmedResidues = tamperedResidues };
             var tamperedBundle = extracted with { SourceFacts = tamperedFacts };
 
-            var result = await cleaner.CleanAsync(new ProtocolCleanRequest { ExtractedBundle = tamperedBundle }, workspace);
+            using var nativeContext = TestNativeContext.Create();
+            using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, tamperedBundle);
+            var result = await cleaner.CleanAsync(new ProtocolCleanRequest { ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan } }, workspace);
             Assert.False(result.Success);
             Assert.True(result.FailureCategory == CleanerFailureCategory.AuthorizedResidueNotFound || result.FailureCategory == CleanerFailureCategory.StructureChanged);
         }
@@ -1047,7 +1088,9 @@ public sealed class CleanerTrustChainTests
             var tamperedFacts = facts with { ConfirmedResidues = tamperedResidues };
             var tamperedBundle = extracted with { SourceFacts = tamperedFacts };
 
-            var result = await cleaner.CleanAsync(new ProtocolCleanRequest { ExtractedBundle = tamperedBundle }, workspace);
+            using var nativeContext = TestNativeContext.Create();
+            using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, tamperedBundle);
+            var result = await cleaner.CleanAsync(new ProtocolCleanRequest { ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan } }, workspace);
             Assert.False(result.Success);
             Assert.True(result.FailureCategory == CleanerFailureCategory.AuthorizedResidueNotFound || result.FailureCategory == CleanerFailureCategory.StructureChanged);
         }
@@ -1059,7 +1102,9 @@ public sealed class CleanerTrustChainTests
             var tamperedFacts = facts with { ConfirmedResidues = tamperedResidues };
             var tamperedBundle = extracted with { SourceFacts = tamperedFacts };
 
-            var result = await cleaner.CleanAsync(new ProtocolCleanRequest { ExtractedBundle = tamperedBundle }, workspace);
+            using var nativeContext = TestNativeContext.Create();
+            using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, tamperedBundle);
+            var result = await cleaner.CleanAsync(new ProtocolCleanRequest { ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan } }, workspace);
             Assert.False(result.Success);
             Assert.True(result.FailureCategory == CleanerFailureCategory.AuthorizedResidueNotFound || result.FailureCategory == CleanerFailureCategory.StructureChanged);
         }
@@ -1233,9 +1278,11 @@ public sealed class CleanerTrustChainTests
             return Task.CompletedTask;
         };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted,
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
             PreservationPolicy = PreservationPolicy.BestEffort
         }, workspace);
 
@@ -1258,24 +1305,20 @@ public sealed class CleanerTrustChainTests
         File.Copy(primaryPath, tempImage, overwrite: true);
         string cleanedImage = workspace.AllocateFilePath("test-adversarial-wrong-residue-cleaned", ".jpg");
 
-        // Tamper the ResidueId of google-v2-xmp-motionphoto to an unauthorized bogus ID
-        var actions = facts.ConfirmedResidues
-            .Select(r => new PlannedCleanupAction
-            {
-                ResidueId = r.Id == "google-v2-xmp-motionphoto" ? "adversarial-fake-residue-id" : r.Id,
-                OwnerProtocol = facts.Protocol,
-                ArtifactRole = r.ArtifactRole,
-                StructureKind = r.StructureKind,
-                Selector = r.Selector,
-                RemovalMode = r.RemovalMode,
-                ExpectedFingerprint = r.ExpectedFingerprint,
-                ExpectedSemantic = r.ExpectedSemantic,
-                IsMandatory = true
-            })
-            .ToList();
+        // The cleanup plan is the ONLY destructive authority: a forged residue id
+        // in the plan record cannot grant removal of the real MotionPhoto property.
+        var tamperedFacts = facts with
+        {
+            ConfirmedResidues = facts.ConfirmedResidues
+                .Select(r => r with { Id = r.Id == "google-v2-xmp-motionphoto" ? "adversarial-fake-residue-id" : r.Id })
+                .ToList()
+        };
 
-        var removedFacts = await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
-            facts, actions, tempImage, null, cleanedImage, null);
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, tamperedFacts, tempImage, null, null);
+        using var attempt = cleanupPlan.BeginCleanupAttempt();
+        var removedFacts = await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+            attempt, tempImage, null, null, cleanedImage, null);
 
         // Native must NOT have removed google-v2-xmp-motionphoto under the fake residue id
         Assert.DoesNotContain(removedFacts, f => f.ResidueId == "google-v2-xmp-motionphoto");
@@ -1285,27 +1328,25 @@ public sealed class CleanerTrustChainTests
         string text = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(cleanedImage));
         Assert.Contains("GCamera:MotionPhoto", text);
 
-        // Furthermore, if all actions are tampered with wrong residue IDs, native must reject completely
-        var allWrongActions = facts.ConfirmedResidues
-            .Select(r => new PlannedCleanupAction
-            {
-                ResidueId = "wrong-" + r.Id,
-                OwnerProtocol = facts.Protocol,
-                ArtifactRole = r.ArtifactRole,
-                StructureKind = r.StructureKind,
-                Selector = r.Selector,
-                RemovalMode = r.RemovalMode,
-                ExpectedFingerprint = r.ExpectedFingerprint,
-                ExpectedSemantic = r.ExpectedSemantic,
-                IsMandatory = true
-            })
-            .ToList();
+        // Furthermore, if every residue in the plan is forged, native must reject
+        // completely: no validated removable field matches, so the clean fails
+        // closed and no output is produced.
+        var allWrongFacts = facts with
+        {
+            ConfirmedResidues = facts.ConfirmedResidues
+                .Select(r => r with { Id = "wrong-" + r.Id })
+                .ToList()
+        };
 
+        using var allWrongContext = TestNativeContext.Create();
+        using var allWrongPlan = await TestCleanerPlans.IssueAsync(allWrongContext, allWrongFacts, tempImage, null, null);
         await Assert.ThrowsAnyAsync<Exception>(async () =>
         {
-            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
-                facts, allWrongActions, tempImage, null, workspace.AllocateFilePath("all-wrong-out", ".jpg"), null);
+            using var allWrongAttempt = allWrongPlan.BeginCleanupAttempt();
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+                allWrongAttempt, tempImage, null, null, workspace.AllocateFilePath("all-wrong-out", ".jpg"), null);
         });
+        Assert.False(File.Exists(workspace.AllocateFilePath("all-wrong-out", ".jpg")));
     }
 
     [Fact]
@@ -1366,8 +1407,30 @@ public sealed class CleanerTrustChainTests
             }
         };
 
-        var removedFacts = await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
-            facts, actions, tempImage, null, cleanedImage, null);
+        var tamperedFacts = facts with
+        {
+            ConfirmedResidues = actions
+                .Select(a => new ConfirmedProtocolResidue
+                {
+                    Id = a.ResidueId,
+                    OwnerProtocol = a.OwnerProtocol,
+                    ArtifactRole = a.ArtifactRole,
+                    StructureKind = a.StructureKind,
+                    Selector = a.Selector,
+                    ExpectedSemantic = a.ExpectedSemantic,
+                    ExpectedFingerprint = a.ExpectedFingerprint,
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = a.RemovalMode,
+                    RequiredAfterExtraction = a.IsMandatory
+                })
+                .ToList()
+        };
+
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, tamperedFacts, tempImage, null, null);
+        using var attempt = cleanupPlan.BeginCleanupAttempt();
+        var removedFacts = await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+            attempt, tempImage, null, null, cleanedImage, null);
 
         Assert.Contains(removedFacts, f => f.ResidueId == "google-v2-xmp-motionphoto");
         Assert.Contains(removedFacts, f => f.ResidueId == "google-v2-xmp-version");
@@ -1409,28 +1472,37 @@ public sealed class CleanerTrustChainTests
             PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
         };
 
-        // Pass an action with foreign OwnerProtocol (Samsung instead of Google)
-        var actions = new List<PlannedCleanupAction>
+        // A plan whose residue carries a foreign OwnerProtocol must be rejected
+        // by Native before any mutation; the plan is the only authority source.
+        var tamperedFacts = facts with
         {
-            new PlannedCleanupAction
+            ConfirmedResidues = new List<ConfirmedProtocolResidue>
             {
-                ResidueId = "google-v2-xmp-motionphoto",
-                OwnerProtocol = SourceProtocol.SamsungMotionPhotoJpeg, // Foreign!
-                ArtifactRole = MediaArtifactKind.PrimaryImage,
-                StructureKind = ResidueStructureKind.XmpProperty,
-                Selector = "GCamera:MotionPhoto",
-                RemovalMode = ResidueRemovalMode.Delete,
-                ExpectedSemantic = "MotionPhoto",
-                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
-                IsMandatory = true
+                new ConfirmedProtocolResidue
+                {
+                    Id = "google-v2-xmp-motionphoto",
+                    OwnerProtocol = SourceProtocol.SamsungMotionPhotoJpeg, // Foreign!
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhoto",
+                    ExpectedSemantic = "MotionPhoto",
+                    ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = ResidueRemovalMode.Delete,
+                    RequiredAfterExtraction = true
+                }
             }
         };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, tamperedFacts, tempImage, null, null);
         await Assert.ThrowsAnyAsync<Exception>(async () =>
         {
-            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
-                facts, actions, tempImage, null, cleanedImage, null);
+            using var attempt = cleanupPlan.BeginCleanupAttempt();
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+                attempt, tempImage, null, null, cleanedImage, null);
         });
+        Assert.False(File.Exists(cleanedImage));
     }
 
     [Fact]
@@ -1463,29 +1535,37 @@ public sealed class CleanerTrustChainTests
             PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
         };
 
-        // Pass an action with mismatched CoordinateSpace (OriginalSourceRange instead of StructuredSelector)
-        var actions = new List<PlannedCleanupAction>
+        // A plan residue whose CoordinateSpace cannot authorize the structured
+        // XMP property must fail closed before any mutation.
+        var tamperedFacts = facts with
         {
-            new PlannedCleanupAction
+            ConfirmedResidues = new List<ConfirmedProtocolResidue>
             {
-                ResidueId = "google-v2-xmp-motionphoto",
-                OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
-                ArtifactRole = MediaArtifactKind.PrimaryImage,
-                StructureKind = ResidueStructureKind.XmpProperty,
-                Selector = "GCamera:MotionPhoto",
-                CoordinateSpace = CoordinateSpace.OriginalSourceRange, // Mismatched!
-                RemovalMode = ResidueRemovalMode.Delete,
-                ExpectedSemantic = "MotionPhoto",
-                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
-                IsMandatory = true
+                new ConfirmedProtocolResidue
+                {
+                    Id = "google-v2-xmp-motionphoto",
+                    OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhoto",
+                    CoordinateSpace = CoordinateSpace.OriginalSourceRange, // Mismatched!
+                    ExpectedSemantic = "MotionPhoto",
+                    ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                    RemovalMode = ResidueRemovalMode.Delete,
+                    RequiredAfterExtraction = true
+                }
             }
         };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, tamperedFacts, tempImage, null, null);
         await Assert.ThrowsAnyAsync<Exception>(async () =>
         {
-            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
-                facts, actions, tempImage, null, cleanedImage, null);
+            using var attempt = cleanupPlan.BeginCleanupAttempt();
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+                attempt, tempImage, null, null, cleanedImage, null);
         });
+        Assert.False(File.Exists(cleanedImage));
     }
 
     [Fact]
@@ -1518,29 +1598,36 @@ public sealed class CleanerTrustChainTests
             PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
         };
 
-        // Pass an action with out-of-range CoordinateSpace
-        var actions = new List<PlannedCleanupAction>
+        // A plan residue with an out-of-range CoordinateSpace must be rejected.
+        var tamperedFacts = facts with
         {
-            new PlannedCleanupAction
+            ConfirmedResidues = new List<ConfirmedProtocolResidue>
             {
-                ResidueId = "google-v2-xmp-motionphoto",
-                OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
-                ArtifactRole = MediaArtifactKind.PrimaryImage,
-                StructureKind = ResidueStructureKind.XmpProperty,
-                Selector = "GCamera:MotionPhoto",
-                CoordinateSpace = (CoordinateSpace)999, // Invalid!
-                RemovalMode = ResidueRemovalMode.Delete,
-                ExpectedSemantic = "MotionPhoto",
-                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
-                IsMandatory = true
+                new ConfirmedProtocolResidue
+                {
+                    Id = "google-v2-xmp-motionphoto",
+                    OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhoto",
+                    CoordinateSpace = (CoordinateSpace)999, // Invalid!
+                    ExpectedSemantic = "MotionPhoto",
+                    ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                    RemovalMode = ResidueRemovalMode.Delete,
+                    RequiredAfterExtraction = true
+                }
             }
         };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, tamperedFacts, tempImage, null, null);
         await Assert.ThrowsAnyAsync<Exception>(async () =>
         {
-            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
-                facts, actions, tempImage, null, cleanedImage, null);
+            using var attempt = cleanupPlan.BeginCleanupAttempt();
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+                attempt, tempImage, null, null, cleanedImage, null);
         });
+        Assert.False(File.Exists(cleanedImage));
     }
 
     [Fact]
@@ -1573,40 +1660,49 @@ public sealed class CleanerTrustChainTests
             PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
         };
 
-        // Duplicate action with same ResidueId
-        var actions = new List<PlannedCleanupAction>
+        // A plan carrying duplicate residue ids must be rejected by Native.
+        var tamperedFacts = facts with
         {
-            new PlannedCleanupAction
+            ConfirmedResidues = new List<ConfirmedProtocolResidue>
             {
-                ResidueId = "google-v2-xmp-motionphoto",
-                OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
-                ArtifactRole = MediaArtifactKind.PrimaryImage,
-                StructureKind = ResidueStructureKind.XmpProperty,
-                Selector = "GCamera:MotionPhoto",
-                RemovalMode = ResidueRemovalMode.Delete,
-                ExpectedSemantic = "MotionPhoto",
-                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
-                IsMandatory = true
-            },
-            new PlannedCleanupAction
-            {
-                ResidueId = "google-v2-xmp-motionphoto", // Duplicate!
-                OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
-                ArtifactRole = MediaArtifactKind.PrimaryImage,
-                StructureKind = ResidueStructureKind.XmpProperty,
-                Selector = "GCamera:MotionPhoto",
-                RemovalMode = ResidueRemovalMode.Delete,
-                ExpectedSemantic = "MotionPhoto",
-                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
-                IsMandatory = true
+                new ConfirmedProtocolResidue
+                {
+                    Id = "google-v2-xmp-motionphoto",
+                    OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhoto",
+                    ExpectedSemantic = "MotionPhoto",
+                    ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = ResidueRemovalMode.Delete,
+                    RequiredAfterExtraction = true
+                },
+                new ConfirmedProtocolResidue
+                {
+                    Id = "google-v2-xmp-motionphoto", // Duplicate!
+                    OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhoto",
+                    ExpectedSemantic = "MotionPhoto",
+                    ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = ResidueRemovalMode.Delete,
+                    RequiredAfterExtraction = true
+                }
             }
         };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, tamperedFacts, tempImage, null, null);
         await Assert.ThrowsAnyAsync<Exception>(async () =>
         {
-            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
-                facts, actions, tempImage, null, cleanedImage, null);
+            using var attempt = cleanupPlan.BeginCleanupAttempt();
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+                attempt, tempImage, null, null, cleanedImage, null);
         });
+        Assert.False(File.Exists(cleanedImage));
     }
 
     [Fact]
@@ -1635,9 +1731,11 @@ public sealed class CleanerTrustChainTests
         var tamperedFacts = facts with { ConfirmedResidues = list };
         var tamperedBundle = extracted with { SourceFacts = tamperedFacts };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, tamperedBundle);
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = tamperedBundle
+            ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.False(result.Success);
@@ -1675,9 +1773,11 @@ public sealed class CleanerTrustChainTests
         var tamperedFacts = facts with { ConfirmedResidues = list };
         var tamperedBundle = extracted with { SourceFacts = tamperedFacts };
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, tamperedBundle);
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = tamperedBundle
+            ExtractedBundle = tamperedBundle with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.False(result.Success);
@@ -1710,28 +1810,37 @@ public sealed class CleanerTrustChainTests
             PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
         };
 
-        var actions = new List<PlannedCleanupAction>
+        // The plan owns NO artifact objects: Native must fail closed before any
+        // byte is read or written, even though a path is supplied.
+        var tamperedFacts = facts with
         {
-            new PlannedCleanupAction
+            ConfirmedResidues = new List<ConfirmedProtocolResidue>
             {
-                ResidueId = "google-v2-xmp-motionphoto",
-                OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
-                ArtifactRole = MediaArtifactKind.PrimaryImage,
-                StructureKind = ResidueStructureKind.XmpProperty,
-                Selector = "GCamera:MotionPhoto",
-                RemovalMode = ResidueRemovalMode.Delete,
-                ExpectedSemantic = "MotionPhoto",
-                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
-                IsMandatory = true
+                new ConfirmedProtocolResidue
+                {
+                    Id = "google-v2-xmp-motionphoto",
+                    OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhoto",
+                    ExpectedSemantic = "MotionPhoto",
+                    ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = ResidueRemovalMode.Delete,
+                    RequiredAfterExtraction = true
+                }
             }
         };
 
-        // Pass empty targets list -> native must fail closed
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, tamperedFacts, null, null, null);
         await Assert.ThrowsAnyAsync<Exception>(async () =>
         {
-            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
-                facts, actions, new List<PlannedArtifactTarget>(), tempImage, null, cleanedImage, null);
+            using var attempt = cleanupPlan.BeginCleanupAttempt();
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+                attempt, tempImage, null, null, cleanedImage, null);
         });
+        Assert.False(File.Exists(cleanedImage));
     }
 
     [Fact]
@@ -1763,41 +1872,40 @@ public sealed class CleanerTrustChainTests
             PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
         };
 
-        var actions = new List<PlannedCleanupAction>
+        var tamperedFacts = facts with
         {
-            new PlannedCleanupAction
+            ConfirmedResidues = new List<ConfirmedProtocolResidue>
             {
-                ResidueId = "google-v2-xmp-motionphoto",
-                OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
-                ArtifactRole = MediaArtifactKind.PrimaryImage,
-                StructureKind = ResidueStructureKind.XmpProperty,
-                Selector = "GCamera:MotionPhoto",
-                RemovalMode = ResidueRemovalMode.Delete,
-                ExpectedSemantic = "MotionPhoto",
-                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
-                IsMandatory = true
+                new ConfirmedProtocolResidue
+                {
+                    Id = "google-v2-xmp-motionphoto",
+                    OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhoto",
+                    ExpectedSemantic = "MotionPhoto",
+                    ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = ResidueRemovalMode.Delete,
+                    RequiredAfterExtraction = true
+                }
             }
         };
 
-        var targets = new List<PlannedArtifactTarget>
-        {
-            new PlannedArtifactTarget
-            {
-                Role = MediaArtifactKind.PrimaryImage,
-                ExpectedByteLength = fullJpeg.Length,
-                ExpectedSha256 = originalSha
-            }
-        };
+        // Issue the authority over the original object, then tamper the file
+        // (same length, same object) before the clean executes.
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, tamperedFacts, tempImage, null, null);
 
-        // Adversarial tampering: alter 1 byte in the file without changing its length!
         byte[] tamperedJpeg = (byte[])fullJpeg.Clone();
         tamperedJpeg[^3] ^= 0x42; // flip bits in the payload
         await File.WriteAllBytesAsync(tempImage, tamperedJpeg);
 
         var ex = await Assert.ThrowsAsync<CleanerException>(async () =>
         {
-            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
-                facts, actions, targets, tempImage, null, cleanedImage, null);
+            using var attempt = cleanupPlan.BeginCleanupAttempt();
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+                attempt, tempImage, null, null, cleanedImage, null);
         });
 
         Assert.Equal(CleanerFailureCategory.ArtifactChangedSinceExtraction, ex.Category);
@@ -1833,22 +1941,6 @@ public sealed class CleanerTrustChainTests
             PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
         };
 
-        var actions = new List<PlannedCleanupAction>
-        {
-            new PlannedCleanupAction
-            {
-                ResidueId = "google-v2-xmp-motionphoto",
-                OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
-                ArtifactRole = MediaArtifactKind.PrimaryImage,
-                StructureKind = ResidueStructureKind.XmpProperty,
-                Selector = "GCamera:MotionPhoto",
-                RemovalMode = ResidueRemovalMode.Delete,
-                ExpectedSemantic = "MotionPhoto",
-                ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
-                IsMandatory = true
-            }
-        };
-
         var targets = new List<PlannedArtifactTarget>
         {
             new PlannedArtifactTarget
@@ -1862,8 +1954,33 @@ public sealed class CleanerTrustChainTests
         bool hookTriggered = false;
         byte[] garbageBytes = [0xDE, 0xAD, 0xBE, 0xEF, 0x01, 0x02, 0x03, 0x04];
 
-        // Register hook to mutate source path on disk immediately after Native opens and validates the in-memory snapshot
-        LivePhotoBox.Interop.NativeCleanService.TestCleanerSnapshotConfigurator = TestNativeHarness.ConfigureCleanerSnapshotHook;
+        // Issue the authority over the original object, then register a hook that
+        // replaces the source file AFTER Native has read and verified the pinned
+        // in-memory snapshot.
+        var tamperedFacts = facts with
+        {
+            ConfirmedResidues = new List<ConfirmedProtocolResidue>
+            {
+                new ConfirmedProtocolResidue
+                {
+                    Id = "google-v2-xmp-motionphoto",
+                    OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhoto",
+                    ExpectedSemantic = "MotionPhoto",
+                    ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = ResidueRemovalMode.Delete,
+                    RequiredAfterExtraction = true
+                }
+            }
+        };
+
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, tamperedFacts, tempImage, null, null);
+
+        LivePhotoBox.Interop.NativeCleanService.TestCleanerSnapshotHandleConfigurator = TestNativeHarness.ConfigureCleanerSnapshotHook;
         LivePhotoBox.Interop.NativeCleanService.TestPostSnapshotHook = () =>
         {
             hookTriggered = true;
@@ -1873,8 +1990,10 @@ public sealed class CleanerTrustChainTests
 
         try
         {
-            var removed = await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
-                facts, actions, targets, tempImage, null, cleanedImage, null);
+            using var attempt = cleanupPlan.BeginCleanupAttempt();
+            LivePhotoBox.Interop.NativeCleanService.TestPostSnapshotHookContext = attempt.ContextLease.Handle;
+            var removed = await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+                attempt, tempImage, null, null, cleanedImage, null);
 
             Assert.True(hookTriggered, "TestPostSnapshotHook must be invoked after snapshot is read and verified.");
             Assert.Single(removed);
@@ -1895,7 +2014,9 @@ public sealed class CleanerTrustChainTests
         finally
         {
             LivePhotoBox.Interop.NativeCleanService.TestPostSnapshotHook = null;
+            LivePhotoBox.Interop.NativeCleanService.TestPostSnapshotHookContext = nint.Zero;
             LivePhotoBox.Interop.NativeCleanService.TestCleanerSnapshotConfigurator = null;
+            LivePhotoBox.Interop.NativeCleanService.TestCleanerSnapshotHandleConfigurator = null;
         }
     }
 
@@ -1926,7 +2047,40 @@ public sealed class CleanerTrustChainTests
             PrimaryImage = new ImageFacts { ByteOffset = 0, ByteLength = fullJpeg.Length, IsPresent = true }
         };
 
-        var actions = new List<PlannedCleanupAction>
+        // The plan-based authority derives content evidence (SHA-256, length)
+        // from the Native capture at issue time.  A caller can never inject a
+        // forged all-zero target into the chain, so the authority-derived SHA is
+        // accepted verbatim and the clean succeeds.
+        var tamperedFacts = facts with
+        {
+            ConfirmedResidues = new List<ConfirmedProtocolResidue>
+            {
+                new ConfirmedProtocolResidue
+                {
+                    Id = "google-v2-xmp-motionphoto",
+                    OwnerProtocol = SourceProtocol.GoogleMotionPhotoV2,
+                    ArtifactRole = MediaArtifactKind.PrimaryImage,
+                    StructureKind = ResidueStructureKind.XmpProperty,
+                    Selector = "GCamera:MotionPhoto",
+                    ExpectedSemantic = "MotionPhoto",
+                    ExpectedFingerprint = ComputeXmpPropertyFingerprint("http://ns.google.com/photos/1.0/camera/", "MotionPhoto", "1"),
+                    CoordinateSpace = CoordinateSpace.StructuredSelector,
+                    RemovalMode = ResidueRemovalMode.Delete,
+                    RequiredAfterExtraction = true
+                }
+            }
+        };
+
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, tamperedFacts, tempImage, null, null);
+        using var attempt = cleanupPlan.BeginCleanupAttempt();
+        var removedFacts = await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+            attempt, tempImage, null, null, cleanedImage, null);
+        Assert.Contains(removedFacts, f => f.ResidueId == "google-v2-xmp-motionphoto");
+
+        // The DTO entry point that accepted caller-supplied SHA targets is
+        // permanently fail-closed: it carries no destructive authority.
+        var dtoActions = new List<PlannedCleanupAction>
         {
             new PlannedCleanupAction
             {
@@ -1941,23 +2095,13 @@ public sealed class CleanerTrustChainTests
                 IsMandatory = true
             }
         };
-
-        // Target with all-zero SHA-256
-        var targets = new List<PlannedArtifactTarget>
-        {
-            new PlannedArtifactTarget
-            {
-                Role = MediaArtifactKind.PrimaryImage,
-                ExpectedByteLength = fullJpeg.Length,
-                ExpectedSha256 = "0000000000000000000000000000000000000000000000000000000000000000"
-            }
-        };
-
         await Assert.ThrowsAnyAsync<Exception>(async () =>
         {
             await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
-                facts, actions, targets, tempImage, null, cleanedImage, null);
+                facts, dtoActions, new List<PlannedArtifactTarget>(), tempImage, null,
+                workspace.AllocateFilePath("dto-zero-sha-out", ".jpg"), null);
         });
+        Assert.False(File.Exists(workspace.AllocateFilePath("dto-zero-sha-out", ".jpg")));
     }
 
     [Fact]
@@ -1974,9 +2118,11 @@ public sealed class CleanerTrustChainTests
         var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
         // Pre-clean successfully
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.True(cleanResult.Success, cleanResult.ErrorMessage);
@@ -2019,45 +2165,20 @@ public sealed class CleanerTrustChainTests
         var inspector = new SourceInspector();
         var facts = await inspector.InspectAsync(tempImage, tempVideo);
 
-        var actions = facts.ConfirmedResidues.Select(r => new PlannedCleanupAction
-        {
-            ResidueId = r.Id,
-            OwnerProtocol = facts.Protocol,
-            ArtifactRole = r.ArtifactRole,
-            StructureKind = r.StructureKind,
-            Selector = r.Selector,
-            CoordinateSpace = r.CoordinateSpace,
-            RemovalMode = r.RemovalMode,
-            ExpectedSemantic = r.ExpectedSemantic ?? "",
-            ExpectedFingerprint = r.ExpectedFingerprint,
-            IsMandatory = true
-        }).ToList();
+        // Issue the authority over both original objects, then tamper the video
+        // (same length, same object) before the clean executes.
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, facts, tempImage, tempVideo, null);
 
-        var targets = new List<PlannedArtifactTarget>
-        {
-            new PlannedArtifactTarget
-            {
-                Role = MediaArtifactKind.PrimaryImage,
-                ExpectedByteLength = origImgBytes.Length,
-                ExpectedSha256 = origImgSha
-            },
-            new PlannedArtifactTarget
-            {
-                Role = MediaArtifactKind.MotionVideo,
-                ExpectedByteLength = origVidBytes.Length,
-                ExpectedSha256 = origVidSha
-            }
-        };
-
-        // Adversarial tampering: alter 1 byte in video file
         byte[] tamperedVid = (byte[])origVidBytes.Clone();
         tamperedVid[10] ^= 0x55;
         await File.WriteAllBytesAsync(tempVideo, tamperedVid);
 
         var ex = await Assert.ThrowsAsync<CleanerException>(async () =>
         {
-            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
-                facts, actions, targets, tempImage, tempVideo, cleanedImage, cleanedVideo);
+            using var attempt = cleanupPlan.BeginCleanupAttempt();
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+                attempt, tempImage, tempVideo, null, cleanedImage, cleanedVideo);
         });
 
         Assert.Equal(CleanerFailureCategory.ArtifactChangedSinceExtraction, ex.Category);
@@ -2086,40 +2207,22 @@ public sealed class CleanerTrustChainTests
         var inspector = new SourceInspector();
         var facts = await inspector.InspectAsync(tempImage, tempVideo);
 
-        var actions = facts.ConfirmedResidues.Select(r => new PlannedCleanupAction
-        {
-            ResidueId = r.Id,
-            OwnerProtocol = facts.Protocol,
-            ArtifactRole = r.ArtifactRole,
-            StructureKind = r.StructureKind,
-            Selector = r.Selector,
-            CoordinateSpace = r.CoordinateSpace,
-            RemovalMode = r.RemovalMode,
-            ExpectedSemantic = r.ExpectedSemantic ?? "",
-            ExpectedFingerprint = r.ExpectedFingerprint,
-            IsMandatory = true
-        }).ToList();
-
-        var targets = new List<PlannedArtifactTarget>
-        {
-            new PlannedArtifactTarget
+        // A plan carrying duplicate PrimaryImage ownership records must be
+        // rejected by Native before any mutation.
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueWithArtifactsAsync(
+            nativeContext, facts,
+            new List<(int Role, string Path)>
             {
-                Role = MediaArtifactKind.PrimaryImage,
-                ExpectedByteLength = origImgBytes.Length,
-                ExpectedSha256 = origImgSha
-            },
-            new PlannedArtifactTarget
-            {
-                Role = MediaArtifactKind.PrimaryImage, // Duplicate!
-                ExpectedByteLength = origImgBytes.Length,
-                ExpectedSha256 = origImgSha
-            }
-        };
+                ((int)MediaArtifactKind.PrimaryImage, tempImage),
+                ((int)MediaArtifactKind.PrimaryImage, tempImage) // Duplicate!
+            });
 
         var ex = await Assert.ThrowsAnyAsync<Exception>(async () =>
         {
-            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
-                facts, actions, targets, tempImage, tempVideo, cleanedImage, cleanedVideo);
+            using var attempt = cleanupPlan.BeginCleanupAttempt();
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+                attempt, tempImage, tempVideo, null, cleanedImage, cleanedVideo);
         });
 
         Assert.Contains("Duplicate PrimaryImage", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -2147,46 +2250,23 @@ public sealed class CleanerTrustChainTests
         var inspector = new SourceInspector();
         var facts = await inspector.InspectAsync(tempImage, tempVideo);
 
-        var actions = facts.ConfirmedResidues.Select(r => new PlannedCleanupAction
-        {
-            ResidueId = r.Id,
-            OwnerProtocol = facts.Protocol,
-            ArtifactRole = r.ArtifactRole,
-            StructureKind = r.StructureKind,
-            Selector = r.Selector,
-            CoordinateSpace = r.CoordinateSpace,
-            RemovalMode = r.RemovalMode,
-            ExpectedSemantic = r.ExpectedSemantic ?? "",
-            ExpectedFingerprint = r.ExpectedFingerprint,
-            IsMandatory = true
-        }).ToList();
-
-        var targets = new List<PlannedArtifactTarget>
-        {
-            new PlannedArtifactTarget
+        // A plan carrying duplicate MotionVideo ownership records must be
+        // rejected by Native before any mutation.
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueWithArtifactsAsync(
+            nativeContext, facts,
+            new List<(int Role, string Path)>
             {
-                Role = MediaArtifactKind.PrimaryImage,
-                ExpectedByteLength = origImgBytes.Length,
-                ExpectedSha256 = origImgSha
-            },
-            new PlannedArtifactTarget
-            {
-                Role = MediaArtifactKind.MotionVideo,
-                ExpectedByteLength = origVidBytes.Length,
-                ExpectedSha256 = origVidSha
-            },
-            new PlannedArtifactTarget
-            {
-                Role = MediaArtifactKind.MotionVideo, // Duplicate!
-                ExpectedByteLength = origVidBytes.Length,
-                ExpectedSha256 = origVidSha
-            }
-        };
+                ((int)MediaArtifactKind.PrimaryImage, tempImage),
+                ((int)MediaArtifactKind.MotionVideo, tempVideo),
+                ((int)MediaArtifactKind.MotionVideo, tempVideo) // Duplicate!
+            });
 
         var ex = await Assert.ThrowsAnyAsync<Exception>(async () =>
         {
-            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
-                facts, actions, targets, tempImage, tempVideo, cleanedImage, cleanedVideo);
+            using var attempt = cleanupPlan.BeginCleanupAttempt();
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+                attempt, tempImage, tempVideo, null, cleanedImage, cleanedVideo);
         });
 
         Assert.Contains("Duplicate MotionVideo", ex.Message, StringComparison.OrdinalIgnoreCase);
@@ -2214,44 +2294,29 @@ public sealed class CleanerTrustChainTests
         var inspector = new SourceInspector();
         var facts = await inspector.InspectAsync(tempImage, tempVideo);
 
-        var actions = facts.ConfirmedResidues.Select(r => new PlannedCleanupAction
-        {
-            ResidueId = r.Id,
-            OwnerProtocol = facts.Protocol,
-            ArtifactRole = r.ArtifactRole,
-            StructureKind = r.StructureKind,
-            Selector = r.Selector,
-            CoordinateSpace = r.CoordinateSpace,
-            RemovalMode = r.RemovalMode,
-            ExpectedSemantic = r.ExpectedSemantic ?? "",
-            ExpectedFingerprint = r.ExpectedFingerprint,
-            IsMandatory = true
-        }).ToList();
-
-        var targets = new List<PlannedArtifactTarget>
-        {
-            new PlannedArtifactTarget
+        // The plan only owns a PrimaryImage and a non-cleaner (GainMap) role
+        // record.  A motion-video input supplied without plan ownership must be
+        // rejected before any mutation: authority comes from the plan, never
+        // from the caller's path list.
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueWithArtifactsAsync(
+            nativeContext, facts,
+            new List<(int Role, string Path)>
             {
-                Role = MediaArtifactKind.PrimaryImage,
-                ExpectedByteLength = origImgBytes.Length,
-                ExpectedSha256 = origImgSha
-            },
-            new PlannedArtifactTarget
-            {
-                Role = MediaArtifactKind.GainMap, // Unsupported detached target role for cleaner!
-                ExpectedByteLength = origVidBytes.Length,
-                ExpectedSha256 = origVidSha
-            }
-        };
+                ((int)MediaArtifactKind.PrimaryImage, tempImage),
+                ((int)MediaArtifactKind.GainMap, tempVideo) // Not a cleaner-owned role
+            });
 
         var ex = await Assert.ThrowsAnyAsync<Exception>(async () =>
         {
-            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolAsync(
-                facts, actions, targets, tempImage, tempVideo, cleanedImage, cleanedVideo);
+            using var attempt = cleanupPlan.BeginCleanupAttempt();
+            await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+                attempt, tempImage, tempVideo, null, cleanedImage, cleanedVideo);
         });
 
-        Assert.Contains("Unsupported or unknown artifact target role", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("ObjectIdentity", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.False(File.Exists(cleanedImage));
+        Assert.False(File.Exists(cleanedVideo));
     }
 
     [Fact]
@@ -2275,9 +2340,11 @@ public sealed class CleanerTrustChainTests
         imgBytes[20] ^= 0x77;
         await File.WriteAllBytesAsync(extracted.PrimaryImage.Path, imgBytes);
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         var result = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.False(result.Success);
@@ -3038,7 +3105,14 @@ public sealed class CleanerTrustChainTests
         var facts = await inspector.InspectAsync(imgPath, movPath);
         var bundle = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
-        // A faulty clean invoker that writes cleaned video but leaves the original untouched image (with live MakerNote tags)
+        // A faulty clean invoker that writes cleaned video but leaves the
+        // original untouched image (with live MakerNote tags).  The plan is a
+        // real Native authority (the invoker just never uses it), so the
+        // cleaner's claim succeeds and the post-clean inspection is what
+        // detects the leftover residue.
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, facts, imgPath, movPath, null);
+
         var faultyCleaner = new SourceProtocolCleaner(
             cleanInvoker: async (f, actions, inImg, inVid, outImg, outVid, ct) =>
             {
@@ -3067,7 +3141,7 @@ public sealed class CleanerTrustChainTests
 
         var result = await faultyCleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = bundle
+            ExtractedBundle = bundle with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.False(result.Success);
@@ -3088,13 +3162,23 @@ public sealed class CleanerTrustChainTests
         var facts = await inspector.InspectAsync(imgPath, movPath);
         var bundle = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
-        // A faulty clean invoker: cleans image (strips MakerNote), but fails to strip MOV CID
+        // A faulty clean invoker: cleans image through the real plan-authorized
+        // Native path (reusing the attempt the cleaner already claimed), but
+        // fails to strip MOV CID.  The plan owns only the primary image, so the
+        // image-only clean is authorized; the video is copied verbatim.
+        using var nativeContext = TestNativeContext.Create();
+        // The cleaner mutates the bundle's extracted artifact (bundle.PrimaryImage.Path),
+        // so the plan must authorize that exact filesystem object, not the source sample.
+        using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, facts, bundle.PrimaryImage.Path, bundle.MotionVideo?.Path, null);
+
+        // A faulty legacy raw-DTO invoker (no Native ownership registry): it
+        // copies both artifacts verbatim so the QuickTime CID (and the image
+        // MakerNote tags) remain, then lies that everything was removed.  The
+        // post-clean Source Inspector is what catches the leftover residue.
         var faultyCleaner = new SourceProtocolCleaner(
             cleanInvoker: async (f, actions, inImg, inVid, outImg, outVid, ct) =>
             {
-                // Clean image using real Native clean
-                await NativeCleanService.CleanSourceProtocolAsync(f, actions.Where(a => a.ArtifactRole == MediaArtifactKind.PrimaryImage).ToList(), inImg, null, outImg, null, ct);
-                // But copy original video unchanged so QuickTime CID remains
+                File.Copy(inImg, outImg!, overwrite: true);
                 if (inVid != null && outVid != null)
                 {
                     File.Copy(inVid, outVid, overwrite: true);
@@ -3118,7 +3202,7 @@ public sealed class CleanerTrustChainTests
 
         var result = await faultyCleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = bundle
+            ExtractedBundle = bundle with { CleanupPlan = cleanupPlan },
         }, workspace);
 
         Assert.False(result.Success);

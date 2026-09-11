@@ -38,6 +38,18 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_jpeg_inject_xmp(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
+#if !defined(LPB_NATIVE_TEST_HARNESS)
+    // Production capability gate: in-place JPEG XMP injection rewrites file
+    // bytes and requires an active Native cleanup-plan authority.  External
+    // callers can never bypass the Cleaner trust chain through this primitive;
+    // the test-harness build keeps the raw behavior for contract tests only.
+    if (!lpb_has_clean_authority(context))
+    {
+        set_error(context, "[AuthorityViolation] In-place JPEG XMP injection requires an active Native cleanup-plan authority.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+#endif
+
     binary_reader reader(input, input_size);
     uint16_t soi = 0;
     if (!reader.try_read_be16u(soi) || soi != 0xFFD8) {

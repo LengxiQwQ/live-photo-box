@@ -743,6 +743,18 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_strip_live_photo_entries_select
 {
     if (out_stripped_count) *out_stripped_count = 0;
     if (!context || !data) return LPB_RESULT_INVALID_ARGUMENT;
+#if !defined(LPB_NATIVE_TEST_HARNESS)
+    // Production capability gate: in-place destructive mutation of Apple
+    // MakerNote bytes requires an active Native cleanup-plan authority.
+    // External callers can never bypass the Cleaner trust chain through this
+    // primitive; the test-harness build keeps the raw behavior for contract
+    // tests only.
+    if (!lpb_has_clean_authority(context))
+    {
+        set_error(context, "[AuthorityViolation] In-place Apple MakerNote mutation requires an active Native cleanup-plan authority.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+#endif
     if (!authorized_tags || authorized_count == 0) {
         return LPB_RESULT_OK;
     }
@@ -852,6 +864,15 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_write_content_identifier(
     const char* content_id)
 {
     if (!context || !data || !content_id) return LPB_RESULT_INVALID_ARGUMENT;
+#if !defined(LPB_NATIVE_TEST_HARNESS)
+    // Production capability gate: in-place ContentIdentifier writes require an
+    // active Native cleanup-plan authority (see strip gate above).
+    if (!lpb_has_clean_authority(context))
+    {
+        set_error(context, "[AuthorityViolation] In-place Apple MakerNote mutation requires an active Native cleanup-plan authority.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+#endif
 
     maker_note_region region{};
     if (!locate_formal_makernote_owner(context, data, data_size, region)) {
@@ -975,6 +996,17 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_jpeg(
         set_error(context, "Input is not a valid JPEG.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
+#if !defined(LPB_NATIVE_TEST_HARNESS)
+    // Production capability gate: MakerNote injection rewrites JPEG bytes and
+    // requires an active Native cleanup-plan authority.  External callers can
+    // never bypass the Cleaner trust chain through this primitive.
+    if (!lpb_has_clean_authority(context))
+    {
+        set_error(context, "[AuthorityViolation] Apple MakerNote injection requires an active Native cleanup-plan authority.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+#endif
+
     size_t pos = 2;
     bool found_exif = false;
     while (pos + 4 <= input_size) {
@@ -1090,6 +1122,17 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_heic(
         set_error(context, "Input HEIF contains a malformed top-level box.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
+
+#if !defined(LPB_NATIVE_TEST_HARNESS)
+    // Production capability gate: MakerNote injection rewrites HEIC bytes and
+    // requires an active Native cleanup-plan authority.  External callers can
+    // never bypass the Cleaner trust chain through this primitive.
+    if (!lpb_has_clean_authority(context))
+    {
+        set_error(context, "[AuthorityViolation] Apple MakerNote injection requires an active Native cleanup-plan authority.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+#endif
 
     uint64_t exif_offset, exif_length;
     if (lpb_heif_locate_exif_item(context, input, input_size, &exif_offset, &exif_length) != LPB_RESULT_OK) {

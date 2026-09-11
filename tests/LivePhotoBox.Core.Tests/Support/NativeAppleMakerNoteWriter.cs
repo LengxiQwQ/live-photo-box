@@ -5,7 +5,14 @@ using System.Text;
 
 namespace LivePhotoBox.Interop;
 
-public static class NativeAppleMakerNoteWriter
+/// <summary>
+/// TEST-ONLY contract helper bound to the harness Native build
+/// (LivePhotoBox.Native.TestHarness.dll).  Lives in the test assembly so
+/// production code has no surface that can reach raw Apple MakerNote
+/// destructive primitives; the production DLL gates these behind an active
+/// cleanup-plan authority.
+/// </summary>
+internal static class NativeAppleMakerNoteWriter
 {
     /// <summary>Builds the minimal Apple MakerNote payload used by the rebuilt split writer.</summary>
     public static byte[] BuildContentIdentifierMakerNote(string contentId)
@@ -29,20 +36,20 @@ public static class NativeAppleMakerNoteWriter
         return makerNote;
     }
 
-    [DllImport(NativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_apple_strip_live_photo_entries")]
+    [DllImport(TestHarnessNativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_apple_strip_live_photo_entries")]
     private static extern NativeResult LpbAppleStripLivePhotoEntries(
         nint context,
         ref byte data,
         nuint dataSize);
 
-    [DllImport(NativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_apple_write_content_identifier", CharSet = CharSet.Ansi)]
+    [DllImport(TestHarnessNativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_apple_write_content_identifier", CharSet = CharSet.Ansi)]
     private static extern NativeResult LpbAppleWriteContentIdentifier(
         nint context,
         ref byte data,
         nuint dataSize,
         string contentId);
 
-    [DllImport(NativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_apple_strip_live_photo_entries_selective")]
+    [DllImport(TestHarnessNativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_apple_strip_live_photo_entries_selective")]
     private static extern NativeResult LpbAppleStripLivePhotoEntriesSelective(
         nint context,
         ref byte data,
@@ -59,7 +66,7 @@ public static class NativeAppleMakerNoteWriter
         nint context = nint.Zero;
         try
         {
-            if (NativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
+            if (TestHarnessNativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
 
             NativeResult res = LpbAppleStripLivePhotoEntries(
                 context,
@@ -75,7 +82,7 @@ public static class NativeAppleMakerNoteWriter
         }
         finally
         {
-            if (context != nint.Zero) { NativeMethods.DestroyContext(context); }
+            if (context != nint.Zero) { TestHarnessNativeMethods.DestroyContext(context); }
         }
     }
 
@@ -85,7 +92,7 @@ public static class NativeAppleMakerNoteWriter
         nint context = nint.Zero;
         try
         {
-            if (NativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
+            if (TestHarnessNativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
 
             NativeResult res = LpbAppleStripLivePhotoEntriesSelective(
                 context,
@@ -106,7 +113,7 @@ public static class NativeAppleMakerNoteWriter
         }
         finally
         {
-            if (context != nint.Zero) { NativeMethods.DestroyContext(context); }
+            if (context != nint.Zero) { TestHarnessNativeMethods.DestroyContext(context); }
         }
     }
 
@@ -116,7 +123,7 @@ public static class NativeAppleMakerNoteWriter
         nint context = nint.Zero;
         try
         {
-            if (NativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
+            if (TestHarnessNativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
 
             NativeResult res = LpbAppleWriteContentIdentifier(
                 context,
@@ -133,15 +140,15 @@ public static class NativeAppleMakerNoteWriter
         }
         finally
         {
-            if (context != nint.Zero) { NativeMethods.DestroyContext(context); }
+            if (context != nint.Zero) { TestHarnessNativeMethods.DestroyContext(context); }
         }
     }
 
-    [DllImport(NativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_apple_inject_makernote_jpeg")]
+    [DllImport(TestHarnessNativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_apple_inject_makernote_jpeg")]
     private static extern unsafe NativeResult lpb_apple_inject_makernote_jpeg(
         nint context, byte* input, nuint inputSize, byte* makernote, nuint makernoteSize, byte* output, nuint outputSize, out nuint outWritten);
 
-    [DllImport(NativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_apple_inject_makernote_heic")]
+    [DllImport(TestHarnessNativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_apple_inject_makernote_heic")]
     private static extern unsafe NativeResult lpb_apple_inject_makernote_heic(
         nint context, byte* input, nuint inputSize, byte* makernote, nuint makernoteSize, byte* output, nuint outputSize, out nuint outWritten);
 
@@ -152,7 +159,7 @@ public static class NativeAppleMakerNoteWriter
         nint context = nint.Zero;
         try
         {
-            if (NativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
+            if (TestHarnessNativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
 
             int expectedSize = imageBytes.Length + makerNote.Length + 1024;
             byte[] outBuf = new byte[expectedSize];
@@ -194,7 +201,7 @@ public static class NativeAppleMakerNoteWriter
         }
         finally
         {
-            if (context != nint.Zero) { NativeMethods.DestroyContext(context); }
+            if (context != nint.Zero) { TestHarnessNativeMethods.DestroyContext(context); }
         }
     }
 
@@ -205,7 +212,7 @@ public static class NativeAppleMakerNoteWriter
         nint context = nint.Zero;
         try
         {
-            if (NativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
+            if (TestHarnessNativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
 
             int expectedSize = imageBytes.Length + makerNote.Length + 1024;
             byte[] outBuf = new byte[expectedSize];
@@ -247,13 +254,13 @@ public static class NativeAppleMakerNoteWriter
         }
         finally
         {
-            if (context != nint.Zero) { NativeMethods.DestroyContext(context); }
+            if (context != nint.Zero) { TestHarnessNativeMethods.DestroyContext(context); }
         }
     }
 
     private static string? ReadLastError(nint context)
     {
-        NativeResult sizeResult = NativeMethods.GetLastError(
+        NativeResult sizeResult = TestHarnessNativeMethods.GetLastError(
             context, nint.Zero, 0, out nuint requiredSize);
         if (sizeResult != NativeResult.BufferTooSmall || requiredSize <= 1)
             return null;
@@ -261,7 +268,7 @@ public static class NativeAppleMakerNoteWriter
         nint buffer = Marshal.AllocHGlobal(checked((nint)requiredSize));
         try
         {
-            return NativeMethods.GetLastError(context, buffer, requiredSize, out _) == NativeResult.Ok
+            return TestHarnessNativeMethods.GetLastError(context, buffer, requiredSize, out _) == NativeResult.Ok
                 ? Marshal.PtrToStringUTF8(buffer)
                 : null;
         }

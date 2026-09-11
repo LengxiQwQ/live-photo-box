@@ -14,6 +14,8 @@ namespace lpb::media {
 
 namespace {
 
+#pragma warning(disable : 4996)
+
 struct slice_task {
     HANDLE src_handle{INVALID_HANDLE_VALUE};
     const char* src_path{nullptr};
@@ -48,7 +50,8 @@ static lpb_result rollback_extraction_transaction(
     const extraction_failure& original_failure,
     std::vector<slice_task>& tasks) noexcept
 {
-    std::string cleanup_fail_path;
+
+            std::string cleanup_fail_path;
     DWORD cleanup_fail_err = 0;
     bool all_clean = true;
 
@@ -1113,6 +1116,7 @@ lpb_result extract_source_internal(
     // Staging and publication tracking.  Each temp file remains open from
     // CREATE_NEW through post-publish verification.  The handle, not a path,
     // is the transaction's ownership token.
+
     for (auto& task : tasks) {
         if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
             return rollback_extraction_transaction(
@@ -1166,12 +1170,14 @@ lpb_result extract_source_internal(
         }
 
         constexpr size_t buffer_size = 64 * 1024;
+
         std::vector<uint8_t> buffer(buffer_size);
         lpb::crypto::sha256_ctx source_slice_sha;
         uint64_t remaining = task.length;
         uint64_t bytes_written = 0;
 
         while (remaining > 0) {
+
             if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
                 return rollback_extraction_transaction(
                     context,
@@ -1180,6 +1186,7 @@ lpb_result extract_source_internal(
             }
 
             const DWORD to_read = static_cast<DWORD>(std::min<uint64_t>(remaining, buffer_size));
+
             DWORD bytes_read = 0;
             const uint32_t base_fault = context
                 ? (static_cast<uint32_t>(context->extractor_hook.fault) & 0x7F) : 0;
@@ -1206,6 +1213,7 @@ lpb_result extract_source_internal(
             const bool inject_write_fault = context &&
                 context->extractor_hook.target_artifact == task.target_artifact &&
                 bytes_written + bytes_read >= context->extractor_hook.trigger_after_bytes;
+
             if (inject_write_fault && base_fault == LPB_EXTRACTOR_FAULT_DISK_FULL) {
                 SetLastError(ERROR_DISK_FULL);
                 write_ok = FALSE;
@@ -1239,6 +1247,7 @@ lpb_result extract_source_internal(
                     context->extractor_hook.callback_user_data,
                     task.target_artifact,
                     bytes_written);
+
                 if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
                     return rollback_extraction_transaction(
                         context,
@@ -1251,6 +1260,7 @@ lpb_result extract_source_internal(
         source_slice_sha.finalize(task.expected_slice_sha256);
 
         BOOL flush_ok = FlushFileBuffers(task.temp_handle);
+
         const uint32_t flush_base_fault = context
             ? (static_cast<uint32_t>(context->extractor_hook.fault) & 0x7F) : 0;
         if (flush_base_fault == LPB_EXTRACTOR_FAULT_FLUSH_DISK_FULL &&
@@ -1274,6 +1284,7 @@ lpb_result extract_source_internal(
         }
 
         lpb_file_identity staged_identity{};
+
         std::wstring staged_path;
         if (!capture_file_identity_from_handle(task.temp_handle, staged_identity, staged_path) ||
             !same_object_identity(staged_identity, task.temp_identity) ||
@@ -1306,6 +1317,7 @@ lpb_result extract_source_internal(
     }
 
     // Publication phase: SetFileInformationByHandle renames the still-open
+
     // owned file object.  No close-then-path-rename window exists.
     for (auto& task : tasks) {
         if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
@@ -1316,6 +1328,7 @@ lpb_result extract_source_internal(
         }
 
         const DWORD destination_attributes = GetFileAttributesW(task.final_dst_path.c_str());
+
         if (destination_attributes != INVALID_FILE_ATTRIBUTES || path_is_reparse_point(task.final_dst_path)) {
             return rollback_extraction_transaction(
                 context,
@@ -1334,6 +1347,7 @@ lpb_result extract_source_internal(
         }
 
         if (!path_matches_handle(task.temp_handle, task.temp_path, task.temp_identity)) {
+
             return rollback_extraction_transaction(
                 context,
                 {LPB_RESULT_INTERNAL_ERROR, "[OutputPublishFailed]", "Temporary artifact identity changed before handle publish for " + std::string(task.artifact_name) + "."},
@@ -1364,6 +1378,7 @@ lpb_result extract_source_internal(
                 FileRenameInfo,
                 rename_info,
                 static_cast<DWORD>(rename_buffer.size()))) {
+
             const DWORD win_err = GetLastError();
             const std::string cat = (win_err == ERROR_DISK_FULL || win_err == ERROR_HANDLE_DISK_FULL)
                 ? "[DiskFull]" : "[OutputPublishFailed]";
@@ -1393,6 +1408,7 @@ lpb_result extract_source_internal(
 
         lpb_file_identity final_identity{};
         std::wstring final_path;
+
         uint8_t final_hash[32]{};
         if (!capture_file_identity_from_handle(task.temp_handle, final_identity, final_path) ||
             !same_object_identity(final_identity, task.temp_identity) ||
@@ -1413,6 +1429,7 @@ lpb_result extract_source_internal(
     if (out_published_artifacts != nullptr) {
         try {
             out_published_artifacts->reserve(tasks.size());
+
             for (const auto& task : tasks) {
                 lpb_published_artifact_record artifact{};
                 artifact.artifact_role = task.artifact_role;
@@ -1442,6 +1459,7 @@ lpb_result extract_source_internal(
 
     for (auto& task : tasks) {
         if (task.temp_handle != INVALID_HANDLE_VALUE && task.temp_handle != NULL) {
+
             CloseHandle(task.temp_handle);
             task.temp_handle = INVALID_HANDLE_VALUE;
         }
@@ -1451,6 +1469,7 @@ lpb_result extract_source_internal(
             task.destination_directory_handle = INVALID_HANDLE_VALUE;
         }
     }
+
     return LPB_RESULT_OK;
 }
 
@@ -1466,6 +1485,7 @@ lpb_result extract_source_with_plan(
     const lpb_extraction_output* auxiliary_outputs,
     size_t auxiliary_output_count) noexcept
 {
+
     if (context == nullptr)
     {
         return LPB_RESULT_AUTHORITY_VIOLATION;

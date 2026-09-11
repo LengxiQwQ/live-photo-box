@@ -3,6 +3,11 @@
 #include "livephotobox_native.h"
 #include <string_view>
 
+/* Forward declaration of the internal cleanup-plan record (defined in
+   foundation/internal.h).  This lets cleaner translation units reference the
+   plan type without depending on internal context state. */
+struct lpb_cleanup_plan_record;
+
 namespace lpb::media {
 
 const lpb_cleanup_action* find_authorized_action(
@@ -28,6 +33,22 @@ lpb_result clean_source_protocol_with_plan(
     const char* input_video_path,
     const char* cleanup_source_path,
     const lpb_cleanup_artifact_binding* cleanup_source_target,
+    const char* output_image_path,
+    const char* output_video_path,
+    lpb_removed_protocol_fact* out_facts,
+    size_t facts_capacity,
+    size_t* out_facts_count);
+
+/* Plan-authorized clean (P3).  `plan` is a detached snapshot of a Native
+ * cleanup-plan record.  Every input object is identity-verified against the
+ * plan-owned published artifacts before any mutation; DTO fields cannot
+ * authorize this call. */
+lpb_result clean_source_protocol_with_cleanup_plan(
+    lpb_context* context,
+    const lpb_cleanup_plan_record& plan,
+    const char* input_image_path,
+    const char* input_video_path,
+    const char* cleanup_source_path,
     const char* output_image_path,
     const char* output_video_path,
     lpb_removed_protocol_fact* out_facts,

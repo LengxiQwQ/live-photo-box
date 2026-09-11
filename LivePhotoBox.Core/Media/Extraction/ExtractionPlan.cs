@@ -190,6 +190,7 @@ internal sealed class ExtractionPlanAttempt : IDisposable
     internal NativeContextLease ContextLease => _contextLease;
     internal nint NativeHandle => _nativeHandle;
     internal ulong Generation => _plan.Generation;
+    internal ExtractionPlan Plan => _plan;
     internal SourceMediaFacts Facts { get; }
 
     public void Dispose()

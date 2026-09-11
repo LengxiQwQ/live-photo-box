@@ -7,9 +7,15 @@ namespace LivePhotoBox.Interop;
 /// <summary>
 /// Native implementation of JPEG metadata editor (APP1 XMP, etc.)
 /// </summary>
+/// <summary>
+/// TEST-ONLY contract helper bound to the harness Native build
+/// (LivePhotoBox.Native.TestHarness.dll).  No production code path calls it;
+/// the production DLL gates in-place JPEG XMP injection behind an active
+/// cleanup-plan authority, so raw XMP writes cannot bypass the Cleaner.
+/// </summary>
 internal static class NativeJpegEditor
 {
-    [DllImport(NativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_jpeg_inject_xmp", ExactSpelling = true)]
+    [DllImport(TestHarnessNativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_jpeg_inject_xmp", ExactSpelling = true)]
     private static extern unsafe NativeResult lpb_jpeg_inject_xmp(
         nint context, byte* input, nuint inputSize, byte* xmpXml, nuint xmpXmlSize, byte* output, nuint outputSize, out nuint outWritten);
 
@@ -25,7 +31,7 @@ internal static class NativeJpegEditor
 
         try
         {
-            if (NativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
+            if (TestHarnessNativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
 
             // Probe for size (or allocate slightly larger)
             int expectedSize = imageBytes.Length + (xmpXmlBytes?.Length ?? 0) + 128;
@@ -74,13 +80,13 @@ internal static class NativeJpegEditor
         }
         finally
         {
-            if (context != nint.Zero) { try { NativeMethods.DestroyContext(context); } catch { } }
+            if (context != nint.Zero) { try { TestHarnessNativeMethods.DestroyContext(context); } catch { } }
         }
     }
 
     private static string? ReadLastError(nint context)
     {
-        NativeResult sizeResult = NativeMethods.GetLastError(
+        NativeResult sizeResult = TestHarnessNativeMethods.GetLastError(
             context, nint.Zero, 0, out nuint requiredSize);
         if (sizeResult != NativeResult.BufferTooSmall || requiredSize <= 1)
             return null;
@@ -88,7 +94,7 @@ internal static class NativeJpegEditor
         nint buffer = Marshal.AllocHGlobal(checked((nint)requiredSize));
         try
         {
-            return NativeMethods.GetLastError(context, buffer, requiredSize, out _) == NativeResult.Ok
+            return TestHarnessNativeMethods.GetLastError(context, buffer, requiredSize, out _) == NativeResult.Ok
                 ? Marshal.PtrToStringUTF8(buffer)
                 : null;
         }

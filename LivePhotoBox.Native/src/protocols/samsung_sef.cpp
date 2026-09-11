@@ -238,6 +238,17 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_samsung_sef_build_trailer(
     size_t* out_written)
 {
     if (!context || (!video_data && video_size > 0)) return LPB_RESULT_INVALID_ARGUMENT;
+#if !defined(LPB_NATIVE_TEST_HARNESS)
+    // Production capability gate: SEF trailer construction embeds a live-photo
+    // segment and requires an active Native cleanup-plan authority.  External
+    // callers can never bypass the Cleaner trust chain through this primitive;
+    // the test-harness build keeps the raw behavior for contract tests only.
+    if (!lpb_has_clean_authority(context))
+    {
+        set_error(context, "[AuthorityViolation] Samsung SEF trailer construction requires an active Native cleanup-plan authority.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+#endif
     if (video_size == 0 || !is_valid_isobmff_media_range(video_data, video_size, 0, video_size)) {
         set_error(context, "Samsung MotionPhoto video is not a structurally valid ISO-BMFF range.");
         return LPB_RESULT_INVALID_ARGUMENT;

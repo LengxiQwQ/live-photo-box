@@ -97,6 +97,96 @@ lpb_extraction_plan_record* find_plan_locked(lpb_context* context, uint64_t toke
     return nullptr;
 }
 
+uint64_t cleanup_plan_token_from_handle(const lpb_cleanup_plan* handle) noexcept
+{
+    // Same rule as extraction plans: the handle is an opaque token carrier
+    // and the pointed-to type is never dereferenced.
+    return static_cast<uint64_t>(reinterpret_cast<uintptr_t>(handle));
+}
+
+lpb_cleanup_plan* cleanup_plan_handle_from_token(uint64_t token) noexcept
+{
+    return reinterpret_cast<lpb_cleanup_plan*>(static_cast<uintptr_t>(token));
+}
+
+lpb_cleanup_plan_record* find_cleanup_plan_locked(lpb_context* context, uint64_t token) noexcept
+{
+    if (context == nullptr || token == 0)
+    {
+        return nullptr;
+    }
+
+    for (auto& record : context->cleanup_plans)
+    {
+        if (record.token == token)
+        {
+            return &record;
+        }
+    }
+    return nullptr;
+}
+
+bool generate_cleanup_plan_token_unlocked(lpb_context* context, uint64_t& token) noexcept
+{
+    token = 0;
+    if (context == nullptr)
+    {
+        return false;
+    }
+
+    for (int attempt = 0; attempt < 32; ++attempt)
+    {
+        uint64_t candidate = 0;
+        if (BCryptGenRandom(
+                nullptr,
+                reinterpret_cast<PUCHAR>(&candidate),
+                static_cast<ULONG>(sizeof(candidate)),
+                BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0 || candidate == 0)
+        {
+            continue;
+        }
+
+        // Caller must hold context->plan_mutex: the duplicate check runs
+        // against the same locked plan registry the insert will use.
+        if (find_cleanup_plan_locked(context, candidate) == nullptr)
+        {
+            token = candidate;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool generate_cleanup_plan_token(lpb_context* context, uint64_t& token) noexcept
+{
+    token = 0;
+    if (context == nullptr)
+    {
+        return false;
+    }
+
+    for (int attempt = 0; attempt < 32; ++attempt)
+    {
+        uint64_t candidate = 0;
+        if (BCryptGenRandom(
+                nullptr,
+                reinterpret_cast<PUCHAR>(&candidate),
+                static_cast<ULONG>(sizeof(candidate)),
+                BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0 || candidate == 0)
+        {
+            continue;
+        }
+
+        std::scoped_lock lock(context->plan_mutex);
+        if (find_cleanup_plan_locked(context, candidate) == nullptr)
+        {
+            token = candidate;
+            return true;
+        }
+    }
+    return false;
+}
+
 bool generate_plan_token(lpb_context* context, uint64_t& token) noexcept
 {
     token = 0;
@@ -562,6 +652,19 @@ void LPB_CALL lpb_destroy_context(lpb_context* context)
         {
             close_published_artifact_handles(record);
         }
+        for (auto& record : context->cleanup_plans)
+        {
+            if (record.state == lpb_plan_state::Issued ||
+                record.state == lpb_plan_state::Claimed ||
+                record.state == lpb_plan_state::Consumed ||
+                record.state == lpb_plan_state::ReleaseRequested)
+            {
+                record.state = lpb_plan_state::Released;
+#if defined(LPB_NATIVE_TEST_HARNESS)
+                ++context->test_cleanup_released;
+#endif
+            }
+        }
     }
 
 #if defined(LPB_NATIVE_TEST_HARNESS)
@@ -599,6 +702,43 @@ bool test_get_plan_accounting(
         accounting.registry_record_count = context->extraction_plans.size();
         accounting.live_plan_count = 0;
         for (const auto& record : context->extraction_plans)
+        {
+            if (is_live_plan_state(record.state))
+            {
+                ++accounting.live_plan_count;
+            }
+        }
+        accounting.context_destroyed = 0;
+        return true;
+    }
+    catch (...)
+    {
+        accounting = {};
+        return false;
+    }
+}
+
+bool test_get_cleanup_plan_accounting(
+    lpb_context* context,
+    lpb_test_plan_accounting& accounting) noexcept
+{
+    accounting = {};
+    if (context == nullptr)
+    {
+        return false;
+    }
+
+    try
+    {
+        std::scoped_lock lock(context->plan_mutex);
+        accounting.context_id = context->test_context_id;
+        accounting.issued = context->test_cleanup_issued;
+        accounting.claimed = context->test_cleanup_claimed;
+        accounting.consumed = context->test_cleanup_consumed;
+        accounting.released = context->test_cleanup_released;
+        accounting.registry_record_count = context->cleanup_plans.size();
+        accounting.live_plan_count = 0;
+        for (const auto& record : context->cleanup_plans)
         {
             if (is_live_plan_state(record.state))
             {
@@ -819,4 +959,92 @@ lpb_result LPB_CALL lpb_get_last_inspection_status(
         *status = context->inspection_status;
         return LPB_RESULT_OK;
     } catch (...) { return LPB_RESULT_INTERNAL_ERROR; }
+}
+
+
+void record_cleaner_staged_output(lpb_context* context, int32_t artifact_role,
+    const std::string& path, const lpb_file_identity& identity) noexcept
+{
+    if (context == nullptr || path.empty()) return;
+    try
+    {
+        std::scoped_lock lock(context->plan_mutex);
+        lpb_published_artifact_record record{};
+        record.artifact_role = artifact_role;
+        record.auxiliary_index = UINT32_MAX;
+        record.identity = identity;
+        record.final_path = utf8_to_path(path.c_str());
+        context->cleaner_staged_outputs.push_back(std::move(record));
+    }
+    catch (...)
+    {
+        // Ownership registry is best-effort diagnostic data: a failed
+        // registration must never break the clean itself.  Callers still
+        // fail closed on any identity they cannot prove.
+    }
+}
+
+bool record_cleaner_staged_output_by_path(lpb_context* context, int32_t artifact_role,
+    const std::string& path) noexcept
+{
+    if (context == nullptr || path.empty()) return false;
+    try
+    {
+        const std::wstring wide = utf8_to_path(path.c_str());
+        HANDLE handle = CreateFileW(wide.c_str(), FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+            OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        if (handle == INVALID_HANDLE_VALUE) return false;
+        BY_HANDLE_FILE_INFORMATION info{};
+        const BOOL ok = GetFileInformationByHandle(handle, &info);
+        CloseHandle(handle);
+        if (!ok) return false;
+        lpb_file_identity identity{};
+        identity.volume_serial = info.dwVolumeSerialNumber;
+        identity.file_index = (static_cast<uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
+        identity.file_size = (static_cast<uint64_t>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
+        identity.link_count = info.nNumberOfLinks;
+        record_cleaner_staged_output(context, artifact_role, path, identity);
+        return true;
+    }
+    catch (...)
+    {
+        return false;
+    }
+}
+
+size_t get_cleaner_staged_outputs(lpb_context* context,
+    lpb_clean_staged_output_record* out_records, size_t capacity) noexcept
+{
+    if (context == nullptr) return 0;
+    try
+    {
+        std::scoped_lock lock(context->plan_mutex);
+        const size_t total = context->cleaner_staged_outputs.size();
+        if (out_records == nullptr || capacity == 0)
+        {
+            // Size query: report how many staged outputs were registered.
+            return total;
+        }
+        size_t written = 0;
+        for (const auto& record : context->cleaner_staged_outputs)
+        {
+            if (written >= capacity) break;
+            lpb_clean_staged_output_record& out = out_records[written];
+            out.struct_size = static_cast<uint32_t>(sizeof(out));
+            out.artifact_role = record.artifact_role;
+            out.auxiliary_index = record.auxiliary_index;
+            out.identity = record.identity;
+            std::string utf8_path = path_to_utf8(record.final_path);
+            std::memset(out.final_path, 0, sizeof(out.final_path));
+            const size_t n = (std::min)(utf8_path.size(), sizeof(out.final_path) - 1);
+            std::memcpy(out.final_path, utf8_path.data(), n);
+            ++written;
+        }
+        return written;
+    }
+    catch (...)
+    {
+        return 0;
+    }
 }

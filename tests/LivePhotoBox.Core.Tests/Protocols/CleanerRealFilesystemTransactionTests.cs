@@ -70,6 +70,8 @@ public sealed class CleanerRealFilesystemTransactionTests
         var facts = await inspector.InspectAsync(samplePath);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         // Pre-create and lock destination file with exclusive FileShare.None
         string lockedPath = Path.Combine(workspace.RootDirectory, "locked-destination.jpg");
         using var lockStream = new FileStream(lockedPath, FileMode.Create, FileAccess.ReadWrite, FileShare.None);
@@ -80,7 +82,8 @@ public sealed class CleanerRealFilesystemTransactionTests
 
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
-            ExtractedBundle = extracted
+            ExtractedBundle = extracted,
+        CleanupPlan = cleanupPlan
         }, lockedWorkspace);
 
         Assert.False(cleanResult.Success);
@@ -111,6 +114,8 @@ public sealed class CleanerRealFilesystemTransactionTests
         var facts = await inspector.InspectAsync(samplePath);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         using var cts = new CancellationTokenSource();
         // Cancel token immediately before clean to trigger real OS cancellation in async path
         cts.Cancel();
@@ -119,7 +124,8 @@ public sealed class CleanerRealFilesystemTransactionTests
         {
             await cleaner.CleanAsync(new ProtocolCleanRequest
             {
-                ExtractedBundle = extracted
+                ExtractedBundle = extracted,
+            CleanupPlan = cleanupPlan
             }, workspace, cts.Token);
         });
 
@@ -146,6 +152,8 @@ public sealed class CleanerRealFilesystemTransactionTests
         var facts = await inspector.InspectAsync(samplePath);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         using var cts = new CancellationTokenSource();
         // Trigger real cancellation in-flight when staging starts
         cleaner.OnStagingStarted += () => cts.Cancel();
@@ -154,7 +162,8 @@ public sealed class CleanerRealFilesystemTransactionTests
         {
             await cleaner.CleanAsync(new ProtocolCleanRequest
             {
-                ExtractedBundle = extracted
+                ExtractedBundle = extracted,
+            CleanupPlan = cleanupPlan
             }, workspace, cts.Token);
         });
 
@@ -180,6 +189,8 @@ public sealed class CleanerRealFilesystemTransactionTests
         var facts = await inspector.InspectAsync(samplePath);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         using var cts = new CancellationTokenSource();
         string? partiallyWrittenStagedPath = null;
 
@@ -208,7 +219,8 @@ public sealed class CleanerRealFilesystemTransactionTests
         {
             await cleaner.CleanAsync(new ProtocolCleanRequest
             {
-                ExtractedBundle = extracted
+                ExtractedBundle = extracted,
+            CleanupPlan = cleanupPlan
             }, workspace, cts.Token);
         });
 
@@ -240,6 +252,8 @@ public sealed class CleanerRealFilesystemTransactionTests
         var facts = await inspector.InspectAsync(samplePath);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         using var cts = new CancellationTokenSource();
         string? observedStagedFile = null;
 
@@ -269,7 +283,8 @@ public sealed class CleanerRealFilesystemTransactionTests
         {
             await cleaner.CleanAsync(new ProtocolCleanRequest
             {
-                ExtractedBundle = extracted
+                ExtractedBundle = extracted,
+            CleanupPlan = cleanupPlan
             }, workspace, cts.Token);
         });
 
@@ -301,6 +316,8 @@ public sealed class CleanerRealFilesystemTransactionTests
         var facts = await inspector.InspectAsync(samplePath);
         var extracted = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
 
+        using var nativeContext = TestNativeContext.Create();
+        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
         // Create a subfolder with ReadOnly attribute and allocate destination inside it
         string readOnlySubdir = Path.Combine(workspace.RootDirectory, "readonly_dest");
         Directory.CreateDirectory(readOnlySubdir);
@@ -316,7 +333,8 @@ public sealed class CleanerRealFilesystemTransactionTests
 
             var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
             {
-                ExtractedBundle = extracted
+                ExtractedBundle = extracted,
+            CleanupPlan = cleanupPlan
             }, lockedWorkspace);
 
             Assert.False(cleanResult.Success);

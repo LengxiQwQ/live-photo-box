@@ -1,11 +1,13 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Extraction;
 using LivePhotoBox.Media.Inspection;
@@ -34,7 +36,23 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         string,
         string?,
         CancellationToken,
-        Task<IReadOnlyList<RemovedProtocolFact>>> _cleanInvoker;
+        Task<IReadOnlyList<RemovedProtocolFact>>>? _cleanInvoker;
+
+    /// <summary>
+    /// Production clean invoker (P3): takes the claimed Native cleanup-plan
+    /// attempt and input/output paths; Native derives all facts, actions and
+    /// targets from the plan record itself.  Null when a fake clean invoker
+    /// is injected (tests), in which case <see cref="_cleanInvoker"/> is used.
+    /// </summary>
+    private readonly Func<
+        CleanupPlanAttempt,
+        string,
+        string?,
+        string?,
+        string,
+        string?,
+        CancellationToken,
+        Task<IReadOnlyList<RemovedProtocolFact>>>? _cleanPlanInvoker;
 
     /// <summary>
     /// Test seam for deterministic fault injection and mid-operation cancellation in tests.
@@ -56,7 +74,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
     {
         _inspector = inspector ?? new SourceInspector();
         _postCleanVerifier = postCleanVerifier ?? new TargetedPostCleanVerifier(_inspector);
-        _cleanInvoker = NativeCleanService.CleanSourceProtocolAsync;
+        _cleanPlanInvoker = NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync;
     }
 
     internal SourceProtocolCleaner(
@@ -77,10 +95,31 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
     {
         _inspector = inspector ?? new SourceInspector();
         _postCleanVerifier = postCleanVerifier ?? new TargetedPostCleanVerifier(_inspector);
-        _cleanInvoker = cleanInvoker == null
-            ? NativeCleanService.CleanSourceProtocolAsync
-            : (facts, actions, targets, inImg, inVid, cleanupSource, cleanupSourceTarget, outImg, outVid, ct) =>
+        if (cleanInvoker == null)
+        {
+            _cleanPlanInvoker = NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync;
+        }
+        else
+        {
+            _cleanInvoker = (facts, actions, targets, inImg, inVid, cleanupSource, cleanupSourceTarget, outImg, outVid, ct) =>
                 cleanInvoker(facts, actions, targets, inImg, inVid, outImg, outVid, ct);
+        }
+    }
+
+    /// <summary>
+    /// Test seam that replaces the plan-authorized Native invoker.  The
+    /// replacement receives the <see cref="CleanupPlanAttempt"/> the cleaner
+    /// already claimed and must hand it to the Native call — it must never
+    /// claim the same plan a second time.
+    /// </summary>
+    internal SourceProtocolCleaner(
+        Func<CleanupPlanAttempt, string, string?, string?, string, string?, CancellationToken, Task<IReadOnlyList<RemovedProtocolFact>>> cleanPlanInvoker,
+        ISourceInspector? inspector = null,
+        ITargetedPostCleanVerifier? postCleanVerifier = null)
+    {
+        _inspector = inspector ?? new SourceInspector();
+        _postCleanVerifier = postCleanVerifier ?? new TargetedPostCleanVerifier(_inspector);
+        _cleanPlanInvoker = cleanPlanInvoker;
     }
 
     public async Task<ProtocolCleanResult> CleanAsync(
@@ -96,6 +135,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         var sw = Stopwatch.StartNew();
         var journal = new CleanerTransactionJournal();
         var currentProtocol = SourceProtocol.Unknown;
+        CleanupPlan? cleanupAuthority = null;
+        bool disposeAuthorityAfterClean = false;
 
         try
         {
@@ -221,8 +262,37 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             await VerifyAuxiliaryArtifactIntegrityAsync(bundle, facts.Protocol, cancellationToken).ConfigureAwait(false);
 
             // -------------------------------------------------------------
-            // Step 3: Load P1 Cleanup Authorization & Handle NonLive
+            // Step 3: Resolve Native Cleanup Authority (P3) & Handle NonLive
             // -------------------------------------------------------------
+            // Destructive authority can only come from a Native cleanup plan:
+            // either carried by the request (issued from the P2 extraction
+            // record, or harness-issued in tests) or issued here from a
+            // trusted Inspector-created extraction plan.  A Managed DTO alone
+            // can never authorize cleaning.
+            if (request.CleanupPlan != null)
+            {
+                cleanupAuthority = request.CleanupPlan;
+            }
+            else if (request.ExtractedBundle.CleanupPlan != null)
+            {
+                // Bundle produced by the Native extractor: the plan was issued
+                // from the P2 extraction record before commit.
+                cleanupAuthority = request.ExtractedBundle.CleanupPlan;
+            }
+            else if (request.ExtractionPlan != null)
+            {
+                cleanupAuthority = CleanupPlan.IssueFrom(request.ExtractionPlan, cancellationToken);
+                disposeAuthorityAfterClean = true;
+            }
+            else
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.CleanupAuthorizationMissing,
+                    CleanerFailureStage.Authorization,
+                    facts.Protocol,
+                    "No Native cleanup-plan authority was provided. Destructive cleaning requires a CleanupPlan, or an ExtractionPlan from which one can be issued.");
+            }
+
             if (facts.Protocol == SourceProtocol.NonLive)
             {
                 return await ExecuteNonLiveNoOpAsync(bundle, workspace, journal, sw, cancellationToken).ConfigureAwait(false);
@@ -374,19 +444,53 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             }
 
             IReadOnlyList<RemovedProtocolFact> removedFacts;
+            nint cleanContextHandle = nint.Zero;
+            bool cleanUseHarness = false;
             try
             {
-                removedFacts = await _cleanInvoker(
-                    facts,
-                    cleanupPlan.Actions,
-                    cleanupPlan.ArtifactTargets,
-                    bundle.PrimaryImage.Path,
-                    bundle.MotionVideo?.Path,
-                    bundle.CleanupSource?.Path,
-                    cleanupPlan.CleanupSourceTarget,
-                    stagedImgPath,
-                    stagedVidPath,
-                    cancellationToken).ConfigureAwait(false);
+                using CleanupPlanAttempt planAttempt = cleanupAuthority.BeginCleanupAttempt(cancellationToken);
+                cleanContextHandle = planAttempt.ContextLease.Handle;
+                cleanUseHarness = planAttempt.UseHarnessLibrary;
+                if (_cleanPlanInvoker != null)
+                {
+                    removedFacts = await _cleanPlanInvoker(
+                        planAttempt,
+                        bundle.PrimaryImage.Path,
+                        bundle.MotionVideo?.Path,
+                        bundle.CleanupSource?.Path,
+                        stagedImgPath,
+                        stagedVidPath,
+                        cancellationToken).ConfigureAwait(false);
+
+                    // The Native cleaner registered every staged output it
+                    // created from the creating handle.  Only objects on that
+                    // registry are owned by this transaction; a file that
+                    // merely exists at the path is foreign until Native proves
+                    // it created it.  A missing registry entry is fail-closed.
+                    ApplyNativeStagedOwnership(planAttempt, journal, stagedImgPath, stagedVidPath);
+                }
+                else
+                {
+                    removedFacts = await _cleanInvoker!(
+                        facts,
+                        cleanupPlan.Actions,
+                        cleanupPlan.ArtifactTargets,
+                        bundle.PrimaryImage.Path,
+                        bundle.MotionVideo?.Path,
+                        bundle.CleanupSource?.Path,
+                        cleanupPlan.CleanupSourceTarget,
+                        stagedImgPath,
+                        stagedVidPath,
+                        cancellationToken).ConfigureAwait(false);
+
+                    // Legacy raw-DTO invoker (no Native ownership registry):
+                    // capture as soon as the files exist, before any seam.
+                    journal.StagedPaths.Add(new StagedRecord(stagedImgPath, WindowsFileIdentity.Capture(stagedImgPath)));
+                    if (stagedVidPath != null)
+                    {
+                        journal.StagedPaths.Add(new StagedRecord(stagedVidPath, WindowsFileIdentity.Capture(stagedVidPath)));
+                    }
+                }
             }
             catch (CleanerException)
             {
@@ -394,10 +498,17 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             }
             catch (OperationCanceledException)
             {
+                // The invoker may have partially written staged outputs before
+                // cancelling.  Ownership comes from the Native registry plus the
+                // known staging output targets of this transaction; a foreign
+                // file that appears elsewhere in the staging directory is never
+                // claimed.
+                CaptureNativeStagedOutputs(cleanContextHandle, cleanUseHarness, journal, stagedImgPath, stagedVidPath);
                 throw;
             }
             catch (Exception ex)
             {
+                CaptureNativeStagedOutputs(cleanContextHandle, cleanUseHarness, journal, stagedImgPath, stagedVidPath);
                 throw new CleanerException(
                     CleanerFailureCategory.StructureChanged,
                     CleanerFailureStage.Staging,
@@ -414,20 +525,16 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     facts.Protocol,
                     "Cleaned staged image was not generated.");
             }
-            if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Staging, "ImageStaged").ConfigureAwait(false);
-
-            if (stagedVidPath != null)
+            if (stagedVidPath != null && !File.Exists(stagedVidPath))
             {
-                if (!File.Exists(stagedVidPath))
-                {
-                    throw new CleanerException(
-                        CleanerFailureCategory.OutputCreateFailed,
-                        CleanerFailureStage.Staging,
-                        facts.Protocol,
-                        "Cleaned staged video was not generated.");
-                }
-                if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Staging, "VideoStaged").ConfigureAwait(false);
+                throw new CleanerException(
+                    CleanerFailureCategory.OutputCreateFailed,
+                    CleanerFailureStage.Staging,
+                    facts.Protocol,
+                    "Cleaned staged video was not generated.");
             }
+            if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Staging, "ImageStaged").ConfigureAwait(false);
+            if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Staging, "VideoStaged").ConfigureAwait(false);
 
             // -------------------------------------------------------------
             // Step 5.5: Destructive Authority Reconciliation Gate
@@ -570,15 +677,32 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             journal.SetState(CleanerTransactionState.Committing);
             try
             {
-                File.Move(stagedImgPath, cleanImgPath, overwrite: true);
-                journal.PublishedPaths.Add(cleanImgPath);
+                // No-overwrite publish: a destination that already exists is a
+                // foreign object and the publish must fail closed.  The exact
+                // object identity of every file we move is captured BEFORE the
+                // move, from the staging object this transaction created.
+                // Moving it (same-volume rename) preserves the exact filesystem
+                // object, so rollback verifies against that pre-move identity
+                // and never re-derives ownership from the destination pathname
+                // after the move (no Move -> Capture window).
+                // Ownership comes from the Native registry captured at staging
+                // time.  A pre-move re-capture double-checks the object at the
+                // path is still exactly that object (same File ID) before the
+                // move; ownership is never re-derived from the destination
+                // pathname after the move.
+                WindowsFileIdentity stagedImgIdentity = RequireRegisteredStagedIdentity(journal, stagedImgPath);
+                VerifyExactObjectAtPath(stagedImgPath, stagedImgIdentity);
+                File.Move(stagedImgPath, cleanImgPath);
+                journal.PublishedPaths.Add(new PublishRecord(cleanImgPath, stagedImgIdentity));
 
                 if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Commit, "ImagePublished").ConfigureAwait(false);
 
                 if (stagedVidPath != null && cleanVidPath != null)
                 {
-                    File.Move(stagedVidPath, cleanVidPath, overwrite: true);
-                    journal.PublishedPaths.Add(cleanVidPath);
+                    WindowsFileIdentity stagedVidIdentity = RequireRegisteredStagedIdentity(journal, stagedVidPath);
+                    VerifyExactObjectAtPath(stagedVidPath, stagedVidIdentity);
+                    File.Move(stagedVidPath, cleanVidPath);
+                    journal.PublishedPaths.Add(new PublishRecord(cleanVidPath, stagedVidIdentity));
                 }
 
                 journal.SetState(CleanerTransactionState.Committed);
@@ -732,6 +856,194 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 PreservationOutcome = PreservationOutcome.PartiallyPreserved,
                 Duration = sw.Elapsed
             };
+        }
+        finally
+        {
+            // Plans issued inside CleanAsync are released here; caller-supplied
+            // plans remain owned by the caller.
+            if (disposeAuthorityAfterClean && cleanupAuthority != null)
+            {
+                cleanupAuthority.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// After a staging invoker throws (exception or cancellation), the Native
+    /// side may have partially written staged outputs.  Ownership comes from
+    /// the Native ownership registry (identities recorded from the creating
+    /// handles).  In addition, the staging output paths this CleanAsync call
+    /// itself allocated (stagedImgPath / stagedVidPath) are known transaction
+    /// targets: if a partial write happened before the throw, that exact path
+    /// is claimed as owned so rollback can remove the partial artifact.  A
+    /// file that merely appears elsewhere inside the staging directory is
+    /// foreign: it is never claimed, so rollback can never delete an object
+    /// this transaction did not prove it created.
+    /// </summary>
+    private static void CaptureNativeStagedOutputs(
+        nint contextHandle,
+        bool useHarnessLibrary,
+        CleanerTransactionJournal journal,
+        string? stagedImgPath = null,
+        string? stagedVidPath = null)
+    {
+        if (contextHandle == nint.Zero)
+        {
+            return;
+        }
+
+        try
+        {
+            IReadOnlyList<NativeCleanService.CleanStagedOutputRecord> native =
+                NativeCleanService.QueryStagedOutputs(contextHandle, useHarnessLibrary);
+            foreach (var rec in native)
+            {
+                AddNativeStagedRecord(journal, rec);
+            }
+
+            // Known output targets that Native did not get to register (e.g. a
+            // partial write that was interrupted before publish/record): claim
+            // the exact allocated output path so rollback can clean it up.
+            // This is not a directory scan — only the paths this transaction
+            // asked Native to produce are eligible.
+            ClaimKnownOutputTarget(journal, stagedImgPath, native);
+            ClaimKnownOutputTarget(journal, stagedVidPath, native);
+        }
+        catch
+        {
+            // Ownership registry is best-effort on the failure path; the
+            // registry entries that were already read remain authoritative.
+        }
+    }
+
+    private static void ClaimKnownOutputTarget(
+        CleanerTransactionJournal journal,
+        string? outputPath,
+        IReadOnlyList<NativeCleanService.CleanStagedOutputRecord> native)
+    {
+        if (string.IsNullOrEmpty(outputPath))
+        {
+            return;
+        }
+        if (journal.StagedPaths.Any(r => PathEquals(r.Path, outputPath)))
+        {
+            return;
+        }
+        if (native.Any(r => PathEquals(r.FinalPath, outputPath)))
+        {
+            return;
+        }
+        try
+        {
+            if (File.Exists(outputPath))
+            {
+                journal.StagedPaths.Add(new StagedRecord(outputPath, WindowsFileIdentity.Capture(outputPath)));
+            }
+        }
+        catch
+        {
+            // Best effort: if the partial file cannot be captured, it stays
+            // unclaimed and rollback leaves it in place (fail closed).
+        }
+    }
+
+    /// <summary>
+    /// The Native cleaner must report ownership of every staged output it was
+    /// asked to produce.  A staged file that is not on the Native registry is
+    /// fail-closed: this transaction refuses to claim a filesystem object the
+    /// Native side did not prove it created.
+    /// </summary>
+    private static void ApplyNativeStagedOwnership(
+        CleanupPlanAttempt planAttempt,
+        CleanerTransactionJournal journal,
+        string stagedImgPath,
+        string? stagedVidPath)
+    {
+        ArgumentNullException.ThrowIfNull(planAttempt);
+        IReadOnlyList<NativeCleanService.CleanStagedOutputRecord> native =
+            NativeCleanService.QueryStagedOutputs(planAttempt.ContextLease.Handle, planAttempt.UseHarnessLibrary);
+
+        var img = native.FirstOrDefault(r => PathEquals(r.FinalPath, stagedImgPath));
+        if (img.FinalPath is null)
+        {
+            throw new CleanerException(
+                CleanerFailureCategory.OutputCreateFailed,
+                CleanerFailureStage.Staging,
+                SourceProtocol.Unknown,
+                $"Native cleaner did not report ownership of staged image '{stagedImgPath}'; refusing to claim a file this transaction did not prove it created.");
+        }
+        AddNativeStagedRecord(journal, img);
+
+        if (stagedVidPath != null)
+        {
+            var vid = native.FirstOrDefault(r => PathEquals(r.FinalPath, stagedVidPath));
+            if (vid.FinalPath is null)
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.OutputCreateFailed,
+                    CleanerFailureStage.Staging,
+                    SourceProtocol.Unknown,
+                    $"Native cleaner did not report ownership of staged video '{stagedVidPath}'; refusing to claim a file this transaction did not prove it created.");
+            }
+            AddNativeStagedRecord(journal, vid);
+        }
+
+        // Register any auxiliary outputs (e.g. GainMap) Native created too.
+        foreach (var rec in native)
+        {
+            AddNativeStagedRecord(journal, rec);
+        }
+    }
+
+    private static void AddNativeStagedRecord(CleanerTransactionJournal journal, NativeCleanService.CleanStagedOutputRecord rec)
+    {
+        if (string.IsNullOrEmpty(rec.FinalPath))
+        {
+            return;
+        }
+        if (journal.StagedPaths.Any(r => PathEquals(r.Path, rec.FinalPath)))
+        {
+            return;
+        }
+        var identity = new WindowsFileIdentity
+        {
+            VolumeSerialNumber = rec.VolumeSerial,
+            FileIndex = rec.FileIndex,
+            LinkCount = rec.LinkCount,
+            FileAttributes = 0
+        };
+        journal.StagedPaths.Add(new StagedRecord(rec.FinalPath, identity));
+    }
+
+    private static bool PathEquals(string? a, string? b)
+        => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+
+    private static WindowsFileIdentity RequireRegisteredStagedIdentity(CleanerTransactionJournal journal, string path)
+    {
+        StagedRecord? rec = journal.StagedPaths.FirstOrDefault(r => PathEquals(r.Path, path));
+        if (rec is null)
+        {
+            throw new CleanerException(
+                CleanerFailureCategory.OutputCreateFailed,
+                CleanerFailureStage.Commit,
+                SourceProtocol.Unknown,
+                $"No native-registered ownership for staged '{path}'; refusing to publish an object this transaction did not prove it created.");
+        }
+        return rec.Identity;
+    }
+
+    private static void VerifyExactObjectAtPath(string path, WindowsFileIdentity expected)
+    {
+        WindowsFileIdentity current = WindowsFileIdentity.Capture(path);
+        if (current.IsReparsePoint ||
+            current.VolumeSerialNumber != expected.VolumeSerialNumber ||
+            current.FileIndex != expected.FileIndex)
+        {
+            throw new CleanerException(
+                CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                CleanerFailureStage.Commit,
+                SourceProtocol.Unknown,
+                $"Staged object at '{path}' no longer matches the identity this transaction registered; refusing to publish a foreign object.");
         }
     }
 
@@ -922,16 +1234,39 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
 
         string imgExt = bundle.PrimaryImage.ImageContainer == ImageContainer.Heic ? ".heic" : ".jpg";
         string cleanImgPath = workspace.AllocateFilePath("clean-img", imgExt);
-        File.Copy(bundle.PrimaryImage.Path, cleanImgPath, overwrite: true);
-        journal.PublishedPaths.Add(cleanImgPath);
+
+        // Create the published copy with the handle held open so identity is
+        // captured from the object we just wrote, not re-guessed from the
+        // pathname afterwards.  FileMode.CreateNew keeps the publish
+        // no-overwrite: a pre-existing destination fails closed.
+        WindowsFileIdentity cleanImgIdentity;
+        using (FileStream imgStream = new FileStream(cleanImgPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+        {
+            using (FileStream srcStream = File.OpenRead(bundle.PrimaryImage.Path))
+            {
+                srcStream.CopyTo(imgStream);
+            }
+            imgStream.Flush(flushToDisk: true);
+            cleanImgIdentity = WindowsFileIdentity.Capture(imgStream.SafeFileHandle);
+        }
+        journal.PublishedPaths.Add(new PublishRecord(cleanImgPath, cleanImgIdentity));
 
         string? cleanVidPath = null;
+        WindowsFileIdentity? cleanVidIdentity = null;
         if (bundle.MotionVideo != null)
         {
             string vidExt = bundle.MotionVideo.VideoContainer == VideoContainer.Mov ? ".mov" : ".mp4";
             cleanVidPath = workspace.AllocateFilePath("clean-vid", vidExt);
-            File.Copy(bundle.MotionVideo.Path, cleanVidPath, overwrite: true);
-            journal.PublishedPaths.Add(cleanVidPath);
+            using (FileStream vidStream = new FileStream(cleanVidPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                using (FileStream srcStream = File.OpenRead(bundle.MotionVideo.Path))
+                {
+                    srcStream.CopyTo(vidStream);
+                }
+                vidStream.Flush(flushToDisk: true);
+                cleanVidIdentity = WindowsFileIdentity.Capture(vidStream.SafeFileHandle);
+            }
+            journal.PublishedPaths.Add(new PublishRecord(cleanVidPath, cleanVidIdentity));
         }
 
         var cleanImgArtifact = bundle.PrimaryImage with
@@ -939,7 +1274,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             Path = cleanImgPath,
             ByteLength = new FileInfo(cleanImgPath).Length,
             Sha256 = await workspace.ComputeFileSha256Async(cleanImgPath, cancellationToken).ConfigureAwait(false),
-            FileIdentity = WindowsFileIdentity.Capture(cleanImgPath)
+            FileIdentity = cleanImgIdentity
         };
 
         MediaArtifact? cleanVidArtifact = null;
@@ -950,7 +1285,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 Path = cleanVidPath,
                 ByteLength = new FileInfo(cleanVidPath).Length,
                 Sha256 = await workspace.ComputeFileSha256Async(cleanVidPath, cancellationToken).ConfigureAwait(false),
-                FileIdentity = WindowsFileIdentity.Capture(cleanVidPath)
+                FileIdentity = cleanVidIdentity
             };
         }
 
@@ -1023,7 +1358,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
     {
         public CleanerTransactionState State { get; private set; } = CleanerTransactionState.Initial;
         public string? StagingDir { get; set; }
-        public List<string> PublishedPaths { get; } = [];
+        public List<PublishRecord> PublishedPaths { get; } = [];
+        public List<StagedRecord> StagedPaths { get; } = [];
         public List<Exception> RollbackExceptions { get; } = [];
 
         public void SetState(CleanerTransactionState state) => State = state;
@@ -1033,33 +1369,42 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             State = CleanerTransactionState.RollingBack;
             RollbackExceptions.Clear();
 
-            // 1. Delete published artifacts
-            foreach (var path in PublishedPaths)
+            // 1. Delete published artifacts - but only the exact object we published.
+            foreach (var rec in PublishedPaths)
             {
                 try
                 {
-                    faultHook?.Invoke(CleanerFailureStage.Rollback, path).GetAwaiter().GetResult();
-                    if (File.Exists(path))
-                    {
-                        File.Delete(path);
-                    }
+                    faultHook?.Invoke(CleanerFailureStage.Rollback, rec.Path).GetAwaiter().GetResult();
+                    DeleteExactObjectOrRecordFailure(rec.Path, rec.Identity, RollbackExceptions);
                 }
                 catch (Exception ex)
                 {
-                    RollbackExceptions.Add(new IOException($"Failed to rollback published artifact '{path}': {ex.Message}", ex));
+                    RollbackExceptions.Add(new IOException($"Failed to rollback published artifact '{rec.Path}': {ex.Message}", ex));
                 }
             }
 
-            // 2. Delete staging directory
+            // 2. Delete staged files we created - never foreign children.
+            foreach (var rec in StagedPaths)
+            {
+                try
+                {
+                    faultHook?.Invoke(CleanerFailureStage.Rollback, rec.Path).GetAwaiter().GetResult();
+                    DeleteExactObjectOrRecordFailure(rec.Path, rec.Identity, RollbackExceptions);
+                }
+                catch (Exception ex)
+                {
+                    RollbackExceptions.Add(new IOException($"Failed to rollback staged artifact '{rec.Path}': {ex.Message}", ex));
+                }
+            }
+
+            // 3. Remove the staging directory only when it holds nothing but
+            //    our own leftovers; foreign children are never deleted.
             if (!string.IsNullOrEmpty(StagingDir))
             {
                 try
                 {
                     faultHook?.Invoke(CleanerFailureStage.Rollback, StagingDir).GetAwaiter().GetResult();
-                    if (Directory.Exists(StagingDir))
-                    {
-                        Directory.Delete(StagingDir, recursive: true);
-                    }
+                    RemoveStagingDirectoryIfOwned(StagingDir, RollbackExceptions);
                 }
                 catch (Exception ex)
                 {
@@ -1080,7 +1425,144 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
 
             State = CleanerTransactionState.RolledBack;
         }
+
+        /// <summary>
+        /// Deletes <paramref name="path"/> only when the current filesystem
+        /// object is exactly the one captured in <paramref name="expected"/>
+        /// (volume serial + file index, single link, no reparse point).  A
+        /// replaced / swapped / hard-linked / reparse object is left untouched
+        /// and the failure is recorded instead.
+        /// </summary>
+        private static void DeleteExactObjectOrRecordFailure(
+            string path,
+            WindowsFileIdentity expected,
+            List<Exception> exceptions)
+        {
+            try
+            {
+                // Open the object WITHOUT resolving a possible reparse point, keep
+                // the handle, verify the identity on that same handle, and delete
+                // through SetFileInformationByHandle(FileDispositionInfo).  There
+                // is no check-then-close-then-delete-by-pathname window in which
+                // a foreign object could take over the path: what we delete is
+                // exactly the object we verified.
+                using SafeFileHandle handle = OpenForExactDelete(path);
+                if (handle.IsInvalid)
+                {
+                    // Already gone or unreachable.  Whatever now occupies the path
+                    // (if anything) is not the object we verified, so it must stay.
+                    return;
+                }
+
+                WindowsFileIdentity current = WindowsFileIdentity.Capture(handle);
+                if (current.IsReparsePoint ||
+                    current.VolumeSerialNumber != expected.VolumeSerialNumber ||
+                    current.FileIndex != expected.FileIndex ||
+                    current.LinkCount != 1)
+                {
+                    exceptions.Add(new IOException(
+                        $"Refusing to delete '{path}': the filesystem object no longer matches the identity this transaction captured (foreign-object protection)."));
+                    return;
+                }
+
+                var disposition = new FileDispositionInfo { DeleteFile = 1 };
+                if (!SetFileInformationByHandle(
+                        handle,
+                        FileDispositionInfoClass,
+                        ref disposition,
+                        (uint)Marshal.SizeOf<FileDispositionInfo>()))
+                {
+                    int win32Error = Marshal.GetLastWin32Error();
+                    exceptions.Add(new IOException(
+                        $"Unable to delete exact object '{path}': Win32 error {win32Error}."));
+                }
+            }
+            catch (Exception ex)
+            {
+                exceptions.Add(new IOException($"Refusing to delete '{path}': {ex.Message}", ex));
+            }
+        }
+
+        private static SafeFileHandle OpenForExactDelete(string path)
+        {
+            return CreateFileForDelete(
+                path,
+                DeleteAccess,
+                FileShareRead | FileShareWrite | FileShareDelete,
+                IntPtr.Zero,
+                OpenExisting,
+                OpenReparsePoint,
+                IntPtr.Zero);
+        }
+
+        [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern SafeFileHandle CreateFileForDelete(
+            string fileName,
+            uint desiredAccess,
+            uint shareMode,
+            IntPtr securityAttributes,
+            uint creationDisposition,
+            uint flagsAndAttributes,
+            IntPtr templateFile);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetFileInformationByHandle(
+            SafeFileHandle hFile,
+            int fileInformationClass,
+            ref FileDispositionInfo fileInformation,
+            uint bufferSize);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct FileDispositionInfo
+        {
+            public byte DeleteFile;
+        }
+
+        private const uint DeleteAccess = 0x00010000;
+        private const uint FileShareRead = 0x00000001;
+        private const uint FileShareWrite = 0x00000002;
+        private const uint FileShareDelete = 0x00000004;
+        private const uint OpenExisting = 3;
+        private const uint OpenReparsePoint = 0x00200000;
+        private const int FileDispositionInfoClass = 4;
+
+        /// <summary>
+        /// Removes the staging directory only if it is empty.  Any remaining
+        /// entry is treated as foreign and left in place (recorded), so a
+        /// recursive delete can never destroy an injected foreign child.
+        /// </summary>
+        private static void RemoveStagingDirectoryIfOwned(string dir, List<Exception> exceptions)
+        {
+            if (!Directory.Exists(dir))
+            {
+                return;
+            }
+
+            try
+            {
+                string[] leftover = Directory.EnumerateFileSystemEntries(dir).ToArray();
+                if (leftover.Length > 0)
+                {
+                    exceptions.Add(new IOException(
+                        $"Staging directory '{dir}' still contains entries not owned by this transaction; leaving them in place. Entries: {string.Join(", ", leftover.Select(e => Path.GetFileName(e)))}"));
+                    return;
+                }
+
+                Directory.Delete(dir, recursive: false);
+            }
+            catch (Exception ex)
+            {
+                exceptions.Add(new IOException($"Unable to remove staging directory '{dir}': {ex.Message}", ex));
+            }
+        }
     }
+
+    /// <summary>Published (committed) destination object and its captured identity.</summary>
+    private sealed record PublishRecord(string Path, WindowsFileIdentity Identity);
+
+    /// <summary>Staged file created by this transaction and its captured identity.</summary>
+    private sealed record StagedRecord(string Path, WindowsFileIdentity Identity);
 
     private static void TryDeleteDirectory(string? dir)
     {
@@ -1089,7 +1571,12 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         {
             if (Directory.Exists(dir))
             {
-                Directory.Delete(dir, recursive: true);
+                if (Directory.EnumerateFileSystemEntries(dir).Any())
+                {
+                    System.Diagnostics.Debug.WriteLine($"Staging directory '{dir}' left in place: it still contains entries not owned by this transaction.");
+                    return;
+                }
+                Directory.Delete(dir, recursive: false);
             }
         }
         catch (Exception ex)

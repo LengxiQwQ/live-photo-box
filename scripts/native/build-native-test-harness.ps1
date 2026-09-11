@@ -1,6 +1,6 @@
-param(
+﻿param(
     [ValidateSet('Debug', 'Release')]
-    [string]$Configuration = 'Release',
+    [string]$Configuration = 'Debug',
 
     [ValidateSet('x64')]
     [string]$Architecture = 'x64'
@@ -10,8 +10,8 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $nativeProject = Join-Path $projectRoot 'LivePhotoBox.Native\LivePhotoBox.Native.vcxproj'
-$artifactDirectory = Join-Path $projectRoot 'artifacts\native\TestHarness\win-x64'
-$intermediateDirectory = Join-Path $projectRoot 'artifacts\native\obj\TestHarness-x64-Release'
+$artifactDirectory = Join-Path $projectRoot "artifacts\native\TestHarness\$Configuration\win-x64"
+$intermediateDirectory = Join-Path $projectRoot "artifacts\native\obj\TestHarness-$Configuration-x64"
 
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 if (-not (Test-Path -LiteralPath $vswhere)) {
