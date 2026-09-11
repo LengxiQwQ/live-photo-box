@@ -126,18 +126,16 @@ public sealed class EditPreviewService : IDisposable
         if (string.IsNullOrWhiteSpace(imagePath))
             return PreviewLoadResult.Failed(imagePath ?? string.Empty, "Image path cannot be empty.", 0);
 
-        if (!File.Exists(imagePath))
-            return PreviewLoadResult.Failed(imagePath, $"File not found: {imagePath}", 0);
-
-        // 1. 尝试命中 LRU 缓存
-        if (_coordinator.TryGetCached(imagePath, out var cached) && cached != null)
+        // 1. 开启新请求（无论 cache hit 还是 miss，都必须先确立新的 request identity 并自动取消前序请求）
+        if (_coordinator.TryBeginCachedRequest(imagePath, externalToken, out long reqId, out var token, out var cached) && cached != null)
         {
-            LogService.FileOp($"EditPreviewService: cache hit for '{Path.GetFileName(imagePath)}'", LogLevel.Info);
-            return PreviewLoadResult.Succeeded(imagePath, cached, 0, fromCache: true);
+            LogService.FileOp($"EditPreviewService: cache hit for '{Path.GetFileName(imagePath)}' (reqId={reqId})", LogLevel.Info);
+            return PreviewLoadResult.Succeeded(imagePath, cached, reqId, fromCache: true);
         }
 
-        // 2. 开启新请求（自动取消上一请求并生成新 RequestId）
-        long reqId = _coordinator.BeginRequest(imagePath, externalToken, out var token);
+        if (!File.Exists(imagePath))
+            return PreviewLoadResult.Failed(imagePath, $"File not found: {imagePath}", reqId);
+
         Interlocked.Increment(ref _activeLoadingCount);
 
         try
@@ -162,7 +160,7 @@ public sealed class EditPreviewService : IDisposable
                 decodedImage = await DecodeStandardPreviewAsync(imagePath, reqId, dispatcher, token).ConfigureAwait(false);
             }
 
-            // 3. 最终代数与取消检查
+            // 2. 最终代数与取消检查
             if (token.IsCancellationRequested || !_coordinator.IsCurrentRequest(reqId, imagePath))
             {
                 return PreviewLoadResult.CancelledOrStale(imagePath, reqId);
@@ -170,10 +168,10 @@ public sealed class EditPreviewService : IDisposable
 
             if (decodedImage == null)
             {
-                return PreviewLoadResult.Failed(imagePath, "Decoder produced null image.", reqId);
+                return PreviewLoadResult.Failed(imagePath, "Decoder produced null image or dispatcher queue unavailable.", reqId);
             }
 
-            // 4. 写入缓存并返回成功
+            // 3. 写入缓存并返回成功
             _coordinator.PutCache(imagePath, decodedImage);
             return PreviewLoadResult.Succeeded(imagePath, decodedImage, reqId);
         }
@@ -262,7 +260,7 @@ public sealed class EditPreviewService : IDisposable
 
             // UI 线程：从临时 JPEG 创建 BitmapImage
             var tcs = new TaskCompletionSource<ImageSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
-            dispatcher.TryEnqueue(() =>
+            bool enqueued = dispatcher.TryEnqueue(() =>
             {
                 try
                 {
@@ -290,6 +288,12 @@ public sealed class EditPreviewService : IDisposable
                     tcs.TrySetResult(null);
                 }
             });
+
+            if (!enqueued)
+            {
+                LogService.Debug("EditPreviewService: DispatcherQueue rejected HEIC enqueue (dispatcher shutdown).", LogSource.UI);
+                return null;
+            }
 
             return await tcs.Task.ConfigureAwait(false);
         }
@@ -320,7 +324,7 @@ public sealed class EditPreviewService : IDisposable
         }
 
         var tcs = new TaskCompletionSource<ImageSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        dispatcher.TryEnqueue(async () =>
+        bool enqueued = dispatcher.TryEnqueue(async () =>
         {
             try
             {
@@ -356,6 +360,12 @@ public sealed class EditPreviewService : IDisposable
                 tcs.TrySetResult(null);
             }
         });
+
+        if (!enqueued)
+        {
+            LogService.Debug("EditPreviewService: DispatcherQueue rejected standard decode enqueue (dispatcher shutdown).", LogSource.UI);
+            return null;
+        }
 
         return await tcs.Task.ConfigureAwait(false);
     }

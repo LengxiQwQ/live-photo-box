@@ -105,6 +105,7 @@ namespace LivePhotoBox.ViewModels
             CleanupFrameTempFiles();
             CleanupTempVideo();
             _previewService.Dispose();
+            IsPreviewLoading = false;
             ThumbnailScheduler.Reset();
             CurrentDocument = null;
             SessionState = EditSessionState.Closed;
@@ -2332,6 +2333,7 @@ namespace LivePhotoBox.ViewModels
             {
                 _previewService.CancelCurrent();
                 SetPreviewSafe(null);
+                IsPreviewLoading = false;
                 PreviewClearRequested?.Invoke();
             }
 
@@ -2418,6 +2420,7 @@ namespace LivePhotoBox.ViewModels
             // 清空大图预览与活跃请求
             _previewService.Clear();
             SetPreviewSafe(null);
+            IsPreviewLoading = false;
             PreviewClearRequested?.Invoke();
 
             // 清除时间轴帧 + 临时文件
@@ -2558,13 +2561,26 @@ namespace LivePhotoBox.ViewModels
                     var dispatcher = App.MainWindow?.DispatcherQueue;
                     if (dispatcher != null && !dispatcher.HasThreadAccess)
                     {
-                        dispatcher.TryEnqueue(() => SetPreviewSafe(result.ImageSource));
+                        dispatcher.TryEnqueue(() =>
+                        {
+                            if (string.Equals(_previewService.LatestRequestPath, imagePath, StringComparison.OrdinalIgnoreCase))
+                            {
+                                SetPreviewSafe(result.ImageSource);
+                            }
+                        });
                     }
                     else
                     {
-                        SetPreviewSafe(result.ImageSource);
+                        if (string.Equals(_previewService.LatestRequestPath, imagePath, StringComparison.OrdinalIgnoreCase))
+                        {
+                            SetPreviewSafe(result.ImageSource);
+                        }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                LogService.Debug($"LoadPreviewAsync error for '{Path.GetFileName(imagePath)}': {ex.Message}", LogSource.UI);
             }
             finally
             {
@@ -2573,7 +2589,11 @@ namespace LivePhotoBox.ViewModels
                     var dispatcher = App.MainWindow?.DispatcherQueue;
                     if (dispatcher != null && !dispatcher.HasThreadAccess)
                     {
-                        dispatcher.TryEnqueue(() => IsPreviewLoading = false);
+                        bool queued = dispatcher.TryEnqueue(() => IsPreviewLoading = false);
+                        if (!queued)
+                        {
+                            IsPreviewLoading = false;
+                        }
                     }
                     else
                     {

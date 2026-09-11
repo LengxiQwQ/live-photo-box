@@ -67,6 +67,108 @@ public sealed class EditPreviewCoordinatorTests
     }
 
     [Fact]
+    public void ActiveRequestA_ThenCachedB_InvalidatesA()
+    {
+        using var coordinator = new EditPreviewCoordinator<MockImage>(maxCacheSize: 3);
+        var cachedImgB = new MockImage(@"C:\Photos\B.jpg");
+        coordinator.PutCache(@"C:\Photos\B.jpg", cachedImgB);
+
+        // 1. Begin/load A
+        long reqA = coordinator.BeginRequest(@"C:\Photos\A.jpg", CancellationToken.None, out var tokenA);
+        Assert.Equal(1, reqA);
+        Assert.False(tokenA.IsCancellationRequested);
+        Assert.True(coordinator.IsCurrentRequest(reqA, @"C:\Photos\A.jpg"));
+
+        // 2. 请求 B（命中缓存）
+        bool hit = coordinator.TryBeginCachedRequest(
+            @"C:\Photos\B.jpg",
+            CancellationToken.None,
+            out long reqB,
+            out var tokenB,
+            out var cachedResult);
+
+        // Assertions:
+        // B cache hit
+        Assert.True(hit);
+        Assert.Same(cachedImgB, cachedResult);
+
+        // A 必须立刻变 stale/cancelled
+        Assert.True(tokenA.IsCancellationRequested, "In-flight request A must be cancelled upon cached B request.");
+        Assert.False(coordinator.IsCurrentRequest(reqA, @"C:\Photos\A.jpg"), "Request A must become stale.");
+
+        // current request 必须是 B
+        Assert.True(coordinator.IsCurrentRequest(reqB, @"C:\Photos\B.jpg"));
+        Assert.Equal(@"C:\Photos\B.jpg", coordinator.LatestRequestPath);
+        Assert.Equal(reqB, coordinator.CurrentRequestId);
+        Assert.False(tokenB.IsCancellationRequested);
+    }
+
+    [Fact]
+    public void CachedRequest_GetsRealRequestId()
+    {
+        using var coordinator = new EditPreviewCoordinator<MockImage>(maxCacheSize: 3);
+        var cachedImg = new MockImage(@"C:\Photos\cached.jpg");
+        coordinator.PutCache(@"C:\Photos\cached.jpg", cachedImg);
+
+        long initialId = coordinator.CurrentRequestId;
+        bool hit = coordinator.TryBeginCachedRequest(
+            @"C:\Photos\cached.jpg",
+            CancellationToken.None,
+            out long reqId,
+            out _,
+            out var result);
+
+        Assert.True(hit);
+        Assert.NotNull(result);
+        Assert.NotEqual(0, reqId);
+        Assert.True(reqId > initialId);
+        Assert.Equal(reqId, coordinator.CurrentRequestId);
+    }
+
+    [Fact]
+    public void CachedRequest_UpdatesLatestRequestPath()
+    {
+        using var coordinator = new EditPreviewCoordinator<MockImage>(maxCacheSize: 3);
+        var cachedImgB = new MockImage(@"C:\Photos\B.jpg");
+        coordinator.PutCache(@"C:\Photos\B.jpg", cachedImgB);
+
+        coordinator.BeginRequest(@"C:\Photos\A.jpg", CancellationToken.None, out _);
+        Assert.Equal(@"C:\Photos\A.jpg", coordinator.LatestRequestPath);
+
+        coordinator.TryBeginCachedRequest(
+            @"C:\Photos\B.jpg",
+            CancellationToken.None,
+            out _,
+            out _,
+            out _);
+
+        Assert.Equal(@"C:\Photos\B.jpg", coordinator.LatestRequestPath);
+    }
+
+    [Fact]
+    public void RapidSwitching_A_B_A_FinalIsActiveAndPreviousCancelled()
+    {
+        using var coordinator = new EditPreviewCoordinator<MockImage>(maxCacheSize: 3);
+
+        // A (1)
+        long reqA1 = coordinator.BeginRequest(@"C:\Photos\A.jpg", CancellationToken.None, out var tokenA1);
+        // B (2)
+        long reqB = coordinator.BeginRequest(@"C:\Photos\B.jpg", CancellationToken.None, out var tokenB);
+        // A (3)
+        long reqA2 = coordinator.BeginRequest(@"C:\Photos\A.jpg", CancellationToken.None, out var tokenA2);
+
+        Assert.True(tokenA1.IsCancellationRequested);
+        Assert.True(tokenB.IsCancellationRequested);
+        Assert.False(tokenA2.IsCancellationRequested);
+
+        Assert.False(coordinator.IsCurrentRequest(reqA1, @"C:\Photos\A.jpg"));
+        Assert.False(coordinator.IsCurrentRequest(reqB, @"C:\Photos\B.jpg"));
+        Assert.True(coordinator.IsCurrentRequest(reqA2, @"C:\Photos\A.jpg"));
+        Assert.Equal(@"C:\Photos\A.jpg", coordinator.LatestRequestPath);
+        Assert.Equal(reqA2, coordinator.CurrentRequestId);
+    }
+
+    [Fact]
     public void CacheEviction_ExceedingCapacityEvictsLeastRecentlyUsed()
     {
         using var coordinator = new EditPreviewCoordinator<MockImage>(maxCacheSize: 3);

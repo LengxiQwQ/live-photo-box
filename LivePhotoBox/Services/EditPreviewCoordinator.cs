@@ -140,6 +140,22 @@ public class EditPreviewCoordinator<TImage> : IDisposable where TImage : class
     }
 
     /// <summary>
+    /// 开始一个新的预览请求并检查缓存。
+    /// 无论缓存是否命中，均先确立新的 Request ID 与生命周期（取消前序请求并更新 LatestRequestPath），
+    /// 若缓存命中则返回 true 与缓存图像。
+    /// </summary>
+    public bool TryBeginCachedRequest(
+        string path,
+        CancellationToken externalToken,
+        out long requestId,
+        out CancellationToken linkedToken,
+        out TImage? cachedImage)
+    {
+        requestId = BeginRequest(path, externalToken, out linkedToken);
+        return TryGetCached(path, out cachedImage);
+    }
+
+    /// <summary>
     /// 尝试从 LRU 缓存中获取已解码的预览图。若命中则更新其在 LRU 中的热度位置。
     /// </summary>
     public bool TryGetCached(string path, out TImage? image)
