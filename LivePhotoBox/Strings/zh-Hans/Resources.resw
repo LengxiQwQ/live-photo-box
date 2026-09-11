@@ -2894,7 +2894,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>音频</value>
   </data>
   <data name="EditPage_InspectorReplaceVideo.Text" xml:space="preserve">
-    <value>替换动态视频</value>
+    <value>动态视频</value>
   </data>
   <data name="EditPage_InspectorReplaceImage.Text" xml:space="preserve">
     <value>替换静态图像</value>
@@ -3429,6 +3429,21 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   </data>
   <data name="EditPage_PreviewEmptyHint_Line2.Text" xml:space="preserve">
     <value>或将文件拖拽到此处</value>
+  </data>
+  <data name="EditPage_PreviewEmptyHint_Title.Text" xml:space="preserve">
+    <value>拖拽实况照片到此处</value>
+  </data>
+  <data name="EditPage_PreviewEmptyHint_Subtitle.Text" xml:space="preserve">
+    <value>支持单文件实况照片或双文件（照片 + 视频）配对</value>
+  </data>
+  <data name="EditPage_PreviewEmptyHint_Formats.Text" xml:space="preserve">
+    <value>支持格式：JPG, JPEG, HEIC, HEIF, MP4, MOV</value>
+  </data>
+  <data name="EditPage_SelectFilesButton.AutomationProperties.Name" xml:space="preserve">
+    <value>选择文件</value>
+  </data>
+  <data name="EditPage_SelectFilesLabel.Text" xml:space="preserve">
+    <value>选择文件</value>
   </data>
   <data name="EditPage_TimelineEmptyHint.Text" xml:space="preserve">
     <value>选择实况照片后查看逐帧预览</value>

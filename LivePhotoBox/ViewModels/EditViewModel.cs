@@ -530,6 +530,9 @@ namespace LivePhotoBox.ViewModels
         /// <summary>当前帧位置文本，如 "第12帧 / 共89帧" / "Frame 12 of 89"</summary>
         [ObservableProperty] private string _currentFramePositionText = string.Empty;
 
+        /// <summary>当前帧详细位置与时间文本，如 "第 32 帧 / 共 51 帧 · 1.02s / 1.70s"</summary>
+        [ObservableProperty] private string _timelinePositionDetailedText = string.Empty;
+
         // ══════════════════════════════════════════════════════════════
         //  底部信息面板选项卡可见性（多选 ToggleButton 绑定）
         //
@@ -886,12 +889,18 @@ namespace LivePhotoBox.ViewModels
                     // 原始帧：不显示在视频帧计数中，显示为 "Original"
                     CurrentFramePositionText = ResourceService.Format(
                         "EditPage_TimelineFrameOriginalPhoto", totalFrameCount);
+                    TimelinePositionDetailedText = string.IsNullOrEmpty(TimelineInfo)
+                        ? CurrentFramePositionText
+                        : $"{CurrentFramePositionText} · {TimelineInfo}";
                 }
                 else if (value.IsStillPhoto)
                 {
                     // 封面帧：显示 "Cover · 共 N 帧"
                     CurrentFramePositionText = ResourceService.Format(
                         "EditPage_TimelineFrameKeyPhoto", totalFrameCount);
+                    TimelinePositionDetailedText = string.IsNullOrEmpty(TimelineInfo)
+                        ? CurrentFramePositionText
+                        : $"{CurrentFramePositionText} · {TimelineInfo}";
                 }
                 else
                 {
@@ -903,16 +912,23 @@ namespace LivePhotoBox.ViewModels
                     {
                         CurrentFramePositionText = ResourceService.Format(
                             "EditPage_TimelineFramePosition", idx + 1, totalFrameCount);
+                        double curSec = value.Timestamp.TotalSeconds;
+                        string timePart = string.IsNullOrEmpty(TimelineInfo)
+                            ? $"{curSec:F2}s"
+                            : $"{curSec:F2}s / {TimelineInfo}";
+                        TimelinePositionDetailedText = $"{CurrentFramePositionText} · {timePart}";
                     }
                     else
                     {
                         CurrentFramePositionText = string.Empty;
+                        TimelinePositionDetailedText = string.Empty;
                     }
                 }
             }
             else
             {
                 CurrentFramePositionText = string.Empty;
+                TimelinePositionDetailedText = string.Empty;
             }
 
             if (value == null) return;

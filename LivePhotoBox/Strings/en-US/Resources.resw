@@ -2894,7 +2894,7 @@ Then click "Start Split".</value>
     <value>Audio</value>
   </data>
   <data name="EditPage_InspectorReplaceVideo.Text" xml:space="preserve">
-    <value>Replace motion video</value>
+    <value>Motion video</value>
   </data>
   <data name="EditPage_InspectorReplaceImage.Text" xml:space="preserve">
     <value>Replace still image</value>
@@ -3429,6 +3429,21 @@ Then click "Start Split".</value>
   </data>
   <data name="EditPage_PreviewEmptyHint_Line2.Text" xml:space="preserve">
     <value>or drag files here</value>
+  </data>
+  <data name="EditPage_PreviewEmptyHint_Title.Text" xml:space="preserve">
+    <value>Drag Live Photos here</value>
+  </data>
+  <data name="EditPage_PreviewEmptyHint_Subtitle.Text" xml:space="preserve">
+    <value>Supports single-file motion photos or dual-file (photo + video) pairs</value>
+  </data>
+  <data name="EditPage_PreviewEmptyHint_Formats.Text" xml:space="preserve">
+    <value>Supported formats: JPG, JPEG, HEIC, HEIF, MP4, MOV</value>
+  </data>
+  <data name="EditPage_SelectFilesButton.AutomationProperties.Name" xml:space="preserve">
+    <value>Select files</value>
+  </data>
+  <data name="EditPage_SelectFilesLabel.Text" xml:space="preserve">
+    <value>Select Files</value>
   </data>
   <data name="EditPage_TimelineEmptyHint.Text" xml:space="preserve">
     <value>Select a Live Photo to view frames</value>

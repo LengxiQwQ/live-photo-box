@@ -448,44 +448,39 @@ namespace LivePhotoBox.Views
         //  预览最大化：隐藏所有面板，只保留预览图
         // ════════════════════════════════════════════════════════════
 
+
+
         private void MaximizeButton_Click(object sender, RoutedEventArgs e)
         {
             _isPreviewMaximized = !_isPreviewMaximized;
 
             if (_isPreviewMaximized)
             {
-                TopBarGrid.Visibility = Visibility.Collapsed;
-                LeftPanelColumn.Width = new GridLength(0);
-                PanelSpacerColumn.Width = new GridLength(0);
-                GridSplitterBar.Visibility = Visibility.Collapsed;
+                // 隐藏时间轴与设置板，大图预览直接填满并放大
+                InspectorBorder.Visibility = Visibility.Collapsed;
                 UnifiedInfoPanel.Visibility = Visibility.Collapsed;
-                MainContentGrid.Padding = new Thickness(0);
-                PreviewBorder.CornerRadius = new CornerRadius(0);
+                InspectorColumn.Width = new GridLength(0);
+                InspectorColumn.MinWidth = 0;
+                Grid.SetColumnSpan(PreviewBorder, 2);
                 PreviewBorder.Margin = new Thickness(0);
-                MaximizeButtonIcon.Glyph = "";
+
+                MaximizeButtonIcon.Glyph = "\uE73F";
                 ToolTipService.SetToolTip(MaximizeButton,
                     ResourceService.GetString("EditPage_RestorePreviewTooltip"));
             }
             else
             {
-                TopBarGrid.Visibility = Visibility.Visible;
-                PanelSpacerColumn.Width = new GridLength(2);
-                GridSplitterBar.Visibility =
-                    _isLeftPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
+                // 恢复时间轴与设置板
+                Grid.SetColumnSpan(PreviewBorder, 1);
+                InspectorColumn.Width = new GridLength(300);
+                InspectorColumn.MinWidth = 260;
+                InspectorBorder.Visibility = Visibility.Visible;
                 UnifiedInfoPanel.Visibility = Visibility.Visible;
-                MainContentGrid.Padding = new Thickness(8, 0, 8, 6);
-                PreviewBorder.CornerRadius = ViewModel.IsSelectedFileVideo
-                    ? new CornerRadius(0) : new CornerRadius(4);
-                PreviewBorder.Margin = new Thickness(0, 0, 0, 2);
-                MaximizeButtonIcon.Glyph = "";
+                PreviewBorder.Margin = new Thickness(0, 0, 4, 2);
+
+                MaximizeButtonIcon.Glyph = "\uE740";
                 ToolTipService.SetToolTip(MaximizeButton,
                     ResourceService.GetString("EditPage_MaximizePreviewTooltip"));
-
-                // 恢复左侧面板宽度（折叠态固定像素，展开态恢复保存比例）
-                if (_isLeftPanelCollapsed)
-                    LeftPanelColumn.Width = new GridLength(LeftPanelCollapsedWidth);
-                else
-                    RestoreLeftPanelWidth();
             }
         }
 
@@ -899,14 +894,14 @@ namespace LivePhotoBox.Views
                 MuteButton.Visibility = Visibility.Collapsed;
 
                 // 播放前应用静音状态（ShowDirect 已启动播放）
-                ApplyMuteState();
+ApplyMuteState();
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine(
                     $"[EditPage] 视频播放失败: {ex.Message}");
                 PhotoViewer.Opacity = 1;
-                SyncLivePhotoBadgeVisibility();
+SyncLivePhotoBadgeVisibility();
                 ZoomControlsPanel.ClearValue(StackPanel.VisibilityProperty);
             }
         }
@@ -930,8 +925,7 @@ namespace LivePhotoBox.Views
 
             // 将完整状态同步回照片
             PhotoViewer.ApplyZoomPanState(_sharedZoomScale, _sharedPanX, _sharedPanY);
-
-            SyncLivePhotoBadgeVisibility();
+SyncLivePhotoBadgeVisibility();
             ZoomControlsPanel.ClearValue(StackPanel.VisibilityProperty);
         }
 
@@ -2263,6 +2257,64 @@ namespace LivePhotoBox.Views
                 LogService.FileOp(
                     $"Drop[Right] CRASH: {ex.GetType().Name}: {ex.Message}",
                     LogLevel.Error, ex);
+            }
+        }
+
+        /// <summary>
+        /// 主图预览空状态下的"选择文件"按钮：调起系统多选文件选择器，
+        /// 限制仅允许实况照片常用格式（JPG/JPEG/HEIC/HEIF/MOV/MP4），支持双文件配对或单文件。
+        /// </summary>
+        private async void SelectFilesButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is Button btn)
+                btn.IsEnabled = false;
+
+            try
+            {
+                var picker = new Windows.Storage.Pickers.FileOpenPicker();
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(App.MainWindow);
+                WinRT.Interop.InitializeWithWindow.Initialize(picker, hwnd);
+                picker.ViewMode = Windows.Storage.Pickers.PickerViewMode.Thumbnail;
+                picker.SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.PicturesLibrary;
+                picker.FileTypeFilter.Add(".jpg");
+                picker.FileTypeFilter.Add(".jpeg");
+                picker.FileTypeFilter.Add(".heic");
+                picker.FileTypeFilter.Add(".heif");
+                picker.FileTypeFilter.Add(".mov");
+                picker.FileTypeFilter.Add(".mp4");
+
+                var files = await picker.PickMultipleFilesAsync();
+                if (files != null && files.Count > 0)
+                {
+                    var filePaths = new List<string>();
+                    foreach (var file in files)
+                    {
+                        var ext = Path.GetExtension(file.Path);
+                        if (IsSupportedMediaFile(ext))
+                            filePaths.Add(file.Path);
+                    }
+
+                    if (filePaths.Count > 0)
+                    {
+                        var firstNewPath = await ViewModel.LoadDroppedFilesAsync(filePaths);
+                        if (firstNewPath != null)
+                        {
+                            var item = ViewModel.FileItems.FirstOrDefault(f =>
+                                string.Equals(f.FilePath, firstNewPath, StringComparison.OrdinalIgnoreCase));
+                            if (item != null)
+                                FileItemListView.SelectedItem = item;
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp($"SelectFiles: {ex.GetType().Name}: {ex.Message}", LogLevel.Error, ex);
+            }
+            finally
+            {
+                if (sender is Button btn2)
+                    btn2.IsEnabled = true;
             }
         }
 
