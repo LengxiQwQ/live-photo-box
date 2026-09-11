@@ -74,14 +74,12 @@ namespace LivePhotoBox.Views
         private string? _lastScannedPath;
 
         // ── 视频预览状态 ──
-        /// <summary>SingleFileJpeg 提取的临时视频路径（用于播放后清理）</summary>
-        private string? _previewTempVideoPath;
         /// <summary>正在切换预览模式（禁止 CloseRequested 重复恢复 UI）</summary>
         private bool _isApplyingPreviewMode;
 
         // ── 拖拽类型缓存（DragEnter 异步检测 → DragOver 同步读取）──
-        /// <summary>左侧面板：当前拖入的 StorageItems 是否全是文件夹</summary>
-        private bool _isLeftDropAllFolders;
+        /// <summary>左侧面板：当前拖入的 StorageItems 是否包含文件夹或媒体文件</summary>
+        private bool _isLeftDropValid;
         /// <summary>右侧面板：当前拖入的 StorageItems 是否包含媒体文件</summary>
         private bool _isRightDropHasFiles;
 
@@ -330,6 +328,26 @@ namespace LivePhotoBox.Views
                 UpdateZoomPercentDisplay();
             };
             FileItemListView.ContainerContentChanging += OnContainerContentChanging;
+            ViewModel.PropertyChanged += ViewModel_PropertyChanged;
+        }
+
+        private void ViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName is nameof(EditViewModel.CurrentDocument))
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (ViewModel.CurrentDocument != null)
+                    {
+                        _sharedZoomScale = 1.0;
+                        _sharedPanX = 0.5;
+                        _sharedPanY = 0.5;
+                        PhotoViewer.ResetToFit();
+                        ApplyInfoTabForSelectedFile();
+                    }
+                    _ = ApplyPreviewModeAsync();
+                });
+            }
         }
 
         /// <summary>重建所有强调色+悬停/按下画刷（系统换主题时调用）</summary>
@@ -946,72 +964,9 @@ namespace LivePhotoBox.Views
         }
 
         /// <summary>
-        /// 获取当前选中实况照片的视频路径。
-        /// DualFile → 直接取 PairedVideoPath；
-        /// SingleFileJpeg → 从 JPEG 尾部提取嵌入式 MP4 到临时文件。
-        /// 返回 null 表示无法获取有效视频。
+        /// 获取当前选中实况照片或视频的可播放路径（委托 ViewModel 统一控制面）。
         /// </summary>
-        private async Task<string?> ResolveVideoPathAsync()
-        {
-            // 先清理上一次的临时文件
-            CleanupPreviewTempVideo();
-
-            var selectedPath = ViewModel.SelectedFilePath;
-            if (string.IsNullOrEmpty(selectedPath)) return null;
-
-            var item = ViewModel.FileItems
-                .FirstOrDefault(f => f.FilePath == selectedPath);
-            if (item == null) return null;
-
-            // DualFile：直接使用配对视频路径
-            if (item.LivePhotoType == LivePhotoType.DualFile
-                && !string.IsNullOrEmpty(item.PairedVideoPath)
-                && File.Exists(item.PairedVideoPath))
-            {
-                return item.PairedVideoPath;
-            }
-
-            // SingleFile：优先复用 LoadPropertiesAsync 已提取的 temp 视频
-            // （所有单文件协议——Google V2、OPPO、华为——选文件时都已提取过）
-            var cachedVideo = ViewModel.CachedTempVideoPath;
-            if (!string.IsNullOrEmpty(cachedVideo) && File.Exists(cachedVideo))
-                return cachedVideo;
-
-            // Rebuilt 缓存未命中时通过 Native Inspector/Extractor 提取
-            if (item.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic
-                && File.Exists(item.FilePath))
-            {
-                var nativeVideo = await LivePhotoVideoExtractor.ExtractVideoAutoAsync(
-                    item.FilePath, item.AppendedVideoLength, CancellationToken.None);
-                if (!string.IsNullOrEmpty(nativeVideo) && File.Exists(nativeVideo))
-                {
-                    _previewTempVideoPath = nativeVideo;
-                    return nativeVideo;
-                }
-            }
-
-            return null;
-        }
-
-        /// <summary>删除上一次提取的临时视频文件，释放磁盘空间</summary>
-        private void CleanupPreviewTempVideo()
-        {
-            if (_previewTempVideoPath == null) return;
-            try
-            {
-                if (File.Exists(_previewTempVideoPath))
-                    File.Delete(_previewTempVideoPath);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"[EditPage] 临时视频清理失败: {ex.Message}");
-            }
-            finally
-            {
-                _previewTempVideoPath = null;
-            }
-        }
+        private Task<string?> ResolveVideoPathAsync() => ViewModel.GetPlayableMotionVideoAsync();
 
         // ════════════════════════════════════════════════════════════
         //  缩放按钮（视频活跃时路由到 PureMediaViewer，否则到 PhotoViewer）
@@ -2082,23 +2037,23 @@ namespace LivePhotoBox.Views
         }
 
         // ════════════════════════════════════════════════════════════
-        //  拖拽文件夹到左侧面板（Drag & Drop）— 只接受文件夹
+        //  拖拽到左侧面板（Drag & Drop）— 接受文件夹与媒体文件
         // ════════════════════════════════════════════════════════════
 
-        /// <summary>拖入时异步检测内容是否全是文件夹，缓存结果</summary>
+        /// <summary>拖入时异步检测内容是否包含文件夹或支持的媒体文件，缓存结果</summary>
         private async void LeftPanel_DragEnter(object sender, DragEventArgs e)
         {
-            _isLeftDropAllFolders = false;
+            _isLeftDropValid = false;
             if (e.DataView.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.StorageItems))
             {
                 var deferral = e.GetDeferral();
                 try
                 {
                     var items = await e.DataView.GetStorageItemsAsync();
-                    _isLeftDropAllFolders = items.Count > 0
-                        && items.All(i => i is StorageFolder);
+                    _isLeftDropValid = items.Count > 0
+                        && items.Any(i => i is StorageFolder || (i is StorageFile f && IsSupportedMediaFile(Path.GetExtension(f.Path))));
                 }
-                catch { _isLeftDropAllFolders = false; }
+                catch { _isLeftDropValid = false; }
                 finally { deferral.Complete(); }
             }
         }
@@ -2107,7 +2062,7 @@ namespace LivePhotoBox.Views
         {
             e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.None;
 
-            if (_isLeftDropAllFolders)
+            if (_isLeftDropValid)
             {
                 e.AcceptedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
                 e.DragUIOverride.IsGlyphVisible = true;
@@ -2122,14 +2077,13 @@ namespace LivePhotoBox.Views
         private void LeftPanel_DragLeave(object sender, DragEventArgs e)
         {
             DragOverlay.Visibility = Visibility.Collapsed;
-            _isLeftDropAllFolders = false;
+            _isLeftDropValid = false;
             Bindings.Update();
             e.Handled = true;
         }
 
         /// <summary>
-        /// 拖拽释放：提取文件夹路径 → 设置 ViewModel → 触发扫描。
-        /// 优先取拖入的文件夹，若拖入的是文件则取其父目录。
+        /// 拖拽释放：若拖入文件夹则扫描该文件夹；若拖入媒体文件则通过统一加载管线加入列表并打开首个。
         /// </summary>
         private async void LeftPanel_Drop(object sender, DragEventArgs e)
         {
@@ -2144,26 +2098,47 @@ namespace LivePhotoBox.Views
                 var items = await e.DataView.GetStorageItemsAsync();
                 if (items.Count == 0) return;
 
-                // 优先取文件夹，否则取第一个文件的父目录
-                string? targetPath = null;
+                // 1. 若拖入文件夹，触发目录扫描
+                var folder = items.OfType<StorageFolder>().FirstOrDefault();
+                if (folder != null)
+                {
+                    var targetPath = folder.Path;
+                    if (Directory.Exists(targetPath))
+                    {
+                        ViewModel.CurrentDirectory = targetPath;
+                        _lastScannedPath = targetPath;
+                        ViewModel.TriggerScan();
+                    }
+                    e.Handled = true;
+                    return;
+                }
+
+                // 2. 若拖入的是媒体文件，收集并走统一加载管线
+                var filePaths = new List<string>();
                 foreach (var item in items)
                 {
-                    if (item is StorageFolder folder)
+                    if (item is StorageFile file && IsSupportedMediaFile(Path.GetExtension(file.Path)))
                     {
-                        targetPath = folder.Path;
-                        break;
+                        filePaths.Add(file.Path);
                     }
                 }
 
-                if (targetPath == null && items[0] is StorageFile file)
-                    targetPath = Path.GetDirectoryName(file.Path);
+                if (filePaths.Count > 0)
+                {
+                    LogService.FileOp(
+                        $"Drop[Left] Received {filePaths.Count} file(s): " +
+                        string.Join(", ", filePaths.Select(p => Path.GetFileName(p))),
+                        LogLevel.Info);
 
-                if (string.IsNullOrEmpty(targetPath) || !Directory.Exists(targetPath))
-                    return;
-
-                ViewModel.CurrentDirectory = targetPath;
-                _lastScannedPath = targetPath;
-                ViewModel.TriggerScan();
+                    var firstNewPath = await ViewModel.LoadDroppedFilesAsync(filePaths);
+                    if (firstNewPath != null)
+                    {
+                        var item = ViewModel.FileItems.FirstOrDefault(f =>
+                            string.Equals(f.FilePath, firstNewPath, StringComparison.OrdinalIgnoreCase));
+                        if (item != null)
+                            FileItemListView.SelectedItem = item;
+                    }
+                }
 
                 e.Handled = true;
             }
@@ -2752,9 +2727,16 @@ namespace LivePhotoBox.Views
                 RefreshSingleCardVisual(item as EditFileItem, isSelected: true);
 
             if (FileItemListView.SelectedItem is EditFileItem selected)
-                ViewModel.SelectFile(selected.FilePath);
+            {
+                if (!string.Equals(ViewModel.SelectedFilePath, selected.FilePath, StringComparison.OrdinalIgnoreCase))
+                {
+                    _ = ViewModel.OpenMediaAsync(new EditOpenRequest(selected.FilePath, selected.PairedVideoPath));
+                }
+            }
             else
+            {
                 ViewModel.SelectFile(null);
+            }
 
             // 切换文件 → 重置共享缩放/平移 + 照片 Viewer 归位
             _sharedZoomScale = 1.0;

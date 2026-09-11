@@ -85,6 +85,33 @@ namespace LivePhotoBox.ViewModels
             // 进度前缀默认：导出帧
             ProgressPrefixText = ResourceService.GetString("EditPage_ExportProgressPrefixLabel");
 
+            // 挂接统一媒体打开管线事件（C# Control Plane 状态机同步）
+            _openPipeline = new EditOpenPipeline();
+            _openPipeline.DocumentChanged += doc =>
+            {
+                var dispatcher = App.MainWindow?.DispatcherQueue;
+                if (dispatcher != null && !dispatcher.HasThreadAccess)
+                {
+                    dispatcher.TryEnqueue(() => CurrentDocument = doc);
+                }
+                else
+                {
+                    CurrentDocument = doc;
+                }
+            };
+            _openPipeline.SessionStateChanged += state =>
+            {
+                var dispatcher = App.MainWindow?.DispatcherQueue;
+                if (dispatcher != null && !dispatcher.HasThreadAccess)
+                {
+                    dispatcher.TryEnqueue(() => SessionState = state);
+                }
+                else
+                {
+                    SessionState = state;
+                }
+            };
+
             // 时间轴集合变化时同步 HasOriginalPhotoFrame
             TimelineFrames.CollectionChanged += (_, _) =>
                 OnPropertyChanged(nameof(HasOriginalPhotoFrame));
@@ -104,6 +131,8 @@ namespace LivePhotoBox.ViewModels
             _completionCts?.Dispose();
             CleanupFrameTempFiles();
             CleanupTempVideo();
+            CleanupPlayableTempVideo();
+            _openPipeline.Close();
             _previewService.Dispose();
             IsPreviewLoading = false;
             ThumbnailScheduler.Reset();
@@ -765,6 +794,12 @@ namespace LivePhotoBox.ViewModels
 
         /// <summary>大图预览服务，统一管理图片解码、LRU 缓存与临时预览资源生命周期</summary>
         private readonly EditPreviewService _previewService = new();
+
+        /// <summary>统一媒体打开与加载管线（EP4 引入：统一处理输入校验、代数保护与状态机）</summary>
+        private readonly EditOpenPipeline _openPipeline;
+
+        /// <summary>当前播放的实况视频临时提取文件路径</summary>
+        private string? _playableTempVideoPath;
 
         /// <summary>大图预览是否正在解码加载中</summary>
         [ObservableProperty]
@@ -2215,57 +2250,52 @@ namespace LivePhotoBox.ViewModels
         private CancellationTokenSource? _propLoadCts;
 
         private CancellationTokenSource? _geoCts;
-        /// <summary>View 层选中变更时调用，异步加载 EXIF 元数据填充信息面板</summary>
+        /// <summary>View 层选中变更或打开文件时调用，统一接入 OpenMediaAsync 管线</summary>
         public void SelectFile(string? filePath)
         {
-            SelectedFilePath = filePath;
-
-            // 取消之前的属性加载 + 时间轴帧提取 + 预览图加载 + 清理临时文件
-            _propLoadCts?.Cancel();
-            _propLoadCts?.Dispose();
-            _propLoadCts = null;
-            _geoCts?.Cancel();
-            _timelineCts?.Cancel();
-            _exportCts?.Cancel();
-            _previewService.CancelCurrent();
-            // 后台线程清理旧临时文件（Directory.Delete 含 89 JPEG，同步调用阻塞 UI 200-500ms）
-            var oldFrameDir = _frameExtractDir;
-            var oldTempVid = _tempVideoPath;
-            _frameExtractDir = null;
-            _tempVideoPath = null;
-            _ = Task.Run(() =>
+            if (string.IsNullOrEmpty(filePath))
             {
-                try { if (oldFrameDir != null && Directory.Exists(oldFrameDir)) Directory.Delete(oldFrameDir, recursive: true); }
-                catch { }
-                try { if (oldTempVid != null && File.Exists(oldTempVid)) File.Delete(oldTempVid); }
-                catch { }
-            });
-
-            // 递增选中代数 —— 所有旧的异步回调（exiftool 查询结果、ffmpeg 提取、
-            // 大图预览）在拿到执行权后检查此值，不匹配则 bail out，避免新旧操作抢占资源。
-            int myGeneration = Interlocked.Increment(ref _selectionGeneration);
-
-            LogService.FileOp(
-                $"KeyPhoto SelectFile: path='{filePath ?? "null"}', generation={myGeneration}",
-                LogLevel.Info);
-
-            if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
-            {
-                ClearFileInfo();
-                CurrentDocument = null;
-                SessionState = EditSessionState.Closed;
+                CloseMedia();
                 return;
             }
 
-            SessionState = EditSessionState.Loading;
+            _ = OpenMediaAsync(new EditOpenRequest(filePath));
+        }
 
-            // 记住上一个文件是否为实况，用于时间轴清除判断
-            bool wasLivePhoto = IsSelectedLivePhoto;
-            var fileExt = Path.GetExtension(filePath);
-            bool isVideo = SupportedVideoExtensions.Contains(fileExt);
+        /// <summary>
+        /// 关闭当前打开的媒体并清理预览与临时资源。
+        /// </summary>
+        public void CloseMedia()
+        {
+            ClearFileInfo();
+            _openPipeline.Close();
+        }
 
-            // 先从 FileItems 找基础信息（只保留必要即时反馈，详情等异步加载一起刷新）
-            // 取消旧的缩略图监听，避免前一张图异步完成后覆盖新图的属性面板缩略图
+        /// <summary>
+        /// 打开媒体文件的便捷入口。
+        /// </summary>
+        public Task<bool> OpenMediaAsync(string filePath, CancellationToken externalToken = default)
+        {
+            return OpenMediaAsync(new EditOpenRequest(filePath), externalToken);
+        }
+
+        /// <summary>
+        /// 统一媒体打开管线入口（EP4 核心入口）。
+        /// 无论拖拽、列表点击、文件选择器均进入此统一流程。
+        /// </summary>
+        public async Task<bool> OpenMediaAsync(EditOpenRequest request, CancellationToken externalToken = default)
+        {
+            ArgumentNullException.ThrowIfNull(request);
+
+            // 1. 取消旧大图加载与清理临时视频
+            _previewService.CancelCurrent();
+            CleanupPlayableTempVideo();
+            CleanupFrameTempFiles();
+            CleanupTempVideo();
+
+            SelectedFilePath = request.PrimaryPath;
+
+            // 2. 挂接选中项缩略图监听
             if (_thumbnailLoadListener != null)
             {
                 _thumbnailLoadListener.PropertyChanged -= ThumbnailItem_PropertyChanged;
@@ -2273,133 +2303,138 @@ namespace LivePhotoBox.ViewModels
             }
 
             var item = FileItems.FirstOrDefault(f =>
-                string.Equals(f.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
-
-            // 建立初始 EditDocument 领域事实，使 CurrentDocument 成为单一权威数据源
-            EditDocument initialDoc;
-            if (isVideo)
-            {
-                initialDoc = EditDocument.FromVideo(filePath);
-            }
-            else if (item != null && item.HasConfirmedProtocol)
-            {
-                // 双文件实况：校验配对视频是否仍存在，若丢失则记录日志但不降级
-                // —— 属性面板会显示协议名 + "(未找到配对视频)"，LIVE 徽标保持显示
-                if (item.LivePhotoType == LivePhotoType.DualFile
-                    && !string.IsNullOrEmpty(item.PairedVideoPath)
-                    && !File.Exists(item.PairedVideoPath))
-                {
-                    LogService.FileOp(
-                        $"SelectFile: dual-file paired video missing: '{item.PairedVideoPath}' for '{item.FilePath}'",
-                        LogLevel.Warning);
-                }
-
-                var pairState = item.LivePhotoType == LivePhotoType.DualFile
-                    ? (!string.IsNullOrEmpty(item.PairedVideoPath) && File.Exists(item.PairedVideoPath)
-                        ? EditPairState.Complete
-                        : EditPairState.MissingVideo)
-                    : EditPairState.NotApplicable;
-
-                initialDoc = EditDocument.FromLivePhoto(
-                    filePath,
-                    item.PairedVideoPath,
-                    item.LivePhotoType,
-                    item.DetectedProtocol,
-                    pairState: pairState);
-            }
-            else
-            {
-                initialDoc = EditDocument.FromPhoto(filePath);
-            }
-
-            CurrentDocument = initialDoc;
-            SessionState = EditSessionState.Loading;
-
+                string.Equals(f.FilePath, request.PrimaryPath, StringComparison.OrdinalIgnoreCase));
             if (item != null)
             {
                 SelectedFileThumbnail = item.Thumbnail;
-
-                // 缩略图为懒加载（TryGetOrLoad 首次返回 null，异步回填）。
-                // 若尚未就绪 → 监听 PropertyChanged，加载结束后同步到 SelectedFileThumbnail。
                 if (SelectedFileThumbnail == null)
                 {
                     _thumbnailLoadListener = item;
                     item.PropertyChanged += ThumbnailItem_PropertyChanged;
                 }
             }
-
-            // 大图：视频不加载，直接清空；图片走 LoadPreviewAsync 正常加载
-            if (IsSelectedFileVideo)
+            else
             {
-                _previewService.CancelCurrent();
+                SelectedFileThumbnail = null;
+            }
+
+            // 3. 区分纯视频与图片预览
+            string ext = Path.GetExtension(request.PrimaryPath);
+            bool isVideo = SupportedVideoExtensions.Contains(ext);
+
+            if (isVideo)
+            {
                 SetPreviewSafe(null);
                 IsPreviewLoading = false;
                 PreviewClearRequested?.Invoke();
             }
-
-            // 时间轴：切到非实况 或 残缺实况（无视频源）时清空
-            if ((wasLivePhoto && !IsSelectedLivePhoto) || IsSelectedPairIncomplete)
+            else if (IsSupportedImageExtension(ext))
             {
-                TimelineFrames.Clear();
-                HasTimelineFrames = false;
-                IsTimelineLoading = false;
-                CurrentFramePositionText = string.Empty;
-                SelectedTimelineFrame = null;
+                _ = LoadPreviewAsync(request.PrimaryPath);
             }
 
-            // 触发大图预览加载（异步，委托给 EditPreviewService）。视频跳过。
-            if (!IsSelectedFileVideo)
-                _ = LoadPreviewAsync(filePath);
+            // 4. 交由统一 OpenPipeline 执行代数保护、Native Inspection 与状态转换
+            bool success = await _openPipeline.OpenMediaAsync(request, externalToken).ConfigureAwait(false);
 
-            // 异步加载完整属性
-            _propLoadCts = new CancellationTokenSource();
-            var token = _propLoadCts.Token;
-            string? videoPath = null;
-            long embeddedVideoLen = 0;
-            // 仅已确认协议的实况照片才触发时间轴帧提取。
-            // DualFile：需要 Phase 2 exiftool 查出 ContentIdentifier 才算确认（纯文件名配对不算）。
-            // SingleFileJpeg/Heic：仅使用 Native inspection 确认的 embedded range。
-            if (item?.LivePhotoType == LivePhotoType.DualFile
-                && item.HasConfirmedProtocol
-                && !string.IsNullOrEmpty(item.PairedVideoPath))
+            if (success && !isVideo && item != null && string.IsNullOrEmpty(item.Resolution))
             {
-                videoPath = item.PairedVideoPath;
-            }
-            // 不完整实况（仅视频，缺照片）：文件本身即为视频源
-            else if (item?.LivePhotoType == LivePhotoType.DualFile
-                && item.HasConfirmedProtocol
-                && IsSelectedFileVideo
-                && File.Exists(filePath))
-            {
-                videoPath = filePath;
+                var doc = _openPipeline.CurrentDocument;
+                if (doc != null && doc.Width > 0 && doc.Height > 0)
+                {
+                    item.Resolution = $"{doc.Width} × {doc.Height}";
+                }
             }
 
-            if (videoPath != null)
-            {
-                LogService.FileOp(
-                    "Timeline[SelectFile]: Rebuilt Native mode skips the Legacy FFmpeg frame extractor.",
-                    LogLevel.Info);
-            }
-            else if (item?.LivePhotoType == LivePhotoType.SingleFileJpeg && item.AppendedVideoLength > 0)
-            {
-                embeddedVideoLen = item.AppendedVideoLength;
-                LogService.FileOp(
-                    $"Timeline[SelectFile]: SingleFileJpeg, embeddedVideoLen={embeddedVideoLen}",
-                    LogLevel.Info);
-            }
-            else
-            {
-                LogService.FileOp(
-                    $"Timeline[SelectFile]: SKIP — type={item?.LivePhotoType}, " +
-                    $"HasConfirmedProtocol={item?.HasConfirmedProtocol}, " +
-                    $"PairedVideoPath='{item?.PairedVideoPath ?? "null"}', " +
-                    $"embeddedVideoLen={item?.AppendedVideoLength}",
-                    LogLevel.Info);
-            }
-            _ = LoadPropertiesAsync(filePath, videoPath, embeddedVideoLen, myGeneration, token);
+            return success;
         }
 
-        /// <summary>清空信息面板</summary>
+        /// <summary>
+        /// 请求获取当前文档的可播放动态视频路径（C# Control Plane 视频源提供者）。
+        /// - 纯视频：返回 PrimaryPath 原文件路径
+        /// - 双文件实况：返回 PairedVideoPath 路径
+        /// - 单文件实况：通过 Native 提取嵌入视频到临时文件并返回路径
+        /// - 非实况/未打开：返回 null
+        /// </summary>
+        public async Task<string?> GetPlayableMotionVideoAsync(CancellationToken cancellationToken = default)
+        {
+            var doc = CurrentDocument;
+            if (doc == null) return null;
+
+            // 1. 独立视频：直接播放原文件，无需复制或转码
+            if (doc.MediaKind == EditMediaKind.Video)
+            {
+                return File.Exists(doc.PrimaryPath) ? doc.PrimaryPath : null;
+            }
+
+            // 2. 双文件实况照片：直接播放配对视频原文件
+            if (doc.LivePhotoType == LivePhotoType.DualFile)
+            {
+                if (!string.IsNullOrEmpty(doc.PairedVideoPath) && File.Exists(doc.PairedVideoPath))
+                    return doc.PairedVideoPath;
+                return null;
+            }
+
+            // 3. 单文件实况照片：先检查已提取的临时视频是否仍然有效可用
+            if (!string.IsNullOrEmpty(_playableTempVideoPath) && File.Exists(_playableTempVideoPath))
+            {
+                return _playableTempVideoPath;
+            }
+
+            if (!string.IsNullOrEmpty(CachedTempVideoPath) && File.Exists(CachedTempVideoPath))
+            {
+                return CachedTempVideoPath;
+            }
+
+            // 4. 调用 Native 统一视频提取器提取临时视频
+            if (doc.HasEmbeddedMotionVideo || doc.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic)
+            {
+                try
+                {
+                    var tempPath = await LivePhotoVideoExtractor.ExtractVideoAutoAsync(
+                        doc.PrimaryPath,
+                        doc.MotionVideoByteLength,
+                        cancellationToken).ConfigureAwait(false);
+
+                    if (!string.IsNullOrEmpty(tempPath) && File.Exists(tempPath))
+                    {
+                        _playableTempVideoPath = tempPath;
+                        return tempPath;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogService.FileOp($"GetPlayableMotionVideoAsync extract failed: {ex.Message}", LogLevel.Warning);
+                }
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// 销毁并清理当前提取的实况播放临时视频文件。
+        /// </summary>
+        public void CleanupPlayableTempVideo()
+        {
+            var path = _playableTempVideoPath;
+            _playableTempVideoPath = null;
+            if (!string.IsNullOrEmpty(path))
+            {
+                _ = Task.Run(() =>
+                {
+                    try
+                    {
+                        if (File.Exists(path))
+                            File.Delete(path);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogService.FileOp($"CleanupPlayableTempVideo failed: {ex.Message}", Models.LogLevel.Warning);
+                    }
+                });
+            }
+        }
+
+        /// <summary>清空信息面板与重置会话状态</summary>
         private void ClearFileInfo()
         {
             // 取消进行中的属性/帧加载
@@ -2430,6 +2465,7 @@ namespace LivePhotoBox.ViewModels
             SelectedTimelineFrame = null;
             CleanupFrameTempFiles();
             CleanupTempVideo();
+            CleanupPlayableTempVideo();
 
             CurrentDocument = null;
             SessionState = EditSessionState.Closed;
@@ -2958,122 +2994,74 @@ namespace LivePhotoBox.ViewModels
                 var dispatcher = App.MainWindow?.DispatcherQueue;
                 if (dispatcher == null) return null;
 
-                var existingPaths = filePaths
-                    .Where(File.Exists)
-                    .Distinct(StringComparer.OrdinalIgnoreCase)
-                    .ToList();
-                var images = existingPaths
-                    .Where(p => IsSupportedImageExtension(Path.GetExtension(p)))
-                    .ToList();
-                var videos = existingPaths
-                    .Where(p => SupportedVideoExtensions.Contains(Path.GetExtension(p)))
-                    .ToList();
-
-                var inspector = new SourceInspector();
-                var pairedVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var pairedImages = new Dictionary<string, (string VideoPath, SourceProtocol Protocol)>(StringComparer.OrdinalIgnoreCase);
-                foreach (string imagePath in images)
-                {
-                    // Candidate pairing is deliberately metadata-first. Every
-                    // selected video is checked by Native, allowing renamed
-                    // metadata-matched pairs while rejecting same-basename noise.
-                    foreach (string videoPath in videos)
-                    {
-                        var facts = await inspector.InspectAsync(imagePath, videoPath, CancellationToken.None).ConfigureAwait(false);
-                        if (facts.Protocol is SourceProtocol.AppleLivePhoto or SourceProtocol.VivoLegacyDualFile &&
-                            facts.MotionVideo is { IsPresent: true, SourceIndex: 1 })
-                        {
-                            pairedImages[imagePath] = (videoPath, facts.Protocol);
-                            pairedVideos.Add(videoPath);
-                            break;
-                        }
-                    }
-                }
+                var candidates = await _openPipeline.DiscoverCandidatesAsync(filePaths).ConfigureAwait(false);
+                if (candidates.Count == 0) return null;
 
                 var toAdd = new List<EditFileItem>();
-                var addedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (string rawPath in existingPaths)
+                foreach (var c in candidates)
                 {
-                    if (addedPaths.Contains(rawPath) || pairedVideos.Contains(rawPath)) continue;
-                    string ext = Path.GetExtension(rawPath);
-                    bool isImage = IsSupportedImageExtension(ext);
-                    LivePhotoType type = LivePhotoType.None;
-                    LivePhotoDetectionMethod method = ext.Equals(".heic", StringComparison.OrdinalIgnoreCase) ||
-                        ext.Equals(".heif", StringComparison.OrdinalIgnoreCase)
-                        ? LivePhotoDetectionMethod.HeicVideoTrack
-                        : LivePhotoDetectionMethod.JpegByteMarkers;
-                    string? pairedVideoPath = null;
-                    long appendedVideoLength = 0;
-                    SourceProtocol sourceProtocol = SourceProtocol.NonLive;
-
-                    if (isImage && pairedImages.TryGetValue(rawPath, out var pair))
+                    string ext = Path.GetExtension(c.PrimaryPath);
+                    LivePhotoDetectionMethod method = c.LivePhotoType switch
                     {
-                        type = LivePhotoType.DualFile;
-                        method = pair.Protocol == SourceProtocol.VivoLegacyDualFile
+                        LivePhotoType.DualFile => c.Protocol == SourceProtocol.VivoLegacyDualFile
                             ? LivePhotoDetectionMethod.VivoLivePhoto
-                            : LivePhotoDetectionMethod.ContentIdentifier;
-                        pairedVideoPath = pair.VideoPath;
-                        sourceProtocol = pair.Protocol;
-                    }
-                    else if (isImage)
-                    {
-                        var facts = await inspector.InspectAsync(rawPath, null, CancellationToken.None).ConfigureAwait(false);
-                        sourceProtocol = facts.Protocol;
-                        if (facts.MotionVideo is { IsPresent: true, SourceIndex: 0 } motionVideo &&
-                            sourceProtocol is not (SourceProtocol.NonLive or SourceProtocol.Unknown))
-                        {
-                            type = ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) || ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
-                                ? LivePhotoType.SingleFileJpeg
-                                : LivePhotoType.SingleFileHeic;
-                            method = type == LivePhotoType.SingleFileJpeg
-                                ? LivePhotoDetectionMethod.JpegByteMarkers
-                                : LivePhotoDetectionMethod.HeicVideoTrack;
-                            appendedVideoLength = motionVideo.ByteLength;
-                        }
-                    }
+                            : LivePhotoDetectionMethod.ContentIdentifier,
+                        LivePhotoType.SingleFileJpeg => LivePhotoDetectionMethod.JpegByteMarkers,
+                        LivePhotoType.SingleFileHeic => LivePhotoDetectionMethod.HeicVideoTrack,
+                        _ => LivePhotoDetectionMethod.FilenamePairing
+                    };
 
-                    long totalBytes = new FileInfo(rawPath).Length;
-                    if (pairedVideoPath != null && File.Exists(pairedVideoPath))
-                        totalBytes += new FileInfo(pairedVideoPath).Length;
                     toAdd.Add(new EditFileItem
                     {
-                        FileName = Path.GetFileName(rawPath),
-                        FilePath = rawPath,
-                        FileSize = FileSizeFormatter.Format(totalBytes),
-                        DateTaken = File.GetLastWriteTime(rawPath).ToString("yyyy/MM/dd HH:mm"),
-                        LivePhotoType = type,
-                        PairedVideoPath = pairedVideoPath,
-                        AppendedVideoLength = appendedVideoLength,
+                        FileName = Path.GetFileName(c.PrimaryPath),
+                        FilePath = c.PrimaryPath,
+                        FileSize = FileSizeFormatter.Format(c.TotalByteSize),
+                        DateTaken = c.DateModified.ToString("yyyy/MM/dd HH:mm"),
+                        LivePhotoType = c.LivePhotoType,
+                        PairedVideoPath = c.MotionPath,
+                        AppendedVideoLength = c.AppendedVideoLength,
                         DetectionMethod = method,
-                        DetectedProtocol = MapRebuiltProtocol(sourceProtocol),
+                        DetectedProtocol = MapRebuiltProtocol(c.Protocol),
                         Resolution = string.Empty
                     });
-                    addedPaths.Add(rawPath);
-                    if (pairedVideoPath != null) addedPaths.Add(pairedVideoPath);
                 }
 
-                if (toAdd.Count == 0) return null;
-                _ = ReadResolutionsAsync(toAdd, [], CancellationToken.None);
                 var tcs = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
-                dispatcher.TryEnqueue(() =>
+                dispatcher.TryEnqueue(async () =>
                 {
                     try
                     {
                         string? firstNewPath = null;
+                        string? firstMotionPath = null;
                         foreach (var item in toAdd)
                         {
                             if (FileItems.Any(f => string.Equals(f.FilePath, item.FilePath, StringComparison.OrdinalIgnoreCase)))
                                 continue;
                             FileItems.Add(item);
                             _allFileItems.Add(item);
-                            firstNewPath ??= item.FilePath;
+                            if (firstNewPath == null)
+                            {
+                                firstNewPath = item.FilePath;
+                                firstMotionPath = item.PairedVideoPath;
+                            }
                         }
                         RefreshCounts();
                         ApplySortAndFilter();
+
+                        // 统一 Open Pipeline：自动打开列表中的第一个主媒体并建立文档
+                        if (firstNewPath != null)
+                        {
+                            await OpenMediaAsync(new EditOpenRequest(firstNewPath, firstMotionPath));
+                        }
+
                         tcs.SetResult(firstNewPath);
                     }
-                    catch (Exception ex) { tcs.SetException(ex); }
+                    catch (Exception ex)
+                    {
+                        tcs.SetException(ex);
+                    }
                 });
+
                 return await tcs.Task.ConfigureAwait(false);
             }
             catch (OperationCanceledException) { return null; }
