@@ -151,8 +151,41 @@ public class EditPreviewCoordinator<TImage> : IDisposable where TImage : class
         out CancellationToken linkedToken,
         out TImage? cachedImage)
     {
-        requestId = BeginRequest(path, externalToken, out linkedToken);
-        return TryGetCached(path, out cachedImage);
+        ThrowIfDisposed();
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+
+        lock (_lock)
+        {
+            if (_activeCts != null)
+            {
+                try
+                {
+                    _activeCts.Cancel();
+                    _activeCts.Dispose();
+                }
+                catch { }
+            }
+
+            requestId = Interlocked.Increment(ref _currentRequestId);
+            _latestRequestPath = path;
+
+            _activeCts = externalToken.CanBeCanceled
+                ? CancellationTokenSource.CreateLinkedTokenSource(externalToken)
+                : new CancellationTokenSource();
+
+            linkedToken = _activeCts.Token;
+
+            if (_cache.TryGetValue(path, out var cached))
+            {
+                _cacheOrder.Remove(path);
+                _cacheOrder.Add(path);
+                cachedImage = cached;
+                return true;
+            }
+
+            cachedImage = null;
+            return false;
+        }
     }
 
     /// <summary>
@@ -204,13 +237,76 @@ public class EditPreviewCoordinator<TImage> : IDisposable where TImage : class
 
     /// <summary>
     /// 注册由解码器创建的临时预览文件路径（如 HEIC 解码转出的临时 JPEG），纳入生命周期管理。
+    /// 若协调器已处于释放状态，则立即物理删除该文件并返回 false。
     /// </summary>
-    public void RegisterTempFile(string tempPath)
+    public bool TryRegisterTempFile(string tempPath)
     {
-        if (string.IsNullOrWhiteSpace(tempPath)) return;
+        if (string.IsNullOrWhiteSpace(tempPath)) return false;
         lock (_lock)
         {
+            if (_isDisposed)
+            {
+                try
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+                catch { }
+                return false;
+            }
             _trackedTempFiles.Add(tempPath);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// 注册由解码器创建的临时预览文件路径（如 HEIC 解码转出的临时 JPEG），纳入生命周期管理。
+    /// </summary>
+    public void RegisterTempFile(string tempPath) => TryRegisterTempFile(tempPath);
+
+    /// <summary>
+    /// 创建临时文件生命周期所有权作用域。
+    /// 在后台生成临时文件时提供严格的 fail-closed 保障：
+    /// 无论发生异常、被取消还是操作中止，只要在作用域退出前未调用 <see cref="TempFileScope.TransferOwnership"/>，
+    /// 作用域在 Dispose 时均会立即物理删除该文件并从协调器注销。
+    /// </summary>
+    public TempFileScope CreateTempFileScope(string tempPath) => new(this, tempPath);
+
+    /// <summary>
+    /// 临时文件生命周期与所有权作用域。
+    /// </summary>
+    public sealed class TempFileScope : IDisposable
+    {
+        private readonly EditPreviewCoordinator<TImage> _coordinator;
+        private readonly string _tempPath;
+        private bool _transferred;
+
+        public string TempPath => _tempPath;
+        public bool IsTransferred => _transferred;
+
+        public TempFileScope(EditPreviewCoordinator<TImage> coordinator, string tempPath)
+        {
+            _coordinator = coordinator;
+            _tempPath = tempPath;
+            _coordinator.TryRegisterTempFile(tempPath);
+        }
+
+        /// <summary>
+        /// 确立临时文件生成成功，并将生命周期所有权转交给外层（例如后续 UI 加载流程）。
+        /// 移交后，本作用域在退出时不会提前删除该文件。
+        /// </summary>
+        public string TransferOwnership()
+        {
+            _transferred = true;
+            return _tempPath;
+        }
+
+        public void Dispose()
+        {
+            if (!_transferred)
+            {
+                _coordinator.DeleteTempFile(_tempPath);
+            }
         }
     }
 

@@ -263,4 +263,99 @@ public sealed class EditPreviewCoordinatorTests
         Assert.Equal(0, coordinator.TrackedTempFileCount);
         Assert.False(File.Exists(tempFile));
     }
+
+    [Fact]
+    public void TempRegistered_ThenOperationFailsBeforeOwnershipTransfer()
+    {
+        using var coordinator = new EditPreviewCoordinator<MockImage>(maxCacheSize: 3);
+        string tempFile = Path.Combine(Path.GetTempPath(), $"lpb_test_fail_{Guid.NewGuid():N}.jpg");
+
+        Action actFail = () =>
+        {
+            using var scope = coordinator.CreateTempFileScope(tempFile);
+            File.WriteAllText(tempFile, "dummy partial write");
+            Assert.True(File.Exists(tempFile));
+            Assert.Equal(1, coordinator.TrackedTempFileCount);
+
+            // 模拟在 encoder 或 FlushAsync 期间抛出异常，未能进入 TransferOwnership
+            throw new InvalidOperationException("Simulation of failure during encode");
+        };
+        Assert.Throws<InvalidOperationException>(actFail);
+
+        // 断言：内部作用域退出时 fail-closed，必须立即删除物理文件并清空跟踪
+        Assert.False(File.Exists(tempFile), "Physical temp file must be deleted upon failure before ownership transfer.");
+        Assert.Equal(0, coordinator.TrackedTempFileCount);
+    }
+
+    [Fact]
+    public void TempRegistered_ThenCancelledBeforeOwnershipTransfer()
+    {
+        using var coordinator = new EditPreviewCoordinator<MockImage>(maxCacheSize: 3);
+        string tempFile = Path.Combine(Path.GetTempPath(), $"lpb_test_canc_{Guid.NewGuid():N}.jpg");
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        Action actCancel = () =>
+        {
+            using var scope = coordinator.CreateTempFileScope(tempFile);
+            File.WriteAllText(tempFile, "dummy partial write");
+            Assert.True(File.Exists(tempFile));
+            Assert.Equal(1, coordinator.TrackedTempFileCount);
+
+            cts.Token.ThrowIfCancellationRequested();
+            scope.TransferOwnership();
+        };
+        Assert.Throws<OperationCanceledException>(actCancel);
+
+        Assert.False(File.Exists(tempFile), "Physical temp file must be deleted upon cancellation before ownership transfer.");
+        Assert.Equal(0, coordinator.TrackedTempFileCount);
+    }
+
+    [Fact]
+    public void Dispose_RacingWithTempRegistration()
+    {
+        var coordinator = new EditPreviewCoordinator<MockImage>(maxCacheSize: 3);
+        string tempFile = Path.Combine(Path.GetTempPath(), $"lpb_test_race_{Guid.NewGuid():N}.jpg");
+        File.WriteAllText(tempFile, "dummy data created by background task");
+
+        // UI 线程先调用了 Dispose
+        coordinator.Dispose();
+        Assert.True(coordinator.IsDisposed);
+
+        // 后台任务此时尝试注册/创建作用域
+        bool registered = coordinator.TryRegisterTempFile(tempFile);
+        Assert.False(registered, "TryRegisterTempFile must reject registration when coordinator is disposed.");
+
+        using (var scope = coordinator.CreateTempFileScope(tempFile))
+        {
+            // 作用域退出
+        }
+
+        Assert.False(File.Exists(tempFile), "Physical temp file must be deleted when racing with disposed coordinator.");
+        Assert.Equal(0, coordinator.TrackedTempFileCount);
+    }
+
+    [Fact]
+    public void TempFileScope_TransferOwnership_PreservesFileUntilOuterFinally()
+    {
+        using var coordinator = new EditPreviewCoordinator<MockImage>(maxCacheSize: 3);
+        string tempFile = Path.Combine(Path.GetTempPath(), $"lpb_test_xfer_{Guid.NewGuid():N}.jpg");
+        string transferredPath;
+
+        using (var scope = coordinator.CreateTempFileScope(tempFile))
+        {
+            File.WriteAllText(tempFile, "valid decoded image data");
+            transferredPath = scope.TransferOwnership();
+            Assert.True(scope.IsTransferred);
+        }
+
+        // 作用域正常退出，但因已转移所有权，物理文件应保留给外层
+        Assert.True(File.Exists(transferredPath), "Transferred temp file must NOT be deleted by inner scope.");
+        Assert.Equal(1, coordinator.TrackedTempFileCount);
+
+        // 外层 finally 执行 DeleteTempFile
+        coordinator.DeleteTempFile(transferredPath);
+        Assert.False(File.Exists(transferredPath));
+        Assert.Equal(0, coordinator.TrackedTempFileCount);
+    }
 }

@@ -129,6 +129,12 @@ public sealed class EditPreviewService : IDisposable
         // 1. 开启新请求（无论 cache hit 还是 miss，都必须先确立新的 request identity 并自动取消前序请求）
         if (_coordinator.TryBeginCachedRequest(imagePath, externalToken, out long reqId, out var token, out var cached) && cached != null)
         {
+            // Hardening: 在 cache hit 返回 Success 前，再次验证 token 未取消且仍为当前有效请求
+            if (token.IsCancellationRequested || !_coordinator.IsCurrentRequest(reqId, imagePath))
+            {
+                return PreviewLoadResult.CancelledOrStale(imagePath, reqId);
+            }
+
             LogService.FileOp($"EditPreviewService: cache hit for '{Path.GetFileName(imagePath)}' (reqId={reqId})", LogLevel.Info);
             return PreviewLoadResult.Succeeded(imagePath, cached, reqId, fromCache: true);
         }
@@ -235,7 +241,7 @@ public sealed class EditPreviewService : IDisposable
                 token.ThrowIfCancellationRequested();
 
                 string tempPath = Path.Combine(Path.GetTempPath(), $"lpb_prev_{Guid.NewGuid():N}.jpg");
-                _coordinator.RegisterTempFile(tempPath);
+                using var tempScope = _coordinator.CreateTempFileScope(tempPath);
 
                 using (var fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
                 {
@@ -245,7 +251,13 @@ public sealed class EditPreviewService : IDisposable
                     await encoder.FlushAsync().AsTask(token).ConfigureAwait(false);
                 }
 
-                return tempPath;
+                token.ThrowIfCancellationRequested();
+                if (!_coordinator.IsCurrentRequest(reqId, imagePath))
+                {
+                    return null;
+                }
+
+                return tempScope.TransferOwnership();
             }, token).ConfigureAwait(false);
 
             if (token.IsCancellationRequested || !_coordinator.IsCurrentRequest(reqId, imagePath))
