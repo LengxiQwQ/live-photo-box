@@ -306,6 +306,7 @@ LPB_API lpb_result LPB_CALL lpb_release_extraction_plan(
         }
         if (record->state == lpb_plan_state::Issued)
         {
+            close_published_artifact_handles(*record);
             record->state = lpb_plan_state::Released;
 #if defined(LPB_NATIVE_TEST_HARNESS)
             ++context->test_released;
@@ -319,6 +320,7 @@ LPB_API lpb_result LPB_CALL lpb_release_extraction_plan(
         }
         else if (record->state == lpb_plan_state::Consumed)
         {
+            close_published_artifact_handles(*record);
             record->state = lpb_plan_state::Released;
 #if defined(LPB_NATIVE_TEST_HARNESS)
             ++context->test_released;
@@ -566,6 +568,14 @@ LPB_API lpb_result LPB_CALL lpb_verify_extraction_outputs(
     uint64_t generation)
 {
     return verify_extraction_outputs_with_plan(context, plan, generation);
+}
+
+LPB_API lpb_result LPB_CALL lpb_commit_extraction_outputs(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    uint64_t generation)
+{
+    return commit_extraction_outputs_with_plan(context, plan, generation);
 }
 
 #if defined(LPB_NATIVE_TEST_HARNESS)

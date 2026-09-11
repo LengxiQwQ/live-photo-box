@@ -567,18 +567,34 @@ lpb_result verify_recorded_artifact(
     const lpb_published_artifact_record& artifact) noexcept
 {
     if (artifact.final_path.empty()) return LPB_RESULT_AUTHORITY_VIOLATION;
-    HANDLE handle = CreateFileW(
-        artifact.final_path.c_str(),
-        GENERIC_READ,
-        FILE_SHARE_READ,
-        nullptr,
-        OPEN_EXISTING,
-        FILE_FLAG_OPEN_REPARSE_POINT,
-        nullptr);
-    if (handle == INVALID_HANDLE_VALUE)
+
+    // Prefer the live rollback handle when available. It is the authoritative
+    // ownership token captured at publish time, avoids path-based TOCTOU, and
+    // sidesteps sharing-violation conflicts that arise when opening by path
+    // while the rollback handle still holds GENERIC_WRITE|DELETE access.
+    bool owns_handle = false;
+    HANDLE handle = nullptr;
+    if (artifact.rollback_handle != nullptr && artifact.rollback_handle != INVALID_HANDLE_VALUE)
     {
-        set_error(context, "[SourceChanged] A Native-published extraction artifact no longer exists at its recorded path.");
-        return LPB_RESULT_SOURCE_CHANGED;
+        handle = static_cast<HANDLE>(artifact.rollback_handle);
+        owns_handle = false;
+    }
+    else
+    {
+        handle = CreateFileW(
+            artifact.final_path.c_str(),
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            nullptr,
+            OPEN_EXISTING,
+            FILE_FLAG_OPEN_REPARSE_POINT,
+            nullptr);
+        if (handle == INVALID_HANDLE_VALUE)
+        {
+            set_error(context, "[SourceChanged] A Native-published extraction artifact no longer exists at its recorded path.");
+            return LPB_RESULT_SOURCE_CHANGED;
+        }
+        owns_handle = true;
     }
 
     lpb_file_identity actual_identity{};
@@ -591,7 +607,7 @@ lpb_result verify_recorded_artifact(
         _wcsicmp(actual_path.c_str(), artifact.final_path.c_str()) == 0 &&
         lpb::crypto::sha256_file(handle, actual_hash) &&
         std::memcmp(actual_hash, artifact.sha256.data(), artifact.sha256.size()) == 0;
-    CloseHandle(handle);
+    if (owns_handle) CloseHandle(handle);
     if (!exact)
     {
         set_error(context, "[SourceChanged] A Native-published extraction artifact was replaced, relinked, or modified after publication.");
@@ -1693,6 +1709,77 @@ lpb_result verify_extraction_outputs_with_plan(
     catch (...)
     {
         set_error(context, "[InternalError] Native extraction output verification failed unexpectedly.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+}
+
+lpb_result commit_extraction_outputs_with_plan(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    uint64_t generation) noexcept
+{
+    if (context == nullptr || plan == nullptr || generation == 0)
+    {
+        set_error(context, "[AuthorityViolation] Context, extraction plan, and generation are required for output commit.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired())
+    {
+        set_error(context, "[AuthorityViolation] Native context is being destroyed.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    try
+    {
+        const uint64_t token = plan_token_from_handle(plan);
+        std::scoped_lock lock(context->plan_mutex);
+        lpb_extraction_plan_record* record = find_plan_locked(context, token);
+        if (record == nullptr || record->owner_context != context ||
+            record->generation != generation || record->plan_version != 1)
+        {
+            set_error(context, "[AuthorityViolation] Extraction commit token is not owned by this context or generation.");
+            return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+
+        // Idempotent: commit after commit is a no-op.
+        if (record->committed)
+        {
+            return LPB_RESULT_OK;
+        }
+
+        if (record->rollback_completed)
+        {
+            set_error(context, "[PlanReplayed] Extraction outputs were already rolled back and cannot be committed.");
+            return LPB_RESULT_PLAN_REPLAYED;
+        }
+
+        if (!record->extraction_succeeded)
+        {
+            set_error(context, "[AuthorityViolation] Extraction has not succeeded; there are no published outputs to commit.");
+            return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+
+        // Close the transaction-owned rollback handles WITHOUT deleting the
+        // files.  After commit the extracted artifacts are owned by the
+        // caller/workspace, and keeping write+delete handles open would lock
+        // them out of normal read access.
+        for (auto& artifact : record->published_artifacts)
+        {
+            if (artifact.rollback_handle != nullptr && artifact.rollback_handle != INVALID_HANDLE_VALUE)
+            {
+                CloseHandle(static_cast<HANDLE>(artifact.rollback_handle));
+                artifact.rollback_handle = nullptr;
+            }
+        }
+        record->published_artifacts.clear();
+        record->committed = true;
+        return LPB_RESULT_OK;
+    }
+    catch (...)
+    {
+        set_error(context, "[InternalError] Native extraction output commit failed unexpectedly.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
 }

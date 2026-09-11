@@ -612,7 +612,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 ImageContainer = bundle.PrimaryImage.ImageContainer,
                 ImageCodec = bundle.PrimaryImage.ImageCodec,
                 ByteLength = new FileInfo(cleanImgPath).Length,
-                Sha256 = await workspace.ComputeFileSha256Async(cleanImgPath, cancellationToken).ConfigureAwait(false)
+                Sha256 = await workspace.ComputeFileSha256Async(cleanImgPath, cancellationToken).ConfigureAwait(false),
+                FileIdentity = WindowsFileIdentity.Capture(cleanImgPath)
             };
 
             MediaArtifact? cleanVidArtifact = null;
@@ -626,7 +627,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     VideoContainer = bundle.MotionVideo.VideoContainer,
                     VideoCodec = bundle.MotionVideo.VideoCodec,
                     ByteLength = new FileInfo(cleanVidPath).Length,
-                    Sha256 = await workspace.ComputeFileSha256Async(cleanVidPath, cancellationToken).ConfigureAwait(false)
+                    Sha256 = await workspace.ComputeFileSha256Async(cleanVidPath, cancellationToken).ConfigureAwait(false),
+                    FileIdentity = WindowsFileIdentity.Capture(cleanVidPath)
                 };
             }
 
@@ -825,7 +827,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             }
         }
 
-        using var fs = File.OpenRead(artifact.Path);
+        using var fs = new FileStream(artifact.Path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         using var sha = SHA256.Create();
         byte[] hash = await sha.ComputeHashAsync(fs, cancellationToken).ConfigureAwait(false);
         string actualSha = Convert.ToHexString(hash);
@@ -936,7 +938,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         {
             Path = cleanImgPath,
             ByteLength = new FileInfo(cleanImgPath).Length,
-            Sha256 = await workspace.ComputeFileSha256Async(cleanImgPath, cancellationToken).ConfigureAwait(false)
+            Sha256 = await workspace.ComputeFileSha256Async(cleanImgPath, cancellationToken).ConfigureAwait(false),
+            FileIdentity = WindowsFileIdentity.Capture(cleanImgPath)
         };
 
         MediaArtifact? cleanVidArtifact = null;
@@ -946,7 +949,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             {
                 Path = cleanVidPath,
                 ByteLength = new FileInfo(cleanVidPath).Length,
-                Sha256 = await workspace.ComputeFileSha256Async(cleanVidPath, cancellationToken).ConfigureAwait(false)
+                Sha256 = await workspace.ComputeFileSha256Async(cleanVidPath, cancellationToken).ConfigureAwait(false),
+                FileIdentity = WindowsFileIdentity.Capture(cleanVidPath)
             };
         }
 

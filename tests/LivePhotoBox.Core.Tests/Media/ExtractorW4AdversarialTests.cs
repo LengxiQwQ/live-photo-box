@@ -739,12 +739,25 @@ public sealed class ExtractorW4AdversarialTests
                 PrimaryOutputPath is { } primaryOutput &&
                 File.Exists(primaryOutput))
             {
-                // Native has returned and closed its output handle.  Delete
-                // the old object and create a foreign replacement at the
-                // same path before managed post-native validation finishes.
-                byte[] replacement = _replaceWithSameBytes
-                    ? await File.ReadAllBytesAsync(primaryOutput, cancellationToken)
-                    : Sentinel;
+                // Native has returned but the transaction rollback handle still
+                // holds write+delete access on the published artifact.  Read
+                // with a compatible share mode, then delete the old object and
+                // create a foreign replacement at the same path before managed
+                // post-native validation finishes.
+                byte[] replacement;
+                if (_replaceWithSameBytes)
+                {
+                    using var readStream = new FileStream(
+                        primaryOutput, FileMode.Open, FileAccess.Read,
+                        FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true);
+                    using var ms = new MemoryStream();
+                    await readStream.CopyToAsync(ms, cancellationToken).ConfigureAwait(false);
+                    replacement = ms.ToArray();
+                }
+                else
+                {
+                    replacement = Sentinel;
+                }
                 OriginalPublishedSha256 = await _inner.ComputeFileSha256Async(primaryOutput, cancellationToken);
                 File.Delete(primaryOutput);
                 await File.WriteAllBytesAsync(primaryOutput, replacement, cancellationToken);

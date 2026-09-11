@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -366,6 +366,7 @@ internal static class TestFactsExtractor
                     ImageCodec = facts.PrimaryImage.Container == ImageContainer.Heic ? ImageCodec.Hevc : ImageCodec.Jpeg,
                     ByteLength = new FileInfo(cleanupSourcePath).Length,
                     SourceOffset = 0,
+                    FileIdentity = WindowsFileIdentity.Capture(cleanupSourcePath),
                     Sha256 = cleanupSourceSha256
                 };
             }
@@ -379,6 +380,7 @@ internal static class TestFactsExtractor
                 ImageCodec = facts.PrimaryImage.Container == ImageContainer.Heic ? ImageCodec.Hevc : ImageCodec.Jpeg,
                 ByteLength = new FileInfo(outputImagePath).Length,
                 SourceOffset = facts.PrimaryImage.ByteOffset,
+                FileIdentity = WindowsFileIdentity.Capture(outputImagePath),
                 Sha256 = await workspace.ComputeFileSha256Async(outputImagePath, cancellationToken).ConfigureAwait(false)
             };
 
@@ -394,6 +396,7 @@ internal static class TestFactsExtractor
                     VideoCodec = facts.MotionVideo.Codec,
                     ByteLength = new FileInfo(outputVideoPath).Length,
                     SourceOffset = facts.MotionVideo.ByteOffset,
+                    FileIdentity = WindowsFileIdentity.Capture(outputVideoPath),
                     Sha256 = await workspace.ComputeFileSha256Async(outputVideoPath, cancellationToken).ConfigureAwait(false)
                 };
             }
@@ -410,6 +413,7 @@ internal static class TestFactsExtractor
                     ImageCodec = facts.GainMap.Container == ImageContainer.Heic ? ImageCodec.Hevc : ImageCodec.Jpeg,
                     ByteLength = new FileInfo(outputGainmapPath).Length,
                     SourceOffset = facts.GainMap.ByteOffset,
+                    FileIdentity = WindowsFileIdentity.Capture(outputGainmapPath),
                     Sha256 = await workspace.ComputeFileSha256Async(outputGainmapPath, cancellationToken).ConfigureAwait(false)
                 };
             }

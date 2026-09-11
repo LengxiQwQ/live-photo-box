@@ -33,7 +33,7 @@ public sealed class MediaWorkspace : IMediaWorkspace
         if (!File.Exists(filePath))
             throw new FileNotFoundException("File not found for SHA256 computation.", filePath);
 
-        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 64 * 1024, useAsync: true);
+        using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 64 * 1024, useAsync: true);
         byte[] hash = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
         return Convert.ToHexString(hash);
     }

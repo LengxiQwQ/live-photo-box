@@ -707,6 +707,21 @@ public sealed class SourceExtractor : ISourceExtractor
                 });
             }
 
+            // All managed verification passed. Commit the Native transaction:
+            // this closes the rollback handles so the output files are no
+            // longer locked with write+delete access and can be read normally
+            // by the caller. After commit the artifacts are owned by the
+            // caller/workspace, so a later exception must not roll them back.
+            NativeResult commitResult = NativeMethods.CommitExtractionOutputs(
+                attempt.ContextLease.Handle,
+                attempt.NativeHandle,
+                attempt.Generation);
+            if (commitResult != NativeResult.Ok)
+            {
+                attempt.Context.ThrowIfFailed(commitResult);
+            }
+            nativeExtractionSucceeded = false;
+
             return new ExtractedMediaBundle
             {
                 PrimaryImage = primaryArtifact,

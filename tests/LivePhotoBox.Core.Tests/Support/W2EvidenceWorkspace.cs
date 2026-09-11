@@ -60,7 +60,7 @@ internal sealed class W2EvidenceWorkspace : IMediaWorkspace
             filePath,
             FileMode.Open,
             FileAccess.Read,
-            FileShare.ReadWrite,
+            FileShare.ReadWrite | FileShare.Delete,
             64 * 1024,
             useAsync: true);
         byte[] hash = await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -202,7 +202,7 @@ internal static class NativeCleanService
                     pCleanupSourceTarget = &cleanupSourceBuf;
                 }
 
-                Span<NativeRemovedProtocolFact> factsBuf = stackalloc NativeRemovedProtocolFact[64];
+                Span<NativeRemovedProtocolFact> factsBuf = stackalloc NativeRemovedProtocolFact[256];
                 fixed (NativeCleanupAction* pActions = actionsBuf)
                 fixed (NativeCleanupArtifactBinding* pTargets = targetsBuf)
                 fixed (NativeRemovedProtocolFact* pFacts = factsBuf)

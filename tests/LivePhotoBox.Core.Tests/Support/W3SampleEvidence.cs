@@ -45,7 +45,7 @@ internal static class W3SampleEvidence
             path,
             FileMode.Open,
             FileAccess.Read,
-            FileShare.ReadWrite,
+            FileShare.ReadWrite | FileShare.Delete,
             64 * 1024,
             useAsync: true);
         return Convert.ToHexString(await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false));

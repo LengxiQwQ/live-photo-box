@@ -715,6 +715,14 @@ LPB_API lpb_result LPB_CALL lpb_verify_extraction_outputs(
     lpb_extraction_plan* plan,
     uint64_t generation);
 
+/* Commits a successfully verified extraction.  Commit closes the
+ * transaction-owned rollback handles without deleting the published files;
+ * after this call the caller owns the output artifacts. */
+LPB_API lpb_result LPB_CALL lpb_commit_extraction_outputs(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    uint64_t generation);
+
 #if defined(LPB_NATIVE_TEST_HARNESS)
 /* Test-harness-only resource accounting. These declarations are intentionally
    absent from production builds and are never part of the production export

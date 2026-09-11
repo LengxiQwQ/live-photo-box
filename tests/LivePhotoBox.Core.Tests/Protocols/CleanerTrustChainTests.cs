@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers.Binary;
 using System.IO;
 using System.Security.Cryptography;
@@ -865,7 +865,8 @@ public sealed class CleanerTrustChainTests
             {
                 Path = tamperedImgPath,
                 Sha256 = tamperedSha,
-                ByteLength = tamperedBytes.Length
+                ByteLength = tamperedBytes.Length,
+                FileIdentity = null
             }
         };
 
@@ -989,7 +990,8 @@ public sealed class CleanerTrustChainTests
             {
                 Path = tamperedImgPath,
                 Sha256 = tamperedSha,
-                ByteLength = tamperedBytes.Length
+                ByteLength = tamperedBytes.Length,
+                FileIdentity = null
             }
         };
 

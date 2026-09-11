@@ -2,6 +2,8 @@
 # Git post-commit hook for Live Photo Box (Project Scoped & Completely Silent)
 # Runs only when a git commit is made inside this repository.
 
-powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File scripts/package-project.ps1 -OnlyIfChanged >/dev/null 2>&1 &
+# Use the Windows launcher so the packaging process is detached and never opens
+# a foreground PowerShell console when the hook is triggered by a GUI client.
+cmd.exe /d /c start "" /b powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "scripts/package-project.ps1" -OnlyIfChanged >/dev/null 2>&1
 
 exit 0

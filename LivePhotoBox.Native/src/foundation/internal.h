@@ -88,6 +88,7 @@ struct lpb_extraction_plan_record
     bool extraction_succeeded{};
     bool rollback_active{};
     bool rollback_completed{};
+    bool committed{};
     bool cleanup_authority_issued{};
     lpb_plan_state state{lpb_plan_state::Issued};
     bool managed_claim_active{};
@@ -170,6 +171,12 @@ lpb_result begin_plan_native_call(
 void finish_plan_attempt(
     lpb_context* context,
     uint64_t token) noexcept;
+
+/* Closes transaction-owned output handles without touching the files.  This
+ * is used by release/context teardown safety paths when commit or rollback
+ * was not reached. */
+void close_published_artifact_handles(
+    lpb_extraction_plan_record& record) noexcept;
 
 #if defined(LPB_NATIVE_TEST_HARNESS)
 uint64_t test_context_id(const lpb_context* context) noexcept;

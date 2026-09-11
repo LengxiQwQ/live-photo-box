@@ -41,4 +41,9 @@ lpb_result verify_extraction_outputs_with_plan(
     lpb_extraction_plan* plan,
     uint64_t generation) noexcept;
 
+lpb_result commit_extraction_outputs_with_plan(
+    lpb_context* context,
+    lpb_extraction_plan* plan,
+    uint64_t generation) noexcept;
+
 } // namespace lpb::media

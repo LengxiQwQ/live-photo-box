@@ -202,6 +202,18 @@ lpb_result begin_plan_native_call(
     }
 }
 
+void close_published_artifact_handles(lpb_extraction_plan_record& record) noexcept
+{
+    for (auto& artifact : record.published_artifacts)
+    {
+        if (artifact.rollback_handle != nullptr && artifact.rollback_handle != INVALID_HANDLE_VALUE)
+        {
+            (void)CloseHandle(static_cast<HANDLE>(artifact.rollback_handle));
+            artifact.rollback_handle = nullptr;
+        }
+    }
+}
+
 void finish_plan_attempt(lpb_context* context, uint64_t token) noexcept
 {
     if (context == nullptr || token == 0)
@@ -234,6 +246,7 @@ void finish_plan_attempt(lpb_context* context, uint64_t token) noexcept
         }
         else if (record->state == lpb_plan_state::ReleaseRequested)
         {
+            close_published_artifact_handles(*record);
             record->managed_claim_active = false;
             record->state = lpb_plan_state::Released;
 #if defined(LPB_NATIVE_TEST_HARNESS)
@@ -541,6 +554,14 @@ void LPB_CALL lpb_destroy_context(lpb_context* context)
         context->lifetime_cv.wait(lock, [context] {
             return context->active_operations == 0;
         });
+    }
+
+    {
+        std::scoped_lock lock(context->plan_mutex);
+        for (auto& record : context->extraction_plans)
+        {
+            close_published_artifact_handles(record);
+        }
     }
 
 #if defined(LPB_NATIVE_TEST_HARNESS)

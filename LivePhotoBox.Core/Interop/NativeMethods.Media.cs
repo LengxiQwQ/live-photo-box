@@ -119,6 +119,14 @@ internal static partial class NativeMethods
         nint extractionPlan,
         ulong generation);
 
+    [LibraryImport(LibraryName, EntryPoint = "lpb_commit_extraction_outputs")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult CommitExtractionOutputs(
+        nint context,
+        nint extractionPlan,
+        ulong generation);
+
     [LibraryImport(LibraryName, EntryPoint = "lpb_probe_video", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
