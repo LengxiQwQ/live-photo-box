@@ -68,7 +68,6 @@ namespace LivePhotoBox.Views
         // EditPage 现在使用全宽编辑工作区；资源浏览基础设施保留在隐藏节点中。
         private bool _isLeftPanelCollapsed = true;
         private bool _isTimelineModeReady;
-        private const double LeftPanelExpandedWidth = 320;
         private const double LeftPanelCollapsedWidth = 0;
 
         /// <summary>上次成功触发扫描的目录路径（路径未变时跳过 LostFocus 重复扫描）</summary>

@@ -92,7 +92,7 @@ namespace LivePhotoBox.ViewModels
 
         public override string? PageStatusTag => null;
 
-        /// <summary>页面卸载时清理 exiftool 进程</summary>
+        /// <summary>页面卸载时清理资源与任务</summary>
         public void Cleanup()
         {
             _propLoadCts?.Cancel();
@@ -102,12 +102,13 @@ namespace LivePhotoBox.ViewModels
             _exportCts?.Dispose();
             _completionCts?.Cancel();
             _completionCts?.Dispose();
-            DisposeExifTool();
             CleanupFrameTempFiles();
             CleanupTempVideo();
             _previewCache.Clear();
             _previewCacheOrder.Clear();
             ThumbnailScheduler.Reset();
+            CurrentDocument = null;
+            SessionState = EditSessionState.Closed;
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -233,7 +234,6 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(CanPlayLivePhoto));
             OnPropertyChanged(nameof(CanExportCurrentFrame));
             OnPropertyChanged(nameof(CanExportMultiFrame));
-            ConvertProtocolCommand.NotifyCanExecuteChanged();
         }
 
         [RelayCommand]
@@ -285,48 +285,218 @@ namespace LivePhotoBox.ViewModels
         }
 
         /// <summary>判断文件是否为视频（.mov / .mp4）</summary>
-        /// <summary>在字节数组中搜索子序列</summary>
-        private static bool ContainsBytes(byte[] data, ReadOnlySpan<byte> pattern)
-        {
-            if (pattern.Length == 0) return false;
-            for (int i = 0; i <= data.Length - pattern.Length; i++)
-            {
-                int j;
-                for (j = 0; j < pattern.Length; j++)
-                    if (data[i + j] != pattern[j]) break;
-                if (j == pattern.Length) return true;
-            }
-            return false;
-        }
-
         private static bool IsVideoExtension(string path) =>
             path.EndsWith(".mov", StringComparison.OrdinalIgnoreCase) ||
             path.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase);
 
         // ══════════════════════════════════════════════════════════════
-        //  选中文件信息（右下角信息面板绑定）
+        //  当前文档领域模型（EP1 引入：统一承载当前正在查看/编辑的媒体事实）
         // ══════════════════════════════════════════════════════════════
 
-        [ObservableProperty] private string _photoFileName = string.Empty;
-        [ObservableProperty] private string _fullPhotoFileName = string.Empty;
-        [ObservableProperty] private string _photoInfoLine = string.Empty;
-        [ObservableProperty] private string _videoInfoLine = string.Empty;
-        [ObservableProperty] private string _protocolLine = string.Empty;
+        [ObservableProperty]
+        private EditDocument? _currentDocument;
 
-        [ObservableProperty] private string _exifCamera = string.Empty;
+        /// <summary>当前是否有有效编辑文档打开</summary>
+        public bool HasDocument => CurrentDocument != null;
+
+        /// <summary>当前编辑会话生命周期状态</summary>
+        [ObservableProperty]
+        private EditSessionState _sessionState = EditSessionState.Closed;
+
+        partial void OnCurrentDocumentChanged(EditDocument? value)
+        {
+            OnPropertyChanged(nameof(HasDocument));
+            OnPropertyChanged(nameof(IsSelectedFileVideo));
+            OnPropertyChanged(nameof(IsSelectedLivePhoto));
+            OnPropertyChanged(nameof(IsSelectedPairIncomplete));
+            OnPropertyChanged(nameof(IsPhotoRowVisible));
+            OnPropertyChanged(nameof(IsVideoRowVisible));
+            OnPropertyChanged(nameof(CanPlayLivePhoto));
+            OnPropertyChanged(nameof(CanExportCurrentFrame));
+            OnPropertyChanged(nameof(CanExportMultiFrame));
+            OnPropertyChanged(nameof(ProtocolIconBrush));
+            OnPropertyChanged(nameof(IsTimelineTabDisabled));
+            OnPropertyChanged(nameof(PhotoFileName));
+            OnPropertyChanged(nameof(FullPhotoFileName));
+            OnPropertyChanged(nameof(PhotoInfoLine));
+            OnPropertyChanged(nameof(VideoInfoLine));
+            OnPropertyChanged(nameof(ProtocolLine));
+            OnPropertyChanged(nameof(TimelineInfo));
+            OnPropertyChanged(nameof(FpsDisplayText));
+            OnPropertyChanged(nameof(ExifCamera));
+            OnPropertyChanged(nameof(ExifCameraDateSuffix));
+            OnPropertyChanged(nameof(ExifLensParams));
+            OnPropertyChanged(nameof(ExifShootingParams));
+            OnPropertyChanged(nameof(ExifPlaceName));
+        }
+
+        partial void OnSessionStateChanged(EditSessionState value)
+        {
+            OnPropertyChanged(nameof(PhotoInfoLine));
+            OnPropertyChanged(nameof(VideoInfoLine));
+            OnPropertyChanged(nameof(ProtocolLine));
+            OnPropertyChanged(nameof(TimelineInfo));
+            OnPropertyChanged(nameof(FpsDisplayText));
+            OnPropertyChanged(nameof(ExifCamera));
+            OnPropertyChanged(nameof(ExifCameraDateSuffix));
+            OnPropertyChanged(nameof(ExifLensParams));
+            OnPropertyChanged(nameof(ExifShootingParams));
+            OnPropertyChanged(nameof(ExifPlaceName));
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        //  选中文件信息（右下角信息面板绑定，从 CurrentDocument 派生展示）
+        // ══════════════════════════════════════════════════════════════
+
+        /// <summary>格式化展示文件名（带省略号，双文件带双后缀）</summary>
+        public string PhotoFileName
+        {
+            get
+            {
+                if (CurrentDocument == null || string.IsNullOrEmpty(CurrentDocument.PrimaryPath))
+                    return string.Empty;
+                string fileName = Path.GetFileName(CurrentDocument.PrimaryPath);
+                bool isDual = CurrentDocument.LivePhotoType == LivePhotoType.DualFile;
+                string? vidExt = !string.IsNullOrEmpty(CurrentDocument.MotionPath)
+                    ? Path.GetExtension(CurrentDocument.MotionPath)
+                    : null;
+                return EditFileItem.FormatDisplayFileName(fileName, isDual, vidExt);
+            }
+        }
+
+        /// <summary>完整展示文件名（不截断，供 AdaptiveFileName 自适应计算）</summary>
+        public string FullPhotoFileName
+        {
+            get
+            {
+                if (CurrentDocument == null || string.IsNullOrEmpty(CurrentDocument.PrimaryPath))
+                    return string.Empty;
+                string fileName = Path.GetFileName(CurrentDocument.PrimaryPath);
+                bool isDual = CurrentDocument.LivePhotoType == LivePhotoType.DualFile;
+                string? vidExt = !string.IsNullOrEmpty(CurrentDocument.MotionPath)
+                    ? Path.GetExtension(CurrentDocument.MotionPath)
+                    : null;
+                return EditFileItem.FormatFullDisplayFileName(fileName, isDual, vidExt);
+            }
+        }
+
+        /// <summary>照片基础信息行（分辨率 │ 文件大小 │ 格式）</summary>
+        public string PhotoInfoLine
+        {
+            get
+            {
+                if (CurrentDocument == null || SessionState != EditSessionState.Ready || IsSelectedFileVideo)
+                    return string.Empty;
+
+                string resolution = (CurrentDocument.Width > 0 && CurrentDocument.Height > 0)
+                    ? $"{CurrentDocument.Width} × {CurrentDocument.Height}"
+                    : string.Empty;
+
+                string extension = Path.GetExtension(CurrentDocument.PrimaryPath).TrimStart('.').ToUpperInvariant();
+                string sizeDisplay = GetPhotoSizeDisplay(CurrentDocument);
+
+                return string.IsNullOrEmpty(resolution)
+                    ? $"{sizeDisplay}  │  {extension}"
+                    : $"{resolution}  │  {sizeDisplay}  │  {extension}";
+            }
+        }
+
+        /// <summary>视频基础信息行（分辨率 │ 文件大小 │ 编码 │ 时长）</summary>
+        public string VideoInfoLine
+        {
+            get
+            {
+                if (CurrentDocument == null || SessionState != EditSessionState.Ready)
+                    return string.Empty;
+
+                if (!IsVideoRowVisible)
+                    return string.Empty;
+
+                var parts = new List<string>();
+
+                uint vWidth = CurrentDocument.VideoWidth > 0 ? CurrentDocument.VideoWidth : (IsSelectedFileVideo ? CurrentDocument.Width : 0);
+                uint vHeight = CurrentDocument.VideoHeight > 0 ? CurrentDocument.VideoHeight : (IsSelectedFileVideo ? CurrentDocument.Height : 0);
+                if (vWidth > 0 && vHeight > 0)
+                    parts.Add($"{vWidth} × {vHeight}");
+
+                long videoBytes = CurrentDocument.MotionVideoByteLength;
+                if (videoBytes <= 0)
+                {
+                    string? videoPath = CurrentDocument.MotionPath ?? (IsSelectedFileVideo ? CurrentDocument.PrimaryPath : null);
+                    if (!string.IsNullOrEmpty(videoPath) && File.Exists(videoPath))
+                    {
+                        try { videoBytes = new FileInfo(videoPath).Length; } catch { }
+                    }
+                }
+                if (videoBytes > 0)
+                    parts.Add(FileSizeFormatter.Format(videoBytes));
+
+                if (CurrentDocument.VideoCodec != VideoCodec.Unknown)
+                {
+                    parts.Add(CurrentDocument.VideoCodec switch
+                    {
+                        VideoCodec.H264 => "H.264",
+                        VideoCodec.Hevc => "H.265",
+                        _ => CurrentDocument.VideoCodec.ToString()
+                    });
+                }
+
+                if (CurrentDocument.DurationSeconds > 0)
+                    parts.Add($"{CurrentDocument.DurationSeconds:F2}s");
+
+                return string.Join("  │  ", parts);
+            }
+        }
+
+        /// <summary>实况协议行文本</summary>
+        public string ProtocolLine =>
+            CurrentDocument != null && SessionState == EditSessionState.Ready
+                ? GetRebuiltProtocolName(CurrentDocument.SourceProtocol)
+                : string.Empty;
+
+        /// <summary>EXIF 相机/设备型号</summary>
+        public string ExifCamera =>
+            CurrentDocument != null && SessionState == EditSessionState.Ready
+                ? (!string.IsNullOrEmpty(CurrentDocument.Metadata.CameraModel)
+                    ? CurrentDocument.Metadata.CameraModel
+                    : ResourceService.GetString("EditPage_UnknownDevice"))
+                : string.Empty;
+
         /// <summary>设备名后的日期后缀（如 " — 2025/12/12 16:44"），与 ExifCamera 同行显示</summary>
-        [ObservableProperty] private string _exifCameraDateSuffix = string.Empty;
-        [ObservableProperty] private string _exifLensParams = string.Empty;
-        [ObservableProperty] private string _exifShootingParams = string.Empty;
-        // 手写属性：XAML 编译器对 [ObservableProperty] 新加属性不稳定，手动实现
-        private string _exifPlaceName = string.Empty;
-        public string ExifPlaceName { get => _exifPlaceName; set { if (SetProperty(ref _exifPlaceName, value)) OnPropertyChanged(nameof(ExifPlaceName)); } }
+        public string ExifCameraDateSuffix =>
+            CurrentDocument != null && SessionState == EditSessionState.Ready && CurrentDocument.Metadata.DateTaken.HasValue
+                ? $" — {CurrentDocument.Metadata.DateTaken.Value:yyyy/MM/dd HH:mm}"
+                : string.Empty;
 
-        [ObservableProperty] private string _timelineInfo = string.Empty;
+        /// <summary>EXIF 镜头参数</summary>
+        public string ExifLensParams =>
+            CurrentDocument != null && SessionState == EditSessionState.Ready
+                ? CurrentDocument.Metadata.LensModel
+                : string.Empty;
 
+        /// <summary>EXIF 曝光拍摄参数</summary>
+        public string ExifShootingParams =>
+            CurrentDocument != null && SessionState == EditSessionState.Ready
+                ? CurrentDocument.Metadata.ShootingParams
+                : string.Empty;
 
-        /// <summary>FPS 显示文本，如 "30fps"</summary>
-        [ObservableProperty] private string _fpsDisplayText = string.Empty;
+        /// <summary>EXIF 地理位置城市名</summary>
+        public string ExifPlaceName =>
+            CurrentDocument != null && SessionState == EditSessionState.Ready
+                ? CurrentDocument.Metadata.PlaceName
+                : string.Empty;
+
+        /// <summary>时间轴时长信息文本（如 "2.98s"）</summary>
+        public string TimelineInfo =>
+            CurrentDocument != null && SessionState == EditSessionState.Ready && CurrentDocument.DurationSeconds > 0
+                ? $"{CurrentDocument.DurationSeconds:F2}s"
+                : string.Empty;
+
+        /// <summary>FPS 显示文本，如 "30.00fps"</summary>
+        public string FpsDisplayText =>
+            CurrentDocument != null && SessionState == EditSessionState.Ready && CurrentDocument.FrameRate > 0
+                ? ResourceService.Format("EditPage_TimelineFps", CurrentDocument.FrameRate.ToString("F2"))
+                : string.Empty;
 
         /// <summary>当前帧位置文本，如 "第12帧 / 共89帧" / "Frame 12 of 89"</summary>
         [ObservableProperty] private string _currentFramePositionText = string.Empty;
@@ -602,8 +772,6 @@ namespace LivePhotoBox.ViewModels
         private readonly List<string> _previewCacheOrder = new();  // 插入顺序，用于淘汰
         private const int MaxPreviewCacheSize = 3;
 
-        public int TimelineThumbnailCount => 14;
-
         /// <summary>当前选中的时间轴帧（双向绑定到 ListView.SelectedItem）</summary>
         [ObservableProperty]
         private TimelineFrame? _selectedTimelineFrame;
@@ -628,20 +796,9 @@ namespace LivePhotoBox.ViewModels
         public bool IsGoToOriginalPhotoEnabled =>
             SelectedTimelineFrame != null && !SelectedTimelineFrame.IsOriginalPhoto;
 
-        /// <summary>当前选中的文件是否为"半死不活"的实况照片（有协议但缺配对文件）</summary>
-        public bool IsSelectedPairIncomplete
-        {
-            get
-            {
-                var item = FileItems.FirstOrDefault(f =>
-                    string.Equals(f.FilePath, SelectedFilePath, StringComparison.OrdinalIgnoreCase));
-                return item != null
-                    && item.HasConfirmedProtocol
-                    && item.LivePhotoType == LivePhotoType.DualFile
-                    && (string.IsNullOrEmpty(item.PairedVideoPath)
-                        || !File.Exists(item.PairedVideoPath));
-            }
-        }
+        /// <summary>当前选中的文件是否为缺失配对文件的实况照片（从 CurrentDocument 派生）</summary>
+        public bool IsSelectedPairIncomplete =>
+            CurrentDocument?.PairState == EditPairState.MissingVideo;
 
         /// <summary>不完整实况 → 禁用"组合查看"和"实况照片帧"标签页</summary>
         public bool IsTimelineTabDisabled => IsSelectedPairIncomplete;
@@ -651,9 +808,6 @@ namespace LivePhotoBox.ViewModels
             IsSelectedLivePhoto && !IsSelectedPairIncomplete
                 ? (SolidColorBrush)Application.Current.Resources["AccentFillColorDefaultBrush"]
                 : new SolidColorBrush(Color.FromArgb(255, 239, 68, 68));
-
-        /// <summary>ConvertProtocol 守卫：配对缺失的实况照片不允许转换协议</summary>
-        private bool CanConvertProtocol() => IsSelectedLivePhoto && !IsSelectedPairIncomplete;
 
         /// <summary>能否播放实况：仅完全实况照片（照片+视频配对齐全）才显示播放按钮</summary>
         public bool CanPlayLivePhoto =>
@@ -752,14 +906,6 @@ namespace LivePhotoBox.ViewModels
         //  时间轴行为控制（动画 / 惯性 / 帧导航）
         // ══════════════════════════════════════════════════════════════
 
-        /// <summary>时间轴滑动动画开关（关闭时硬切跳转，无过渡）</summary>
-        [ObservableProperty]
-        private bool _isTimelineAnimationEnabled = true;
-
-        /// <summary>时间轴滚动惯性开关（关闭时松手即停，无惯性滑行）</summary>
-        [ObservableProperty]
-        private bool _isTimelineInertiaEnabled = true;
-
         /// <summary>
         /// 当前选中的关键帧（别名，对应需求中的 CurrentKeyFrame）。
         /// 与 SelectedTimelineFrame 指向同一对象，供外部以明确语义访问。
@@ -768,30 +914,6 @@ namespace LivePhotoBox.ViewModels
         {
             get => SelectedTimelineFrame;
             set => SelectedTimelineFrame = value;
-        }
-
-        /// <summary>切换到上一帧（时间轴中心吸附后自动同步 CurrentKeyFrame）</summary>
-        [RelayCommand]
-        private void GoToPreviousFrame()
-        {
-            if (TimelineFrames.Count == 0) return;
-            int idx = SelectedTimelineFrame != null
-                ? TimelineFrames.IndexOf(SelectedTimelineFrame)
-                : 0;
-            if (idx > 0)
-                SelectTimelineFrameProgrammatically(TimelineFrames[idx - 1]);
-        }
-
-        /// <summary>切换到下一帧（时间轴中心吸附后自动同步 CurrentKeyFrame）</summary>
-        [RelayCommand]
-        private void GoToNextFrame()
-        {
-            if (TimelineFrames.Count == 0) return;
-            int idx = SelectedTimelineFrame != null
-                ? TimelineFrames.IndexOf(SelectedTimelineFrame)
-                : -1;
-            if (idx >= 0 && idx < TimelineFrames.Count - 1)
-                SelectTimelineFrameProgrammatically(TimelineFrames[idx + 1]);
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -863,8 +985,6 @@ namespace LivePhotoBox.ViewModels
             SelectedTimelineFrame = frame;
         }
 
-        [ObservableProperty] private bool _isModified;
-
         /// <summary>大图预览的图片源（PhotoViewer 绑定）。通用 ImageSource 类型，不限定 BitmapImage</summary>
         [ObservableProperty]
         private ImageSource? _previewImageSource;
@@ -901,47 +1021,14 @@ namespace LivePhotoBox.ViewModels
         /// <summary>是否已加载过目录（_allFileItems 有数据），用于区分"未选择目录"和"筛选结果为空"</summary>
         public bool HasFilesLoaded => _allFileItems.Count > 0;
 
-        /// <summary>选中文件是否为独立视频（控制信息面板照片行可见性）</summary>
-        private bool _isSelectedFileVideo;
-        public bool IsSelectedFileVideo
-        {
-            get => _isSelectedFileVideo;
-            set
-            {
-                if (SetProperty(ref _isSelectedFileVideo, value))
-                {
-                    OnPropertyChanged(nameof(IsSelectedFileVideo));
-                    OnPropertyChanged(nameof(IsPhotoRowVisible));
-                    OnPropertyChanged(nameof(IsVideoRowVisible));
-                    OnPropertyChanged(nameof(CanExportCurrentFrame));
-                    OnPropertyChanged(nameof(CanExportMultiFrame));
-                    OnPropertyChanged(nameof(CanPlayLivePhoto));
-                }
-            }
-        }
+        /// <summary>选中文件是否为独立视频（从 CurrentDocument 派生）</summary>
+        public bool IsSelectedFileVideo => CurrentDocument?.MediaKind == EditMediaKind.Video;
 
         /// <summary>照片信息行可见（非视频文件时显示）</summary>
         public bool IsPhotoRowVisible => !IsSelectedFileVideo;
 
-        /// <summary>选中文件是否为已确认协议的实况照片</summary>
-        private bool _isSelectedLivePhoto;
-        public bool IsSelectedLivePhoto
-        {
-            get => _isSelectedLivePhoto;
-            set
-            {
-                if (SetProperty(ref _isSelectedLivePhoto, value))
-                {
-                    OnPropertyChanged(nameof(IsSelectedLivePhoto));
-                    OnPropertyChanged(nameof(IsVideoRowVisible));
-                    OnPropertyChanged(nameof(CanExportCurrentFrame));
-                    OnPropertyChanged(nameof(CanExportMultiFrame));
-                    OnPropertyChanged(nameof(CanPlayLivePhoto));
-                    OnPropertyChanged(nameof(ProtocolIconBrush));
-                    ConvertProtocolCommand.NotifyCanExecuteChanged();
-                }
-            }
-        }
+        /// <summary>选中文件是否为已确认协议的实况照片（从 CurrentDocument 派生）</summary>
+        public bool IsSelectedLivePhoto => CurrentDocument?.IsLivePhoto == true;
 
         /// <summary>静音状态（跨文件选择 + 跨会话持久保持，写入 AppSettings）</summary>
         private bool _isMuted;
@@ -1048,7 +1135,7 @@ namespace LivePhotoBox.ViewModels
                 FinalizeExportProgress();
             }
         }
-        [RelayCommand] private void Export() { }
+
         /// <summary>
         /// 导出当前帧：弹出多格式另存为窗口，用户选格式后按需转换。
         /// 支持 JPEG / WebP / BMP / TIFF / HEIC。
@@ -1969,9 +2056,6 @@ namespace LivePhotoBox.ViewModels
         //  GIF 导出
         // ══════════════════════════════════════════════════════════════
 
-        private sealed record GifOptions(
-            int Fps, int Width, int Height, bool UseOriginalSize, int LoopCount, string OutputPath);
-
         [RelayCommand]
         private Task ExportGif()
         {
@@ -2065,9 +2149,6 @@ namespace LivePhotoBox.ViewModels
             return Path.Combine(parentDir, $"{baseName} ({Guid.NewGuid():N})");
         }
 
-        [RelayCommand(CanExecute = nameof(CanConvertProtocol))]
-        private void ConvertProtocol() { }
-
         /// <summary>
         /// 前往封面：滚动到星标帧（IsStillPhoto=true）。
         /// 复用首次加载实况照片时的程序化选中 + 滚动吸附管线。
@@ -2100,8 +2181,6 @@ namespace LivePhotoBox.ViewModels
 
         /// <summary>时间轴中是否存在原始封面帧 🖼（OPPO 换过封面时）</summary>
         public bool HasOriginalPhotoFrame => TimelineFrames.Any(f => f.IsOriginalPhoto);
-
-        [RelayCommand] private void BrowseFolder() { }
 
 
         // ══════════════════════════════════════════════════════════════
@@ -2149,14 +2228,17 @@ namespace LivePhotoBox.ViewModels
             if (string.IsNullOrEmpty(filePath) || !File.Exists(filePath))
             {
                 ClearFileInfo();
+                CurrentDocument = null;
+                SessionState = EditSessionState.Closed;
                 return;
             }
 
-            // 判断文件类型（先记住上一个文件是否为实况，用于时间轴清除判断）
+            SessionState = EditSessionState.Loading;
+
+            // 记住上一个文件是否为实况，用于时间轴清除判断
             bool wasLivePhoto = IsSelectedLivePhoto;
             var fileExt = Path.GetExtension(filePath);
-            IsSelectedFileVideo = SupportedVideoExtensions.Contains(fileExt);
-            IsSelectedLivePhoto = false; // 默认，下面从 item 读取
+            bool isVideo = SupportedVideoExtensions.Contains(fileExt);
 
             // 先从 FileItems 找基础信息（只保留必要即时反馈，详情等异步加载一起刷新）
             // 取消旧的缩略图监听，避免前一张图异步完成后覆盖新图的属性面板缩略图
@@ -2168,11 +2250,18 @@ namespace LivePhotoBox.ViewModels
 
             var item = FileItems.FirstOrDefault(f =>
                 string.Equals(f.FilePath, filePath, StringComparison.OrdinalIgnoreCase));
-            if (item != null)
+
+            // 建立初始 EditDocument 领域事实，使 CurrentDocument 成为单一权威数据源
+            EditDocument initialDoc;
+            if (isVideo)
+            {
+                initialDoc = EditDocument.FromVideo(filePath);
+            }
+            else if (item != null && item.HasConfirmedProtocol)
             {
                 // 双文件实况：校验配对视频是否仍存在，若丢失则记录日志但不降级
                 // —— 属性面板会显示协议名 + "(未找到配对视频)"，LIVE 徽标保持显示
-                if (item.HasConfirmedProtocol && item.LivePhotoType == LivePhotoType.DualFile
+                if (item.LivePhotoType == LivePhotoType.DualFile
                     && !string.IsNullOrEmpty(item.PairedVideoPath)
                     && !File.Exists(item.PairedVideoPath))
                 {
@@ -2181,11 +2270,29 @@ namespace LivePhotoBox.ViewModels
                         LogLevel.Warning);
                 }
 
-                IsSelectedLivePhoto = item.HasConfirmedProtocol;
-                PhotoFileName = EditFileItem.FormatDisplayFileName(
-                    item.FileName, item.IsDualFileLivePhoto, item.VideoExtension);
-                FullPhotoFileName = EditFileItem.FormatFullDisplayFileName(
-                    item.FileName, item.IsDualFileLivePhoto, item.VideoExtension);
+                var pairState = item.LivePhotoType == LivePhotoType.DualFile
+                    ? (!string.IsNullOrEmpty(item.PairedVideoPath) && File.Exists(item.PairedVideoPath)
+                        ? EditPairState.Complete
+                        : EditPairState.MissingVideo)
+                    : EditPairState.NotApplicable;
+
+                initialDoc = EditDocument.FromLivePhoto(
+                    filePath,
+                    item.PairedVideoPath,
+                    item.LivePhotoType,
+                    item.DetectedProtocol,
+                    pairState: pairState);
+            }
+            else
+            {
+                initialDoc = EditDocument.FromPhoto(filePath);
+            }
+
+            CurrentDocument = initialDoc;
+            SessionState = EditSessionState.Loading;
+
+            if (item != null)
+            {
                 SelectedFileThumbnail = item.Thumbnail;
 
                 // 缩略图为懒加载（TryGetOrLoad 首次返回 null，异步回填）。
@@ -2210,8 +2317,6 @@ namespace LivePhotoBox.ViewModels
                 TimelineFrames.Clear();
                 HasTimelineFrames = false;
                 IsTimelineLoading = false;
-                TimelineInfo = string.Empty;
-                FpsDisplayText = string.Empty;
                 CurrentFramePositionText = string.Empty;
                 SelectedTimelineFrame = null;
             }
@@ -2219,16 +2324,6 @@ namespace LivePhotoBox.ViewModels
             // 触发大图预览加载（异步，用令牌+代数保护）。视频跳过。
             if (!IsSelectedFileVideo)
                 _ = LoadPreviewImageAsync(filePath, myGeneration);
-
-            // 清空信息面板字段，等异步 LoadPropertiesAsync 一次填充（避免旧数据闪烁）
-            PhotoInfoLine = string.Empty;
-            VideoInfoLine = string.Empty;
-            ProtocolLine = string.Empty;
-            ExifCamera = string.Empty;
-            ExifCameraDateSuffix = string.Empty;
-            ExifLensParams = string.Empty;
-            ExifShootingParams = string.Empty;
-            ExifPlaceName = string.Empty;
 
             // 异步加载完整属性
             _propLoadCts = new CancellationTokenSource();
@@ -2293,19 +2388,6 @@ namespace LivePhotoBox.ViewModels
             }
 
             SelectedFilePath = null;
-            IsSelectedFileVideo = false;
-            IsSelectedLivePhoto = false;
-            PhotoFileName = string.Empty;
-            FullPhotoFileName = string.Empty;
-            PhotoInfoLine = string.Empty;
-            VideoInfoLine = string.Empty;
-            ProtocolLine = string.Empty;
-            ExifCamera = string.Empty;
-            ExifLensParams = string.Empty;
-            ExifShootingParams = string.Empty;
-            ExifPlaceName = string.Empty;
-            TimelineInfo = string.Empty;
-            FpsDisplayText = string.Empty;
             CurrentFramePositionText = string.Empty;
             SelectedFileThumbnail = null;
 
@@ -2320,17 +2402,46 @@ namespace LivePhotoBox.ViewModels
             SelectedTimelineFrame = null;
             CleanupFrameTempFiles();
             CleanupTempVideo();
+
+            CurrentDocument = null;
+            SessionState = EditSessionState.Closed;
         }
 
         // ══════════════════════════════════════════════════════════════
-        //  exiftool 属性加载（选中文件时）
+        //  属性加载（选中文件时）
         // ══════════════════════════════════════════════════════════════
-
-        private void DisposeExifTool() { }
 
         private static bool IsImageOrVideo(string path) =>
             IsSupportedImageExtension(Path.GetExtension(path)) ||
             SupportedVideoExtensions.Contains(Path.GetExtension(path));
+
+        /// <summary>获取照片部分的大小（优先从 EditDocument 事实计算）</summary>
+        private static string GetPhotoSizeDisplay(EditDocument? doc)
+        {
+            if (doc == null || string.IsNullOrEmpty(doc.PrimaryPath) || !File.Exists(doc.PrimaryPath))
+                return "—";
+
+            if (doc.HasEmbeddedMotionVideo && doc.MotionVideoByteLength > 0)
+            {
+                try
+                {
+                    var totalBytes = new FileInfo(doc.PrimaryPath).Length;
+                    var photoBytes = totalBytes - doc.MotionVideoByteLength;
+                    if (photoBytes > 0)
+                        return FileSizeFormatter.Format(photoBytes);
+                }
+                catch { }
+            }
+
+            try
+            {
+                return FileSizeFormatter.Format(new FileInfo(doc.PrimaryPath).Length);
+            }
+            catch
+            {
+                return "—";
+            }
+        }
 
         /// <summary>获取照片部分的大小（单文件实况照片需扣除视频段）</summary>
         private static string GetPhotoSizeDisplay(EditFileItem? item)
@@ -2383,16 +2494,6 @@ namespace LivePhotoBox.ViewModels
             {
                 LogService.FileOp($"Timeline[LoadProps] EXCEPTION: {ex.GetType().Name}: {ex.Message}", LogLevel.Error, ex);
             }
-        }
-        private void TriggerTimelineExtraction(string videoPath, double durationSeconds, double fps,
-            double photoTimeSeconds, double coverTimeSeconds,
-            int generation = 0,
-            byte[]? originalPhotoBytes = null,
-            bool isOppo = false)
-        {
-            LogService.FileOp(
-                "Timeline[Extract] SKIP: Rebuilt Native mode does not use the Legacy FFmpeg frame extractor.",
-                LogLevel.Info);
         }
 
         /// <summary>清理 ffmpeg 帧提取临时目录</summary>
@@ -2763,74 +2864,27 @@ namespace LivePhotoBox.ViewModels
                 var facts = await inspector.InspectAsync(imagePath, videoPath, token).ConfigureAwait(false);
                 VideoFacts? videoFacts = facts.MotionVideo;
 
-                string resolution = string.Empty;
                 EditFileItem? selectedItem = FileItems.FirstOrDefault(f =>
                     string.Equals(f.FilePath, imagePath, StringComparison.OrdinalIgnoreCase));
-                if (!IsSelectedFileVideo)
+
+                var doc = EditDocument.FromInspectedFacts(
+                    imagePath,
+                    videoPath,
+                    selectedItem?.LivePhotoType ?? (IsSelectedFileVideo ? LivePhotoType.None : LivePhotoType.None),
+                    facts);
+
+                if (!IsSelectedFileVideo && doc.Width > 0 && doc.Height > 0)
                 {
-                    if (facts.PrimaryImage is { IsPresent: true, Width: > 0, Height: > 0 } imageFacts)
-                    {
-                        resolution = $"{imageFacts.Width} × {imageFacts.Height}";
-                        if (selectedItem != null && string.IsNullOrEmpty(selectedItem.Resolution))
-                            selectedItem.Resolution = resolution;
-                    }
-                    else
-                    {
-                        resolution = selectedItem?.Resolution ?? string.Empty;
-                    }
+                    if (selectedItem != null && string.IsNullOrEmpty(selectedItem.Resolution))
+                        selectedItem.Resolution = $"{doc.Width} × {doc.Height}";
                 }
 
-                string extension = Path.GetExtension(imagePath).TrimStart('.').ToUpperInvariant();
-                string photoInfo = IsSelectedFileVideo
-                    ? string.Empty
-                    : string.IsNullOrEmpty(resolution)
-                        ? $"{GetPhotoSizeDisplay(selectedItem)}  │  {extension}"
-                        : $"{resolution}  │  {GetPhotoSizeDisplay(selectedItem)}  │  {extension}";
-
-                string videoInfo = string.Empty;
-                string timelineInfo = string.Empty;
-                string fpsText = string.Empty;
-                if (videoFacts is { IsPresent: true })
-                {
-                    long videoBytes = videoFacts.ByteLength;
-                    if (videoBytes <= 0 && videoPath != null && File.Exists(videoPath))
-                        videoBytes = new FileInfo(videoPath).Length;
-                    var parts = new List<string>();
-                    if (videoFacts.Width > 0 && videoFacts.Height > 0)
-                        parts.Add($"{videoFacts.Width} × {videoFacts.Height}");
-                    if (videoBytes > 0)
-                        parts.Add(FileSizeFormatter.Format(videoBytes));
-                    parts.Add(videoFacts.Codec switch
-                    {
-                        VideoCodec.H264 => "H.264",
-                        VideoCodec.Hevc => "H.265",
-                        _ => VideoCodec.Unknown.ToString()
-                    });
-                    if (videoFacts.DurationSeconds > 0)
-                    {
-                        parts.Add($"{videoFacts.DurationSeconds:F2}s");
-                        timelineInfo = $"{videoFacts.DurationSeconds:F2}s";
-                    }
-                    videoInfo = string.Join("  │  ", parts);
-                    if (videoFacts.Fps > 0)
-                        fpsText = ResourceService.Format("EditPage_TimelineFps", videoFacts.Fps.ToString("F2"));
-                }
-
-                string protocol = GetRebuiltProtocolName(facts.Protocol);
                 var dispatcher = App.MainWindow?.DispatcherQueue;
                 dispatcher?.TryEnqueue(() =>
                 {
                     if (generation != _selectionGeneration) return;
-                    PhotoInfoLine = photoInfo;
-                    VideoInfoLine = videoInfo;
-                    ProtocolLine = protocol;
-                    TimelineInfo = timelineInfo;
-                    FpsDisplayText = fpsText;
-                    ExifCamera = ResourceService.GetString("EditPage_UnknownDevice");
-                    ExifCameraDateSuffix = string.Empty;
-                    ExifLensParams = string.Empty;
-                    ExifShootingParams = string.Empty;
-                    ExifPlaceName = string.Empty;
+                    CurrentDocument = doc;
+                    SessionState = EditSessionState.Ready;
                 });
             }
             catch (OperationCanceledException) { }
