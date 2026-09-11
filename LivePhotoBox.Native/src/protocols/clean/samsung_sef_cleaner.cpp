@@ -390,13 +390,42 @@ lpb_result clean_samsung_sef_jpeg(
     out.flush();
     const bool write_ok = out.good();
     out.close();
-    // No-overwrite publication: destination races fail closed and a foreign
-    // object already at the destination is never replaced.
-    if (!write_ok || !MoveFileExW(temp_path.c_str(), p_out.c_str(), MOVEFILE_WRITE_THROUGH)) {
+    if (!write_ok) {
         std::filesystem::remove(temp_path, write_ec);
         set_error(context, "Failed to write clean Samsung JPEG.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
+    // Open the temp handle BEFORE the rename; publish with a no-overwrite
+    // move; capture the published object identity from that same handle so
+    // ownership is established from the creating handle, never by re-opening
+    // the destination pathname afterwards.
+    HANDLE temp_handle = CreateFileW(temp_path.c_str(), FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (temp_handle == INVALID_HANDLE_VALUE) {
+        std::filesystem::remove(temp_path, write_ec);
+        set_error(context, "Failed to open clean Samsung JPEG for identity capture.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    if (!MoveFileExW(temp_path.c_str(), p_out.c_str(), MOVEFILE_WRITE_THROUGH)) {
+        CloseHandle(temp_handle);
+        std::filesystem::remove(temp_path, write_ec);
+        set_error(context, "A foreign object already occupies the Samsung JPEG destination; refusing to overwrite.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    BY_HANDLE_FILE_INFORMATION finfo{};
+    const BOOL got = GetFileInformationByHandle(temp_handle, &finfo);
+    CloseHandle(temp_handle);
+    if (!got) {
+        set_error(context, "Failed to capture published Samsung JPEG identity.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    lpb_file_identity identity{};
+    identity.volume_serial = finfo.dwVolumeSerialNumber;
+    identity.file_index = (static_cast<uint64_t>(finfo.nFileIndexHigh) << 32) | finfo.nFileIndexLow;
+    identity.file_size = (static_cast<uint64_t>(finfo.nFileSizeHigh) << 32) | finfo.nFileSizeLow;
+    identity.link_count = finfo.nNumberOfLinks;
+    record_cleaner_staged_output(context, LPB_ARTIFACT_PRIMARY_IMAGE, output_path, identity);
 
     return LPB_RESULT_OK;
 }

@@ -483,13 +483,10 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                         stagedVidPath,
                         cancellationToken).ConfigureAwait(false);
 
-                    // Legacy raw-DTO invoker (no Native ownership registry):
-                    // capture as soon as the files exist, before any seam.
-                    journal.StagedPaths.Add(new StagedRecord(stagedImgPath, WindowsFileIdentity.Capture(stagedImgPath)));
-                    if (stagedVidPath != null)
-                    {
-                        journal.StagedPaths.Add(new StagedRecord(stagedVidPath, WindowsFileIdentity.Capture(stagedVidPath)));
-                    }
+                    // Legacy raw-DTO invoker has NO Native ownership registry:
+                    // there is no creating-handle proof for any file it wrote.
+                    // Such files are therefore never claimed as transaction
+                    // owned; rollback/commit will not touch them (fail closed).
                 }
             }
             catch (CleanerException)
@@ -499,16 +496,18 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             catch (OperationCanceledException)
             {
                 // The invoker may have partially written staged outputs before
-                // cancelling.  Ownership comes from the Native registry plus the
-                // known staging output targets of this transaction; a foreign
-                // file that appears elsewhere in the staging directory is never
-                // claimed.
-                CaptureNativeStagedOutputs(cleanContextHandle, cleanUseHarness, journal, stagedImgPath, stagedVidPath);
+                // cancelling.  Ownership comes ONLY from the Native ownership
+                // registry (identities recorded from the creating handles).  A
+                // file that merely exists at a path this transaction allocated
+                // is foreign until Native proves it created it: it is never
+                // claimed, so rollback can never delete an object this
+                // transaction did not prove it created (fail closed).
+                CaptureNativeStagedOutputs(cleanContextHandle, cleanUseHarness, journal);
                 throw;
             }
             catch (Exception ex)
             {
-                CaptureNativeStagedOutputs(cleanContextHandle, cleanUseHarness, journal, stagedImgPath, stagedVidPath);
+                CaptureNativeStagedOutputs(cleanContextHandle, cleanUseHarness, journal);
                 throw new CleanerException(
                     CleanerFailureCategory.StructureChanged,
                     CleanerFailureStage.Staging,
@@ -883,9 +882,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
     private static void CaptureNativeStagedOutputs(
         nint contextHandle,
         bool useHarnessLibrary,
-        CleanerTransactionJournal journal,
-        string? stagedImgPath = null,
-        string? stagedVidPath = null)
+        CleanerTransactionJournal journal)
     {
         if (contextHandle == nint.Zero)
         {
@@ -900,50 +897,11 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             {
                 AddNativeStagedRecord(journal, rec);
             }
-
-            // Known output targets that Native did not get to register (e.g. a
-            // partial write that was interrupted before publish/record): claim
-            // the exact allocated output path so rollback can clean it up.
-            // This is not a directory scan — only the paths this transaction
-            // asked Native to produce are eligible.
-            ClaimKnownOutputTarget(journal, stagedImgPath, native);
-            ClaimKnownOutputTarget(journal, stagedVidPath, native);
         }
         catch
         {
             // Ownership registry is best-effort on the failure path; the
             // registry entries that were already read remain authoritative.
-        }
-    }
-
-    private static void ClaimKnownOutputTarget(
-        CleanerTransactionJournal journal,
-        string? outputPath,
-        IReadOnlyList<NativeCleanService.CleanStagedOutputRecord> native)
-    {
-        if (string.IsNullOrEmpty(outputPath))
-        {
-            return;
-        }
-        if (journal.StagedPaths.Any(r => PathEquals(r.Path, outputPath)))
-        {
-            return;
-        }
-        if (native.Any(r => PathEquals(r.FinalPath, outputPath)))
-        {
-            return;
-        }
-        try
-        {
-            if (File.Exists(outputPath))
-            {
-                journal.StagedPaths.Add(new StagedRecord(outputPath, WindowsFileIdentity.Capture(outputPath)));
-            }
-        }
-        catch
-        {
-            // Best effort: if the partial file cannot be captured, it stays
-            // unclaimed and rollback leaves it in place (fail closed).
         }
     }
 

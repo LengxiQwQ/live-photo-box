@@ -580,6 +580,7 @@ static lpb_result clean_apple_video(
 
     lpb::containers::Mp4StripSpec spec{};
     spec.expected_protocol = LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO;
+    spec.artifact_role = LPB_ARTIFACT_MOTION_VIDEO;
     spec.mdta_starts = starts.data();
     spec.mdta_starts_count = starts.size();
     spec.track_patterns = track_patterns.data();
@@ -590,11 +591,6 @@ static lpb_result clean_apple_video(
     lpb::containers::Mp4StripOutcome outcome{};
     lpb_result res = lpb::containers::stream_clean_mp4_bytes(context, std::span<const uint8_t>(in_bytes.data(), in_bytes.size()), out_path, spec, outcome);
     if (res != LPB_RESULT_OK) return res;
-    if (!record_cleaner_staged_output_by_path(context, LPB_ARTIFACT_MOTION_VIDEO, out_path))
-    {
-        set_error(context, "Failed to register staged video ownership after MP4 publish.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
 
     if (outcome.mdta_removed) {
         for (size_t i = 0; i < mdta_residues.size(); ++i) {
@@ -660,6 +656,7 @@ static lpb_result clean_vivo_legacy_video(
 
     lpb::containers::Mp4StripSpec spec{};
     spec.expected_protocol = LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL;
+    spec.artifact_role = LPB_ARTIFACT_MOTION_VIDEO;
     if (act_uuid) spec.strip_uuid_16 = vivo_uuid;
     spec.mdta_starts = starts.data();
     spec.mdta_starts_count = starts.size();
@@ -669,11 +666,6 @@ static lpb_result clean_vivo_legacy_video(
     lpb::containers::Mp4StripOutcome outcome{};
     lpb_result res = lpb::containers::stream_clean_mp4_bytes(context, std::span<const uint8_t>(in_bytes.data(), in_bytes.size()), out_path, spec, outcome);
     if (res != LPB_RESULT_OK) return res;
-    if (!record_cleaner_staged_output_by_path(context, LPB_ARTIFACT_MOTION_VIDEO, out_path))
-    {
-        set_error(context, "Failed to register staged video ownership after MP4 publish.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
 
     if (outcome.uuid_removed && act_uuid) {
         add_fact(out_facts, "vivo", "MP4 UUID Box", "Removed vivoMediaExtInfo UUID box",
@@ -739,6 +731,7 @@ static lpb_result clean_huawei_video(
 
     lpb::containers::Mp4StripSpec spec{};
     spec.expected_protocol = protocol;
+    spec.artifact_role = LPB_ARTIFACT_MOTION_VIDEO;
     spec.mdta_starts = starts.data();
     spec.mdta_starts_count = starts.size();
     spec.mdta_contains = contains.data();
@@ -751,11 +744,6 @@ static lpb_result clean_huawei_video(
     lpb::containers::Mp4StripOutcome outcome{};
     lpb_result res = lpb::containers::stream_clean_mp4_bytes(context, std::span<const uint8_t>(in_bytes.data(), in_bytes.size()), out_path, spec, outcome);
     if (res != LPB_RESULT_OK) return res;
-    if (!record_cleaner_staged_output_by_path(context, LPB_ARTIFACT_MOTION_VIDEO, out_path))
-    {
-        set_error(context, "Failed to register staged video ownership after MP4 publish.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
 
     const char* proto_str = protocol == LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO ? "Honor" : "Huawei";
     if (outcome.mdta_removed) {
@@ -1042,12 +1030,6 @@ lpb_result clean_source_protocol_with_plan(
                 actions,
                 action_count,
                 removed_facts);
-            if (res == LPB_RESULT_OK && !record_cleaner_staged_output_by_path(context, LPB_ARTIFACT_PRIMARY_IMAGE, output_image_path))
-            {
-                set_error(context, "Failed to register staged Samsung SEF image ownership after publish.");
-                res = LPB_RESULT_INTERNAL_ERROR;
-                break;
-            }
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
                 res = write_file_binary(context, LPB_ARTIFACT_MOTION_VIDEO, output_video_path, input_video_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             }
@@ -1055,12 +1037,6 @@ lpb_result clean_source_protocol_with_plan(
 
         case LPB_SOURCE_PROTOCOL_SAMSUNG_HEIC:
             res = protocols::clean::clean_samsung_heic(context, input_image_bytes, output_image_path, actions, action_count, removed_facts);
-            if (res == LPB_RESULT_OK && !record_cleaner_staged_output_by_path(context, LPB_ARTIFACT_PRIMARY_IMAGE, output_image_path))
-            {
-                set_error(context, "Failed to register staged Samsung HEIC image ownership after publish.");
-                res = LPB_RESULT_INTERNAL_ERROR;
-                break;
-            }
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
                 res = write_file_binary(context, LPB_ARTIFACT_MOTION_VIDEO, output_video_path, input_video_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             }
@@ -1085,10 +1061,14 @@ lpb_result clean_source_protocol_with_plan(
         }
 
         if (res == LPB_RESULT_OK && removed_facts.size() > facts_capacity) {
-            std::error_code ec;
-            fs::remove(utf8_to_path(output_image_path), ec);
-            if (output_video_path) fs::remove(utf8_to_path(output_video_path), ec);
             if (out_facts_count) *out_facts_count = removed_facts.size();
+            // The published objects and the ownership registry are left intact.
+            // The Native cleaner never pathname-deletes here: only the
+            // transaction rollback (exact verified handle + FileDispositionInfo)
+            // may remove the objects this transaction created, so a
+            // same-content replacement or a foreign object that took over a
+            // path is never at risk.  The caller can either retry with a
+            // larger buffer or roll back through the registry.
             set_error(context, "The supplied protocol-fact buffer is too small.");
             return LPB_RESULT_BUFFER_TOO_SMALL;
         }

@@ -177,7 +177,7 @@ public sealed class CleanerRealFilesystemTransactionTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task Clean_RealFileSystem_MidFlightStagingWriteCancellation_LeavesNoArtifactsAndCleansStaging()
+    public async Task Clean_RealFileSystem_MidFlightUnprovenPartialWrite_CancellationLeavesItUntouchedFailClosed()
     {
         string samplePath = ResolveSample("oppo.jpg");
         string shaBefore = ComputeSha256(samplePath);
@@ -194,6 +194,11 @@ public sealed class CleanerRealFilesystemTransactionTests
         using var cts = new CancellationTokenSource();
         string? partiallyWrittenStagedPath = null;
 
+        // A fake invoker that has NO Native ownership registry proof: it writes
+        // a partial staging file and cancels mid-stream.  Because ownership of
+        // that file can never be established (no creating-handle registry
+        // record), the transaction must NOT claim it, rollback must NOT delete
+        // it, and the cleanup gap must be reported honestly (fail closed).
         var cleaner = new SourceProtocolCleaner(
             inspector,
             async (factsArg, actions, targets, inImg, inVid, outImg, outVid, ct) =>
@@ -215,12 +220,12 @@ public sealed class CleanerRealFilesystemTransactionTests
                 return Array.Empty<RemovedProtocolFact>();
             });
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+        var cleanException = await Assert.ThrowsAnyAsync<CleanerException>(async () =>
         {
             await cleaner.CleanAsync(new ProtocolCleanRequest
             {
                 ExtractedBundle = extracted,
-            CleanupPlan = cleanupPlan
+                CleanupPlan = cleanupPlan
             }, workspace, cts.Token);
         });
 
@@ -228,13 +233,18 @@ public sealed class CleanerRealFilesystemTransactionTests
         // - source original file unchanged
         Assert.Equal(shaBefore, ComputeSha256(samplePath));
 
-        // - destination has no half-baked artifacts
+        // - the unproven partial staged file is PRESERVED: the transaction
+        //   never claimed an object it cannot prove it created
         Assert.NotNull(partiallyWrittenStagedPath);
-        Assert.False(File.Exists(partiallyWrittenStagedPath));
+        Assert.True(File.Exists(partiallyWrittenStagedPath));
 
-        // - staging temp directory cleaned up
+        // - the staging temp directory is PRESERVED (still holds the unproven file)
         string[] stagingDirs = Directory.GetDirectories(workspace.RootDirectory, "staging_*");
-        Assert.Empty(stagingDirs);
+        Assert.NotEmpty(stagingDirs);
+
+        // - the cleanup gap is reported honestly instead of a silent success
+        Assert.Equal(CleanerFailureCategory.RollbackFailed, cleanException.Category);
+        Assert.Equal(CleanerFailureStage.Rollback, cleanException.Stage);
     }
 
     [Fact]

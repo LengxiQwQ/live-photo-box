@@ -847,6 +847,44 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_mdta_keys(
 
 namespace lpb::containers {
 
+namespace {
+// Opens the temporary file handle BEFORE the rename, publishes it into place
+// with a no-overwrite move, then captures the published object identity from
+// that same handle.  Ownership is therefore established from the creating
+// handle: no code path re-opens the destination pathname to claim ownership.
+bool publish_owned_temp(lpb_context* context, int32_t artifact_role,
+    const std::filesystem::path& temp, const std::filesystem::path& dest,
+    const std::string& out_path)
+{
+    HANDLE temp_handle = CreateFileW(temp.c_str(), FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (temp_handle == INVALID_HANDLE_VALUE) {
+        set_error(context, "Failed to open temporary output file for identity capture.");
+        return false;
+    }
+    if (!MoveFileExW(temp.c_str(), dest.c_str(), MOVEFILE_WRITE_THROUGH)) {
+        CloseHandle(temp_handle);
+        set_error(context, "Failed to publish cleaned video file.");
+        return false;
+    }
+    BY_HANDLE_FILE_INFORMATION finfo{};
+    const BOOL got = GetFileInformationByHandle(temp_handle, &finfo);
+    CloseHandle(temp_handle);
+    if (!got) {
+        set_error(context, "Failed to capture published video identity.");
+        return false;
+    }
+    lpb_file_identity identity{};
+    identity.volume_serial = finfo.dwVolumeSerialNumber;
+    identity.file_index = (static_cast<uint64_t>(finfo.nFileIndexHigh) << 32) | finfo.nFileIndexLow;
+    identity.file_size = (static_cast<uint64_t>(finfo.nFileSizeHigh) << 32) | finfo.nFileSizeLow;
+    identity.link_count = finfo.nNumberOfLinks;
+    record_cleaner_staged_output(context, artifact_role, out_path, identity);
+    return true;
+}
+} // namespace
+
 lpb_result stream_clean_mp4_bytes(
     lpb_context* context,
     std::span<const uint8_t> in_bytes,
@@ -1043,9 +1081,13 @@ lpb_result stream_clean_mp4_bytes(
         out.flush();
         const bool write_ok = out.good();
         out.close();
-        if (!write_ok || !MoveFileExW(temp.c_str(), p_out.c_str(), MOVEFILE_WRITE_THROUGH)) {
+        if (!write_ok) {
             std::filesystem::remove(temp, ec);
-            set_error(context, "Failed to publish unchanged video.");
+            set_error(context, "Failed to write unchanged video.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+        if (!publish_owned_temp(context, spec.artifact_role, temp, p_out, out_path)) {
+            std::filesystem::remove(temp, ec);
             return LPB_RESULT_INTERNAL_ERROR;
         }
         return LPB_RESULT_OK;
@@ -1112,9 +1154,8 @@ lpb_result stream_clean_mp4_bytes(
     }
     out.close();
 
-    if (!MoveFileExW(temp.c_str(), p_out.c_str(), MOVEFILE_WRITE_THROUGH)) {
+    if (!publish_owned_temp(context, spec.artifact_role, temp, p_out, out_path)) {
         std::filesystem::remove(temp, ec);
-        set_error(context, "Failed to publish cleaned video file.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
     return LPB_RESULT_OK;

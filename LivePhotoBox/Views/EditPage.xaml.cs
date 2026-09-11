@@ -2318,6 +2318,36 @@ SyncLivePhotoBadgeVisibility();
             }
         }
 
+        /// <summary>
+        /// 关闭当前打开的媒体文件并恢复初始空态。
+        /// </summary>
+        private void CloseFileButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (PureMediaViewer.Visibility == Visibility.Visible)
+            {
+                PureMediaViewer.Close();
+            }
+
+            FileItemListView.SelectedItem = null;
+            ViewModel.CloseMedia();
+        }
+
+        /// <summary>
+        /// 时间轴上一帧按钮点击事件。
+        /// </summary>
+        private void TimelinePreviousFrameButton_Click(object sender, RoutedEventArgs e)
+        {
+            ViewModel.NavigatePreviousFrame();
+        }
+
+        /// <summary>
+        /// 时间轴下一帧按钮点击事件。
+        /// </summary>
+        private void TimelineNextFrameButton_Click(object sender, RoutedEventArgs e)
+        {
+            ViewModel.NavigateNextFrame();
+        }
+
         /// <summary>判断扩展名是否为支持的图片/视频格式（大小写不敏感）</summary>
         private static bool IsSupportedMediaFile(string ext)
         {

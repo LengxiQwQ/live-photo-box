@@ -224,12 +224,10 @@ bool generate_plan_token(lpb_context* context, uint64_t& token) noexcept;
 uint64_t cleanup_plan_token_from_handle(const lpb_cleanup_plan* handle) noexcept;
 void record_cleaner_staged_output(lpb_context* context, int32_t artifact_role,
     const std::string& path, const lpb_file_identity& identity) noexcept;
-// Opens the published output by path, captures its identity, and registers it
-// as transaction-owned.  Used by Native cleaner sinks that publish directly
-// (mp4_strip / heif / samsung-sef) so that every published staged output is
-// registered from the producing side instead of being re-claimed by pathname.
-bool record_cleaner_staged_output_by_path(lpb_context* context, int32_t artifact_role,
-    const std::string& path) noexcept;
+// Removes a staged output ONLY if the filesystem object currently at the path
+// still matches the identity this transaction registered (created-handle
+// identity).  Never a bare pathname delete: a same-content replacement or any
+// foreign object that took over the path is left untouched (fail closed).
 size_t get_cleaner_staged_outputs(lpb_context* context,
     lpb_clean_staged_output_record* out_records, size_t capacity) noexcept;
 lpb_cleanup_plan* cleanup_plan_handle_from_token(uint64_t token) noexcept;

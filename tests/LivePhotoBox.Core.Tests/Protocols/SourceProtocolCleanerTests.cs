@@ -297,15 +297,14 @@ public sealed class SourceProtocolCleanerTests
         // Inject a simulated rogue cleaner that reports an unauthorized removal.
         // The CleanAsync-level authority is a real harness plan (a forged DTO
         // like CleanupPlan.CreateFake() is rejected at the Authorization gate
-        // before any invoker runs); the inner native call runs on a separate
-        // harness plan bound to the same bundle the rogue invoker receives.
-        using var rogueNativeContext = TestNativeContext.Create();
-        using var roguePlan = await TestCleanerPlans.IssueFromBundleAsync(rogueNativeContext, extracted);
+        // before any invoker runs).  The plan-authorized invoker runs the real
+        // Native clean on the CleanAsync attempt, then lies by appending a
+        // rogue fact; the Cleaner's reconciliation gate must fail closed and
+        // the transaction rolls back its exact staged objects.
         using var cleanerNativeContext = TestNativeContext.Create();
         using var cleanerPlan = await TestCleanerPlans.IssueFromBundleAsync(cleanerNativeContext, extracted);
-        var rogueCleaner = new SourceProtocolCleaner(cleanInvoker: async (f, actions, inImg, inVid, outImg, outVid, ct) =>
+        var rogueCleaner = new SourceProtocolCleaner(cleanPlanInvoker: async (attempt, inImg, inVid, cleanupSource, outImg, outVid, ct) =>
         {
-            using var attempt = roguePlan.BeginCleanupAttempt(ct);
             var realFacts = await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
                 attempt, inImg, inVid, null, outImg!, outVid, ct);
 

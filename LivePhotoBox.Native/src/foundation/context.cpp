@@ -984,35 +984,6 @@ void record_cleaner_staged_output(lpb_context* context, int32_t artifact_role,
     }
 }
 
-bool record_cleaner_staged_output_by_path(lpb_context* context, int32_t artifact_role,
-    const std::string& path) noexcept
-{
-    if (context == nullptr || path.empty()) return false;
-    try
-    {
-        const std::wstring wide = utf8_to_path(path.c_str());
-        HANDLE handle = CreateFileW(wide.c_str(), FILE_READ_ATTRIBUTES,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-            OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-        if (handle == INVALID_HANDLE_VALUE) return false;
-        BY_HANDLE_FILE_INFORMATION info{};
-        const BOOL ok = GetFileInformationByHandle(handle, &info);
-        CloseHandle(handle);
-        if (!ok) return false;
-        lpb_file_identity identity{};
-        identity.volume_serial = info.dwVolumeSerialNumber;
-        identity.file_index = (static_cast<uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
-        identity.file_size = (static_cast<uint64_t>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
-        identity.link_count = info.nNumberOfLinks;
-        record_cleaner_staged_output(context, artifact_role, path, identity);
-        return true;
-    }
-    catch (...)
-    {
-        return false;
-    }
-}
-
 size_t get_cleaner_staged_outputs(lpb_context* context,
     lpb_clean_staged_output_record* out_records, size_t capacity) noexcept
 {

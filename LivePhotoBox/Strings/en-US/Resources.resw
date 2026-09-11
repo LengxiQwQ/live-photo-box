@@ -4464,4 +4464,46 @@ Then click "Start Split".</value>
   <data name="RepairPage_FilterButton.ToolTipService.ToolTip" xml:space="preserve"><value>Filter tasks (Ctrl+F)</value></data>
   <data name="RepairPage_ClearButton.ToolTipService.ToolTip" xml:space="preserve"><value>Clear list (C) / Pause or resume (P)</value></data>
   <data name="RepairPage_StartButton.ToolTipService.ToolTip" xml:space="preserve"><value>Start repairing (Ctrl+Enter) / Stop (press Esc twice)</value></data>
+  <data name="EditPage_TimelinePreviousFrame.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Previous frame</value>
+  </data>
+  <data name="EditPage_TimelineNextFrame.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Next frame</value>
+  </data>
+  <data name="EditPage_TimelinePlay.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Play / Pause</value>
+  </data>
+  <data name="EditPage_TimelineSetAsCover.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Set as Cover</value>
+  </data>
+  <data name="EditPage_TimelineSetAsCoverLabel.Text" xml:space="preserve">
+    <value>Set as Cover</value>
+  </data>
+  <data name="EditPage_TimelineInsertFrame.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Insert Frame</value>
+  </data>
+  <data name="EditPage_TimelineInsertFrameLabel.Text" xml:space="preserve">
+    <value>Insert Frame</value>
+  </data>
+  <data name="EditPage_TimelineInsertAfterCurrentFrame.Text" xml:space="preserve">
+    <value>Insert after current frame…</value>
+  </data>
+  <data name="EditPage_InspectorOriginalCoverTag.Text" xml:space="preserve">
+    <value>Original</value>
+  </data>
+  <data name="EditPage_InspectorEditInAnotherAppText.Text" xml:space="preserve">
+    <value>Edit in another app</value>
+  </data>
+  <data name="EditPage_InspectorEditCoverInAnotherApp.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Edit in another app</value>
+  </data>
+  <data name="EditPage_InspectorEditVideoInAnotherApp.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Edit in another app</value>
+  </data>
+  <data name="EditPage_CloseFile.Label" xml:space="preserve">
+    <value>Close File</value>
+  </data>
+  <data name="EditPage_CloseFile.ToolTipService.ToolTip" xml:space="preserve">
+    <value>Close File</value>
+  </data>
 </root>

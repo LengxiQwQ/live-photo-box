@@ -112,9 +112,14 @@ namespace LivePhotoBox.ViewModels
                 }
             };
 
-            // 时间轴集合变化时同步 HasOriginalPhotoFrame
+            // 时间轴集合变化时同步 HasOriginalPhotoFrame 与帧导航可用性
             TimelineFrames.CollectionChanged += (_, _) =>
+            {
                 OnPropertyChanged(nameof(HasOriginalPhotoFrame));
+                OnPropertyChanged(nameof(CanNavigatePreviousFrame));
+                OnPropertyChanged(nameof(CanNavigateNextFrame));
+                OnPropertyChanged(nameof(HasSelectedTimelineFrame));
+            };
         }
 
         public override string? PageStatusTag => null;
@@ -332,9 +337,16 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         private EditSessionState _sessionState = EditSessionState.Closed;
 
+        /// <summary>
+        /// 原始封面是否在当前文档中可用（仅 OPPO 实况照片协议展示历史基准/原始封面；其余厂商和普通媒体隐藏）。
+        /// </summary>
+        public bool IsOriginalCoverAvailable =>
+            CurrentDocument?.SourceProtocol == SourceProtocol.OppoLivePhoto;
+
         partial void OnCurrentDocumentChanged(EditDocument? value)
         {
             OnPropertyChanged(nameof(HasDocument));
+            OnPropertyChanged(nameof(IsOriginalCoverAvailable));
             OnPropertyChanged(nameof(IsSelectedFileVideo));
             OnPropertyChanged(nameof(IsSelectedLivePhoto));
             OnPropertyChanged(nameof(IsSelectedPairIncomplete));
@@ -870,11 +882,61 @@ namespace LivePhotoBox.ViewModels
         /// 为 true 时允许触发滚动，为 false 时跳过滚动（用户手动点击不滚）。</summary>
         private bool _isProgrammaticTimelineSelection;
 
+        /// <summary>当前选中的时间轴帧是否存在</summary>
+        public bool HasSelectedTimelineFrame => SelectedTimelineFrame != null;
+
+        /// <summary>是否可导航到上一帧（有时间轴且当前不是第一帧）</summary>
+        public bool CanNavigatePreviousFrame
+        {
+            get
+            {
+                if (SelectedTimelineFrame == null || TimelineFrames.Count <= 1) return false;
+                int idx = TimelineFrames.IndexOf(SelectedTimelineFrame);
+                return idx > 0;
+            }
+        }
+
+        /// <summary>是否可导航到下一帧（有时间轴且当前不是最后一帧）</summary>
+        public bool CanNavigateNextFrame
+        {
+            get
+            {
+                if (SelectedTimelineFrame == null || TimelineFrames.Count <= 1) return false;
+                int idx = TimelineFrames.IndexOf(SelectedTimelineFrame);
+                return idx >= 0 && idx < TimelineFrames.Count - 1;
+            }
+        }
+
+        /// <summary>导航到上一帧</summary>
+        public void NavigatePreviousFrame()
+        {
+            if (!CanNavigatePreviousFrame || SelectedTimelineFrame == null) return;
+            int idx = TimelineFrames.IndexOf(SelectedTimelineFrame);
+            if (idx > 0)
+            {
+                SelectTimelineFrameProgrammatically(TimelineFrames[idx - 1]);
+            }
+        }
+
+        /// <summary>导航到下一帧</summary>
+        public void NavigateNextFrame()
+        {
+            if (!CanNavigateNextFrame || SelectedTimelineFrame == null) return;
+            int idx = TimelineFrames.IndexOf(SelectedTimelineFrame);
+            if (idx >= 0 && idx < TimelineFrames.Count - 1)
+            {
+                SelectTimelineFrameProgrammatically(TimelineFrames[idx + 1]);
+            }
+        }
+
         partial void OnSelectedTimelineFrameChanged(TimelineFrame? value)
         {
             OnPropertyChanged(nameof(IsSetKeyPhotoEnabled));
             OnPropertyChanged(nameof(IsGoToKeyPhotoEnabled));
             OnPropertyChanged(nameof(IsGoToOriginalPhotoEnabled));
+            OnPropertyChanged(nameof(CanNavigatePreviousFrame));
+            OnPropertyChanged(nameof(CanNavigateNextFrame));
+            OnPropertyChanged(nameof(HasSelectedTimelineFrame));
 
             // 更新帧位置文本
             if (value != null)

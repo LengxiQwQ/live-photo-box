@@ -44,26 +44,63 @@ static void add_fact(
     facts.push_back(fact);
 }
 
-static bool write_atomic(const fs::path& path, const std::vector<uint8_t>& data)
+static bool write_atomic(
+    lpb_context* context,
+    int32_t artifact_role,
+    const std::string& output_path,
+    const std::vector<uint8_t>& data)
 {
-    fs::path temp = path;
-    temp += L".lpb-heif-cleaning-tmp";
+    const fs::path dest = utf8_to_path(output_path.c_str());
+    // Unique temp name in the destination directory.  Never a fixed temp
+    // pathname and never a pre-delete: a foreign object that happens to sit on
+    // a fixed ".lpb-heif-cleaning-tmp" path must survive untouched.
     std::error_code ec;
-    fs::remove(temp, ec);
+    fs::path temp_dir = dest.parent_path();
+    if (temp_dir.empty()) temp_dir = fs::current_path(ec);
+    wchar_t temp_name[MAX_PATH]{};
+    if (GetTempFileNameW(temp_dir.c_str(), L"lpb", 0, temp_name) == 0) {
+        set_error(context, "Failed to create temporary HEIF output file.");
+        return false;
+    }
+    const fs::path temp(temp_name);
     {
         std::ofstream output(temp, std::ios::binary | std::ios::trunc);
-        if (!output.is_open()) return false;
+        if (!output.is_open()) { fs::remove(temp, ec); return false; }
         output.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
         output.flush();
         if (!output.good()) { output.close(); fs::remove(temp, ec); return false; }
     }
-    // No-overwrite publication: if a foreign object already occupies the
-    // destination, MoveFileExW fails (ERROR_ALREADY_EXISTS) and the foreign
-    // object survives.  Destination races must fail closed.
-    if (!MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_WRITE_THROUGH)) {
+    // Open the temp handle BEFORE the rename; publish with a no-overwrite
+    // move; capture the published object identity from that same handle so
+    // ownership is established from the creating handle, never by re-opening
+    // the destination pathname afterwards.
+    HANDLE temp_handle = CreateFileW(temp.c_str(), FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+    if (temp_handle == INVALID_HANDLE_VALUE) {
         fs::remove(temp, ec);
+        set_error(context, "Failed to open temporary HEIF output for identity capture.");
         return false;
     }
+    if (!MoveFileExW(temp.c_str(), dest.c_str(), MOVEFILE_WRITE_THROUGH)) {
+        CloseHandle(temp_handle);
+        fs::remove(temp, ec);
+        set_error(context, "A foreign object already occupies the HEIF destination; refusing to overwrite.");
+        return false;
+    }
+    BY_HANDLE_FILE_INFORMATION finfo{};
+    const BOOL got = GetFileInformationByHandle(temp_handle, &finfo);
+    CloseHandle(temp_handle);
+    if (!got) {
+        set_error(context, "Failed to capture published HEIF identity.");
+        return false;
+    }
+    lpb_file_identity identity{};
+    identity.volume_serial = finfo.dwVolumeSerialNumber;
+    identity.file_index = (static_cast<uint64_t>(finfo.nFileIndexHigh) << 32) | finfo.nFileIndexLow;
+    identity.file_size = (static_cast<uint64_t>(finfo.nFileSizeHigh) << 32) | finfo.nFileSizeLow;
+    identity.link_count = finfo.nNumberOfLinks;
+    record_cleaner_staged_output(context, artifact_role, output_path, identity);
     return true;
 }
 
@@ -332,7 +369,7 @@ lpb_result clean_samsung_heic(
         set_error(context, "Validated Samsung HEIC mpvd/sefd structure was not found or was malformed.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
-    if (!write_atomic(utf8_to_path(output_path.c_str()), output)) {
+    if (!write_atomic(context, LPB_ARTIFACT_PRIMARY_IMAGE, output_path, output)) {
         set_error(context, "Failed to publish cleaned Samsung HEIC.");
         return LPB_RESULT_INTERNAL_ERROR;
     }

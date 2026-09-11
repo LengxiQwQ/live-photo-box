@@ -632,30 +632,11 @@ public sealed class CleanerTrustChainTests
             list.Add(r with { ExpectedFingerprint = "expected-hash-456" });
         }
 
-        var cleaner = new SourceProtocolCleaner(cleanInvoker: async (f, actions, inImg, inVid, outImg, outVid, ct) =>
-        {
-            // Copy files to stage paths
-            if (outImg != null) File.Copy(inImg, outImg, true);
-            if (inVid != null && outVid != null) File.Copy(inVid, outVid, true);
-
-            var factsOut = new System.Collections.Generic.List<RemovedProtocolFact>();
-            foreach (var a in actions)
-            {
-                factsOut.Add(new RemovedProtocolFact
-                {
-                    ProtocolName = f.Protocol.ToString(),
-                    Component = "Test",
-                    Description = "Test",
-                    ResidueId = a.ResidueId,
-                    ArtifactRole = a.ArtifactRole,
-                    StructureKind = a.StructureKind,
-                    Operation = "Removed",
-                    BeforeFingerprint = "different-actual-hash-123", // Mismatch!
-                    AfterStatus = "Removed"
-                });
-            }
-            return factsOut;
-        });
+        // Real production chain: Native cleaner itself verifies the plan's
+        // expected fingerprint against the residue before mutating anything,
+        // so the tampered expected fingerprint must fail the clean closed
+        // (no staged output is ever published).
+        var cleaner = new SourceProtocolCleaner();
 
         var tamperedFacts = facts with { ConfirmedResidues = list };
         var tamperedBundle = extracted with { SourceFacts = tamperedFacts };
@@ -3105,39 +3086,46 @@ public sealed class CleanerTrustChainTests
         var facts = await inspector.InspectAsync(imgPath, movPath);
         var bundle = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
-        // A faulty clean invoker that writes cleaned video but leaves the
-        // original untouched image (with live MakerNote tags).  The plan is a
-        // real Native authority (the invoker just never uses it), so the
-        // cleaner's claim succeeds and the post-clean inspection is what
+        // Real Native plan-authorized cleaner.  After Native has cleaned and
+        // published the staged artifacts, restore the original residue-bearing
+        // content INTO the staged files (in place - same file, same File ID,
+        // so the transaction's registered identity still matches and rollback
+        // can clean them up exactly).  The post-clean Source Inspector is what
         // detects the leftover residue.
         using var nativeContext = TestNativeContext.Create();
-        using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, facts, imgPath, movPath, null);
+        using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, facts, bundle.PrimaryImage.Path, bundle.MotionVideo?.Path, null);
 
-        var faultyCleaner = new SourceProtocolCleaner(
-            cleanInvoker: async (f, actions, inImg, inVid, outImg, outVid, ct) =>
+        var faultyCleaner = new SourceProtocolCleaner();
+        faultyCleaner.FaultInjectionHook = (stage, location) =>
+        {
+            if (stage == CleanerFailureStage.PostCleanInspection && location == "BeforeInspect")
             {
-                // Copy original image unchanged so MakerNote live tags remain
-                File.Copy(inImg, outImg!, overwrite: true);
-                if (inVid != null && outVid != null)
+                var stagingDirs = Directory.GetDirectories(workspace.RootDirectory, "staging_*");
+                foreach (var dir in stagingDirs)
                 {
-                    File.Copy(inVid, outVid, overwrite: true);
-                }
-                var removed = new List<RemovedProtocolFact>();
-                foreach (var action in actions)
-                {
-                    removed.Add(new RemovedProtocolFact
+                    foreach (var file in Directory.GetFiles(dir))
                     {
-                        ProtocolName = f.Protocol.ToString(),
-                        ResidueId = action.ResidueId,
-                        ArtifactRole = action.ArtifactRole,
-                        StructureKind = action.StructureKind,
-                        Component = "MockComponent",
-                        Description = "Mock removal",
-                        BeforeFingerprint = action.ExpectedFingerprint
-                    });
+                        string ext = Path.GetExtension(file);
+                        if (ext.Equals(".heic", StringComparison.OrdinalIgnoreCase) ||
+                            ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                            ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
+                        {
+                            File.Copy(bundle.PrimaryImage.Path, file, overwrite: true);
+                        }
+                        else if (ext.Equals(".mov", StringComparison.OrdinalIgnoreCase) ||
+                                 ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase) ||
+                                 ext.Equals(".avi", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (bundle.MotionVideo != null)
+                            {
+                                File.Copy(bundle.MotionVideo.Path, file, overwrite: true);
+                            }
+                        }
+                    }
                 }
-                return removed;
-            });
+            }
+            return Task.CompletedTask;
+        };
 
         var result = await faultyCleaner.CleanAsync(new ProtocolCleanRequest
         {
@@ -3171,34 +3159,42 @@ public sealed class CleanerTrustChainTests
         // so the plan must authorize that exact filesystem object, not the source sample.
         using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, facts, bundle.PrimaryImage.Path, bundle.MotionVideo?.Path, null);
 
-        // A faulty legacy raw-DTO invoker (no Native ownership registry): it
-        // copies both artifacts verbatim so the QuickTime CID (and the image
-        // MakerNote tags) remain, then lies that everything was removed.  The
-        // post-clean Source Inspector is what catches the leftover residue.
-        var faultyCleaner = new SourceProtocolCleaner(
-            cleanInvoker: async (f, actions, inImg, inVid, outImg, outVid, ct) =>
+        // Real Native plan-authorized cleaner.  After Native has cleaned and
+        // published the staged artifacts, restore the original residue-bearing
+        // content INTO the staged files (in place - same file, same File ID),
+        // so the post-clean Source Inspector is what catches the leftover
+        // QuickTime CID residue.
+        var faultyCleaner = new SourceProtocolCleaner();
+        faultyCleaner.FaultInjectionHook = (stage, location) =>
+        {
+            if (stage == CleanerFailureStage.PostCleanInspection && location == "BeforeInspect")
             {
-                File.Copy(inImg, outImg!, overwrite: true);
-                if (inVid != null && outVid != null)
+                var stagingDirs = Directory.GetDirectories(workspace.RootDirectory, "staging_*");
+                foreach (var dir in stagingDirs)
                 {
-                    File.Copy(inVid, outVid, overwrite: true);
-                }
-                var removed = new List<RemovedProtocolFact>();
-                foreach (var action in actions)
-                {
-                    removed.Add(new RemovedProtocolFact
+                    foreach (var file in Directory.GetFiles(dir))
                     {
-                        ProtocolName = f.Protocol.ToString(),
-                        ResidueId = action.ResidueId,
-                        ArtifactRole = action.ArtifactRole,
-                        StructureKind = action.StructureKind,
-                        Component = "MockComponent",
-                        Description = "Mock removal",
-                        BeforeFingerprint = action.ExpectedFingerprint
-                    });
+                        string ext = Path.GetExtension(file);
+                        if (ext.Equals(".heic", StringComparison.OrdinalIgnoreCase) ||
+                            ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                            ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
+                        {
+                            File.Copy(bundle.PrimaryImage.Path, file, overwrite: true);
+                        }
+                        else if (ext.Equals(".mov", StringComparison.OrdinalIgnoreCase) ||
+                                 ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase) ||
+                                 ext.Equals(".avi", StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (bundle.MotionVideo != null)
+                            {
+                                File.Copy(bundle.MotionVideo.Path, file, overwrite: true);
+                            }
+                        }
+                    }
                 }
-                return removed;
-            });
+            }
+            return Task.CompletedTask;
+        };
 
         var result = await faultyCleaner.CleanAsync(new ProtocolCleanRequest
         {

@@ -4506,4 +4506,46 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="RepairPage_StartButton.ToolTipService.ToolTip" xml:space="preserve">
     <value>开始修复（Ctrl+Enter）/ 停止（双击 Esc）</value>
   </data>
+  <data name="EditPage_TimelinePreviousFrame.ToolTipService.ToolTip" xml:space="preserve">
+    <value>上一帧</value>
+  </data>
+  <data name="EditPage_TimelineNextFrame.ToolTipService.ToolTip" xml:space="preserve">
+    <value>下一帧</value>
+  </data>
+  <data name="EditPage_TimelinePlay.ToolTipService.ToolTip" xml:space="preserve">
+    <value>播放 / 暂停</value>
+  </data>
+  <data name="EditPage_TimelineSetAsCover.ToolTipService.ToolTip" xml:space="preserve">
+    <value>设为封面</value>
+  </data>
+  <data name="EditPage_TimelineSetAsCoverLabel.Text" xml:space="preserve">
+    <value>设为封面</value>
+  </data>
+  <data name="EditPage_TimelineInsertFrame.ToolTipService.ToolTip" xml:space="preserve">
+    <value>插入帧</value>
+  </data>
+  <data name="EditPage_TimelineInsertFrameLabel.Text" xml:space="preserve">
+    <value>插入帧</value>
+  </data>
+  <data name="EditPage_TimelineInsertAfterCurrentFrame.Text" xml:space="preserve">
+    <value>在当前帧后插入…</value>
+  </data>
+  <data name="EditPage_InspectorOriginalCoverTag.Text" xml:space="preserve">
+    <value>原始基准</value>
+  </data>
+  <data name="EditPage_InspectorEditInAnotherAppText.Text" xml:space="preserve">
+    <value>在其他应用中编辑</value>
+  </data>
+  <data name="EditPage_InspectorEditCoverInAnotherApp.ToolTipService.ToolTip" xml:space="preserve">
+    <value>在其他应用中编辑</value>
+  </data>
+  <data name="EditPage_InspectorEditVideoInAnotherApp.ToolTipService.ToolTip" xml:space="preserve">
+    <value>在其他应用中编辑</value>
+  </data>
+  <data name="EditPage_CloseFile.Label" xml:space="preserve">
+    <value>关闭文件</value>
+  </data>
+  <data name="EditPage_CloseFile.ToolTipService.ToolTip" xml:space="preserve">
+    <value>关闭文件</value>
+  </data>
 </root>

@@ -355,6 +355,12 @@
                               IsEnabled="{x:Bind ViewModel.IsSetKeyPhotoEnabled, Mode=OneWay}">
                     <AppBarButton.Icon><FontIcon Glyph="&#xE74E;" FontSize="14"/></AppBarButton.Icon>
                 </AppBarButton>
+                <AppBarSeparator Visibility="{x:Bind ViewModel.HasDocument, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"/>
+                <AppBarButton x:Name="CloseFileButton" x:Uid="EditPage_CloseFile"
+                              Visibility="{x:Bind ViewModel.HasDocument, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
+                              Click="CloseFileButton_Click">
+                    <AppBarButton.Icon><ic:SymbolIcon Symbol="Dismiss" FontSize="14"/></AppBarButton.Icon>
+                </AppBarButton>
             </CommandBar>
 
             <!-- 标题 + 导出进度（标题栏左侧，贴着标题） -->
@@ -1027,6 +1033,16 @@
                                         <TextBlock Text="{x:Bind ViewModel.CurrentFramePositionText, Mode=OneWay}"
                                                    FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                                    TextWrapping="Wrap"/>
+                                        <!-- 次级操作入口：在其他应用中编辑（UI 入口占位，保持 IsEnabled="False"） -->
+                                        <HyperlinkButton x:Uid="EditPage_InspectorEditCoverInAnotherApp"
+                                                         Padding="0" Margin="0,2,0,0" MinWidth="0" MinHeight="0"
+                                                         IsEnabled="False">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <FontIcon Glyph="&#xE7AC;" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                <TextBlock x:Uid="EditPage_InspectorEditInAnotherAppText"
+                                                           FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                            </StackPanel>
+                                        </HyperlinkButton>
                                     </StackPanel>
                                     <Button x:Uid="EditPage_InspectorCurrentCover"
                                             Grid.Column="1"
@@ -1048,39 +1064,44 @@
 
                                 <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
 
-                                <!-- 2. 原始封面 -->
-                                <Grid ColumnSpacing="10">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="72"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" Spacing="3" VerticalAlignment="Top">
-                                        <TextBlock x:Uid="EditPage_InspectorOriginalCoverLabel"
-                                                   FontSize="12" FontWeight="SemiBold"
-                                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                                        <TextBlock Text="{x:Bind ViewModel.TimelineInfo, Mode=OneWay}"
-                                                   FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                   TextWrapping="Wrap"/>
-                                    </StackPanel>
-                                    <Button x:Uid="EditPage_InspectorOriginalCover"
-                                            Grid.Column="1"
-                                            Width="72" Height="72" Padding="4"
-                                            HorizontalAlignment="Right"
-                                            VerticalAlignment="Top"
-                                            HorizontalContentAlignment="Center"
-                                            VerticalContentAlignment="Center"
-                                            CornerRadius="5">
-                                        <StackPanel Spacing="5" HorizontalAlignment="Center">
-                                            <FontIcon Glyph="&#xE722;" FontSize="18"
-                                                      HorizontalAlignment="Center"/>
-                                            <TextBlock x:Uid="EditPage_InspectorSelectImageLabel"
-                                                       FontSize="10" TextAlignment="Center"
+                                <!-- 2. 原始封面（仅 OPPO 实况照片协议展示历史基准；其余厂商和普通媒体隐藏） -->
+                                <StackPanel Visibility="{x:Bind ViewModel.IsOriginalCoverAvailable, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
+                                            Spacing="9">
+                                    <Grid ColumnSpacing="10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="72"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Spacing="3" VerticalAlignment="Top">
+                                            <TextBlock x:Uid="EditPage_InspectorOriginalCoverLabel"
+                                                       FontSize="12" FontWeight="SemiBold"
+                                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                            <TextBlock Text="{x:Bind ViewModel.TimelineInfo, Mode=OneWay}"
+                                                       FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                                        TextWrapping="Wrap"/>
                                         </StackPanel>
-                                    </Button>
-                                </Grid>
+                                        <!-- 右侧只读卡片/原始标签，不提供文件替换选择器与外部编辑入口 -->
+                                        <Border Grid.Column="1"
+                                                Width="72" Height="72" Padding="4"
+                                                HorizontalAlignment="Right"
+                                                VerticalAlignment="Top"
+                                                Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                BorderThickness="1"
+                                                CornerRadius="5">
+                                            <StackPanel Spacing="5" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <FontIcon Glyph="&#xE722;" FontSize="18"
+                                                          HorizontalAlignment="Center"
+                                                          Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                <TextBlock x:Uid="EditPage_InspectorOriginalCoverTag"
+                                                           FontSize="10" TextAlignment="Center"
+                                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </Grid>
 
-                                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                                    <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                                </StackPanel>
 
                                 <!-- 3. 动态视频（移至两封面正下方，样式统一） -->
                                 <Grid ColumnSpacing="10">
@@ -1095,6 +1116,16 @@
                                         <TextBlock x:Uid="EditPage_InspectorCurrentVideo"
                                                    FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                                    TextWrapping="Wrap"/>
+                                        <!-- 次级操作入口：在其他应用中编辑（UI 入口占位，保持 IsEnabled="False"） -->
+                                        <HyperlinkButton x:Uid="EditPage_InspectorEditVideoInAnotherApp"
+                                                         Padding="0" Margin="0,2,0,0" MinWidth="0" MinHeight="0"
+                                                         IsEnabled="False">
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <FontIcon Glyph="&#xE7AC;" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                <TextBlock x:Uid="EditPage_InspectorEditInAnotherAppText"
+                                                           FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                            </StackPanel>
+                                        </HyperlinkButton>
                                     </StackPanel>
                                     <Button x:Uid="EditPage_InspectorSelectVideo"
                                             Grid.Column="1"
@@ -1332,27 +1363,70 @@
                                                            FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                            VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
                                             </StackPanel>
-                                            <!-- 正中心：播放按钮（与控制栏统一 28x28 方框圆角样式，待后续接入 ViewModel） -->
-                                            <Button x:Name="TimelinePlayButton"
-                                                    Grid.Column="1"
-                                                    Width="28" Height="28" Padding="0"
-                                                    CornerRadius="{ThemeResource ControlCornerRadius}"
-                                                    HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                                    BorderThickness="1"
-                                                    ToolTipService.ToolTip="播放">
-                                                <FontIcon x:Name="TimelinePlayIcon" Glyph="&#xE768;" FontSize="12"
-                                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                          HorizontalAlignment="Center" VerticalAlignment="Center"
-                                                          Margin="1,0,0,0"/>
-                                            </Button>
+                                            <!-- 正中心：上一帧、播放/暂停、下一帧控制组（统一 28x28 方框卡片样式） -->
+                                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4"
+                                                        HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                <!-- 上一帧 -->
+                                                <Button x:Name="TimelinePreviousFrameButton"
+                                                        x:Uid="EditPage_TimelinePreviousFrame"
+                                                        Width="28" Height="28" Padding="0"
+                                                        CornerRadius="{ThemeResource ControlCornerRadius}"
+                                                        Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                        BorderThickness="1"
+                                                        IsEnabled="{x:Bind ViewModel.CanNavigatePreviousFrame, Mode=OneWay}"
+                                                        Click="TimelinePreviousFrameButton_Click">
+                                                    <FontIcon Glyph="&#xE72B;" FontSize="11"
+                                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Button>
+                                                <!-- 播放 / 暂停（统一 28x28 方框圆角样式，待后续接入 ViewModel） -->
+                                                <Button x:Name="TimelinePlayButton"
+                                                        x:Uid="EditPage_TimelinePlay"
+                                                        Width="28" Height="28" Padding="0"
+                                                        CornerRadius="{ThemeResource ControlCornerRadius}"
+                                                        Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                        BorderThickness="1">
+                                                    <FontIcon x:Name="TimelinePlayIcon" Glyph="&#xE768;" FontSize="12"
+                                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                              Margin="1,0,0,0"/>
+                                                </Button>
+                                                <!-- 下一帧 -->
+                                                <Button x:Name="TimelineNextFrameButton"
+                                                        x:Uid="EditPage_TimelineNextFrame"
+                                                        Width="28" Height="28" Padding="0"
+                                                        CornerRadius="{ThemeResource ControlCornerRadius}"
+                                                        Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                        BorderThickness="1"
+                                                        IsEnabled="{x:Bind ViewModel.CanNavigateNextFrame, Mode=OneWay}"
+                                                        Click="TimelineNextFrameButton_Click">
+                                                    <FontIcon Glyph="&#xE72A;" FontSize="11"
+                                                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                              HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                </Button>
+                                            </StackPanel>
                                             <!-- 右侧：FPS与统一 28 高度操作按钮 -->
                                             <StackPanel Grid.Column="2" Orientation="Horizontal"
                                                         HorizontalAlignment="Right" VerticalAlignment="Center" Spacing="6">
-                                                 <TextBlock Text="{x:Bind ViewModel.FpsDisplayText, Mode=OneWay}"
-                                                            FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                            VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                <TextBlock Text="{x:Bind ViewModel.FpsDisplayText, Mode=OneWay}"
+                                                           FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                           VerticalAlignment="Center" Margin="0,0,4,0"/>
+                                                <!-- 设为封面 -->
+                                                <Button x:Uid="EditPage_TimelineSetAsCover"
+                                                        Height="28" Padding="8,0"
+                                                        CornerRadius="{ThemeResource ControlCornerRadius}"
+                                                        Command="{x:Bind ViewModel.SaveCommand}"
+                                                        IsEnabled="{x:Bind ViewModel.IsSetKeyPhotoEnabled, Mode=OneWay}">
+                                                    <StackPanel Orientation="Horizontal" Spacing="4">
+                                                        <FontIcon Glyph="&#xE735;" FontSize="11"/>
+                                                        <TextBlock x:Uid="EditPage_TimelineSetAsCoverLabel"
+                                                                   FontSize="11" VerticalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Button>
+                                                <!-- 删除帧（保留占位） -->
                                                 <Button x:Uid="EditPage_TimelineDeleteFrame"
                                                         Height="28" Padding="8,0"
                                                         CornerRadius="{ThemeResource ControlCornerRadius}"
@@ -1363,15 +1437,27 @@
                                                                    FontSize="11" VerticalAlignment="Center"/>
                                                     </StackPanel>
                                                 </Button>
-                                                <Button x:Uid="EditPage_TimelineAddFrame"
+                                                <!-- 插入帧（带下拉 MenuFlyout 占位，需有选中帧） -->
+                                                <Button x:Uid="EditPage_TimelineInsertFrame"
                                                         Height="28" Padding="8,0"
                                                         CornerRadius="{ThemeResource ControlCornerRadius}"
-                                                        IsEnabled="False">
+                                                        IsEnabled="{x:Bind ViewModel.HasSelectedTimelineFrame, Mode=OneWay}">
                                                     <StackPanel Orientation="Horizontal" Spacing="4">
                                                         <FontIcon Glyph="&#xE710;" FontSize="11"/>
-                                                        <TextBlock x:Uid="EditPage_TimelineAddFrameLabel"
+                                                        <TextBlock x:Uid="EditPage_TimelineInsertFrameLabel"
                                                                    FontSize="11" VerticalAlignment="Center"/>
+                                                        <FontIcon Glyph="&#xE70D;" FontSize="9" Margin="2,0,0,0" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                                     </StackPanel>
+                                                    <Button.Flyout>
+                                                        <MenuFlyout Placement="Bottom">
+                                                            <MenuFlyoutItem x:Uid="EditPage_TimelineInsertAfterCurrentFrame"
+                                                                            IsEnabled="False">
+                                                                <MenuFlyoutItem.Icon>
+                                                                    <FontIcon Glyph="&#xE710;"/>
+                                                                </MenuFlyoutItem.Icon>
+                                                            </MenuFlyoutItem>
+                                                        </MenuFlyout>
+                                                    </Button.Flyout>
                                                 </Button>
                                             </StackPanel>
                                         </Grid>
