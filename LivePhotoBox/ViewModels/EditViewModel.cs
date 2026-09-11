@@ -104,8 +104,7 @@ namespace LivePhotoBox.ViewModels
             _completionCts?.Dispose();
             CleanupFrameTempFiles();
             CleanupTempVideo();
-            _previewCache.Clear();
-            _previewCacheOrder.Clear();
+            _previewService.Dispose();
             ThumbnailScheduler.Reset();
             CurrentDocument = null;
             SessionState = EditSessionState.Closed;
@@ -763,14 +762,12 @@ namespace LivePhotoBox.ViewModels
         private readonly LinkedList<string> _thumbnailCacheOrder = new();  // 插入顺序，用于 LRU 淘汰
         private const int MaxThumbnailCacheSize = 120;  // ~5 个文件的完整时间轴缩略图
 
-        /// <summary>
-        /// 大图预览内存缓存：key = filePath, value = ImageSource（DecodePixelWidth=2560）。
-        /// 最多保留 MaxPreviewCacheSize 条（当前文件 + 最近访问），
-        /// 超过上限时淘汰最旧的条目，避免内存膨胀。
-        /// </summary>
-        private readonly Dictionary<string, ImageSource> _previewCache = new();
-        private readonly List<string> _previewCacheOrder = new();  // 插入顺序，用于淘汰
-        private const int MaxPreviewCacheSize = 3;
+        /// <summary>大图预览服务，统一管理图片解码、LRU 缓存与临时预览资源生命周期</summary>
+        private readonly EditPreviewService _previewService = new();
+
+        /// <summary>大图预览是否正在解码加载中</summary>
+        [ObservableProperty]
+        private bool _isPreviewLoading;
 
         /// <summary>当前选中的时间轴帧（双向绑定到 ListView.SelectedItem）</summary>
         [ObservableProperty]
@@ -1005,9 +1002,6 @@ namespace LivePhotoBox.ViewModels
                     LogLevel.Warning);
             }
         }
-
-        /// <summary>预览图加载取消令牌（切换文件时取消上一次加载）</summary>
-        private CancellationTokenSource? _previewLoadCts;
 
         [ObservableProperty]
         private string? _selectedFilePath;
@@ -2232,7 +2226,7 @@ namespace LivePhotoBox.ViewModels
             _geoCts?.Cancel();
             _timelineCts?.Cancel();
             _exportCts?.Cancel();
-            _previewLoadCts?.Cancel();
+            _previewService.CancelCurrent();
             // 后台线程清理旧临时文件（Directory.Delete 含 89 JPEG，同步调用阻塞 UI 200-500ms）
             var oldFrameDir = _frameExtractDir;
             var oldTempVid = _tempVideoPath;
@@ -2333,9 +2327,10 @@ namespace LivePhotoBox.ViewModels
                 }
             }
 
-            // 大图：视频不加载，直接清空；图片走 LoadPreviewImageAsync 正常加载
+            // 大图：视频不加载，直接清空；图片走 LoadPreviewAsync 正常加载
             if (IsSelectedFileVideo)
             {
+                _previewService.CancelCurrent();
                 SetPreviewSafe(null);
                 PreviewClearRequested?.Invoke();
             }
@@ -2350,9 +2345,9 @@ namespace LivePhotoBox.ViewModels
                 SelectedTimelineFrame = null;
             }
 
-            // 触发大图预览加载（异步，用令牌+代数保护）。视频跳过。
+            // 触发大图预览加载（异步，委托给 EditPreviewService）。视频跳过。
             if (!IsSelectedFileVideo)
-                _ = LoadPreviewImageAsync(filePath, myGeneration);
+                _ = LoadPreviewAsync(filePath);
 
             // 异步加载完整属性
             _propLoadCts = new CancellationTokenSource();
@@ -2420,7 +2415,8 @@ namespace LivePhotoBox.ViewModels
             CurrentFramePositionText = string.Empty;
             SelectedFileThumbnail = null;
 
-            // 清空大图预览
+            // 清空大图预览与活跃请求
+            _previewService.Clear();
             SetPreviewSafe(null);
             PreviewClearRequested?.Invoke();
 
@@ -2548,282 +2544,48 @@ namespace LivePhotoBox.ViewModels
         }
 
         // ══════════════════════════════════════════════════════════════
-        //  大图预览加载
+        //  大图预览加载（委托 EditPreviewService 统一管理解码与缓存）
         // ══════════════════════════════════════════════════════════════
 
-        /// <summary>
-        /// 异步加载选中文件的大图预览（DecodePixelWidth=2560）。
-        /// HEIC/HEIF：使用 BitmapDecoder + BitmapTransform 在解码阶段直接缩放到目标尺寸，
-        ///           转为临时 JPEG 后加载，避免全分辨率解码（参考 ImagePreviewService.LoadHeicPreviewAsync）。
-        /// 非 HEIC：使用 StorageFile + BitmapImage.SetSourceAsync 异步解码，不阻塞 UI 线程。
-        /// 结果写入 _previewCache，后续同一文件命中缓存直接返回，无需重新解码。
-        /// </summary>
-        /// <param name="imagePath">图片文件路径</param>
-        /// <param name="generation">
-        /// 选中代数（来自 SelectFile 的 Interlocked.Increment）。
-        /// generation &gt; 0 时，在每次 dispatcher 回调中检查是否过期（!= _selectionGeneration），
-        /// 过期则跳过 UI 更新。generation == 0 时不检查（用户手动点击时间轴帧场景）。
-        /// </param>
-        // 最近一次预览请求的目标路径，用于拦截过期回调（防星标帧 HEIC 慢加载覆盖后续帧的预览）
-        private string? _latestPreviewRequestPath;
-
-        /// <summary>
-        /// 独立加载时间轴封面帧缩略图（不依赖列表缩略图管道）。
-        /// 对 HEIC 使用 Windows BitmapDecoder（与大图预览一致），JPEG 用 BitmapImage 缩放。
-        /// </summary>
-        private static async Task<ImageSource?> LoadTimelineCoverThumbnailAsync(string imagePath)
+        private async Task LoadPreviewAsync(string imagePath)
         {
+            IsPreviewLoading = true;
             try
             {
-                bool isHeic = HeicConverterService.IsHeicFile(imagePath);
-                const uint thumbSize = 112;
-
-                if (isHeic)
+                var result = await _previewService.LoadImagePreviewAsync(imagePath).ConfigureAwait(false);
+                if (result.Success && result.ImageSource != null)
                 {
-                    // 与大图预览相同：Windows BitmapDecoder 解码 + 缩放到 112px
-                    var file = await StorageFile.GetFileFromPathAsync(imagePath);
-                    using var inputStream = await file.OpenAsync(FileAccessMode.Read);
-                    var decoder = await BitmapDecoder.CreateAsync(inputStream);
-
-                    double scale = Math.Min((double)thumbSize / decoder.PixelWidth,
-                                            (double)thumbSize / decoder.PixelHeight);
-                    uint tw = scale < 1.0 ? (uint)Math.Max(1, decoder.PixelWidth * scale) : decoder.PixelWidth;
-                    uint th = scale < 1.0 ? (uint)Math.Max(1, decoder.PixelHeight * scale) : decoder.PixelHeight;
-
-                    var transform = new BitmapTransform
+                    var dispatcher = App.MainWindow?.DispatcherQueue;
+                    if (dispatcher != null && !dispatcher.HasThreadAccess)
                     {
-                        ScaledWidth = tw,
-                        ScaledHeight = th,
-                        InterpolationMode = BitmapInterpolationMode.Fant
-                    };
-                    using var swBmp = await decoder.GetSoftwareBitmapAsync(
-                        BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
-                        transform, ExifOrientationMode.IgnoreExifOrientation,
-                        ColorManagementMode.DoNotColorManage);
-
-                    var source = new SoftwareBitmapSource();
-                    await source.SetBitmapAsync(swBmp);
-                    return source;
-                }
-                else
-                {
-                    // JPEG/PNG 等：直接用 BitmapImage 缩放
-                    var bmp = new BitmapImage { DecodePixelWidth = (int)thumbSize };
-                    using var fs = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    await bmp.SetSourceAsync(fs.AsRandomAccessStream());
-                    return bmp;
-                }
-            }
-            catch { return null; }
-        }
-
-        private async Task LoadPreviewImageAsync(string imagePath, int generation = 0)
-        {
-            _latestPreviewRequestPath = imagePath;
-            _previewLoadCts?.Cancel();
-            _previewLoadCts?.Dispose();
-            _previewLoadCts = new CancellationTokenSource();
-            var token = _previewLoadCts.Token;
-
-            // 缓存命中 → 直接显示，无需重新解码
-            if (_previewCache.TryGetValue(imagePath, out var cached))
-            {
-                // 代数检查：仅当此加载请求未过期时才写入 PreviewImageSource
-                if (generation > 0 && generation != Volatile.Read(ref _selectionGeneration))
-                {
-                    LogService.FileOp(
-                        $"KeyPhoto Preview(cache): stale (gen={generation}, cur={_selectionGeneration}), skip",
-                        LogLevel.Info);
-                    return;
-                }
-                // 必须走 UI 线程设值：PreviewImageSource → x:Bind → PhotoViewer.ImageSource
-                // → SetValue(DependencyProperty) → COM 调用，非 UI 线程会抛 0x8001010E
-                var disp = App.MainWindow?.DispatcherQueue;
-                disp?.TryEnqueue(() =>
-                {
-                    if (_latestPreviewRequestPath != imagePath) return; // 过期请求，跳过
-                    SetPreviewSafe(cached);
-                });
-                return;
-            }
-
-            // 不清空 PreviewImageSource —— PhotoViewer 双缓冲层会在新图就绪后自动切换，
-            // 旧图保持可见直至新图就绪，杜绝 Source=null 闪白。
-            var dispatcher = App.MainWindow?.DispatcherQueue;
-            if (dispatcher == null) return;
-
-            bool isHeic = HeicConverterService.IsHeicFile(imagePath);
-
-            try
-            {
-                if (isHeic)
-                {
-                    // ── HEIC/HEIF：BitmapDecoder 解码阶段缩放 + 临时 JPEG ──
-                    string? tempJpegPath = null;
-                    try
-                    {
-                        // 后台线程：BitmapDecoder 解码 + 缩放 + 编码为 JPEG
-                        tempJpegPath = await Task.Run(async () =>
-                        {
-                            token.ThrowIfCancellationRequested();
-                            var file = await StorageFile.GetFileFromPathAsync(imagePath).AsTask(token);
-                            using var inputStream = await file.OpenAsync(FileAccessMode.Read).AsTask(token);
-                            var decoder = await BitmapDecoder.CreateAsync(inputStream);
-
-                            uint origW = decoder.PixelWidth;
-                            uint origH = decoder.PixelHeight;
-                            double scale = origW > 2560 ? 2560.0 / origW : 1.0;
-                            uint targetW = scale < 1.0 ? 2560 : origW;
-                            uint targetH = scale < 1.0 ? (uint)Math.Max(1, origH * scale) : origH;
-
-                            var transform = new BitmapTransform
-                            {
-                                ScaledWidth = targetW,
-                                ScaledHeight = targetH,
-                                InterpolationMode = BitmapInterpolationMode.Fant
-                            };
-
-                            var softwareBitmap = await decoder.GetSoftwareBitmapAsync(
-                                BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
-                                transform,
-                                ExifOrientationMode.RespectExifOrientation,
-                                ColorManagementMode.ColorManageToSRgb);
-
-                            token.ThrowIfCancellationRequested();
-
-                            string tempPath = Path.Combine(Path.GetTempPath(), $"lpb_prev_{Guid.NewGuid():N}.jpg");
-                            using (var fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write))
-                            {
-                                var encoder = await BitmapEncoder.CreateAsync(
-                                    BitmapEncoder.JpegEncoderId, fileStream.AsRandomAccessStream());
-                                encoder.SetSoftwareBitmap(softwareBitmap);
-                                await encoder.FlushAsync();
-                            }
-
-                            softwareBitmap.Dispose();
-                            return tempPath;
-                        }, token);
-
-                        if (token.IsCancellationRequested) return;
-                        if (tempJpegPath == null || !File.Exists(tempJpegPath)) return;
-
-                        // 代数检查：后台解码完成后，在回 UI 线程之前再次确认文件未被切换
-                        if (generation > 0 && generation != Volatile.Read(ref _selectionGeneration))
-                        {
-                            LogService.FileOp(
-                                $"KeyPhoto Preview(HEIC): stale after decode (gen={generation}, cur={_selectionGeneration}), skip",
-                                LogLevel.Info);
-                            return;
-                        }
-
-                        // UI 线程：从临时 JPEG 创建 BitmapImage
-                        var tcs = new TaskCompletionSource<bool>(
-                            TaskCreationOptions.RunContinuationsAsynchronously);
-                        dispatcher.TryEnqueue(() =>
-                        {
-                            try
-                            {
-                                // 代数检查：回调入队后执行前，确认文件未被切换
-                                if (generation > 0 && generation != Volatile.Read(ref _selectionGeneration))
-                                {
-                                    LogService.FileOp(
-                                        $"KeyPhoto Preview(HEIC-dispatch): stale (gen={generation}, cur={_selectionGeneration}), skip",
-                                        LogLevel.Info);
-                                    tcs.TrySetResult(false); return;
-                                }
-                                if (token.IsCancellationRequested) { tcs.TrySetResult(false); return; }
-                                var bmp = new BitmapImage { DecodePixelWidth = 2560 };
-                                using var fs = new FileStream(tempJpegPath, FileMode.Open, FileAccess.Read);
-                                bmp.SetSource(fs.AsRandomAccessStream());
-                                LogService.FileOp(
-                                    $"KeyPhoto Preview(HEIC): set PreviewImageSource for '{Path.GetFileName(imagePath)}'",
-                                    LogLevel.Info);
-                                if (_latestPreviewRequestPath != imagePath) { tcs.TrySetResult(false); return; }
-                                SetPreviewSafe(bmp);
-                                AddToPreviewCache(imagePath, bmp);
-                                tcs.TrySetResult(true);
-                            }
-                            catch (Exception ex)
-                            {
-                                LogService.Debug($"PhotoViewer HEIC decode failed: {ex.Message}", LogSource.UI);
-                                tcs.TrySetResult(false);
-                            }
-                        });
-                        await tcs.Task;
+                        dispatcher.TryEnqueue(() => SetPreviewSafe(result.ImageSource));
                     }
-                    finally
+                    else
                     {
-                        if (tempJpegPath != null)
-                        {
-                            try { File.Delete(tempJpegPath); } catch { }
-                        }
+                        SetPreviewSafe(result.ImageSource);
                     }
                 }
-                else
+            }
+            finally
+            {
+                if (string.Equals(_previewService.LatestRequestPath, imagePath, StringComparison.OrdinalIgnoreCase))
                 {
-                    // ── 非 HEIC（JPG/PNG 等）：StorageFile + SetSourceAsync 异步解码 ──
-                    var file = await StorageFile.GetFileFromPathAsync(imagePath).AsTask(token);
-                    if (token.IsCancellationRequested) return;
-
-                    var tcs = new TaskCompletionSource<bool>(
-                        TaskCreationOptions.RunContinuationsAsynchronously);
-                    dispatcher.TryEnqueue(async () =>
+                    var dispatcher = App.MainWindow?.DispatcherQueue;
+                    if (dispatcher != null && !dispatcher.HasThreadAccess)
                     {
-                        try
-                        {
-                            // 代数检查：回调入队后执行前，确认文件未被切换
-                            if (generation > 0 && generation != Volatile.Read(ref _selectionGeneration))
-                            { tcs.TrySetResult(false); return; }
-                            if (token.IsCancellationRequested) { tcs.TrySetResult(false); return; }
-                            var bmp = new BitmapImage { DecodePixelWidth = 2560 };
-                            using (var stream = await file.OpenReadAsync().AsTask(token))
-                            {
-                                if (token.IsCancellationRequested) { tcs.TrySetResult(false); return; }
-                                await bmp.SetSourceAsync(stream);
-                            }
-                            if (_latestPreviewRequestPath != imagePath) { tcs.TrySetResult(false); return; }
-                            SetPreviewSafe(bmp);
-                            AddToPreviewCache(imagePath, bmp);
-                            tcs.TrySetResult(true);
-                        }
-                        catch (Exception ex)
-                        {
-                            LogService.Debug($"PhotoViewer decode failed: {ex.Message}", LogSource.UI);
-                            tcs.TrySetResult(false);
-                        }
-                    });
-                    await tcs.Task;
+                        dispatcher.TryEnqueue(() => IsPreviewLoading = false);
+                    }
+                    else
+                    {
+                        IsPreviewLoading = false;
+                    }
                 }
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception ex)
-            {
-                LogService.Debug($"PhotoViewer load failed: {ex.Message}", LogSource.UI);
-            }
-        }
-
-        /// <summary>
-        /// 将大图预览写入缓存，超过上限时淘汰最旧的条目。
-        /// </summary>
-        private void AddToPreviewCache(string filePath, ImageSource image)
-        {
-            // 已在缓存中 → 移到最新位置
-            _previewCacheOrder.Remove(filePath);
-            _previewCacheOrder.Add(filePath);
-            _previewCache[filePath] = image;
-
-            // 超过上限 → 淘汰最旧的一条
-            while (_previewCacheOrder.Count > MaxPreviewCacheSize)
-            {
-                string oldest = _previewCacheOrder[0];
-                _previewCacheOrder.RemoveAt(0);
-                _previewCache.Remove(oldest);
             }
         }
 
         /// <summary>
         /// 将帧缩略图写入缓存，超过上限时淘汰最旧的条目。
-        /// 与 <see cref="AddToPreviewCache"/> 结构一致。
+        /// 与预览缓存结构一致。
         /// </summary>
         private void AddToThumbnailCache(string key, ImageSource source)
         {
@@ -2881,7 +2643,7 @@ namespace LivePhotoBox.ViewModels
 
             if (string.IsNullOrEmpty(imagePath)) return;
 
-            await LoadPreviewImageAsync(imagePath);
+            await LoadPreviewAsync(imagePath);
         }
 
         /// <summary>
@@ -3004,8 +2766,7 @@ namespace LivePhotoBox.ViewModels
             // 切换到新目录 → 清空旧文件帧缩略图缓存 + 大图预览缓存
             _thumbnailCache.Clear();
             _thumbnailCacheOrder.Clear();
-            _previewCache.Clear();
-            _previewCacheOrder.Clear();
+            _previewService.Clear();
 
             try
             {
