@@ -1660,6 +1660,15 @@ static bool extract_apple_cid_from_owned_exif(const uint8_t* data, size_t start,
                     malformed = true;
                     continue;
                 }
+                if (!apple_shape) {
+                    // A formally-owned MakerNote without Apple's protocol
+                    // signature is vendor metadata (Huawei/Honor and others
+                    // legitimately write several 0x927C entries in ExifIFD).
+                    // It only becomes an Apple ambiguity when a formal Apple
+                    // CID already exists — then any extra owner is a shadow.
+                    if (formal_found) out_has_conflict = true;
+                    continue;
+                }
                 ++formal_maker_count;
                 if (formal_maker_count > 1 || formal_found) {
                     out_has_conflict = true;

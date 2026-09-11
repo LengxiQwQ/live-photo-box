@@ -914,6 +914,62 @@ internal static class SyntheticProtocolFixtures
         fs.Write(liveTail);
     }
 
+    /// <summary>
+    /// Huawei Moving Photo JPEG whose ExifIFD contains three consecutive
+    /// non-Apple 0x927C MakerNote entries.  Real Huawei/Honor firmware writes
+    /// multiple vendor-private MakerNotes; the Inspector must not treat their
+    /// count as an Apple ContentIdentifier conflict.
+    /// </summary>
+    public static void CreateHuaweiJpegWithMultipleVendorMakerNotes(string outputPath)
+    {
+        byte[] mnAuto = Encoding.UTF8.GetBytes("Auto\0");
+        byte[] mnMarker = Encoding.UTF8.GetBytes("##**N4031\0");
+        byte[] mnVendor = Encoding.UTF8.GetBytes("HUAWEI\0\0II*\0\0\0\0");
+
+        using var tiffMs = new MemoryStream();
+        tiffMs.Write(Encoding.ASCII.GetBytes("MM\0*"));
+        WriteBe32(tiffMs, 8);
+
+        WriteBe16(tiffMs, 1);
+        WriteBe16(tiffMs, 0x8769);
+        WriteBe16(tiffMs, 4);
+        WriteBe32(tiffMs, 1);
+        uint exifIfdOffset = 8 + 2 + 12 + 4;
+        WriteBe32(tiffMs, exifIfdOffset);
+        WriteBe32(tiffMs, 0);
+
+        WriteBe16(tiffMs, 3);
+        uint payloadBase = exifIfdOffset + 2 + 3u * 12 + 4;
+
+        WriteBe16(tiffMs, 0x927C); WriteBe16(tiffMs, 7); WriteBe32(tiffMs, (uint)mnAuto.Length); WriteBe32(tiffMs, payloadBase);
+        WriteBe16(tiffMs, 0x927C); WriteBe16(tiffMs, 7); WriteBe32(tiffMs, (uint)mnMarker.Length); WriteBe32(tiffMs, payloadBase + (uint)mnAuto.Length);
+        WriteBe16(tiffMs, 0x927C); WriteBe16(tiffMs, 7); WriteBe32(tiffMs, (uint)mnVendor.Length); WriteBe32(tiffMs, payloadBase + (uint)mnAuto.Length + (uint)mnMarker.Length);
+        WriteBe32(tiffMs, 0);
+
+        tiffMs.Write(mnAuto);
+        tiffMs.Write(mnMarker);
+        tiffMs.Write(mnVendor);
+
+        byte[] exifPayload = tiffMs.ToArray();
+        byte[] app1 = new byte[exifPayload.Length + 6];
+        Encoding.UTF8.GetBytes("Exif\0\0").CopyTo(app1, 0);
+        Buffer.BlockCopy(exifPayload, 0, app1, 6, exifPayload.Length);
+
+        byte[] jpeg = CreateJpegWithApp1(app1);
+        byte[] dummyMp4 = CreateMinimalMp4();
+
+        byte[] liveTail = new byte[60];
+        Encoding.UTF8.GetBytes("0000000000000000000000000000000000000000").CopyTo(liveTail, 0);
+        Encoding.UTF8.GetBytes("LIVE_").CopyTo(liveTail, 40);
+        string lenStr = (dummyMp4.Length + 20).ToString();
+        Encoding.UTF8.GetBytes(lenStr).CopyTo(liveTail, 45);
+
+        using var fs = File.Create(outputPath);
+        fs.Write(jpeg);
+        fs.Write(dummyMp4);
+        fs.Write(liveTail);
+    }
+
     public static void CreateAppleJpeg(string outputPath)
     {
         // MakerNote with tag 0x0011 (Live Photo ContentIdentifier) + non-live tag 0x0001

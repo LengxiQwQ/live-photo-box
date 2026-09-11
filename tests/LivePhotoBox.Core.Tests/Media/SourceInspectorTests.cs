@@ -257,7 +257,27 @@ public sealed class SourceInspectorTests
         Assert.Equal(beforeSha, afterSha);
     }
 
+    
     [Fact]
+    public async Task Inspect_HuaweiSyntheticWithMultipleVendorMakerNotes_IdentifiesHuaweiNotAppleConflict()
+    {
+        // Regression: Huawei/Honor firmware writes several non-Apple 0x927C
+        // MakerNote entries in ExifIFD.  The Inspector must count only
+        // Apple-shaped MakerNotes and must not report an Apple CID conflict.
+        using var ws = new MediaWorkspace();
+        string inputPath = ws.AllocateFilePath("huawei_multi_makernote", ".jpg");
+        SyntheticProtocolFixtures.CreateHuaweiJpegWithMultipleVendorMakerNotes(inputPath);
+
+        var inspector = new SourceInspector();
+        var facts = await inspector.InspectAsync(inputPath);
+
+        Assert.Equal(SourceProtocol.HuaweiMovingPhoto, facts.Protocol);
+        Assert.NotNull(facts.PrimaryImage);
+        Assert.NotNull(facts.MotionVideo);
+        Assert.Equal(ImageContainer.Jpeg, facts.PrimaryImage.Container);
+        Assert.Equal(VideoContainer.Mp4, facts.MotionVideo.Container);
+    }
+[Fact]
     [Trait("Category", "RealSamples")]
     public async Task Inspect_XiaomiRealSample_IdentifiesGoogleMotionPhotoV2()
     {
