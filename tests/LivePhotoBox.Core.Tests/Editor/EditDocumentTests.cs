@@ -331,10 +331,11 @@ public sealed class EditDocumentTests
             }
         };
 
-        var doc = EditDocument.FromInspectedFacts(
+        var doc = EditDocumentMapper.FromInspectedFacts(
             primaryPath: @"C:\Test\IMG_100.JPG",
             motionPath: @"C:\Test\IMG_100.MOV",
             livePhotoType: LivePhotoType.DualFile,
+            pairState: EditPairState.Complete,
             facts: facts);
 
         Assert.Equal(@"C:\Test\IMG_100.JPG", doc.PrimaryPath);
@@ -405,10 +406,11 @@ public sealed class EditDocumentTests
             }
         };
 
-        var doc = EditDocument.FromInspectedFacts(
+        var doc = EditDocumentMapper.FromInspectedFacts(
             primaryPath: @"C:\Test\IMG_100.JPG",
             motionPath: @"C:\Test\IMG_100.MOV",
             livePhotoType: LivePhotoType.DualFile,
+            pairState: EditPairState.Complete,
             facts: facts);
 
         Assert.Equal(4032u, doc.Width);
@@ -467,10 +469,11 @@ public sealed class EditDocumentTests
             }
         };
 
-        var doc = EditDocument.FromInspectedFacts(
+        var doc = EditDocumentMapper.FromInspectedFacts(
             primaryPath: @"C:\Test\standalone.mp4",
             motionPath: null,
             livePhotoType: LivePhotoType.None,
+            pairState: EditPairState.NotApplicable,
             facts: facts);
 
         Assert.Equal(EditMediaKind.Video, doc.MediaKind);

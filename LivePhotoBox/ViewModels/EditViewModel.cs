@@ -1101,10 +1101,10 @@ namespace LivePhotoBox.ViewModels
 
             try
             {
-                // 直接取 PairedVideoPath，有就一起复制
-                var item = FileItems.FirstOrDefault(f =>
-                    string.Equals(f.FilePath, photoPath, StringComparison.OrdinalIgnoreCase));
-                var pairedVideoPath = item?.PairedVideoPath;
+                // 优先从 CurrentDocument 获取配对视频事实，回退到 FileItems
+                var pairedVideoPath = (CurrentDocument != null && string.Equals(CurrentDocument.PrimaryPath, photoPath, StringComparison.OrdinalIgnoreCase))
+                    ? CurrentDocument.PairedVideoPath
+                    : FileItems.FirstOrDefault(f => string.Equals(f.FilePath, photoPath, StringComparison.OrdinalIgnoreCase))?.PairedVideoPath;
                 if (!string.IsNullOrEmpty(pairedVideoPath) && File.Exists(pairedVideoPath))
                 {
                     var destDir = Path.GetDirectoryName(savedPath)!;
@@ -1164,7 +1164,7 @@ namespace LivePhotoBox.ViewModels
                     if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
                     {
                         // 回退：从容器重新提取 Original JPEG
-                        var photoPath = SelectedFilePath;
+                        var photoPath = CurrentDocument?.PrimaryPath ?? SelectedFilePath;
                         if (string.IsNullOrEmpty(photoPath) || !File.Exists(photoPath)) return;
                         byte[]? origBytes = EditTimingService.ReadOriginalPhotoBytes(photoPath);
                         if (origBytes == null || origBytes.Length == 0) return;
@@ -1179,7 +1179,7 @@ namespace LivePhotoBox.ViewModels
                 }
                 else
                 {
-                    var photoPath = SelectedFilePath;
+                    var photoPath = CurrentDocument?.PrimaryPath ?? SelectedFilePath;
                     if (string.IsNullOrEmpty(photoPath) || !File.Exists(photoPath)) return;
                     // ⭐ 封面静止帧：单文件容器需提取干净图片（否则 HEIC 导出 0 字节 / JPEG 混入视频）
                     sourcePath = await ResolveStillPhotoSourceAsync(photoPath, CancellationToken.None);
@@ -1193,7 +1193,7 @@ namespace LivePhotoBox.ViewModels
             }
 
             // 2. 生成建议文件名
-            var photoBaseName = Path.GetFileNameWithoutExtension(SelectedFilePath ?? "photo");
+            var photoBaseName = Path.GetFileNameWithoutExtension(CurrentDocument?.PrimaryPath ?? SelectedFilePath ?? "photo");
             var suggestedName = frame.IsStillPhoto
                 ? photoBaseName
                 : frame.IsOriginalPhoto
@@ -1255,7 +1255,7 @@ namespace LivePhotoBox.ViewModels
         /// </summary>
         private async Task ExportPhotoAsSingleFrame()
         {
-            var photoPath = SelectedFilePath;
+            var photoPath = CurrentDocument?.PrimaryPath ?? SelectedFilePath;
             if (string.IsNullOrEmpty(photoPath) || !File.Exists(photoPath)) return;
 
             var photoBaseName = Path.GetFileNameWithoutExtension(photoPath);
@@ -1389,7 +1389,7 @@ namespace LivePhotoBox.ViewModels
                 return;
             }
 
-            var photoPath = SelectedFilePath;
+            var photoPath = CurrentDocument?.PrimaryPath ?? SelectedFilePath;
             if (string.IsNullOrEmpty(photoPath) || !File.Exists(photoPath))
             {
                 LogService.FileOp("ExportAllFrames: no file selected or file not found", LogLevel.Warning);
@@ -1953,9 +1953,29 @@ namespace LivePhotoBox.ViewModels
         {
             if (IsExporting && !IsShowingSaveComplete) return;
 
-            var item = FileItems.FirstOrDefault(f =>
-                string.Equals(f.FilePath, SelectedFilePath, StringComparison.OrdinalIgnoreCase));
-            if (item == null || !item.HasConfirmedProtocol)
+            bool isLivePhoto;
+            string primaryPath;
+            LivePhotoType livePhotoType;
+            string? pairedVideoPath;
+
+            if (CurrentDocument != null && (string.IsNullOrEmpty(SelectedFilePath) || string.Equals(CurrentDocument.PrimaryPath, SelectedFilePath, StringComparison.OrdinalIgnoreCase)))
+            {
+                isLivePhoto = CurrentDocument.IsLivePhoto && (CurrentDocument.Protocol != LivePhotoProtocolType.Unknown || CurrentDocument.LivePhotoType != LivePhotoType.None);
+                primaryPath = CurrentDocument.PrimaryPath;
+                livePhotoType = CurrentDocument.LivePhotoType;
+                pairedVideoPath = CurrentDocument.PairedVideoPath;
+            }
+            else
+            {
+                var item = FileItems.FirstOrDefault(f =>
+                    string.Equals(f.FilePath, SelectedFilePath, StringComparison.OrdinalIgnoreCase));
+                isLivePhoto = item != null && item.HasConfirmedProtocol;
+                primaryPath = item?.FilePath ?? SelectedFilePath ?? string.Empty;
+                livePhotoType = item?.LivePhotoType ?? LivePhotoType.None;
+                pairedVideoPath = item?.PairedVideoPath;
+            }
+
+            if (!isLivePhoto || string.IsNullOrEmpty(primaryPath))
             {
                 ShowExportGuardError(ResourceService.GetString("EditPage_GuardNotLivePhoto"));
                 return;
@@ -1963,7 +1983,7 @@ namespace LivePhotoBox.ViewModels
 
             string? videoPath = await ProcessingPipelineRouter.RunRebuiltAsync(
                 "edit.video-export",
-                () => ResolveVideoPathForRebuiltExportAsync(item));
+                () => ResolveVideoPathForRebuiltExportAsync(primaryPath, livePhotoType, pairedVideoPath));
             if (string.IsNullOrEmpty(videoPath) || !File.Exists(videoPath))
             {
                 ShowExportGuardError(ResourceService.GetString("EditPage_GuardNoVideoSource"));
@@ -1974,7 +1994,7 @@ namespace LivePhotoBox.ViewModels
             var savePicker = new FileSavePicker
             {
                 SuggestedStartLocation = PickerLocationId.VideosLibrary,
-                SuggestedFileName = Path.GetFileNameWithoutExtension(SelectedFilePath ?? "video"),
+                SuggestedFileName = Path.GetFileNameWithoutExtension(primaryPath),
             };
             savePicker.FileTypeChoices.Add("MP4 (H.264 + AAC)", new List<string> { ".mp4" });
             savePicker.FileTypeChoices.Add("MOV (H.265 QuickTime + AAC)", new List<string> { ".mov" });
@@ -2071,7 +2091,9 @@ namespace LivePhotoBox.ViewModels
         /// the Legacy protocol parsers or FFmpeg extraction helpers.
         /// </summary>
         private async Task<string?> ResolveVideoPathForRebuiltExportAsync(
-            EditFileItem item,
+            string primaryPath,
+            LivePhotoType livePhotoType,
+            string? pairedVideoPath,
             CancellationToken cancellationToken = default)
         {
             CleanupExportMediaWorkspace();
@@ -2079,13 +2101,13 @@ namespace LivePhotoBox.ViewModels
             var workspace = new MediaWorkspace();
             try
             {
-                string? secondaryPath = item.LivePhotoType == LivePhotoType.DualFile
-                    && !string.IsNullOrWhiteSpace(item.PairedVideoPath)
-                    ? item.PairedVideoPath
+                string? secondaryPath = livePhotoType == LivePhotoType.DualFile
+                    && !string.IsNullOrWhiteSpace(pairedVideoPath)
+                    ? pairedVideoPath
                     : null;
 
                 NeutralMediaBundle bundle = await new NeutralMediaService().CreateNeutralBundleAsync(
-                    item.FilePath,
+                    primaryPath,
                     secondaryPath,
                     workspace,
                     cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -2104,6 +2126,13 @@ namespace LivePhotoBox.ViewModels
                 workspace.Dispose();
                 throw;
             }
+        }
+
+        private Task<string?> ResolveVideoPathForRebuiltExportAsync(
+            EditFileItem item,
+            CancellationToken cancellationToken = default)
+        {
+            return ResolveVideoPathForRebuiltExportAsync(item.FilePath, item.LivePhotoType, item.PairedVideoPath, cancellationToken);
         }
 
         private string? _exportTempVideoPath;
@@ -2822,21 +2851,25 @@ namespace LivePhotoBox.ViewModels
             if (frame.IsStillPhoto)
             {
                 // 静态照片帧 ⭐：使用原始照片文件（Primary item）
-                imagePath = SelectedFilePath;
+                imagePath = CurrentDocument?.PrimaryPath ?? SelectedFilePath;
             }
             else if (frame.IsOriginalPhoto)
             {
                 // 原始帧 🖼：优先使用 FullFramePath（已写入临时文件），回退到重新提取
                 if (!string.IsNullOrEmpty(frame.FullFramePath) && File.Exists(frame.FullFramePath))
                     imagePath = frame.FullFramePath;
-                else if (!string.IsNullOrEmpty(SelectedFilePath) && File.Exists(SelectedFilePath))
+                else
                 {
-                    byte[]? origBytes = EditTimingService.ReadOriginalPhotoBytes(SelectedFilePath);
-                    if (origBytes != null && origBytes.Length > 0)
+                    var primaryPath = CurrentDocument?.PrimaryPath ?? SelectedFilePath;
+                    if (!string.IsNullOrEmpty(primaryPath) && File.Exists(primaryPath))
                     {
-                        string tempPath = Path.Combine(Path.GetTempPath(), $"lpb_preview_orig_{Guid.NewGuid():N}.jpg");
-                        await File.WriteAllBytesAsync(tempPath, origBytes);
-                        imagePath = tempPath;
+                        byte[]? origBytes = EditTimingService.ReadOriginalPhotoBytes(primaryPath);
+                        if (origBytes != null && origBytes.Length > 0)
+                        {
+                            string tempPath = Path.Combine(Path.GetTempPath(), $"lpb_preview_orig_{Guid.NewGuid():N}.jpg");
+                            await File.WriteAllBytesAsync(tempPath, origBytes);
+                            imagePath = tempPath;
+                        }
                     }
                 }
             }
@@ -2867,10 +2900,23 @@ namespace LivePhotoBox.ViewModels
                 EditFileItem? selectedItem = FileItems.FirstOrDefault(f =>
                     string.Equals(f.FilePath, imagePath, StringComparison.OrdinalIgnoreCase));
 
-                var doc = EditDocument.FromInspectedFacts(
+                LivePhotoType livePhotoType = (CurrentDocument != null && string.Equals(CurrentDocument.PrimaryPath, imagePath, StringComparison.OrdinalIgnoreCase))
+                    ? CurrentDocument.LivePhotoType
+                    : (selectedItem?.LivePhotoType ?? (IsSelectedFileVideo ? LivePhotoType.None : LivePhotoType.None));
+
+                EditPairState pairState = EditPairState.NotApplicable;
+                if (livePhotoType == LivePhotoType.DualFile)
+                {
+                    pairState = (!string.IsNullOrEmpty(videoPath) && File.Exists(videoPath))
+                        ? EditPairState.Complete
+                        : EditPairState.MissingVideo;
+                }
+
+                var doc = EditDocumentMapper.FromInspectedFacts(
                     imagePath,
                     videoPath,
-                    selectedItem?.LivePhotoType ?? (IsSelectedFileVideo ? LivePhotoType.None : LivePhotoType.None),
+                    livePhotoType,
+                    pairState,
                     facts);
 
                 if (!IsSelectedFileVideo && doc.Width > 0 && doc.Height > 0)
