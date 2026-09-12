@@ -181,6 +181,29 @@ internal static class WindowsOwnedFilePublisher
             (uint)Marshal.SizeOf<FileDispositionInfo>());
     }
 
+    /// <summary>
+    /// True when the object referenced by <paramref name="handle"/> has ZERO
+    /// links — a foreign actor already unlinked its pathname while the handle
+    /// was retained (e.g. File.Delete on the destination).  A zero-link
+    /// object exists under NO pathname and is freed when the last handle
+    /// closes, so it can never leak as a transaction-owned artifact: a failed
+    /// disposition on it (which is always what happens for an unlinked file)
+    /// is NOT a cleanup failure.  The caller still keeps the published record
+    /// so rollback can verify the destination pathname itself (a foreign
+    /// occupant is then refused by identity).
+    /// </summary>
+    public static bool IsObjectUnlinked(SafeFileHandle handle)
+    {
+        try
+        {
+            return WindowsFileIdentity.Capture(handle).LinkCount == 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static bool RenameThroughHandle(SafeFileHandle handle, string finalPath, out int win32Error)
     {
         if (string.IsNullOrWhiteSpace(finalPath))

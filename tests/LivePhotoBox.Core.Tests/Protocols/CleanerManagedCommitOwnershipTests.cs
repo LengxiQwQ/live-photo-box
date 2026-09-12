@@ -930,4 +930,99 @@ public sealed class CleanerManagedCommitOwnershipTests
             Assert.Equal(shaVideoBefore, ComputeSha256(secondaryPath));
         }
     }
+
+    // ---------------------------------------------------------------------
+    // 13. Post-image-publish rename-away where the retained exact-handle
+    //     cleanup FAILS: the destination pathname is gone (NOT_FOUND) and the
+    //     staging record was already dropped, so the pathname fallback sees
+    //     NOTHING to delete — yet the pre-rollback failure recorded by
+    //     AddRollbackFailure must survive Rollback()'s exception-list reset
+    //     and force RollbackFailed.  A false RolledBack would leave the
+    //     transaction-owned object alive under the side pathname.
+    // ---------------------------------------------------------------------
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task ManagedCommit_PostImagePublish_RenameAway_RetainedHandleDeleteFails_ForcesRollbackFailed()
+    {
+        string samplePath = ResolveSample("oppo.jpg");
+        string shaBefore = ComputeSha256(samplePath);
+
+        using var workspace = new MediaWorkspace();
+        var cleaner = new SourceProtocolCleaner();
+        var (bundle, nativeContext, cleanupPlan) = await PrepareAsync(samplePath, null, workspace);
+        using (nativeContext)
+        using (cleanupPlan)
+        {
+            int triggerCount = 0;
+            string? observedStage = null;
+            string? movedAwayPath = null;
+
+            // A is published (clean-img) and its exact handle is RETAINED while
+            // the bundle transaction is still active.  The foreign actor renames
+            // A away — so the destination pathname resolves to nothing and the
+            // staging record was already dropped — AND makes A UNDELETABLE
+            // (READONLY), so the retained-handle exact cleanup provably fails
+            // (FileDispositionInfo -> ERROR_ACCESS_DENIED, file retained).
+            // The pre-rollback failure evidence must survive Rollback()'s
+            // internal exception reset: rollback must report RollbackFailed,
+            // never a false RolledBack, because A is still alive.
+            cleaner.FaultInjectionHook = (stage, detail) =>
+            {
+                if (stage == CleanerFailureStage.Commit && detail == "ImagePublished")
+                {
+                    triggerCount++;
+                    observedStage = detail;
+                    string cleanImg = Assert.Single(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+                    movedAwayPath = cleanImg + ".lpb-owned-moved-away";
+                    File.Move(cleanImg, movedAwayPath);
+                    File.SetAttributes(movedAwayPath, FileAttributes.ReadOnly);
+                    throw new IOException("Simulated post-image-publish failure with the owned object renamed away and made undeletable.");
+                }
+                return Task.CompletedTask;
+            };
+
+            try
+            {
+                var result = await cleaner.CleanAsync(new ProtocolCleanRequest
+                {
+                    ExtractedBundle = bundle,
+                    CleanupPlan = cleanupPlan
+                }, workspace);
+
+                Assert.False(result.Success);
+                Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
+                Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
+                Assert.Equal(1, triggerCount);
+                Assert.Equal("ImagePublished", observedStage);
+
+                // The pre-rollback failure evidence survived Rollback()'s
+                // exception-list reset: the reported rollback failure explicitly
+                // names the retained-handle cleanup — the ONLY reason this
+                // rollback is (truthfully) failed, because the pathname fallback
+                // itself saw nothing to delete at clean-img.
+                Assert.NotNull(result.ErrorMessage);
+                Assert.Contains("through its retained handle", result.ErrorMessage);
+
+                // The transaction-owned object is still alive under the side
+                // pathname (the exact-handle cleanup could not delete it), which
+                // is exactly why RollbackFailed — not RolledBack — is the
+                // truthful verdict.
+                Assert.NotNull(movedAwayPath);
+                Assert.True(File.Exists(movedAwayPath));
+                Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*.jpg", SearchOption.AllDirectories));
+            }
+            finally
+            {
+                // Restore and remove the owned leftover so MediaWorkspace can
+                // dispose its scratch directory.
+                if (movedAwayPath != null && File.Exists(movedAwayPath))
+                {
+                    File.SetAttributes(movedAwayPath, FileAttributes.Normal);
+                    File.Delete(movedAwayPath);
+                }
+            }
+
+            Assert.Equal(shaBefore, ComputeSha256(samplePath));
+        }
+    }
 }

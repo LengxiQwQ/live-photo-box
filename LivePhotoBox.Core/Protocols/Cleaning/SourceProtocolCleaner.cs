@@ -1407,6 +1407,13 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         public List<StagedRecord> StagedPaths { get; } = [];
         public List<Exception> RollbackExceptions { get; } = [];
 
+        // Failures recorded BEFORE Rollback() runs (e.g. a retained
+        // exact-handle cleanup that could not prove deletion).  They are
+        // permanent evidence: Rollback() clears its own transient working
+        // list but seeds it with these entries first, so they can never be
+        // wiped and always force RollbackFailed.
+        private readonly List<Exception> _preRollbackFailures = [];
+
         public void SetState(CleanerTransactionState state) => State = state;
 
         /// <summary>
@@ -1436,20 +1443,30 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         /// <summary>
         /// Records a rollback failure from outside the <see cref="Rollback"/>
         /// loop (e.g. an exact-handle cleanup that could not prove deletion of
-        /// a transaction-owned object).  <see cref="Rollback"/> throws
-        /// RollbackFailed whenever the failure list is non-empty, so a false
-        /// "RolledBack" can never be reported while a transaction-owned object
-        /// may still exist.
+        /// a transaction-owned object).  These entries are PERMANENT evidence:
+        /// <see cref="Rollback"/> clears its own transient working list but
+        /// seeds it with these pre-rollback failures first, so a retained
+        /// exact-handle cleanup failure can never be wiped and always forces
+        /// RollbackFailed — a false "RolledBack" can never be reported while
+        /// a transaction-owned object may still exist.
         /// </summary>
         public void AddRollbackFailure(string message)
         {
-            RollbackExceptions.Add(new IOException(message));
+            _preRollbackFailures.Add(new IOException(message));
         }
 
         public void Rollback(Func<CleanerFailureStage, string?, Task>? faultHook, SourceProtocol protocol)
         {
             State = CleanerTransactionState.RollingBack;
             RollbackExceptions.Clear();
+            // Seed with permanent pre-rollback failures FIRST: entries added
+            // by AddRollbackFailure (e.g. a retained exact-handle cleanup
+            // that could not prove deletion of a transaction-owned object)
+            // must survive this reset.  Otherwise the pathname fallback below
+            // could observe NOT_FOUND at every recorded path and falsely
+            // report RolledBack while the transaction-owned object is still
+            // alive under another pathname.
+            RollbackExceptions.AddRange(_preRollbackFailures);
 
             // 1. Delete published artifacts - but only the exact object we published.
             foreach (var rec in PublishedPaths)
@@ -1676,12 +1693,23 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         {
             if (WindowsOwnedFilePublisher.DeleteOwnedObject(imgHandle))
             {
+                // Deletion proven through the retained handle: the object can
+                // no longer exist anywhere, so the destination record is void.
                 journal.RemovePublishedRecord(cleanImgPath);
             }
-            else
+            else if (!WindowsOwnedFilePublisher.IsObjectUnlinked(imgHandle))
             {
+                // The object is STILL linked (a real pathname can reach it)
+                // but could not be deleted: it may leak under the pathname it
+                // was renamed to.  Record the failure permanently so rollback
+                // can never report a false RolledBack.
                 journal.AddRollbackFailure($"Unable to delete the published image for '{cleanImgPath}' through its retained handle; the transaction-owned object may still exist after a pathname takeover.");
             }
+            // else: the object was provably unlinked (zero links) — it exists
+            // under NO pathname and is freed when the last handle closes, so
+            // it cannot leak.  The published record is KEPT so rollback still
+            // verifies the destination pathname itself: an empty pathname is
+            // "already gone", a foreign occupant is refused by identity.
         }
 
         if (vidPublished != null && vidHandle != null && !vidHandle.IsInvalid && cleanVidPath != null)
@@ -1690,7 +1718,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             {
                 journal.RemovePublishedRecord(cleanVidPath);
             }
-            else
+            else if (!WindowsOwnedFilePublisher.IsObjectUnlinked(vidHandle))
             {
                 journal.AddRollbackFailure($"Unable to delete the published video for '{cleanVidPath}' through its retained handle; the transaction-owned object may still exist after a pathname takeover.");
             }
