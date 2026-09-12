@@ -164,4 +164,115 @@ public sealed class CleanerFifthRoundOwnershipTests
         Assert.True(File.Exists(injectedTemp), "A foreign file on the legacy fixed temp name must never be pre-deleted.");
         Assert.Equal([0xDE, 0xAD, 0xBE, 0xEF], File.ReadAllBytes(injectedTemp));
     }
+
+    // ------------------------------------------------------------------
+    // Sixth-round gate: ownership for the three dedicated Cleaner sinks
+    // (MP4 video, Samsung SEF JPEG, Samsung HEIC) must be continuous from the
+    // creating handle.  Each sink writes, publishes and captures identity with
+    // ONE handle; the registry record must exactly match the filesystem object
+    // on disk.  These tests drive each real sink (not the OPPO write_file_binary
+    // path) so the sink-specific chain is actually covered.
+    // ------------------------------------------------------------------
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    [Trait("Category", "CleanerProductionChain")]
+    public async Task Production_Mp4VideoSink_RegistryIdentity_MatchesPublishedObjectOnDisk()
+    {
+        string samplePath = ResolveSample("vivo.jpg");
+        using var workspace = new MediaWorkspace();
+        using var inspected = await new SourceInspector().InspectWithPlanAsync(samplePath);
+        ExtractedMediaBundle bundle = await new SourceExtractor().ExtractAsync(
+            inspected.ExtractionPlan, samplePath, null, workspace);
+        using CleanupPlan cleanupPlan = bundle.CleanupPlan!;
+        using CleanupPlanAttempt attempt = cleanupPlan.BeginCleanupAttempt();
+        string outPath = workspace.AllocateFilePath("clean-vivo", ".jpg");
+        string outVidPath = workspace.AllocateFilePath("clean-vivo-video", ".mp4");
+
+        IReadOnlyList<RemovedProtocolFact> removed = await NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+            attempt, bundle.PrimaryImage.Path, bundle.MotionVideo?.Path, null, outPath, outVidPath);
+        Assert.NotEmpty(removed);
+
+        Assert.True(File.Exists(outVidPath), "The MP4 sink must publish its video output.");
+        var records = NativeCleanService.QueryStagedOutputs(attempt.ContextLease.Handle, useHarnessLibrary: false);
+
+        bool found = false;
+        ulong videoVolumeSerial = 0, videoFileIndex = 0;
+        uint videoLinkCount = 0;
+        foreach (var r in records)
+        {
+            if (r.ArtifactRole == MediaArtifactKind.MotionVideo)
+            {
+                videoVolumeSerial = r.VolumeSerial;
+                videoFileIndex = r.FileIndex;
+                videoLinkCount = r.LinkCount;
+                found = true;
+                break;
+            }
+        }
+        Assert.True(found, "The MP4 sink must register the published video object in the ownership registry.");
+
+        WindowsFileIdentity videoDisk = WindowsFileIdentity.Capture(outVidPath);
+        Assert.Equal(videoDisk.VolumeSerialNumber, videoVolumeSerial);
+        Assert.Equal(videoDisk.FileIndex, videoFileIndex);
+        Assert.Equal(videoDisk.LinkCount, videoLinkCount);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    [Trait("Category", "CleanerProductionChain")]
+    public async Task Production_SamsungSefJpegSink_RegistryIdentity_MatchesPublishedObjectOnDisk()
+    {
+        string samplePath = ResolveSample("三星.jpg");
+        using var workspace = new MediaWorkspace();
+        using var inspected = await new SourceInspector().InspectWithPlanAsync(samplePath);
+        ExtractedMediaBundle bundle = await new SourceExtractor().ExtractAsync(
+            inspected.ExtractionPlan, samplePath, null, workspace);
+        using CleanupPlan cleanupPlan = bundle.CleanupPlan!;
+        using CleanupPlanAttempt attempt = cleanupPlan.BeginCleanupAttempt();
+        string outPath = workspace.AllocateFilePath("clean-samsung-jpeg", ".jpg");
+
+        Assert.NotNull(bundle.CleanupSource);
+        IReadOnlyList<RemovedProtocolFact> removed = await NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+            attempt, bundle.PrimaryImage.Path, bundle.MotionVideo?.Path, bundle.CleanupSource.Path, outPath, null);
+        Assert.NotEmpty(removed);
+
+        Assert.True(File.Exists(outPath), "The Samsung SEF sink must publish its output.");
+        var records = NativeCleanService.QueryStagedOutputs(attempt.ContextLease.Handle, useHarnessLibrary: false);
+        var record = Assert.Single(records);
+        Assert.Equal(MediaArtifactKind.PrimaryImage, record.ArtifactRole);
+
+        WindowsFileIdentity disk = WindowsFileIdentity.Capture(outPath);
+        Assert.Equal(disk.VolumeSerialNumber, record.VolumeSerial);
+        Assert.Equal(disk.FileIndex, record.FileIndex);
+        Assert.Equal(disk.LinkCount, record.LinkCount);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    [Trait("Category", "CleanerProductionChain")]
+    public async Task Production_SamsungHeicSink_RegistryIdentity_MatchesPublishedObjectOnDisk()
+    {
+        string samplePath = ResolveSample("三星.heic");
+        using var workspace = new MediaWorkspace();
+        using var inspected = await new SourceInspector().InspectWithPlanAsync(samplePath);
+        ExtractedMediaBundle bundle = await new SourceExtractor().ExtractAsync(
+            inspected.ExtractionPlan, samplePath, null, workspace);
+        using CleanupPlan cleanupPlan = bundle.CleanupPlan!;
+        using CleanupPlanAttempt attempt = cleanupPlan.BeginCleanupAttempt();
+        string outPath = workspace.AllocateFilePath("clean-samsung-heic", ".heic");
+
+        IReadOnlyList<RemovedProtocolFact> removed = await NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
+            attempt, bundle.PrimaryImage.Path, bundle.MotionVideo?.Path, null, outPath, null);
+        Assert.NotEmpty(removed);
+
+        Assert.True(File.Exists(outPath), "The Samsung HEIC sink must publish its output.");
+        var records = NativeCleanService.QueryStagedOutputs(attempt.ContextLease.Handle, useHarnessLibrary: false);
+        var record = Assert.Single(records);
+        Assert.Equal(MediaArtifactKind.PrimaryImage, record.ArtifactRole);
+
+        WindowsFileIdentity disk = WindowsFileIdentity.Capture(outPath);
+        Assert.Equal(disk.VolumeSerialNumber, record.VolumeSerial);
+        Assert.Equal(disk.FileIndex, record.FileIndex);
+        Assert.Equal(disk.LinkCount, record.LinkCount);
+    }
 }

@@ -63,28 +63,48 @@ static bool write_atomic(
         return false;
     }
     const fs::path temp(temp_name);
-    {
-        std::ofstream output(temp, std::ios::binary | std::ios::trunc);
-        if (!output.is_open()) { fs::remove(temp, ec); return false; }
-        output.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
-        output.flush();
-        if (!output.good()) { output.close(); fs::remove(temp, ec); return false; }
-    }
-    // Open the temp handle BEFORE the rename; publish with a no-overwrite
-    // move; capture the published object identity from that same handle so
-    // ownership is established from the creating handle, never by re-opening
-    // the destination pathname afterwards.
-    HANDLE temp_handle = CreateFileW(temp.c_str(), FILE_READ_ATTRIBUTES,
+    // Ownership is continuous from the creating handle: the SAME handle writes
+    // the payload, publishes it with a no-overwrite move, and captures the
+    // published object identity for the ownership registry.  Neither the
+    // temporary pathname nor the destination pathname is re-opened to
+    // re-establish ownership afterwards.
+    HANDLE temp_handle = CreateFileW(temp.c_str(), GENERIC_READ | GENERIC_WRITE | DELETE,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-        OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (temp_handle == INVALID_HANDLE_VALUE) {
         fs::remove(temp, ec);
-        set_error(context, "Failed to open temporary HEIF output for identity capture.");
+        set_error(context, "Failed to open temporary HEIF output for writing.");
+        return false;
+    }
+    size_t written = 0;
+    while (written < data.size())
+    {
+        DWORD chunk = 0;
+        const DWORD wanted = static_cast<DWORD>(std::min<size_t>(data.size() - written, 32ull * 1024ull * 1024ull));
+        if (!WriteFile(temp_handle, data.data() + written, wanted, &chunk, nullptr) || chunk == 0)
+        {
+            FILE_DISPOSITION_INFO disp{};
+            disp.DeleteFile = TRUE;
+            static_cast<void>(SetFileInformationByHandle(temp_handle, FileDispositionInfo, &disp, sizeof(disp)));
+            CloseHandle(temp_handle);
+            set_error(context, "Failed to write temporary HEIF output.");
+            return false;
+        }
+        written += chunk;
+    }
+    if (!FlushFileBuffers(temp_handle)) {
+        FILE_DISPOSITION_INFO disp{};
+        disp.DeleteFile = TRUE;
+        static_cast<void>(SetFileInformationByHandle(temp_handle, FileDispositionInfo, &disp, sizeof(disp)));
+        CloseHandle(temp_handle);
+        set_error(context, "Failed to flush temporary HEIF output.");
         return false;
     }
     if (!MoveFileExW(temp.c_str(), dest.c_str(), MOVEFILE_WRITE_THROUGH)) {
+        FILE_DISPOSITION_INFO disp{};
+        disp.DeleteFile = TRUE;
+        static_cast<void>(SetFileInformationByHandle(temp_handle, FileDispositionInfo, &disp, sizeof(disp)));
         CloseHandle(temp_handle);
-        fs::remove(temp, ec);
         set_error(context, "A foreign object already occupies the HEIF destination; refusing to overwrite.");
         return false;
     }

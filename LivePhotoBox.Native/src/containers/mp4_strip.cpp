@@ -848,31 +848,60 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_mdta_keys(
 namespace lpb::containers {
 
 namespace {
-// Opens the temporary file handle BEFORE the rename, publishes it into place
-// with a no-overwrite move, then captures the published object identity from
-// that same handle.  Ownership is therefore established from the creating
-// handle: no code path re-opens the destination pathname to claim ownership.
-bool publish_owned_temp(lpb_context* context, int32_t artifact_role,
-    const std::filesystem::path& temp, const std::filesystem::path& dest,
+// Continuous handle-based publication for cleaned MP4 output.
+//
+// The SAME handle that writes the payload is used for the no-overwrite
+// publish (MoveFileExW without REPLACE_EXISTING) and for identity capture
+// (GetFileInformationByHandle) before the ownership registry record is
+// created.  Neither the temporary pathname nor the destination pathname is
+// ever re-opened to re-establish ownership: a foreign object that takes over
+// either pathname between any two steps is therefore never the object we
+// publish or register.
+bool write_all_to_handle(HANDLE h, const uint8_t* data, size_t size) noexcept
+{
+    size_t total = 0;
+    while (total < size)
+    {
+        DWORD chunk = 0;
+        const DWORD wanted = static_cast<DWORD>(std::min<size_t>(size - total, 32ull * 1024ull * 1024ull));
+        if (!WriteFile(h, data + total, wanted, &chunk, nullptr) || chunk == 0)
+        {
+            return false;
+        }
+        total += chunk;
+    }
+    return true;
+}
+
+HANDLE open_temp_output_handle(const std::filesystem::path& temp) noexcept
+{
+    return CreateFileW(temp.c_str(), GENERIC_READ | GENERIC_WRITE | DELETE,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+}
+
+// Publishes via the creating handle and registers the published object from
+// that same handle.  On any failure the object this handle created is deleted
+// through the handle (FileDispositionInfo), never by bare pathname.
+bool publish_and_register_cleaner_output(lpb_context* context, int32_t artifact_role,
+    HANDLE out_handle, const std::filesystem::path& temp, const std::filesystem::path& dest,
     const std::string& out_path)
 {
-    HANDLE temp_handle = CreateFileW(temp.c_str(), FILE_READ_ATTRIBUTES,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-        OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-    if (temp_handle == INVALID_HANDLE_VALUE) {
-        set_error(context, "Failed to open temporary output file for identity capture.");
-        return false;
-    }
-    if (!MoveFileExW(temp.c_str(), dest.c_str(), MOVEFILE_WRITE_THROUGH)) {
-        CloseHandle(temp_handle);
-        set_error(context, "Failed to publish cleaned video file.");
+    if (!MoveFileExW(temp.c_str(), dest.c_str(), MOVEFILE_WRITE_THROUGH))
+    {
+        FILE_DISPOSITION_INFO disp{};
+        disp.DeleteFile = TRUE;
+        static_cast<void>(SetFileInformationByHandle(out_handle, FileDispositionInfo, &disp, sizeof(disp)));
+        CloseHandle(out_handle);
+        set_error(context, "A foreign object already occupies the cleaned output destination; refusing to overwrite.");
         return false;
     }
     BY_HANDLE_FILE_INFORMATION finfo{};
-    const BOOL got = GetFileInformationByHandle(temp_handle, &finfo);
-    CloseHandle(temp_handle);
-    if (!got) {
-        set_error(context, "Failed to capture published video identity.");
+    const BOOL got = GetFileInformationByHandle(out_handle, &finfo);
+    CloseHandle(out_handle);
+    if (!got)
+    {
+        set_error(context, "Failed to capture published output identity.");
         return false;
     }
     lpb_file_identity identity{};
@@ -1071,23 +1100,22 @@ lpb_result stream_clean_mp4_bytes(
     const std::filesystem::path temp(temp_name);
 
     if (!outcome.uuid_removed && !outcome.mdta_removed && !outcome.track_removed) {
-        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
-        if (!out.is_open()) {
+        HANDLE out_handle = open_temp_output_handle(temp);
+        if (out_handle == INVALID_HANDLE_VALUE) {
             std::filesystem::remove(temp, ec);
             set_error(context, "Failed to open temporary output file for direct copy.");
             return LPB_RESULT_INTERNAL_ERROR;
         }
-        out.write(reinterpret_cast<const char*>(in_bytes.data()), static_cast<std::streamsize>(in_bytes.size()));
-        out.flush();
-        const bool write_ok = out.good();
-        out.close();
-        if (!write_ok) {
-            std::filesystem::remove(temp, ec);
+        if (!write_all_to_handle(out_handle, in_bytes.data(), in_bytes.size()) ||
+            !FlushFileBuffers(out_handle)) {
+            FILE_DISPOSITION_INFO disp{};
+            disp.DeleteFile = TRUE;
+            static_cast<void>(SetFileInformationByHandle(out_handle, FileDispositionInfo, &disp, sizeof(disp)));
+            CloseHandle(out_handle);
             set_error(context, "Failed to write unchanged video.");
             return LPB_RESULT_INTERNAL_ERROR;
         }
-        if (!publish_owned_temp(context, spec.artifact_role, temp, p_out, out_path)) {
-            std::filesystem::remove(temp, ec);
+        if (!publish_and_register_cleaner_output(context, spec.artifact_role, out_handle, temp, p_out, out_path)) {
             return LPB_RESULT_INTERNAL_ERROR;
         }
         return LPB_RESULT_OK;
@@ -1114,9 +1142,9 @@ lpb_result stream_clean_mp4_bytes(
         }
     }
 
-    // 4. Stream-write to temporary file
-    std::ofstream out(temp, std::ios::binary | std::ios::trunc);
-    if (!out.is_open()) {
+    // 4. Stream-write to temporary file through the creating handle
+    HANDLE out_handle = open_temp_output_handle(temp);
+    if (out_handle == INVALID_HANDLE_VALUE) {
         std::filesystem::remove(temp, ec);
         set_error(context, "Failed to open temporary output file for streaming.");
         return LPB_RESULT_INTERNAL_ERROR;
@@ -1128,9 +1156,11 @@ lpb_result stream_clean_mp4_bytes(
             continue; // strip target UUID box
         }
         if (i == moov_index) {
-            out.write(reinterpret_cast<const char*>(moov_data.data()), static_cast<std::streamsize>(moov_data.size()));
-            if (!out.good()) {
-                out.close(); std::filesystem::remove(temp, ec);
+            if (!write_all_to_handle(out_handle, moov_data.data(), moov_data.size())) {
+                FILE_DISPOSITION_INFO disp{};
+                disp.DeleteFile = TRUE;
+                static_cast<void>(SetFileInformationByHandle(out_handle, FileDispositionInfo, &disp, sizeof(disp)));
+                CloseHandle(out_handle);
                 set_error(context, "Failed to write rebuilt moov.");
                 return LPB_RESULT_INTERNAL_ERROR;
             }
@@ -1138,24 +1168,26 @@ lpb_result stream_clean_mp4_bytes(
         }
 
         // Copy box from immutable buffer
-        out.write(reinterpret_cast<const char*>(in_bytes.data() + b.offset), static_cast<std::streamsize>(b.size));
-        if (!out.good()) {
-            out.close(); std::filesystem::remove(temp, ec);
+        if (!write_all_to_handle(out_handle, in_bytes.data() + b.offset, b.size)) {
+            FILE_DISPOSITION_INFO disp{};
+            disp.DeleteFile = TRUE;
+            static_cast<void>(SetFileInformationByHandle(out_handle, FileDispositionInfo, &disp, sizeof(disp)));
+            CloseHandle(out_handle);
             set_error(context, "Failed to write box during copy.");
             return LPB_RESULT_INTERNAL_ERROR;
         }
     }
 
-    out.flush();
-    if (!out.good()) {
-        out.close(); std::filesystem::remove(temp, ec);
+    if (!FlushFileBuffers(out_handle)) {
+        FILE_DISPOSITION_INFO disp{};
+        disp.DeleteFile = TRUE;
+        static_cast<void>(SetFileInformationByHandle(out_handle, FileDispositionInfo, &disp, sizeof(disp)));
+        CloseHandle(out_handle);
         set_error(context, "Failed to flush cleaned output video.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
-    out.close();
 
-    if (!publish_owned_temp(context, spec.artifact_role, temp, p_out, out_path)) {
-        std::filesystem::remove(temp, ec);
+    if (!publish_and_register_cleaner_output(context, spec.artifact_role, out_handle, temp, p_out, out_path)) {
         return LPB_RESULT_INTERNAL_ERROR;
     }
     return LPB_RESULT_OK;

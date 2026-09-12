@@ -384,32 +384,48 @@ lpb_result clean_samsung_sef_jpeg(
         return LPB_RESULT_INTERNAL_ERROR;
     }
     const auto temp_path = std::filesystem::path(temp_name);
-    std::ofstream out(temp_path, std::ios::binary | std::ios::trunc);
-    if (!out.is_open()) { std::filesystem::remove(temp_path, write_ec); return LPB_RESULT_INTERNAL_ERROR; }
-    out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
-    out.flush();
-    const bool write_ok = out.good();
-    out.close();
-    if (!write_ok) {
-        std::filesystem::remove(temp_path, write_ec);
-        set_error(context, "Failed to write clean Samsung JPEG.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-    // Open the temp handle BEFORE the rename; publish with a no-overwrite
-    // move; capture the published object identity from that same handle so
-    // ownership is established from the creating handle, never by re-opening
-    // the destination pathname afterwards.
-    HANDLE temp_handle = CreateFileW(temp_path.c_str(), FILE_READ_ATTRIBUTES,
+    // Ownership is continuous from the creating handle: the SAME handle writes
+    // the payload, publishes it with a no-overwrite move, and captures the
+    // published object identity for the ownership registry.  Neither the
+    // temporary pathname nor the destination pathname is re-opened to
+    // re-establish ownership afterwards.
+    HANDLE temp_handle = CreateFileW(temp_path.c_str(), GENERIC_READ | GENERIC_WRITE | DELETE,
         FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-        OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (temp_handle == INVALID_HANDLE_VALUE) {
         std::filesystem::remove(temp_path, write_ec);
-        set_error(context, "Failed to open clean Samsung JPEG for identity capture.");
+        set_error(context, "Failed to open clean Samsung JPEG for writing.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    size_t written = 0;
+    while (written < data.size())
+    {
+        DWORD chunk = 0;
+        const DWORD wanted = static_cast<DWORD>(std::min<size_t>(data.size() - written, 32ull * 1024ull * 1024ull));
+        if (!WriteFile(temp_handle, data.data() + written, wanted, &chunk, nullptr) || chunk == 0)
+        {
+            FILE_DISPOSITION_INFO disp{};
+            disp.DeleteFile = TRUE;
+            static_cast<void>(SetFileInformationByHandle(temp_handle, FileDispositionInfo, &disp, sizeof(disp)));
+            CloseHandle(temp_handle);
+            set_error(context, "Failed to write clean Samsung JPEG.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+        written += chunk;
+    }
+    if (!FlushFileBuffers(temp_handle)) {
+        FILE_DISPOSITION_INFO disp{};
+        disp.DeleteFile = TRUE;
+        static_cast<void>(SetFileInformationByHandle(temp_handle, FileDispositionInfo, &disp, sizeof(disp)));
+        CloseHandle(temp_handle);
+        set_error(context, "Failed to flush clean Samsung JPEG.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
     if (!MoveFileExW(temp_path.c_str(), p_out.c_str(), MOVEFILE_WRITE_THROUGH)) {
+        FILE_DISPOSITION_INFO disp{};
+        disp.DeleteFile = TRUE;
+        static_cast<void>(SetFileInformationByHandle(temp_handle, FileDispositionInfo, &disp, sizeof(disp)));
         CloseHandle(temp_handle);
-        std::filesystem::remove(temp_path, write_ec);
         set_error(context, "A foreign object already occupies the Samsung JPEG destination; refusing to overwrite.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
