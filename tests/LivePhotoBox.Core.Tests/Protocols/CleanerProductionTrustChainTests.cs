@@ -150,35 +150,76 @@ public sealed class CleanerProductionTrustChainTests
 
         var cleaner = new SourceProtocolCleaner();
         string? foreignPath = null;
+        string? sidePath = null;
+        byte[]? foreignBytes = null;
 
-        // The publish already moved the transaction's own staged object to the
-        // destination.  A foreign process now replaces that destination with a
-        // DIFFERENT object holding the SAME bytes: same path + same content,
-        // but a new filesystem object.  Rollback must not delete it.
+        // The publish already moved the transaction's own object A to the
+        // destination (its exact handle is RETAINED until the bundle commits).
+        // A foreign process now (1) renames A away to a side path, (2) puts a
+        // DIFFERENT object B holding the SAME bytes at the destination, and
+        // (3) makes A UNDELETABLE (READONLY) so the retained-handle exact
+        // cleanup cannot prove A's removal.  The rollback must then fall back
+        // to exact-delete by path + identity — and REFUSE B, leaving the
+        // same-content foreign object untouched (SHA is not ownership).
         cleaner.FaultInjectionHook = (stage, detail) =>
         {
             if (stage == CleanerFailureStage.Commit && detail == "ImagePublished")
             {
+                // The retained exact handle (access includes DELETE, share
+                // READ|DELETE) only admits a FileShare.Read|Write|Delete
+                // open, so read A's bytes through a maximal-share handle.
                 foreignPath = Directory.GetFiles(workspace.RootDirectory, "clean-img*").Single();
-                byte[] sameBytes = File.ReadAllBytes(foreignPath);
-                File.Delete(foreignPath);
+                byte[] sameBytes;
+                using (var readHandle = new FileStream(
+                    foreignPath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.Read | FileShare.Write | FileShare.Delete))
+                {
+                    sameBytes = new byte[readHandle.Length];
+                    readHandle.ReadExactly(sameBytes);
+                }
+                sidePath = foreignPath + ".lpb-owned-moved-away";
+                foreignBytes = (byte[])sameBytes.Clone();
+                File.Move(foreignPath, sidePath);
                 File.WriteAllBytes(foreignPath, sameBytes);
+                File.SetAttributes(sidePath, FileAttributes.ReadOnly);
                 throw new IOException("Simulated publish failure after same-content foreign replacement.");
             }
             return Task.CompletedTask;
         };
 
-        ProtocolCleanResult result = await cleaner.CleanAsync(
-            new ProtocolCleanRequest { ExtractedBundle = bundle, CleanupPlan = cleanupPlan },
-            workspace);
+        try
+        {
+            ProtocolCleanResult result = await cleaner.CleanAsync(
+                new ProtocolCleanRequest { ExtractedBundle = bundle, CleanupPlan = cleanupPlan },
+                workspace);
 
-        Assert.False(result.Success);
-        Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
-        Assert.Contains("foreign-object protection", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+            Assert.False(result.Success);
+            Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
+            Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
+            Assert.Contains("foreign-object protection", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
 
-        // The foreign object at the original pathname survives untouched.
-        Assert.NotNull(foreignPath);
-        Assert.True(File.Exists(foreignPath));
+            // The foreign object at the original pathname survives untouched
+            // (byte-for-byte), even though its content equals the owned A.
+            Assert.NotNull(foreignPath);
+            Assert.True(File.Exists(foreignPath));
+            Assert.NotNull(foreignBytes);
+            Assert.Equal(foreignBytes, File.ReadAllBytes(foreignPath));
+        }
+        finally
+        {
+            // Clean the adversarial leftovers so MediaWorkspace can dispose.
+            if (foreignPath != null && File.Exists(foreignPath))
+            {
+                File.Delete(foreignPath);
+            }
+            if (sidePath != null && File.Exists(sidePath))
+            {
+                File.SetAttributes(sidePath, FileAttributes.Normal);
+                File.Delete(sidePath);
+            }
+        }
     }
 
     [DllImport("LivePhotoBox.Native.dll", EntryPoint = "lpb_jpeg_inject_xmp", CallingConvention = CallingConvention.Cdecl)]

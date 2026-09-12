@@ -687,11 +687,12 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             PublishedOwnedFile? vidPublished = null;
 
             journal.SetState(CleanerTransactionState.Committing);
+            SafeFileHandle? stagedImgHandle = null;
+            SafeFileHandle? stagedVidHandle = null;
             try
             {
                 WindowsFileIdentity stagedImgIdentity = RequireRegisteredStagedIdentity(journal, stagedImgPath);
-                using SafeFileHandle stagedImgHandle =
-                    WindowsOwnedFilePublisher.OpenOwnedStagedFile(stagedImgPath, stagedImgIdentity);
+                stagedImgHandle = WindowsOwnedFilePublisher.OpenOwnedStagedFile(stagedImgPath, stagedImgIdentity);
 
                 // Deterministic adversarial seam: the staging object has been
                 // verified from the OPEN handle, the handle is still open, and
@@ -737,22 +738,24 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 }
                 journal.RemoveStagedRecord(stagedImgPath);
 
-                // The verified handle has served its purpose: the object was
-                // renamed and its final evidence captured THROUGH it.  Close it
-                // now (spec lifecycle: journal record -> close) so the
-                // destination is not held locked through the rest of the
-                // commit and the ImagePublished seam observes the same state
-                // as a closed-handle publication.  Disposal is idempotent; the
-                // using scope still guarantees cleanup on every exception path.
-                stagedImgHandle.Dispose();
+                // The published object's exact handle is deliberately KEPT
+                // OPEN until the whole bundle transaction commits
+                // (SetState(Committed) below).  While the transaction is still
+                // active, the retained handle is the strongest ownership
+                // authority: if a foreign actor renames the published object
+                // away from cleanImgPath mid-transaction, the handle still
+                // refers to it, so a later failure can delete it exactly
+                // (FileDispositionInfo through the handle) no matter what
+                // pathname it now occupies.  Closing it here would let
+                // rollback's pathname lookup miss a renamed-away object and
+                // falsely report RolledBack.
 
                 if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Commit, "ImagePublished").ConfigureAwait(false);
 
                 if (stagedVidPath != null && cleanVidPath != null)
                 {
                     WindowsFileIdentity stagedVidIdentity = RequireRegisteredStagedIdentity(journal, stagedVidPath);
-                    using SafeFileHandle stagedVidHandle =
-                        WindowsOwnedFilePublisher.OpenOwnedStagedFile(stagedVidPath, stagedVidIdentity);
+                    stagedVidHandle = WindowsOwnedFilePublisher.OpenOwnedStagedFile(stagedVidPath, stagedVidIdentity);
 
                     // Deterministic adversarial seam (video counterpart).
                     if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Commit, "AfterVideoIdentityVerifiedBeforeRename").ConfigureAwait(false);
@@ -774,27 +777,30 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                         throw;
                     }
                     journal.RemoveStagedRecord(stagedVidPath);
-                    stagedVidHandle.Dispose();
+                    // stagedVidHandle stays open too, for the same reason.
                 }
 
                 journal.SetState(CleanerTransactionState.Committed);
             }
             catch (OperationCanceledException)
             {
-                // A cancellation before the rename (all evidence is captured
-                // pre-rename; the rename is the last filesystem mutation) is
-                // handled per artifact above: the owned object is removed
-                // through the verified handle and the journal records are
-                // dropped, so the rollback only ever acts on objects this
-                // transaction still owns.  The published record was already
-                // pre-registered for any artifact whose rename succeeded, so
-                // even a cancellation after publication finds the owned object
-                // at its real location.  Propagate so the caller sees the
-                // cancellation.
+                // Fail closed on cancellation: every artifact whose publish
+                // already succeeded is deleted through its retained exact
+                // handle before the cancellation propagates, so a foreign
+                // pathname rename can never hide a transaction-owned object
+                // from rollback.
+                CleanupPublishedRetainedHandles(journal, imgPublished, stagedImgHandle, cleanImgPath, vidPublished, stagedVidHandle, cleanVidPath);
                 throw;
             }
             catch (Exception ex)
             {
+                // Fail closed on any post-publish failure: delete every
+                // published artifact through its retained exact handle (the
+                // strongest authority) and drop the journal record only when
+                // the deletion is proven; otherwise keep the record and force
+                // a rollback failure so a false "RolledBack" can never be
+                // reported while a transaction-owned object may still exist.
+                CleanupPublishedRetainedHandles(journal, imgPublished, stagedImgHandle, cleanImgPath, vidPublished, stagedVidHandle, cleanVidPath);
                 throw new CleanerException(
                     CleanerFailureCategory.PublishFailed,
                     CleanerFailureStage.Commit,
@@ -804,6 +810,11 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             }
             finally
             {
+                // Handles are released only after the transaction reached a
+                // terminal state (Committed, or the fail-closed cleanup above
+                // has already run against them).
+                stagedImgHandle?.Dispose();
+                stagedVidHandle?.Dispose();
                 if (journal.State == CleanerTransactionState.Committed)
                 {
                     TryDeleteDirectory(stagingDir);
@@ -1422,6 +1433,19 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             PublishedPaths.RemoveAll(r => string.Equals(r.Path, path, StringComparison.OrdinalIgnoreCase));
         }
 
+        /// <summary>
+        /// Records a rollback failure from outside the <see cref="Rollback"/>
+        /// loop (e.g. an exact-handle cleanup that could not prove deletion of
+        /// a transaction-owned object).  <see cref="Rollback"/> throws
+        /// RollbackFailed whenever the failure list is non-empty, so a false
+        /// "RolledBack" can never be reported while a transaction-owned object
+        /// may still exist.
+        /// </summary>
+        public void AddRollbackFailure(string message)
+        {
+            RollbackExceptions.Add(new IOException(message));
+        }
+
         public void Rollback(Func<CleanerFailureStage, string?, Task>? faultHook, SourceProtocol protocol)
         {
             State = CleanerTransactionState.RollingBack;
@@ -1625,6 +1649,50 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             catch (Exception ex)
             {
                 exceptions.Add(new IOException($"Unable to remove staging directory '{dir}': {ex.Message}", ex));
+            }
+        }
+    }
+
+    /// <summary>
+    /// Fail-closed cleanup for a transaction that did NOT commit: every
+    /// artifact whose publish already succeeded is deleted through its
+    /// RETAINED exact handle (FileDispositionInfo) — the strongest
+    /// authority — so a foreign actor that renamed the published object
+    /// away mid-transaction cannot hide it from rollback.  The journal
+    /// record is dropped only when the deletion is proven; otherwise it is
+    /// kept (rollback retries by path + identity) and a rollback failure
+    /// is forced so a false "RolledBack" can never be reported.
+    /// </summary>
+    private static void CleanupPublishedRetainedHandles(
+        CleanerTransactionJournal journal,
+        PublishedOwnedFile? imgPublished,
+        SafeFileHandle? imgHandle,
+        string cleanImgPath,
+        PublishedOwnedFile? vidPublished,
+        SafeFileHandle? vidHandle,
+        string? cleanVidPath)
+    {
+        if (imgPublished != null && imgHandle != null && !imgHandle.IsInvalid)
+        {
+            if (WindowsOwnedFilePublisher.DeleteOwnedObject(imgHandle))
+            {
+                journal.RemovePublishedRecord(cleanImgPath);
+            }
+            else
+            {
+                journal.AddRollbackFailure($"Unable to delete the published image for '{cleanImgPath}' through its retained handle; the transaction-owned object may still exist after a pathname takeover.");
+            }
+        }
+
+        if (vidPublished != null && vidHandle != null && !vidHandle.IsInvalid && cleanVidPath != null)
+        {
+            if (WindowsOwnedFilePublisher.DeleteOwnedObject(vidHandle))
+            {
+                journal.RemovePublishedRecord(cleanVidPath);
+            }
+            else
+            {
+                journal.AddRollbackFailure($"Unable to delete the published video for '{cleanVidPath}' through its retained handle; the transaction-owned object may still exist after a pathname takeover.");
             }
         }
     }

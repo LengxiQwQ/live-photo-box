@@ -592,6 +592,8 @@ public sealed class CleanerManagedCommitOwnershipTests
         }
     }
 
+
+
     // ---------------------------------------------------------------------
     // 8. Cancellation AFTER the rename: the same journal fallback cleans the
     //    published object; cancellation never leaves a transaction-owned
@@ -649,12 +651,13 @@ public sealed class CleanerManagedCommitOwnershipTests
     }
 
     // ---------------------------------------------------------------------
-    // 9. Rollback exact-delete open failure: a sharing violation must surface
-    //    as RollbackFailed — never a silent "already gone".
+    // 9. Rollback exact-delete failure: ERROR_ACCESS_DENIED (READONLY object
+    //    made undeletable by a foreign actor) must surface as RollbackFailed —
+    //    never a silent "already gone" like a genuine NOT_FOUND.
     // ---------------------------------------------------------------------
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task ManagedCommit_RollbackOpenSharingViolation_SurfacesAsRollbackFailed()
+    public async Task ManagedCommit_RollbackExactDeleteAccessDenied_SurfacesAsRollbackFailed()
     {
         string samplePath = ResolveSample("oppo.jpg");
         string shaBefore = ComputeSha256(samplePath);
@@ -667,47 +670,61 @@ public sealed class CleanerManagedCommitOwnershipTests
         {
             int triggerCount = 0;
             string? observedStage = null;
-            FileStream? lockStream = null;
-            string? lockedPath = null;
+            string? stagedPath = null;
 
-            // At ImagePublished the image rename has already succeeded.  Hold
-            // the published file open with a share mode that denies DELETE:
-            // the rollback's exact-delete open then fails with
-            // ERROR_SHARING_VIOLATION, which must surface as RollbackFailed —
-            // NOT be silently treated as "already gone".
+            // A foreign actor makes the transaction-owned staged object
+            // UNDELETABLE (READONLY) at the seam, then fails the transaction
+            // BEFORE the rename.  Rollback's exact-delete then opens the
+            // object (DELETE-open succeeds on READONLY files) but its
+            // FileDispositionInfo fails with ERROR_ACCESS_DENIED — which is
+            // NOT "already gone".  The transaction must surface RollbackFailed
+            // and leave the owned object in place instead of falsely reporting
+            // RolledBack.
             cleaner.FaultInjectionHook = (stage, detail) =>
             {
-                if (stage == CleanerFailureStage.Commit && detail == "ImagePublished")
+                if (stage == CleanerFailureStage.Commit && detail == "AfterImageIdentityVerifiedBeforeRename")
                 {
                     triggerCount++;
                     observedStage = detail;
-                    lockedPath = Assert.Single(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
-                    lockStream = new FileStream(lockedPath, FileMode.Open, FileAccess.Read, FileShare.Read);
-                    throw new IOException("Simulated post-rename failure.");
+                    stagedPath = FindStagedFile(workspace, "stage-img*").StagedPath;
+                    File.SetAttributes(stagedPath, FileAttributes.ReadOnly);
+                    throw new IOException("Simulated pre-rename failure while the staged object is made undeletable.");
                 }
                 return Task.CompletedTask;
             };
 
-            var result = await cleaner.CleanAsync(new ProtocolCleanRequest
+            try
             {
-                ExtractedBundle = bundle,
-                CleanupPlan = cleanupPlan
-            }, workspace);
+                var result = await cleaner.CleanAsync(new ProtocolCleanRequest
+                {
+                    ExtractedBundle = bundle,
+                    CleanupPlan = cleanupPlan
+                }, workspace);
 
-            Assert.False(result.Success);
-            Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
-            Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
-            Assert.Equal(1, triggerCount);
-            Assert.Equal("ImagePublished", observedStage);
+                Assert.False(result.Success);
+                Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
+                Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
+                Assert.Equal(1, triggerCount);
+                Assert.Equal("AfterImageIdentityVerifiedBeforeRename", observedStage);
 
-            // Fail closed: the rollback could not LOOK at the object, so the
-            // transaction-owned file is left in place and the transaction
-            // reports RollbackFailed instead of pretending it rolled back.
-            Assert.NotNull(lockedPath);
-            Assert.True(File.Exists(lockedPath));
-            Assert.NotNull(lockStream);
-            Assert.True(lockStream.Length > 0);
-            lockStream.Dispose();
+                // Fail closed: the rollback could not DELETE the staged object
+                // (ACCESS_DENIED, not NOT_FOUND), so the transaction reports
+                // RollbackFailed and the transaction-owned object is left
+                // where it was — never deleted through an unverified path.
+                Assert.NotNull(stagedPath);
+                Assert.True(File.Exists(stagedPath));
+            }
+            finally
+            {
+                // Clean up the read-only leftover so MediaWorkspace can
+                // dispose its scratch directory.
+                if (stagedPath != null && File.Exists(stagedPath))
+                {
+                    File.SetAttributes(stagedPath, FileAttributes.Normal);
+                    File.Delete(stagedPath);
+                }
+            }
+
             Assert.Equal(shaBefore, ComputeSha256(samplePath));
         }
     }
@@ -764,6 +781,153 @@ public sealed class CleanerManagedCommitOwnershipTests
             Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
             Assert.Empty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
             Assert.Equal(shaBefore, ComputeSha256(samplePath));
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // 11. Post-image-publish rename-away: while the bundle transaction is
+    //     still active the published object's exact handle is retained, so a
+    //     foreign actor renaming A away from clean-img (not deleting it)
+    //     cannot make rollback report a false RolledBack — A is deleted
+    //     through the handle no matter what pathname it now occupies.
+    // ---------------------------------------------------------------------
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task ManagedCommit_PostImagePublish_RenameAwayThenFailure_ExactHandleRollbackCleansOwnedObject()
+    {
+        string samplePath = ResolveSample("oppo.jpg");
+        string shaBefore = ComputeSha256(samplePath);
+
+        using var workspace = new MediaWorkspace();
+        var cleaner = new SourceProtocolCleaner();
+        var (bundle, nativeContext, cleanupPlan) = await PrepareAsync(samplePath, null, workspace);
+        using (nativeContext)
+        using (cleanupPlan)
+        {
+            int triggerCount = 0;
+            string? observedStage = null;
+            string? movedAwayPath = null;
+
+            // At ImagePublished the image rename has already succeeded and the
+            // commit handle to A is STILL open (the bundle transaction has not
+            // committed).  A foreign actor renames A away from clean-img — not
+            // a delete: A still exists under a different pathname.  The
+            // subsequent failure must still clean A through the retained
+            // handle; rollback must NOT report success while A survives.
+            cleaner.FaultInjectionHook = (stage, detail) =>
+            {
+                if (stage == CleanerFailureStage.Commit && detail == "ImagePublished")
+                {
+                    triggerCount++;
+                    observedStage = detail;
+                    string cleanImg = Assert.Single(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+                    movedAwayPath = cleanImg + ".lpb-owned-moved-away";
+                    File.Move(cleanImg, movedAwayPath);
+                    throw new IOException("Simulated post-image-publish failure.");
+                }
+                return Task.CompletedTask;
+            };
+
+            var result = await cleaner.CleanAsync(new ProtocolCleanRequest
+            {
+                ExtractedBundle = bundle,
+                CleanupPlan = cleanupPlan
+            }, workspace);
+
+            Assert.False(result.Success);
+            Assert.Equal(CleanerFailureCategory.PublishFailed, result.FailureCategory);
+            Assert.Equal(CleanerTransactionState.RolledBack, result.TransactionState);
+            Assert.Equal(1, triggerCount);
+            Assert.Equal("ImagePublished", observedStage);
+
+            // The transaction-owned object was deleted through its retained
+            // exact handle even though it had been renamed away: no clean-img
+            // output and no moved-away owned artifact survive.
+            Assert.NotNull(movedAwayPath);
+            Assert.False(File.Exists(movedAwayPath));
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "*lpb-owned-moved-away*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
+            Assert.Equal(shaBefore, ComputeSha256(samplePath));
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // 12. Multi-artifact: image published and renamed away, then the video
+    //     publish fails -> the image is rolled back through its retained
+    //     exact handle; no owned artifact leaks and the foreign video
+    //     destination survives byte-for-byte.
+    // ---------------------------------------------------------------------
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task ManagedCommit_ImagePublishedRenamedAway_VideoPublishFails_ImageExactHandleRollback()
+    {
+        string samplePath = ResolveSample("苹果双文件.HEIC");
+        string secondaryPath = ResolveSample("苹果双文件.MOV");
+        string shaBefore = ComputeSha256(samplePath);
+        string shaVideoBefore = ComputeSha256(secondaryPath);
+
+        using var workspace = new MediaWorkspace();
+        string foreignVideoDestination = Path.Combine(workspace.RootDirectory, "foreign-vid-dest.mov");
+        var cleaner = new SourceProtocolCleaner();
+        var (bundle, nativeContext, cleanupPlan) = await PrepareAsync(samplePath, secondaryPath, workspace);
+        using (nativeContext)
+        using (cleanupPlan)
+        {
+            int triggerCount = 0;
+            string? observedStage = null;
+            string? movedAwayPath = null;
+
+            cleaner.FaultInjectionHook = (stage, detail) =>
+            {
+                if (stage == CleanerFailureStage.Commit && detail == "ImagePublished")
+                {
+                    triggerCount++;
+                    // Image A is already published; rename it away BEFORE the
+                    // video publish fails.
+                    string cleanImg = Assert.Single(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+                    movedAwayPath = cleanImg + ".lpb-owned-moved-away";
+                    File.Move(cleanImg, movedAwayPath);
+                }
+                else if (stage == CleanerFailureStage.Commit && detail == "AfterVideoIdentityVerifiedBeforeRename")
+                {
+                    triggerCount++;
+                    observedStage = detail;
+                    // Occupy the video destination so the video publish fails.
+                    File.WriteAllBytes(foreignVideoDestination, ForeignMarker);
+                }
+                return Task.CompletedTask;
+            };
+
+            var fixedWorkspace = new FixedPublishWorkspace(workspace, null, foreignVideoDestination);
+            var result = await cleaner.CleanAsync(new ProtocolCleanRequest
+            {
+                ExtractedBundle = bundle,
+                CleanupPlan = cleanupPlan
+            }, fixedWorkspace);
+
+            Assert.False(result.Success);
+            Assert.Equal(CleanerFailureCategory.PublishFailed, result.FailureCategory);
+            Assert.Equal(CleanerTransactionState.RolledBack, result.TransactionState);
+            Assert.Equal(2, triggerCount);
+            Assert.Equal("AfterVideoIdentityVerifiedBeforeRename", observedStage);
+
+            // The published image was deleted through its retained handle even
+            // though it had been renamed away mid-transaction.
+            Assert.NotNull(movedAwayPath);
+            Assert.False(File.Exists(movedAwayPath));
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "*lpb-owned-moved-away*", SearchOption.AllDirectories));
+
+            // The foreign video destination survives byte-for-byte; no owned
+            // clean-vid output was ever created.
+            Assert.True(File.Exists(foreignVideoDestination));
+            Assert.Equal(ForeignMarker, File.ReadAllBytes(foreignVideoDestination));
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-vid*", SearchOption.AllDirectories));
+
+            Assert.Empty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
+            Assert.Equal(shaBefore, ComputeSha256(samplePath));
+            Assert.Equal(shaVideoBefore, ComputeSha256(secondaryPath));
         }
     }
 }
