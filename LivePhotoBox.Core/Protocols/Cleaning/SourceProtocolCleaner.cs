@@ -673,38 +673,102 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 cleanVidPath = workspace.AllocateFilePath("clean-vid", vidExt);
             }
 
+            // The final commit is handle-bound.  Ownership comes from the
+            // Native staged-output registry captured at staging time; the
+            // registered identity is re-verified from a freshly OPENED handle,
+            // and the object is published THROUGH THAT SAME HANDLE
+            // (SetFileInformationByHandle / FileRenameInfo, ReplaceIfExists =
+            // FALSE).  There is no verify -> close handle -> pathname re-select
+            // window: a foreign object that takes over the staged pathname
+            // between verify and rename can never be selected as the publish
+            // source, and a foreign object at the destination can never be
+            // overwritten (the kernel rename decides atomically).
+            PublishedOwnedFile? imgPublished = null;
+            PublishedOwnedFile? vidPublished = null;
+
             journal.SetState(CleanerTransactionState.Committing);
             try
             {
-                // No-overwrite publish: a destination that already exists is a
-                // foreign object and the publish must fail closed.  The exact
-                // object identity of every file we move is captured BEFORE the
-                // move, from the staging object this transaction created.
-                // Moving it (same-volume rename) preserves the exact filesystem
-                // object, so rollback verifies against that pre-move identity
-                // and never re-derives ownership from the destination pathname
-                // after the move (no Move -> Capture window).
-                // Ownership comes from the Native registry captured at staging
-                // time.  A pre-move re-capture double-checks the object at the
-                // path is still exactly that object (same File ID) before the
-                // move; ownership is never re-derived from the destination
-                // pathname after the move.
                 WindowsFileIdentity stagedImgIdentity = RequireRegisteredStagedIdentity(journal, stagedImgPath);
-                VerifyExactObjectAtPath(stagedImgPath, stagedImgIdentity);
-                File.Move(stagedImgPath, cleanImgPath);
-                journal.PublishedPaths.Add(new PublishRecord(cleanImgPath, stagedImgIdentity));
+                using SafeFileHandle stagedImgHandle =
+                    WindowsOwnedFilePublisher.OpenOwnedStagedFile(stagedImgPath, stagedImgIdentity);
+
+                // Deterministic adversarial seam: the staging object has been
+                // verified from the OPEN handle, the handle is still open, and
+                // the handle rename has NOT yet executed.
+                if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Commit, "AfterImageIdentityVerifiedBeforeRename").ConfigureAwait(false);
+
+                try
+                {
+                    imgPublished = WindowsOwnedFilePublisher.PublishOwnedHandle(
+                        stagedImgHandle, cleanImgPath, stagedImgIdentity, cancellationToken);
+                }
+                catch
+                {
+                    // Publish failed after the handle was verified.  The owned
+                    // object is removed through the SAME verified handle
+                    // (exact-object cleanup); the staged pathname may now hold
+                    // a foreign object and must never be touched by rollback.
+                    // If even the handle cleanup fails, the staged record is
+                    // kept so the journal rollback retries exact cleanup.
+                    if (WindowsOwnedFilePublisher.DeleteOwnedObject(stagedImgHandle))
+                    {
+                        journal.RemoveStagedRecord(stagedImgPath);
+                    }
+                    throw;
+                }
+                journal.PublishedPaths.Add(new PublishRecord(imgPublished.FinalPath, imgPublished.FileIdentity));
+                journal.RemoveStagedRecord(stagedImgPath);
+
+                // The verified handle has served its purpose: the object was
+                // renamed and its final evidence captured THROUGH it.  Close it
+                // now (spec lifecycle: journal record -> close) so the
+                // destination is not held locked through the rest of the
+                // commit and the ImagePublished seam observes the same state
+                // as a closed-handle publication.  Disposal is idempotent; the
+                // using scope still guarantees cleanup on every exception path.
+                stagedImgHandle.Dispose();
 
                 if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Commit, "ImagePublished").ConfigureAwait(false);
 
                 if (stagedVidPath != null && cleanVidPath != null)
                 {
                     WindowsFileIdentity stagedVidIdentity = RequireRegisteredStagedIdentity(journal, stagedVidPath);
-                    VerifyExactObjectAtPath(stagedVidPath, stagedVidIdentity);
-                    File.Move(stagedVidPath, cleanVidPath);
-                    journal.PublishedPaths.Add(new PublishRecord(cleanVidPath, stagedVidIdentity));
+                    using SafeFileHandle stagedVidHandle =
+                        WindowsOwnedFilePublisher.OpenOwnedStagedFile(stagedVidPath, stagedVidIdentity);
+
+                    // Deterministic adversarial seam (video counterpart).
+                    if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Commit, "AfterVideoIdentityVerifiedBeforeRename").ConfigureAwait(false);
+
+                    try
+                    {
+                        vidPublished = WindowsOwnedFilePublisher.PublishOwnedHandle(
+                            stagedVidHandle, cleanVidPath, stagedVidIdentity, cancellationToken);
+                    }
+                    catch
+                    {
+                        if (WindowsOwnedFilePublisher.DeleteOwnedObject(stagedVidHandle))
+                        {
+                            journal.RemoveStagedRecord(stagedVidPath);
+                        }
+                        throw;
+                    }
+                    journal.PublishedPaths.Add(new PublishRecord(vidPublished.FinalPath, vidPublished.FileIdentity));
+                    journal.RemoveStagedRecord(stagedVidPath);
+                    stagedVidHandle.Dispose();
                 }
 
                 journal.SetState(CleanerTransactionState.Committed);
+            }
+            catch (OperationCanceledException)
+            {
+                // A cancellation between verify and rename (or during the
+                // post-rename evidence capture) is handled per artifact above:
+                // the owned object is removed through the verified handle and
+                // the staged record is dropped, so the journal rollback only
+                // ever acts on objects this transaction still owns.  Propagate
+                // so the caller sees the cancellation.
+                throw;
             }
             catch (Exception ex)
             {
@@ -727,31 +791,36 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             // -------------------------------------------------------------
             // Step 10: Emit Evidence
             // -------------------------------------------------------------
+            // The final MediaArtifact ownership fields (FileIdentity, length,
+            // SHA-256) come from the same-handle publication evidence only —
+            // never from a pathname re-lookup after the handle was closed, so
+            // a foreign object that later occupies the destination can never
+            // be re-claimed as this transaction's output.
             var cleanImgArtifact = new MediaArtifact
             {
-                Path = cleanImgPath,
+                Path = imgPublished!.FinalPath,
                 Kind = MediaArtifactKind.PrimaryImage,
                 MimeType = bundle.PrimaryImage.MimeType,
                 ImageContainer = bundle.PrimaryImage.ImageContainer,
                 ImageCodec = bundle.PrimaryImage.ImageCodec,
-                ByteLength = new FileInfo(cleanImgPath).Length,
-                Sha256 = await workspace.ComputeFileSha256Async(cleanImgPath, cancellationToken).ConfigureAwait(false),
-                FileIdentity = WindowsFileIdentity.Capture(cleanImgPath)
+                ByteLength = imgPublished.ByteLength,
+                Sha256 = imgPublished.Sha256,
+                FileIdentity = imgPublished.FileIdentity
             };
 
             MediaArtifact? cleanVidArtifact = null;
-            if (cleanVidPath != null && File.Exists(cleanVidPath))
+            if (vidPublished != null && cleanVidPath != null)
             {
                 cleanVidArtifact = new MediaArtifact
                 {
-                    Path = cleanVidPath,
+                    Path = vidPublished.FinalPath,
                     Kind = MediaArtifactKind.MotionVideo,
                     MimeType = bundle.MotionVideo!.MimeType,
                     VideoContainer = bundle.MotionVideo.VideoContainer,
                     VideoCodec = bundle.MotionVideo.VideoCodec,
-                    ByteLength = new FileInfo(cleanVidPath).Length,
-                    Sha256 = await workspace.ComputeFileSha256Async(cleanVidPath, cancellationToken).ConfigureAwait(false),
-                    FileIdentity = WindowsFileIdentity.Capture(cleanVidPath)
+                    ByteLength = vidPublished.ByteLength,
+                    Sha256 = vidPublished.Sha256,
+                    FileIdentity = vidPublished.FileIdentity
                 };
             }
 
@@ -987,21 +1056,6 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 $"No native-registered ownership for staged '{path}'; refusing to publish an object this transaction did not prove it created.");
         }
         return rec.Identity;
-    }
-
-    private static void VerifyExactObjectAtPath(string path, WindowsFileIdentity expected)
-    {
-        WindowsFileIdentity current = WindowsFileIdentity.Capture(path);
-        if (current.IsReparsePoint ||
-            current.VolumeSerialNumber != expected.VolumeSerialNumber ||
-            current.FileIndex != expected.FileIndex)
-        {
-            throw new CleanerException(
-                CleanerFailureCategory.ArtifactChangedSinceExtraction,
-                CleanerFailureStage.Commit,
-                SourceProtocol.Unknown,
-                $"Staged object at '{path}' no longer matches the identity this transaction registered; refusing to publish a foreign object.");
-        }
     }
 
     private static bool IsValidSha256(string? sha)
@@ -1320,6 +1374,18 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         public List<Exception> RollbackExceptions { get; } = [];
 
         public void SetState(CleanerTransactionState state) => State = state;
+
+        /// <summary>
+        /// Drops the staged record for <paramref name="path"/> after the object
+        /// it referred to was either published (ownership now tracked by
+        /// <see cref="PublishedPaths"/>) or already removed through its exact
+        /// handle.  Rollback must never re-touch that pathname afterwards: it
+        /// may now be occupied by a foreign object.
+        /// </summary>
+        public void RemoveStagedRecord(string path)
+        {
+            StagedPaths.RemoveAll(r => string.Equals(r.Path, path, StringComparison.OrdinalIgnoreCase));
+        }
 
         public void Rollback(Func<CleanerFailureStage, string?, Task>? faultHook, SourceProtocol protocol)
         {
