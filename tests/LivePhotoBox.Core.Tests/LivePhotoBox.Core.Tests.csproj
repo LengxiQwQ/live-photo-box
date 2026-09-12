@@ -32,8 +32,8 @@
     <Compile Include="..\..\LivePhotoBox\Services\EditPreviewCoordinator.cs" Link="Editor\EditPreviewCoordinator.cs" />
   </ItemGroup>
 
-  <ItemGroup Condition="Exists('..\..\artifacts\native\TestHarness\win-x64\LivePhotoBox.Native.TestHarness.dll')">
-    <Content Include="..\..\artifacts\native\TestHarness\win-x64\LivePhotoBox.Native.TestHarness.dll">
+  <ItemGroup Condition="Exists('..\..\artifacts\native\TestHarness\$(Configuration)\win-x64\LivePhotoBox.Native.TestHarness.dll')">
+    <Content Include="..\..\artifacts\native\TestHarness\$(Configuration)\win-x64\LivePhotoBox.Native.TestHarness.dll">
       <Link>LivePhotoBox.Native.TestHarness.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
