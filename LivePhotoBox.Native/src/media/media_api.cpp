@@ -584,10 +584,32 @@ LPB_API lpb_result LPB_CALL lpb_commit_extraction_outputs(
 #if defined(LPB_NATIVE_TEST_HARNESS)
 LPB_API lpb_result LPB_CALL lpb_test_set_cleaner_publish_fault(
     lpb_context* context,
-    int32_t swap_temp_source_before_publish)
+    int32_t swap_temp_source_before_publish,
+    int32_t target_artifact_role)
 {
     if (!context) return LPB_RESULT_INVALID_ARGUMENT;
     context->cleaner_hook.swap_temp_source_before_publish = swap_temp_source_before_publish;
+    context->cleaner_hook.target_artifact_role = target_artifact_role;
+    context->cleaner_hook.last_triggered_artifact_role = LPB_CLEANER_TEST_HOOK_TARGET_ANY;
+    context->cleaner_hook.trigger_count = 0;
+    return LPB_RESULT_OK;
+}
+
+/* Harness-only proof of where the one-shot publish race seam actually fired:
+ * returns the artifact role that consumed it and how many times it fired
+ * (-1 / LPB_CLEANER_TEST_HOOK_TARGET_ANY when it never fired).  Tests assert
+ * these values so a test whose name claims one sink cannot silently exercise
+ * another. */
+LPB_API lpb_result LPB_CALL lpb_test_get_cleaner_publish_fault(
+    lpb_context* context,
+    int32_t* out_last_triggered_artifact_role,
+    int32_t* out_trigger_count)
+{
+    if (!context) return LPB_RESULT_INVALID_ARGUMENT;
+    if (out_last_triggered_artifact_role)
+        *out_last_triggered_artifact_role = context->cleaner_hook.last_triggered_artifact_role;
+    if (out_trigger_count)
+        *out_trigger_count = context->cleaner_hook.trigger_count;
     return LPB_RESULT_OK;
 }
 

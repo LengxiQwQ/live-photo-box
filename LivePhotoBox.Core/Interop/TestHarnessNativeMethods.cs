@@ -90,12 +90,29 @@ internal static partial class TestHarnessNativeMethods
 
     // Test-only publish race seam: when 1, the harness build swaps the owned
     // temp object for a foreign one at the same temp pathname immediately
-    // before publish.  A handle-based publish must still move the ORIGINAL
-    // object and must leave the foreign object untouched.
+    // before the FIRST publish whose artifact role equals targetArtifactRole.
+    // Publishes for any other artifact role run normally and never consume the
+    // seam, so a test can target exactly one sink (e.g. MotionVideo for the
+    // MP4 sink) without an earlier PrimaryImage publish consuming it first.
+    // Pass CleanerPublishFaultAnyRole (-1) for legacy any-role behavior.
     [LibraryImport(LibraryName, EntryPoint = "lpb_test_set_cleaner_publish_fault")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeResult SetCleanerPublishFault(
         nint context,
-        int swapTempSourceBeforePublish);
+        int swapTempSourceBeforePublish,
+        int targetArtifactRole);
+
+    // Harness-only proof of where the one-shot publish race seam actually
+    // fired: returns the artifact role that consumed it and how many times it
+    // fired (-1 / CleanerPublishFaultAnyRole when it never fired).  Tests
+    // assert these values so a test whose name claims one sink cannot
+    // silently exercise another.
+    [LibraryImport(LibraryName, EntryPoint = "lpb_test_get_cleaner_publish_fault")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult GetCleanerPublishFault(
+        nint context,
+        out int lastTriggeredArtifactRole,
+        out int triggerCount);
 }

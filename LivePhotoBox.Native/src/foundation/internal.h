@@ -187,14 +187,29 @@ struct lpb_test_destroyed_context_archive
 // not write past the production layout).  The seam CODE that reads it is
 // compiled only under LPB_NATIVE_TEST_HARNESS, and the setter is a
 // harness-only export, so production never reacts to it.
+// Sentinel target for the one-shot publish race seam: fire on the first
+// publish of ANY artifact role (legacy behavior).  Tests that must prove a
+// specific sink set target_artifact_role to the exact lpb_media_artifact_kind
+// instead, so non-target sinks never consume the seam.
+#define LPB_CLEANER_TEST_HOOK_TARGET_ANY (-1)
 struct lpb_cleaner_test_hook
 {
-    // One-shot test seam: when non-zero, immediately before publish the owned
-    // object is renamed away from its temp pathname (by handle) and a foreign
-    // object is created at that pathname.  A handle-based publish must still
-    // move the ORIGINAL object to the destination and must leave the foreign
-    // object untouched.
+    // One-shot test seam: when non-zero, immediately before the FIRST publish
+    // whose artifact_role equals target_artifact_role, the owned object is
+    // renamed away from its temp pathname (by handle) and a foreign object is
+    // created at that pathname.  A handle-based publish must still move the
+    // ORIGINAL object to the destination and must leave the foreign object
+    // untouched.  Publishes for any other artifact role run normally and never
+    // consume the seam, so a test can target exactly one sink (e.g.
+    // LPB_ARTIFACT_MOTION_VIDEO for the MP4 sink) without an earlier
+    // PrimaryImage publish consuming it first.
     int32_t swap_temp_source_before_publish{0};
+    int32_t target_artifact_role{LPB_CLEANER_TEST_HOOK_TARGET_ANY};
+    // Harness-only observations: which artifact role consumed the seam and how
+    // many times it fired.  Tests assert these to prove the seam was consumed
+    // by the intended sink (and by no other).
+    int32_t last_triggered_artifact_role{LPB_CLEANER_TEST_HOOK_TARGET_ANY};
+    int32_t trigger_count{0};
 };
 
 struct lpb_context
@@ -332,9 +347,20 @@ inline bool lpb_publish_cleaner_output_handle(
 #if defined(LPB_NATIVE_TEST_HARNESS)
     if (context != nullptr && context->cleaner_hook.swap_temp_source_before_publish != 0)
     {
-        context->cleaner_hook.swap_temp_source_before_publish = 0;
-        try
+        // Role-targeted seam: only a publish whose artifact_role equals the
+        // armed target (or the ANY sentinel) consumes the one-shot fault.
+        // Publishes for any other role run normally and leave the seam armed,
+        // so a test can prove the fault fired on exactly the intended sink.
+        const int32_t target = context->cleaner_hook.target_artifact_role;
+        const bool role_matches =
+            target == LPB_CLEANER_TEST_HOOK_TARGET_ANY || target == artifact_role;
+        if (role_matches)
         {
+            context->cleaner_hook.swap_temp_source_before_publish = 0;
+            context->cleaner_hook.last_triggered_artifact_role = artifact_role;
+            context->cleaner_hook.trigger_count += 1;
+            try
+            {
             // Stage the race: move the owned object (by THIS handle) to a side
             // pathname, then create a foreign object at the original temp
             // pathname.  The publish below must still move the ORIGINAL object
@@ -367,9 +393,10 @@ inline bool lpb_publish_cleaner_output_handle(
             static_cast<void>(WriteFile(foreign, marker, static_cast<DWORD>(sizeof(marker) - 1), &written, nullptr));
             CloseHandle(foreign);
         }
-        catch (...)
-        {
-            return false;
+            catch (...)
+            {
+                return false;
+            }
         }
     }
 #endif

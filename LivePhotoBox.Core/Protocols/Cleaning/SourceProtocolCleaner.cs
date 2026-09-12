@@ -869,14 +869,13 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
 
     /// <summary>
     /// After a staging invoker throws (exception or cancellation), the Native
-    /// side may have partially written staged outputs.  Ownership comes from
-    /// the Native ownership registry (identities recorded from the creating
-    /// handles).  In addition, the staging output paths this CleanAsync call
-    /// itself allocated (stagedImgPath / stagedVidPath) are known transaction
-    /// targets: if a partial write happened before the throw, that exact path
-    /// is claimed as owned so rollback can remove the partial artifact.  A
-    /// file that merely appears elsewhere inside the staging directory is
-    /// foreign: it is never claimed, so rollback can never delete an object
+    /// side may have partially written staged outputs.  Ownership comes ONLY
+    /// from the Native staged-output registry (identities captured from the
+    /// creating handle at publish time).  This failure path reads that
+    /// registry and records exactly the objects the Native side proved it
+    /// created.  An expected staging pathname (stagedImgPath / stagedVidPath)
+    /// or any file that merely appears inside the staging directory never
+    /// constitutes ownership by itself: rollback can never delete an object
     /// this transaction did not prove it created.
     /// </summary>
     private static void CaptureNativeStagedOutputs(
