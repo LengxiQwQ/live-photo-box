@@ -57,23 +57,18 @@ static bool write_atomic(
     std::error_code ec;
     fs::path temp_dir = dest.parent_path();
     if (temp_dir.empty()) temp_dir = fs::current_path(ec);
-    wchar_t temp_name[MAX_PATH]{};
-    if (GetTempFileNameW(temp_dir.c_str(), L"lpb", 0, temp_name) == 0) {
+    if (ec || temp_dir.empty()) {
         set_error(context, "Failed to create temporary HEIF output file.");
         return false;
     }
-    const fs::path temp(temp_name);
-    // Ownership is continuous from the creating handle: the SAME handle writes
-    // the payload, publishes it with a no-overwrite move, and captures the
-    // published object identity for the ownership registry.  Neither the
-    // temporary pathname nor the destination pathname is re-opened to
-    // re-establish ownership afterwards.
-    HANDLE temp_handle = CreateFileW(temp.c_str(), GENERIC_READ | GENERIC_WRITE | DELETE,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    // CREATE_NEW temp acquisition: the handle is the FIRST creation of the
+    // object (kernel-atomic name claim), so ownership starts at the object's
+    // first moment of existence and stays on this handle through write ->
+    // publish -> identity capture.  Never GetTempFileNameW + OPEN_EXISTING.
+    fs::path temp;
+    HANDLE temp_handle = lpb_create_unique_temp_file(temp_dir, L"lpbh", temp);
     if (temp_handle == INVALID_HANDLE_VALUE) {
-        fs::remove(temp, ec);
-        set_error(context, "Failed to open temporary HEIF output for writing.");
+        set_error(context, "Failed to create temporary HEIF output file.");
         return false;
     }
     size_t written = 0;

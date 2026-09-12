@@ -873,13 +873,6 @@ bool write_all_to_handle(HANDLE h, const uint8_t* data, size_t size) noexcept
     return true;
 }
 
-HANDLE open_temp_output_handle(const std::filesystem::path& temp) noexcept
-{
-    return CreateFileW(temp.c_str(), GENERIC_READ | GENERIC_WRITE | DELETE,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-}
-
 // Publishes via the creating handle and registers the published object from
 // that same handle.  On any failure the object this handle created is deleted
 // through the handle (FileDispositionInfo), never by bare pathname.
@@ -1092,20 +1085,21 @@ lpb_result stream_clean_mp4_bytes(
     std::error_code ec;
     auto temp_dir = p_out.parent_path();
     if (temp_dir.empty()) temp_dir = std::filesystem::current_path(ec);
-    wchar_t temp_name[MAX_PATH]{};
-    if (GetTempFileNameW(temp_dir.c_str(), L"lpb", 0, temp_name) == 0) {
+
+    // CREATE_NEW temp acquisition: the handle below is the FIRST creation of
+    // the temporary object (kernel-atomic name claim), so ownership starts at
+    // the object's first moment of existence and stays on this handle through
+    // write -> publish -> identity capture.  Never GetTempFileNameW +
+    // OPEN_EXISTING (which re-opens a pathname after Windows created and
+    // closed the file itself).
+    std::filesystem::path temp;
+    HANDLE out_handle = lpb_create_unique_temp_file(temp_dir, L"lpbv", temp);
+    if (out_handle == INVALID_HANDLE_VALUE) {
         set_error(context, "Failed to create temporary output file.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
-    const std::filesystem::path temp(temp_name);
 
     if (!outcome.uuid_removed && !outcome.mdta_removed && !outcome.track_removed) {
-        HANDLE out_handle = open_temp_output_handle(temp);
-        if (out_handle == INVALID_HANDLE_VALUE) {
-            std::filesystem::remove(temp, ec);
-            set_error(context, "Failed to open temporary output file for direct copy.");
-            return LPB_RESULT_INTERNAL_ERROR;
-        }
         if (!write_all_to_handle(out_handle, in_bytes.data(), in_bytes.size()) ||
             !FlushFileBuffers(out_handle)) {
             FILE_DISPOSITION_INFO disp{};
@@ -1135,7 +1129,10 @@ lpb_result stream_clean_mp4_bytes(
         }
         if (mdat_shift != 0) {
             if (!shift_chunk_offsets(moov_data, 0, 0, mdat_shift)) {
-                std::filesystem::remove(temp, ec);
+                FILE_DISPOSITION_INFO disp{};
+                disp.DeleteFile = TRUE;
+                static_cast<void>(SetFileInformationByHandle(out_handle, FileDispositionInfo, &disp, sizeof(disp)));
+                CloseHandle(out_handle);
                 set_error(context, "Failed to adjust chunk offsets in moov.");
                 return LPB_RESULT_INTERNAL_ERROR;
             }
@@ -1143,13 +1140,6 @@ lpb_result stream_clean_mp4_bytes(
     }
 
     // 4. Stream-write to temporary file through the creating handle
-    HANDLE out_handle = open_temp_output_handle(temp);
-    if (out_handle == INVALID_HANDLE_VALUE) {
-        std::filesystem::remove(temp, ec);
-        set_error(context, "Failed to open temporary output file for streaming.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-
     for (size_t i = 0; i < boxes.size(); i++) {
         const auto& b = boxes[i];
         if (b.is_target_uuid) {

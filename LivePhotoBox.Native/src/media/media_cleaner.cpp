@@ -218,20 +218,16 @@ static bool write_file_binary(lpb_context* context, int32_t artifact_role,
     auto temp_dir = p.parent_path();
     if (temp_dir.empty()) temp_dir = fs::current_path(ec);
     if (ec || temp_dir.empty()) return false;
-    wchar_t temp_name[MAX_PATH]{};
-    if (GetTempFileNameW(temp_dir.c_str(), L"lpb", 0, temp_name) == 0) return false;
-    const fs::path temp(temp_name);
 
-    // Keep the creating handle open through the publish so the identity we
-    // record afterwards is provably the object we created — never a pathname
-    // re-open after another process could have replaced the file.
-    HANDLE temp_handle = CreateFileW(
-        temp.c_str(), GENERIC_READ | GENERIC_WRITE | DELETE,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    // CREATE_NEW temp acquisition: the returned handle is the FIRST creation
+    // of the object (kernel-atomic name claim), so ownership starts at the
+    // object's first moment of existence.  Never GetTempFileNameW +
+    // OPEN_EXISTING, which re-opens a pathname after Windows created and
+    // closed the file itself.
+    fs::path temp;
+    HANDLE temp_handle = lpb_create_unique_temp_file(temp_dir, L"lpb", temp);
     if (temp_handle == INVALID_HANDLE_VALUE)
     {
-        fs::remove(temp, ec);
         return false;
     }
 

@@ -1,8 +1,13 @@
 #pragma once
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #include "livephotobox_native.h"
 #include "livephotobox_native_version.h"
 #include "binary/endian.h"
 
+#include <random>
 #include <cstring>
 #include <algorithm>
 #include <array>
@@ -21,6 +26,47 @@
 #endif
 
 #include <filesystem>
+
+// Creates a unique temporary file with CREATE_NEW so the returned handle is
+// provably the FIRST creation of that filesystem object: the kernel atomically
+// fails with ERROR_FILE_EXISTS if any other object (including a pre-seeded
+// foreign file) already owns the candidate name, and the caller holds the
+// creating handle from the very first moment of the object's existence.  This
+// is the ownership anchor for the whole Cleaner publish chain: unlike
+// GetTempFileNameW (which creates an empty file, closes its handle, and
+// returns a pathname that can be raced), no code path ever re-opens a pathname
+// to re-establish ownership.  A name collision simply retries with a fresh
+// random name.
+inline HANDLE lpb_create_unique_temp_file(const std::filesystem::path& dir,
+    const wchar_t* prefix, std::filesystem::path& out_path) noexcept
+{
+    std::random_device rd;
+    for (int attempt = 0; attempt < 16; ++attempt)
+    {
+        const unsigned long r1 = rd();
+        const unsigned long r2 = rd();
+        std::wstring name = std::wstring(prefix) + L"-"
+            + std::to_wstring(static_cast<unsigned long>(GetCurrentProcessId())) + L"-"
+            + std::to_wstring(static_cast<unsigned long>(GetTickCount64() & 0xFFFFFFFFull)) + L"-"
+            + std::to_wstring(r1) + L"-" + std::to_wstring(r2) + L".tmp";
+        const std::filesystem::path candidate = dir / name;
+        HANDLE h = CreateFileW(candidate.c_str(), GENERIC_READ | GENERIC_WRITE | DELETE,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+            CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h != INVALID_HANDLE_VALUE)
+        {
+            out_path = candidate;
+            return h;
+        }
+        const DWORD err = GetLastError();
+        if (err != ERROR_FILE_EXISTS && err != ERROR_ALREADY_EXISTS)
+        {
+            return INVALID_HANDLE_VALUE;
+        }
+        // Name collision: retry with a fresh random name.
+    }
+    return INVALID_HANDLE_VALUE;
+}
 
 struct lpb_extractor_test_hook
 {

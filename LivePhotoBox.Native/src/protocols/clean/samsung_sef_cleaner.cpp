@@ -378,22 +378,17 @@ lpb_result clean_samsung_sef_jpeg(
     std::error_code write_ec;
     auto temp_dir = p_out.parent_path();
     if (temp_dir.empty()) temp_dir = std::filesystem::current_path(write_ec);
-    wchar_t temp_name[MAX_PATH]{};
-    if (write_ec || temp_dir.empty() || GetTempFileNameW(temp_dir.c_str(), L"lpb", 0, temp_name) == 0) {
+    if (write_ec || temp_dir.empty()) {
         set_error(context, "Failed to open output Samsung JPEG for writing.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
-    const auto temp_path = std::filesystem::path(temp_name);
-    // Ownership is continuous from the creating handle: the SAME handle writes
-    // the payload, publishes it with a no-overwrite move, and captures the
-    // published object identity for the ownership registry.  Neither the
-    // temporary pathname nor the destination pathname is re-opened to
-    // re-establish ownership afterwards.
-    HANDLE temp_handle = CreateFileW(temp_path.c_str(), GENERIC_READ | GENERIC_WRITE | DELETE,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    // CREATE_NEW temp acquisition: the handle is the FIRST creation of the
+    // object (kernel-atomic name claim), so ownership starts at the object's
+    // first moment of existence and stays on this handle through write ->
+    // publish -> identity capture.  Never GetTempFileNameW + OPEN_EXISTING.
+    auto temp_path = std::filesystem::path{};
+    HANDLE temp_handle = lpb_create_unique_temp_file(temp_dir, L"lpbj", temp_path);
     if (temp_handle == INVALID_HANDLE_VALUE) {
-        std::filesystem::remove(temp_path, write_ec);
         set_error(context, "Failed to open clean Samsung JPEG for writing.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
