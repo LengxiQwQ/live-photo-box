@@ -93,20 +93,29 @@ internal static class WindowsOwnedFilePublisher
 
     /// <summary>
     /// Publishes the object referenced by <paramref name="handle"/> to
-    /// <paramref name="finalPath"/> THROUGH THE HANDLE:
+    /// <paramref name="finalPath"/> THROUGH THE HANDLE.  ALL fallible work —
+    /// cancellation, identity verification, byte length and SHA-256 — runs
+    /// BEFORE the rename, so the kernel rename is the LAST filesystem-state-
+    /// changing operation of this method:
     ///
-    ///   1. kernel-atomic no-overwrite rename (ReplaceIfExists = FALSE) —
-    ///      a pre-existing destination (even one placed mid-flight) fails the
-    ///      rename itself, never an overwrite;
-    ///   2. final identity captured from the SAME handle and compared against
+    ///   1. identity captured from the SAME handle and compared against
     ///      <paramref name="expected"/> (identity continuity: verify who you
-    ///      publish);
-    ///   3. final byte length and SHA-256 captured from the SAME handle, so
-    ///      the returned evidence corresponds to the exact object that was
-    ///      verified and published — never a pathname re-lookup.
+    ///      publish).  A rename does not change the filesystem object, and the
+    ///      commit handle is held without FILE_SHARE_WRITE, so no writer can
+    ///      alter the content between this capture and the rename;
+    ///   2. byte length and SHA-256 captured from the SAME handle, so the
+    ///      returned evidence corresponds to the exact object that was
+    ///      verified and published — never a pathname re-lookup;
+    ///   3. kernel-atomic no-overwrite rename (ReplaceIfExists = FALSE) as the
+    ///      LAST step — a pre-existing destination (even one placed
+    ///      mid-flight) fails the rename itself, never an overwrite.
     ///
-    /// On failure the owned object is NOT deleted here; the caller removes it
-    /// through the same handle (exact-object cleanup) after the exception.
+    /// A throw from this method therefore means the rename did NOT happen and
+    /// the object is still at its staged pathname.  The caller registers the
+    /// publication in the transaction journal BEFORE calling this method, so
+    /// the journal always knows the object's real location; on failure the
+    /// caller removes the owned object through the same handle (exact-object
+    /// cleanup) after the exception.
     /// </summary>
     public static PublishedOwnedFile PublishOwnedHandle(
         SafeFileHandle handle,
@@ -116,24 +125,17 @@ internal static class WindowsOwnedFilePublisher
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        if (!RenameThroughHandle(handle, finalPath, out int win32Error))
-        {
-            throw BuildPublishFailure(finalPath, win32Error);
-        }
-
-        cancellationToken.ThrowIfCancellationRequested();
-
-        WindowsFileIdentity finalIdentity = WindowsFileIdentity.Capture(handle);
-        if (finalIdentity.IsReparsePoint ||
-            finalIdentity.VolumeSerialNumber != expected.VolumeSerialNumber ||
-            finalIdentity.FileIndex != expected.FileIndex ||
-            finalIdentity.LinkCount != expected.LinkCount)
+        WindowsFileIdentity identity = WindowsFileIdentity.Capture(handle);
+        if (identity.IsReparsePoint ||
+            identity.VolumeSerialNumber != expected.VolumeSerialNumber ||
+            identity.FileIndex != expected.FileIndex ||
+            identity.LinkCount != expected.LinkCount)
         {
             throw new CleanerException(
                 CleanerFailureCategory.ArtifactChangedSinceExtraction,
                 CleanerFailureStage.Commit,
                 SourceProtocol.Unknown,
-                $"Published object identity changed during the same-handle rename; fail closed for '{finalPath}'.");
+                $"Staged object identity changed before the same-handle rename; fail closed for '{finalPath}'.");
         }
 
         if (!GetFileSizeEx(handle, out long finalLength))
@@ -143,12 +145,21 @@ internal static class WindowsOwnedFilePublisher
                 CleanerFailureCategory.PublishFailed,
                 CleanerFailureStage.Commit,
                 SourceProtocol.Unknown,
-                $"Unable to capture the final length of the published object '{finalPath}' (Win32 error {sizeError}).");
+                $"Unable to capture the length of the object being published to '{finalPath}' (Win32 error {sizeError}).");
         }
 
         string sha256 = ComputeSha256FromHandle(handle, finalPath, cancellationToken);
 
-        return new PublishedOwnedFile(finalPath, finalIdentity, finalLength, sha256);
+        // LAST filesystem-state-changing operation: kernel-atomic no-overwrite
+        // rename through the verified handle.  Nothing fallible runs after it,
+        // so a throw from this method implies the rename never happened and
+        // the object is still at its staged pathname.
+        if (!RenameThroughHandle(handle, finalPath, out int win32Error))
+        {
+            throw BuildPublishFailure(finalPath, win32Error);
+        }
+
+        return new PublishedOwnedFile(finalPath, identity, finalLength, sha256);
     }
 
     /// <summary>

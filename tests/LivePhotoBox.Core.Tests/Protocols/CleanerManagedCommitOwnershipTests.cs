@@ -533,4 +533,237 @@ public sealed class CleanerManagedCommitOwnershipTests
             Assert.Equal(shaBefore, ComputeSha256(samplePath));
         }
     }
+
+    // ---------------------------------------------------------------------
+    // 7. Post-rename failure: the journal pre-registered the published record
+    //    BEFORE the rename, so rollback exact-deletes the owned object at its
+    //    real (published) location instead of leaking a transaction-owned
+    //    clean-img output.
+    // ---------------------------------------------------------------------
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task ManagedCommit_PostRenameFailure_JournalFallbackExactDeletesPublishedObject()
+    {
+        string samplePath = ResolveSample("oppo.jpg");
+        string shaBefore = ComputeSha256(samplePath);
+
+        using var workspace = new MediaWorkspace();
+        var cleaner = new SourceProtocolCleaner();
+        var (bundle, nativeContext, cleanupPlan) = await PrepareAsync(samplePath, null, workspace);
+        using (nativeContext)
+        using (cleanupPlan)
+        {
+            int triggerCount = 0;
+            string? observedStage = null;
+
+            // The image rename has ALREADY succeeded (A is at clean-img) when
+            // this seam fires.  Throw after publication: rollback must find the
+            // owned object through the journal's published record — the
+            // transaction-owned output must never leak.
+            cleaner.FaultInjectionHook = (stage, detail) =>
+            {
+                if (stage == CleanerFailureStage.Commit && detail == "ImagePublished")
+                {
+                    triggerCount++;
+                    observedStage = detail;
+                    throw new IOException("Simulated post-rename failure.");
+                }
+                return Task.CompletedTask;
+            };
+
+            var result = await cleaner.CleanAsync(new ProtocolCleanRequest
+            {
+                ExtractedBundle = bundle,
+                CleanupPlan = cleanupPlan
+            }, workspace);
+
+            Assert.False(result.Success);
+            Assert.Equal(CleanerFailureCategory.PublishFailed, result.FailureCategory);
+            Assert.Equal(CleanerTransactionState.RolledBack, result.TransactionState);
+            Assert.Equal(1, triggerCount);
+            Assert.Equal("ImagePublished", observedStage);
+
+            // The published object was exact-deleted through the journal's
+            // published record (no foreign object was involved).
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "*lpb-race-side*", SearchOption.AllDirectories));
+            Assert.Equal(shaBefore, ComputeSha256(samplePath));
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // 8. Cancellation AFTER the rename: the same journal fallback cleans the
+    //    published object; cancellation never leaves a transaction-owned
+    //    clean-img behind.
+    // ---------------------------------------------------------------------
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task ManagedCommit_PostRenameCancellation_JournalFallbackExactDeletesPublishedObject()
+    {
+        string samplePath = ResolveSample("oppo.jpg");
+        string shaBefore = ComputeSha256(samplePath);
+
+        using var workspace = new MediaWorkspace();
+        var cleaner = new SourceProtocolCleaner();
+        var (bundle, nativeContext, cleanupPlan) = await PrepareAsync(samplePath, null, workspace);
+        using (nativeContext)
+        using (cleanupPlan)
+        {
+            using var cts = new CancellationTokenSource();
+            int triggerCount = 0;
+            string? observedStage = null;
+
+            // Cancel AFTER the image rename succeeded (A is at clean-img).
+            // The journal pre-registered the published record BEFORE the
+            // rename, so rollback deletes A at its real location.
+            cleaner.FaultInjectionHook = (stage, detail) =>
+            {
+                if (stage == CleanerFailureStage.Commit && detail == "ImagePublished")
+                {
+                    triggerCount++;
+                    observedStage = detail;
+                    cts.Cancel();
+                    cts.Token.ThrowIfCancellationRequested();
+                }
+                return Task.CompletedTask;
+            };
+
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            {
+                await cleaner.CleanAsync(new ProtocolCleanRequest
+                {
+                    ExtractedBundle = bundle,
+                    CleanupPlan = cleanupPlan
+                }, workspace, cts.Token);
+            });
+
+            Assert.Equal(1, triggerCount);
+            Assert.Equal("ImagePublished", observedStage);
+
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "*lpb-race-side*", SearchOption.AllDirectories));
+            Assert.Equal(shaBefore, ComputeSha256(samplePath));
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // 9. Rollback exact-delete open failure: a sharing violation must surface
+    //    as RollbackFailed — never a silent "already gone".
+    // ---------------------------------------------------------------------
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task ManagedCommit_RollbackOpenSharingViolation_SurfacesAsRollbackFailed()
+    {
+        string samplePath = ResolveSample("oppo.jpg");
+        string shaBefore = ComputeSha256(samplePath);
+
+        using var workspace = new MediaWorkspace();
+        var cleaner = new SourceProtocolCleaner();
+        var (bundle, nativeContext, cleanupPlan) = await PrepareAsync(samplePath, null, workspace);
+        using (nativeContext)
+        using (cleanupPlan)
+        {
+            int triggerCount = 0;
+            string? observedStage = null;
+            FileStream? lockStream = null;
+            string? lockedPath = null;
+
+            // At ImagePublished the image rename has already succeeded.  Hold
+            // the published file open with a share mode that denies DELETE:
+            // the rollback's exact-delete open then fails with
+            // ERROR_SHARING_VIOLATION, which must surface as RollbackFailed —
+            // NOT be silently treated as "already gone".
+            cleaner.FaultInjectionHook = (stage, detail) =>
+            {
+                if (stage == CleanerFailureStage.Commit && detail == "ImagePublished")
+                {
+                    triggerCount++;
+                    observedStage = detail;
+                    lockedPath = Assert.Single(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+                    lockStream = new FileStream(lockedPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    throw new IOException("Simulated post-rename failure.");
+                }
+                return Task.CompletedTask;
+            };
+
+            var result = await cleaner.CleanAsync(new ProtocolCleanRequest
+            {
+                ExtractedBundle = bundle,
+                CleanupPlan = cleanupPlan
+            }, workspace);
+
+            Assert.False(result.Success);
+            Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
+            Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
+            Assert.Equal(1, triggerCount);
+            Assert.Equal("ImagePublished", observedStage);
+
+            // Fail closed: the rollback could not LOOK at the object, so the
+            // transaction-owned file is left in place and the transaction
+            // reports RollbackFailed instead of pretending it rolled back.
+            Assert.NotNull(lockedPath);
+            Assert.True(File.Exists(lockedPath));
+            Assert.NotNull(lockStream);
+            Assert.True(lockStream.Length > 0);
+            lockStream.Dispose();
+            Assert.Equal(shaBefore, ComputeSha256(samplePath));
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // 10. Rollback exact-delete open failure: ERROR_FILE_NOT_FOUND IS
+    //     "already gone" and must NOT be reported as RollbackFailed.
+    // ---------------------------------------------------------------------
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task ManagedCommit_RollbackOpenFileNotFound_TreatedAsGone_NotRollbackFailed()
+    {
+        string samplePath = ResolveSample("oppo.jpg");
+        string shaBefore = ComputeSha256(samplePath);
+
+        using var workspace = new MediaWorkspace();
+        var cleaner = new SourceProtocolCleaner();
+        var (bundle, nativeContext, cleanupPlan) = await PrepareAsync(samplePath, null, workspace);
+        using (nativeContext)
+        using (cleanupPlan)
+        {
+            int triggerCount = 0;
+            string? observedStage = null;
+
+            // The image rename has already succeeded; a foreign actor removes
+            // the transaction-owned object before rollback runs.  Rollback's
+            // exact-delete open then fails with ERROR_FILE_NOT_FOUND, which IS
+            // "already gone" — the rollback must NOT be reported as failed.
+            cleaner.FaultInjectionHook = (stage, detail) =>
+            {
+                if (stage == CleanerFailureStage.Commit && detail == "ImagePublished")
+                {
+                    triggerCount++;
+                    observedStage = detail;
+                    string cleanImg = Assert.Single(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+                    File.Delete(cleanImg);
+                    throw new IOException("Simulated post-rename failure.");
+                }
+                return Task.CompletedTask;
+            };
+
+            var result = await cleaner.CleanAsync(new ProtocolCleanRequest
+            {
+                ExtractedBundle = bundle,
+                CleanupPlan = cleanupPlan
+            }, workspace);
+
+            Assert.False(result.Success);
+            Assert.Equal(CleanerFailureCategory.PublishFailed, result.FailureCategory);
+            Assert.Equal(CleanerTransactionState.RolledBack, result.TransactionState);
+            Assert.Equal(1, triggerCount);
+            Assert.Equal("ImagePublished", observedStage);
+
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
+            Assert.Equal(shaBefore, ComputeSha256(samplePath));
+        }
+    }
 }
