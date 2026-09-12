@@ -87,4 +87,15 @@ internal static partial class TestHarnessNativeMethods
         nint context,
         nint callback,
         nint userData);
+
+    // Test-only publish race seam: when 1, the harness build swaps the owned
+    // temp object for a foreign one at the same temp pathname immediately
+    // before publish.  A handle-based publish must still move the ORIGINAL
+    // object and must leave the foreign object untouched.
+    [LibraryImport(LibraryName, EntryPoint = "lpb_test_set_cleaner_publish_fault")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult SetCleanerPublishFault(
+        nint context,
+        int swapTempSourceBeforePublish);
 }

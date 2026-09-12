@@ -582,6 +582,15 @@ LPB_API lpb_result LPB_CALL lpb_commit_extraction_outputs(
 }
 
 #if defined(LPB_NATIVE_TEST_HARNESS)
+LPB_API lpb_result LPB_CALL lpb_test_set_cleaner_publish_fault(
+    lpb_context* context,
+    int32_t swap_temp_source_before_publish)
+{
+    if (!context) return LPB_RESULT_INVALID_ARGUMENT;
+    context->cleaner_hook.swap_temp_source_before_publish = swap_temp_source_before_publish;
+    return LPB_RESULT_OK;
+}
+
 LPB_API lpb_result LPB_CALL lpb_test_set_extractor_fault(
     lpb_context* context,
     lpb_extractor_fault fault,

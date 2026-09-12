@@ -95,27 +95,16 @@ static bool write_atomic(
         set_error(context, "Failed to flush temporary HEIF output.");
         return false;
     }
-    if (!MoveFileExW(temp.c_str(), dest.c_str(), MOVEFILE_WRITE_THROUGH)) {
+    if (!lpb_publish_cleaner_output_handle(context, artifact_role, temp_handle, temp, dest, output_path))
+    {
         FILE_DISPOSITION_INFO disp{};
         disp.DeleteFile = TRUE;
         static_cast<void>(SetFileInformationByHandle(temp_handle, FileDispositionInfo, &disp, sizeof(disp)));
         CloseHandle(temp_handle);
-        set_error(context, "A foreign object already occupies the HEIF destination; refusing to overwrite.");
+        set_error(context, "Failed to publish cleaned HEIF (destination occupied or identity capture failed); refusing to overwrite.");
         return false;
     }
-    BY_HANDLE_FILE_INFORMATION finfo{};
-    const BOOL got = GetFileInformationByHandle(temp_handle, &finfo);
     CloseHandle(temp_handle);
-    if (!got) {
-        set_error(context, "Failed to capture published HEIF identity.");
-        return false;
-    }
-    lpb_file_identity identity{};
-    identity.volume_serial = finfo.dwVolumeSerialNumber;
-    identity.file_index = (static_cast<uint64_t>(finfo.nFileIndexHigh) << 32) | finfo.nFileIndexLow;
-    identity.file_size = (static_cast<uint64_t>(finfo.nFileSizeHigh) << 32) | finfo.nFileSizeLow;
-    identity.link_count = finfo.nNumberOfLinks;
-    record_cleaner_staged_output(context, artifact_role, output_path, identity);
     return true;
 }
 

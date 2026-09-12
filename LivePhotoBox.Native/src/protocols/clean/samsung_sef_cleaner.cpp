@@ -416,27 +416,16 @@ lpb_result clean_samsung_sef_jpeg(
         set_error(context, "Failed to flush clean Samsung JPEG.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
-    if (!MoveFileExW(temp_path.c_str(), p_out.c_str(), MOVEFILE_WRITE_THROUGH)) {
+    if (!lpb_publish_cleaner_output_handle(context, LPB_ARTIFACT_PRIMARY_IMAGE, temp_handle, temp_path, p_out, output_path))
+    {
         FILE_DISPOSITION_INFO disp{};
         disp.DeleteFile = TRUE;
         static_cast<void>(SetFileInformationByHandle(temp_handle, FileDispositionInfo, &disp, sizeof(disp)));
         CloseHandle(temp_handle);
-        set_error(context, "A foreign object already occupies the Samsung JPEG destination; refusing to overwrite.");
+        set_error(context, "Failed to publish cleaned Samsung JPEG (destination occupied or identity capture failed); refusing to overwrite.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
-    BY_HANDLE_FILE_INFORMATION finfo{};
-    const BOOL got = GetFileInformationByHandle(temp_handle, &finfo);
     CloseHandle(temp_handle);
-    if (!got) {
-        set_error(context, "Failed to capture published Samsung JPEG identity.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-    lpb_file_identity identity{};
-    identity.volume_serial = finfo.dwVolumeSerialNumber;
-    identity.file_index = (static_cast<uint64_t>(finfo.nFileIndexHigh) << 32) | finfo.nFileIndexLow;
-    identity.file_size = (static_cast<uint64_t>(finfo.nFileSizeHigh) << 32) | finfo.nFileSizeLow;
-    identity.link_count = finfo.nNumberOfLinks;
-    record_cleaner_staged_output(context, LPB_ARTIFACT_PRIMARY_IMAGE, output_path, identity);
 
     return LPB_RESULT_OK;
 }

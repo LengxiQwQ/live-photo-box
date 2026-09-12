@@ -743,6 +743,9 @@ typedef struct lpb_test_plan_accounting
 } lpb_test_plan_accounting;
 
 LPB_API uint64_t LPB_CALL lpb_test_get_context_id(lpb_context* context);
+LPB_API lpb_result LPB_CALL lpb_test_set_cleaner_publish_fault(
+    lpb_context* context,
+    int32_t swap_temp_source_before_publish);
 LPB_API lpb_result LPB_CALL lpb_test_get_plan_accounting(
     lpb_context* context,
     lpb_test_plan_accounting* out_accounting);

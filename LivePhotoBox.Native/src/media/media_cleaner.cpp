@@ -228,6 +228,7 @@ static bool write_file_binary(lpb_context* context, int32_t artifact_role,
     HANDLE temp_handle = lpb_create_unique_temp_file(temp_dir, L"lpb", temp);
     if (temp_handle == INVALID_HANDLE_VALUE)
     {
+        set_error(context, "Failed to create a unique temp file for cleaned output.");
         return false;
     }
 
@@ -245,36 +246,26 @@ static bool write_file_binary(lpb_context* context, int32_t artifact_role,
     }
     if (total == data.size() && FlushFileBuffers(temp_handle))
     {
-        // No-overwrite handle-based publish: an existing destination is a race
-        // or a foreign object and must fail closed, never be replaced.
-        const std::wstring dest = p.native();
-        std::vector<uint8_t> rename_buf(sizeof(FILE_RENAME_INFO) + dest.size() * sizeof(wchar_t));
-        auto* rename_info = reinterpret_cast<FILE_RENAME_INFO*>(rename_buf.data());
-        std::memset(rename_info, 0, rename_buf.size());
-        rename_info->ReplaceIfExists = FALSE;
-        rename_info->RootDirectory = nullptr;
-        rename_info->FileNameLength = static_cast<DWORD>(dest.size() * sizeof(wchar_t));
-        std::memcpy(rename_info->FileName, dest.c_str(), rename_info->FileNameLength);
-        if (SetFileInformationByHandle(temp_handle, FileRenameInfo, rename_info, static_cast<DWORD>(rename_buf.size())))
-        {
-            BY_HANDLE_FILE_INFORMATION info{};
-            if (GetFileInformationByHandle(temp_handle, &info))
-            {
-                lpb_file_identity identity{};
-                identity.volume_serial = info.dwVolumeSerialNumber;
-                identity.file_index = (static_cast<uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
-                identity.file_size = (static_cast<uint64_t>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
-                identity.link_count = info.nNumberOfLinks;
-                record_cleaner_staged_output(context, artifact_role, path, identity);
-            }
-            ok = true;
-        }
+        // Handle-based no-overwrite publish: the object this handle created is
+        // renamed through the handle (FileRenameInfo, ReplaceIfExists = FALSE).
+        // A foreign destination object fails closed; the source object is
+        // decided by the handle, never by the temp pathname.
+        ok = lpb_publish_cleaner_output_handle(context, artifact_role, temp_handle, temp, p, path);
     }
-    CloseHandle(temp_handle);
+    else
+    {
+        set_error(context, "Failed to write or flush cleaned output through the owning handle.");
+    }
     if (!ok)
     {
-        fs::remove(temp, ec);
+        // Exact-object failure cleanup THROUGH the creating handle.  Never
+        // CloseHandle then fs::remove(path): a foreign object that took over
+        // the temp pathname must not be deleted.
+        FILE_DISPOSITION_INFO disp{};
+        disp.DeleteFile = TRUE;
+        static_cast<void>(SetFileInformationByHandle(temp_handle, FileDispositionInfo, &disp, sizeof(disp)));
     }
+    CloseHandle(temp_handle);
     return ok;
 }
 

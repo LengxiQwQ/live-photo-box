@@ -851,12 +851,12 @@ namespace {
 // Continuous handle-based publication for cleaned MP4 output.
 //
 // The SAME handle that writes the payload is used for the no-overwrite
-// publish (MoveFileExW without REPLACE_EXISTING) and for identity capture
-// (GetFileInformationByHandle) before the ownership registry record is
-// created.  Neither the temporary pathname nor the destination pathname is
-// ever re-opened to re-establish ownership: a foreign object that takes over
-// either pathname between any two steps is therefore never the object we
-// publish or register.
+// publish (SetFileInformationByHandle / FileRenameInfo without ReplaceIfExists)
+// and for identity capture (GetFileInformationByHandle) before the ownership
+// registry record is created.  Neither the temporary pathname nor the
+// destination pathname is ever re-opened to re-establish ownership: a foreign
+// object that takes over either pathname between any two steps is therefore
+// never the object we publish or register.
 bool write_all_to_handle(HANDLE h, const uint8_t* data, size_t size) noexcept
 {
     size_t total = 0;
@@ -880,29 +880,20 @@ bool publish_and_register_cleaner_output(lpb_context* context, int32_t artifact_
     HANDLE out_handle, const std::filesystem::path& temp, const std::filesystem::path& dest,
     const std::string& out_path)
 {
-    if (!MoveFileExW(temp.c_str(), dest.c_str(), MOVEFILE_WRITE_THROUGH))
+    // Handle-based no-overwrite publish: the SOURCE object is decided by
+    // out_handle (the CREATE_NEW first-creation handle), never by the temp
+    // pathname.  A foreign object that takes over the temp pathname cannot
+    // redirect the publish; a foreign destination fails closed.
+    if (!lpb_publish_cleaner_output_handle(context, artifact_role, out_handle, temp, dest, out_path))
     {
         FILE_DISPOSITION_INFO disp{};
         disp.DeleteFile = TRUE;
         static_cast<void>(SetFileInformationByHandle(out_handle, FileDispositionInfo, &disp, sizeof(disp)));
         CloseHandle(out_handle);
-        set_error(context, "A foreign object already occupies the cleaned output destination; refusing to overwrite.");
+        set_error(context, "Failed to publish cleaned video (destination occupied or identity capture failed); refusing to overwrite.");
         return false;
     }
-    BY_HANDLE_FILE_INFORMATION finfo{};
-    const BOOL got = GetFileInformationByHandle(out_handle, &finfo);
     CloseHandle(out_handle);
-    if (!got)
-    {
-        set_error(context, "Failed to capture published output identity.");
-        return false;
-    }
-    lpb_file_identity identity{};
-    identity.volume_serial = finfo.dwVolumeSerialNumber;
-    identity.file_index = (static_cast<uint64_t>(finfo.nFileIndexHigh) << 32) | finfo.nFileIndexLow;
-    identity.file_size = (static_cast<uint64_t>(finfo.nFileSizeHigh) << 32) | finfo.nFileSizeLow;
-    identity.link_count = finfo.nNumberOfLinks;
-    record_cleaner_staged_output(context, artifact_role, out_path, identity);
     return true;
 }
 } // namespace
