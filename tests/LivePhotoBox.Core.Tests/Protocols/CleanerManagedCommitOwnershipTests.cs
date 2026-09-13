@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Workspace;
+using LivePhotoBox.Interop;
 using LivePhotoBox.Protocols.Cleaning;
 using Xunit;
 
@@ -383,6 +384,7 @@ public sealed class CleanerManagedCommitOwnershipTests
             int imageHandleAcquiredCount = 0;
             string? observedStage = null;
             string? foreignPath = null;
+            string? side = null;
             WindowsFileIdentity? ownedBeforeTakeover = null;
 
             cleaner.FaultInjectionHook = (stage, detail) =>
@@ -405,10 +407,12 @@ public sealed class CleanerManagedCommitOwnershipTests
                     // Identity of the object the Cleaner verified from its open handle.
                     ownedBeforeTakeover = WindowsFileIdentity.Capture(stagedImg);
 
-                    // Foreign actor: rename A to a side path (the commit handle
-                    // stays valid and still refers to A), then put a foreign B
-                    // at the original staged pathname.
-                    string side = stagedImg + ".lpb-race-side";
+                    // Foreign actor: rename A OUT of the staging directory (the
+                    // commit handle stays valid and still refers to A), then put
+                    // a foreign B at the original staged pathname.  Foreign
+                    // objects are protected by file-level identity, never by
+                    // denying writes into the directory.
+                    side = Path.Combine(workspace.RootDirectory, "lpb-race-side-" + Guid.NewGuid().ToString("N") + ".jpg");
                     File.Move(stagedImg, side);
                     foreignPath = stagedImg;
                     File.WriteAllBytes(foreignPath, ForeignMarker);
@@ -422,30 +426,36 @@ public sealed class CleanerManagedCommitOwnershipTests
                 CleanupPlan = cleanupPlan
             }, workspace);
 
-            Assert.True(result.Success, result.ErrorMessage);
+            // The commit DID publish the verified object A through its handle,
+            // but the foreign B left inside the staging directory makes the
+            // pre-commit directory cleanup unprovable (B5-A): the transaction
+            // must NOT report Committed while its owned staging directory may
+            // still exist.  Rollback then exact-deletes A through the retained
+            // handle; foreign B survives byte-for-byte; the non-empty staging
+            // directory is left in place and the transaction truthfully
+            // reports RollbackFailed.
+            Assert.False(result.Success);
+            Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
+            Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
             Assert.Equal(1, triggerCount);
-            Assert.Equal(1, beforeImageHandleAcquisitionCount);
-            Assert.Equal(1, imageHandleAcquiredCount);
             Assert.Equal("AfterImageIdentityVerifiedBeforeRename", observedStage);
             Assert.NotNull(ownedBeforeTakeover);
 
-            // The published output is the VERIFIED object A, not the foreign B.
-            Assert.NotNull(result.CleanedImage);
-            Assert.True(File.Exists(result.CleanedImage!.Path), "cleaned image must exist");
-            WindowsFileIdentity finalIdentity = WindowsFileIdentity.Capture(result.CleanedImage.Path);
-            Assert.Equal(ownedBeforeTakeover, finalIdentity);
-            Assert.Equal(ownedBeforeTakeover, result.CleanedImage.FileIdentity);
-            Assert.Equal(ComputeSha256(result.CleanedImage.Path), result.CleanedImage.Sha256);
+            // A was exact-deleted through the retained handle: the race side
+            // pathname is empty and no clean output remains.
+            Assert.NotNull(side);
+            Assert.False(File.Exists(side), "the verified object must be exact-deleted through its retained handle");
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "*lpb-race-side*", SearchOption.AllDirectories));
 
-            // Foreign B survives byte-for-byte at the original staged pathname.
+            // Foreign B survives byte-for-byte at the original staged pathname
+            // and keeps the staging directory non-empty (never recursively
+            // deleted).
             Assert.NotNull(foreignPath);
             Assert.True(File.Exists(foreignPath), "foreign B must survive");
             Assert.Equal(ForeignMarker, File.ReadAllBytes(foreignPath));
             Assert.NotEqual(ownedBeforeTakeover, WindowsFileIdentity.Capture(foreignPath));
-
-            // The race side path is empty: the verified object was moved by
-            // the handle from the side pathname to the destination.
-            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "*lpb-race-side*", SearchOption.AllDirectories));
+            Assert.NotEmpty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
 
             // Source untouched.
             Assert.Equal(shaBefore, ComputeSha256(samplePath));
@@ -471,6 +481,7 @@ public sealed class CleanerManagedCommitOwnershipTests
             int triggerCount = 0;
             string? observedStage = null;
             string? foreignPath = null;
+            string? side = null;
             byte[]? ownedBytes = null;
             WindowsFileIdentity? ownedBeforeTakeover = null;
 
@@ -497,8 +508,10 @@ public sealed class CleanerManagedCommitOwnershipTests
                     }
 
                     // Foreign B with byte-for-byte identical content: SHA(B) ==
-                    // SHA(A) but FileId(B) != FileId(A).
-                    string side = stagedImg + ".lpb-race-side";
+                    // SHA(A) but FileId(B) != FileId(A).  Foreign objects are
+                    // protected by file-level identity, never by denying writes
+                    // into the directory.
+                    side = Path.Combine(workspace.RootDirectory, "lpb-race-side-" + Guid.NewGuid().ToString("N") + ".jpg");
                     File.Move(stagedImg, side);
                     foreignPath = stagedImg;
                     File.WriteAllBytes(foreignPath, ownedBytes);
@@ -512,27 +525,34 @@ public sealed class CleanerManagedCommitOwnershipTests
                 CleanupPlan = cleanupPlan
             }, workspace);
 
-            Assert.True(result.Success, result.ErrorMessage);
+            // The same-content foreign B left in the staging directory makes
+            // the pre-commit directory cleanup unprovable (B5-A): no Committed.
+            // Rollback exact-deletes A through the retained handle; foreign B
+            // survives byte-for-byte; the transaction truthfully reports
+            // RollbackFailed.  Ownership is decided by filesystem object
+            // identity, never by SHA.
+            Assert.False(result.Success);
+            Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
+            Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
             Assert.Equal(1, triggerCount);
             Assert.Equal("AfterImageIdentityVerifiedBeforeRename", observedStage);
             Assert.NotNull(ownedBeforeTakeover);
             Assert.NotNull(ownedBytes);
 
-            // Ownership is decided by filesystem object identity, never by SHA.
-            Assert.NotNull(result.CleanedImage);
-            WindowsFileIdentity finalIdentity = WindowsFileIdentity.Capture(result.CleanedImage!.Path);
-            Assert.Equal(ownedBeforeTakeover, finalIdentity);
-            Assert.NotEqual(ownedBeforeTakeover, WindowsFileIdentity.Capture(foreignPath!));
-
-            // Content evidence still holds: same SHA on both objects.
-            Assert.Equal(ComputeSha256(foreignPath!), ComputeSha256(result.CleanedImage.Path));
-            Assert.Equal(ComputeSha256(result.CleanedImage.Path), result.CleanedImage.Sha256);
-
-            // Foreign B survives byte-for-byte at the staged pathname.
-            Assert.True(File.Exists(foreignPath));
-            Assert.Equal(ownedBytes, File.ReadAllBytes(foreignPath));
-
+            // A was exact-deleted through the retained handle.
+            Assert.True(side != null, $"side was null. result.ErrorMessage={result.ErrorMessage}");
+            Assert.False(File.Exists(side), "the verified object must be exact-deleted through its retained handle");
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
             Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "*lpb-race-side*", SearchOption.AllDirectories));
+
+            // Foreign B (byte-identical content, different FileId) survives at
+            // the staged pathname and keeps the staging directory non-empty.
+            Assert.NotNull(foreignPath);
+            Assert.True(File.Exists(foreignPath), "foreign B must survive");
+            Assert.Equal(ownedBytes, File.ReadAllBytes(foreignPath));
+            Assert.NotEqual(ownedBeforeTakeover, WindowsFileIdentity.Capture(foreignPath));
+            Assert.NotEmpty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
+
             Assert.Equal(shaBefore, ComputeSha256(samplePath));
         }
     }
@@ -566,9 +586,11 @@ public sealed class CleanerManagedCommitOwnershipTests
                     observedStage = detail;
 
                     string stagedImg = FindStagedFile(workspace, "stage-img*").StagedPath;
-                    // Foreign actor: rename A to a side path, put foreign B at
-                    // the staged pathname, and occupy the destination with C.
-                    string side = stagedImg + ".lpb-race-side";
+                    // Foreign actor: rename A OUT of the staging directory, put
+                    // foreign B at the staged pathname, and occupy the
+                    // destination with C.  Foreign objects are protected by
+                    // file-level identity, never by denying writes.
+                    string side = Path.Combine(workspace.RootDirectory, "lpb-race-side-" + Guid.NewGuid().ToString("N") + ".jpg");
                     File.Move(stagedImg, side);
                     foreignPath = stagedImg;
                     File.WriteAllBytes(foreignPath, ForeignMarker);
@@ -652,7 +674,10 @@ public sealed class CleanerManagedCommitOwnershipTests
                     string stagedVid = FindStagedFile(workspace, "stage-vid*").StagedPath;
                     ownedBeforeTakeover = WindowsFileIdentity.Capture(stagedVid);
 
-                    string side = stagedVid + ".lpb-race-side";
+                    // Rename V OUT of the staging directory and put a foreign B
+                    // at the staged pathname; foreign objects are protected by
+                    // file-level identity, never by denying writes.
+                    string side = Path.Combine(workspace.RootDirectory, "lpb-race-side-" + Guid.NewGuid().ToString("N") + ".mov");
                     File.Move(stagedVid, side);
                     foreignPath = stagedVid;
                     File.WriteAllBytes(foreignPath, ForeignMarker);
@@ -666,32 +691,37 @@ public sealed class CleanerManagedCommitOwnershipTests
                 CleanupPlan = cleanupPlan
             }, workspace);
 
-            Assert.True(result.Success, result.ErrorMessage);
+            // Both artifacts were published through their handles, but the
+            // foreign B left in the staging directory makes the pre-commit
+            // directory cleanup unprovable (B5-A): no Committed.  Rollback
+            // exact-deletes BOTH owned objects through their retained handles;
+            // foreign B survives; the non-empty staging directory stays and
+            // the transaction truthfully reports RollbackFailed.
+            Assert.False(result.Success);
+            Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
+            Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
             Assert.Equal(1, triggerCount);
             Assert.Equal(1, beforeVideoHandleAcquisitionCount);
             Assert.Equal(1, videoHandleAcquiredCount);
             Assert.Equal("AfterVideoIdentityVerifiedBeforeRename", observedStage);
             Assert.NotNull(ownedBeforeTakeover);
 
-            // Image path also published normally.
-            Assert.NotNull(result.CleanedImage);
-            Assert.True(File.Exists(result.CleanedImage!.Path));
+            // Both owned objects were exact-deleted through their handles: no
+            // clean image or video output survives, and the race side path is
+            // empty.
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-vid*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "*lpb-race-side*", SearchOption.AllDirectories));
 
-            // The published video is the VERIFIED object V, not the foreign B.
-            Assert.NotNull(result.CleanedVideo);
-            Assert.True(File.Exists(result.CleanedVideo!.Path), "cleaned video must exist");
-            WindowsFileIdentity finalVideoIdentity = WindowsFileIdentity.Capture(result.CleanedVideo.Path);
-            Assert.Equal(ownedBeforeTakeover, finalVideoIdentity);
-            Assert.Equal(ownedBeforeTakeover, result.CleanedVideo.FileIdentity);
-            Assert.Equal(ComputeSha256(result.CleanedVideo.Path), result.CleanedVideo.Sha256);
-
-            // Foreign B survives byte-for-byte at the original staged pathname.
+            // Foreign B survives byte-for-byte at the original staged pathname
+            // and keeps the staging directory non-empty (never recursively
+            // deleted).
             Assert.NotNull(foreignPath);
             Assert.True(File.Exists(foreignPath), "foreign B must survive");
             Assert.Equal(ForeignMarker, File.ReadAllBytes(foreignPath));
             Assert.NotEqual(ownedBeforeTakeover, WindowsFileIdentity.Capture(foreignPath));
+            Assert.NotEmpty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
 
-            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "*lpb-race-side*", SearchOption.AllDirectories));
             Assert.Equal(shaBefore, ComputeSha256(samplePath));
             Assert.Equal(shaVideoBefore, ComputeSha256(secondaryPath));
         }
@@ -728,10 +758,12 @@ public sealed class CleanerManagedCommitOwnershipTests
                     observedStage = detail;
 
                     string stagedVid = FindStagedFile(workspace, "stage-vid*").StagedPath;
-                    // Foreign actor: rename V to a side path, put foreign B at
-                    // the staged pathname, and occupy the video destination
-                    // with C.  The image has already published successfully.
-                    string side = stagedVid + ".lpb-race-side";
+                    // Foreign actor: rename V OUT of the staging directory, put
+                    // foreign B at the staged pathname, and occupy the video
+                    // destination with C.  The image has already published
+                    // successfully.  Foreign objects are protected by
+                    // file-level identity, never by denying writes.
+                    string side = Path.Combine(workspace.RootDirectory, "lpb-race-side-" + Guid.NewGuid().ToString("N") + ".mov");
                     File.Move(stagedVid, side);
                     foreignPath = stagedVid;
                     File.WriteAllBytes(foreignPath, ForeignMarker);
@@ -752,6 +784,10 @@ public sealed class CleanerManagedCommitOwnershipTests
             Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
             Assert.Equal(1, triggerCount);
             Assert.Equal("AfterVideoIdentityVerifiedBeforeRename", observedStage);
+
+            // Foreign C at the video destination survives byte-for-byte.
+            Assert.True(File.Exists(foreignVideoDestination));
+            Assert.Equal(ForeignMarker, File.ReadAllBytes(foreignVideoDestination));
 
             // Foreign C at the video destination survives byte-for-byte.
             Assert.True(File.Exists(foreignVideoDestination));
@@ -1362,14 +1398,22 @@ public sealed class CleanerManagedCommitOwnershipTests
         {
             int triggerCount = 0;
             string? aliasPath = null;
+            string? cleanImgPath = null;
             cleaner.FaultInjectionHook = (stage, detail) =>
             {
-                if (stage == CleanerFailureStage.Commit && detail == "AfterImageIdentityVerifiedBeforeRename")
+                // The staging-directory lease (no FILE_SHARE_WRITE) denies hard
+                // links to staged files (probe H4b: err=32), so the observable
+                // alias window is AFTER the object is published to the final
+                // destination.  The retained publish handle is still open and
+                // the bundle transaction is still active, so an alias created
+                // here is exactly the mid-transaction alias the by-FileId proof
+                // must detect.
+                if (stage == CleanerFailureStage.Commit && detail == "ImagePublished")
                 {
                     triggerCount++;
-                    string stagedImage = FindStagedFile(workspace, "stage-img*").StagedPath;
+                    cleanImgPath = Assert.Single(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
                     aliasPath = Path.Combine(workspace.RootDirectory, "owned-object-hardlink-alias.jpg");
-                    if (!NativeIo.CreateHardLinkW(aliasPath, stagedImage, IntPtr.Zero))
+                    if (!NativeIo.CreateHardLinkW(aliasPath, cleanImgPath, IntPtr.Zero))
                     {
                         throw new IOException($"CreateHardLinkW failed with Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}.");
                     }
@@ -1386,9 +1430,9 @@ public sealed class CleanerManagedCommitOwnershipTests
                     CleanupPlan = cleanupPlan
                 }, workspace);
 
-                // Disposition succeeded on the staged name, but the by-FileId
-                // re-check proves the exact object is still alive under the
-                // foreign alias: cleanup is unproven => RollbackFailed.
+                // Disposition was not attempted (the alias raised LinkCount), and
+                // the by-FileId re-check proves the exact object is still alive
+                // under the foreign alias: cleanup is unproven => RollbackFailed.
                 Assert.False(result.Success);
                 Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
                 Assert.Equal(CleanerFailureStage.Rollback, result.FailureStage);
@@ -1397,7 +1441,11 @@ public sealed class CleanerManagedCommitOwnershipTests
                 Assert.Contains("hard-link alias", result.ErrorMessage);
                 Assert.NotNull(aliasPath);
                 Assert.True(File.Exists(aliasPath), "foreign hard-link alias must never be deleted");
-                Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+                // The owned object is STILL ALIVE under clean-img (and its
+                // alias): the by-FileId proof detects the alias and rollback
+                // truthfully reports RollbackFailed — never a false RolledBack.
+                Assert.NotNull(cleanImgPath);
+                Assert.True(File.Exists(cleanImgPath), "the owned object must still be alive under clean-img");
             }
             finally
             {
@@ -1578,18 +1626,23 @@ public sealed class CleanerManagedCommitOwnershipTests
         {
             int triggerCount = 0;
             string? videoAliasPath = null;
+            string? cleanVidPath = null;
             cleaner.FaultInjectionHook = (stage, detail) =>
             {
-                if (stage == CleanerFailureStage.Commit && detail == "AfterVideoIdentityVerifiedBeforeRename")
+                // The staging-directory lease denies hard links to staged files
+                // (probe H4b: err=32), so the observable alias window is AFTER
+                // the video is published.  The retained publish handle is still
+                // open and the bundle transaction is still active.
+                if (stage == CleanerFailureStage.Commit && detail == "VideoPublished")
                 {
                     triggerCount++;
-                    string stagedVideo = FindStagedFile(workspace, "stage-vid*").StagedPath;
+                    cleanVidPath = Assert.Single(Directory.GetFiles(workspace.RootDirectory, "clean-vid*", SearchOption.AllDirectories));
                     videoAliasPath = Path.Combine(workspace.RootDirectory, "owned-video-hardlink-alias.mov");
-                    if (!NativeIo.CreateHardLinkW(videoAliasPath, stagedVideo, IntPtr.Zero))
+                    if (!NativeIo.CreateHardLinkW(videoAliasPath, cleanVidPath, IntPtr.Zero))
                     {
                         throw new IOException($"CreateHardLinkW failed with Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}.");
                     }
-                    throw new IOException("Simulated video publish failure after a foreign hard-link alias was created on the owned staged video.");
+                    throw new IOException("Simulated failure after a foreign hard-link alias was created on the owned video.");
                 }
                 return Task.CompletedTask;
             };
@@ -1609,9 +1662,13 @@ public sealed class CleanerManagedCommitOwnershipTests
                 Assert.Contains("hard-link alias", result.ErrorMessage);
                 Assert.NotNull(videoAliasPath);
                 Assert.True(File.Exists(videoAliasPath), "foreign hard-link alias on the video object must never be deleted");
-                // The image publish was rolled back exactly: no clean output remains.
+                // The image publish was rolled back exactly: no clean image output remains.
                 Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
-                Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-vid*", SearchOption.AllDirectories));
+                // The owned VIDEO object is STILL ALIVE under clean-vid (and its
+                // alias): the by-FileId proof detects the alias and rollback
+                // truthfully reports RollbackFailed — never a false RolledBack.
+                Assert.NotNull(cleanVidPath);
+                Assert.True(File.Exists(cleanVidPath), "the owned video object must still be alive under clean-vid");
             }
             finally
             {
@@ -1623,6 +1680,34 @@ public sealed class CleanerManagedCommitOwnershipTests
             }
 
             Assert.Equal(shaBefore, ComputeSha256(imgPath));
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // B5-C: staging-directory ownership is captured from the ATOMIC creating
+    // handle (CreateOwnedDirectory = NtCreateFile FILE_CREATE +
+    // FILE_DIRECTORY_FILE in one kernel transition).  A directory that
+    // ALREADY exists at the staging pathname is never claimed — the create
+    // fails closed with STATUS_OBJECT_NAME_COLLISION — so the old
+    // create-then-reopen(pathname) TOCTOU can never turn a foreign directory
+    // into "this transaction's" staging directory and later delete it.
+    // ---------------------------------------------------------------------
+    [Fact]
+    public void ObjectLifetime_CreateOwnedDirectory_PreExistingForeignDirectory_FailsClosed()
+    {
+        using var workspace = new MediaWorkspace();
+        string dir = Path.Combine(workspace.RootDirectory, "staging_preexisting_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            CleanerException ex = Assert.Throws<CleanerException>(
+                () => WindowsOwnedFilePublisher.CreateOwnedDirectory(dir));
+            Assert.Equal(CleanerFailureCategory.OutputCreateFailed, ex.Category);
+            Assert.Contains("already exists", ex.Message);
+        }
+        finally
+        {
+            Directory.Delete(dir);
         }
     }
 

@@ -435,19 +435,21 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
 
             string stagingDir = Path.Combine(workspace.RootDirectory, "staging_" + Guid.NewGuid().ToString("N"));
             var stagingOwnership = new CleanerTransactionJournal.StagingDirectoryOwnership(stagingDir);
-            Directory.CreateDirectory(stagingDir);
-            // The staging directory is a transaction-owned object, so its
-            // exact identity must be captured AT CREATION — the only moment
-            // this transaction can prove it owns the directory object.  A
-            // later handle acquisition re-verifies this identity and refuses
-            // to claim a foreign directory that has taken over the pathname.
-            // If the creation-time identity cannot be captured, the
-            // transaction fails closed here: it never claims a directory it
-            // cannot prove it created.
+            // The staging directory is a transaction-owned object.  It is
+            // created and claimed in ONE atomic kernel transition
+            // (NtCreateFile + FILE_CREATE + FILE_DIRECTORY_FILE): the exact
+            // identity is captured from the CREATING handle, so there is no
+            // create -> reopen(pathname) window in which a foreign directory
+            // could take over the pathname and be claimed by identity capture
+            // (same pathname != same object).  The same handle is then
+            // retained until the directory object is exact-cleaned, so the
+            // transaction always holds object authority, never pathname
+            // authority, over its staging directory.
             try
             {
-                using SafeFileHandle creationDirectoryHandle = WindowsOwnedFilePublisher.OpenOwnedDirectory(stagingDir);
+                SafeFileHandle creationDirectoryHandle = WindowsOwnedFilePublisher.CreateOwnedDirectory(stagingDir);
                 stagingOwnership.SetIdentity(WindowsFileIdentity.Capture(creationDirectoryHandle));
+                stagingOwnership.RetainHandle(creationDirectoryHandle);
             }
             catch (Exception ex)
             {
@@ -455,7 +457,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     CleanerFailureCategory.OutputCreateFailed,
                     CleanerFailureStage.Staging,
                     facts.Protocol,
-                    $"Staging directory '{stagingDir}' was created but its exact identity could not be captured; refusing to claim an unproven directory object: {ex.Message}",
+                    $"Staging directory '{stagingDir}' could not be atomically created and claimed as a transaction-owned object: {ex.Message}",
                     innerException: ex);
             }
             journal.StagingDirectory = stagingOwnership;
@@ -733,15 +735,13 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             CleanerTransactionJournal.TransactionOwnedObject? imgRecord = null;
             CleanerTransactionJournal.TransactionOwnedObject? vidRecord = null;
 
-            // The staging-directory handle has served its purpose (staging,
-            // preservation, validation, post-clean inspection).  Commit
-            // publish renames staged files through their OWN retained
-            // handles, which do not need the directory lease; releasing it
-            // here keeps the commit-window adversarial seams (pathname-level
-            // takeover of staged files) observable, exactly like a real
-            // external actor under P3's file-handle semantics.
-            journal.ReleaseStagingDirectoryHandleForCommit();
-
+            // The staging-directory handle is retained from atomic creation
+            // through this whole commit and is NOT released mid-transaction:
+            // the transaction never drops its strongest ownership authority
+            // over the directory object, so a commit-window adversarial seam
+            // stays observable for the same reasons a real external actor's
+            // file-level operations do (the directory lease allows files to
+            // move OUT, which is exactly what publish does).
             journal.SetState(CleanerTransactionState.Committing);
             SafeFileHandle? stagedImgHandle = null;
             SafeFileHandle? stagedVidHandle = null;
@@ -809,18 +809,34 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                         stagedVidHandle, cleanVidPath, vidRecord.Identity, cancellationToken);
                     journal.MarkPublished(vidRecord);
                     // stagedVidHandle stays open too, for the same reason.
+
+                    // Deterministic adversarial seam (video counterpart): the
+                    // published video object's handle is still open and the
+                    // bundle is not yet committed.
+                    if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Commit, "VideoPublished").ConfigureAwait(false);
                 }
 
-                // Re-acquire the staging-directory object handle AFTER all
-                // staged files have been published out of it.  The directory
-                // is still a transaction-owned object; the handle binds the
-                // exact directory OBJECT regardless of the pathname it now
-                // occupies, so the commit-time cleanup deletes the object it
-                // created — including a directory an external actor renamed
-                // away during the publish window — and never a foreign
-                // directory that took over the original pathname (identity is
-                // re-verified against the creation-time identity).
-                journal.ReacquireStagingDirectoryHandleForFinalCleanup();
+                // The staging directory is a transaction-owned object, so its
+                // cleanup must be PROVEN before the transaction may report
+                // Committed.  While the directory object still exists anywhere
+                // (including renamed-away), SetState(Committed) would be a
+                // false success: PathMissing != DirectoryGone.  The directory
+                // handle retained since atomic creation deletes the exact
+                // directory object and fails closed when the directory is
+                // non-empty (foreign children are never deleted) or the
+                // disposition cannot be armed.  If the cleanup cannot be
+                // proven, the commit fails and rollback still holds the
+                // exact image/video handles, so it can safely roll back.
+                if (!journal.TryDeleteOwnedDirectory(out Exception? directoryFailure))
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.PublishFailed,
+                        CleanerFailureStage.Commit,
+                        facts.Protocol,
+                        $"Staging directory cleanup could not be proven before commit: {directoryFailure?.Message}",
+                        innerException: directoryFailure);
+                }
+                journal.StagingDirectory = null;
 
                 if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Commit, "BeforeBundleCommit").ConfigureAwait(false);
                 journal.SetState(CleanerTransactionState.Committed);
@@ -871,11 +887,11 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 // released by the outer finally only after the transaction is
                 // terminal.  In particular, rollback still needs staged
                 // handles when validation or preservation fails before commit.
-                if (journal.State == CleanerTransactionState.Committed)
-                {
-                    TryDeleteDirectory(stagingDir, journal);
-                    journal.StagingDirectory = null;
-                }
+                // The staging directory cleanup is a hard pre-commit gate
+                // (above), so there is deliberately no best-effort
+                // TryDeleteDirectory here: a directory whose cleanup could
+                // not be proven before commit already failed the commit and
+                // flows through rollback, which fails closed.
             }
 
             // -------------------------------------------------------------
@@ -1081,10 +1097,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         // rather than treating a missing pathname as proof of cleanup.
         journal.AcquireRetainedHandles(faultHook, protocol, failOnAcquisitionError: false);
 
-        // Same for the staging directory object (failure path): keep the
-        // directory handle if possible; rollback falls back to identity
-        // verification and fails closed otherwise.
-        journal.AcquireStagingDirectoryHandle(faultHook);
+        // The staging-directory handle was already retained at atomic
+        // creation; nothing further to acquire on the failure path.
     }
 
     /// <summary>
@@ -1141,12 +1155,9 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         // commit must all use these same retained exact handles.
         journal.AcquireRetainedHandles(faultHook, protocol, failOnAcquisitionError: true);
 
-        // The staging directory itself is a transaction-owned object: retain
-        // an exact directory handle (identity captured from the open handle)
-        // so rollback can delete the directory OBJECT no matter what pathname
-        // it occupies, and never mistakes a missing pathname for a gone
-        // directory nor deletes a foreign directory that takes over the path.
-        journal.AcquireStagingDirectoryHandle(faultHook);
+        // The staging directory handle was already retained at atomic
+        // creation (identity captured from the creating handle); it stays
+        // retained until the directory object is exact-cleaned before commit.
     }
 
     private static CleanerTransactionJournal.TransactionOwnedObject AddNativeStagedRecord(
@@ -1806,135 +1817,6 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         }
 
         /// <summary>
-        /// Acquires a retained exact handle for the staging directory itself,
-        /// immediately after the staged file handles (Native ownership already
-        /// captured).  A directory opened with GENERIC_READ|DELETE and share
-        /// READ|DELETE (no write sharing) lets the transaction delete the
-        /// directory OBJECT through the handle no matter what pathname it
-        /// currently occupies, and simultaneously prevents foreign mutation of
-        /// the directory while the lease is held.  Failure is non-fatal here:
-        /// rollback then falls back to identity-verified pathname handling and
-        /// fails closed (PathMissing is never treated as DirectoryGone).
-        /// </summary>
-        public void AcquireStagingDirectoryHandle(Func<CleanerFailureStage, string?, Task>? faultHook)
-        {
-            StagingDirectoryOwnership? ownership = StagingDirectory;
-            if (ownership is null || ownership.HandleAcquisitionAttempted)
-            {
-                return;
-            }
-
-            bool firstAttempt = !ownership.HandleAcquisitionAttempted;
-            ownership.MarkHandleAcquisitionAttempted();
-            if (firstAttempt)
-            {
-                faultHook?.Invoke(
-                    CleanerFailureStage.Staging,
-                    "BeforeStagingDirectoryHandleAcquired").GetAwaiter().GetResult();
-            }
-
-            try
-            {
-                SafeFileHandle handle = WindowsOwnedFilePublisher.OpenOwnedDirectory(ownership.Path);
-                WindowsFileIdentity current = WindowsFileIdentity.Capture(handle);
-                // The owned directory identity was captured at creation.
-                // If a foreign directory has since taken over the pathname,
-                // this transaction must NOT claim it (foreign-object
-                // protection): rollback would otherwise delete a directory
-                // this transaction never created.
-                if (ownership.Identity is { } expected &&
-                    (current.VolumeSerialNumber != expected.VolumeSerialNumber ||
-                     current.FileIndex != expected.FileIndex))
-                {
-                    handle.Dispose();
-                    ownership.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
-                    System.Diagnostics.Debug.WriteLine(
-                        $"Staging directory '{ownership.Path}' was replaced by a foreign directory (identity mismatch); refusing to claim it.");
-                    return;
-                }
-                ownership.SetIdentity(current);
-                ownership.RetainHandle(handle);
-            }
-            catch (Exception ex)
-            {
-                // No exact directory authority: rollback must fail closed on a
-                // missing/moved directory rather than claiming cleanup.
-                ownership.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
-                System.Diagnostics.Debug.WriteLine($"Staging directory handle acquisition failed for '{ownership.Path}': {ex.Message}");
-            }
-
-            faultHook?.Invoke(
-                CleanerFailureStage.Staging,
-                "AfterStagingDirectoryHandleAcquired").GetAwaiter().GetResult();
-        }
-
-        /// <summary>
-        /// Releases the retained staging-directory handle right before commit
-        /// publish begins.  While the handle is open (no FILE_SHARE_WRITE),
-        /// foreign actors cannot create/delete entries inside the staging
-        /// directory — which is the intended lease during staging, validation
-        /// and inspection — but the same kernel semantics would also block a
-        /// pathname-level rename/copy INTO the staging directory, which the
-        /// commit window adversarial tests (and a legitimate external
-        /// takeover) rely on being observable.  The staged FILE handles remain
-        /// the exact object authority during publish; the directory object is
-        /// then cleaned by identity-verified pathname fallback (the captured
-        /// identity is retained), which fails closed if the pathname is
-        /// missing or occupied by a foreign directory.
-        /// </summary>
-        public void ReleaseStagingDirectoryHandleForCommit()
-        {
-            // Keep Identity (used by the identity-verified pathname fallback);
-            // release only the exact handle lease.
-            StagingDirectory?.ReleaseHandle();
-        }
-
-        /// <summary>
-        /// Re-binds the exact staging-directory object for the commit-time
-        /// cleanup, after all staged files have been published out of it.
-        /// The directory handle is an object authority: it deletes the
-        /// directory this transaction created no matter what pathname it
-        /// currently occupies (including one renamed away during the publish
-        /// window), and an identity mismatch refuses a foreign directory.
-        /// Failure is best-effort here: commit already succeeded; the final
-        /// cleanup then falls back to identity-verified pathname handling
-        /// and fails closed if the pathname is missing or foreign.
-        /// </summary>
-        public void ReacquireStagingDirectoryHandleForFinalCleanup()
-        {
-            StagingDirectoryOwnership? ownership = StagingDirectory;
-            if (ownership is null || ownership.ProofState is TransactionOwnedObject.CleanupProofState.ExactDeleted or
-                TransactionOwnedObject.CleanupProofState.ProvenUnlinked)
-            {
-                return;
-            }
-            if (ownership.RetainedHandle is not null && !ownership.RetainedHandle.IsInvalid)
-            {
-                return;
-            }
-            try
-            {
-                SafeFileHandle handle = WindowsOwnedFilePublisher.OpenOwnedDirectory(ownership.Path);
-                WindowsFileIdentity current = WindowsFileIdentity.Capture(handle);
-                if (ownership.Identity is { } expected &&
-                    (current.VolumeSerialNumber != expected.VolumeSerialNumber ||
-                     current.FileIndex != expected.FileIndex))
-                {
-                    handle.Dispose();
-                    System.Diagnostics.Debug.WriteLine(
-                        $"Staging directory '{ownership.Path}' was replaced by a foreign directory at final cleanup; refusing to claim it.");
-                    return;
-                }
-                ownership.RetainHandle(handle);
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine(
-                    $"Staging directory final-cleanup handle re-acquisition failed for '{ownership.Path}': {ex.Message}");
-            }
-        }
-
-        /// <summary>
         /// Deletes the staging directory object with the strongest available
         /// authority.  A retained directory handle is preferred; the
         /// pathname fallback verifies the exact directory identity (volume +
@@ -2051,37 +1933,36 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
 
             try
             {
-                if (WindowsOwnedFilePublisher.DeleteOwnedObject(handle))
+                // Delete through the retained exact handle and obtain an
+                // OBJECT-based cleanup proof.  Gone (single-link + armed + no
+                // resolvable FileId) or Unlinked (LinkCount == 0) are the only
+                // proofs that allow the object to be considered cleaned;
+                // AliasAlive and Unknown must fail closed (RollbackFailed) —
+                // never report RolledBack while the owned object may still
+                // exist under a foreign alias.
+                OwnedObjectCleanupProof proof =
+                    WindowsOwnedFilePublisher.DeleteOwnedObjectWithProof(
+                        handle, record.Identity, _volumeProbePath, out _);
+                record.ReleaseHandle();
+                if (proof == OwnedObjectCleanupProof.Gone)
                 {
-                    // Disposition armed: release the final lease so the delete
-                    // takes effect, then verify the OBJECT is gone by its exact
-                    // FileId.  Disposition success alone does NOT prove the
-                    // object is gone: an external hard link created while the
-                    // retained handle was open keeps the object alive under
-                    // another name (probe H1/E1/F4), so a disposition success
-                    // without the kernel-backed proof must fail closed.
-                    record.ReleaseHandle();
-                    if (WindowsOwnedFilePublisher.IsObjectGoneByFileId(record.Identity, _volumeProbePath) == ObjectGoneCheck.Gone)
-                    {
-                        record.ProofState = TransactionOwnedObject.CleanupProofState.ExactDeleted;
-                    }
-                    else
-                    {
-                        record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
-                        AddRollbackFailure(
-                            $"Disposition was armed on transaction-owned {record.ArtifactRole} but the exact object (FileId {record.Identity.FileIndex:X}) still exists under an alias; cleanup is unproven.");
-                    }
+                    record.ProofState = TransactionOwnedObject.CleanupProofState.ExactDeleted;
                 }
-                else if (WindowsOwnedFilePublisher.IsObjectUnlinked(handle))
+                else if (proof == OwnedObjectCleanupProof.Unlinked)
                 {
                     record.ProofState = TransactionOwnedObject.CleanupProofState.ProvenUnlinked;
-                    record.ReleaseHandle();
+                }
+                else if (proof == OwnedObjectCleanupProof.AliasAlive)
+                {
+                    record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
+                    AddRollbackFailure(
+                        $"Disposition was armed on transaction-owned {record.ArtifactRole} but the exact object (FileId {record.Identity.FileIndex:X}) still exists under an external hard-link alias; cleanup is unproven.");
                 }
                 else
                 {
                     record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
                     AddRollbackFailure(
-                        $"Unable to delete transaction-owned {record.ArtifactRole} '{record.CurrentPath}' through its retained handle; the object may still exist after a pathname takeover.");
+                        $"Unable to prove cleanup of transaction-owned {record.ArtifactRole} '{record.CurrentPath}' through its retained handle; the object may still exist after a pathname takeover.");
                 }
             }
             catch (Exception ex)
@@ -2214,33 +2095,32 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             {
                 try
                 {
-                    if (WindowsOwnedFilePublisher.DeleteOwnedObject(retainedHandle))
+                    OwnedObjectCleanupProof proof =
+                        WindowsOwnedFilePublisher.DeleteOwnedObjectWithProof(
+                            retainedHandle, record.Identity, _volumeProbePath, out _);
+                    // Make the proven delete visible to the staging-dir
+                    // emptiness check.  Until this final lease closes,
+                    // Windows may still enumerate the delete-pending name.
+                    record.ReleaseHandle();
+                    if (proof == OwnedObjectCleanupProof.Gone)
                     {
-                        // Make the proven delete visible to the staging-dir
-                        // emptiness check.  Until this final lease closes,
-                        // Windows may still enumerate the delete-pending name.
-                        record.ReleaseHandle();
-                        if (WindowsOwnedFilePublisher.IsObjectGoneByFileId(record.Identity, _volumeProbePath) == ObjectGoneCheck.Gone)
-                        {
-                            record.ProofState = TransactionOwnedObject.CleanupProofState.ExactDeleted;
-                        }
-                        else
-                        {
-                            record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
-                            exceptions.Add(new IOException(
-                                $"Disposition was armed on transaction-owned {record.ArtifactRole} but the exact object (FileId {record.Identity.FileIndex:X}) still exists under an external hard-link alias; cleanup is unproven."));
-                        }
+                        record.ProofState = TransactionOwnedObject.CleanupProofState.ExactDeleted;
                     }
-                    else if (WindowsOwnedFilePublisher.IsObjectUnlinked(retainedHandle))
+                    else if (proof == OwnedObjectCleanupProof.Unlinked)
                     {
                         record.ProofState = TransactionOwnedObject.CleanupProofState.ProvenUnlinked;
-                        record.ReleaseHandle();
+                    }
+                    else if (proof == OwnedObjectCleanupProof.AliasAlive)
+                    {
+                        record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
+                        exceptions.Add(new IOException(
+                            $"Disposition was armed on transaction-owned {record.ArtifactRole} but the exact object (FileId {record.Identity.FileIndex:X}) still exists under an external hard-link alias; cleanup is unproven."));
                     }
                     else
                     {
                         record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
                         exceptions.Add(new IOException(
-                            $"Unable to delete exact transaction-owned {record.ArtifactRole} '{record.CurrentPath}' through its retained handle; LinkCount remains positive or could not be verified."));
+                            $"Unable to prove cleanup of exact transaction-owned {record.ArtifactRole} '{record.CurrentPath}' through its retained handle; the object may still exist after a pathname takeover."));
                     }
                 }
                 catch (Exception ex)
@@ -2277,38 +2157,34 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     return;
                 }
 
-                var disposition = new FileDispositionInfo { DeleteFile = 1 };
-                if (SetFileInformationByHandle(
-                        handle,
-                        FileDispositionInfoClass,
-                        ref disposition,
-                        (uint)Marshal.SizeOf<FileDispositionInfo>()))
+                // The pathname re-opened the EXACT owned object; delete it and
+                // obtain the same object-based proof.  The pathname only helped
+                // re-discover the object — it never becomes the ownership
+                // authority, and a pathname that no longer resolves stays
+                // CleanupUnproven (handled above by the IsInvalid branch).
+                OwnedObjectCleanupProof proof =
+                    WindowsOwnedFilePublisher.DeleteOwnedObjectWithProof(
+                        handle, record.Identity, _volumeProbePath, out _);
+                handle.Dispose();
+                if (proof == OwnedObjectCleanupProof.Gone)
                 {
-                    // The identity-verified pathname handle is released so the
-                    // delete takes effect, then the OBJECT itself is verified
-                    // gone by FileId (a disposition success can leave the
-                    // object alive under a foreign alias).
-                    handle.Dispose();
-                    if (WindowsOwnedFilePublisher.IsObjectGoneByFileId(record.Identity, _volumeProbePath) == ObjectGoneCheck.Gone)
-                    {
-                        record.ProofState = TransactionOwnedObject.CleanupProofState.ExactDeleted;
-                    }
-                    else
-                    {
-                        record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
-                        exceptions.Add(new IOException(
-                            $"Disposition was armed on transaction-owned {record.ArtifactRole} '{path}' but the exact object (FileId {record.Identity.FileIndex:X}) still exists under an external hard-link alias; cleanup is unproven."));
-                    }
+                    record.ProofState = TransactionOwnedObject.CleanupProofState.ExactDeleted;
                 }
-                else if (WindowsFileIdentity.Capture(handle).LinkCount == 0)
+                else if (proof == OwnedObjectCleanupProof.Unlinked)
                 {
                     record.ProofState = TransactionOwnedObject.CleanupProofState.ProvenUnlinked;
+                }
+                else if (proof == OwnedObjectCleanupProof.AliasAlive)
+                {
+                    record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
+                    exceptions.Add(new IOException(
+                        $"Disposition was armed on transaction-owned {record.ArtifactRole} '{path}' but the exact object (FileId {record.Identity.FileIndex:X}) still exists under an external hard-link alias; cleanup is unproven."));
                 }
                 else
                 {
                     record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
                     exceptions.Add(new IOException(
-                        $"Unable to delete exact transaction-owned {record.ArtifactRole} '{path}': Win32 error {Marshal.GetLastWin32Error()} and LinkCount remains positive."));
+                        $"Unable to prove cleanup of exact transaction-owned {record.ArtifactRole} '{path}': the object may still exist under a foreign alias or could not be deleted."));
                 }
             }
             catch (Exception ex)
@@ -2416,23 +2292,6 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             {
                 exceptions.Add(failure);
             }
-        }
-    }
-
-    private static void TryDeleteDirectory(string? dir, CleanerTransactionJournal journal)
-    {
-        if (string.IsNullOrEmpty(dir)) return;
-        try
-        {
-            if (journal.TryDeleteOwnedDirectory(out Exception? failure))
-            {
-                return;
-            }
-            System.Diagnostics.Debug.WriteLine($"Staging directory '{dir}' left in place after commit: {failure?.Message}");
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Debug.WriteLine($"Failed to delete staging directory '{dir}': {ex.Message}");
         }
     }
 }
