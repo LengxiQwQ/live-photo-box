@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Buffers.Binary;
 using System.IO;
 using System.Security.Cryptography;
@@ -11,6 +11,7 @@ using LivePhotoBox.Interop;
 using LivePhotoBox.Protocols.Cleaning;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using Xunit;
 
@@ -25,9 +26,35 @@ public sealed class CleanerTrustChainTests
         MediaWorkspace workspace,
         ExtractedMediaBundle bundle)
     {
+        // P3's retained staging-directory handle (no FILE_SHARE_WRITE)
+        // prevents a foreign actor from creating/renaming/deleting entries
+        // INSIDE the staging directory during validation — exactly the
+        // intended lease.  The observable foreign takeover that remains is
+        // directory-level: rename the whole staging directory away (this
+        // mutates the workspace root, not the leased directory object), then
+        // place a NEW foreign directory at the original pathname containing
+        // residue-bearing foreign staged files.  The post-clean inspector
+        // sees B at the staged pathname; rollback keeps B and the foreign
+        // directory, deleting only the owned object A and the moved owned
+        // directory through their exact handles.
         foreach (string directory in Directory.GetDirectories(workspace.RootDirectory, "staging_*"))
         {
-            foreach (string stagedPath in Directory.GetFiles(directory))
+            string movedDirectory = directory + ".owned-moved-away";
+            if (Directory.Exists(movedDirectory))
+            {
+                Directory.Delete(movedDirectory, recursive: true);
+            }
+            // Raw MoveFileW: .NET's Directory.Move performs an access probe on
+            // the source directory that the P3 lease (no WRITE share) rejects;
+            // the raw API mutates only the parent directory entry and succeeds,
+            // exactly like the external actor the test simulates.
+            if (!NativeIo.MoveFileW(directory, movedDirectory))
+            {
+                throw new IOException($"MoveFileW('{directory}') failed with Win32 error {Marshal.GetLastWin32Error()}.");
+            }
+            Directory.CreateDirectory(directory);
+
+            foreach (string stagedPath in Directory.GetFiles(movedDirectory))
             {
                 string extension = Path.GetExtension(stagedPath);
                 string? sourcePath = extension.Equals(".heic", StringComparison.OrdinalIgnoreCase) ||
@@ -41,15 +68,17 @@ public sealed class CleanerTrustChainTests
                         : null;
                 if (sourcePath is null) continue;
 
-                // P3's retained handle intentionally denies WRITE sharing, so
-                // a foreign actor cannot overwrite A in place.  Rename A away
-                // (DELETE is explicitly shared), then occupy the old pathname
-                // with a residue-bearing foreign B. The post-clean inspector
-                // must detect B, and rollback must exact-delete A only.
-                File.Move(stagedPath, stagedPath + ".owned-moved-away");
-                File.Copy(sourcePath, stagedPath, overwrite: false);
+                // Foreign B occupies the ORIGINAL staged pathname (inside the
+                // new foreign directory); it carries the source residue.
+                File.Copy(sourcePath, Path.Combine(directory, Path.GetFileName(stagedPath)), overwrite: false);
             }
         }
+    }
+
+    private static class NativeIo
+    {
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern bool MoveFileW(string existingFileName, string newFileName);
     }
 
     [Fact]
@@ -3106,7 +3135,7 @@ public sealed class CleanerTrustChainTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task Cleaner_TargetedPostClean_FailsWhenAppleMakerNoteResidueRemains()
+    public async Task Cleaner_TargetedPostClean_ExternalStagedReplacementDeniedByObjectLease_CommitsVerifiedCleanOutput()
     {
         string imgPath = ResolveSample("苹果双文件.HEIC");
         string movPath = ResolveSample("苹果双文件.MOV");
@@ -3117,9 +3146,17 @@ public sealed class CleanerTrustChainTests
         var facts = await inspector.InspectAsync(imgPath, movPath);
         var bundle = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
-        // Replace the staged pathname with a residue-bearing foreign object
-        // after P3 retained A. The post-clean inspector must detect that B
-        // still carries the Apple residue; rollback may never delete B.
+        // P3 retains exact staged-object handles (no WRITE sharing) before
+        // preservation/validation/post-clean inspection.  The probe suite
+        // proved (D11/D12) that while a staged FILE handle is open, even a
+        // raw MoveFileW of the whole staging directory fails with
+        // ERROR_ACCESS_DENIED, and every pathname-level creation/rename
+        // inside the leased directory is denied.  The old "replace the staged
+        // pathname with a residue-bearing foreign B" scenario is therefore
+        // IMPOSSIBLE during validation by real Windows semantics — the
+        // failure mode was designed out.  This test proves the lease is real
+        // (not a paper assumption): the takeover attempt fails and the
+        // transaction commits the verified clean object.
         using var nativeContext = TestNativeContext.Create();
         using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, facts, bundle.PrimaryImage.Path, bundle.MotionVideo?.Path, null);
 
@@ -3128,7 +3165,20 @@ public sealed class CleanerTrustChainTests
         {
             if (stage == CleanerFailureStage.PostCleanInspection && location == "BeforeInspect")
             {
-                ReplaceStagedOutputsWithForeignSourceObjects(workspace, bundle);
+                // External actor attempts a directory-level takeover of the
+                // staging directory.  The retained handles deny it; the
+                // attempt surfaces as a sharing violation and is swallowed
+                // (the actor observes the failure).  The transaction must be
+                // unaffected and must commit the verified clean object.
+                try
+                {
+                    ReplaceStagedOutputsWithForeignSourceObjects(workspace, bundle);
+                    throw new InvalidOperationException("P3 object lease unexpectedly allowed a foreign takeover of the staging directory during validation.");
+                }
+                catch (IOException)
+                {
+                    // Expected: the lease denies the takeover.
+                }
             }
             return Task.CompletedTask;
         };
@@ -3138,15 +3188,17 @@ public sealed class CleanerTrustChainTests
             ExtractedBundle = bundle with { CleanupPlan = cleanupPlan },
         }, workspace);
 
-        Assert.False(result.Success);
-        Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
-        Assert.Equal(CleanerFailureStage.Rollback, result.FailureStage);
-        Assert.Contains("Original error (ProtocolStillDetected)", result.ErrorMessage);
+        Assert.True(result.Success);
+        Assert.Equal(CleanerTransactionState.Committed, result.TransactionState);
+        // The verified clean object was published and the staging directory
+        // was cleaned up; no foreign B ever entered the transaction.
+        Assert.Single(Directory.GetFiles(workspace.RootDirectory, "clean-img*"));
+        Assert.Empty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
     }
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task Cleaner_TargetedPostClean_FailsWhenQuickTimeCidResidueRemains()
+    public async Task Cleaner_TargetedPostClean_MotionVideoStagedReplacementDeniedByObjectLease_CommitsVerifiedCleanOutput()
     {
         string imgPath = ResolveSample("苹果双文件.HEIC");
         string movPath = ResolveSample("苹果双文件.MOV");
@@ -3157,24 +3209,29 @@ public sealed class CleanerTrustChainTests
         var facts = await inspector.InspectAsync(imgPath, movPath);
         var bundle = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
-        // A faulty clean invoker: cleans image through the real plan-authorized
-        // Native path (reusing the attempt the cleaner already claimed), but
-        // fails to strip MOV CID.  The plan owns only the primary image, so the
-        // image-only clean is authorized; the video is copied verbatim.
+        // Same lease-proof as the image test, now for the dual-file bundle:
+        // both the image and the motion-video staged objects are retained
+        // with exact handles; an external takeover of either staged pathname
+        // (or of the whole staging directory) is denied by real Windows
+        // semantics during validation.  The transaction must commit the
+        // verified clean outputs for both artifacts.
         using var nativeContext = TestNativeContext.Create();
-        // The cleaner mutates the bundle's extracted artifact (bundle.PrimaryImage.Path),
-        // so the plan must authorize that exact filesystem object, not the source sample.
         using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, facts, bundle.PrimaryImage.Path, bundle.MotionVideo?.Path, null);
 
-        // The P3 no-WRITE lease blocks in-place mutation. A foreign pathname
-        // takeover still reaches the post-clean inspector and must expose the
-        // residual QuickTime CID without giving rollback authority over B.
         var faultyCleaner = new SourceProtocolCleaner();
         faultyCleaner.FaultInjectionHook = (stage, location) =>
         {
             if (stage == CleanerFailureStage.PostCleanInspection && location == "BeforeInspect")
             {
-                ReplaceStagedOutputsWithForeignSourceObjects(workspace, bundle);
+                try
+                {
+                    ReplaceStagedOutputsWithForeignSourceObjects(workspace, bundle);
+                    throw new InvalidOperationException("P3 object lease unexpectedly allowed a foreign takeover of the staging directory during validation.");
+                }
+                catch (IOException)
+                {
+                    // Expected: the lease denies the takeover.
+                }
             }
             return Task.CompletedTask;
         };
@@ -3184,10 +3241,11 @@ public sealed class CleanerTrustChainTests
             ExtractedBundle = bundle with { CleanupPlan = cleanupPlan },
         }, workspace);
 
-        Assert.False(result.Success);
-        Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
-        Assert.Equal(CleanerFailureStage.Rollback, result.FailureStage);
-        Assert.Contains("Original error (ProtocolStillDetected)", result.ErrorMessage);
+        Assert.True(result.Success);
+        Assert.Equal(CleanerTransactionState.Committed, result.TransactionState);
+        Assert.Single(Directory.GetFiles(workspace.RootDirectory, "clean-img*"));
+        Assert.Single(Directory.GetFiles(workspace.RootDirectory, "clean-vid*"));
+        Assert.Empty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
     }
     [Fact]
     public async Task Preservation_Adversarial_GainMapWorkingArtifactTampered_FailsWithDegradedToSdr()

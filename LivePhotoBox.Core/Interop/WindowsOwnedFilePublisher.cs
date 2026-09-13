@@ -204,6 +204,173 @@ internal static class WindowsOwnedFilePublisher
         }
     }
 
+    /// <summary>
+    /// Opens a directory for exact-object ownership (staging directory).
+    /// The handle requests GENERIC_READ | DELETE and grants NO FILE_SHARE_WRITE,
+    /// mirroring the file commit lease: while the transaction retains it, no
+    /// foreign process can mutate the directory (create/delete entries), and
+    /// the transaction can delete the directory through the handle itself no
+    /// matter what pathname it currently occupies (rename-away is irrelevant).
+    /// Identity is captured from the OPEN HANDLE and must not be a reparse
+    /// point (BACKUP_SEMANTICS + OPEN_REPARSE_POINT never follows one).
+    /// </summary>
+    public static SafeFileHandle OpenOwnedDirectory(string path)
+    {
+        SafeFileHandle handle = CreateFileForCommit(
+            path,
+            CommitDesiredAccess,
+            FileShareRead | FileShareDelete,
+            IntPtr.Zero,
+            OpenExisting,
+            OpenReparsePoint | BackupSemantics,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            int win32Error = Marshal.GetLastWin32Error();
+            throw new CleanerException(
+                CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                CleanerFailureStage.Commit,
+                SourceProtocol.Unknown,
+                $"Unable to open directory '{path}' for exact-object ownership (Win32 error {win32Error}).");
+        }
+
+        try
+        {
+            WindowsFileIdentity actual = WindowsFileIdentity.Capture(handle);
+            if (actual.IsReparsePoint)
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                    CleanerFailureStage.Commit,
+                    SourceProtocol.Unknown,
+                    $"Directory at '{path}' is a reparse point; refusing to treat a redirecting directory as a transaction-owned object.");
+            }
+            return handle;
+        }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Kernel-backed "does THIS exact filesystem object still exist anywhere?"
+    /// query.  After a disposition/delete sequence the object is looked up by
+    /// its exact 64-bit FileId on its volume (FILE_OPEN_BY_FILE_ID) — no
+    /// pathname is consulted and no namespace is scanned.  A disposition
+    /// success alone is NOT proof that the object is gone: an external actor
+    /// may have created a hard link while the retained handle was open (the
+    /// NTFS share semantics do NOT deny hard-link creation; see probe H1), in
+    /// which case the object survives under the alias and the by-FileId lookup
+    /// still succeeds.  Gone means the lookup fails; Alive means the object
+    /// still exists (cleanup is unproven); Unknown means the volume itself
+    /// could not be opened, which must fail closed, never be reported as gone.
+    /// </summary>
+    public static ObjectGoneCheck IsObjectGoneByFileId(WindowsFileIdentity identity, string volumeProbePath)
+    {
+        SafeFileHandle? handle = null;
+        try
+        {
+            string volumeName = GetVolumeNameForPath(volumeProbePath, out bool resolved);
+            if (!resolved)
+            {
+                return ObjectGoneCheck.Unknown;
+            }
+
+            using SafeFileHandle volumeHandle = CreateFileForCommit(
+                volumeName,
+                GenericRead,
+                FileShareRead | FileShareWrite | FileShareDelete,
+                IntPtr.Zero,
+                OpenExisting,
+                BackupSemantics,
+                IntPtr.Zero);
+            if (volumeHandle.IsInvalid)
+            {
+                return ObjectGoneCheck.Unknown;
+            }
+
+            byte[] idBytes = BitConverter.GetBytes(identity.FileIndex);
+            GCHandle idPinned = GCHandle.Alloc(idBytes, GCHandleType.Pinned);
+            try
+            {
+                var objectName = new UnicodeString
+                {
+                    Length = checked((ushort)idBytes.Length),
+                    MaximumLength = checked((ushort)idBytes.Length),
+                    Buffer = idPinned.AddrOfPinnedObject()
+                };
+                GCHandle namePinned = GCHandle.Alloc(objectName, GCHandleType.Pinned);
+                try
+                {
+                    var attributes = new ObjectAttributes
+                    {
+                        Length = checked((uint)Marshal.SizeOf<ObjectAttributes>()),
+                        RootDirectory = volumeHandle.DangerousGetHandle(),
+                        ObjectName = namePinned.AddrOfPinnedObject(),
+                        Attributes = ObjCaseInsensitive
+                    };
+                    int status = NtOpenFile(
+                        out handle,
+                        FileReadAttributes,
+                        ref attributes,
+                        out _,
+                        FileShareRead | FileShareWrite | FileShareDelete,
+                        FileOpenByFileId | FileNonDirectoryFile);
+                    if (status == 0)
+                    {
+                        return ObjectGoneCheck.Alive;
+                    }
+                    // "Gone" may ONLY be concluded from the kernel statuses that
+                    // prove the exact FileId is no longer resolvable.  Any other
+                    // failure (e.g. STATUS_ACCESS_DENIED while the object is
+                    // alive, transient system errors) is Unknown and the caller
+                    // must fail closed — never report the object as gone while it
+                    // may still exist under an alias.
+                    if (status is StatusObjectNameNotFound or StatusObjectPathNotFound)
+                    {
+                        return ObjectGoneCheck.Gone;
+                    }
+                    return ObjectGoneCheck.Unknown;
+                }
+                finally
+                {
+                    namePinned.Free();
+                }
+            }
+            finally
+            {
+                idPinned.Free();
+            }
+        }
+        catch
+        {
+            return ObjectGoneCheck.Unknown;
+        }
+        finally
+        {
+            handle?.Dispose();
+        }
+    }
+
+    private static string GetVolumeNameForPath(string path, out bool resolved)
+    {
+        resolved = false;
+        var root = new System.Text.StringBuilder(512);
+        if (!GetVolumePathNameW(path, root, (uint)root.Capacity))
+        {
+            return string.Empty;
+        }
+        var volume = new System.Text.StringBuilder(512);
+        if (!GetVolumeNameForVolumeMountPointW(root.ToString(), volume, (uint)volume.Capacity))
+        {
+            return string.Empty;
+        }
+        resolved = true;
+        return volume.ToString();
+    }
+
     private static bool RenameThroughHandle(SafeFileHandle handle, string finalPath, out int win32Error)
     {
         if (string.IsNullOrWhiteSpace(finalPath))
@@ -349,6 +516,82 @@ internal static class WindowsOwnedFilePublisher
     private const int ErrorAlreadyExists = 183;
     private const int ErrorInvalidParameter = 87;
     private const int ShaBufferSize = 128 * 1024;
+
+    private const uint GenericRead = 0x80000000;
+    private const uint FileShareWrite = 0x00000002;
+    private const uint BackupSemantics = 0x02000000;
+    private const uint FileReadAttributes = 0x00000080;
+    private const uint ObjCaseInsensitive = 0x00000040;
+    private const uint FileOpenByFileId = 0x00002000;
+    private const uint FileNonDirectoryFile = 0x00000040;
+
+    // NTSTATUS values: the ONLY ones that prove a FileId is no longer
+    // resolvable (probe F2/F3: a deleted object resolves 0xC000000D).
+    private const int StatusObjectNameNotFound = unchecked((int)0xC000000D);
+    private const int StatusObjectPathNotFound = unchecked((int)0xC000000F);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct UnicodeString
+    {
+        public ushort Length;
+        public ushort MaximumLength;
+        public IntPtr Buffer;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ObjectAttributes
+    {
+        public uint Length;
+        public IntPtr RootDirectory;
+        public IntPtr ObjectName;
+        public uint Attributes;
+        public IntPtr SecurityDescriptor;
+        public IntPtr SecurityQualityOfService;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IoStatusBlock
+    {
+        public IntPtr Status;
+        public IntPtr Information;
+    }
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtOpenFile(
+        out SafeFileHandle fileHandle,
+        uint desiredAccess,
+        ref ObjectAttributes objectAttributes,
+        out IoStatusBlock ioStatusBlock,
+        uint shareAccess,
+        uint openOptions);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetVolumePathNameW(
+        string lpszFileName,
+        StringBuilder lpszVolumePathName,
+        uint cchBufferLength);
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetVolumeNameForVolumeMountPointW(
+        string lpszVolumeMountPoint,
+        StringBuilder lpszVolumeName,
+        uint cchBufferLength);
+}
+
+/// <summary>
+/// Result of the kernel-backed by-FileId object-existence query.  Gone is
+/// reported ONLY when the exact FileId can no longer be resolved on its
+/// volume; Alive means the object still exists under some namespace entry;
+/// Unknown means the volume could not be opened and the query is inconclusive
+/// (callers must fail closed — never treat Unknown as gone).
+/// </summary>
+public enum ObjectGoneCheck
+{
+    Gone,
+    Alive,
+    Unknown
 }
 
 /// <summary>

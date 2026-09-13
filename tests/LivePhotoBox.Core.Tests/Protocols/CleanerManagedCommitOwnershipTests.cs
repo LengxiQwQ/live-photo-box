@@ -1320,4 +1320,318 @@ public sealed class CleanerManagedCommitOwnershipTests
             Assert.Equal(shaBefore, ComputeSha256(samplePath));
         }
     }
+
+    // ---------------------------------------------------------------------
+    // P3 object-lifetime final-closeout adversarial proofs (probe-driven):
+    //
+    //  * Hard-link alias:  while the retained staged-file handle is open,
+    //    CreateHardLinkW CAN succeed (probe H1).  A disposition success then
+    //    only removes one name — the object survives under the alias (probe
+    //    H4/E1/F4) — so "FileDispositionInfo == TRUE" is NOT object-gone
+    //    proof.  Rollback must verify the exact FileId by
+    //    FILE_OPEN_BY_FILE_ID after the final lease closes; if the object is
+    //    still resolvable, cleanup is unproven and the transaction must
+    //    report RollbackFailed (never a false RolledBack).
+    //
+    //  * Staging-directory rename-away:  the directory is a transaction-owned
+    //    object.  While the staged FILE handles are open, even a raw
+    //    MoveFileW of the whole directory fails with ACCESS_DENIED (probe
+    //    D11/D12) — the lease is real.  The only observable takeover window
+    //    is BEFORE the file handles are acquired (probe D2: empty/unreferenced
+    //    directory renames fine).  In that window rollback holds no exact
+    //    authority: PathMissing is NOT DirectoryGone and must fail closed,
+    //    and a foreign directory occupying the old pathname is never deleted.
+    // ---------------------------------------------------------------------
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task ObjectLifetime_HardLinkAliasCreatedWhileHandleOpen_DispositionNotGoneProof_RollbackFailed()
+    {
+        // A hard link created while the P3 retained handle is open keeps the
+        // exact filesystem object alive under a foreign name after the staged
+        // name is dispositioned.  Only the kernel-backed by-FileId check can
+        // detect this; rollback must fail closed and never delete the alias.
+        string samplePath = ResolveSample("oppo.jpg");
+        string shaBefore = ComputeSha256(samplePath);
+
+        using var workspace = new MediaWorkspace();
+        var cleaner = new SourceProtocolCleaner();
+        var (bundle, nativeContext, cleanupPlan) = await PrepareAsync(samplePath, null, workspace);
+        using (nativeContext)
+        using (cleanupPlan)
+        {
+            int triggerCount = 0;
+            string? aliasPath = null;
+            cleaner.FaultInjectionHook = (stage, detail) =>
+            {
+                if (stage == CleanerFailureStage.Commit && detail == "AfterImageIdentityVerifiedBeforeRename")
+                {
+                    triggerCount++;
+                    string stagedImage = FindStagedFile(workspace, "stage-img*").StagedPath;
+                    aliasPath = Path.Combine(workspace.RootDirectory, "owned-object-hardlink-alias.jpg");
+                    if (!NativeIo.CreateHardLinkW(aliasPath, stagedImage, IntPtr.Zero))
+                    {
+                        throw new IOException($"CreateHardLinkW failed with Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}.");
+                    }
+                    throw new IOException("Simulated failure after a foreign hard-link alias was created on the owned object.");
+                }
+                return Task.CompletedTask;
+            };
+
+            try
+            {
+                ProtocolCleanResult result = await cleaner.CleanAsync(new ProtocolCleanRequest
+                {
+                    ExtractedBundle = bundle,
+                    CleanupPlan = cleanupPlan
+                }, workspace);
+
+                // Disposition succeeded on the staged name, but the by-FileId
+                // re-check proves the exact object is still alive under the
+                // foreign alias: cleanup is unproven => RollbackFailed.
+                Assert.False(result.Success);
+                Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
+                Assert.Equal(CleanerFailureStage.Rollback, result.FailureStage);
+                Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
+                Assert.Equal(1, triggerCount);
+                Assert.Contains("hard-link alias", result.ErrorMessage);
+                Assert.NotNull(aliasPath);
+                Assert.True(File.Exists(aliasPath), "foreign hard-link alias must never be deleted");
+                Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+            }
+            finally
+            {
+                if (aliasPath != null && File.Exists(aliasPath))
+                {
+                    File.SetAttributes(aliasPath, FileAttributes.Normal);
+                    File.Delete(aliasPath);
+                }
+            }
+
+            Assert.Equal(shaBefore, ComputeSha256(samplePath));
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task ObjectLifetime_StagingDirectoryRenamedAwayBeforeFileHandles_FailsClosedNoFalseRolledBack()
+    {
+        // The ONLY window in which an external actor can move the staging
+        // directory is before the staged-file handles are acquired (probe
+        // D11/D12: open file handles deny the directory rename).  In that
+        // window the transaction holds no exact authority over the files or
+        // the directory: PathMissing is NOT ObjectGone and must fail closed.
+        string samplePath = ResolveSample("oppo.jpg");
+        string shaBefore = ComputeSha256(samplePath);
+
+        using var workspace = new MediaWorkspace();
+        var cleaner = new SourceProtocolCleaner();
+        var (bundle, nativeContext, cleanupPlan) = await PrepareAsync(samplePath, null, workspace);
+        using (nativeContext)
+        using (cleanupPlan)
+        {
+            int triggerCount = 0;
+            string? movedDir = null;
+            cleaner.FaultInjectionHook = (stage, detail) =>
+            {
+                if (stage == CleanerFailureStage.Staging && detail == "BeforeImageHandleAcquisition")
+                {
+                    triggerCount++;
+                    string stagingDir = FindStagedFile(workspace, "stage-img*").StagingDir;
+                    movedDir = stagingDir + ".owned-moved-away";
+                    if (!NativeIo.MoveFileW(stagingDir, movedDir))
+                    {
+                        throw new IOException($"MoveFileW(staging dir) failed with Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}.");
+                    }
+                    throw new IOException("Simulated failure after the staging directory was renamed away.");
+                }
+                return Task.CompletedTask;
+            };
+
+            try
+            {
+                ProtocolCleanResult result = await cleaner.CleanAsync(new ProtocolCleanRequest
+                {
+                    ExtractedBundle = bundle,
+                    CleanupPlan = cleanupPlan
+                }, workspace);
+
+                Assert.False(result.Success);
+                Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
+                Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
+                Assert.Equal(1, triggerCount);
+                Assert.NotNull(movedDir);
+                Assert.True(Directory.Exists(movedDir), "the moved owned directory (with the staged object) must still exist");
+                Assert.True(Directory.EnumerateFiles(movedDir).Any(), "the staged owned object must still exist under the moved directory");
+                Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+            }
+            finally
+            {
+                if (movedDir != null && Directory.Exists(movedDir))
+                {
+                    Directory.Delete(movedDir, recursive: true);
+                }
+            }
+
+            Assert.Equal(shaBefore, ComputeSha256(samplePath));
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task ObjectLifetime_StagingDirectoryRenamedAway_ForeignEmptyDirectoryOccupiesOldPath_ForeignNeverDeleted()
+    {
+        // Same pre-acquisition takeover window, but a FOREIGN empty directory
+        // now occupies the original staging pathname.  Rollback must never
+        // delete the foreign directory (identity mismatch / no exact
+        // authority) and must report RollbackFailed — never RolledBack while
+        // the owned object lives under the moved directory.
+        string samplePath = ResolveSample("oppo.jpg");
+        string shaBefore = ComputeSha256(samplePath);
+
+        using var workspace = new MediaWorkspace();
+        var cleaner = new SourceProtocolCleaner();
+        var (bundle, nativeContext, cleanupPlan) = await PrepareAsync(samplePath, null, workspace);
+        using (nativeContext)
+        using (cleanupPlan)
+        {
+            int triggerCount = 0;
+            string? movedDir = null;
+            string? foreignDir = null;
+            cleaner.FaultInjectionHook = (stage, detail) =>
+            {
+                if (stage == CleanerFailureStage.Staging && detail == "BeforeImageHandleAcquisition")
+                {
+                    triggerCount++;
+                    string stagingDir = FindStagedFile(workspace, "stage-img*").StagingDir;
+                    movedDir = stagingDir + ".owned-moved-away";
+                    if (!NativeIo.MoveFileW(stagingDir, movedDir))
+                    {
+                        throw new IOException($"MoveFileW(staging dir) failed with Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}.");
+                    }
+                    Directory.CreateDirectory(stagingDir);
+                    foreignDir = stagingDir;
+                    throw new IOException("Simulated failure after a foreign empty directory took over the staging pathname.");
+                }
+                return Task.CompletedTask;
+            };
+
+            try
+            {
+                ProtocolCleanResult result = await cleaner.CleanAsync(new ProtocolCleanRequest
+                {
+                    ExtractedBundle = bundle,
+                    CleanupPlan = cleanupPlan
+                }, workspace);
+
+                Assert.False(result.Success);
+                Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
+                Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
+                Assert.Equal(1, triggerCount);
+                Assert.NotNull(foreignDir);
+                Assert.NotNull(movedDir);
+                Assert.True(Directory.Exists(foreignDir), "foreign empty directory must survive rollback");
+                Assert.Empty(Directory.EnumerateFileSystemEntries(foreignDir));
+                Assert.True(Directory.Exists(movedDir), "the moved owned directory must still exist");
+                Assert.True(Directory.EnumerateFiles(movedDir).Any(), "the staged owned object must still exist under the moved directory");
+                Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+            }
+            finally
+            {
+                if (movedDir != null && Directory.Exists(movedDir))
+                {
+                    Directory.Delete(movedDir, recursive: true);
+                }
+                if (foreignDir != null && Directory.Exists(foreignDir))
+                {
+                    Directory.Delete(foreignDir, recursive: true);
+                }
+            }
+
+            Assert.Equal(shaBefore, ComputeSha256(samplePath));
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task ObjectLifetime_MotionVideoHardLinkAliasWhileHandleOpen_ImageAndVideoRolledBack_VideoAliasSurvives()
+    {
+        // Dual-file bundle (image + motion video).  After the image has been
+        // published, an external hard-link alias is created on the STAGED
+        // VIDEO object while its retained handle is open.  The video publish
+        // then fails.  Rollback must exact-delete BOTH owned objects (the
+        // published image through its handle, the staged video through its
+        // handle) — but the video disposition only removes the staged name;
+        // the object survives under the foreign alias, so the by-FileId
+        // re-check proves it alive and the transaction must report
+        // RollbackFailed (never a false RolledBack while the owned video
+        // object still exists).
+        string imgPath = ResolveSample("苹果双文件.HEIC");
+        string movPath = ResolveSample("苹果双文件.MOV");
+        string shaBefore = ComputeSha256(imgPath);
+
+        using var workspace = new MediaWorkspace();
+        var cleaner = new SourceProtocolCleaner();
+        var (bundle, nativeContext, cleanupPlan) = await PrepareAsync(imgPath, movPath, workspace);
+        using (nativeContext)
+        using (cleanupPlan)
+        {
+            int triggerCount = 0;
+            string? videoAliasPath = null;
+            cleaner.FaultInjectionHook = (stage, detail) =>
+            {
+                if (stage == CleanerFailureStage.Commit && detail == "AfterVideoIdentityVerifiedBeforeRename")
+                {
+                    triggerCount++;
+                    string stagedVideo = FindStagedFile(workspace, "stage-vid*").StagedPath;
+                    videoAliasPath = Path.Combine(workspace.RootDirectory, "owned-video-hardlink-alias.mov");
+                    if (!NativeIo.CreateHardLinkW(videoAliasPath, stagedVideo, IntPtr.Zero))
+                    {
+                        throw new IOException($"CreateHardLinkW failed with Win32 error {System.Runtime.InteropServices.Marshal.GetLastWin32Error()}.");
+                    }
+                    throw new IOException("Simulated video publish failure after a foreign hard-link alias was created on the owned staged video.");
+                }
+                return Task.CompletedTask;
+            };
+
+            try
+            {
+                ProtocolCleanResult result = await cleaner.CleanAsync(new ProtocolCleanRequest
+                {
+                    ExtractedBundle = bundle,
+                    CleanupPlan = cleanupPlan
+                }, workspace);
+
+                Assert.False(result.Success);
+                Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
+                Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
+                Assert.Equal(1, triggerCount);
+                Assert.Contains("hard-link alias", result.ErrorMessage);
+                Assert.NotNull(videoAliasPath);
+                Assert.True(File.Exists(videoAliasPath), "foreign hard-link alias on the video object must never be deleted");
+                // The image publish was rolled back exactly: no clean output remains.
+                Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+                Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-vid*", SearchOption.AllDirectories));
+            }
+            finally
+            {
+                if (videoAliasPath != null && File.Exists(videoAliasPath))
+                {
+                    File.SetAttributes(videoAliasPath, FileAttributes.Normal);
+                    File.Delete(videoAliasPath);
+                }
+            }
+
+            Assert.Equal(shaBefore, ComputeSha256(imgPath));
+        }
+    }
+
+    private static class NativeIo
+    {
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+        public static extern bool CreateHardLinkW(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+        public static extern bool MoveFileW(string existingFileName, string newFileName);
+    }
 }
