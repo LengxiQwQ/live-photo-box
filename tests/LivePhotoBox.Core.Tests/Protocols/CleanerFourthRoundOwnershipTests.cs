@@ -34,15 +34,21 @@ public sealed class CleanerFourthRoundOwnershipTests
         => await Assert.ThrowsAsync<CleanerException>(async () => await action());
 
     /// <summary>
-    /// Replaces <paramref name="path"/> with a NEW filesystem object holding
-    /// byte-identical content: same path, same SHA, same length, different
-    /// File ID.  The transaction must never treat the replacement as owned.
+    /// Moves A away and creates a NEW filesystem object B with byte-identical
+    /// content at A's former pathname.  This works with P3's intentional
+    /// READ|DELETE (no WRITE) lease: an overwrite-in-place would be blocked,
+    /// while a rename is the adversarial pathname takeover we must resist.
     /// </summary>
-    private static void ReplaceWithSameContentObject(string path)
+    private static string MoveOwnedAwayAndPlaceSameContentForeign(
+        string path,
+        string workspaceRoot,
+        string ownedName)
     {
         byte[] bytes = File.ReadAllBytes(path);
-        File.Delete(path);
+        string movedOwnedPath = Path.Combine(workspaceRoot, ownedName);
+        File.Move(path, movedOwnedPath);
         File.WriteAllBytes(path, bytes);
+        return movedOwnedPath;
     }
 
     // ------------------------------------------------------------------
@@ -65,17 +71,19 @@ public sealed class CleanerFourthRoundOwnershipTests
 
         var cleaner = new SourceProtocolCleaner();
         string? stagedReplacement = null;
+        string? movedOwnedPath = null;
 
         cleaner.FaultInjectionHook = (stage, detail) =>
         {
-            if (stage == CleanerFailureStage.Staging && detail == "ImageStaged")
+            if (stage == CleanerFailureStage.Staging && detail == "BeforeImageHandleAcquisition")
             {
                 // Same-content replacement of the staged output AFTER the
                 // Native cleaner created and registered it.  The replacement
                 // has a different File ID; rollback must refuse to delete it.
                 stagedReplacement = Directory.GetFiles(
                     Directory.GetDirectories(workspace.RootDirectory, "staging_*").Single(), "stage-img*").Single();
-                ReplaceWithSameContentObject(stagedReplacement);
+                movedOwnedPath = MoveOwnedAwayAndPlaceSameContentForeign(
+                    stagedReplacement, workspace.RootDirectory, "owned-image-before-acquisition.jpg");
                 cts.Cancel();
                 cts.Token.ThrowIfCancellationRequested();
             }
@@ -95,6 +103,8 @@ public sealed class CleanerFourthRoundOwnershipTests
 
         Assert.NotNull(stagedReplacement);
         Assert.True(File.Exists(stagedReplacement), "The same-content foreign staged object must survive rollback.");
+        Assert.NotNull(movedOwnedPath);
+        Assert.True(File.Exists(movedOwnedPath), "Path absence before exact-handle acquisition cannot prove A is gone.");
     }
 
     // ------------------------------------------------------------------
@@ -175,16 +185,18 @@ public sealed class CleanerFourthRoundOwnershipTests
 
         var cleaner = new SourceProtocolCleaner();
         string? stagedReplacement = null;
+        string? movedOwnedPath = null;
 
         cleaner.FaultInjectionHook = (stage, detail) =>
         {
-            if (stage == CleanerFailureStage.Staging && detail == "ImageStaged")
+            if (stage == CleanerFailureStage.Staging && detail == "BeforeImageHandleAcquisition")
             {
                 // The Native cleaner returned and registered ownership of its
                 // staged object; a same-content object now takes over the path.
                 stagedReplacement = Directory.GetFiles(
                     Directory.GetDirectories(workspace.RootDirectory, "staging_*").Single(), "stage-img*").Single();
-                ReplaceWithSameContentObject(stagedReplacement);
+                movedOwnedPath = MoveOwnedAwayAndPlaceSameContentForeign(
+                    stagedReplacement, workspace.RootDirectory, "owned-image-before-commit.jpg");
             }
             return Task.CompletedTask;
         };
@@ -197,14 +209,19 @@ public sealed class CleanerFourthRoundOwnershipTests
         // the exact object Native registered), and the same-content foreign
         // staged object must survive rollback.
         Assert.False(result.Success);
+        string? failureMessage = result.ErrorMessage;
         Assert.True(
-            result.ErrorMessage.Contains("no longer matches the identity", StringComparison.OrdinalIgnoreCase) ||
-            result.ErrorMessage.Contains("identity this transaction registered", StringComparison.OrdinalIgnoreCase) ||
-            result.ErrorMessage.Contains("foreign", StringComparison.OrdinalIgnoreCase),
-            $"Expected a fail-closed identity error, got: {result.ErrorMessage}");
+            failureMessage != null && (
+                failureMessage.Contains("no longer matches the identity", StringComparison.OrdinalIgnoreCase) ||
+                failureMessage.Contains("identity this transaction registered", StringComparison.OrdinalIgnoreCase) ||
+                failureMessage.Contains("not the exact object", StringComparison.OrdinalIgnoreCase) ||
+                failureMessage.Contains("foreign", StringComparison.OrdinalIgnoreCase)),
+            $"Expected a fail-closed identity error, got: {failureMessage}");
 
         Assert.NotNull(stagedReplacement);
         Assert.True(File.Exists(stagedReplacement), "The same-content foreign staged object must survive the failed commit.");
+        Assert.NotNull(movedOwnedPath);
+        Assert.True(File.Exists(movedOwnedPath), "A rename before handle acquisition must not be hidden by pathname absence.");
         Assert.False(
             Directory.GetFiles(workspace.RootDirectory, "clean-img*").Any(),
             "No destination may be published when the staged object was replaced.");

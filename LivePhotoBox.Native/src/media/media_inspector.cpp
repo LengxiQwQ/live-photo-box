@@ -696,20 +696,48 @@ static bool validate_xmp_protocol_ownership(const std::vector<xmp_node>& nodes,
 static std::vector<uint8_t> read_file_bytes(const char* path, size_t max_bytes = 0) {
     if (!path) return {};
     auto p = utf8_to_path(path);
-    std::ifstream file(p, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) return {};
+    // P3 holds a DELETE-capable lease over staged outputs until post-clean
+    // inspection finishes.  Inspection is read-only, so it must explicitly
+    // share DELETE instead of making the owner weaken that lease.
+    HANDLE handle = CreateFileW(
+        p.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_DELETE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
+        nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return {};
 
-    std::streamsize file_size = file.tellg();
-    if (file_size <= 0) return {};
+    LARGE_INTEGER file_size{};
+    if (!GetFileSizeEx(handle, &file_size) || file_size.QuadPart <= 0) {
+        CloseHandle(handle);
+        return {};
+    }
 
-    size_t to_read = (max_bytes > 0 && max_bytes < static_cast<size_t>(file_size)) 
+    const auto size = static_cast<uint64_t>(file_size.QuadPart);
+    if (size > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
+        CloseHandle(handle);
+        return {};
+    }
+
+    size_t to_read = (max_bytes > 0 && max_bytes < static_cast<size_t>(size))
         ? max_bytes 
-        : static_cast<size_t>(file_size);
+        : static_cast<size_t>(size);
 
-    file.seekg(0, std::ios::beg);
     std::vector<uint8_t> buffer(to_read);
-    file.read(reinterpret_cast<char*>(buffer.data()), to_read);
-    if (file.gcount() != static_cast<std::streamsize>(to_read)) return {};
+    size_t offset = 0;
+    while (offset < to_read) {
+        const DWORD requested = static_cast<DWORD>(std::min<size_t>(to_read - offset, 1024 * 1024));
+        DWORD read = 0;
+        if (!ReadFile(handle, buffer.data() + offset, requested, &read, nullptr) || read == 0) {
+            CloseHandle(handle);
+            return {};
+        }
+        offset += read;
+    }
+
+    CloseHandle(handle);
     return buffer;
 }
 

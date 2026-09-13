@@ -40,16 +40,43 @@ void sha256_to_hex_upper(const uint8_t hash[32], char out_hex[LPB_POBS_SHA256_LE
 bool read_file_binary(const char* path, std::vector<uint8_t>& out_data) {
     if (!path) return false;
     auto p = utf8_to_path(path);
-    std::ifstream ifs(p, std::ios::binary | std::ios::ate);
-    if (!ifs.is_open()) return false;
-    const auto pos = ifs.tellg();
-    if (pos < std::streampos(0)) return false;
-    const auto size = static_cast<std::streamsize>(pos);
-    if (size < 0 || static_cast<uint64_t>(size) > 1024ULL * 1024ULL * 1024ULL) return false;
-    out_data.resize(static_cast<size_t>(size));
-    ifs.seekg(0, std::ios::beg);
-    ifs.read(reinterpret_cast<char*>(out_data.data()), size);
-    return ifs.gcount() == size;
+    // P3 retains an exact DELETE-capable handle for every staged output while
+    // preservation runs.  This observer is read-only, so its open must share
+    // DELETE; otherwise the CRT's default share mode rejects a perfectly valid
+    // staged object and pressures the transaction to weaken its authority.
+    HANDLE handle = CreateFileW(
+        p.c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_DELETE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return false;
+
+    LARGE_INTEGER file_size{};
+    if (!GetFileSizeEx(handle, &file_size) || file_size.QuadPart < 0 ||
+        static_cast<uint64_t>(file_size.QuadPart) > 1024ULL * 1024ULL * 1024ULL) {
+        CloseHandle(handle);
+        return false;
+    }
+
+    const size_t size = static_cast<size_t>(file_size.QuadPart);
+    out_data.resize(size);
+    size_t offset = 0;
+    while (offset < size) {
+        const DWORD request = static_cast<DWORD>(std::min<size_t>(size - offset, 1024 * 1024));
+        DWORD read = 0;
+        if (!ReadFile(handle, out_data.data() + offset, request, &read, nullptr) || read == 0) {
+            out_data.clear();
+            CloseHandle(handle);
+            return false;
+        }
+        offset += read;
+    }
+
+    CloseHandle(handle);
+    return true;
 }
 
 size_t get_tiff_type_size(uint16_t type) {
@@ -102,58 +129,37 @@ void hash_canonical_entries(const std::vector<canonical_entry>& entries, char ou
 }
 
 void observe_video_mdat(lpb_context* context, const char* media_path, lpb_preservation_observation* out) {
-    auto p = utf8_to_path(media_path);
-    std::ifstream ifs(p, std::ios::binary);
-    if (!ifs.is_open()) return;
-
-    ifs.seekg(0, std::ios::end);
-    std::streampos total_file_size = ifs.tellg();
-    if (total_file_size <= 0) return;
-    ifs.seekg(0, std::ios::beg);
+    std::vector<uint8_t> data;
+    if (!read_file_binary(media_path, data) || data.empty()) return;
 
     lpb::crypto::sha256_ctx sha;
     bool found_mdat = false;
-    std::vector<uint8_t> buffer(64 * 1024);
+    size_t offset = 0;
 
-    while (ifs.tellg() < total_file_size && ifs.good()) {
+    while (offset + 8 <= data.size()) {
         if (lpb_context_check_cancelled(context) != LPB_RESULT_OK) return;
-        std::streampos box_start = ifs.tellg();
-        uint8_t hdr[16];
-        ifs.read(reinterpret_cast<char*>(hdr), 8);
-        if (ifs.gcount() < 8) break;
-
+        const uint8_t* hdr = data.data() + offset;
         uint32_t size32 = read_be32u(hdr);
         uint64_t box_size = size32;
         size_t hdr_size = 8;
         if (size32 == 1) {
-            ifs.read(reinterpret_cast<char*>(hdr + 8), 8);
-            if (ifs.gcount() < 8) break;
+            if (offset + 16 > data.size()) return;
             box_size = read_be64u(hdr + 8);
             hdr_size = 16;
         } else if (size32 == 0) {
-            box_size = static_cast<uint64_t>(total_file_size - box_start);
+            box_size = data.size() - offset;
         }
 
-        if (box_size < hdr_size || static_cast<uint64_t>(box_start) + box_size > static_cast<uint64_t>(total_file_size)) {
-            break;
+        if (box_size < hdr_size || box_size > data.size() - offset) {
+            return;
         }
 
         bool is_mdat = (hdr[4] == 'm' && hdr[5] == 'd' && hdr[6] == 'a' && hdr[7] == 't');
         if (is_mdat) {
             found_mdat = true;
-            uint64_t payload_remaining = box_size - hdr_size;
-            while (payload_remaining > 0 && ifs.good()) {
-                if (lpb_context_check_cancelled(context) != LPB_RESULT_OK) return;
-                size_t to_read = static_cast<size_t>(std::min<uint64_t>(payload_remaining, buffer.size()));
-                ifs.read(reinterpret_cast<char*>(buffer.data()), to_read);
-                size_t bytes_read = static_cast<size_t>(ifs.gcount());
-                if (bytes_read == 0) break;
-                sha.update(buffer.data(), bytes_read);
-                payload_remaining -= bytes_read;
-            }
-        } else {
-            ifs.seekg(box_start + static_cast<std::streamoff>(box_size), std::ios::beg);
+            sha.update(hdr + hdr_size, static_cast<size_t>(box_size - hdr_size));
         }
+        offset += static_cast<size_t>(box_size);
     }
 
     if (found_mdat) {

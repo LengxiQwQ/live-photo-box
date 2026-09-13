@@ -7,11 +7,11 @@
 
 <p align="center">
   <a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="https://img.shields.io/github/v/release/lengxiqwq/live-photo-box?style=flat-square&color=0078D7&label=latest%20release" alt="Latest release"></a>
-  <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D7?style=flat-square&logo=windows11" alt="Platform">
-  <img src="https://img.shields.io/badge/C%23-13.0-239120?style=flat-square&logo=csharp" alt="C# 13" />
-  <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?style=flat-square&logo=c%2B%2B" alt="C++20" />
-  <img src="https://img.shields.io/badge/.NET-9.0-512BD4?style=flat-square&logo=dotnet" alt=".NET 9" />
-  <img src="https://img.shields.io/badge/WinUI%203-1.8-0078D7?style=flat-square&logo=windows" alt="WinUI 3" />
+  <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D7?style=flat-square" alt="Platform">
+  <img src="https://img.shields.io/badge/C%23-13.0-239120?style=flat-square" alt="C# 13" />
+  <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?style=flat-square" alt="C++20" />
+  <img src="https://img.shields.io/badge/.NET-9.0-512BD4?style=flat-square" alt=".NET 9" />
+  <img src="https://img.shields.io/badge/WinUI%203-1.8-0078D7?style=flat-square" alt="WinUI 3" />
 </p>
 
 ---
@@ -105,7 +105,7 @@ Split a **Live Photo** (single-file format) into a **dual-file Live Photo**, or 
 | Split Protocol | Target Devices | Status |
 |---|---|---|
 | Apple - Live Photo | iPhone / iPad | ✅ Supported |
-| vivo - Live Photo | vivo (≤ x200) | 🟡 In Testing |
+| vivo - Live Photo | vivo (≤ x200) | ✅ Supported |
 
 ### 🛠️ Repair Live Photo
 
@@ -231,10 +231,8 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
 |---------------|---------|---------|
 | [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) | MVVM framework | MIT |
 | [PhotoSauce.MagicScaler](https://github.com/saucecontrol/PhotoSauce) | High-performance image scaling | MIT |
-| [Microsoft.Graphics.Win2D](https://github.com/microsoft/Win2D) | GPU-accelerated 2D graphics | MIT |
 | [Markdig](https://github.com/xoofx/markdig) | Markdown rendering | BSD-2-Clause |
 | [FFmpeg](https://ffmpeg.org/) | Previous-generation runtime & independent verification reference | LGPL/GPL |
-| [ExifTool](https://exiftool.org/) | Previous-generation runtime & independent verification reference | Perl |
 
 ---
 

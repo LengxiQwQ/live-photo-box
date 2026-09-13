@@ -128,20 +128,15 @@ public sealed class ExtractionPlan : IDisposable
             return;
         }
 
-        try
-        {
-            using NativeContextLease lease = context.AcquireOperationLease(allowDisposeRequested: true);
-            _ = NativeMethods.ReleaseExtractionPlan(lease.Handle, handle);
-        }
-        catch (ObjectDisposedException)
-        {
-            // The context may already be in deferred destruction; cleanup is
-            // idempotent and no managed result should be masked.
-        }
-        finally
-        {
-            context.Dispose();
-        }
+        // An active ExtractionPlanAttempt owns the Native claim and an
+        // operation lease.  Releasing this plan here while that lease is still
+        // running turns a valid in-flight extraction into an authority failure
+        // during output verification/rollback.  Context disposal already
+        // defers Native destruction until all operation leases finish, and
+        // Native context destruction releases every remaining plan record.
+        // Therefore it is the single lifecycle authority for a disposed plan;
+        // never pre-release the plan underneath an active attempt.
+        context.Dispose();
     }
 
     internal static SourceMediaFacts CloneFacts(SourceMediaFacts source)

@@ -295,7 +295,13 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
 
             if (facts.Protocol == SourceProtocol.NonLive)
             {
-                return await ExecuteNonLiveNoOpAsync(bundle, workspace, journal, sw, cancellationToken).ConfigureAwait(false);
+                return await ExecuteNonLiveNoOpAsync(
+                    bundle,
+                    workspace,
+                    journal,
+                    sw,
+                    FaultInjectionHook,
+                    cancellationToken).ConfigureAwait(false);
             }
 
             if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Authorization, null).ConfigureAwait(false);
@@ -467,7 +473,13 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     // registry are owned by this transaction; a file that
                     // merely exists at the path is foreign until Native proves
                     // it created it.  A missing registry entry is fail-closed.
-                    ApplyNativeStagedOwnership(planAttempt, journal, stagedImgPath, stagedVidPath);
+                    ApplyNativeStagedOwnership(
+                        planAttempt,
+                        journal,
+                        stagedImgPath,
+                        stagedVidPath,
+                        FaultInjectionHook,
+                        facts.Protocol);
                 }
                 else
                 {
@@ -502,12 +514,22 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 // is foreign until Native proves it created it: it is never
                 // claimed, so rollback can never delete an object this
                 // transaction did not prove it created (fail closed).
-                CaptureNativeStagedOutputs(cleanContextHandle, cleanUseHarness, journal);
+                CaptureNativeStagedOutputs(
+                    cleanContextHandle,
+                    cleanUseHarness,
+                    journal,
+                    FaultInjectionHook,
+                    facts.Protocol);
                 throw;
             }
             catch (Exception ex)
             {
-                CaptureNativeStagedOutputs(cleanContextHandle, cleanUseHarness, journal);
+                CaptureNativeStagedOutputs(
+                    cleanContextHandle,
+                    cleanUseHarness,
+                    journal,
+                    FaultInjectionHook,
+                    facts.Protocol);
                 throw new CleanerException(
                     CleanerFailureCategory.StructureChanged,
                     CleanerFailureStage.Staging,
@@ -674,69 +696,50 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             }
 
             // The final commit is handle-bound.  Ownership comes from the
-            // Native staged-output registry captured at staging time; the
-            // registered identity is re-verified from a freshly OPENED handle,
-            // and the object is published THROUGH THAT SAME HANDLE
-            // (SetFileInformationByHandle / FileRenameInfo, ReplaceIfExists =
-            // FALSE).  There is no verify -> close handle -> pathname re-select
-            // window: a foreign object that takes over the staged pathname
-            // between verify and rename can never be selected as the publish
-            // source, and a foreign object at the destination can never be
-            // overwritten (the kernel rename decides atomically).
+            // Native staged-output registry captured at staging time and was
+            // immediately converted to a retained, identity-verified handle
+            // before preservation/validation/post-clean inspection.  That same
+            // handle now supplies the final re-verification, evidence and
+            // no-overwrite rename.  There is no verify -> close handle ->
+            // pathname re-select window: a foreign object that takes over the
+            // staged pathname can never be selected as the publish source, and
+            // a foreign object at the destination can never be overwritten (the
+            // kernel rename decides atomically).
             PublishedOwnedFile? imgPublished = null;
             PublishedOwnedFile? vidPublished = null;
+            CleanerTransactionJournal.TransactionOwnedObject? imgRecord = null;
+            CleanerTransactionJournal.TransactionOwnedObject? vidRecord = null;
 
             journal.SetState(CleanerTransactionState.Committing);
             SafeFileHandle? stagedImgHandle = null;
             SafeFileHandle? stagedVidHandle = null;
             try
             {
-                WindowsFileIdentity stagedImgIdentity = RequireRegisteredStagedIdentity(journal, stagedImgPath);
-                stagedImgHandle = WindowsOwnedFilePublisher.OpenOwnedStagedFile(stagedImgPath, stagedImgIdentity);
+                imgRecord = RequireRegisteredStagedObject(journal, stagedImgPath);
+                stagedImgHandle = imgRecord.RetainedHandle;
+                if (stagedImgHandle is null || stagedImgHandle.IsInvalid)
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.OutputCreateFailed,
+                        CleanerFailureStage.Commit,
+                        facts.Protocol,
+                        $"Staged image '{stagedImgPath}' has no retained exact ownership handle; refusing pathname-only publish.",
+                        MediaArtifactKind.PrimaryImage);
+                }
 
                 // Deterministic adversarial seam: the staging object has been
-                // verified from the OPEN handle, the handle is still open, and
-                // the handle rename has NOT yet executed.
+                // verified from the retained handle, the handle is still open,
+                // and the handle rename has NOT yet executed.
                 if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Commit, "AfterImageIdentityVerifiedBeforeRename").ConfigureAwait(false);
 
-                // The journal registers the publication BEFORE any filesystem
-                // mutation.  From this instant the object is tracked as
-                // published to cleanImgPath, so a failure at ANY later point —
-                // even one that also breaks the exact-handle cleanup — leaves
-                // rollback able to find and exact-delete the object at its
-                // real location.  The identity is the Native registry identity,
-                // which OpenOwnedStagedFile proved equal to the OPEN-handle
-                // identity and PublishOwnedHandle re-verifies before the
-                // rename, so the journal record carries handle-derived
-                // evidence.
-                journal.PublishedPaths.Add(new PublishRecord(cleanImgPath, stagedImgIdentity));
-
-                try
-                {
-                    imgPublished = WindowsOwnedFilePublisher.PublishOwnedHandle(
-                        stagedImgHandle, cleanImgPath, stagedImgIdentity, cancellationToken);
-                }
-                catch
-                {
-                    // PublishOwnedHandle changes the filesystem only at its
-                    // final rename step, so a throw here means the rename did
-                    // NOT happen and the object is still at the staged
-                    // pathname (which may now hold a foreign object and must
-                    // never be touched by rollback).  Remove the owned object
-                    // through the SAME verified handle (exact-object cleanup)
-                    // and drop both journal records.  If even the handle
-                    // cleanup fails, both records are kept: rollback then
-                    // exact-deletes the object via the staged record and
-                    // treats the destination record as gone (NOT_FOUND) or
-                    // refuses a foreign occupant (fail closed).
-                    if (WindowsOwnedFilePublisher.DeleteOwnedObject(stagedImgHandle))
-                    {
-                        journal.RemoveStagedRecord(stagedImgPath);
-                        journal.RemovePublishedRecord(cleanImgPath);
-                    }
-                    throw;
-                }
-                journal.RemoveStagedRecord(stagedImgPath);
+                // Register the destination before the handle-based rename.  If
+                // the rename throws, the record still points at the staged path;
+                // if it succeeds, MarkPublished transitions the same object to
+                // the destination without duplicating ownership records.
+                journal.RegisterPublishedRecord(imgRecord, cleanImgPath);
+                imgPublished = WindowsOwnedFilePublisher.PublishOwnedHandle(
+                    stagedImgHandle, cleanImgPath, imgRecord.Identity, cancellationToken);
+                journal.MarkPublished(imgRecord);
 
                 // The published object's exact handle is deliberately KEPT
                 // OPEN until the whole bundle transaction commits
@@ -754,32 +757,29 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
 
                 if (stagedVidPath != null && cleanVidPath != null)
                 {
-                    WindowsFileIdentity stagedVidIdentity = RequireRegisteredStagedIdentity(journal, stagedVidPath);
-                    stagedVidHandle = WindowsOwnedFilePublisher.OpenOwnedStagedFile(stagedVidPath, stagedVidIdentity);
+                    vidRecord = RequireRegisteredStagedObject(journal, stagedVidPath);
+                    stagedVidHandle = vidRecord.RetainedHandle;
+                    if (stagedVidHandle is null || stagedVidHandle.IsInvalid)
+                    {
+                        throw new CleanerException(
+                            CleanerFailureCategory.OutputCreateFailed,
+                            CleanerFailureStage.Commit,
+                            facts.Protocol,
+                            $"Staged video '{stagedVidPath}' has no retained exact ownership handle; refusing pathname-only publish.",
+                            MediaArtifactKind.MotionVideo);
+                    }
 
                     // Deterministic adversarial seam (video counterpart).
                     if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Commit, "AfterVideoIdentityVerifiedBeforeRename").ConfigureAwait(false);
 
-                    journal.PublishedPaths.Add(new PublishRecord(cleanVidPath, stagedVidIdentity));
-
-                    try
-                    {
-                        vidPublished = WindowsOwnedFilePublisher.PublishOwnedHandle(
-                            stagedVidHandle, cleanVidPath, stagedVidIdentity, cancellationToken);
-                    }
-                    catch
-                    {
-                        if (WindowsOwnedFilePublisher.DeleteOwnedObject(stagedVidHandle))
-                        {
-                            journal.RemoveStagedRecord(stagedVidPath);
-                            journal.RemovePublishedRecord(cleanVidPath);
-                        }
-                        throw;
-                    }
-                    journal.RemoveStagedRecord(stagedVidPath);
+                    journal.RegisterPublishedRecord(vidRecord, cleanVidPath);
+                    vidPublished = WindowsOwnedFilePublisher.PublishOwnedHandle(
+                        stagedVidHandle, cleanVidPath, vidRecord.Identity, cancellationToken);
+                    journal.MarkPublished(vidRecord);
                     // stagedVidHandle stays open too, for the same reason.
                 }
 
+                if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Commit, "BeforeBundleCommit").ConfigureAwait(false);
                 journal.SetState(CleanerTransactionState.Committed);
             }
             catch (OperationCanceledException)
@@ -789,7 +789,14 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 // handle before the cancellation propagates, so a foreign
                 // pathname rename can never hide a transaction-owned object
                 // from rollback.
-                CleanupPublishedRetainedHandles(journal, imgPublished, stagedImgHandle, cleanImgPath, vidPublished, stagedVidHandle, cleanVidPath);
+                if (imgPublished != null && imgRecord != null)
+                {
+                    journal.CleanupRetainedObjectOrRecordFailure(imgRecord);
+                }
+                if (vidPublished != null && vidRecord != null)
+                {
+                    journal.CleanupRetainedObjectOrRecordFailure(vidRecord);
+                }
                 throw;
             }
             catch (Exception ex)
@@ -800,7 +807,14 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 // the deletion is proven; otherwise keep the record and force
                 // a rollback failure so a false "RolledBack" can never be
                 // reported while a transaction-owned object may still exist.
-                CleanupPublishedRetainedHandles(journal, imgPublished, stagedImgHandle, cleanImgPath, vidPublished, stagedVidHandle, cleanVidPath);
+                if (imgPublished != null && imgRecord != null)
+                {
+                    journal.CleanupRetainedObjectOrRecordFailure(imgRecord);
+                }
+                if (vidPublished != null && vidRecord != null)
+                {
+                    journal.CleanupRetainedObjectOrRecordFailure(vidRecord);
+                }
                 throw new CleanerException(
                     CleanerFailureCategory.PublishFailed,
                     CleanerFailureStage.Commit,
@@ -810,11 +824,10 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             }
             finally
             {
-                // Handles are released only after the transaction reached a
-                // terminal state (Committed, or the fail-closed cleanup above
-                // has already run against them).
-                stagedImgHandle?.Dispose();
-                stagedVidHandle?.Dispose();
+                // Retained handles belong to the transaction journal and are
+                // released by the outer finally only after the transaction is
+                // terminal.  In particular, rollback still needs staged
+                // handles when validation or preservation fails before commit.
                 if (journal.State == CleanerTransactionState.Committed)
                 {
                     TryDeleteDirectory(stagingDir);
@@ -962,7 +975,11 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         finally
         {
             // Plans issued inside CleanAsync are released here; caller-supplied
-            // plans remain owned by the caller.
+            // plans remain owned by the caller.  Retained transaction handles
+            // are closed only after the transaction has reached Committed,
+            // RolledBack, or RollbackFailed and all exact cleanup attempts have
+            // completed.
+            journal.DisposeOwnedHandles();
             if (disposeAuthorityAfterClean && cleanupAuthority != null)
             {
                 cleanupAuthority.Dispose();
@@ -984,27 +1001,42 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
     private static void CaptureNativeStagedOutputs(
         nint contextHandle,
         bool useHarnessLibrary,
-        CleanerTransactionJournal journal)
+        CleanerTransactionJournal journal,
+        Func<CleanerFailureStage, string?, Task>? faultHook,
+        SourceProtocol protocol)
     {
         if (contextHandle == nint.Zero)
         {
             return;
         }
 
+        IReadOnlyList<NativeCleanService.CleanStagedOutputRecord> native;
         try
         {
-            IReadOnlyList<NativeCleanService.CleanStagedOutputRecord> native =
-                NativeCleanService.QueryStagedOutputs(contextHandle, useHarnessLibrary);
-            foreach (var rec in native)
-            {
-                AddNativeStagedRecord(journal, rec);
-            }
+            native = NativeCleanService.QueryStagedOutputs(contextHandle, useHarnessLibrary);
         }
-        catch
+        catch (Exception ex)
         {
-            // Ownership registry is best-effort on the failure path; the
-            // registry entries that were already read remain authoritative.
+            // A failure-path registry query is itself part of the ownership
+            // proof.  Without it we cannot know whether Native created an
+            // object that was subsequently renamed away, so never allow the
+            // transaction to claim RolledBack on pathname absence alone.
+            journal.AddRollbackFailure(
+                $"Unable to recover Native staged-output ownership registry after a staging failure; rollback ownership is unproven: {ex.Message}");
+            return;
         }
+
+        foreach (var rec in native)
+        {
+            AddNativeStagedRecord(journal, rec);
+        }
+
+        // Convert every registry identity to a retained, identity-verified
+        // Managed handle before the failure escapes the staging boundary.  A
+        // failure-path query may observe a pathname that was already renamed or
+        // replaced; retain the record as unproven and let rollback fail closed
+        // rather than treating a missing pathname as proof of cleanup.
+        journal.AcquireRetainedHandles(faultHook, protocol, failOnAcquisitionError: false);
     }
 
     /// <summary>
@@ -1017,7 +1049,9 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         CleanupPlanAttempt planAttempt,
         CleanerTransactionJournal journal,
         string stagedImgPath,
-        string? stagedVidPath)
+        string? stagedVidPath,
+        Func<CleanerFailureStage, string?, Task>? faultHook,
+        SourceProtocol protocol)
     {
         ArgumentNullException.ThrowIfNull(planAttempt);
         IReadOnlyList<NativeCleanService.CleanStagedOutputRecord> native =
@@ -1053,17 +1087,30 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         {
             AddNativeStagedRecord(journal, rec);
         }
+
+        // This is intentionally part of the immediate post-Native capture
+        // boundary.  Preservation, validation, post-clean inspection and final
+        // commit must all use these same retained exact handles.
+        journal.AcquireRetainedHandles(faultHook, protocol, failOnAcquisitionError: true);
     }
 
-    private static void AddNativeStagedRecord(CleanerTransactionJournal journal, NativeCleanService.CleanStagedOutputRecord rec)
+    private static CleanerTransactionJournal.TransactionOwnedObject AddNativeStagedRecord(
+        CleanerTransactionJournal journal,
+        NativeCleanService.CleanStagedOutputRecord rec)
     {
         if (string.IsNullOrEmpty(rec.FinalPath))
         {
-            return;
+            throw new CleanerException(
+                CleanerFailureCategory.OutputCreateFailed,
+                CleanerFailureStage.Staging,
+                SourceProtocol.Unknown,
+                "Native cleaner reported an owned staged output without a path.");
         }
-        if (journal.StagedPaths.Any(r => PathEquals(r.Path, rec.FinalPath)))
+        CleanerTransactionJournal.TransactionOwnedObject? existing =
+            journal.StagedPaths.FirstOrDefault(r => PathEquals(r.StagedPath, rec.FinalPath));
+        if (existing != null)
         {
-            return;
+            return existing;
         }
         var identity = new WindowsFileIdentity
         {
@@ -1072,15 +1119,18 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             LinkCount = rec.LinkCount,
             FileAttributes = 0
         };
-        journal.StagedPaths.Add(new StagedRecord(rec.FinalPath, identity));
+        return journal.AddStagedRecord(rec.FinalPath, (MediaArtifactKind)rec.ArtifactRole, identity);
     }
 
     private static bool PathEquals(string? a, string? b)
         => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
-    private static WindowsFileIdentity RequireRegisteredStagedIdentity(CleanerTransactionJournal journal, string path)
+    private static CleanerTransactionJournal.TransactionOwnedObject RequireRegisteredStagedObject(
+        CleanerTransactionJournal journal,
+        string path)
     {
-        StagedRecord? rec = journal.StagedPaths.FirstOrDefault(r => PathEquals(r.Path, path));
+        CleanerTransactionJournal.TransactionOwnedObject? rec =
+            journal.StagedPaths.FirstOrDefault(r => PathEquals(r.StagedPath, path));
         if (rec is null)
         {
             throw new CleanerException(
@@ -1089,7 +1139,15 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 SourceProtocol.Unknown,
                 $"No native-registered ownership for staged '{path}'; refusing to publish an object this transaction did not prove it created.");
         }
-        return rec.Identity;
+        if (rec.RetainedHandle is null || rec.RetainedHandle.IsInvalid)
+        {
+            throw new CleanerException(
+                CleanerFailureCategory.OutputCreateFailed,
+                CleanerFailureStage.Commit,
+                SourceProtocol.Unknown,
+                $"Native-registered staged object '{path}' has no retained exact ownership handle; refusing pathname-only publish.");
+        }
+        return rec;
     }
 
     private static bool IsValidSha256(string? sha)
@@ -1273,6 +1331,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         IMediaWorkspace workspace,
         CleanerTransactionJournal journal,
         Stopwatch sw,
+        Func<CleanerFailureStage, string?, Task>? faultHook,
         CancellationToken cancellationToken)
     {
         journal.SetState(CleanerTransactionState.Staging);
@@ -1280,57 +1339,50 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         string imgExt = bundle.PrimaryImage.ImageContainer == ImageContainer.Heic ? ".heic" : ".jpg";
         string cleanImgPath = workspace.AllocateFilePath("clean-img", imgExt);
 
-        // Create the published copy with the handle held open so identity is
-        // captured from the object we just wrote, not re-guessed from the
-        // pathname afterwards.  FileMode.CreateNew keeps the publish
-        // no-overwrite: a pre-existing destination fails closed.
-        WindowsFileIdentity cleanImgIdentity;
-        using (FileStream imgStream = new FileStream(cleanImgPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-        {
-            using (FileStream srcStream = File.OpenRead(bundle.PrimaryImage.Path))
-            {
-                srcStream.CopyTo(imgStream);
-            }
-            imgStream.Flush(flushToDisk: true);
-            cleanImgIdentity = WindowsFileIdentity.Capture(imgStream.SafeFileHandle);
-        }
-        journal.PublishedPaths.Add(new PublishRecord(cleanImgPath, cleanImgIdentity));
+        // A no-op copy is still a transaction-owned output.  Record and retain
+        // an exact handle before any later SHA/cancellation/failure point, so a
+        // pathname that goes missing cannot be mistaken for proof of cleanup.
+        CleanerTransactionJournal.TransactionOwnedObject imgRecord =
+            CopyNonLiveArtifact(
+                bundle.PrimaryImage,
+                cleanImgPath,
+                journal,
+                MediaArtifactKind.PrimaryImage,
+                faultHook,
+                cancellationToken);
 
         string? cleanVidPath = null;
-        WindowsFileIdentity? cleanVidIdentity = null;
+        CleanerTransactionJournal.TransactionOwnedObject? vidRecord = null;
         if (bundle.MotionVideo != null)
         {
             string vidExt = bundle.MotionVideo.VideoContainer == VideoContainer.Mov ? ".mov" : ".mp4";
             cleanVidPath = workspace.AllocateFilePath("clean-vid", vidExt);
-            using (FileStream vidStream = new FileStream(cleanVidPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
-            {
-                using (FileStream srcStream = File.OpenRead(bundle.MotionVideo.Path))
-                {
-                    srcStream.CopyTo(vidStream);
-                }
-                vidStream.Flush(flushToDisk: true);
-                cleanVidIdentity = WindowsFileIdentity.Capture(vidStream.SafeFileHandle);
-            }
-            journal.PublishedPaths.Add(new PublishRecord(cleanVidPath, cleanVidIdentity));
+            vidRecord = CopyNonLiveArtifact(
+                bundle.MotionVideo,
+                cleanVidPath,
+                journal,
+                MediaArtifactKind.MotionVideo,
+                faultHook,
+                cancellationToken);
         }
 
         var cleanImgArtifact = bundle.PrimaryImage with
         {
             Path = cleanImgPath,
-            ByteLength = new FileInfo(cleanImgPath).Length,
+            ByteLength = new FileInfo(imgRecord.CurrentPath).Length,
             Sha256 = await workspace.ComputeFileSha256Async(cleanImgPath, cancellationToken).ConfigureAwait(false),
-            FileIdentity = cleanImgIdentity
+            FileIdentity = imgRecord.Identity
         };
 
         MediaArtifact? cleanVidArtifact = null;
-        if (cleanVidPath != null && bundle.MotionVideo != null)
+        if (vidRecord != null && cleanVidPath != null && bundle.MotionVideo != null)
         {
             cleanVidArtifact = bundle.MotionVideo with
             {
                 Path = cleanVidPath,
-                ByteLength = new FileInfo(cleanVidPath).Length,
+                ByteLength = new FileInfo(vidRecord.CurrentPath).Length,
                 Sha256 = await workspace.ComputeFileSha256Async(cleanVidPath, cancellationToken).ConfigureAwait(false),
-                FileIdentity = cleanVidIdentity
+                FileIdentity = vidRecord.Identity
             };
         }
 
@@ -1374,6 +1426,10 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             Summary = "Source is NonLive; artifacts carried through verbatim with verified identical SHA-256."
         };
 
+        if (faultHook != null)
+        {
+            await faultHook(CleanerFailureStage.Commit, "BeforeBundleCommit").ConfigureAwait(false);
+        }
         journal.SetState(CleanerTransactionState.Committed);
 
         return new ProtocolCleanResult
@@ -1399,13 +1455,129 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         };
     }
 
+    private static CleanerTransactionJournal.TransactionOwnedObject CopyNonLiveArtifact(
+        MediaArtifact source,
+        string destinationPath,
+        CleanerTransactionJournal journal,
+        MediaArtifactKind artifactRole,
+        Func<CleanerFailureStage, string?, Task>? faultHook,
+        CancellationToken cancellationToken)
+    {
+        FileStream? output = null;
+        CleanerTransactionJournal.TransactionOwnedObject? record = null;
+        try
+        {
+            // The creator is deliberately closed before we acquire the P3
+            // retained handle.  The retained handle shares READ|DELETE but
+            // never WRITE; keeping a FileAccess.Write creator open would make
+            // that authoritative no-WRITE lease incompatible on Windows.
+            // Register its identity before closing it, so even a rename in the
+            // tiny close-to-acquire interval is tracked and fails closed.
+            output = new FileStream(
+                destinationPath,
+                FileMode.CreateNew,
+                FileAccess.Write,
+                FileShare.Read | FileShare.Delete);
+            using (FileStream input = File.OpenRead(source.Path))
+            {
+                input.CopyTo(output);
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            output.Flush(flushToDisk: true);
+            WindowsFileIdentity identity = WindowsFileIdentity.Capture(output.SafeFileHandle);
+            record = journal.AddPublishedRecord(destinationPath, artifactRole, identity);
+            output.Dispose();
+            output = null;
+            journal.AcquireRetainedHandle(record, faultHook, SourceProtocol.NonLive, failOnAcquisitionError: true);
+            return record;
+        }
+        catch
+        {
+            // A copy can fail after CREATE_NEW has produced a partial output.
+            // Capture ownership from the still-open creator handle and retain
+            // it whenever possible; otherwise the journal keeps the path-only
+            // identity record and rollback fails closed on NOT_FOUND/mismatch.
+            if (record == null && output != null && !output.SafeFileHandle.IsInvalid)
+            {
+                try
+                {
+                    WindowsFileIdentity identity = WindowsFileIdentity.Capture(output.SafeFileHandle);
+                    record = journal.AddPublishedRecord(destinationPath, artifactRole, identity);
+                    output.Dispose();
+                    output = null;
+                    journal.AcquireRetainedHandle(record, faultHook, SourceProtocol.NonLive, failOnAcquisitionError: false);
+                }
+                catch
+                {
+                    // The original copy/cancellation error remains primary;
+                    // the identity record, if already added, is still handled
+                    // by the outer transaction rollback.
+                }
+            }
+            throw;
+        }
+        finally
+        {
+            output?.Dispose();
+        }
+    }
+
     private sealed class CleanerTransactionJournal
     {
         public CleanerTransactionState State { get; private set; } = CleanerTransactionState.Initial;
         public string? StagingDir { get; set; }
-        public List<PublishRecord> PublishedPaths { get; } = [];
-        public List<StagedRecord> StagedPaths { get; } = [];
+        public List<TransactionOwnedObject> PublishedPaths { get; } = [];
+        public List<TransactionOwnedObject> StagedPaths { get; } = [];
         public List<Exception> RollbackExceptions { get; } = [];
+
+        /// <summary>
+        /// One identity-owned filesystem object tracked by this transaction.
+        /// The proof state is intentionally explicit: only exact deletion or
+        /// an observed zero link count can complete cleanup.
+        /// </summary>
+        public sealed class TransactionOwnedObject
+        {
+            public enum CleanupProofState
+            {
+                Active,
+                ExactDeleted,
+                ProvenUnlinked,
+                CleanupUnproven
+            }
+
+            public TransactionOwnedObject(
+                string stagedPath,
+                MediaArtifactKind artifactRole,
+                WindowsFileIdentity identity,
+                bool published)
+            {
+                StagedPath = stagedPath;
+                ArtifactRole = artifactRole;
+                Identity = identity;
+                IsPublished = published;
+                PublishedPath = published ? stagedPath : null;
+            }
+
+            public MediaArtifactKind ArtifactRole { get; }
+            public string StagedPath { get; }
+            public string? PublishedPath { get; private set; }
+            public bool IsPublished { get; private set; }
+            public WindowsFileIdentity Identity { get; }
+            public SafeFileHandle? RetainedHandle { get; private set; }
+            public bool HandleAcquisitionAttempted { get; private set; }
+            public CleanupProofState ProofState { get; set; } = CleanupProofState.Active;
+            public string CurrentPath => IsPublished && PublishedPath != null ? PublishedPath : StagedPath;
+
+            public void SetPublishedPath(string path) => PublishedPath = path;
+            public void MarkPublished() => IsPublished = true;
+            public void MarkHandleAcquisitionAttempted() => HandleAcquisitionAttempted = true;
+            public void RetainHandle(SafeFileHandle handle) => RetainedHandle = handle;
+            public void ReleaseHandle()
+            {
+                RetainedHandle?.Dispose();
+                RetainedHandle = null;
+            }
+        }
 
         // Failures recorded BEFORE Rollback() runs (e.g. a retained
         // exact-handle cleanup that could not prove deletion).  They are
@@ -1416,28 +1588,174 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
 
         public void SetState(CleanerTransactionState state) => State = state;
 
-        /// <summary>
-        /// Drops the staged record for <paramref name="path"/> after the object
-        /// it referred to was either published (ownership now tracked by
-        /// <see cref="PublishedPaths"/>) or already removed through its exact
-        /// handle.  Rollback must never re-touch that pathname afterwards: it
-        /// may now be occupied by a foreign object.
-        /// </summary>
-        public void RemoveStagedRecord(string path)
+        public TransactionOwnedObject AddStagedRecord(
+            string path,
+            MediaArtifactKind artifactRole,
+            WindowsFileIdentity identity)
         {
-            StagedPaths.RemoveAll(r => string.Equals(r.Path, path, StringComparison.OrdinalIgnoreCase));
+            TransactionOwnedObject record = new(path, artifactRole, identity, published: false);
+            StagedPaths.Add(record);
+            return record;
+        }
+
+        public TransactionOwnedObject AddPublishedRecord(
+            string path,
+            MediaArtifactKind artifactRole,
+            WindowsFileIdentity identity)
+        {
+            TransactionOwnedObject record = new(path, artifactRole, identity, published: true);
+            PublishedPaths.Add(record);
+            return record;
+        }
+
+        public void RegisterPublishedRecord(TransactionOwnedObject record, string finalPath)
+        {
+            ArgumentNullException.ThrowIfNull(record);
+            record.SetPublishedPath(finalPath);
+            if (!PublishedPaths.Contains(record))
+            {
+                PublishedPaths.Add(record);
+            }
+        }
+
+        public void MarkPublished(TransactionOwnedObject record)
+        {
+            ArgumentNullException.ThrowIfNull(record);
+            record.MarkPublished();
+            StagedPaths.Remove(record);
         }
 
         /// <summary>
-        /// Drops a pre-registered publication record.  Used by the commit path
-        /// after a failed publish removed the owned object through its exact
-        /// handle (the rename never happened, so the destination record is
-        /// void).  Rollback must never re-touch that pathname afterwards: it
-        /// may now be occupied by a foreign object.
+        /// Acquires retained exact handles immediately after Native registry
+        /// capture.  The normal path fails when acquisition is impossible; a
+        /// failure-path capture records the proof gap and lets rollback surface
+        /// it as CleanupUnproven instead of claiming a missing pathname is gone.
         /// </summary>
-        public void RemovePublishedRecord(string path)
+        public void AcquireRetainedHandles(
+            Func<CleanerFailureStage, string?, Task>? faultHook,
+            SourceProtocol protocol,
+            bool failOnAcquisitionError)
         {
-            PublishedPaths.RemoveAll(r => string.Equals(r.Path, path, StringComparison.OrdinalIgnoreCase));
+            foreach (TransactionOwnedObject record in StagedPaths.ToArray())
+            {
+                AcquireRetainedHandle(record, faultHook, protocol, failOnAcquisitionError);
+            }
+        }
+
+        public void AcquireRetainedHandle(
+            TransactionOwnedObject record,
+            Func<CleanerFailureStage, string?, Task>? faultHook,
+            SourceProtocol protocol,
+            bool failOnAcquisitionError)
+        {
+            ArgumentNullException.ThrowIfNull(record);
+            if (record.RetainedHandle is not null && !record.RetainedHandle.IsInvalid)
+            {
+                return;
+            }
+
+            // This seam runs before the path is converted to a retained handle,
+            // allowing deterministic rename-away / injected-failure proofs.
+            // Recovery after a failed first acquisition must not invoke the
+            // seam a second time; the record carries that attempt state while
+            // the original path/identity remains the only cleanup authority.
+            bool firstAcquisitionAttempt = !record.HandleAcquisitionAttempted;
+            record.MarkHandleAcquisitionAttempted();
+            if (firstAcquisitionAttempt)
+            {
+                faultHook?.Invoke(
+                    CleanerFailureStage.Staging,
+                    HandleAcquisitionDetail(record, after: false)).GetAwaiter().GetResult();
+            }
+
+            SafeFileHandle handle;
+            try
+            {
+                handle = WindowsOwnedFilePublisher.OpenOwnedStagedFile(record.StagedPath, record.Identity);
+            }
+            catch (Exception ex)
+            {
+                record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
+                if (!failOnAcquisitionError)
+                {
+                    return;
+                }
+
+                if (ex is CleanerException)
+                {
+                    throw;
+                }
+
+                throw new CleanerException(
+                    CleanerFailureCategory.OutputCreateFailed,
+                    CleanerFailureStage.Staging,
+                    protocol,
+                    $"Unable to retain exact ownership of staged {record.ArtifactRole} '{record.StagedPath}': {ex.Message}",
+                    record.ArtifactRole,
+                    ex);
+            }
+
+            // Assign before the after-acquisition seam.  If the seam renames
+            // this object away and injects a failure, rollback still has exact
+            // handle authority and never falls back to the pathname.
+            record.RetainHandle(handle);
+            faultHook?.Invoke(
+                CleanerFailureStage.Staging,
+                HandleAcquisitionDetail(record, after: true)).GetAwaiter().GetResult();
+        }
+
+        /// <summary>
+        /// Cleans a published object through its retained exact handle.  A
+        /// failed disposition is successful only when that handle proves zero
+        /// links; otherwise CleanupUnproven is permanent rollback evidence.
+        /// </summary>
+        public void CleanupRetainedObjectOrRecordFailure(TransactionOwnedObject record)
+        {
+            if (record.ProofState is TransactionOwnedObject.CleanupProofState.ExactDeleted or
+                TransactionOwnedObject.CleanupProofState.ProvenUnlinked)
+            {
+                return;
+            }
+
+            SafeFileHandle? handle = record.RetainedHandle;
+            if (handle is null || handle.IsInvalid)
+            {
+                record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
+                AddRollbackFailure(
+                    $"Unable to delete transaction-owned {record.ArtifactRole} '{record.CurrentPath}' through its retained handle because no valid handle remains.");
+                return;
+            }
+
+            try
+            {
+                if (WindowsOwnedFilePublisher.DeleteOwnedObject(handle))
+                {
+                    record.ProofState = TransactionOwnedObject.CleanupProofState.ExactDeleted;
+                    // FileDispositionInfo marks the object delete-pending;
+                    // release the final retained lease now so the exact object
+                    // is unlinked before we inspect/remove its staging
+                    // directory.  Exact deletion is already proven, so this
+                    // does not weaken rollback authority.
+                    record.ReleaseHandle();
+                }
+                else if (WindowsOwnedFilePublisher.IsObjectUnlinked(handle))
+                {
+                    record.ProofState = TransactionOwnedObject.CleanupProofState.ProvenUnlinked;
+                    record.ReleaseHandle();
+                }
+                else
+                {
+                    record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
+                    AddRollbackFailure(
+                        $"Unable to delete transaction-owned {record.ArtifactRole} '{record.CurrentPath}' through its retained handle; the object may still exist after a pathname takeover.");
+                }
+            }
+            catch (Exception ex)
+            {
+                record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
+                AddRollbackFailure(
+                    $"Unable to delete transaction-owned {record.ArtifactRole} '{record.CurrentPath}' through its retained handle: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -1468,31 +1786,36 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             // alive under another pathname.
             RollbackExceptions.AddRange(_preRollbackFailures);
 
-            // 1. Delete published artifacts - but only the exact object we published.
-            foreach (var rec in PublishedPaths)
+            // A pre-rename publication record and its staged record may refer
+            // to the same object. Process each object once, so a cleanup seam
+            // has one observable hit and disposition is never duplicated.
+            var records = new List<TransactionOwnedObject>();
+            foreach (TransactionOwnedObject record in PublishedPaths.Concat(StagedPaths))
             {
-                try
+                if (!records.Contains(record))
                 {
-                    faultHook?.Invoke(CleanerFailureStage.Rollback, rec.Path).GetAwaiter().GetResult();
-                    DeleteExactObjectOrRecordFailure(rec.Path, rec.Identity, RollbackExceptions);
-                }
-                catch (Exception ex)
-                {
-                    RollbackExceptions.Add(new IOException($"Failed to rollback published artifact '{rec.Path}': {ex.Message}", ex));
+                    records.Add(record);
                 }
             }
 
-            // 2. Delete staged files we created - never foreign children.
-            foreach (var rec in StagedPaths)
+            foreach (TransactionOwnedObject record in records)
             {
+                if (record.ProofState is TransactionOwnedObject.CleanupProofState.ExactDeleted or
+                    TransactionOwnedObject.CleanupProofState.ProvenUnlinked)
+                {
+                    continue;
+                }
+
                 try
                 {
-                    faultHook?.Invoke(CleanerFailureStage.Rollback, rec.Path).GetAwaiter().GetResult();
-                    DeleteExactObjectOrRecordFailure(rec.Path, rec.Identity, RollbackExceptions);
+                    faultHook?.Invoke(CleanerFailureStage.Rollback, record.CurrentPath).GetAwaiter().GetResult();
+                    DeleteExactObjectOrRecordFailure(record, RollbackExceptions);
                 }
                 catch (Exception ex)
                 {
-                    RollbackExceptions.Add(new IOException($"Failed to rollback staged artifact '{rec.Path}': {ex.Message}", ex));
+                    record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
+                    RollbackExceptions.Add(new IOException(
+                        $"Failed to rollback transaction-owned {record.ArtifactRole} '{record.CurrentPath}': {ex.Message}", ex));
                 }
             }
 
@@ -1526,71 +1849,138 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         }
 
         /// <summary>
-        /// Deletes <paramref name="path"/> only when the current filesystem
-        /// object is exactly the one captured in <paramref name="expected"/>
-        /// (volume serial + file index, single link, no reparse point).  A
-        /// replaced / swapped / hard-linked / reparse object is left untouched
-        /// and the failure is recorded instead.
+        /// Deletes one owned object. A retained handle is always preferred.
+        /// For a path-only record, NOT_FOUND is CleanupUnproven — there is no
+        /// prior proof that the object was unlinked, so it must force
+        /// RollbackFailed. Identity mismatch and all open/disposition errors
+        /// are fail-closed and leave foreign objects untouched.
         /// </summary>
         private static void DeleteExactObjectOrRecordFailure(
-            string path,
-            WindowsFileIdentity expected,
+            TransactionOwnedObject record,
             List<Exception> exceptions)
         {
+            if (record.ProofState is TransactionOwnedObject.CleanupProofState.ExactDeleted or
+                TransactionOwnedObject.CleanupProofState.ProvenUnlinked)
+            {
+                return;
+            }
+
+            SafeFileHandle? retainedHandle = record.RetainedHandle;
+            if (retainedHandle is not null && !retainedHandle.IsInvalid)
+            {
+                try
+                {
+                    if (WindowsOwnedFilePublisher.DeleteOwnedObject(retainedHandle))
+                    {
+                        record.ProofState = TransactionOwnedObject.CleanupProofState.ExactDeleted;
+                        // Make the proven delete visible to the staging-dir
+                        // emptiness check.  Until this final lease closes,
+                        // Windows may still enumerate the delete-pending name.
+                        record.ReleaseHandle();
+                    }
+                    else if (WindowsOwnedFilePublisher.IsObjectUnlinked(retainedHandle))
+                    {
+                        record.ProofState = TransactionOwnedObject.CleanupProofState.ProvenUnlinked;
+                        record.ReleaseHandle();
+                    }
+                    else
+                    {
+                        record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
+                        exceptions.Add(new IOException(
+                            $"Unable to delete exact transaction-owned {record.ArtifactRole} '{record.CurrentPath}' through its retained handle; LinkCount remains positive or could not be verified."));
+                    }
+                }
+                catch (Exception ex)
+                {
+                    record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
+                    exceptions.Add(new IOException(
+                        $"Unable to delete exact transaction-owned {record.ArtifactRole} '{record.CurrentPath}' through its retained handle: {ex.Message}", ex));
+                }
+                return;
+            }
+
+            string path = record.CurrentPath;
             try
             {
-                // Open the object WITHOUT resolving a possible reparse point, keep
-                // the handle, verify the identity on that same handle, and delete
-                // through SetFileInformationByHandle(FileDispositionInfo).  There
-                // is no check-then-close-then-delete-by-pathname window in which
-                // a foreign object could take over the path: what we delete is
-                // exactly the object we verified.
                 using SafeFileHandle handle = OpenForExactDelete(path);
                 if (handle.IsInvalid)
                 {
-                    // Only a genuine NOT_FOUND (the object was already removed,
-                    // or its pathname no longer resolves) is "already gone".
-                    // Any other open failure — sharing violation, access
-                    // denied, I/O error — means we could not LOOK at the
-                    // object, so it must not be silently treated as success:
-                    // the transaction-owned object may still exist and the
-                    // rollback must fail closed instead.
                     int win32Error = Marshal.GetLastWin32Error();
-                    if (win32Error != ErrorFileNotFound && win32Error != ErrorPathNotFound)
-                    {
-                        exceptions.Add(new IOException(
-                            $"Unable to open '{path}' for exact rollback delete (Win32 error {win32Error}); the transaction-owned object may still exist — refusing to treat an unknown open failure as 'already deleted'."));
-                    }
+                    record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
+                    exceptions.Add(new IOException(
+                        $"Unable to prove cleanup of transaction-owned {record.ArtifactRole} '{path}' (Win32 error {win32Error}; including NOT_FOUND/PATH_NOT_FOUND). A missing pathname without prior proof is CleanupUnproven."));
                     return;
                 }
 
                 WindowsFileIdentity current = WindowsFileIdentity.Capture(handle);
                 if (current.IsReparsePoint ||
-                    current.VolumeSerialNumber != expected.VolumeSerialNumber ||
-                    current.FileIndex != expected.FileIndex ||
+                    current.VolumeSerialNumber != record.Identity.VolumeSerialNumber ||
+                    current.FileIndex != record.Identity.FileIndex ||
                     current.LinkCount != 1)
                 {
+                    record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
                     exceptions.Add(new IOException(
                         $"Refusing to delete '{path}': the filesystem object no longer matches the identity this transaction captured (foreign-object protection)."));
                     return;
                 }
 
                 var disposition = new FileDispositionInfo { DeleteFile = 1 };
-                if (!SetFileInformationByHandle(
+                if (SetFileInformationByHandle(
                         handle,
                         FileDispositionInfoClass,
                         ref disposition,
                         (uint)Marshal.SizeOf<FileDispositionInfo>()))
                 {
-                    int win32Error = Marshal.GetLastWin32Error();
+                    record.ProofState = TransactionOwnedObject.CleanupProofState.ExactDeleted;
+                }
+                else if (WindowsFileIdentity.Capture(handle).LinkCount == 0)
+                {
+                    record.ProofState = TransactionOwnedObject.CleanupProofState.ProvenUnlinked;
+                }
+                else
+                {
+                    record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
                     exceptions.Add(new IOException(
-                        $"Unable to delete exact object '{path}': Win32 error {win32Error}."));
+                        $"Unable to delete exact transaction-owned {record.ArtifactRole} '{path}': Win32 error {Marshal.GetLastWin32Error()} and LinkCount remains positive."));
                 }
             }
             catch (Exception ex)
             {
+                record.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
                 exceptions.Add(new IOException($"Refusing to delete '{path}': {ex.Message}", ex));
             }
+        }
+
+        public void DisposeOwnedHandles()
+        {
+            var records = new List<TransactionOwnedObject>();
+            foreach (TransactionOwnedObject record in PublishedPaths.Concat(StagedPaths))
+            {
+                if (!records.Contains(record))
+                {
+                    records.Add(record);
+                }
+            }
+
+            foreach (TransactionOwnedObject record in records)
+            {
+                record.ReleaseHandle();
+            }
+        }
+
+        private static string HandleAcquisitionDetail(TransactionOwnedObject record, bool after)
+        {
+            if (record.ArtifactRole == MediaArtifactKind.PrimaryImage)
+            {
+                return after ? "ImageHandleAcquired" : "BeforeImageHandleAcquisition";
+            }
+
+            if (record.ArtifactRole == MediaArtifactKind.MotionVideo)
+            {
+                return after ? "VideoHandleAcquired" : "BeforeVideoHandleAcquisition";
+            }
+
+            return after ? "AuxiliaryHandleAcquired" : "BeforeAuxiliaryHandleAcquisition";
         }
 
         private static SafeFileHandle OpenForExactDelete(string path)
@@ -1636,8 +2026,6 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         private const uint OpenExisting = 3;
         private const uint OpenReparsePoint = 0x00200000;
         private const int FileDispositionInfoClass = 4;
-        private const int ErrorFileNotFound = 2;
-        private const int ErrorPathNotFound = 3;
 
         /// <summary>
         /// Removes the staging directory only if it is empty.  Any remaining
@@ -1669,67 +2057,6 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             }
         }
     }
-
-    /// <summary>
-    /// Fail-closed cleanup for a transaction that did NOT commit: every
-    /// artifact whose publish already succeeded is deleted through its
-    /// RETAINED exact handle (FileDispositionInfo) — the strongest
-    /// authority — so a foreign actor that renamed the published object
-    /// away mid-transaction cannot hide it from rollback.  The journal
-    /// record is dropped only when the deletion is proven; otherwise it is
-    /// kept (rollback retries by path + identity) and a rollback failure
-    /// is forced so a false "RolledBack" can never be reported.
-    /// </summary>
-    private static void CleanupPublishedRetainedHandles(
-        CleanerTransactionJournal journal,
-        PublishedOwnedFile? imgPublished,
-        SafeFileHandle? imgHandle,
-        string cleanImgPath,
-        PublishedOwnedFile? vidPublished,
-        SafeFileHandle? vidHandle,
-        string? cleanVidPath)
-    {
-        if (imgPublished != null && imgHandle != null && !imgHandle.IsInvalid)
-        {
-            if (WindowsOwnedFilePublisher.DeleteOwnedObject(imgHandle))
-            {
-                // Deletion proven through the retained handle: the object can
-                // no longer exist anywhere, so the destination record is void.
-                journal.RemovePublishedRecord(cleanImgPath);
-            }
-            else if (!WindowsOwnedFilePublisher.IsObjectUnlinked(imgHandle))
-            {
-                // The object is STILL linked (a real pathname can reach it)
-                // but could not be deleted: it may leak under the pathname it
-                // was renamed to.  Record the failure permanently so rollback
-                // can never report a false RolledBack.
-                journal.AddRollbackFailure($"Unable to delete the published image for '{cleanImgPath}' through its retained handle; the transaction-owned object may still exist after a pathname takeover.");
-            }
-            // else: the object was provably unlinked (zero links) — it exists
-            // under NO pathname and is freed when the last handle closes, so
-            // it cannot leak.  The published record is KEPT so rollback still
-            // verifies the destination pathname itself: an empty pathname is
-            // "already gone", a foreign occupant is refused by identity.
-        }
-
-        if (vidPublished != null && vidHandle != null && !vidHandle.IsInvalid && cleanVidPath != null)
-        {
-            if (WindowsOwnedFilePublisher.DeleteOwnedObject(vidHandle))
-            {
-                journal.RemovePublishedRecord(cleanVidPath);
-            }
-            else if (!WindowsOwnedFilePublisher.IsObjectUnlinked(vidHandle))
-            {
-                journal.AddRollbackFailure($"Unable to delete the published video for '{cleanVidPath}' through its retained handle; the transaction-owned object may still exist after a pathname takeover.");
-            }
-        }
-    }
-
-    /// <summary>Published (committed) destination object and its captured identity.</summary>
-    private sealed record PublishRecord(string Path, WindowsFileIdentity Identity);
-
-    /// <summary>Staged file created by this transaction and its captured identity.</summary>
-    private sealed record StagedRecord(string Path, WindowsFileIdentity Identity);
 
     private static void TryDeleteDirectory(string? dir)
     {

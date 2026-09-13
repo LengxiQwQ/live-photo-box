@@ -21,6 +21,37 @@ public sealed class CleanerTrustChainTests
 {
     private static string ResolveSample(string filename) => TestSampleResolver.ResolveSample(filename);
 
+    private static void ReplaceStagedOutputsWithForeignSourceObjects(
+        MediaWorkspace workspace,
+        ExtractedMediaBundle bundle)
+    {
+        foreach (string directory in Directory.GetDirectories(workspace.RootDirectory, "staging_*"))
+        {
+            foreach (string stagedPath in Directory.GetFiles(directory))
+            {
+                string extension = Path.GetExtension(stagedPath);
+                string? sourcePath = extension.Equals(".heic", StringComparison.OrdinalIgnoreCase) ||
+                    extension.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
+                    extension.Equals(".jpeg", StringComparison.OrdinalIgnoreCase)
+                    ? bundle.PrimaryImage.Path
+                    : extension.Equals(".mov", StringComparison.OrdinalIgnoreCase) ||
+                        extension.Equals(".mp4", StringComparison.OrdinalIgnoreCase) ||
+                        extension.Equals(".avi", StringComparison.OrdinalIgnoreCase)
+                        ? bundle.MotionVideo?.Path
+                        : null;
+                if (sourcePath is null) continue;
+
+                // P3's retained handle intentionally denies WRITE sharing, so
+                // a foreign actor cannot overwrite A in place.  Rename A away
+                // (DELETE is explicitly shared), then occupy the old pathname
+                // with a residue-bearing foreign B. The post-clean inspector
+                // must detect B, and rollback must exact-delete A only.
+                File.Move(stagedPath, stagedPath + ".owned-moved-away");
+                File.Copy(sourcePath, stagedPath, overwrite: false);
+            }
+        }
+    }
+
     [Fact]
     public async Task Clean_FailsWhenSourceFactsIsMissing()
     {
@@ -3086,12 +3117,9 @@ public sealed class CleanerTrustChainTests
         var facts = await inspector.InspectAsync(imgPath, movPath);
         var bundle = await TestFactsExtractor.ExtractAsync(facts, imgPath, movPath, workspace);
 
-        // Real Native plan-authorized cleaner.  After Native has cleaned and
-        // published the staged artifacts, restore the original residue-bearing
-        // content INTO the staged files (in place - same file, same File ID,
-        // so the transaction's registered identity still matches and rollback
-        // can clean them up exactly).  The post-clean Source Inspector is what
-        // detects the leftover residue.
+        // Replace the staged pathname with a residue-bearing foreign object
+        // after P3 retained A. The post-clean inspector must detect that B
+        // still carries the Apple residue; rollback may never delete B.
         using var nativeContext = TestNativeContext.Create();
         using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, facts, bundle.PrimaryImage.Path, bundle.MotionVideo?.Path, null);
 
@@ -3100,29 +3128,7 @@ public sealed class CleanerTrustChainTests
         {
             if (stage == CleanerFailureStage.PostCleanInspection && location == "BeforeInspect")
             {
-                var stagingDirs = Directory.GetDirectories(workspace.RootDirectory, "staging_*");
-                foreach (var dir in stagingDirs)
-                {
-                    foreach (var file in Directory.GetFiles(dir))
-                    {
-                        string ext = Path.GetExtension(file);
-                        if (ext.Equals(".heic", StringComparison.OrdinalIgnoreCase) ||
-                            ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
-                            ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
-                        {
-                            File.Copy(bundle.PrimaryImage.Path, file, overwrite: true);
-                        }
-                        else if (ext.Equals(".mov", StringComparison.OrdinalIgnoreCase) ||
-                                 ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase) ||
-                                 ext.Equals(".avi", StringComparison.OrdinalIgnoreCase))
-                        {
-                            if (bundle.MotionVideo != null)
-                            {
-                                File.Copy(bundle.MotionVideo.Path, file, overwrite: true);
-                            }
-                        }
-                    }
-                }
+                ReplaceStagedOutputsWithForeignSourceObjects(workspace, bundle);
             }
             return Task.CompletedTask;
         };
@@ -3133,8 +3139,9 @@ public sealed class CleanerTrustChainTests
         }, workspace);
 
         Assert.False(result.Success);
-        Assert.Equal(CleanerFailureCategory.ProtocolStillDetected, result.FailureCategory);
-        Assert.Equal(CleanerFailureStage.PostCleanInspection, result.FailureStage);
+        Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
+        Assert.Equal(CleanerFailureStage.Rollback, result.FailureStage);
+        Assert.Contains("Original error (ProtocolStillDetected)", result.ErrorMessage);
     }
 
     [Fact]
@@ -3159,39 +3166,15 @@ public sealed class CleanerTrustChainTests
         // so the plan must authorize that exact filesystem object, not the source sample.
         using var cleanupPlan = await TestCleanerPlans.IssueAsync(nativeContext, facts, bundle.PrimaryImage.Path, bundle.MotionVideo?.Path, null);
 
-        // Real Native plan-authorized cleaner.  After Native has cleaned and
-        // published the staged artifacts, restore the original residue-bearing
-        // content INTO the staged files (in place - same file, same File ID),
-        // so the post-clean Source Inspector is what catches the leftover
-        // QuickTime CID residue.
+        // The P3 no-WRITE lease blocks in-place mutation. A foreign pathname
+        // takeover still reaches the post-clean inspector and must expose the
+        // residual QuickTime CID without giving rollback authority over B.
         var faultyCleaner = new SourceProtocolCleaner();
         faultyCleaner.FaultInjectionHook = (stage, location) =>
         {
             if (stage == CleanerFailureStage.PostCleanInspection && location == "BeforeInspect")
             {
-                var stagingDirs = Directory.GetDirectories(workspace.RootDirectory, "staging_*");
-                foreach (var dir in stagingDirs)
-                {
-                    foreach (var file in Directory.GetFiles(dir))
-                    {
-                        string ext = Path.GetExtension(file);
-                        if (ext.Equals(".heic", StringComparison.OrdinalIgnoreCase) ||
-                            ext.Equals(".jpg", StringComparison.OrdinalIgnoreCase) ||
-                            ext.Equals(".jpeg", StringComparison.OrdinalIgnoreCase))
-                        {
-                            File.Copy(bundle.PrimaryImage.Path, file, overwrite: true);
-                        }
-                        else if (ext.Equals(".mov", StringComparison.OrdinalIgnoreCase) ||
-                                 ext.Equals(".mp4", StringComparison.OrdinalIgnoreCase) ||
-                                 ext.Equals(".avi", StringComparison.OrdinalIgnoreCase))
-                        {
-                            if (bundle.MotionVideo != null)
-                            {
-                                File.Copy(bundle.MotionVideo.Path, file, overwrite: true);
-                            }
-                        }
-                    }
-                }
+                ReplaceStagedOutputsWithForeignSourceObjects(workspace, bundle);
             }
             return Task.CompletedTask;
         };
@@ -3202,8 +3185,9 @@ public sealed class CleanerTrustChainTests
         }, workspace);
 
         Assert.False(result.Success);
-        Assert.Equal(CleanerFailureCategory.ProtocolStillDetected, result.FailureCategory);
-        Assert.Equal(CleanerFailureStage.PostCleanInspection, result.FailureStage);
+        Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
+        Assert.Equal(CleanerFailureStage.Rollback, result.FailureStage);
+        Assert.Contains("Original error (ProtocolStillDetected)", result.ErrorMessage);
     }
     [Fact]
     public async Task Preservation_Adversarial_GainMapWorkingArtifactTampered_FailsWithDegradedToSdr()

@@ -333,7 +333,14 @@ public static class MetadataPreservationVerifier
 
         try
         {
-            using var fs = File.OpenRead(gainMapPath);
+            // P3 retains a DELETE-capable exact-object lease while
+            // preservation runs. This verifier is read-only and must share
+            // DELETE rather than force the transaction to weaken that lease.
+            using var fs = new FileStream(
+                gainMapPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read | FileShare.Delete);
             using var sha = SHA256.Create();
             byte[] hash = await sha.ComputeHashAsync(fs, cancellationToken).ConfigureAwait(false);
             string actualSha = Convert.ToHexString(hash);
@@ -355,7 +362,7 @@ public static class MetadataPreservationVerifier
         if (offset < 0 || length <= 0 || string.IsNullOrWhiteSpace(expectedSha256) || !File.Exists(path)) return false;
         try
         {
-            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+            await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete,
                 64 * 1024, FileOptions.Asynchronous | FileOptions.SequentialScan);
             if (offset > stream.Length || length > stream.Length - offset) return false;
             stream.Position = offset;

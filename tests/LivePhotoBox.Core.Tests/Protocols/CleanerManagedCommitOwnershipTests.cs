@@ -96,6 +96,273 @@ public sealed class CleanerManagedCommitOwnershipTests
     }
 
     // ---------------------------------------------------------------------
+    // P3 immediate-ownership boundary.  A path rename before handle
+    // acquisition is deliberately NOT proof that the object is gone: without
+    // an exact retained handle, rollback must fail closed.  Once acquisition
+    // succeeds, the same rename is cleaned through that exact handle.
+    // ---------------------------------------------------------------------
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task ImmediateImageHandle_BeforeAcquisitionRenameAway_FailsRollbackClosed()
+    {
+        string samplePath = ResolveSample("oppo.jpg");
+        string shaBefore = ComputeSha256(samplePath);
+
+        using var workspace = new MediaWorkspace();
+        var cleaner = new SourceProtocolCleaner();
+        var (bundle, nativeContext, cleanupPlan) = await PrepareAsync(samplePath, null, workspace);
+        using (nativeContext)
+        using (cleanupPlan)
+        {
+            int triggerCount = 0;
+            string? movedOwnedPath = null;
+            cleaner.FaultInjectionHook = (stage, detail) =>
+            {
+                if (stage == CleanerFailureStage.Staging && detail == "BeforeImageHandleAcquisition")
+                {
+                    triggerCount++;
+                    string stagedImage = FindStagedFile(workspace, "stage-img*").StagedPath;
+                    movedOwnedPath = Path.Combine(workspace.RootDirectory, "owned-image-before-acquisition.jpg");
+                    File.Move(stagedImage, movedOwnedPath);
+                    throw new IOException("Simulated image rename before retained-handle acquisition.");
+                }
+                return Task.CompletedTask;
+            };
+
+            try
+            {
+                ProtocolCleanResult result = await cleaner.CleanAsync(new ProtocolCleanRequest
+                {
+                    ExtractedBundle = bundle,
+                    CleanupPlan = cleanupPlan
+                }, workspace);
+
+                Assert.False(result.Success);
+                Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
+                Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
+                Assert.Equal(1, triggerCount);
+                Assert.NotNull(movedOwnedPath);
+                Assert.True(File.Exists(movedOwnedPath), "A missing staging pathname without an exact handle must not be treated as object-gone.");
+                Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+            }
+            finally
+            {
+                if (movedOwnedPath != null && File.Exists(movedOwnedPath)) File.Delete(movedOwnedPath);
+            }
+
+            Assert.Equal(shaBefore, ComputeSha256(samplePath));
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task ImmediateImageHandle_AfterAcquisitionRenameAway_ExactHandleRollsBack()
+    {
+        string samplePath = ResolveSample("oppo.jpg");
+        string shaBefore = ComputeSha256(samplePath);
+
+        using var workspace = new MediaWorkspace();
+        var cleaner = new SourceProtocolCleaner();
+        var (bundle, nativeContext, cleanupPlan) = await PrepareAsync(samplePath, null, workspace);
+        using (nativeContext)
+        using (cleanupPlan)
+        {
+            int triggerCount = 0;
+            string? movedOwnedPath = null;
+            cleaner.FaultInjectionHook = (stage, detail) =>
+            {
+                if (stage == CleanerFailureStage.Staging && detail == "ImageHandleAcquired")
+                {
+                    triggerCount++;
+                    string stagedImage = FindStagedFile(workspace, "stage-img*").StagedPath;
+                    movedOwnedPath = Path.Combine(workspace.RootDirectory, "owned-image-after-acquisition.jpg");
+                    File.Move(stagedImage, movedOwnedPath);
+                    throw new IOException("Simulated image rename after retained-handle acquisition.");
+                }
+                return Task.CompletedTask;
+            };
+
+            ProtocolCleanResult result = await cleaner.CleanAsync(new ProtocolCleanRequest
+            {
+                ExtractedBundle = bundle,
+                CleanupPlan = cleanupPlan
+            }, workspace);
+
+            Assert.False(result.Success);
+            Assert.Equal(CleanerTransactionState.RolledBack, result.TransactionState);
+            Assert.Equal(1, triggerCount);
+            Assert.NotNull(movedOwnedPath);
+            Assert.False(File.Exists(movedOwnedPath), "The retained exact handle must delete the owned object after a pathname rename.");
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
+            Assert.Equal(shaBefore, ComputeSha256(samplePath));
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task ImmediateVideoHandle_BeforeAcquisitionRenameAway_FailsRollbackClosed()
+    {
+        string samplePath = ResolveSample("苹果双文件.HEIC");
+        string secondaryPath = ResolveSample("苹果双文件.MOV");
+        string imageShaBefore = ComputeSha256(samplePath);
+        string videoShaBefore = ComputeSha256(secondaryPath);
+
+        using var workspace = new MediaWorkspace();
+        var cleaner = new SourceProtocolCleaner();
+        var (bundle, nativeContext, cleanupPlan) = await PrepareAsync(samplePath, secondaryPath, workspace);
+        using (nativeContext)
+        using (cleanupPlan)
+        {
+            int triggerCount = 0;
+            string? movedOwnedPath = null;
+            cleaner.FaultInjectionHook = (stage, detail) =>
+            {
+                if (stage == CleanerFailureStage.Staging && detail == "BeforeVideoHandleAcquisition")
+                {
+                    triggerCount++;
+                    string stagedVideo = FindStagedFile(workspace, "stage-vid*").StagedPath;
+                    movedOwnedPath = Path.Combine(workspace.RootDirectory, "owned-video-before-acquisition.mov");
+                    File.Move(stagedVideo, movedOwnedPath);
+                    throw new IOException("Simulated video rename before retained-handle acquisition.");
+                }
+                return Task.CompletedTask;
+            };
+
+            try
+            {
+                ProtocolCleanResult result = await cleaner.CleanAsync(new ProtocolCleanRequest
+                {
+                    ExtractedBundle = bundle,
+                    CleanupPlan = cleanupPlan
+                }, workspace);
+
+                Assert.False(result.Success);
+                Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
+                Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
+                Assert.Equal(1, triggerCount);
+                Assert.NotNull(movedOwnedPath);
+                Assert.True(File.Exists(movedOwnedPath), "Path absence cannot prove that a pre-acquisition video object is gone.");
+                Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-vid*", SearchOption.AllDirectories));
+            }
+            finally
+            {
+                if (movedOwnedPath != null && File.Exists(movedOwnedPath)) File.Delete(movedOwnedPath);
+            }
+
+            Assert.Equal(imageShaBefore, ComputeSha256(samplePath));
+            Assert.Equal(videoShaBefore, ComputeSha256(secondaryPath));
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task ImmediateVideoHandle_AfterAcquisitionRenameAway_ExactHandleRollsBack()
+    {
+        string samplePath = ResolveSample("苹果双文件.HEIC");
+        string secondaryPath = ResolveSample("苹果双文件.MOV");
+        string imageShaBefore = ComputeSha256(samplePath);
+        string videoShaBefore = ComputeSha256(secondaryPath);
+
+        using var workspace = new MediaWorkspace();
+        var cleaner = new SourceProtocolCleaner();
+        var (bundle, nativeContext, cleanupPlan) = await PrepareAsync(samplePath, secondaryPath, workspace);
+        using (nativeContext)
+        using (cleanupPlan)
+        {
+            int triggerCount = 0;
+            string? movedOwnedPath = null;
+            cleaner.FaultInjectionHook = (stage, detail) =>
+            {
+                if (stage == CleanerFailureStage.Staging && detail == "VideoHandleAcquired")
+                {
+                    triggerCount++;
+                    string stagedVideo = FindStagedFile(workspace, "stage-vid*").StagedPath;
+                    movedOwnedPath = Path.Combine(workspace.RootDirectory, "owned-video-after-acquisition.mov");
+                    File.Move(stagedVideo, movedOwnedPath);
+                    throw new IOException("Simulated video rename after retained-handle acquisition.");
+                }
+                return Task.CompletedTask;
+            };
+
+            ProtocolCleanResult result = await cleaner.CleanAsync(new ProtocolCleanRequest
+            {
+                ExtractedBundle = bundle,
+                CleanupPlan = cleanupPlan
+            }, workspace);
+
+            Assert.False(result.Success);
+            Assert.Equal(CleanerTransactionState.RolledBack, result.TransactionState);
+            Assert.Equal(1, triggerCount);
+            Assert.NotNull(movedOwnedPath);
+            Assert.False(File.Exists(movedOwnedPath), "The retained exact video handle must delete its renamed owned object.");
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-vid*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
+            Assert.Equal(imageShaBefore, ComputeSha256(samplePath));
+            Assert.Equal(videoShaBefore, ComputeSha256(secondaryPath));
+        }
+    }
+
+    // ---------------------------------------------------------------------
+    // 0b. P3 commit seam: the retained exact handle exists but imgPublished is
+    //     still null when the failure fires (AfterImageIdentityVerified-
+    //     BeforeRename, i.e. BEFORE RegisterPublishedRecord / PublishOwned-
+    //     Handle).  A rename-away + throw at this seam must still clean A
+    //     through the retained handle: the transaction must never skip handle
+    //     cleanup because a DTO field is null, and must never report a false
+    //     RolledBack while A lives under another pathname.
+    // ---------------------------------------------------------------------
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task ManagedCommit_RenameAwayAtIdentityVerifiedSeam_ExactHandleRollsBackEvenWhenNotYetPublished()
+    {
+        string samplePath = ResolveSample("oppo.jpg");
+        string shaBefore = ComputeSha256(samplePath);
+
+        using var workspace = new MediaWorkspace();
+        var cleaner = new SourceProtocolCleaner();
+        var (bundle, nativeContext, cleanupPlan) = await PrepareAsync(samplePath, null, workspace);
+        using (nativeContext)
+        using (cleanupPlan)
+        {
+            int triggerCount = 0;
+            string? observedStage = null;
+            string? movedAwayPath = null;
+
+            cleaner.FaultInjectionHook = (stage, detail) =>
+            {
+                if (stage == CleanerFailureStage.Commit && detail == "AfterImageIdentityVerifiedBeforeRename")
+                {
+                    triggerCount++;
+                    observedStage = detail;
+                    string stagedImage = FindStagedFile(workspace, "stage-img*").StagedPath;
+                    movedAwayPath = stagedImage + ".lpb-owned-moved-away";
+                    File.Move(stagedImage, movedAwayPath);
+                    throw new IOException("Simulated failure after identity verification while the staged object is renamed away.");
+                }
+                return Task.CompletedTask;
+            };
+
+            ProtocolCleanResult result = await cleaner.CleanAsync(new ProtocolCleanRequest
+            {
+                ExtractedBundle = bundle,
+                CleanupPlan = cleanupPlan
+            }, workspace);
+
+            Assert.False(result.Success);
+            Assert.Equal(CleanerTransactionState.RolledBack, result.TransactionState);
+            Assert.Equal(1, triggerCount);
+            Assert.Equal("AfterImageIdentityVerifiedBeforeRename", observedStage);
+            Assert.NotNull(movedAwayPath);
+            Assert.False(File.Exists(movedAwayPath), "The retained exact handle must delete A even though imgPublished was not yet set.");
+            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
+            Assert.Equal(shaBefore, ComputeSha256(samplePath));
+        }
+    }
+
+    // ---------------------------------------------------------------------
     // 1. PrimaryImage source pathname takeover between verify and rename
     // ---------------------------------------------------------------------
     [Fact]
@@ -112,12 +379,23 @@ public sealed class CleanerManagedCommitOwnershipTests
         using (cleanupPlan)
         {
             int triggerCount = 0;
+            int beforeImageHandleAcquisitionCount = 0;
+            int imageHandleAcquiredCount = 0;
             string? observedStage = null;
             string? foreignPath = null;
             WindowsFileIdentity? ownedBeforeTakeover = null;
 
             cleaner.FaultInjectionHook = (stage, detail) =>
             {
+                if (stage == CleanerFailureStage.Staging && detail == "BeforeImageHandleAcquisition")
+                {
+                    beforeImageHandleAcquisitionCount++;
+                }
+                else if (stage == CleanerFailureStage.Staging && detail == "ImageHandleAcquired")
+                {
+                    imageHandleAcquiredCount++;
+                }
+
                 if (stage == CleanerFailureStage.Commit && detail == "AfterImageIdentityVerifiedBeforeRename")
                 {
                     triggerCount++;
@@ -146,6 +424,8 @@ public sealed class CleanerManagedCommitOwnershipTests
 
             Assert.True(result.Success, result.ErrorMessage);
             Assert.Equal(1, triggerCount);
+            Assert.Equal(1, beforeImageHandleAcquisitionCount);
+            Assert.Equal(1, imageHandleAcquiredCount);
             Assert.Equal("AfterImageIdentityVerifiedBeforeRename", observedStage);
             Assert.NotNull(ownedBeforeTakeover);
 
@@ -347,12 +627,23 @@ public sealed class CleanerManagedCommitOwnershipTests
         using (cleanupPlan)
         {
             int triggerCount = 0;
+            int beforeVideoHandleAcquisitionCount = 0;
+            int videoHandleAcquiredCount = 0;
             string? observedStage = null;
             string? foreignPath = null;
             WindowsFileIdentity? ownedBeforeTakeover = null;
 
             cleaner.FaultInjectionHook = (stage, detail) =>
             {
+                if (stage == CleanerFailureStage.Staging && detail == "BeforeVideoHandleAcquisition")
+                {
+                    beforeVideoHandleAcquisitionCount++;
+                }
+                else if (stage == CleanerFailureStage.Staging && detail == "VideoHandleAcquired")
+                {
+                    videoHandleAcquiredCount++;
+                }
+
                 if (stage == CleanerFailureStage.Commit && detail == "AfterVideoIdentityVerifiedBeforeRename")
                 {
                     triggerCount++;
@@ -377,6 +668,8 @@ public sealed class CleanerManagedCommitOwnershipTests
 
             Assert.True(result.Success, result.ErrorMessage);
             Assert.Equal(1, triggerCount);
+            Assert.Equal(1, beforeVideoHandleAcquisitionCount);
+            Assert.Equal(1, videoHandleAcquiredCount);
             Assert.Equal("AfterVideoIdentityVerifiedBeforeRename", observedStage);
             Assert.NotNull(ownedBeforeTakeover);
 
@@ -730,12 +1023,14 @@ public sealed class CleanerManagedCommitOwnershipTests
     }
 
     // ---------------------------------------------------------------------
-    // 10. Rollback exact-delete open failure: ERROR_FILE_NOT_FOUND IS
-    //     "already gone" and must NOT be reported as RollbackFailed.
+    // 10. A retained handle can prove that a foreign actor unlinked the exact
+    //     owned object: LinkCount == 0 is valid cleanup evidence.  This is
+    //     deliberately different from a pathname-only NOT_FOUND, which P3
+    //     treats as CleanupUnproven and therefore RollbackFailed.
     // ---------------------------------------------------------------------
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task ManagedCommit_RollbackOpenFileNotFound_TreatedAsGone_NotRollbackFailed()
+    public async Task ManagedCommit_RollbackRetainedHandleZeroLink_ProvesObjectGone()
     {
         string samplePath = ResolveSample("oppo.jpg");
         string shaBefore = ComputeSha256(samplePath);
@@ -749,10 +1044,10 @@ public sealed class CleanerManagedCommitOwnershipTests
             int triggerCount = 0;
             string? observedStage = null;
 
-            // The image rename has already succeeded; a foreign actor removes
-            // the transaction-owned object before rollback runs.  Rollback's
-            // exact-delete open then fails with ERROR_FILE_NOT_FOUND, which IS
-            // "already gone" — the rollback must NOT be reported as failed.
+            // The image rename has already succeeded and the journal still
+            // owns its exact handle. A foreign actor unlinks A before rollback
+            // runs; DeleteOwnedObject cannot disposition an unlinked object,
+            // but LinkCount == 0 from that exact handle proves A is gone.
             cleaner.FaultInjectionHook = (stage, detail) =>
             {
                 if (stage == CleanerFailureStage.Commit && detail == "ImagePublished")

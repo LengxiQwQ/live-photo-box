@@ -198,7 +198,7 @@ public sealed class CleanerProductionTrustChainTests
             Assert.False(result.Success);
             Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
             Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
-            Assert.Contains("foreign-object protection", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("through its retained handle", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
 
             // The foreign object at the original pathname survives untouched
             // (byte-for-byte), even though its content equals the owned A.

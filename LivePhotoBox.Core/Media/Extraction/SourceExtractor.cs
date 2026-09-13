@@ -715,7 +715,7 @@ public sealed class SourceExtractor : ISourceExtractor
             // the handles), so the Cleaner never has to re-guess ownership
             // from pathnames.  Issuing blocks the extractor rollback path
             // (cleanup_authority_issued) - the exact P2 -> P3 hand-off point.
-            CleanupPlan? cleanupPlanAuthority = CleanupPlan.IssueFrom(attempt.Plan, cancellationToken);
+            CleanupPlan? cleanupPlanAuthority = CleanupPlan.IssueFrom(attempt, cancellationToken);
             cleanupAuthorityIssued = true;
 
             // Commit the Native transaction: this closes the rollback handles

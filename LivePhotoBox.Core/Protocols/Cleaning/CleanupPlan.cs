@@ -17,8 +17,10 @@ namespace LivePhotoBox.Protocols.Cleaning;
 /// cross-context and stale-generation rejection, replay rejection, fail-closed
 /// behavior) are enforced inside LivePhotoBox.Native on the plan record.
 ///
-/// This wrapper borrows the owning NativeContext; it does not dispose it
-/// (the caller keeps the extraction plan / context alive through cleaning).
+/// A production-issued plan retains a NativeContext operation lease from
+/// issuance through disposal. This preserves the extraction-to-cleaning
+/// handoff even if the caller disposes the consumed ExtractionPlan while its
+/// extraction attempt is still completing.
 /// </summary>
 public sealed class CleanupPlan : IDisposable
 {
@@ -27,6 +29,7 @@ public sealed class CleanupPlan : IDisposable
     private readonly nint _contextHandle;
     private readonly bool _ownsContextLease;
     private readonly bool _useHarnessLibrary;
+    private NativeContextLease? _retainedContextLease;
     private nint _nativeHandle;
     private readonly ulong _generation;
     private bool _disposed;
@@ -37,10 +40,11 @@ public sealed class CleanupPlan : IDisposable
         nint nativeHandle,
         ulong generation,
         bool ownsContextLease,
-        bool useHarnessLibrary)
+        bool useHarnessLibrary,
+        NativeContextLease? retainedContextLease = null)
     {
         _context = context;
-        _contextHandle = contextHandle;
+        _contextHandle = retainedContextLease?.Handle ?? contextHandle;
         if (nativeHandle != nint.Zero)
         {
             if (generation == 0)
@@ -52,6 +56,7 @@ public sealed class CleanupPlan : IDisposable
         _generation = generation;
         _ownsContextLease = ownsContextLease;
         _useHarnessLibrary = useHarnessLibrary;
+        _retainedContextLease = retainedContextLease;
     }
 
     /// <summary>The opaque token passed to Native; it is never dereferenced.</summary>
@@ -97,7 +102,7 @@ public sealed class CleanupPlan : IDisposable
             context = _context;
             handle = _nativeHandle;
             contextLease = _ownsContextLease
-                ? context!.AcquireOperationLease()
+                ? context!.AcquireOperationLease(allowDisposeRequested: true)
                 : new NativeContextLease(null!, _contextHandle);
         }
 
@@ -135,36 +140,70 @@ public sealed class CleanupPlan : IDisposable
     internal static CleanupPlan IssueFrom(ExtractionPlan plan, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(plan);
-        cancellationToken.ThrowIfCancellationRequested();
-
-        NativeContext? context = plan.Context
-            ?? throw new CleanerException(
-                CleanerFailureCategory.NativeAuthorityViolation,
-                CleanerFailureStage.Authorization,
-                SourceProtocol.Unknown,
-                "A Native cleanup plan can only be issued from a Native-backed extraction plan; fake plans cannot authorize cleaning.");
-
-        using NativeContextLease lease = context.AcquireOperationLease();
-        NativeResult result = NativeMethods.IssueCleanupPlan(
-            lease.Handle,
+        return IssueFromCore(
+            plan.Context
+                ?? throw new CleanerException(
+                    CleanerFailureCategory.NativeAuthorityViolation,
+                    CleanerFailureStage.Authorization,
+                    SourceProtocol.Unknown,
+                    "A Native cleanup plan can only be issued from a Native-backed extraction plan; fake plans cannot authorize cleaning."),
             plan.NativeHandle,
             plan.Generation,
-            out nint planHandle,
-            out ulong planGeneration);
-        if (result != NativeResult.Ok)
-        {
-            string? message = ReadLastError(lease.Handle);
-            throw new CleanerException(
-                result == NativeResult.PlanReplayed
-                    ? CleanerFailureCategory.CleanupAuthorizationMissing
-                    : CleanerFailureCategory.NativeAuthorityViolation,
-                CleanerFailureStage.Authorization,
-                SourceProtocol.Unknown,
-                message ?? $"Native cleanup-plan issuance failed with {result}.");
-        }
+            cancellationToken);
+    }
 
-        return new CleanupPlan(context, context.Handle, planHandle, planGeneration,
-            ownsContextLease: true, useHarnessLibrary: false);
+    /// <summary>
+    /// Issues the P3 cleanup authority from the live extraction attempt, not
+    /// from the public plan wrapper. The attempt keeps the opaque token and
+    /// context lease valid even when a caller concurrently disposes the
+    /// wrapper after extraction has begun.
+    /// </summary>
+    internal static CleanupPlan IssueFrom(ExtractionPlanAttempt attempt, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(attempt);
+        return IssueFromCore(
+            attempt.Context,
+            attempt.NativeHandle,
+            attempt.Generation,
+            cancellationToken);
+    }
+
+    private static CleanupPlan IssueFromCore(
+        NativeContext context,
+        nint extractionPlanHandle,
+        ulong extractionPlanGeneration,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        NativeContextLease retainedLease = context.AcquireOperationLease(allowDisposeRequested: true);
+        try
+        {
+            NativeResult result = NativeMethods.IssueCleanupPlan(
+                retainedLease.Handle,
+                extractionPlanHandle,
+                extractionPlanGeneration,
+                out nint planHandle,
+                out ulong planGeneration);
+            if (result != NativeResult.Ok)
+            {
+                string? message = ReadLastError(retainedLease.Handle);
+                throw new CleanerException(
+                    result == NativeResult.PlanReplayed
+                        ? CleanerFailureCategory.CleanupAuthorizationMissing
+                        : CleanerFailureCategory.NativeAuthorityViolation,
+                    CleanerFailureStage.Authorization,
+                    SourceProtocol.Unknown,
+                    message ?? $"Native cleanup-plan issuance failed with {result}.");
+            }
+
+            return new CleanupPlan(context, retainedLease.Handle, planHandle, planGeneration,
+                ownsContextLease: true, useHarnessLibrary: false, retainedContextLease: retainedLease);
+        }
+        catch
+        {
+            retainedLease.Dispose();
+            throw;
+        }
     }
 
     /// <summary>
@@ -219,6 +258,7 @@ public sealed class CleanupPlan : IDisposable
     {
         NativeContext? context;
         nint handle;
+        NativeContextLease? retainedLease;
 
         lock (_gate)
         {
@@ -230,18 +270,21 @@ public sealed class CleanupPlan : IDisposable
             context = _context;
             handle = _nativeHandle;
             _nativeHandle = nint.Zero;
+            retainedLease = _retainedContextLease;
+            _retainedContextLease = null;
         }
 
         if (handle == nint.Zero)
         {
+            retainedLease?.Dispose();
             return;
         }
 
         try
         {
-            NativeContextLease lease = _ownsContextLease
+            NativeContextLease lease = retainedLease ?? (_ownsContextLease
                 ? context!.AcquireOperationLease(allowDisposeRequested: true)
-                : new NativeContextLease(null!, _contextHandle);
+                : new NativeContextLease(null!, _contextHandle));
             using (lease)
             {
                 NativeResult result = _useHarnessLibrary

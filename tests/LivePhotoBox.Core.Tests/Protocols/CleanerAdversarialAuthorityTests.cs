@@ -286,10 +286,11 @@ public sealed class CleanerAdversarialAuthorityTests
             workspace);
 
         Assert.False(result.Success);
-        Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
-        Assert.Equal(CleanerFailureStage.Rollback, result.FailureStage);
-        Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
-        Assert.Contains("foreign-object protection", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        // P3 now still owns an exact handle to A after publish. It can remove
+        // A even though B took over the pathname, so rollback is truthful and
+        // complete rather than conservatively failed; B must remain untouched.
+        Assert.Equal(CleanerFailureCategory.PublishFailed, result.FailureCategory);
+        Assert.Equal(CleanerTransactionState.RolledBack, result.TransactionState);
 
         // The foreign object at the original pathname is untouched.
         Assert.NotNull(foreignPath);

@@ -317,7 +317,11 @@ public sealed class ExtractorAuthorityTests
         string imagePath,
         string? videoPath)
     {
-        using var context = NativeContext.Create();
+        // The raw-facts ABI is exercised from the test-only harness, so its
+        // context must be created and read by that same DLL. Passing a C++
+        // context allocated by the production DLL across module boundaries
+        // makes its mutex/lifetime state undefined and can hang the test host.
+        using var context = TestNativeContext.Create();
         NativeResult result = TestNativeMethods.ExtractMediaLegacy(
                 context.Handle,
                 imagePath,
@@ -845,7 +849,12 @@ public sealed class ExtractorAuthorityTests
             Assert.Equal(nint.Zero, inspected.ExtractionPlan.NativeHandle);
 
             continueSignal.Set();
-            await extraction;
+            ExtractedMediaBundle extracted = await extraction;
+            // P3 handoff now owns a retained context lease. Once the caller
+            // is done with the returned bundle's destructive authority, its
+            // disposal releases the final lease and permits context teardown.
+            Assert.NotNull(extracted.CleanupPlan);
+            extracted.CleanupPlan!.Dispose();
             Assert.Equal(nint.Zero, context.Handle);
             Assert.Throws<ObjectDisposedException>(() => context.AcquireOperationLease());
 
