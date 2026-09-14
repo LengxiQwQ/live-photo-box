@@ -14,16 +14,12 @@ using Xunit;
 namespace LivePhotoBox.Core.Tests.Protocols;
 
 /// <summary>
-/// P3 final-commit object-identity adversarial proofs.  These tests drive the
-/// deterministic seam AFTER the Managed commit verified the staging object
-/// from an OPEN handle (AfterImageIdentityVerifiedBeforeRename /
-/// AfterVideoIdentityVerifiedBeforeRename) and BEFORE the same-handle rename
-/// executes, then take over pathnames with foreign objects.  They prove the
-/// transaction publishes only the exact object it verified: source pathname
-/// replacement, same-content foreign replacement and destination takeover can
-/// never smuggle a foreign object into the committed output, because the
-/// publish goes through the verified handle (no-overwrite kernel rename) and
-/// never re-opens a pathname.
+/// P3 final-commit object-identity adversarial proofs.  The validation-window
+/// cases prove that the strict staging-directory lease denies source pathname
+/// replacement before path-based validators run.  The post-publish cases use
+/// the still-retained exact handle outside that namespace to prove that a
+/// foreign rename/alias cannot hide an owned object from rollback.  Together
+/// they prove that validation and publication remain bound to the same object.
 /// </summary>
 public sealed class CleanerManagedCommitOwnershipTests
 {
@@ -364,11 +360,14 @@ public sealed class CleanerManagedCommitOwnershipTests
     }
 
     // ---------------------------------------------------------------------
-    // 1. PrimaryImage source pathname takeover between verify and rename
+    // 1. The strict validation namespace lease denies a source-path takeover
+    //    before validation/publish.  The handle-driven commit seam remains
+    //    covered by the post-publish tests below, where the published object
+    //    lives outside the leased staging namespace.
     // ---------------------------------------------------------------------
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task ManagedCommitRace_PrimaryImage_SourcePathnameTakeover_PublishesVerifiedObjectAndLeavesForeign()
+    public async Task ManagedCommitRace_PrimaryImage_ValidationLeaseDeniesSourcePathnameTakeover()
     {
         string samplePath = ResolveSample("oppo.jpg");
         string shaBefore = ComputeSha256(samplePath);
@@ -383,9 +382,8 @@ public sealed class CleanerManagedCommitOwnershipTests
             int beforeImageHandleAcquisitionCount = 0;
             int imageHandleAcquiredCount = 0;
             string? observedStage = null;
-            string? foreignPath = null;
-            string? side = null;
             WindowsFileIdentity? ownedBeforeTakeover = null;
+            bool validationLeaseDenied = false;
 
             cleaner.FaultInjectionHook = (stage, detail) =>
             {
@@ -407,15 +405,13 @@ public sealed class CleanerManagedCommitOwnershipTests
                     // Identity of the object the Cleaner verified from its open handle.
                     ownedBeforeTakeover = WindowsFileIdentity.Capture(stagedImg);
 
-                    // Foreign actor: rename A OUT of the staging directory (the
-                    // commit handle stays valid and still refers to A), then put
-                    // a foreign B at the original staged pathname.  Foreign
-                    // objects are protected by file-level identity, never by
-                    // denying writes into the directory.
-                    side = Path.Combine(workspace.RootDirectory, "lpb-race-side-" + Guid.NewGuid().ToString("N") + ".jpg");
-                    File.Move(stagedImg, side);
-                    foreignPath = stagedImg;
-                    File.WriteAllBytes(foreignPath, ForeignMarker);
+                    // The strict validation namespace lease must deny a
+                    // pathname takeover.  Do not manufacture B after a failed
+                    // move: that would turn a blocked attack into misleading
+                    // evidence.
+                    validationLeaseDenied = !TryManagedMove(
+                        stagedImg,
+                        stagedImg + ".lpb-validation-attack");
                 }
                 return Task.CompletedTask;
             };
@@ -426,36 +422,18 @@ public sealed class CleanerManagedCommitOwnershipTests
                 CleanupPlan = cleanupPlan
             }, workspace);
 
-            // The commit DID publish the verified object A through its handle,
-            // but the foreign B left inside the staging directory makes the
-            // pre-commit directory cleanup unprovable (B5-A): the transaction
-            // must NOT report Committed while its owned staging directory may
-            // still exist.  Rollback then exact-deletes A through the retained
-            // handle; foreign B survives byte-for-byte; the non-empty staging
-            // directory is left in place and the transaction truthfully
-            // reports RollbackFailed.
-            Assert.False(result.Success);
-            Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
-            Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
+            Assert.True(result.Success, result.ErrorMessage);
+            Assert.Equal(CleanerTransactionState.Committed, result.TransactionState);
+            Assert.True(validationLeaseDenied,
+                "the strict validation namespace lease allowed a primary-image source takeover");
+            Assert.Equal(1, beforeImageHandleAcquisitionCount);
+            Assert.Equal(1, imageHandleAcquiredCount);
             Assert.Equal(1, triggerCount);
             Assert.Equal("AfterImageIdentityVerifiedBeforeRename", observedStage);
             Assert.NotNull(ownedBeforeTakeover);
-
-            // A was exact-deleted through the retained handle: the race side
-            // pathname is empty and no clean output remains.
-            Assert.NotNull(side);
-            Assert.False(File.Exists(side), "the verified object must be exact-deleted through its retained handle");
-            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
-            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "*lpb-race-side*", SearchOption.AllDirectories));
-
-            // Foreign B survives byte-for-byte at the original staged pathname
-            // and keeps the staging directory non-empty (never recursively
-            // deleted).
-            Assert.NotNull(foreignPath);
-            Assert.True(File.Exists(foreignPath), "foreign B must survive");
-            Assert.Equal(ForeignMarker, File.ReadAllBytes(foreignPath));
-            Assert.NotEqual(ownedBeforeTakeover, WindowsFileIdentity.Capture(foreignPath));
-            Assert.NotEmpty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
+            Assert.NotNull(result.CleanedImage);
+            Assert.Equal(ownedBeforeTakeover, result.CleanedImage.FileIdentity);
+            Assert.Single(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
 
             // Source untouched.
             Assert.Equal(shaBefore, ComputeSha256(samplePath));
@@ -463,11 +441,12 @@ public sealed class CleanerManagedCommitOwnershipTests
     }
 
     // ---------------------------------------------------------------------
-    // 2. Same-content foreign object: SHA is NOT ownership
+    // 2. Same-content source-path takeover is also denied during the strict
+    //    validation window; identical bytes do not weaken the namespace gate.
     // ---------------------------------------------------------------------
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task ManagedCommitRace_PrimaryImage_SameContentForeignObject_ShaIsNotOwnership()
+    public async Task ManagedCommitRace_PrimaryImage_SameContentSourceTakeover_IsDeniedByValidationLease()
     {
         string samplePath = ResolveSample("oppo.jpg");
         string shaBefore = ComputeSha256(samplePath);
@@ -480,10 +459,9 @@ public sealed class CleanerManagedCommitOwnershipTests
         {
             int triggerCount = 0;
             string? observedStage = null;
-            string? foreignPath = null;
-            string? side = null;
             byte[]? ownedBytes = null;
             WindowsFileIdentity? ownedBeforeTakeover = null;
+            bool validationLeaseDenied = false;
 
             cleaner.FaultInjectionHook = (stage, detail) =>
             {
@@ -507,14 +485,11 @@ public sealed class CleanerManagedCommitOwnershipTests
                         stagedStream.ReadExactly(ownedBytes, 0, ownedBytes.Length);
                     }
 
-                    // Foreign B with byte-for-byte identical content: SHA(B) ==
-                    // SHA(A) but FileId(B) != FileId(A).  Foreign objects are
-                    // protected by file-level identity, never by denying writes
-                    // into the directory.
-                    side = Path.Combine(workspace.RootDirectory, "lpb-race-side-" + Guid.NewGuid().ToString("N") + ".jpg");
-                    File.Move(stagedImg, side);
-                    foreignPath = stagedImg;
-                    File.WriteAllBytes(foreignPath, ownedBytes);
+                    // A same-content B is still foreign, but this attack is
+                    // not allowed to enter the validation namespace at all.
+                    validationLeaseDenied = !TryManagedMove(
+                        stagedImg,
+                        stagedImg + ".lpb-validation-attack");
                 }
                 return Task.CompletedTask;
             };
@@ -525,33 +500,17 @@ public sealed class CleanerManagedCommitOwnershipTests
                 CleanupPlan = cleanupPlan
             }, workspace);
 
-            // The same-content foreign B left in the staging directory makes
-            // the pre-commit directory cleanup unprovable (B5-A): no Committed.
-            // Rollback exact-deletes A through the retained handle; foreign B
-            // survives byte-for-byte; the transaction truthfully reports
-            // RollbackFailed.  Ownership is decided by filesystem object
-            // identity, never by SHA.
-            Assert.False(result.Success);
-            Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
-            Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
+            Assert.True(result.Success, result.ErrorMessage);
+            Assert.Equal(CleanerTransactionState.Committed, result.TransactionState);
+            Assert.True(validationLeaseDenied,
+                "the strict validation namespace lease allowed a same-content source takeover");
             Assert.Equal(1, triggerCount);
             Assert.Equal("AfterImageIdentityVerifiedBeforeRename", observedStage);
             Assert.NotNull(ownedBeforeTakeover);
             Assert.NotNull(ownedBytes);
-
-            // A was exact-deleted through the retained handle.
-            Assert.True(side != null, $"side was null. result.ErrorMessage={result.ErrorMessage}");
-            Assert.False(File.Exists(side), "the verified object must be exact-deleted through its retained handle");
-            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
-            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "*lpb-race-side*", SearchOption.AllDirectories));
-
-            // Foreign B (byte-identical content, different FileId) survives at
-            // the staged pathname and keeps the staging directory non-empty.
-            Assert.NotNull(foreignPath);
-            Assert.True(File.Exists(foreignPath), "foreign B must survive");
-            Assert.Equal(ownedBytes, File.ReadAllBytes(foreignPath));
-            Assert.NotEqual(ownedBeforeTakeover, WindowsFileIdentity.Capture(foreignPath));
-            Assert.NotEmpty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
+            Assert.NotNull(result.CleanedImage);
+            Assert.Equal(ownedBeforeTakeover, result.CleanedImage.FileIdentity);
+            Assert.Equal(ownedBytes, File.ReadAllBytes(result.CleanedImage.Path));
 
             Assert.Equal(shaBefore, ComputeSha256(samplePath));
         }
@@ -576,7 +535,7 @@ public sealed class CleanerManagedCommitOwnershipTests
         {
             int triggerCount = 0;
             string? observedStage = null;
-            string? foreignPath = null;
+            bool validationLeaseDenied = false;
 
             cleaner.FaultInjectionHook = (stage, detail) =>
             {
@@ -586,14 +545,12 @@ public sealed class CleanerManagedCommitOwnershipTests
                     observedStage = detail;
 
                     string stagedImg = FindStagedFile(workspace, "stage-img*").StagedPath;
-                    // Foreign actor: rename A OUT of the staging directory, put
-                    // foreign B at the staged pathname, and occupy the
-                    // destination with C.  Foreign objects are protected by
-                    // file-level identity, never by denying writes.
-                    string side = Path.Combine(workspace.RootDirectory, "lpb-race-side-" + Guid.NewGuid().ToString("N") + ".jpg");
-                    File.Move(stagedImg, side);
-                    foreignPath = stagedImg;
-                    File.WriteAllBytes(foreignPath, ForeignMarker);
+                    // The strict lease blocks a source takeover.  The
+                    // destination remains independently attackable and must
+                    // still be protected by the atomic no-overwrite publish.
+                    validationLeaseDenied = !TryManagedMove(
+                        stagedImg,
+                        stagedImg + ".lpb-validation-attack");
                     File.WriteAllBytes(foreignDestination, ForeignMarker);
                 }
                 return Task.CompletedTask;
@@ -607,8 +564,10 @@ public sealed class CleanerManagedCommitOwnershipTests
             }, fixedWorkspace);
 
             Assert.False(result.Success);
-            Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
-            Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
+            Assert.Equal(CleanerFailureCategory.PublishFailed, result.FailureCategory);
+            Assert.Equal(CleanerTransactionState.RolledBack, result.TransactionState);
+            Assert.True(validationLeaseDenied,
+                "the strict validation namespace lease allowed a primary-image source takeover");
             Assert.Equal(1, triggerCount);
             Assert.Equal("AfterImageIdentityVerifiedBeforeRename", observedStage);
 
@@ -616,14 +575,9 @@ public sealed class CleanerManagedCommitOwnershipTests
             Assert.True(File.Exists(foreignDestination));
             Assert.Equal(ForeignMarker, File.ReadAllBytes(foreignDestination));
 
-            // Foreign B at the staged pathname survives byte-for-byte.
-            Assert.NotNull(foreignPath);
-            Assert.True(File.Exists(foreignPath));
-            Assert.Equal(ForeignMarker, File.ReadAllBytes(foreignPath));
-
-            // The owned object was removed through the verified handle (the
-            // race side path is empty) — never by bare pathname deletion.
-            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "*lpb-race-side*", SearchOption.AllDirectories));
+            // No staged source takeover was admitted and no owned output was
+            // published; rollback cleaned the exact owned staging object.
+            Assert.Empty(Directory.GetDirectories(workspace.RootDirectory, "staging_*", SearchOption.AllDirectories));
 
             // Source untouched.
             Assert.Equal(shaBefore, ComputeSha256(samplePath));
@@ -631,11 +585,12 @@ public sealed class CleanerManagedCommitOwnershipTests
     }
 
     // ---------------------------------------------------------------------
-    // 4. MotionVideo source pathname takeover between verify and rename
+    // 4. MotionVideo source-path takeover is denied by the same strict lease
+    //    used for PrimaryImage.
     // ---------------------------------------------------------------------
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task ManagedCommitRace_MotionVideo_SourcePathnameTakeover_PublishesVerifiedVideoAndLeavesForeign()
+    public async Task ManagedCommitRace_MotionVideo_ValidationLeaseDeniesSourcePathnameTakeover()
     {
         string samplePath = ResolveSample("苹果双文件.HEIC");
         string secondaryPath = ResolveSample("苹果双文件.MOV");
@@ -652,8 +607,8 @@ public sealed class CleanerManagedCommitOwnershipTests
             int beforeVideoHandleAcquisitionCount = 0;
             int videoHandleAcquiredCount = 0;
             string? observedStage = null;
-            string? foreignPath = null;
             WindowsFileIdentity? ownedBeforeTakeover = null;
+            bool validationLeaseDenied = false;
 
             cleaner.FaultInjectionHook = (stage, detail) =>
             {
@@ -674,13 +629,9 @@ public sealed class CleanerManagedCommitOwnershipTests
                     string stagedVid = FindStagedFile(workspace, "stage-vid*").StagedPath;
                     ownedBeforeTakeover = WindowsFileIdentity.Capture(stagedVid);
 
-                    // Rename V OUT of the staging directory and put a foreign B
-                    // at the staged pathname; foreign objects are protected by
-                    // file-level identity, never by denying writes.
-                    string side = Path.Combine(workspace.RootDirectory, "lpb-race-side-" + Guid.NewGuid().ToString("N") + ".mov");
-                    File.Move(stagedVid, side);
-                    foreignPath = stagedVid;
-                    File.WriteAllBytes(foreignPath, ForeignMarker);
+                    validationLeaseDenied = !TryManagedMove(
+                        stagedVid,
+                        stagedVid + ".lpb-validation-attack");
                 }
                 return Task.CompletedTask;
             };
@@ -691,36 +642,20 @@ public sealed class CleanerManagedCommitOwnershipTests
                 CleanupPlan = cleanupPlan
             }, workspace);
 
-            // Both artifacts were published through their handles, but the
-            // foreign B left in the staging directory makes the pre-commit
-            // directory cleanup unprovable (B5-A): no Committed.  Rollback
-            // exact-deletes BOTH owned objects through their retained handles;
-            // foreign B survives; the non-empty staging directory stays and
-            // the transaction truthfully reports RollbackFailed.
-            Assert.False(result.Success);
-            Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
-            Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
+            Assert.True(result.Success, result.ErrorMessage);
+            Assert.Equal(CleanerTransactionState.Committed, result.TransactionState);
+            Assert.True(validationLeaseDenied,
+                "the strict validation namespace lease allowed a motion-video source takeover");
             Assert.Equal(1, triggerCount);
             Assert.Equal(1, beforeVideoHandleAcquisitionCount);
             Assert.Equal(1, videoHandleAcquiredCount);
             Assert.Equal("AfterVideoIdentityVerifiedBeforeRename", observedStage);
             Assert.NotNull(ownedBeforeTakeover);
 
-            // Both owned objects were exact-deleted through their handles: no
-            // clean image or video output survives, and the race side path is
-            // empty.
-            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
-            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-vid*", SearchOption.AllDirectories));
-            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "*lpb-race-side*", SearchOption.AllDirectories));
-
-            // Foreign B survives byte-for-byte at the original staged pathname
-            // and keeps the staging directory non-empty (never recursively
-            // deleted).
-            Assert.NotNull(foreignPath);
-            Assert.True(File.Exists(foreignPath), "foreign B must survive");
-            Assert.Equal(ForeignMarker, File.ReadAllBytes(foreignPath));
-            Assert.NotEqual(ownedBeforeTakeover, WindowsFileIdentity.Capture(foreignPath));
-            Assert.NotEmpty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
+            Assert.NotNull(result.CleanedImage);
+            Assert.NotNull(result.CleanedVideo);
+            Assert.Equal(ownedBeforeTakeover, result.CleanedVideo.FileIdentity);
+            Assert.Empty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
 
             Assert.Equal(shaBefore, ComputeSha256(samplePath));
             Assert.Equal(shaVideoBefore, ComputeSha256(secondaryPath));
@@ -748,7 +683,7 @@ public sealed class CleanerManagedCommitOwnershipTests
         {
             int triggerCount = 0;
             string? observedStage = null;
-            string? foreignPath = null;
+            bool validationLeaseDenied = false;
 
             cleaner.FaultInjectionHook = (stage, detail) =>
             {
@@ -758,15 +693,12 @@ public sealed class CleanerManagedCommitOwnershipTests
                     observedStage = detail;
 
                     string stagedVid = FindStagedFile(workspace, "stage-vid*").StagedPath;
-                    // Foreign actor: rename V OUT of the staging directory, put
-                    // foreign B at the staged pathname, and occupy the video
-                    // destination with C.  The image has already published
-                    // successfully.  Foreign objects are protected by
-                    // file-level identity, never by denying writes.
-                    string side = Path.Combine(workspace.RootDirectory, "lpb-race-side-" + Guid.NewGuid().ToString("N") + ".mov");
-                    File.Move(stagedVid, side);
-                    foreignPath = stagedVid;
-                    File.WriteAllBytes(foreignPath, ForeignMarker);
+                    // The strict lease blocks a source takeover.  The video
+                    // destination remains independently attackable after the
+                    // image publish and must be protected by no-overwrite.
+                    validationLeaseDenied = !TryManagedMove(
+                        stagedVid,
+                        stagedVid + ".lpb-validation-attack");
                     File.WriteAllBytes(foreignVideoDestination, ForeignMarker);
                 }
                 return Task.CompletedTask;
@@ -780,8 +712,10 @@ public sealed class CleanerManagedCommitOwnershipTests
             }, fixedWorkspace);
 
             Assert.False(result.Success);
-            Assert.Equal(CleanerFailureCategory.RollbackFailed, result.FailureCategory);
-            Assert.Equal(CleanerTransactionState.RollbackFailed, result.TransactionState);
+            Assert.Equal(CleanerFailureCategory.PublishFailed, result.FailureCategory);
+            Assert.Equal(CleanerTransactionState.RolledBack, result.TransactionState);
+            Assert.True(validationLeaseDenied,
+                "the strict validation namespace lease allowed a motion-video source takeover");
             Assert.Equal(1, triggerCount);
             Assert.Equal("AfterVideoIdentityVerifiedBeforeRename", observedStage);
 
@@ -793,17 +727,12 @@ public sealed class CleanerManagedCommitOwnershipTests
             Assert.True(File.Exists(foreignVideoDestination));
             Assert.Equal(ForeignMarker, File.ReadAllBytes(foreignVideoDestination));
 
-            // Foreign B at the staged video pathname survives byte-for-byte.
-            Assert.NotNull(foreignPath);
-            Assert.True(File.Exists(foreignPath));
-            Assert.Equal(ForeignMarker, File.ReadAllBytes(foreignPath));
-
             // The image publication was rolled back exactly: no owned clean-img
             // output remains, and no owned clean-vid output was ever created
             // (the only file at the video destination is foreign C).
             Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-img*", SearchOption.AllDirectories));
             Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "clean-vid*", SearchOption.AllDirectories));
-            Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "*lpb-race-side*", SearchOption.AllDirectories));
+            Assert.Empty(Directory.GetDirectories(workspace.RootDirectory, "staging_*"));
 
             // Sources untouched.
             Assert.Equal(shaBefore, ComputeSha256(samplePath));
@@ -1708,6 +1637,30 @@ public sealed class CleanerManagedCommitOwnershipTests
         finally
         {
             Directory.Delete(dir);
+        }
+    }
+
+    private static bool TryManagedMove(string source, string destination)
+    {
+        if (!File.Exists(source))
+        {
+            throw new FileNotFoundException(
+                $"The deterministic namespace attack source disappeared before the move attempt: '{source}'.",
+                source);
+        }
+
+        try
+        {
+            File.Move(source, destination);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 

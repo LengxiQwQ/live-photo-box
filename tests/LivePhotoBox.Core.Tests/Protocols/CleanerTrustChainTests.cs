@@ -26,17 +26,15 @@ public sealed class CleanerTrustChainTests
         MediaWorkspace workspace,
         ExtractedMediaBundle bundle)
     {
-        // P3's retained staging-directory handle (no FILE_SHARE_WRITE)
-        // prevents a foreign actor from creating/renaming/deleting entries
-        // INSIDE the staging directory during validation — exactly the
-        // intended lease.  The observable foreign takeover that remains is
-        // directory-level: rename the whole staging directory away (this
-        // mutates the workspace root, not the leased directory object), then
-        // place a NEW foreign directory at the original pathname containing
-        // residue-bearing foreign staged files.  The post-clean inspector
-        // sees B at the staged pathname; rollback keeps B and the foreign
-        // directory, deleting only the owned object A and the moved owned
-        // directory through their exact handles.
+        // P3 keeps two distinct directory handles: the creator/ownership
+        // handle shares WRITE for Native staging, then a second strict
+        // validation namespace lease (no FILE_SHARE_WRITE) prevents a foreign
+        // actor from creating/renaming/deleting entries INSIDE the staging
+        // directory during validation.  The attempted takeover below is the
+        // deterministic adversarial boundary: a foreign actor tries to rename
+        // the whole staging directory away and place a NEW foreign directory
+        // at the old pathname containing residue-bearing staged files.  The
+        // lease must reject that attempt before any validator can observe B.
         foreach (string directory in Directory.GetDirectories(workspace.RootDirectory, "staging_*"))
         {
             string movedDirectory = directory + ".owned-moved-away";
@@ -44,10 +42,10 @@ public sealed class CleanerTrustChainTests
             {
                 Directory.Delete(movedDirectory, recursive: true);
             }
-            // Raw MoveFileW: .NET's Directory.Move performs an access probe on
-            // the source directory that the P3 lease (no WRITE share) rejects;
-            // the raw API mutates only the parent directory entry and succeeds,
-            // exactly like the external actor the test simulates.
+            // Raw MoveFileW is used so this test exercises the real external
+            // operation directly rather than relying on a managed preflight.
+            // The strict namespace lease must reject the move through the
+            // leased directory's sharing contract.
             if (!NativeIo.MoveFileW(directory, movedDirectory))
             {
                 throw new IOException($"MoveFileW('{directory}') failed with Win32 error {Marshal.GetLastWin32Error()}.");

@@ -501,10 +501,27 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     ApplyNativeStagedOwnership(
                         planAttempt,
                         journal,
+                        stagingDir,
                         stagedImgPath,
                         stagedVidPath,
                         FaultInjectionHook,
                         facts.Protocol);
+
+                    // Native staging is complete and every required staged
+                    // artifact now has an exact retained handle.  Establish
+                    // the second, strict directory lease before ANY
+                    // preservation/media/post-clean validator opens a staged
+                    // pathname.  The creator/ownership handle must keep
+                    // sharing WRITE for Native staging; this lease does not,
+                    // so a foreign writer cannot replace the namespace entry
+                    // that the pathname-based validators will resolve.
+                    journal.AcquireValidationNamespaceLease(facts.Protocol);
+                    if (FaultInjectionHook != null)
+                    {
+                        await FaultInjectionHook(
+                            CleanerFailureStage.Staging,
+                            "ValidationNamespaceLeaseAcquired").ConfigureAwait(false);
+                    }
                 }
                 else
                 {
@@ -543,6 +560,9 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     cleanContextHandle,
                     cleanUseHarness,
                     journal,
+                    stagingDir,
+                    stagedImgPath,
+                    stagedVidPath,
                     FaultInjectionHook,
                     facts.Protocol);
                 throw;
@@ -553,6 +573,9 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     cleanContextHandle,
                     cleanUseHarness,
                     journal,
+                    stagingDir,
+                    stagedImgPath,
+                    stagedVidPath,
                     FaultInjectionHook,
                     facts.Protocol);
                 throw new CleanerException(
@@ -827,6 +850,11 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 // disposition cannot be armed.  If the cleanup cannot be
                 // proven, the commit fails and rollback still holds the
                 // exact image/video handles, so it can safely roll back.
+                // The namespace must be mutable again before the exact
+                // directory-delete proof is attempted. Publishing moved the
+                // owned files out; retaining this no-WRITE lease would make
+                // directory cleanup itself sharing-sensitive.
+                journal.ReleaseValidationNamespaceLease();
                 if (!journal.TryDeleteOwnedDirectory(out Exception? directoryFailure))
                 {
                     throw new CleanerException(
@@ -848,6 +876,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 // handle before the cancellation propagates, so a foreign
                 // pathname rename can never hide a transaction-owned object
                 // from rollback.
+                journal.ReleaseValidationNamespaceLease();
                 if (imgPublished != null && imgRecord != null)
                 {
                     journal.CleanupRetainedObjectOrRecordFailure(imgRecord);
@@ -866,6 +895,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 // the deletion is proven; otherwise keep the record and force
                 // a rollback failure so a false "RolledBack" can never be
                 // reported while a transaction-owned object may still exist.
+                journal.ReleaseValidationNamespaceLease();
                 if (imgPublished != null && imgRecord != null)
                 {
                     journal.CleanupRetainedObjectOrRecordFailure(imgRecord);
@@ -954,6 +984,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         catch (OperationCanceledException)
         {
             sw.Stop();
+            journal.ReleaseValidationNamespaceLease();
             try
             {
                 journal.Rollback(FaultInjectionHook, currentProtocol);
@@ -972,6 +1003,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         catch (CleanerException ex)
         {
             sw.Stop();
+            journal.ReleaseValidationNamespaceLease();
             try
             {
                 journal.Rollback(FaultInjectionHook, currentProtocol);
@@ -1003,6 +1035,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         catch (Exception ex)
         {
             sw.Stop();
+            journal.ReleaseValidationNamespaceLease();
             try
             {
                 journal.Rollback(FaultInjectionHook, currentProtocol);
@@ -1061,6 +1094,9 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         nint contextHandle,
         bool useHarnessLibrary,
         CleanerTransactionJournal journal,
+        string stagingDir,
+        string stagedImgPath,
+        string? stagedVidPath,
         Func<CleanerFailureStage, string?, Task>? faultHook,
         SourceProtocol protocol)
     {
@@ -1085,9 +1121,35 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             return;
         }
 
+        try
+        {
+            ValidateNativeStagedRegistry(
+                native,
+                stagingDir,
+                stagedImgPath,
+                stagedVidPath,
+                protocol,
+                requireExpectedOutputs: false);
+        }
+        catch (CleanerException ex)
+        {
+            // A malformed or ambiguous failure-path registry is itself a
+            // proof gap.  Never let the subsequent directory cleanup observe
+            // an empty namespace and declare the transaction RolledBack.
+            journal.AddRollbackFailure(
+                $"Native staged-output ownership registry could not be reconciled after the staging failure; rollback ownership is unproven: {ex.Message}");
+            return;
+        }
+
         foreach (var rec in native)
         {
-            AddNativeStagedRecord(journal, rec);
+            // Recovery can observe the same Native registry entry that was
+            // already admitted before the staging invoker cancelled.  That
+            // exact replay is reconciliation, not a second ownership claim;
+            // only the failure path may reconcile it, and only when the
+            // path/role/FileId identity is byte-for-byte the same.  Normal
+            // admission below keeps duplicate records fail-closed.
+            AddNativeStagedRecord(journal, rec, allowExactReconcile: true);
         }
 
         // Convert every registry identity to a retained, identity-verified
@@ -1110,41 +1172,59 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
     private static void ApplyNativeStagedOwnership(
         CleanupPlanAttempt planAttempt,
         CleanerTransactionJournal journal,
+        string stagingDir,
         string stagedImgPath,
         string? stagedVidPath,
         Func<CleanerFailureStage, string?, Task>? faultHook,
         SourceProtocol protocol)
     {
         ArgumentNullException.ThrowIfNull(planAttempt);
-        IReadOnlyList<NativeCleanService.CleanStagedOutputRecord> native =
-            NativeCleanService.QueryStagedOutputs(planAttempt.ContextLease.Handle, planAttempt.UseHarnessLibrary);
-
-        var img = native.FirstOrDefault(r => PathEquals(r.FinalPath, stagedImgPath));
-        if (img.FinalPath is null)
+        IReadOnlyList<NativeCleanService.CleanStagedOutputRecord> native;
+        try
         {
-            throw new CleanerException(
-                CleanerFailureCategory.OutputCreateFailed,
-                CleanerFailureStage.Staging,
-                SourceProtocol.Unknown,
-                $"Native cleaner did not report ownership of staged image '{stagedImgPath}'; refusing to claim a file this transaction did not prove it created.");
+            native = NativeCleanService.QueryStagedOutputs(
+                planAttempt.ContextLease.Handle,
+                planAttempt.UseHarnessLibrary);
         }
-        AddNativeStagedRecord(journal, img);
-
-        if (stagedVidPath != null)
+        catch (Exception ex)
         {
-            var vid = native.FirstOrDefault(r => PathEquals(r.FinalPath, stagedVidPath));
-            if (vid.FinalPath is null)
-            {
-                throw new CleanerException(
-                    CleanerFailureCategory.OutputCreateFailed,
-                    CleanerFailureStage.Staging,
-                    SourceProtocol.Unknown,
-                    $"Native cleaner did not report ownership of staged video '{stagedVidPath}'; refusing to claim a file this transaction did not prove it created.");
-            }
-            AddNativeStagedRecord(journal, vid);
+            // A registry read failure leaves Native ownership unknown.  Keep
+            // this evidence permanently attached to the transaction so a
+            // later empty staging directory cannot turn an untracked,
+            // renamed-away Native object into a false RolledBack result.
+            journal.AddRollbackFailure(
+                $"Unable to read Native staged-output ownership registry after a successful staging operation; rollback ownership is unproven: {ex.Message}");
+            throw;
         }
 
-        // Register any auxiliary outputs (e.g. GainMap) Native created too.
+        // The registry is a security boundary, not a best-effort list.  It
+        // must contain exactly the output role/path pairs this invocation
+        // requested.  In particular, duplicate records, shadow paths,
+        // unexpected roles, and records outside this transaction's staging
+        // directory are rejected before any record is turned into cleanup or
+        // publication authority.
+        try
+        {
+            ValidateNativeStagedRegistry(
+                native,
+                stagingDir,
+                stagedImgPath,
+                stagedVidPath,
+                protocol,
+                requireExpectedOutputs: true);
+        }
+        catch (CleanerException ex)
+        {
+            // Missing, malformed, shadowed, or otherwise ambiguous registry
+            // data cannot be treated as proof that no owned output exists.
+            // Preserve the failure across Rollback()'s transient exception
+            // reset, even if a foreign actor has already moved the output
+            // away and left the staging directory empty.
+            journal.AddRollbackFailure(
+                $"Native staged-output ownership registry was not admissible; rollback ownership is unproven: {ex.Message}");
+            throw;
+        }
+
         foreach (var rec in native)
         {
             AddNativeStagedRecord(journal, rec);
@@ -1162,7 +1242,8 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
 
     private static CleanerTransactionJournal.TransactionOwnedObject AddNativeStagedRecord(
         CleanerTransactionJournal journal,
-        NativeCleanService.CleanStagedOutputRecord rec)
+        NativeCleanService.CleanStagedOutputRecord rec,
+        bool allowExactReconcile = false)
     {
         if (string.IsNullOrEmpty(rec.FinalPath))
         {
@@ -1172,11 +1253,42 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 SourceProtocol.Unknown,
                 "Native cleaner reported an owned staged output without a path.");
         }
+
+        if (rec.ArtifactRole is not (MediaArtifactKind.PrimaryImage or MediaArtifactKind.MotionVideo) ||
+            rec.AuxiliaryIndex != uint.MaxValue ||
+            rec.VolumeSerial == 0 ||
+            rec.FileIndex == 0 ||
+            rec.LinkCount == 0)
+        {
+            throw new CleanerException(
+                CleanerFailureCategory.OutputCreateFailed,
+                CleanerFailureStage.Staging,
+                SourceProtocol.Unknown,
+                $"Native cleaner reported malformed staged-output ownership for '{rec.FinalPath}'; refusing to claim it.");
+        }
+
         CleanerTransactionJournal.TransactionOwnedObject? existing =
             journal.StagedPaths.FirstOrDefault(r => PathEquals(r.StagedPath, rec.FinalPath));
         if (existing != null)
         {
-            return existing;
+            if (allowExactReconcile &&
+                existing.ArtifactRole == rec.ArtifactRole &&
+                existing.Identity.VolumeSerialNumber == rec.VolumeSerial &&
+                existing.Identity.FileIndex == rec.FileIndex &&
+                existing.Identity.LinkCount == rec.LinkCount)
+            {
+                // A failure-path registry query is allowed to replay the
+                // exact record admitted immediately before cancellation.  Do
+                // not create a second journal object: rollback must retain a
+                // single cleanup authority and a single acquisition state.
+                return existing;
+            }
+
+            throw new CleanerException(
+                CleanerFailureCategory.OutputCreateFailed,
+                CleanerFailureStage.Staging,
+                SourceProtocol.Unknown,
+                $"Native cleaner reported duplicate staged-output ownership for '{rec.FinalPath}'; refusing ambiguous cleanup authority.");
         }
         var identity = new WindowsFileIdentity
         {
@@ -1186,6 +1298,128 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             FileAttributes = 0
         };
         return journal.AddStagedRecord(rec.FinalPath, (MediaArtifactKind)rec.ArtifactRole, identity);
+    }
+
+    /// <summary>
+    /// Validates the Native staged-output registry before any record can enter
+    /// the transaction journal.  The registry is expected to contain only the
+    /// primary-image and optional motion-video outputs of this invocation;
+    /// auxiliary/shadow records have no corresponding publication authority in
+    /// this cleaner call and therefore fail closed.  Paths are normalized and
+    /// required to be exact children of the atomically-created staging
+    /// namespace, not merely strings that happen to share a prefix.
+    /// </summary>
+    internal static void ValidateNativeStagedRegistry(
+        IReadOnlyList<NativeCleanService.CleanStagedOutputRecord> native,
+        string stagingDir,
+        string stagedImgPath,
+        string? stagedVidPath,
+        SourceProtocol protocol,
+        bool requireExpectedOutputs)
+    {
+        ArgumentNullException.ThrowIfNull(native);
+
+        string normalizedStagingDir;
+        var expected = new Dictionary<string, MediaArtifactKind>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            normalizedStagingDir = Path.GetFullPath(stagingDir)
+                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            expected.Add(Path.GetFullPath(stagedImgPath), MediaArtifactKind.PrimaryImage);
+            if (stagedVidPath != null)
+            {
+                expected.Add(Path.GetFullPath(stagedVidPath), MediaArtifactKind.MotionVideo);
+            }
+        }
+        catch (Exception ex)
+        {
+            throw new CleanerException(
+                CleanerFailureCategory.OutputCreateFailed,
+                CleanerFailureStage.Staging,
+                protocol,
+                "Unable to normalize the Native staged-output namespace; refusing to trust registry paths.",
+                innerException: ex);
+        }
+
+        string namespacePrefix = normalizedStagingDir + Path.DirectorySeparatorChar;
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenRoles = new HashSet<MediaArtifactKind>();
+
+        foreach (NativeCleanService.CleanStagedOutputRecord rec in native)
+        {
+            if (string.IsNullOrWhiteSpace(rec.FinalPath))
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.OutputCreateFailed,
+                    CleanerFailureStage.Staging,
+                    protocol,
+                    "Native cleaner reported a staged-output registry record without a path.");
+            }
+
+            string normalizedPath;
+            try
+            {
+                normalizedPath = Path.GetFullPath(rec.FinalPath);
+            }
+            catch (Exception ex)
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.OutputCreateFailed,
+                    CleanerFailureStage.Staging,
+                    protocol,
+                    $"Native cleaner reported an invalid staged-output path '{rec.FinalPath}'; refusing registry authority.",
+                    innerException: ex);
+            }
+
+            if (!normalizedPath.StartsWith(namespacePrefix, StringComparison.OrdinalIgnoreCase) ||
+                !seenPaths.Add(normalizedPath))
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.OutputCreateFailed,
+                    CleanerFailureStage.Staging,
+                    protocol,
+                    $"Native cleaner reported a staged-output path outside the exact staging namespace or a duplicate path: '{rec.FinalPath}'.");
+            }
+
+            if (rec.ArtifactRole is not (MediaArtifactKind.PrimaryImage or MediaArtifactKind.MotionVideo) ||
+                rec.AuxiliaryIndex != uint.MaxValue ||
+                rec.VolumeSerial == 0 ||
+                rec.FileIndex == 0 ||
+                rec.LinkCount == 0)
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.OutputCreateFailed,
+                    CleanerFailureStage.Staging,
+                    protocol,
+                    $"Native cleaner reported malformed staged-output identity/role metadata for '{rec.FinalPath}'; refusing registry authority.");
+            }
+
+            if (!expected.TryGetValue(normalizedPath, out MediaArtifactKind expectedRole) ||
+                expectedRole != rec.ArtifactRole ||
+                !seenRoles.Add(rec.ArtifactRole))
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.OutputCreateFailed,
+                    CleanerFailureStage.Staging,
+                    protocol,
+                    $"Native cleaner staged-output registry does not match the expected role/path binding for '{rec.FinalPath}'; refusing shadow or ambiguous authority.");
+            }
+        }
+
+        if (requireExpectedOutputs)
+        {
+            foreach (KeyValuePair<string, MediaArtifactKind> pair in expected)
+            {
+                if (!seenPaths.Contains(pair.Key))
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.OutputCreateFailed,
+                        CleanerFailureStage.Staging,
+                        protocol,
+                        $"Native cleaner did not report ownership of expected staged {pair.Value} '{pair.Key}'; refusing pathname-only ownership.");
+                }
+            }
+        }
     }
 
     private static bool PathEquals(string? a, string? b)
@@ -1403,57 +1637,122 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         journal.SetState(CleanerTransactionState.Staging);
 
         string imgExt = bundle.PrimaryImage.ImageContainer == ImageContainer.Heic ? ".heic" : ".jpg";
-        string cleanImgPath = workspace.AllocateFilePath("clean-img", imgExt);
+        string stagingDir = Path.Combine(workspace.RootDirectory, "staging_" + Guid.NewGuid().ToString("N"));
+        var stagingOwnership = new CleanerTransactionJournal.StagingDirectoryOwnership(stagingDir);
+
+        // NonLive is still a transaction, not an untracked copy shortcut.  The
+        // staging directory is atomically created and claimed from its creating
+        // handle, exactly like the destructive Native path.  This gives the
+        // no-op path the same directory ownership and cleanup proof contract.
+        try
+        {
+            SafeFileHandle creationDirectoryHandle = WindowsOwnedFilePublisher.CreateOwnedDirectory(stagingDir);
+            stagingOwnership.SetIdentity(WindowsFileIdentity.Capture(creationDirectoryHandle));
+            stagingOwnership.RetainHandle(creationDirectoryHandle);
+        }
+        catch (Exception ex)
+        {
+            throw new CleanerException(
+                CleanerFailureCategory.OutputCreateFailed,
+                CleanerFailureStage.Staging,
+                SourceProtocol.NonLive,
+                $"NonLive staging directory '{stagingDir}' could not be atomically created and claimed: {ex.Message}",
+                innerException: ex);
+        }
+        journal.StagingDirectory = stagingOwnership;
+
+        string stagedImgPath = Path.Combine(stagingDir, "stage-img" + imgExt);
 
         // A no-op copy is still a transaction-owned output.  Record and retain
-        // an exact handle before any later SHA/cancellation/failure point, so a
-        // pathname that goes missing cannot be mistaken for proof of cleanup.
+        // an exact handle before any later validation/cancellation/failure
+        // point, so a pathname that goes missing cannot be mistaken for proof
+        // of cleanup.
         CleanerTransactionJournal.TransactionOwnedObject imgRecord =
             CopyNonLiveArtifact(
                 bundle.PrimaryImage,
-                cleanImgPath,
+                stagedImgPath,
                 journal,
                 MediaArtifactKind.PrimaryImage,
                 faultHook,
                 cancellationToken);
 
-        string? cleanVidPath = null;
+        string? stagedVidPath = null;
         CleanerTransactionJournal.TransactionOwnedObject? vidRecord = null;
         if (bundle.MotionVideo != null)
         {
             string vidExt = bundle.MotionVideo.VideoContainer == VideoContainer.Mov ? ".mov" : ".mp4";
-            cleanVidPath = workspace.AllocateFilePath("clean-vid", vidExt);
+            stagedVidPath = Path.Combine(stagingDir, "stage-vid" + vidExt);
             vidRecord = CopyNonLiveArtifact(
                 bundle.MotionVideo,
-                cleanVidPath,
+                stagedVidPath,
                 journal,
                 MediaArtifactKind.MotionVideo,
                 faultHook,
                 cancellationToken);
         }
 
-        var cleanImgArtifact = bundle.PrimaryImage with
+        // The copy phase has finished and both exact file handles are held.
+        // Acquire the second directory handle only now.  It denies
+        // FILE_SHARE_WRITE, freezing the namespace for the validation-to-
+        // publication window.  Any path-based test seam or future validator
+        // in this NonLive path is therefore tied to the same namespace whose
+        // exact objects the retained handles represent.
+        journal.AcquireValidationNamespaceLease(SourceProtocol.NonLive);
+        if (faultHook != null)
         {
-            Path = cleanImgPath,
-            ByteLength = new FileInfo(imgRecord.CurrentPath).Length,
-            Sha256 = await workspace.ComputeFileSha256Async(cleanImgPath, cancellationToken).ConfigureAwait(false),
-            FileIdentity = imgRecord.Identity
-        };
-
-        MediaArtifact? cleanVidArtifact = null;
-        if (vidRecord != null && cleanVidPath != null && bundle.MotionVideo != null)
-        {
-            cleanVidArtifact = bundle.MotionVideo with
-            {
-                Path = cleanVidPath,
-                ByteLength = new FileInfo(vidRecord.CurrentPath).Length,
-                Sha256 = await workspace.ComputeFileSha256Async(cleanVidPath, cancellationToken).ConfigureAwait(false),
-                FileIdentity = vidRecord.Identity
-            };
+            await faultHook(
+                CleanerFailureStage.Staging,
+                "ValidationNamespaceLeaseAcquired").ConfigureAwait(false);
         }
 
-        bool imgMatch = string.Equals(bundle.PrimaryImage.Sha256, cleanImgArtifact.Sha256, StringComparison.OrdinalIgnoreCase);
-        bool vidMatch = bundle.MotionVideo == null || (cleanVidArtifact != null && string.Equals(bundle.MotionVideo.Sha256, cleanVidArtifact.Sha256, StringComparison.OrdinalIgnoreCase));
+        // This path has no protocol mutation to inspect, but it still needs a
+        // real validation/evidence boundary.  The evidence below is captured
+        // from the retained exact handles, never from a pathname re-open.
+        if (faultHook != null) await faultHook(CleanerFailureStage.PreservationDiff, null).ConfigureAwait(false);
+        if (faultHook != null) await faultHook(CleanerFailureStage.MediaValidation, null).ConfigureAwait(false);
+        if (faultHook != null) await faultHook(CleanerFailureStage.PostCleanInspection, "BeforeInspect").ConfigureAwait(false);
+
+        SafeFileHandle imgHandle = imgRecord.RetainedHandle
+            ?? throw new CleanerException(
+                CleanerFailureCategory.OutputCreateFailed,
+                CleanerFailureStage.PostCleanInspection,
+                SourceProtocol.NonLive,
+                "NonLive staged image has no retained exact ownership handle; refusing pathname-only validation/publish.",
+                MediaArtifactKind.PrimaryImage);
+        PublishedOwnedFile imgEvidence = WindowsOwnedFilePublisher.CaptureOwnedHandleEvidence(
+            imgHandle,
+            stagedImgPath,
+            imgRecord.Identity,
+            cancellationToken);
+
+        PublishedOwnedFile? vidEvidence = null;
+        if (vidRecord != null && stagedVidPath != null)
+        {
+            SafeFileHandle vidHandle = vidRecord.RetainedHandle
+                ?? throw new CleanerException(
+                    CleanerFailureCategory.OutputCreateFailed,
+                    CleanerFailureStage.PostCleanInspection,
+                    SourceProtocol.NonLive,
+                    "NonLive staged video has no retained exact ownership handle; refusing pathname-only validation/publish.",
+                    MediaArtifactKind.MotionVideo);
+            vidEvidence = WindowsOwnedFilePublisher.CaptureOwnedHandleEvidence(
+                vidHandle,
+                stagedVidPath,
+                vidRecord.Identity,
+                cancellationToken);
+        }
+
+        bool imgLengthMatch = bundle.PrimaryImage.ByteLength <= 0 ||
+            imgEvidence.ByteLength == bundle.PrimaryImage.ByteLength;
+        bool imgMatch = imgLengthMatch &&
+            string.Equals(bundle.PrimaryImage.Sha256, imgEvidence.Sha256, StringComparison.OrdinalIgnoreCase);
+        bool vidLengthMatch = bundle.MotionVideo == null ||
+            bundle.MotionVideo.ByteLength <= 0 ||
+            (vidEvidence != null && vidEvidence.ByteLength == bundle.MotionVideo.ByteLength);
+        bool vidMatch = bundle.MotionVideo == null ||
+            (vidEvidence != null &&
+             vidLengthMatch &&
+             string.Equals(bundle.MotionVideo.Sha256, vidEvidence.Sha256, StringComparison.OrdinalIgnoreCase));
 
         if (!imgMatch || !vidMatch)
         {
@@ -1461,7 +1760,115 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 CleanerFailureCategory.ArtifactChangedSinceExtraction,
                 CleanerFailureStage.PostCleanInspection,
                 SourceProtocol.NonLive,
-                $"NonLive verbatim copy failed SHA verification (image match: {imgMatch}, video match: {vidMatch}).");
+                $"NonLive verbatim copy failed same-handle evidence verification (image match: {imgMatch}, video match: {vidMatch}).");
+        }
+
+        journal.SetState(CleanerTransactionState.Validated);
+        if (faultHook != null)
+        {
+            await faultHook(CleanerFailureStage.Commit, "BeforePublish").ConfigureAwait(false);
+        }
+
+        string cleanImgPath = workspace.AllocateFilePath("clean-img", imgExt);
+        string? cleanVidPath = null;
+        if (stagedVidPath != null)
+        {
+            cleanVidPath = workspace.AllocateFilePath("clean-vid", Path.GetExtension(stagedVidPath));
+        }
+
+        PublishedOwnedFile? imgPublished = null;
+        PublishedOwnedFile? vidPublished = null;
+        journal.SetState(CleanerTransactionState.Committing);
+        try
+        {
+            // Publication is the same retained object that supplied the
+            // validation evidence.  The rename is kernel-atomic and refuses
+            // to overwrite a destination that a foreign actor created.
+            journal.RegisterPublishedRecord(imgRecord, cleanImgPath);
+            imgPublished = WindowsOwnedFilePublisher.PublishOwnedHandle(
+                imgHandle,
+                cleanImgPath,
+                imgRecord.Identity,
+                cancellationToken);
+            journal.MarkPublished(imgRecord);
+            if (faultHook != null) await faultHook(CleanerFailureStage.Commit, "ImagePublished").ConfigureAwait(false);
+
+            if (vidRecord != null && vidEvidence != null && cleanVidPath != null)
+            {
+                SafeFileHandle vidHandle = vidRecord.RetainedHandle
+                    ?? throw new CleanerException(
+                        CleanerFailureCategory.OutputCreateFailed,
+                        CleanerFailureStage.Commit,
+                        SourceProtocol.NonLive,
+                        "NonLive staged video lost its retained exact ownership handle before publish.",
+                        MediaArtifactKind.MotionVideo);
+                journal.RegisterPublishedRecord(vidRecord, cleanVidPath);
+                vidPublished = WindowsOwnedFilePublisher.PublishOwnedHandle(
+                    vidHandle,
+                    cleanVidPath,
+                    vidRecord.Identity,
+                    cancellationToken);
+                journal.MarkPublished(vidRecord);
+                if (faultHook != null) await faultHook(CleanerFailureStage.Commit, "VideoPublished").ConfigureAwait(false);
+            }
+
+            // Release the strict validation lease only after both exact
+            // handles have published.  Directory cleanup then uses the same
+            // object-based proof primitive as file cleanup and must be proven
+            // before the terminal Committed state.
+            journal.ReleaseValidationNamespaceLease();
+            if (!journal.TryDeleteOwnedDirectory(out Exception? directoryFailure))
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.PublishFailed,
+                    CleanerFailureStage.Commit,
+                    SourceProtocol.NonLive,
+                    $"NonLive staging directory cleanup could not be proven before commit: {directoryFailure?.Message}",
+                    innerException: directoryFailure);
+            }
+            journal.StagingDirectory = null;
+
+            if (faultHook != null) await faultHook(CleanerFailureStage.Commit, "BeforeBundleCommit").ConfigureAwait(false);
+            journal.SetState(CleanerTransactionState.Committed);
+        }
+        catch (OperationCanceledException)
+        {
+            journal.ReleaseValidationNamespaceLease();
+            if (imgPublished != null) journal.CleanupRetainedObjectOrRecordFailure(imgRecord);
+            if (vidPublished != null && vidRecord != null) journal.CleanupRetainedObjectOrRecordFailure(vidRecord);
+            throw;
+        }
+        catch (Exception ex)
+        {
+            journal.ReleaseValidationNamespaceLease();
+            if (imgPublished != null) journal.CleanupRetainedObjectOrRecordFailure(imgRecord);
+            if (vidPublished != null && vidRecord != null) journal.CleanupRetainedObjectOrRecordFailure(vidRecord);
+            throw new CleanerException(
+                CleanerFailureCategory.PublishFailed,
+                CleanerFailureStage.Commit,
+                SourceProtocol.NonLive,
+                $"Failed to publish NonLive verbatim bundle: {ex.Message}",
+                innerException: ex);
+        }
+
+        var cleanImgArtifact = bundle.PrimaryImage with
+        {
+            Path = imgPublished!.FinalPath,
+            ByteLength = imgPublished.ByteLength,
+            Sha256 = imgPublished.Sha256,
+            FileIdentity = imgPublished.FileIdentity
+        };
+
+        MediaArtifact? cleanVidArtifact = null;
+        if (vidPublished != null && bundle.MotionVideo != null)
+        {
+            cleanVidArtifact = bundle.MotionVideo with
+            {
+                Path = vidPublished.FinalPath,
+                ByteLength = vidPublished.ByteLength,
+                Sha256 = vidPublished.Sha256,
+                FileIdentity = vidPublished.FileIdentity
+            };
         }
 
         sw.Stop();
@@ -1491,12 +1898,6 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             Items = nonLivePreservationItems,
             Summary = "Source is NonLive; artifacts carried through verbatim with verified identical SHA-256."
         };
-
-        if (faultHook != null)
-        {
-            await faultHook(CleanerFailureStage.Commit, "BeforeBundleCommit").ConfigureAwait(false);
-        }
-        journal.SetState(CleanerTransactionState.Committed);
 
         return new ProtocolCleanResult
         {
@@ -1551,7 +1952,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             cancellationToken.ThrowIfCancellationRequested();
             output.Flush(flushToDisk: true);
             WindowsFileIdentity identity = WindowsFileIdentity.Capture(output.SafeFileHandle);
-            record = journal.AddPublishedRecord(destinationPath, artifactRole, identity);
+            record = journal.AddStagedRecord(destinationPath, artifactRole, identity);
             output.Dispose();
             output = null;
             journal.AcquireRetainedHandle(record, faultHook, SourceProtocol.NonLive, failOnAcquisitionError: true);
@@ -1568,7 +1969,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 try
                 {
                     WindowsFileIdentity identity = WindowsFileIdentity.Capture(output.SafeFileHandle);
-                    record = journal.AddPublishedRecord(destinationPath, artifactRole, identity);
+                    record = journal.AddStagedRecord(destinationPath, artifactRole, identity);
                     output.Dispose();
                     output = null;
                     journal.AcquireRetainedHandle(record, faultHook, SourceProtocol.NonLive, failOnAcquisitionError: false);
@@ -1663,10 +2064,12 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         /// that goes missing is NOT proof the directory object is gone (a
         /// foreign actor can rename it away while the object survives), and a
         /// foreign empty directory that later occupies the recorded pathname
-        /// must never be deleted by pathname + emptiness alone.  A retained
-        /// directory handle (BACKUP_SEMANTICS, identity captured from the open
-        /// handle, no reparse point) is the only exact authority that survives
-        /// rename-away.
+        /// must never be deleted by pathname + emptiness alone.  The retained
+        /// creator/ownership handle (BACKUP_SEMANTICS, identity captured from
+        /// the creating handle, no reparse point) is the exact authority that
+        /// survives rename-away.  It deliberately shares WRITE for Native
+        /// staging; ValidationNamespaceLease is a second handle acquired
+        /// after staging with the strict no-WRITE-share guarantee.
         /// </summary>
         public sealed class StagingDirectoryOwnership
         {
@@ -1678,16 +2081,23 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             public string Path { get; }
             public WindowsFileIdentity? Identity { get; private set; }
             public SafeFileHandle? RetainedHandle { get; private set; }
+            public SafeFileHandle? ValidationNamespaceLease { get; private set; }
             public bool HandleAcquisitionAttempted { get; private set; }
             public TransactionOwnedObject.CleanupProofState ProofState { get; set; } = TransactionOwnedObject.CleanupProofState.Active;
 
             public void MarkHandleAcquisitionAttempted() => HandleAcquisitionAttempted = true;
             public void SetIdentity(WindowsFileIdentity identity) => Identity = identity;
             public void RetainHandle(SafeFileHandle handle) => RetainedHandle = handle;
+            public void RetainValidationNamespaceLease(SafeFileHandle handle) => ValidationNamespaceLease = handle;
             public void ReleaseHandle()
             {
                 RetainedHandle?.Dispose();
                 RetainedHandle = null;
+            }
+            public void ReleaseValidationNamespaceLease()
+            {
+                ValidationNamespaceLease?.Dispose();
+                ValidationNamespaceLease = null;
             }
         }
 
@@ -1817,13 +2227,123 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         }
 
         /// <summary>
+        /// Acquires the second directory handle that freezes the staging
+        /// namespace for the validation-to-publish window.  The creator handle
+        /// remains retained for directory ownership and continues to share
+        /// WRITE for Native staging; this lease intentionally does not share
+        /// WRITE.  Failure is fail-closed: validators must never run against a
+        /// mutable namespace when publication is tied to retained handles.
+        /// </summary>
+        public void AcquireValidationNamespaceLease(SourceProtocol protocol)
+        {
+            StagingDirectoryOwnership ownership = StagingDirectory
+                ?? throw new CleanerException(
+                    CleanerFailureCategory.OutputCreateFailed,
+                    CleanerFailureStage.Staging,
+                    protocol,
+                    "Cannot establish the validation namespace lease because the transaction has no owned staging directory.");
+
+            if (ownership.ValidationNamespaceLease is not null &&
+                !ownership.ValidationNamespaceLease.IsInvalid)
+            {
+                return;
+            }
+
+            if (ownership.Identity is not { } expected)
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.OutputCreateFailed,
+                    CleanerFailureStage.Staging,
+                    protocol,
+                    "Cannot establish the validation namespace lease without an exact staging-directory identity.");
+            }
+
+            try
+            {
+                SafeFileHandle lease = WindowsOwnedFilePublisher.OpenValidationNamespaceLease(
+                    ownership.Path,
+                    expected);
+                ownership.RetainValidationNamespaceLease(lease);
+                VerifyRetainedStagedNamespace(ownership, protocol);
+            }
+            catch (CleanerException)
+            {
+                ownership.ReleaseValidationNamespaceLease();
+                throw;
+            }
+            catch (Exception ex)
+            {
+                ownership.ReleaseValidationNamespaceLease();
+                throw new CleanerException(
+                    CleanerFailureCategory.LockedFile,
+                    CleanerFailureStage.Staging,
+                    protocol,
+                    $"Unable to establish the strict validation namespace lease for '{ownership.Path}'; refusing best-effort validation: {ex.Message}",
+                    innerException: ex);
+            }
+        }
+
+        /// <summary>
+        /// Closes the small acquisition-to-lease boundary before any
+        /// path-based validator is allowed to run.  The retained handles are
+        /// already the publication authority; this check only verifies that
+        /// each staged pathname still resolves to that same object.  It is
+        /// performed while the strict directory lease is held, so a foreign
+        /// replacement cannot enter between the check and validation.  A
+        /// mismatch or missing pathname is never treated as harmless.
+        /// </summary>
+        private void VerifyRetainedStagedNamespace(
+            StagingDirectoryOwnership ownership,
+            SourceProtocol protocol)
+        {
+            foreach (TransactionOwnedObject record in StagedPaths)
+            {
+                WindowsFileIdentity actual;
+                try
+                {
+                    actual = WindowsFileIdentity.Capture(record.StagedPath);
+                }
+                catch (Exception ex)
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                        CleanerFailureStage.Staging,
+                        protocol,
+                        $"Retained staged {record.ArtifactRole} '{record.StagedPath}' no longer resolves during validation-namespace binding; refusing pathname validation.",
+                        record.ArtifactRole,
+                        ex);
+                }
+
+                if (actual.IsReparsePoint ||
+                    actual.VolumeSerialNumber != record.Identity.VolumeSerialNumber ||
+                    actual.FileIndex != record.Identity.FileIndex ||
+                    actual.LinkCount != record.Identity.LinkCount)
+                {
+                    throw new CleanerException(
+                        CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                        CleanerFailureStage.Staging,
+                        protocol,
+                        $"Retained staged {record.ArtifactRole} '{record.StagedPath}' is not the exact object held by this transaction; refusing pathname validation.",
+                        record.ArtifactRole);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Releases only the strict validation lease.  The exact directory
+        /// ownership handle remains until directory cleanup proof completes.
+        /// </summary>
+        public void ReleaseValidationNamespaceLease()
+            => StagingDirectory?.ReleaseValidationNamespaceLease();
+
+        /// <summary>
         /// Deletes the staging directory object with the strongest available
-        /// authority.  A retained directory handle is preferred; the
-        /// pathname fallback verifies the exact directory identity (volume +
-        /// file index, non-reparse) before deletion and refuses foreign
-        /// occupants.  The directory is deleted only when it is EMPTY — any
-        /// remaining entry (foreign child) fails the delete and the directory
-        /// (with its foreign content) is left in place.  Never recursive.
+        /// authority.  File and directory cleanup share the same proof
+        /// primitive: a successful FileDispositionInfo request is only an
+        /// armed delete, never ObjectGone.  The directory is considered
+        /// cleaned only after a retained exact handle is disposed and a
+        /// definite-not-found exact-FileId probe succeeds.  Foreign children
+        /// are never recursively deleted; a non-empty directory fails closed.
         /// </summary>
         public bool TryDeleteOwnedDirectory(out Exception? failure)
         {
@@ -1844,18 +2364,28 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             {
                 try
                 {
-                    if (WindowsOwnedFilePublisher.DeleteOwnedObject(handle))
+                    OwnedObjectCleanupProof proof =
+                        WindowsOwnedFilePublisher.DeleteOwnedObjectWithProof(
+                            handle,
+                            ownership.Identity ?? throw new IOException(
+                                $"Staging directory '{ownership.Path}' has no exact identity."),
+                            _volumeProbePath,
+                            out _);
+                    ownership.ReleaseHandle();
+                    if (proof is OwnedObjectCleanupProof.Gone or OwnedObjectCleanupProof.Unlinked)
                     {
-                        ownership.ProofState = TransactionOwnedObject.CleanupProofState.ExactDeleted;
-                        ownership.ReleaseHandle();
+                        ownership.ProofState = proof == OwnedObjectCleanupProof.Gone
+                            ? TransactionOwnedObject.CleanupProofState.ExactDeleted
+                            : TransactionOwnedObject.CleanupProofState.ProvenUnlinked;
                         return true;
                     }
-                    // Non-empty (foreign child present) or access denied:
-                    // disposition fails; leave the directory untouched.
+
+                    // Non-empty (foreign child present), ambiguous identity
+                    // probe, or access denied: disposition success is not a
+                    // gone-proof and the directory is left in place.
                     ownership.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
                     failure = new IOException(
-                        $"Staging directory '{ownership.Path}' could not be deleted through its retained handle (non-empty or access denied); foreign children are left in place.");
-                    ownership.ReleaseHandle();
+                        $"Staging directory '{ownership.Path}' cleanup proof was {proof}; the exact directory may still exist and foreign children are left in place.");
                     return false;
                 }
                 catch (Exception ex)
@@ -1880,8 +2410,11 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 using SafeFileHandle fallbackHandle = WindowsOwnedFilePublisher.OpenOwnedDirectory(ownership.Path);
                 WindowsFileIdentity current = WindowsFileIdentity.Capture(fallbackHandle);
                 if (ownership.Identity is not { } expected ||
+                    current.IsReparsePoint ||
+                    (current.FileAttributes & 0x00000010u) == 0 ||
                     current.VolumeSerialNumber != expected.VolumeSerialNumber ||
-                    current.FileIndex != expected.FileIndex)
+                    current.FileIndex != expected.FileIndex ||
+                    current.LinkCount != expected.LinkCount)
                 {
                     failure = new IOException(
                         $"Refusing to delete '{ownership.Path}': the directory at this pathname is not the exact directory this transaction created (foreign-object protection).");
@@ -1893,13 +2426,22 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                         $"Staging directory '{ownership.Path}' still contains entries not owned by this transaction; leaving them in place.");
                     return false;
                 }
-                if (WindowsOwnedFilePublisher.DeleteOwnedObject(fallbackHandle))
+                OwnedObjectCleanupProof proof =
+                    WindowsOwnedFilePublisher.DeleteOwnedObjectWithProof(
+                        fallbackHandle,
+                        expected,
+                        _volumeProbePath,
+                        out _);
+                if (proof is OwnedObjectCleanupProof.Gone or OwnedObjectCleanupProof.Unlinked)
                 {
-                    ownership.ProofState = TransactionOwnedObject.CleanupProofState.ExactDeleted;
+                    ownership.ProofState = proof == OwnedObjectCleanupProof.Gone
+                        ? TransactionOwnedObject.CleanupProofState.ExactDeleted
+                        : TransactionOwnedObject.CleanupProofState.ProvenUnlinked;
                     return true;
                 }
+                ownership.ProofState = TransactionOwnedObject.CleanupProofState.CleanupUnproven;
                 failure = new IOException(
-                    $"Staging directory '{ownership.Path}' disposition failed (Win32 error {Marshal.GetLastWin32Error()}).");
+                    $"Staging directory '{ownership.Path}' cleanup proof was {proof}; disposition success is not ObjectGone proof.");
                 return false;
             }
             catch (Exception ex)
@@ -2210,6 +2752,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 record.ReleaseHandle();
             }
 
+            StagingDirectory?.ReleaseValidationNamespaceLease();
             StagingDirectory?.ReleaseHandle();
         }
 

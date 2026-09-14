@@ -123,6 +123,40 @@ internal static class WindowsOwnedFilePublisher
         WindowsFileIdentity expected,
         CancellationToken cancellationToken)
     {
+        PublishedOwnedFile evidence = CaptureOwnedHandleEvidence(
+            handle,
+            finalPath,
+            expected,
+            cancellationToken);
+
+        // LAST filesystem-state-changing operation: kernel-atomic no-overwrite
+        // rename through the verified handle.  Nothing fallible runs after it,
+        // so a throw from this method implies the rename never happened and
+        // the object is still at its staged pathname.
+        if (!RenameThroughHandle(handle, finalPath, out int win32Error))
+        {
+            throw BuildPublishFailure(finalPath, win32Error);
+        }
+
+        return evidence;
+    }
+
+    /// <summary>
+    /// Captures validation/evidence from the retained exact object handle.
+    /// No pathname is opened.  This is used by the NonLive copy path before
+    /// its handle-bound publication and by the live path immediately before
+    /// the same-handle rename, so length and SHA-256 cannot come from a
+    /// different object at the staged pathname.
+    /// </summary>
+    public static PublishedOwnedFile CaptureOwnedHandleEvidence(
+        SafeFileHandle handle,
+        string evidencePath,
+        WindowsFileIdentity expected,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        ArgumentNullException.ThrowIfNull(evidencePath);
+        ArgumentNullException.ThrowIfNull(expected);
         cancellationToken.ThrowIfCancellationRequested();
 
         WindowsFileIdentity identity = WindowsFileIdentity.Capture(handle);
@@ -135,7 +169,7 @@ internal static class WindowsOwnedFilePublisher
                 CleanerFailureCategory.ArtifactChangedSinceExtraction,
                 CleanerFailureStage.Commit,
                 SourceProtocol.Unknown,
-                $"Staged object identity changed before the same-handle rename; fail closed for '{finalPath}'.");
+                $"Owned object identity changed before same-handle evidence capture; fail closed for '{evidencePath}'.");
         }
 
         if (!GetFileSizeEx(handle, out long finalLength))
@@ -145,21 +179,11 @@ internal static class WindowsOwnedFilePublisher
                 CleanerFailureCategory.PublishFailed,
                 CleanerFailureStage.Commit,
                 SourceProtocol.Unknown,
-                $"Unable to capture the length of the object being published to '{finalPath}' (Win32 error {sizeError}).");
+                $"Unable to capture the length of the owned object '{evidencePath}' (Win32 error {sizeError}).");
         }
 
-        string sha256 = ComputeSha256FromHandle(handle, finalPath, cancellationToken);
-
-        // LAST filesystem-state-changing operation: kernel-atomic no-overwrite
-        // rename through the verified handle.  Nothing fallible runs after it,
-        // so a throw from this method implies the rename never happened and
-        // the object is still at its staged pathname.
-        if (!RenameThroughHandle(handle, finalPath, out int win32Error))
-        {
-            throw BuildPublishFailure(finalPath, win32Error);
-        }
-
-        return new PublishedOwnedFile(finalPath, identity, finalLength, sha256);
+        string sha256 = ComputeSha256FromHandle(handle, evidencePath, cancellationToken);
+        return new PublishedOwnedFile(evidencePath, identity, finalLength, sha256);
     }
 
     /// <summary>
@@ -245,6 +269,54 @@ internal static class WindowsOwnedFilePublisher
                     SourceProtocol.Unknown,
                     $"Directory at '{path}' is a reparse point; refusing to treat a redirecting directory as a transaction-owned object.");
             }
+            return handle;
+        }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Acquires the strict validation namespace lease for an already-owned
+    /// staging directory.  The creating/ownership handle deliberately shares
+    /// WRITE so Native can stage files; this second handle deliberately does
+    /// not share WRITE and is acquired only after Native staging and exact
+    /// staged-file handle acquisition are complete.  From this point until the
+    /// lease is released, a foreign actor cannot create, replace, rename, or
+    /// otherwise mutate an entry in the staging namespace through a new
+    /// writable directory handle.  Path-based validators are therefore bound
+    /// to the same namespace entry represented by the retained file handles.
+    ///
+    /// The pathname is used only to locate the directory.  The returned lease
+    /// is accepted only when its handle reports the exact expected directory
+    /// identity; a pathname takeover fails closed.
+    /// </summary>
+    public static SafeFileHandle OpenValidationNamespaceLease(
+        string path,
+        WindowsFileIdentity expected)
+    {
+        ArgumentNullException.ThrowIfNull(path);
+        ArgumentNullException.ThrowIfNull(expected);
+
+        SafeFileHandle handle = OpenOwnedDirectory(path);
+        try
+        {
+            WindowsFileIdentity actual = WindowsFileIdentity.Capture(handle);
+            if (actual.IsReparsePoint ||
+                (actual.FileAttributes & FileAttributeDirectory) == 0 ||
+                actual.VolumeSerialNumber != expected.VolumeSerialNumber ||
+                actual.FileIndex != expected.FileIndex ||
+                actual.LinkCount != expected.LinkCount)
+            {
+                throw new CleanerException(
+                    CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                    CleanerFailureStage.Staging,
+                    SourceProtocol.Unknown,
+                    $"Validation namespace '{path}' is not the exact transaction-owned directory; refusing to establish a validation lease over a foreign object.");
+            }
+
             return handle;
         }
         catch
@@ -355,12 +427,11 @@ internal static class WindowsOwnedFilePublisher
     /// <see cref="OpenFileById"/> API + FILE_ID_DESCRIPTOR (the same
     /// semantics as the previous hand-rolled NtOpenFile probe, but through a
     /// documented Win32 surface).  Alive means the object (or an alias of it)
-    /// still exists.  NotAlive means the query itself ran and the FileId is
-    /// not resolvable (INVALID_PARAMETER / FILE_NOT_FOUND / PATH_NOT_FOUND —
-    /// the stable Win32 response for a deleted FileId under an otherwise
-    /// valid descriptor; probe D1).  Unknown means the volume could not be
-    /// opened or the error is inconclusive (ACCESS_DENIED etc.) — callers
-    /// MUST fail closed and never report the object gone on Unknown.
+    /// still exists.  NotAlive means the query itself ran and returned a
+    /// definite not-found result.  Unknown means the volume could not be
+    /// opened or the error is inconclusive, including INVALID_PARAMETER,
+    /// ACCESS_DENIED, sharing violations, and unsupported identity modes —
+    /// callers MUST fail closed and never report the object gone on Unknown.
     /// </summary>
     public static ObjectAliveCheck IsObjectAliveByFileId(WindowsFileIdentity identity, string volumeProbePath)
     {
@@ -391,33 +462,46 @@ internal static class WindowsOwnedFilePublisher
                 FileIdType = FileIdType,
                 FileId = identity.FileIndex
             };
+            uint byIdFlags = (identity.FileAttributes & FileAttributeDirectory) != 0
+                ? BackupSemantics
+                : 0;
             using SafeFileHandle objectHandle = OpenFileById(
                 volumeHandle,
                 ref descriptor,
                 FileReadAttributes,
                 FileShareRead | FileShareWrite | FileShareDelete,
                 IntPtr.Zero,
-                0);
+                byIdFlags);
             if (!objectHandle.IsInvalid)
             {
                 return ObjectAliveCheck.Alive;
             }
 
-            // The query ran and the FileId did not resolve.  INVALID_PARAMETER
-            // is the stable Win32 response for a deleted FileId under an
-            // otherwise-valid descriptor (probe D1); FILE/PATH_NOT_FOUND are
-            // self-evident.  Any other failure (ACCESS_DENIED while the object
-            // is pending deletion, sharing violations, I/O errors) is
-            // inconclusive and must fail closed.
-            return Marshal.GetLastWin32Error() is ErrorFileNotFound or ErrorPathNotFound or ErrorInvalidParameter
-                ? ObjectAliveCheck.NotAlive
-                : ObjectAliveCheck.Unknown;
+            // The query ran and the FileId did not resolve.  Only the definite
+            // not-found Win32 results prove that the exact identity is gone.
+            // ERROR_INVALID_PARAMETER is deliberately ambiguous: it can mean
+            // an unsupported descriptor/filesystem combination, so it is
+            // Unknown and must fail closed just like ACCESS_DENIED,
+            // ERROR_SHARING_VIOLATION, and every other non-not-found error.
+            int win32Error = Marshal.GetLastWin32Error();
+            return ClassifyOpenFileByIdError(win32Error);
         }
         catch
         {
             return ObjectAliveCheck.Unknown;
         }
     }
+
+    /// <summary>
+    /// Maps the result of an exact <see cref="OpenFileById"/> probe.  This is a
+    /// pure production rule and the deterministic seam used by tests for
+    /// ambiguous kernel errors.  No error other than definite
+    /// FILE_NOT_FOUND/PATH_NOT_FOUND may establish object-gone proof.
+    /// </summary>
+    internal static ObjectAliveCheck ClassifyOpenFileByIdError(int win32Error)
+        => win32Error is ErrorFileNotFound or ErrorPathNotFound
+            ? ObjectAliveCheck.NotAlive
+            : ObjectAliveCheck.Unknown;
 
     /// <summary>
     /// Deletes the exact object referenced by <paramref name="handle"/> and
@@ -430,16 +514,20 @@ internal static class WindowsOwnedFilePublisher
     ///  2. Delete-pending disposition armed through the handle.  Once armed,
     ///     the kernel denies creation of any NEW hard link to the object
     ///     (probe H2), so the link count can no longer grow.
-    ///  3. By-FileId re-query through <see cref="OpenFileById"/>: Alive means
-    ///     an alias was introduced between the LinkCount read and the arming;
-    ///     NotAlive (with the descriptor otherwise valid) means the object
-    ///     has no surviving namespace entry; Unknown fails closed.
+    ///  3. Re-read LinkCount from the SAME handle after arming: zero is a
+    ///     kernel-backed ProvenUnlinked result; a value above one is an
+    ///     AliasAlive result.
+    ///  4. Otherwise, release the handle and re-query through
+    ///     <see cref="OpenFileById"/>: Alive means an alias was introduced
+    ///     between the LinkCount read and the arming; definite NotAlive means
+    ///     the object has no surviving namespace entry; Unknown fails closed.
     ///
-    /// Gone therefore means: single-link + armed + no resolvable FileId — the
-    /// object has no namespace entry and is deleted when the last handle
-    /// closes.  INVALID_PARAMETER alone is never treated as gone: it is only
-    /// accepted as NotAlive here because the FileId came from a live retained
-    /// handle and the same descriptor resolves a live object (probe D1/D4).
+    /// Gone therefore means: single-link + armed + definite no-resolvable
+    /// FileId.  Unlinked means the same object handle reported zero links
+    /// after the disposition, which is sufficient kernel evidence that no
+    /// namespace entry remains.  INVALID_PARAMETER is never treated as gone:
+    /// descriptor or filesystem ambiguity is not exact-object evidence and
+    /// therefore yields Unknown/cleanup-unproven.
     /// </summary>
     public static OwnedObjectCleanupProof DeleteOwnedObjectWithProof(
         SafeFileHandle handle,
@@ -456,6 +544,17 @@ internal static class WindowsOwnedFilePublisher
         }
         catch
         {
+            return OwnedObjectCleanupProof.Unknown;
+        }
+
+        if (pre.VolumeSerialNumber != identity.VolumeSerialNumber ||
+            pre.FileIndex != identity.FileIndex ||
+            pre.IsReparsePoint ||
+            ((pre.FileAttributes & FileAttributeDirectory) != 0) !=
+            ((identity.FileAttributes & FileAttributeDirectory) != 0))
+        {
+            // A proof primitive must never operate on a handle whose identity
+            // is different from the identity recorded by the transaction.
             return OwnedObjectCleanupProof.Unknown;
         }
 
@@ -479,6 +578,43 @@ internal static class WindowsOwnedFilePublisher
             return OwnedObjectCleanupProof.Unknown;
         }
         deletePendingArmed = true;
+
+        // A delete-pending handle can report zero links immediately after the
+        // disposition is armed.  That is already kernel-backed exact-object
+        // evidence: no directory entry can resolve this object, and the
+        // object is freed when this last retained handle closes.  Prefer this
+        // same-handle proof so a filesystem/API-specific by-FileId response
+        // cannot turn an otherwise proven unlink into an ambiguous result.
+        try
+        {
+            WindowsFileIdentity postDisposition = WindowsFileIdentity.Capture(handle);
+            if (postDisposition.VolumeSerialNumber != identity.VolumeSerialNumber ||
+                postDisposition.FileIndex != identity.FileIndex ||
+                postDisposition.IsReparsePoint ||
+                ((postDisposition.FileAttributes & FileAttributeDirectory) != 0) !=
+                ((identity.FileAttributes & FileAttributeDirectory) != 0))
+            {
+                handle.Dispose();
+                return OwnedObjectCleanupProof.Unknown;
+            }
+
+            if (postDisposition.LinkCount == 0)
+            {
+                handle.Dispose();
+                return OwnedObjectCleanupProof.Unlinked;
+            }
+            if (postDisposition.LinkCount > 1)
+            {
+                handle.Dispose();
+                return OwnedObjectCleanupProof.AliasAlive;
+            }
+        }
+        catch
+        {
+            // Continue with the exact FileId probe after releasing the handle;
+            // an inability to read post-disposition identity is not itself a
+            // gone proof.
+        }
 
         // The object is now delete-pending: it is only freed when the LAST
         // open handle to it closes (probe H2/E2).  While this handle is still
@@ -760,11 +896,11 @@ internal static class WindowsOwnedFilePublisher
 /// <summary>
 /// Result of the public <see cref="OpenFileById"/> exact-FileId existence
 /// query.  Alive means the object (or an alias of it) still resolves on its
-/// volume; NotAlive means the query ran and the FileId is not resolvable
-/// (the stable Win32 response for a deleted FileId under an otherwise valid
-/// descriptor); Unknown means the volume could not be opened or the failure
-/// is inconclusive (e.g. ACCESS_DENIED while an object is pending deletion) —
-/// callers must fail closed and NEVER report the object gone on Unknown.
+/// volume; NotAlive means the query ran and returned a definite not-found
+/// result; Unknown means the volume could not be opened or the failure is
+/// inconclusive (including INVALID_PARAMETER, ACCESS_DENIED, sharing
+/// violations, and unsupported identity modes) — callers must fail closed and
+/// NEVER report the object gone on Unknown.
 /// </summary>
 public enum ObjectAliveCheck
 {
@@ -775,12 +911,12 @@ public enum ObjectAliveCheck
 
 /// <summary>
 /// Object-based cleanup proof produced from a retained exact handle — never
-/// from a pathname.  Gone: single-link, delete-pending armed, and the FileId
-/// no longer resolves — the object has no namespace entry and is freed when
-/// the last handle closes.  Unlinked: LinkCount == 0 through the handle (a
-/// foreign actor already removed its pathname).  AliasAlive: the object still
-/// exists under a foreign hard-link alias (cleanup is unproven).  Unknown:
-/// no proof could be obtained — the caller MUST fail closed (RollbackFailed).
+/// from a pathname.  Gone: single-link, delete-pending armed, and a definite
+/// not-found FileId probe after the handle is released.  Unlinked:
+/// LinkCount == 0 through the handle (a foreign actor already removed its
+/// pathname).  AliasAlive: the object still exists under a foreign hard-link
+/// alias (cleanup is unproven).  Unknown: no proof could be obtained — the
+/// caller MUST fail closed (RollbackFailed).
 /// </summary>
 public enum OwnedObjectCleanupProof
 {

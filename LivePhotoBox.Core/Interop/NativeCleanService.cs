@@ -496,44 +496,36 @@ internal static class NativeCleanService
             return result;
         }
 
-        try
+        unsafe
         {
-            unsafe
+            nuint count = useHarnessLibrary
+                ? TestHarnessNativeMethods.CleanGetStagedOutputs(contextHandle, nint.Zero, 0)
+                : NativeMethods.CleanGetStagedOutputs(contextHandle, nint.Zero, 0);
+            if (count == 0)
             {
-                nuint count = useHarnessLibrary
-                    ? TestHarnessNativeMethods.CleanGetStagedOutputs(contextHandle, nint.Zero, 0)
-                    : NativeMethods.CleanGetStagedOutputs(contextHandle, nint.Zero, 0);
-                if (count == 0)
-                {
-                    return result;
-                }
+                return result;
+            }
 
-                var buf = new NativeCleanStagedOutputRecord[count];
-                fixed (NativeCleanStagedOutputRecord* p = buf)
+            var buf = new NativeCleanStagedOutputRecord[count];
+            fixed (NativeCleanStagedOutputRecord* p = buf)
+            {
+                nuint written = useHarnessLibrary
+                    ? TestHarnessNativeMethods.CleanGetStagedOutputs(contextHandle, (nint)p, count)
+                    : NativeMethods.CleanGetStagedOutputs(contextHandle, (nint)p, count);
+                for (nuint i = 0; i < written && i < count; i++)
                 {
-                    nuint written = useHarnessLibrary
-                        ? TestHarnessNativeMethods.CleanGetStagedOutputs(contextHandle, (nint)p, count)
-                        : NativeMethods.CleanGetStagedOutputs(contextHandle, (nint)p, count);
-                    for (nuint i = 0; i < written && i < count; i++)
-                    {
-                        NativeCleanStagedOutputRecord* pRec = &p[i];
-                        string path = ReadFixedUtf8String(pRec->FinalPath, 1024);
-                        result.Add(new CleanStagedOutputRecord(
-                            (MediaArtifactKind)pRec->ArtifactRole,
-                            pRec->AuxiliaryIndex,
-                            pRec->Identity.VolumeSerial,
-                            pRec->Identity.FileIndex,
-                            pRec->Identity.FileSize,
-                            pRec->Identity.LinkCount,
-                            path));
-                    }
+                    NativeCleanStagedOutputRecord* pRec = &p[i];
+                    string path = ReadFixedUtf8String(pRec->FinalPath, 1024);
+                    result.Add(new CleanStagedOutputRecord(
+                        (MediaArtifactKind)pRec->ArtifactRole,
+                        pRec->AuxiliaryIndex,
+                        pRec->Identity.VolumeSerial,
+                        pRec->Identity.FileIndex,
+                        pRec->Identity.FileSize,
+                        pRec->Identity.LinkCount,
+                        path));
                 }
             }
-        }
-        catch
-        {
-            // Ownership registry is best-effort diagnostics; callers fail
-            // closed when a required registry entry is absent.
         }
 
         return result;
