@@ -1,0 +1,18 @@
+{
+  "title": "Live Photo Box P4 细分路线图",
+  "based_on": "用户提供的 live-photo-box-source(9).zip 当前源码快照与仓库内 P4/总纲/AI Bootstrap",
+  "implementation_rounds": 7,
+  "independent_gates": 2,
+  "order": [
+    "00-P4-细分路线图总览.md",
+    "01-P4-R1-能力盘点与基线.md",
+    "02-P4-R2-PlatformFilesystem与PortableIO.md",
+    "03-P4-R3-CMake与vcpkg构建基础.md",
+    "04-P4-R4-JPEG基础.md",
+    "05-P4-R5-HEIF-HEIC-HDR基础.md",
+    "06-P4-R6-视频Backend对比与冻结.md",
+    "07-P4-R7-收口与PortableCore证明.md",
+    "08-P4-Audit-独立审计.md",
+    "09-P4-Verify-验证与外部门禁.md"
+  ]
+}

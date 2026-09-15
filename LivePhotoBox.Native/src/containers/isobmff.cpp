@@ -1,10 +1,41 @@
-#include "foundation/internal.h"
 #include "containers/isobmff.h"
 #include "binary/binary_io.h"
 #include <algorithm>
+#include <cstring>
 #include <limits>
 
 using namespace lpb;
+
+std::vector<top_level_box> scan_top_level_boxes(
+    const random_access_reader& source) noexcept
+{
+    std::vector<top_level_box> boxes;
+    try {
+        uint64_t position = 0;
+        while (source.length - position >= 8) {
+            uint8_t header[16]{};
+            if (!source.read_exact(position, std::span<uint8_t>(header, 8))) break;
+            uint64_t size = read_be32u(header);
+            uint32_t header_size = 8;
+            if (size == 1) {
+                if (source.length - position < 16 ||
+                    !source.read_exact(position + 8, std::span<uint8_t>(header + 8, 8))) break;
+                size = static_cast<uint64_t>(read_be64(header + 8));
+                header_size = 16;
+            } else if (size == 0) {
+                size = source.length - position;
+            }
+            if (size < header_size || size > source.length - position) break;
+            top_level_box box{position, size, {}, header_size};
+            std::memcpy(box.type, header + 4, 4);
+            boxes.push_back(box);
+            position += size;
+        }
+    } catch (...) {
+        boxes.clear();
+    }
+    return boxes;
+}
 
 bool try_read_box_header(
     const uint8_t* data,

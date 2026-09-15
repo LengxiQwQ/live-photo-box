@@ -882,7 +882,9 @@ public sealed class ExtractorTransactionTests
         nativeFacts.PrimaryImage.FileRange.Length = 4096;
         // PrimarySha256 left all zeroes
 
-        using var ctx = NativeContext.Create();
+        // The raw-facts entry point belongs to the test-harness DLL; its
+        // context must be allocated by that same DLL.
+        using var ctx = TestNativeContext.Create();
         NativeResult res = TestNativeMethods.ExtractMediaLegacy(
             ctx.Handle,
             dummySource,

@@ -1,0 +1,2 @@
+#pragma once
+#define LPB_PRODUCT_VERSION "@LPB_PRODUCT_VERSION@"

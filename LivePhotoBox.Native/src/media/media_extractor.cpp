@@ -1,12 +1,12 @@
 #include "media/media_extractor.h"
 #include "foundation/internal.h"
 #include "foundation/sha256.h"
+#include "platform/windows_filesystem.h"
 #include <filesystem>
 #include <Windows.h>
 #include <vector>
 #include <string>
 #include <algorithm>
-#include <atomic>
 #include <cstdint>
 #include <cstring>
 
@@ -51,7 +51,7 @@ static lpb_result rollback_extraction_transaction(
     std::vector<slice_task>& tasks) noexcept
 {
 
-            std::string cleanup_fail_path;
+    std::string cleanup_fail_path;
     DWORD cleanup_fail_err = 0;
     bool all_clean = true;
 
@@ -88,13 +88,7 @@ static lpb_result rollback_extraction_transaction(
             continue;
         }
 
-        FILE_DISPOSITION_INFO disposition{};
-        disposition.DeleteFile = TRUE;
-        if (!SetFileInformationByHandle(
-                task.temp_handle,
-                FileDispositionInfo,
-                &disposition,
-                sizeof(disposition))) {
+        if (!lpb_platform_dispose_owned(task.temp_handle)) {
             const DWORD err = GetLastError();
             all_clean = false;
             if (cleanup_fail_path.empty()) {
@@ -194,110 +188,6 @@ bool path_matches_handle(
     const std::wstring normalized_expected = normalized_absolute_path(expected_path);
     return !normalized_expected.empty() &&
         _wcsicmp(normalized_actual.c_str(), normalized_expected.c_str()) == 0;
-}
-
-bool path_is_reparse_point(const std::filesystem::path& path) noexcept
-{
-    if (path.empty()) return false;
-    HANDLE handle = CreateFileW(
-        path.c_str(),
-        FILE_READ_ATTRIBUTES,
-        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        nullptr,
-        OPEN_EXISTING,
-        FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
-        nullptr);
-    if (handle == INVALID_HANDLE_VALUE) return false;
-
-    FILE_ATTRIBUTE_TAG_INFO tag_info{};
-    const bool result = GetFileInformationByHandleEx(
-        handle,
-        FileAttributeTagInfo,
-        &tag_info,
-        sizeof(tag_info)) != FALSE &&
-        (((tag_info.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) ||
-         tag_info.ReparseTag != 0);
-    CloseHandle(handle);
-    return result;
-}
-
-bool open_destination_directory(
-    const std::filesystem::path& directory,
-    HANDLE& handle) noexcept
-{
-    handle = INVALID_HANDLE_VALUE;
-    if (directory.empty() || path_is_reparse_point(directory)) {
-        return false;
-    }
-
-    handle = CreateFileW(
-        directory.c_str(),
-        FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES,
-        // Do not share DELETE. This keeps the directory object used by the
-        // relative rename stable until publish and post-publish validation.
-        FILE_SHARE_READ | FILE_SHARE_WRITE,
-        nullptr,
-        OPEN_EXISTING,
-        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-        nullptr);
-    if (handle == INVALID_HANDLE_VALUE) {
-        return false;
-    }
-
-    lpb_file_identity identity{};
-    std::wstring actual_path;
-    if (!capture_file_identity_from_handle(handle, identity, actual_path)) {
-        CloseHandle(handle);
-        handle = INVALID_HANDLE_VALUE;
-        return false;
-    }
-
-    std::wstring normalized_actual = actual_path;
-    if (normalized_actual.size() >= 4 && normalized_actual.compare(0, 4, L"\\\\?\\") == 0) {
-        normalized_actual.erase(0, 4);
-    }
-    const std::wstring normalized_expected = normalized_absolute_path(directory);
-    if (normalized_expected.empty() || _wcsicmp(normalized_actual.c_str(), normalized_expected.c_str()) != 0) {
-        CloseHandle(handle);
-        handle = INVALID_HANDLE_VALUE;
-        return false;
-    }
-    return true;
-}
-
-std::atomic<uint64_t> g_temp_sequence{1};
-
-bool open_unique_temp_file(
-    const std::filesystem::path& directory,
-    std::filesystem::path& path,
-    HANDLE& handle) noexcept
-{
-    handle = INVALID_HANDLE_VALUE;
-    const DWORD process_id = GetCurrentProcessId();
-    for (uint32_t attempt = 0; attempt != 64; ++attempt) {
-        const uint64_t sequence = g_temp_sequence.fetch_add(1, std::memory_order_relaxed);
-        const std::wstring name = L".lpb-" + std::to_wstring(process_id) + L"-" +
-            std::to_wstring(sequence) + L".tmp";
-        const auto candidate = directory / name;
-        HANDLE candidate_handle = CreateFileW(
-            candidate.c_str(),
-            GENERIC_READ | GENERIC_WRITE | DELETE,
-            FILE_SHARE_READ | FILE_SHARE_DELETE,
-            nullptr,
-            CREATE_NEW,
-            FILE_ATTRIBUTE_NORMAL,
-            nullptr);
-        if (candidate_handle != INVALID_HANDLE_VALUE) {
-            path = candidate;
-            handle = candidate_handle;
-            return true;
-        }
-        if (GetLastError() != ERROR_FILE_EXISTS && GetLastError() != ERROR_ALREADY_EXISTS) {
-            return false;
-        }
-    }
-    SetLastError(ERROR_FILE_EXISTS);
-    return false;
 }
 
 bool same_bounded_string_n(const char* left, const char* right, size_t capacity) noexcept
@@ -547,9 +437,7 @@ lpb_result delete_recorded_artifact(
         return LPB_RESULT_INTERNAL_ERROR;
     }
 
-    FILE_DISPOSITION_INFO disposition{};
-    disposition.DeleteFile = TRUE;
-    if (!SetFileInformationByHandle(handle, FileDispositionInfo, &disposition, sizeof(disposition)))
+    if (!lpb_platform_dispose_owned(handle))
     {
         CloseHandle(handle);
         artifact.rollback_handle = nullptr;
@@ -798,7 +686,7 @@ lpb_result extract_source_internal(
         if (!outputs[i] || outputs[i][0] == '\0') continue;
         auto p_dst = utf8_to_path(outputs[i]);
         DWORD attrs = GetFileAttributesW(p_dst.c_str());
-        if (attrs != INVALID_FILE_ATTRIBUTES || path_is_reparse_point(p_dst)) {
+        if (attrs != INVALID_FILE_ATTRIBUTES || lpb_platform_path_is_reparse_point(p_dst)) {
             std::string msg = "[OutputPublishFailed] Destination path already exists and will not be overwritten: " +
                 std::string(outputs[i]) + ".";
             set_error(context, msg.c_str());
@@ -862,7 +750,7 @@ lpb_result extract_source_internal(
     for (const char* output : auxiliary_output_paths) {
         auto p_dst = utf8_to_path(output);
         DWORD attrs = GetFileAttributesW(p_dst.c_str());
-        if (attrs != INVALID_FILE_ATTRIBUTES || path_is_reparse_point(p_dst)) {
+        if (attrs != INVALID_FILE_ATTRIBUTES || lpb_platform_path_is_reparse_point(p_dst)) {
             std::string msg = "[OutputPublishFailed] Destination path already exists and will not be overwritten: " +
                 std::string(output) + ".";
             set_error(context, msg.c_str());
@@ -1126,14 +1014,15 @@ lpb_result extract_source_internal(
         }
 
         const auto temp_dir = task.final_dst_path.parent_path();
-        if (path_is_reparse_point(temp_dir)) {
+        if (lpb_platform_path_is_reparse_point(temp_dir)) {
             return rollback_extraction_transaction(
                 context,
                 {LPB_RESULT_INTERNAL_ERROR, "[OutputPublishFailed]", "Destination directory is a reparse point for " + std::string(task.artifact_name) + "."},
                 tasks);
         }
 
-        if (!open_destination_directory(temp_dir, task.destination_directory_handle)) {
+        void* pinned_directory = nullptr;
+        if (!lpb_platform_pin_directory(temp_dir, pinned_directory)) {
             const DWORD err = GetLastError();
             return rollback_extraction_transaction(
                 context,
@@ -1141,9 +1030,12 @@ lpb_result extract_source_internal(
                 tasks);
         }
 
-        if (!open_unique_temp_file(temp_dir, task.temp_path, task.temp_handle)) {
+        task.destination_directory_handle = static_cast<HANDLE>(pinned_directory);
+        task.temp_handle = lpb_create_unique_temp_file(
+            temp_dir, L".lpb", task.temp_path, L".tmp", true);
+        if (task.temp_handle == INVALID_HANDLE_VALUE) {
             const DWORD err = GetLastError();
-            const std::string cat = (err == ERROR_DISK_FULL || err == ERROR_HANDLE_DISK_FULL)
+            const std::string cat = (lpb_platform_classify_error(err) == lpb_platform_error::disk_full)
                 ? "[DiskFull]" : "[OutputPublishFailed]";
             const std::string det = (cat == "[DiskFull]")
                 ? ("Disk full while creating temporary file for " + std::string(task.artifact_name) + " (Win32 error: " + std::to_string(err) + ").")
@@ -1226,7 +1118,7 @@ lpb_result extract_source_internal(
 
             if (!write_ok || bytes_written_chunk != bytes_read) {
                 const DWORD err = GetLastError();
-                const std::string cat = (err == ERROR_DISK_FULL || err == ERROR_HANDLE_DISK_FULL)
+                const std::string cat = (lpb_platform_classify_error(err) == lpb_platform_error::disk_full)
                     ? "[DiskFull]" : "[OutputWriteFailed]";
                 const std::string det = (cat == "[DiskFull]")
                     ? ("Disk full while writing extracted slice for " + std::string(task.artifact_name) + " (Win32 error: " + std::to_string(err) + ").")
@@ -1275,7 +1167,7 @@ lpb_result extract_source_internal(
 
         if (!flush_ok) {
             const DWORD err = GetLastError();
-            const std::string cat = (err == ERROR_DISK_FULL || err == ERROR_HANDLE_DISK_FULL)
+            const std::string cat = (lpb_platform_classify_error(err) == lpb_platform_error::disk_full)
                 ? "[DiskFull]" : "[OutputWriteFailed]";
             const std::string det = (cat == "[DiskFull]")
                 ? ("Disk full while flushing extracted slice for " + std::string(task.artifact_name) + " (Win32 error: " + std::to_string(err) + ").")
@@ -1329,7 +1221,7 @@ lpb_result extract_source_internal(
 
         const DWORD destination_attributes = GetFileAttributesW(task.final_dst_path.c_str());
 
-        if (destination_attributes != INVALID_FILE_ATTRIBUTES || path_is_reparse_point(task.final_dst_path)) {
+        if (destination_attributes != INVALID_FILE_ATTRIBUTES || lpb_platform_path_is_reparse_point(task.final_dst_path)) {
             return rollback_extraction_transaction(
                 context,
                 {LPB_RESULT_INTERNAL_ERROR, "[OutputPublishFailed]", "Destination appeared, changed, or is a reparse point before handle publish for " + std::string(task.artifact_name) + "."},
@@ -1361,28 +1253,14 @@ lpb_result extract_source_internal(
                 {LPB_RESULT_INTERNAL_ERROR, "[OutputPublishFailed]", "Destination filename or pinned directory handle is invalid for " + std::string(task.artifact_name) + "."},
                 tasks);
         }
-        const size_t rename_size = sizeof(FILE_RENAME_INFO) +
-            (final_name.size() == 0 ? 0 : (final_name.size() - 1) * sizeof(wchar_t));
-        std::vector<uint8_t> rename_buffer(rename_size);
-        auto* rename_info = reinterpret_cast<FILE_RENAME_INFO*>(rename_buffer.data());
-        rename_info->ReplaceIfExists = FALSE;
-        // The parent directory is pinned open without FILE_SHARE_DELETE
-        // above; use the absolute final name because some Windows filesystems
-        // reject a RootDirectory handle in FILE_RENAME_INFO with ERROR_INVALID_PARAMETER.
-        rename_info->RootDirectory = nullptr;
-        rename_info->FileNameLength = static_cast<DWORD>(final_name.size() * sizeof(wchar_t));
-        std::memcpy(rename_info->FileName, final_name.data(), rename_info->FileNameLength);
-
-        if (!SetFileInformationByHandle(
-                task.temp_handle,
-                FileRenameInfo,
-                rename_info,
-                static_cast<DWORD>(rename_buffer.size()))) {
+        // The destination directory is pinned by this transaction. The backend
+        // renames the creating handle, never a pathname, with replacement off.
+        if (!lpb_platform_publish_owned_no_replace(task.temp_handle, task.final_dst_path)) {
 
             const DWORD win_err = GetLastError();
-            const std::string cat = (win_err == ERROR_DISK_FULL || win_err == ERROR_HANDLE_DISK_FULL)
+            const std::string cat = (lpb_platform_classify_error(win_err) == lpb_platform_error::disk_full)
                 ? "[DiskFull]" : "[OutputPublishFailed]";
-            const std::string det = (win_err == ERROR_FILE_EXISTS || win_err == ERROR_ALREADY_EXISTS)
+            const std::string det = (lpb_platform_classify_error(win_err) == lpb_platform_error::destination_exists)
                 ? ("Destination file already exists: " + path_to_utf8(task.final_dst_path) + ".")
                 : ("Failed to publish the owned extraction handle for " + std::string(task.artifact_name) + " (Win32 error: " + std::to_string(win_err) + ").");
             return rollback_extraction_transaction(context, {LPB_RESULT_INTERNAL_ERROR, cat, det}, tasks);

@@ -4,7 +4,8 @@
 # with:
 #   1. LivePhotoBox.Native/LivePhotoBox.Native.vcxproj (.h and .cpp items)
 #   2. LivePhotoBox.Native/LivePhotoBox.Native.vcxproj.filters (hierarchical filters matching disk)
-#   3. LivePhotoBox.Core/LivePhotoBox.Core.csproj (BuildLivePhotoBoxNative target Inputs)
+# The CMake source graph is canonical; this script only keeps the old Visual C++
+# compatibility project and its IDE filters in sync with disk.
 #
 # Usage:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts/native/sync-native-project.ps1
@@ -21,10 +22,8 @@ $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $nativeProjDir  = Join-Path $repoRoot 'LivePhotoBox.Native'
 $nativeVcxproj  = Join-Path $nativeProjDir 'LivePhotoBox.Native.vcxproj'
 $nativeFilters  = Join-Path $nativeProjDir 'LivePhotoBox.Native.vcxproj.filters'
-$coreCsprojPath = Join-Path $repoRoot 'LivePhotoBox.Core\LivePhotoBox.Core.csproj'
 
 if (-not (Test-Path $nativeVcxproj))  { throw "vcxproj not found: $nativeVcxproj" }
-if (-not (Test-Path $coreCsprojPath)) { throw "csproj not found: $coreCsprojPath" }
 
 # ---- 1. Discover all native files from disk ---------------------------------
 $includeDir = Join-Path $nativeProjDir 'include'
@@ -144,27 +143,7 @@ $vcxprojPattern = '(?s)  <ItemGroup>\s*<ClInclude Include="[^"]+" />.*?  </ItemG
 $replacement = "$($headerItemsXml.ToString())`r`n$($sourceItemsXml.ToString())"
 $newVcxprojText = [System.Text.RegularExpressions.Regex]::Replace($vcxprojText, $vcxprojPattern, $replacement)
 
-# ---- 5. Update Core.csproj BuildLivePhotoBoxNative Inputs --------------------
-$coreCsprojText = [System.IO.File]::ReadAllText($coreCsprojPath, [System.Text.Encoding]::UTF8)
-
-$nativeInputs = @(
-    '$(MSBuildThisFileDirectory)..\LivePhotoBox.Native\LivePhotoBox.Native.vcxproj',
-    '$(MSBuildThisFileDirectory)..\LivePhotoBox.Native\LivePhotoBox.Native.vcxproj.filters'
-)
-foreach ($h in $headers) {
-    $nativeInputs += "`$(MSBuildThisFileDirectory)..\LivePhotoBox.Native\$h"
-}
-foreach ($s in $sources) {
-    $nativeInputs += "`$(MSBuildThisFileDirectory)..\LivePhotoBox.Native\$s"
-}
-$nativeInputs += '$(MSBuildThisFileDirectory)..\LivePhotoBox\Package.appxmanifest'
-$nativeInputs += '$(MSBuildThisFileDirectory)..\scripts\native\build-native.ps1'
-
-$joinedInputs = $nativeInputs -join ';'
-$corePattern = '(?<=Inputs=")[^"]*(?=")'
-$newCoreCsprojText = [System.Text.RegularExpressions.Regex]::Replace($coreCsprojText, $corePattern, $joinedInputs)
-
-# ---- 6. Check / Write results -----------------------------------------------
+# ---- 5. Check / Write results -----------------------------------------------
 $filtersChanged = $true
 if (Test-Path $nativeFilters) {
     $oldFiltersText = [System.IO.File]::ReadAllText($nativeFilters, [System.Text.Encoding]::UTF8)
@@ -174,11 +153,10 @@ if (Test-Path $nativeFilters) {
 }
 
 $vcxprojChanged = ($vcxprojText.Trim() -ne $newVcxprojText.Trim())
-$coreChanged    = ($coreCsprojText.Trim() -ne $newCoreCsprojText.Trim())
 
 if ($Check) {
-    if ($filtersChanged -or $vcxprojChanged -or $coreChanged) {
-        Write-Error "[Sync-Native] Project files are out of sync with disk! (vcxproj: $vcxprojChanged, filters: $filtersChanged, core csproj: $coreChanged)"
+    if ($filtersChanged -or $vcxprojChanged) {
+        Write-Error "[Sync-Native] Compatibility project files are out of sync with disk! (vcxproj: $vcxprojChanged, filters: $filtersChanged)"
         exit 1
     } else {
         if (-not $Quiet) {
@@ -197,11 +175,6 @@ if ($filtersChanged) {
 if ($vcxprojChanged) {
     [System.IO.File]::WriteAllText($nativeVcxproj, $newVcxprojText, [System.Text.Encoding]::UTF8)
     Write-Host "[Sync-Native] Updated LivePhotoBox.Native.vcxproj" -ForegroundColor Green
-    $updatedAny = $true
-}
-if ($coreChanged) {
-    [System.IO.File]::WriteAllText($coreCsprojPath, $newCoreCsprojText, [System.Text.Encoding]::UTF8)
-    Write-Host "[Sync-Native] Updated LivePhotoBox.Core.csproj (Native Inputs)" -ForegroundColor Green
     $updatedAny = $true
 }
 

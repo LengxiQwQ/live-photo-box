@@ -4,6 +4,7 @@
 #include "foundation/residue_fingerprint.h"
 #include "containers/isobmff.h"
 #include "foundation/internal.h"
+#include "platform/windows_filesystem.h"
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -78,9 +79,7 @@ static bool write_atomic(
         const DWORD wanted = static_cast<DWORD>(std::min<size_t>(data.size() - written, 32ull * 1024ull * 1024ull));
         if (!WriteFile(temp_handle, data.data() + written, wanted, &chunk, nullptr) || chunk == 0)
         {
-            FILE_DISPOSITION_INFO disp{};
-            disp.DeleteFile = TRUE;
-            static_cast<void>(SetFileInformationByHandle(temp_handle, FileDispositionInfo, &disp, sizeof(disp)));
+            static_cast<void>(lpb_platform_dispose_owned(temp_handle));
             CloseHandle(temp_handle);
             set_error(context, "Failed to write temporary HEIF output.");
             return false;
@@ -88,18 +87,14 @@ static bool write_atomic(
         written += chunk;
     }
     if (!FlushFileBuffers(temp_handle)) {
-        FILE_DISPOSITION_INFO disp{};
-        disp.DeleteFile = TRUE;
-        static_cast<void>(SetFileInformationByHandle(temp_handle, FileDispositionInfo, &disp, sizeof(disp)));
+        static_cast<void>(lpb_platform_dispose_owned(temp_handle));
         CloseHandle(temp_handle);
         set_error(context, "Failed to flush temporary HEIF output.");
         return false;
     }
     if (!lpb_publish_cleaner_output_handle(context, artifact_role, temp_handle, temp, dest, output_path))
     {
-        FILE_DISPOSITION_INFO disp{};
-        disp.DeleteFile = TRUE;
-        static_cast<void>(SetFileInformationByHandle(temp_handle, FileDispositionInfo, &disp, sizeof(disp)));
+        static_cast<void>(lpb_platform_dispose_owned(temp_handle));
         CloseHandle(temp_handle);
         set_error(context, "Failed to publish cleaned HEIF (destination occupied or identity capture failed); refusing to overwrite.");
         return false;

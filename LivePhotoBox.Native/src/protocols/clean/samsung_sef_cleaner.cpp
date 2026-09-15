@@ -3,6 +3,7 @@
 #include "media/media_cleaner.h"
 #include "foundation/residue_fingerprint.h"
 #include "foundation/internal.h"
+#include "platform/windows_filesystem.h"
 #include "binary/binary_io.h"
 #include "containers/isobmff.h"
 #include "metadata/jpeg.h"
@@ -399,9 +400,7 @@ lpb_result clean_samsung_sef_jpeg(
         const DWORD wanted = static_cast<DWORD>(std::min<size_t>(data.size() - written, 32ull * 1024ull * 1024ull));
         if (!WriteFile(temp_handle, data.data() + written, wanted, &chunk, nullptr) || chunk == 0)
         {
-            FILE_DISPOSITION_INFO disp{};
-            disp.DeleteFile = TRUE;
-            static_cast<void>(SetFileInformationByHandle(temp_handle, FileDispositionInfo, &disp, sizeof(disp)));
+            static_cast<void>(lpb_platform_dispose_owned(temp_handle));
             CloseHandle(temp_handle);
             set_error(context, "Failed to write clean Samsung JPEG.");
             return LPB_RESULT_INTERNAL_ERROR;
@@ -409,18 +408,14 @@ lpb_result clean_samsung_sef_jpeg(
         written += chunk;
     }
     if (!FlushFileBuffers(temp_handle)) {
-        FILE_DISPOSITION_INFO disp{};
-        disp.DeleteFile = TRUE;
-        static_cast<void>(SetFileInformationByHandle(temp_handle, FileDispositionInfo, &disp, sizeof(disp)));
+        static_cast<void>(lpb_platform_dispose_owned(temp_handle));
         CloseHandle(temp_handle);
         set_error(context, "Failed to flush clean Samsung JPEG.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
     if (!lpb_publish_cleaner_output_handle(context, LPB_ARTIFACT_PRIMARY_IMAGE, temp_handle, temp_path, p_out, output_path))
     {
-        FILE_DISPOSITION_INFO disp{};
-        disp.DeleteFile = TRUE;
-        static_cast<void>(SetFileInformationByHandle(temp_handle, FileDispositionInfo, &disp, sizeof(disp)));
+        static_cast<void>(lpb_platform_dispose_owned(temp_handle));
         CloseHandle(temp_handle);
         set_error(context, "Failed to publish cleaned Samsung JPEG (destination occupied or identity capture failed); refusing to overwrite.");
         return LPB_RESULT_INTERNAL_ERROR;

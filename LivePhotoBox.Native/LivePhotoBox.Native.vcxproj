@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -57,7 +57,7 @@
 
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
-    <OutDir>$(MSBuildThisFileDirectory)..\artifacts\native\$(Configuration)\win-x64\</OutDir>
+    <OutDir>$(MSBuildThisFileDirectory)..\artifacts\native\compat\$(Configuration)\win-x64\</OutDir>
     <IntDir>$(MSBuildThisFileDirectory)..\artifacts\native\obj\$(Platform)-$(Configuration)\</IntDir>
     <TargetName>LivePhotoBox.Native</TargetName>
     <TargetExt>.dll</TargetExt>
@@ -116,6 +116,7 @@
     <ClInclude Include="include\livephotobox_native.h" />
     <ClInclude Include="src\binary\binary_io.h" />
     <ClInclude Include="src\binary\endian.h" />
+    <ClInclude Include="src\binary\portable_io.h" />
     <ClInclude Include="src\containers\isobmff.h" />
     <ClInclude Include="src\containers\mp4_strip.h" />
     <ClInclude Include="src\foundation\internal.h" />
@@ -126,11 +127,12 @@
     <ClInclude Include="src\media\media_extractor.h" />
     <ClInclude Include="src\media\media_inspector.h" />
     <ClInclude Include="src\media\video_converter.h" />
-    <ClInclude Include="src\metadata\exif.h" />
     <ClInclude Include="src\metadata\exif_rewrite.h" />
+    <ClInclude Include="src\metadata\exif.h" />
     <ClInclude Include="src\metadata\jpeg.h" />
-    <ClInclude Include="src\protocols\apple.h" />
+    <ClInclude Include="src\platform\windows_filesystem.h" />
     <ClInclude Include="src\protocols\apple_mebx_templates.h" />
+    <ClInclude Include="src\protocols\apple.h" />
     <ClInclude Include="src\protocols\clean\heif_cleaner.h" />
     <ClInclude Include="src\protocols\clean\jpeg_structure_cleaner.h" />
     <ClInclude Include="src\protocols\clean\samsung_sef_cleaner.h" />
@@ -151,11 +153,12 @@
     <ClCompile Include="src\media\media_inspector.cpp" />
     <ClCompile Include="src\media\preservation_observation.cpp" />
     <ClCompile Include="src\media\video_converter.cpp" />
-    <ClCompile Include="src\metadata\exif.cpp" />
     <ClCompile Include="src\metadata\exif_rewrite.cpp" />
+    <ClCompile Include="src\metadata\exif.cpp" />
     <ClCompile Include="src\metadata\jpeg.cpp" />
-    <ClCompile Include="src\protocols\apple.cpp" />
+    <ClCompile Include="src\platform\windows_filesystem.cpp" />
     <ClCompile Include="src\protocols\apple_mebx.cpp" />
+    <ClCompile Include="src\protocols\apple.cpp" />
     <ClCompile Include="src\protocols\clean\heif_cleaner.cpp" />
     <ClCompile Include="src\protocols\clean\jpeg_structure_cleaner.cpp" />
     <ClCompile Include="src\protocols\clean\samsung_sef_cleaner.cpp" />

@@ -1,124 +1,64 @@
 param(
-    [ValidateSet('Debug', 'Release')]
-    [string]$Configuration = 'Debug',
-
-    [ValidateSet('x64')]
-    [string]$Architecture = 'x64',
-
+    [ValidateSet('Debug', 'Release')][string]$Configuration = 'Debug',
+    [ValidateSet('x64')][string]$Architecture = 'x64',
     [switch]$RunTests,
-    [switch]$Clean
+    [switch]$Clean,
+    [switch]$TestHarness
 )
 
 $ErrorActionPreference = 'Stop'
-
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$nativeProject = Join-Path $projectRoot 'LivePhotoBox.Native\LivePhotoBox.Native.vcxproj'
-$testHarnessBuildScript = Join-Path $PSScriptRoot 'build-native-test-harness.ps1'
-$artifactDirectory = Join-Path $projectRoot "artifacts\native\$Configuration\win-$Architecture"
-
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
-if (-not (Test-Path -LiteralPath $vswhere)) {
-    throw 'Visual Studio Installer (vswhere.exe) was not found.'
+if (-not (Test-Path -LiteralPath $vswhere)) { throw 'Visual Studio Installer (vswhere.exe) was not found.' }
+$vsPath = [string](& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1)
+$vsVersion = [string](& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationVersion | Select-Object -First 1)
+if (-not $vsPath -or -not $vsVersion) { throw 'Visual Studio MSVC x64 build tools are required.' }
+$cmake = Join-Path $vsPath 'Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
+if (-not (Test-Path -LiteralPath $cmake)) { throw "Visual Studio CMake was not found: $cmake" }
+$generator = switch ($vsVersion.Split('.')[0]) {
+    '18' { 'Visual Studio 18 2026' }
+    '17' { 'Visual Studio 17 2022' }
+    default { throw "Unsupported Visual Studio generator version: $vsVersion" }
+}
+$vcpkgRoot = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } else { Join-Path $vsPath 'VC\vcpkg' }
+$toolchain = Join-Path $vcpkgRoot 'scripts\buildsystems\vcpkg.cmake'
+if (-not (Test-Path -LiteralPath $toolchain)) { throw "vcpkg toolchain was not found: $toolchain" }
+
+$buildDir = Join-Path $projectRoot '.ai-tmp\workspace\P4-R3\cmake-build'
+$artifactRoot = Join-Path $projectRoot 'artifacts\native'
+& $cmake -S $projectRoot -B $buildDir -G $generator -A x64 `
+    "-DCMAKE_TOOLCHAIN_FILE=$toolchain" `
+    '-DVCPKG_TARGET_TRIPLET=x64-windows-static' `
+    "-DLPB_NATIVE_OUTPUT_ROOT=$artifactRoot" `
+    '-DLPB_BUILD_TEST_HARNESS=ON'
+if ($LASTEXITCODE -ne 0) { throw "CMake/vcpkg configure failed ($LASTEXITCODE)." }
+
+$target = if ($TestHarness) { 'LivePhotoBoxNativeTestHarness' } else { 'LivePhotoBoxNative' }
+$buildArgs = @('--build', $buildDir, '--config', $Configuration, '--target', $target)
+if ($Clean) { $buildArgs += '--clean-first' }
+$buildArgs += @('--', '/m:1', '/p:CL_MPCount=1', '/p:UseMultiToolTask=false', '/v:minimal')
+& $cmake @buildArgs
+if ($LASTEXITCODE -ne 0) { throw "CMake $target build failed ($LASTEXITCODE)." }
+
+$artifactDir = if ($TestHarness) {
+    Join-Path $artifactRoot "TestHarness\$Configuration\win-x64"
+} else {
+    Join-Path $artifactRoot "$Configuration\win-x64"
+}
+$dllName = if ($TestHarness) { 'LivePhotoBox.Native.TestHarness.dll' } else { 'LivePhotoBox.Native.dll' }
+$dll = Join-Path $artifactDir $dllName
+$pdb = [System.IO.Path]::ChangeExtension($dll, '.pdb')
+if (-not (Test-Path -LiteralPath $dll) -or -not (Test-Path -LiteralPath $pdb)) {
+    throw "CMake build lacks the expected DLL/PDB: $dll"
 }
 
-$instances = @(& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -format json | ConvertFrom-Json)
-if ($instances.Count -eq 0) {
-    throw 'Visual Studio with the MSVC x64 build tools is required.'
-}
-
-$visualStudioPath = [string]$instances[0].installationPath
-$msbuild = Join-Path $visualStudioPath 'MSBuild\Current\Bin\MSBuild.exe'
-if (-not (Test-Path -LiteralPath $msbuild)) {
-    throw "MSBuild was not found in Visual Studio: $msbuild"
-}
-
-$syncScript = Join-Path $PSScriptRoot 'sync-native-project.ps1'
-if (Test-Path $syncScript) {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $syncScript -Quiet
-}
-
-$target = if ($Clean) { 'Rebuild' } else { 'Build' }
-
-Write-Host "[Native] Building $Configuration $Architecture with Visual C++..." -ForegroundColor Cyan
-# MSVC 14.51 intermittently crashes with C1001 in zmmintrin.h when this
-# project is compiled through the parallel multi-tool pipeline. Keep the
-# project build deterministic; source-level parallelism is still handled
-# by MSBuild for other independent verification steps.
-$msbuildArgs = @(
-    $nativeProject,
-    '/nologo',
-    '/m:1',
-    "/t:$target",
-    "/p:Configuration=$Configuration",
-    "/p:Platform=$Architecture",
-    '/p:CL_MPCount=1',
-    '/p:UseMultiToolTask=false',
-    '/v:minimal'
-)
-$buildSucceeded = $false
-$buildExitCode = 1
-for ($attempt = 1; $attempt -le 2; $attempt++) {
-    # If the first incremental build fails, the retry must discard the project's
-    # intermediate state. Reusing partially compiled objects could otherwise
-    # produce a successful DLL that still contains stale code.
-    $attemptArgs = @($msbuildArgs)
-    if ($attempt -eq 2 -and $target -eq 'Build') {
-        $attemptArgs = @(
-            $nativeProject,
-            '/nologo',
-            '/m:1',
-            '/t:Rebuild',
-            "/p:Configuration=$Configuration",
-            "/p:Platform=$Architecture",
-            '/p:CL_MPCount=1',
-            '/p:UseMultiToolTask=false',
-            '/v:minimal'
-        )
-    }
-
-    & $msbuild @attemptArgs
-    $buildExitCode = $LASTEXITCODE
-    if ($buildExitCode -eq 0) {
-        $buildSucceeded = $true
-        break
-    }
-    if ($attempt -lt 2) {
-        Write-Warning "Native MSBuild failed with exit code $buildExitCode; retrying once for transient compiler failures."
-    }
-}
-if (-not $buildSucceeded) {
-    throw "Native MSBuild failed with exit code $buildExitCode."
-}
-
-$nativeDll = Join-Path $artifactDirectory 'LivePhotoBox.Native.dll'
-$nativePdb = Join-Path $artifactDirectory 'LivePhotoBox.Native.pdb'
-if (-not (Test-Path -LiteralPath $nativeDll)) {
-    throw "Native build completed without the expected DLL: $nativeDll"
-}
-if (-not (Test-Path -LiteralPath $nativePdb)) {
-    throw "Native build completed without the expected PDB: $nativePdb"
-}
-
-if ($RunTests) {
-    Write-Host '[Native] Building the test-only ABI harness before smoke tests...' -ForegroundColor Cyan
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $testHarnessBuildScript `
-        -Configuration $Configuration `
-        -Architecture $Architecture
-    if ($LASTEXITCODE -ne 0) {
-        throw "Native test harness build failed with exit code $LASTEXITCODE."
-    }
-
-    Write-Host '[Native] Running managed ABI/runtime smoke tests...' -ForegroundColor Cyan
+if ($RunTests -and -not $TestHarness) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'build-native-test-harness.ps1') `
+        -Configuration $Configuration -Architecture x64
+    if ($LASTEXITCODE -ne 0) { throw 'CMake test harness build failed.' }
     & dotnet test (Join-Path $projectRoot 'tests\LivePhotoBox.Core.Tests\LivePhotoBox.Core.Tests.csproj') `
-        -c $Configuration `
-        -p:Platform=x64 `
-        -p:SkipNativeBuild=true `
-        --filter 'FullyQualifiedName~NativeRuntimeTests' `
-        -nologo `
-        -v minimal
-    if ($LASTEXITCODE -ne 0) {
-        throw "Native runtime tests failed with exit code $LASTEXITCODE."
-    }
+        -c $Configuration -p:Platform=x64 -p:SkipNativeBuild=true `
+        --filter 'FullyQualifiedName~NativeRuntimeTests' -nologo -v minimal
+    if ($LASTEXITCODE -ne 0) { throw 'Native ABI/runtime smoke tests failed.' }
 }
-
-Write-Host "[Native] Ready: $nativeDll" -ForegroundColor Green
+Write-Host "[Native CMake] Ready: $dll" -ForegroundColor Green

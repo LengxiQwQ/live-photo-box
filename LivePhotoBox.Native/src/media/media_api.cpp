@@ -5,6 +5,7 @@
 #include "media/media_cleaner.h"
 #include "foundation/internal.h"
 #include "foundation/sha256.h"
+#include "platform/windows_filesystem.h"
 #include <cctype>
 #include <cstring>
 
@@ -1410,23 +1411,11 @@ LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
     }
     SetFilePointer(h_gainmap, 0, NULL, FILE_BEGIN);
 
-    HANDLE h_out = CreateFileW(
-        p_output.c_str(),
-        GENERIC_WRITE,
-        0,
-        NULL,
-        CREATE_NEW,
-        FILE_ATTRIBUTE_NORMAL,
-        NULL);
-    if (h_out == INVALID_HANDLE_VALUE) {
-        DWORD err = GetLastError();
+    windows_owned_output output;
+    if (!output.create(p_output, L"lpb-gainmap")) {
         CloseHandle(h_primary);
         CloseHandle(h_gainmap);
-        if (err == ERROR_FILE_EXISTS || err == ERROR_ALREADY_EXISTS) {
-            set_error(context, "Output file already exists.");
-            return LPB_RESULT_INVALID_ARGUMENT;
-        }
-        set_error(context, "Failed to create output file for GainMap reassembly.");
+        set_error(context, "Failed to create an owned staging file for GainMap reassembly.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
 
@@ -1436,28 +1425,36 @@ LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
     bool cancelled = false;
     bool identity_mismatch = false;
 
-    while (ReadFile(h_primary, buffer.data(), static_cast<DWORD>(buffer.size()), &bytes_read, NULL) && bytes_read > 0) {
+    for (;;) {
+        if (!ReadFile(h_primary, buffer.data(), static_cast<DWORD>(buffer.size()), &bytes_read, NULL)) {
+            failed = true;
+            break;
+        }
+        if (bytes_read == 0) break;
         if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
             failed = true;
             cancelled = true;
             break;
         }
-        DWORD bytes_written = 0;
-        if (!WriteFile(h_out, buffer.data(), bytes_read, &bytes_written, NULL) || bytes_written != bytes_read) {
+        if (!output.write_all(std::span<const uint8_t>(buffer.data(), bytes_read))) {
             failed = true;
             break;
         }
     }
 
     if (!failed) {
-        while (ReadFile(h_gainmap, buffer.data(), static_cast<DWORD>(buffer.size()), &bytes_read, NULL) && bytes_read > 0) {
+        for (;;) {
+            if (!ReadFile(h_gainmap, buffer.data(), static_cast<DWORD>(buffer.size()), &bytes_read, NULL)) {
+                failed = true;
+                break;
+            }
+            if (bytes_read == 0) break;
             if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
                 failed = true;
                 cancelled = true;
                 break;
             }
-            DWORD bytes_written = 0;
-            if (!WriteFile(h_out, buffer.data(), bytes_read, &bytes_written, NULL) || bytes_written != bytes_read) {
+            if (!output.write_all(std::span<const uint8_t>(buffer.data(), bytes_read))) {
                 failed = true;
                 break;
             }
@@ -1475,17 +1472,15 @@ LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
     }
 
     if (!failed) {
-        if (!FlushFileBuffers(h_out)) {
+        if (!output.publish_no_replace(p_output)) {
             failed = true;
         }
     }
 
     CloseHandle(h_primary);
     CloseHandle(h_gainmap);
-    CloseHandle(h_out);
-
     if (failed) {
-        DeleteFileW(p_output.c_str());
+        output.abort();
         if (cancelled) {
             set_error(context, "GainMap reassembly cancelled.");
             return LPB_RESULT_CANCELLED;

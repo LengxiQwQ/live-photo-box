@@ -1,6 +1,7 @@
 #include "containers/mp4_strip.h"
 #include "foundation/residue_fingerprint.h"
 #include "foundation/internal.h"
+#include "platform/windows_filesystem.h"
 #include "containers/isobmff.h"
 #include <fstream>
 #include <filesystem>
@@ -886,9 +887,7 @@ bool publish_and_register_cleaner_output(lpb_context* context, int32_t artifact_
     // redirect the publish; a foreign destination fails closed.
     if (!lpb_publish_cleaner_output_handle(context, artifact_role, out_handle, temp, dest, out_path))
     {
-        FILE_DISPOSITION_INFO disp{};
-        disp.DeleteFile = TRUE;
-        static_cast<void>(SetFileInformationByHandle(out_handle, FileDispositionInfo, &disp, sizeof(disp)));
+        static_cast<void>(lpb_platform_dispose_owned(out_handle));
         CloseHandle(out_handle);
         set_error(context, "Failed to publish cleaned video (destination occupied or identity capture failed); refusing to overwrite.");
         return false;
@@ -1093,9 +1092,7 @@ lpb_result stream_clean_mp4_bytes(
     if (!outcome.uuid_removed && !outcome.mdta_removed && !outcome.track_removed) {
         if (!write_all_to_handle(out_handle, in_bytes.data(), in_bytes.size()) ||
             !FlushFileBuffers(out_handle)) {
-            FILE_DISPOSITION_INFO disp{};
-            disp.DeleteFile = TRUE;
-            static_cast<void>(SetFileInformationByHandle(out_handle, FileDispositionInfo, &disp, sizeof(disp)));
+            static_cast<void>(lpb_platform_dispose_owned(out_handle));
             CloseHandle(out_handle);
             set_error(context, "Failed to write unchanged video.");
             return LPB_RESULT_INTERNAL_ERROR;
@@ -1120,9 +1117,7 @@ lpb_result stream_clean_mp4_bytes(
         }
         if (mdat_shift != 0) {
             if (!shift_chunk_offsets(moov_data, 0, 0, mdat_shift)) {
-                FILE_DISPOSITION_INFO disp{};
-                disp.DeleteFile = TRUE;
-                static_cast<void>(SetFileInformationByHandle(out_handle, FileDispositionInfo, &disp, sizeof(disp)));
+                static_cast<void>(lpb_platform_dispose_owned(out_handle));
                 CloseHandle(out_handle);
                 set_error(context, "Failed to adjust chunk offsets in moov.");
                 return LPB_RESULT_INTERNAL_ERROR;
@@ -1138,9 +1133,7 @@ lpb_result stream_clean_mp4_bytes(
         }
         if (i == moov_index) {
             if (!write_all_to_handle(out_handle, moov_data.data(), moov_data.size())) {
-                FILE_DISPOSITION_INFO disp{};
-                disp.DeleteFile = TRUE;
-                static_cast<void>(SetFileInformationByHandle(out_handle, FileDispositionInfo, &disp, sizeof(disp)));
+                static_cast<void>(lpb_platform_dispose_owned(out_handle));
                 CloseHandle(out_handle);
                 set_error(context, "Failed to write rebuilt moov.");
                 return LPB_RESULT_INTERNAL_ERROR;
@@ -1150,9 +1143,7 @@ lpb_result stream_clean_mp4_bytes(
 
         // Copy box from immutable buffer
         if (!write_all_to_handle(out_handle, in_bytes.data() + b.offset, b.size)) {
-            FILE_DISPOSITION_INFO disp{};
-            disp.DeleteFile = TRUE;
-            static_cast<void>(SetFileInformationByHandle(out_handle, FileDispositionInfo, &disp, sizeof(disp)));
+            static_cast<void>(lpb_platform_dispose_owned(out_handle));
             CloseHandle(out_handle);
             set_error(context, "Failed to write box during copy.");
             return LPB_RESULT_INTERNAL_ERROR;
@@ -1160,9 +1151,7 @@ lpb_result stream_clean_mp4_bytes(
     }
 
     if (!FlushFileBuffers(out_handle)) {
-        FILE_DISPOSITION_INFO disp{};
-        disp.DeleteFile = TRUE;
-        static_cast<void>(SetFileInformationByHandle(out_handle, FileDispositionInfo, &disp, sizeof(disp)));
+        static_cast<void>(lpb_platform_dispose_owned(out_handle));
         CloseHandle(out_handle);
         set_error(context, "Failed to flush cleaned output video.");
         return LPB_RESULT_INTERNAL_ERROR;

@@ -7,6 +7,7 @@
 #include "foundation/residue_fingerprint.h"
 #include "foundation/sha256.h"
 #include "foundation/internal.h"
+#include "platform/windows_filesystem.h"
 #include "binary/binary_io.h"
 #include "metadata/jpeg.h"
 #include "containers/isobmff.h"
@@ -261,9 +262,7 @@ static bool write_file_binary(lpb_context* context, int32_t artifact_role,
         // Exact-object failure cleanup THROUGH the creating handle.  Never
         // CloseHandle then fs::remove(path): a foreign object that took over
         // the temp pathname must not be deleted.
-        FILE_DISPOSITION_INFO disp{};
-        disp.DeleteFile = TRUE;
-        static_cast<void>(SetFileInformationByHandle(temp_handle, FileDispositionInfo, &disp, sizeof(disp)));
+        static_cast<void>(lpb_platform_dispose_owned(temp_handle));
     }
     CloseHandle(temp_handle);
     return ok;

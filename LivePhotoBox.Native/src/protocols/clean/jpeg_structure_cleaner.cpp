@@ -1,5 +1,6 @@
 #include "jpeg_structure_cleaner.h"
 #include "foundation/internal.h"
+#include "platform/windows_filesystem.h"
 #include "containers/isobmff.h"
 #include <charconv>
 #include <fstream>
@@ -8,8 +9,6 @@
 #include <string_view>
 #include <filesystem>
 #include <limits>
-#define NOMINMAX
-#include <Windows.h>
 
 namespace fs = std::filesystem;
 
@@ -34,24 +33,9 @@ static bool has_complete_heif_prefix(const std::vector<uint8_t>& data, size_t en
 
 static bool write_atomic(const fs::path& path, const std::vector<uint8_t>& data)
 {
-    fs::path temp = path;
-    temp += L".lpb-jpeg-cleaning-tmp";
-    std::error_code ec;
-    fs::remove(temp, ec);
-    {
-        std::ofstream out(temp, std::ios::binary | std::ios::trunc);
-        if (!out.is_open()) return false;
-        out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
-        out.flush();
-        if (!out.good()) { out.close(); fs::remove(temp, ec); return false; }
-    }
-    // No-overwrite publication: destination races fail closed and a foreign
-    // object already at the destination is never replaced.
-    if (!MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_WRITE_THROUGH)) {
-        fs::remove(temp, ec);
-        return false;
-    }
-    return true;
+    windows_owned_output output;
+    return output.create(path, L"lpb-jpeg-cleaning") &&
+        output.write_all(data) && output.publish_no_replace(path);
 }
 
 static void add_fact(

@@ -3,6 +3,17 @@
 #include <cstddef>
 #include <cstdint>
 #include <vector>
+#include "binary/portable_io.h"
+
+struct top_level_box {
+    uint64_t offset{};
+    uint64_t size{};
+    char type[4]{};
+    uint32_t header_size{};
+};
+
+std::vector<top_level_box> scan_top_level_boxes(
+    const lpb::random_access_reader& source) noexcept;
 
 struct isobmff_box_header
 {

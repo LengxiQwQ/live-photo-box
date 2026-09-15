@@ -27,55 +27,11 @@
 
 #include <filesystem>
 
-// Creates a unique temporary file with CREATE_NEW so the returned handle is
-// provably the FIRST creation of that filesystem object: the kernel atomically
-// fails with ERROR_FILE_EXISTS if any other object (including a pre-seeded
-// foreign file) already owns the candidate name, and the caller holds the
-// creating handle from the very first moment of the object's existence.  This
-// is the ownership anchor for the whole Cleaner publish chain: unlike
-// GetTempFileNameW (which creates an empty file, closes its handle, and
-// returns a pathname that can be raced), no code path ever re-opens a pathname
-// to re-establish ownership.  A name collision simply retries with a fresh
-// random name.
-inline HANDLE lpb_create_unique_temp_file(const std::filesystem::path& dir,
-    const wchar_t* prefix, std::filesystem::path& out_path) noexcept
-{
-    try
-    {
-        std::random_device rd;
-        for (int attempt = 0; attempt < 16; ++attempt)
-        {
-            const unsigned long r1 = rd();
-            const unsigned long r2 = rd();
-            std::wstring name = std::wstring(prefix) + L"-"
-                + std::to_wstring(static_cast<unsigned long>(GetCurrentProcessId())) + L"-"
-                + std::to_wstring(static_cast<unsigned long>(GetTickCount64() & 0xFFFFFFFFull)) + L"-"
-                + std::to_wstring(r1) + L"-" + std::to_wstring(r2) + L".tmp";
-            const std::filesystem::path candidate = dir / name;
-            HANDLE h = CreateFileW(candidate.c_str(), GENERIC_READ | GENERIC_WRITE | DELETE,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (h != INVALID_HANDLE_VALUE)
-            {
-                out_path = candidate;
-                return h;
-            }
-            const DWORD err = GetLastError();
-            if (err != ERROR_FILE_EXISTS && err != ERROR_ALREADY_EXISTS)
-            {
-                return INVALID_HANDLE_VALUE;
-            }
-            // Name collision: retry with a fresh random name.
-        }
-        return INVALID_HANDLE_VALUE;
-    }
-    catch (...)
-    {
-        // Any random-device / allocation / conversion failure must surface as
-        // a clean failure, never terminate through noexcept.
-        return INVALID_HANDLE_VALUE;
-    }
-}
+// Windows owned-temp creation lives in the platform backend. The creating
+// handle remains the ownership token until publish or handle disposition.
+HANDLE lpb_create_unique_temp_file(const std::filesystem::path& dir,
+    const wchar_t* prefix, std::filesystem::path& out_path,
+    const wchar_t* suffix = L".tmp", bool deny_foreign_writes = false) noexcept;
 
 struct lpb_extractor_test_hook
 {
@@ -313,125 +269,14 @@ bool generate_plan_token(lpb_context* context, uint64_t& token) noexcept;
 uint64_t cleanup_plan_token_from_handle(const lpb_cleanup_plan* handle) noexcept;
 void record_cleaner_staged_output(lpb_context* context, int32_t artifact_role,
     const std::string& path, const lpb_file_identity& identity) noexcept;
-// Unified handle-based no-overwrite publication for Cleaner-owned outputs.
-//
-// The SOURCE object is the one `handle` was created for (CREATE_NEW first
-// creation).  It is renamed to `dest` THROUGH THE HANDLE itself
-// (SetFileInformationByHandle / FileRenameInfo with ReplaceIfExists = FALSE),
-// never through MoveFileExW(sourcePathname, ...): a foreign object that takes
-// over the source pathname after creation must not be able to redirect the
-// publish.  Identity is captured from the same handle
-// (GetFileInformationByHandle) and registered in the transaction's staged
-// output registry; the caller then closes the handle.  `temp_source` is the
-// pathname the object was created at and is used ONLY by the test-harness
-// race seam and for naming; it never re-establishes ownership.
-//
-// On any failure the object is left in place (either still at `temp_source`,
-// or, after a successful rename, at `dest`), and the caller must dispose of
-// it through this same handle (FileDispositionInfo).  This function never
-// deletes by pathname and never touches a foreign object.  A destination that
-// already exists (including a foreign object placed there mid-flight) fails
-// closed and the owned object is deleted through the handle.
-inline bool lpb_publish_cleaner_output_handle(
-    lpb_context* context,
-    int32_t artifact_role,
-    HANDLE handle,
+// Cleaner transaction registration surrounds the shared Windows handle-publish
+// primitive. The backend never resolves temp_source to re-establish ownership.
+bool lpb_publish_cleaner_output_handle(lpb_context* context,
+    int32_t artifact_role, HANDLE handle,
     const std::filesystem::path& temp_source,
     const std::filesystem::path& dest,
-    const std::string& dest_path)
-{
-    // temp_source is consumed only by the test-harness race seam below; in
-    // production builds it is intentionally unused (never re-establishes
-    // ownership) and is referenced purely to keep the parameter meaningful.
-    static_cast<void>(temp_source);
-#if defined(LPB_NATIVE_TEST_HARNESS)
-    if (context != nullptr && context->cleaner_hook.swap_temp_source_before_publish != 0)
-    {
-        // Role-targeted seam: only a publish whose artifact_role equals the
-        // armed target (or the ANY sentinel) consumes the one-shot fault.
-        // Publishes for any other role run normally and leave the seam armed,
-        // so a test can prove the fault fired on exactly the intended sink.
-        const int32_t target = context->cleaner_hook.target_artifact_role;
-        const bool role_matches =
-            target == LPB_CLEANER_TEST_HOOK_TARGET_ANY || target == artifact_role;
-        if (role_matches)
-        {
-            context->cleaner_hook.swap_temp_source_before_publish = 0;
-            context->cleaner_hook.last_triggered_artifact_role = artifact_role;
-            context->cleaner_hook.trigger_count += 1;
-            try
-            {
-            // Stage the race: move the owned object (by THIS handle) to a side
-            // pathname, then create a foreign object at the original temp
-            // pathname.  The publish below must still move the ORIGINAL object
-            // and must leave the foreign object untouched.
-            std::filesystem::path side = temp_source;
-            side += L".lpb-race-side";
-            const std::wstring side_w = side.native();
-            std::vector<uint8_t> side_buf(sizeof(FILE_RENAME_INFO) + side_w.size() * sizeof(wchar_t));
-            auto* side_info = reinterpret_cast<FILE_RENAME_INFO*>(side_buf.data());
-            std::memset(side_info, 0, side_buf.size());
-            side_info->ReplaceIfExists = FALSE;
-            side_info->RootDirectory = nullptr;
-            side_info->FileNameLength = static_cast<DWORD>(side_w.size() * sizeof(wchar_t));
-            std::memcpy(side_info->FileName, side_w.c_str(), side_info->FileNameLength);
-            if (!SetFileInformationByHandle(handle, FileRenameInfo, side_info, static_cast<DWORD>(side_buf.size())))
-            {
-                // Could not stage the takeover; fail closed rather than run a
-                // publish the test cannot distinguish from a benign path.
-                return false;
-            }
-            HANDLE foreign = CreateFileW(temp_source.c_str(), GENERIC_WRITE,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
-            if (foreign == INVALID_HANDLE_VALUE)
-            {
-                return false;
-            }
-            const char marker[] = "LPB-FOREIGN-RACE-MARKER";
-            DWORD written = 0;
-            static_cast<void>(WriteFile(foreign, marker, static_cast<DWORD>(sizeof(marker) - 1), &written, nullptr));
-            CloseHandle(foreign);
-        }
-            catch (...)
-            {
-                return false;
-            }
-        }
-    }
-#endif
-    try
-    {
-        const std::wstring dest_w = dest.native();
-        std::vector<uint8_t> buf(sizeof(FILE_RENAME_INFO) + dest_w.size() * sizeof(wchar_t));
-        auto* rename_info = reinterpret_cast<FILE_RENAME_INFO*>(buf.data());
-        std::memset(rename_info, 0, buf.size());
-        rename_info->ReplaceIfExists = FALSE;
-        rename_info->RootDirectory = nullptr;
-        rename_info->FileNameLength = static_cast<DWORD>(dest_w.size() * sizeof(wchar_t));
-        std::memcpy(rename_info->FileName, dest_w.c_str(), rename_info->FileNameLength);
-        if (!SetFileInformationByHandle(handle, FileRenameInfo, rename_info, static_cast<DWORD>(buf.size())))
-        {
-            return false;
-        }
-        BY_HANDLE_FILE_INFORMATION finfo{};
-        if (!GetFileInformationByHandle(handle, &finfo))
-        {
-            return false;
-        }
-        lpb_file_identity identity{};
-        identity.volume_serial = finfo.dwVolumeSerialNumber;
-        identity.file_index = (static_cast<uint64_t>(finfo.nFileIndexHigh) << 32) | finfo.nFileIndexLow;
-        identity.file_size = (static_cast<uint64_t>(finfo.nFileSizeHigh) << 32) | finfo.nFileSizeLow;
-        identity.link_count = finfo.nNumberOfLinks;
-        record_cleaner_staged_output(context, artifact_role, dest_path, identity);
-        return true;
-    }
-    catch (...)
-    {
-        return false;
-    }
-}
+    const std::string& dest_path) noexcept;
+
 // Removes a staged output ONLY if the filesystem object currently at the path
 // still matches the identity this transaction registered (created-handle
 // identity).  Never a bare pathname delete: a same-content replacement or any

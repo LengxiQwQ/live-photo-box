@@ -41,11 +41,17 @@ bld/
 /.agents/
 /.claude/
 /.codex/
+/.clinerules/
+/.cursor/
+/.kiro/
+/.qoder/
+/.windsurf/
 /.antigravity/
 /.gemini/
 /.mcp.json
 /AGENTS.md
 /CLAUDE.md
+/GEMINI.md
 /.github/copilot-instructions.md
 .codegraph/
 graphify-out/
@@ -419,4 +425,4 @@ docs/实况照片协议分析文档
 /tests/ThumbnailStressTest/
 
 # 项目源码打包压缩包（本地生成，覆盖使用）
-/live-photo-box-source.zip
+/live-photo-box-source.zip

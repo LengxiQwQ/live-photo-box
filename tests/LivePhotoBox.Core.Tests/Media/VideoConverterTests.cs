@@ -162,6 +162,40 @@ public sealed class VideoConverterTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
+    public async Task Convert_HevcToH264Mov_PublishesRealTranscode()
+    {
+        string sample = ResolveSample("苹果双文件.MOV");
+        using var workspace = new MediaWorkspace();
+        var artifact = new MediaArtifact
+        {
+            Path = sample,
+            Kind = MediaArtifactKind.MotionVideo,
+            MimeType = "video/quicktime",
+            VideoContainer = VideoContainer.Mov,
+            VideoCodec = VideoCodec.Hevc,
+            ByteLength = new FileInfo(sample).Length
+        };
+        var converter = new VideoConverter();
+        var result = await converter.ConvertAsync(new VideoConversionRequest
+        {
+            SourceArtifact = artifact,
+            TargetContainer = VideoContainer.Mov,
+            TargetCodec = VideoCodec.H264,
+            TargetDirectory = workspace.RootDirectory
+        });
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.NotNull(result.OutputArtifact);
+        Assert.True(File.Exists(result.OutputArtifact.Path));
+        Assert.False(result.ExecutionRecord.RemuxUsed);
+        var facts = await converter.ProbeAsync(result.OutputArtifact.Path);
+        Assert.Equal(VideoContainer.Mov, facts.Container);
+        Assert.Equal(VideoCodec.H264, facts.Codec);
+        Assert.True(facts.DurationSeconds > 0);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
     public async Task Convert_H264ToHevc_PerformsRealTranscode()
     {
         string sample = ResolveSample("vivo双文件.mp4");

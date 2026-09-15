@@ -3,12 +3,14 @@
 #include "foundation/internal.h"
 #include "binary/binary_io.h"
 #include "containers/isobmff.h"
+#include "platform/windows_filesystem.h"
 #include <fstream>
 #include <filesystem>
 #include <vector>
 #include <string_view>
 #include <cmath>
 #include <algorithm>
+#include <memory>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -28,96 +30,36 @@ namespace fs = std::filesystem;
 
 namespace lpb::media {
 
-struct BoxHeader {
-    uint64_t offset;
-    uint64_t size;
-    char type[4];
-    uint32_t header_size;
-};
-
-static std::vector<BoxHeader> scan_top_level_boxes(std::ifstream& in, uint64_t file_size) {
-    std::vector<BoxHeader> boxes;
-    uint64_t pos = 0;
-    while (file_size - pos >= 8) {
-        in.seekg(pos, std::ios::beg);
-        uint8_t hdr[8];
-        in.read(reinterpret_cast<char*>(hdr), 8);
-        if (in.gcount() < 8) break;
-
-        uint64_t box_size = (static_cast<uint64_t>(hdr[0]) << 24) |
-                            (static_cast<uint64_t>(hdr[1]) << 16) |
-                            (static_cast<uint64_t>(hdr[2]) << 8)  |
-                            (static_cast<uint64_t>(hdr[3]));
-
-        uint32_t hdr_len = 8;
-        if (box_size == 1) { // 64-bit extended size
-            if (file_size - pos < 16) break;
-            uint8_t ext[8];
-            in.read(reinterpret_cast<char*>(ext), 8);
-            if (in.gcount() < 8) break;
-            box_size = (static_cast<uint64_t>(ext[0]) << 56) |
-                       (static_cast<uint64_t>(ext[1]) << 48) |
-                       (static_cast<uint64_t>(ext[2]) << 40) |
-                       (static_cast<uint64_t>(ext[3]) << 32) |
-                       (static_cast<uint64_t>(ext[4]) << 24) |
-                       (static_cast<uint64_t>(ext[5]) << 16) |
-                       (static_cast<uint64_t>(ext[6]) << 8)  |
-                       (static_cast<uint64_t>(ext[7]));
-            hdr_len = 16;
-        } else if (box_size == 0) { // extends to end of file
-            box_size = file_size - pos;
-        }
-
-        if (box_size < hdr_len || box_size > file_size - pos) break;
-
-        BoxHeader bh;
-        bh.offset = pos;
-        bh.size = box_size;
-        bh.header_size = hdr_len;
-        std::memcpy(bh.type, hdr + 4, 4);
-        boxes.push_back(bh);
-
-        pos += box_size;
-    }
-    return boxes;
+static bool file_read_at(void* user, uint64_t offset, std::span<uint8_t> bytes) noexcept {
+    auto& file = *static_cast<std::ifstream*>(user);
+    if (offset > static_cast<uint64_t>(std::numeric_limits<std::streamoff>::max()) ||
+        bytes.size() > static_cast<size_t>(std::numeric_limits<std::streamsize>::max())) return false;
+    file.clear();
+    file.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
+    if (!file.good()) return false;
+    file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    return file.gcount() == static_cast<std::streamsize>(bytes.size());
 }
 
-lpb_result probe_video_file(
+struct mf_byte_stream_closer {
+    void operator()(IMFByteStream* stream) const noexcept {
+        if (stream) { static_cast<void>(stream->Close()); stream->Release(); }
+    }
+};
+
+static lpb_result probe_video_reader(
     lpb_context* context,
-    const char* video_path,
+    const lpb::random_access_reader& source,
     lpb_video_item_facts* out_video_facts) noexcept
 {
-    if (!video_path || !out_video_facts) {
-        set_error(context, "Invalid arguments for video probe.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-
-    if (out_video_facts->struct_size < sizeof(lpb_video_item_facts)) {
-        set_error(context, "out_video_facts struct_size is invalid.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-
-    auto p_vid = utf8_to_path(video_path);
-    std::ifstream file(p_vid, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
-        set_error(context, "Cannot open video file for probing.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-
-    std::streamsize file_size = file.tellg();
-    if (file_size < 16) {
-        set_error(context, "Video file too small.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-
     std::memset(out_video_facts, 0, sizeof(lpb_video_item_facts));
     out_video_facts->struct_size = sizeof(lpb_video_item_facts);
     out_video_facts->is_present = 1;
     out_video_facts->file_range.offset = 0;
-    out_video_facts->file_range.length = static_cast<uint64_t>(file_size);
+    out_video_facts->file_range.length = source.length;
 
-    auto boxes = scan_top_level_boxes(file, static_cast<uint64_t>(file_size));
-    if (boxes.empty() || boxes.back().size != static_cast<uint64_t>(file_size) - boxes.back().offset) {
+    auto boxes = ::scan_top_level_boxes(source);
+    if (boxes.empty() || boxes.back().size != source.length - boxes.back().offset) {
         set_error(context, "Video file does not contain a complete ISO-BMFF box layout.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
@@ -127,9 +69,11 @@ lpb_result probe_video_file(
     for (const auto& b : boxes) {
         if (std::memcmp(b.type, "ftyp", 4) == 0 && b.size >= 12) {
             found_ftyp = true;
-            file.seekg(b.offset + 8, std::ios::beg);
-            char brand[4];
-            file.read(brand, 4);
+            uint8_t brand[4]{};
+            if (!source.read_exact(b.offset + 8, brand)) {
+                set_error(context, "Cannot read ISO-BMFF ftyp brand.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
             if (std::memcmp(brand, "qt  ", 4) == 0) {
                 out_video_facts->container = LPB_VIDEO_CONTAINER_MOV;
             } else {
@@ -144,7 +88,7 @@ lpb_result probe_video_file(
     }
 
     // Locate and read moov box
-    const BoxHeader* moov_box = nullptr;
+    const top_level_box* moov_box = nullptr;
     bool has_mdat = false;
     for (const auto& b : boxes) {
         if (std::memcmp(b.type, "moov", 4) == 0) {
@@ -155,8 +99,10 @@ lpb_result probe_video_file(
 
     if (moov_box && moov_box->size > 8 && moov_box->size <= 64 * 1024 * 1024) {
         std::vector<uint8_t> moov_data(static_cast<size_t>(moov_box->size));
-        file.seekg(moov_box->offset, std::ios::beg);
-        file.read(reinterpret_cast<char*>(moov_data.data()), moov_box->size);
+        if (!source.read_exact(moov_box->offset, moov_data)) {
+            set_error(context, "Cannot read the complete ISO-BMFF moov box.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
 
         size_t moov_end = moov_data.size();
 
@@ -371,35 +317,45 @@ lpb_result probe_video_file(
     return LPB_RESULT_OK;
 }
 
-lpb_result remux_video_file(
+lpb_result probe_video_file(
     lpb_context* context,
-    const char* input_video_path,
+    const char* video_path,
+    lpb_video_item_facts* out_video_facts) noexcept
+{
+    if (!video_path || !out_video_facts) {
+        set_error(context, "Invalid arguments for video probe.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (out_video_facts->struct_size < sizeof(lpb_video_item_facts)) {
+        set_error(context, "out_video_facts struct_size is invalid.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    auto p_vid = utf8_to_path(video_path);
+    std::ifstream file(p_vid, std::ios::binary | std::ios::ate);
+    if (!file.is_open()) {
+        set_error(context, "Cannot open video file for probing.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    std::streamsize file_size = file.tellg();
+    if (file_size < 16) {
+        set_error(context, "Video file too small.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    const lpb::random_access_reader source{static_cast<uint64_t>(file_size), &file, file_read_at};
+    return probe_video_reader(context, source, out_video_facts);
+}
+
+static lpb_result remux_video_reader(
+    lpb_context* context,
+    const lpb::random_access_reader& source,
     const char* output_video_path,
     lpb_video_container target_container) noexcept
 {
-    if (!input_video_path || !output_video_path) {
-        set_error(context, "Invalid arguments for video remux.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-    if (paths_alias(input_video_path, output_video_path)) {
-        set_error(context, "Video remux output must not overwrite its source file.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-
-    auto p_in = utf8_to_path(input_video_path);
-    std::ifstream in(p_in, std::ios::binary | std::ios::ate);
-    if (!in.is_open()) {
-        set_error(context, "Cannot open input video file for remux.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-
-    std::streamsize file_size = in.tellg();
-    if (file_size < 16) {
-        set_error(context, "Input video file too small.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-
-    auto boxes = scan_top_level_boxes(in, static_cast<uint64_t>(file_size));
+    auto boxes = ::scan_top_level_boxes(source);
     if (boxes.empty()) {
         set_error(context, "No valid ISO-BMFF boxes found in input video.");
         return LPB_RESULT_INTERNAL_ERROR;
@@ -407,13 +363,13 @@ lpb_result remux_video_file(
 
     uint64_t scanned_size = 0;
     for (const auto& box : boxes) {
-        if (box.offset != scanned_size || box.size < box.header_size || box.size > static_cast<uint64_t>(file_size) - scanned_size) {
+        if (box.offset != scanned_size || box.size < box.header_size || box.size > source.length - scanned_size) {
             set_error(context, "Input video contains a truncated or overlapping ISO-BMFF box.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         scanned_size += box.size;
     }
-    if (scanned_size != static_cast<uint64_t>(file_size) ||
+    if (scanned_size != source.length ||
         std::memcmp(boxes.front().type, "ftyp", 4) != 0 ||
         boxes.front().size < boxes.front().header_size + 8) {
         set_error(context, "Input video does not contain a complete ISO-BMFF range beginning with ftyp.");
@@ -464,25 +420,21 @@ lpb_result remux_video_file(
     int64_t delta = static_cast<int64_t>(new_ftyp.size()) - static_cast<int64_t>(old_ftyp_size);
 
     auto p_out = utf8_to_path(output_video_path);
-    fs::path temp_path = p_out;
-    temp_path += L".lpb-remux-tmp";
-    std::error_code temp_ec;
-    fs::remove(temp_path, temp_ec);
-    std::ofstream out(temp_path, std::ios::binary | std::ios::trunc);
-    if (!out.is_open()) {
-        set_error(context, "Cannot open output video file for remux.");
+    windows_owned_output output;
+    if (!output.create(p_out, L"lpb-remux")) {
+        set_error(context, "Cannot create an owned output video staging file for remux.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
     auto fail_remux = [&](lpb_result result, const char* message) noexcept {
-        out.close();
-        fs::remove(temp_path, temp_ec);
+        output.abort();
         set_error(context, message);
         return result;
     };
 
     // 1. Write new ftyp box
-    out.write(reinterpret_cast<const char*>(new_ftyp.data()), new_ftyp.size());
+    if (!output.write_all(new_ftyp))
+        return fail_remux(LPB_RESULT_INTERNAL_ERROR, "Failed to write remuxed ftyp.");
 
     // 2. Process and write remaining top-level boxes
     constexpr size_t chunk_buf_size = 1024 * 1024;
@@ -501,9 +453,7 @@ lpb_result remux_video_file(
         if (std::memcmp(b.type, "moov", 4) == 0) {
             // Read moov, adjust chunk offsets, write moov
             std::vector<uint8_t> moov_data(static_cast<size_t>(b.size));
-            in.seekg(b.offset, std::ios::beg);
-            in.read(reinterpret_cast<char*>(moov_data.data()), b.size);
-            if (in.gcount() != static_cast<std::streamsize>(b.size)) {
+            if (!source.read_exact(b.offset, moov_data)) {
                 return fail_remux(LPB_RESULT_INTERNAL_ERROR, "Failed to read moov during video remux.");
             }
 
@@ -513,10 +463,10 @@ lpb_result remux_video_file(
                 }
             }
 
-            out.write(reinterpret_cast<const char*>(moov_data.data()), moov_data.size());
+            if (!output.write_all(moov_data))
+                return fail_remux(LPB_RESULT_INTERNAL_ERROR, "Failed to write remuxed moov.");
         } else {
             // Stream-copy box (e.g. mdat, free, etc.)
-            in.seekg(b.offset, std::ios::beg);
             uint64_t remaining = b.size;
             while (remaining > 0) {
                 if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
@@ -524,32 +474,64 @@ lpb_result remux_video_file(
                 }
 
                 size_t to_read = static_cast<size_t>(std::min<uint64_t>(remaining, transfer_buf.size()));
-                in.read(transfer_buf.data(), to_read);
-                std::streamsize read_bytes = in.gcount();
-                if (read_bytes != static_cast<std::streamsize>(to_read)) {
+                if (!source.read_exact(b.offset + b.size - remaining,
+                        std::span<uint8_t>(reinterpret_cast<uint8_t*>(transfer_buf.data()), to_read))) {
                     return fail_remux(LPB_RESULT_INTERNAL_ERROR, "Failed to read a complete ISO-BMFF box during remux.");
                 }
 
-                out.write(transfer_buf.data(), read_bytes);
-                remaining -= read_bytes;
+                if (!output.write_all(std::span<const uint8_t>(
+                        reinterpret_cast<const uint8_t*>(transfer_buf.data()),
+                        to_read)))
+                    return fail_remux(LPB_RESULT_INTERNAL_ERROR, "Failed to write remuxed video.");
+                remaining -= to_read;
             }
-        }
-        if (!out.good()) {
-            return fail_remux(LPB_RESULT_INTERNAL_ERROR, "Failed to write remuxed video.");
         }
     }
 
-    out.flush();
-    if (!out.good()) {
-        return fail_remux(LPB_RESULT_INTERNAL_ERROR, "Failed to flush remuxed video.");
+    lpb_video_item_facts remuxed_facts{};
+    if (!output.ready_to_consume() ||
+        probe_video_reader(context, output.reader(), &remuxed_facts) != LPB_RESULT_OK ||
+        remuxed_facts.container != target_container) {
+        return fail_remux(LPB_RESULT_INTERNAL_ERROR,
+            "Remuxed video failed structural validation before publication.");
     }
-    out.close();
-    if (!MoveFileExW(temp_path.c_str(), p_out.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        fs::remove(temp_path, temp_ec);
-        set_error(context, "Failed to publish remuxed video atomically.");
+    if (!output.publish_no_replace(p_out)) {
+        set_error(context, "Failed to publish the owned remuxed video without replacing an existing artifact.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
     return LPB_RESULT_OK;
+}
+
+lpb_result remux_video_file(
+    lpb_context* context,
+    const char* input_video_path,
+    const char* output_video_path,
+    lpb_video_container target_container) noexcept
+{
+    if (!input_video_path || !output_video_path) {
+        set_error(context, "Invalid arguments for video remux.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (paths_alias(input_video_path, output_video_path)) {
+        set_error(context, "Video remux output must not overwrite its source file.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    auto p_in = utf8_to_path(input_video_path);
+    std::ifstream in(p_in, std::ios::binary | std::ios::ate);
+    if (!in.is_open()) {
+        set_error(context, "Cannot open input video file for remux.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    std::streamsize file_size = in.tellg();
+    if (file_size < 16) {
+        set_error(context, "Input video file too small.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    const lpb::random_access_reader source{static_cast<uint64_t>(file_size), &in, file_read_at};
+    return remux_video_reader(context, source, output_video_path, target_container);
 }
 
 lpb_result transcode_video_file(
@@ -605,10 +587,14 @@ lpb_result transcode_video_file(
     // the requested path would leave a plausible-looking partial artifact on
     // encoder failure or cancellation.
     const bool needs_mov_remux = (target_container == LPB_VIDEO_CONTAINER_MOV);
-    fs::path temp_mp4_path = p_out.parent_path() /
-        (p_out.stem().wstring() + L".lpb-transcode-tmp.mp4");
-    std::error_code temp_path_ec;
-    fs::remove(temp_mp4_path, temp_path_ec);
+    windows_owned_output output;
+    if (!output.create(p_out, L"lpb-transcode", L".mp4")) {
+        MFShutdown();
+        if (co_inited) CoUninitialize();
+        set_error(context, "Failed to create an owned transcoding staging file.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    const fs::path temp_mp4_path = output.path();
 
     // 1. Create SourceReader
     IMFAttributes* pReaderAttrs = nullptr;
@@ -658,14 +644,28 @@ lpb_result transcode_video_file(
     }
 
     IMFSinkWriter* pWriter = nullptr;
-    hr = MFCreateSinkWriterFromURL(temp_mp4_path.c_str(), nullptr, pWriterAttrs, &pWriter);
+    IMFByteStream* raw_stream = nullptr;
+    std::unique_ptr<IMFByteStream, mf_byte_stream_closer> owned_stream;
+    const char* sink_stage = "MFCreateFile";
+    hr = MFCreateFile(MF_ACCESSMODE_WRITE, MF_OPENMODE_FAIL_IF_NOT_EXIST,
+        MF_FILEFLAGS_ALLOW_WRITE_SHARING, temp_mp4_path.c_str(), &raw_stream);
+    owned_stream.reset(raw_stream);
+    if (SUCCEEDED(hr) && owned_stream) {
+        // MF writes the CREATE_NEW-owned object through an opened byte stream;
+        // the platform backend retains the original handle until verification.
+        sink_stage = "MFCreateSinkWriterFromURL";
+        hr = MFCreateSinkWriterFromURL(temp_mp4_path.c_str(), owned_stream.get(),
+            pWriterAttrs, &pWriter);
+    }
     if (pWriterAttrs) pWriterAttrs->Release();
 
     if (FAILED(hr) || !pWriter) {
         pReader->Release();
         MFShutdown();
         if (co_inited) CoUninitialize();
-        set_error(context, "Failed to create Media Foundation sink writer for output video.");
+        const std::string error = std::string("Failed to create Media Foundation sink writer at ") +
+            sink_stage + " (HRESULT " + std::to_string(static_cast<unsigned long>(hr)) + ").";
+        set_error(context, error.c_str());
         return LPB_RESULT_INTERNAL_ERROR;
     }
 
@@ -701,7 +701,7 @@ lpb_result transcode_video_file(
     if (FAILED(hr)) {
         pWriter->Release();
         pReader->Release();
-        fs::remove(temp_mp4_path);
+        output.abort();
         MFShutdown();
         if (co_inited) CoUninitialize();
         set_error(context, "Target video codec encoder MFT is not available or rejected parameters.");
@@ -727,7 +727,7 @@ lpb_result transcode_video_file(
     if (FAILED(hr)) {
         pWriter->Release();
         pReader->Release();
-        fs::remove(temp_mp4_path);
+        output.abort();
         MFShutdown();
         if (co_inited) CoUninitialize();
         set_error(context, "Failed to configure uncompressed video pipeline on reader/writer.");
@@ -794,7 +794,7 @@ lpb_result transcode_video_file(
     if (FAILED(hr)) {
         pWriter->Release();
         pReader->Release();
-        fs::remove(temp_mp4_path);
+        output.abort();
         MFShutdown();
         if (co_inited) CoUninitialize();
         set_error(context, "Media Foundation SinkWriter BeginWriting failed.");
@@ -867,40 +867,40 @@ lpb_result transcode_video_file(
     }
 
     pWriter->Release();
+    owned_stream.reset();
     pReader->Release();
     MFShutdown();
     if (co_inited) CoUninitialize();
 
     if (transcode_res != LPB_RESULT_OK) {
-        fs::remove(temp_mp4_path);
+        output.abort();
         return transcode_res;
     }
 
     // 7. If MOV container was requested, remux temp MP4 to MOV
     if (needs_mov_remux) {
-        lpb_result remux_res = remux_video_file(context, temp_mp4_path.string().c_str(), output_video_path, LPB_VIDEO_CONTAINER_MOV);
-        fs::remove(temp_mp4_path);
+        if (!output.ready_to_consume()) {
+            set_error(context, "Transcoded staging MP4 no longer matches its creating handle.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+        lpb_result remux_res = remux_video_reader(context, output.reader(),
+            output_video_path, LPB_VIDEO_CONTAINER_MOV);
+        output.abort();
         if (remux_res != LPB_RESULT_OK) {
             return remux_res;
-        }
-        lpb_video_item_facts published_facts{};
-        published_facts.struct_size = sizeof(lpb_video_item_facts);
-        if (probe_video_file(context, output_video_path, &published_facts) != LPB_RESULT_OK) {
-            set_error(context, "Published MOV failed Native structural validation.");
-            return LPB_RESULT_INTERNAL_ERROR;
         }
     } else {
         lpb_video_item_facts transcoded_facts{};
         transcoded_facts.struct_size = sizeof(lpb_video_item_facts);
-        if (probe_video_file(context, temp_mp4_path.string().c_str(), &transcoded_facts) != LPB_RESULT_OK) {
-            fs::remove(temp_mp4_path);
-            set_error(context, "Transcoded MP4 failed Native structural validation.");
+        if (!output.ready_to_consume() ||
+            probe_video_reader(context, output.reader(), &transcoded_facts) != LPB_RESULT_OK) {
+            const std::string probe_reason = context != nullptr ? context->last_error : "unknown";
+            output.abort();
+            set_error(context, ("Transcoded MP4 failed Native structural validation: " + probe_reason).c_str());
             return LPB_RESULT_INTERNAL_ERROR;
         }
-        std::error_code publish_ec;
-        if (!MoveFileExW(temp_mp4_path.c_str(), p_out.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-            fs::remove(temp_mp4_path, publish_ec);
-            set_error(context, "Failed to publish transcoded MP4 atomically.");
+        if (!output.publish_no_replace(p_out)) {
+            set_error(context, "Failed to publish the owned transcoded MP4 without replacing an existing artifact.");
             return LPB_RESULT_INTERNAL_ERROR;
         }
     }

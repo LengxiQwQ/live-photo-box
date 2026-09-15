@@ -1,14 +1,17 @@
 #include "media/image_converter.h"
 #include "media/media_inspector.h"
 #include "foundation/internal.h"
+#include "platform/windows_filesystem.h"
 #include <fstream>
 #include <filesystem>
 #include <windows.h>
 #include <wincodec.h>
 #include <wincodecsdk.h>
+#include <shlwapi.h>
 
 #pragma comment(lib, "windowscodecs.lib")
 #pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "shlwapi.lib")
 
 namespace fs = std::filesystem;
 
@@ -18,13 +21,9 @@ static lpb_result fast_file_copy(lpb_context* context, const char* in_path, cons
     if (!in_path || !out_path) return LPB_RESULT_INVALID_ARGUMENT;
     auto p_in = utf8_to_path(in_path);
     auto p_out = utf8_to_path(out_path);
-    fs::path temp = p_out;
-    temp += L".lpb-image-copy-tmp";
-    std::error_code ec;
-    fs::remove(temp, ec);
-    fs::copy_file(p_in, temp, fs::copy_options::overwrite_existing, ec);
-    if (ec || !MoveFileExW(temp.c_str(), p_out.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        fs::remove(temp, ec);
+    windows_owned_output output;
+    if (!output.create(p_out, L"lpb-image-copy") ||
+        !output.copy_from_readonly(p_in) || !output.publish_no_replace(p_out)) {
         set_error(context, "Failed to copy image file.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
@@ -91,14 +90,17 @@ lpb_result convert_image_file(
     }
 
     auto p_out = utf8_to_path(output_image_path);
-    fs::path temp_output = p_out;
-    temp_output += L".lpb-image-convert-tmp";
-    std::error_code temp_ec;
-    fs::remove(temp_output, temp_ec);
-    auto cleanup_temp = [&]() noexcept { std::error_code ec; fs::remove(temp_output, ec); };
+    windows_owned_output output;
+    if (!output.create(p_out, L"lpb-image-convert")) {
+        factory->Release();
+        if (co_initialized) CoUninitialize();
+        set_error(context, "Failed to create an owned image staging file.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    auto cleanup_temp = [&]() noexcept { output.abort(); };
 
     int in_len = MultiByteToWideChar(CP_UTF8, 0, input_image_path, -1, nullptr, 0);
-    const std::wstring temp_output_string = temp_output.wstring();
+    const std::wstring temp_output_string = output.path().wstring();
     if (in_len <= 0 || temp_output_string.empty()) {
         cleanup_temp();
         if (co_initialized) CoUninitialize();
@@ -144,7 +146,17 @@ lpb_result convert_image_file(
     IWICStream* stream = nullptr;
     hr = factory->CreateStream(&stream);
     if (SUCCEEDED(hr)) {
-        hr = stream->InitializeFromFilename(temp_output_string.c_str(), GENERIC_WRITE);
+        // WIC InitializeFromFilename wants to create a new pathname. Open an
+        // IStream on the already CREATE_NEW-owned object instead; the backend
+        // retains its creating handle through codec commit and publication.
+        IStream* file_stream = nullptr;
+        hr = SHCreateStreamOnFileEx(temp_output_string.c_str(),
+            STGM_WRITE | STGM_SHARE_DENY_NONE, FILE_ATTRIBUTE_NORMAL,
+            FALSE, nullptr, &file_stream);
+        if (SUCCEEDED(hr) && file_stream) {
+            hr = stream->InitializeFromIStream(file_stream);
+            file_stream->Release();
+        }
     }
 
     IWICBitmapEncoder* encoder = nullptr;
@@ -239,9 +251,9 @@ lpb_result convert_image_file(
         return LPB_RESULT_INTERNAL_ERROR;
     }
 
-    if (!MoveFileExW(temp_output.c_str(), p_out.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+    if (!output.publish_no_replace(p_out)) {
         cleanup_temp();
-        set_error(context, "Failed to publish converted image atomically.");
+        set_error(context, "Failed to publish the owned converted image without replacing an existing artifact.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
 
