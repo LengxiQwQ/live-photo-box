@@ -114,11 +114,16 @@ enum lpb_capability
     LPB_CAPABILITY_HUAWEI_HONOR = 1ull << 13,
     LPB_CAPABILITY_SAMSUNG_JPEG = 1ull << 14,
     LPB_CAPABILITY_SAMSUNG_HEIC = 1ull << 15,
-    LPB_CAPABILITY_APPLE = 1ull << 16
+    LPB_CAPABILITY_APPLE = 1ull << 16,
+    /* R4: libjpeg-turbo is present behind project-owned Native contracts. */
+    LPB_CAPABILITY_JPEG_BACKEND = 1ull << 17
 };
 
 LPB_API uint32_t LPB_CALL lpb_get_abi_version(void);
 LPB_API const char* LPB_CALL lpb_get_version(void);
+/* R4 codec identity. This is a project-owned diagnostic string, not a
+ * libjpeg-turbo type or API contract. */
+LPB_API const char* LPB_CALL lpb_get_jpeg_backend_version(void);
 
 LPB_API lpb_result LPB_CALL lpb_create_context(
     const lpb_context_options* options,
@@ -877,7 +882,8 @@ LPB_API lpb_result LPB_CALL lpb_remux_video(
 /*
  * Converts image formats natively.
  * If target matches source container, performs structure copy (out_reencoded = 0).
- * If transcoding is required (e.g. HEIC <-> JPEG), uses WIC (Windows Imaging Component).
+ * Result-affecting JPEG decode/encode uses the project-owned libjpeg-turbo
+ * backend. WIC remains only at the current HEIC container boundary pending R5.
  */
 LPB_API lpb_result LPB_CALL lpb_convert_image(
     lpb_context* context,
@@ -886,6 +892,26 @@ LPB_API lpb_result LPB_CALL lpb_convert_image(
     lpb_image_container target_container,
     int32_t quality,
     int32_t* out_reencoded);
+
+/* DCT-domain transforms only. The operation never falls back to pixel
+ * decode/re-encode: non-perfect MCU alignment, appended live-photo/GainMap
+ * payloads, or non-default/unverifiable EXIF Orientation fail closed. */
+typedef enum lpb_jpeg_transform
+{
+    LPB_JPEG_TRANSFORM_ROTATE_90 = 0,
+    LPB_JPEG_TRANSFORM_ROTATE_180 = 1,
+    LPB_JPEG_TRANSFORM_ROTATE_270 = 2,
+    LPB_JPEG_TRANSFORM_FLIP_HORIZONTAL = 3,
+    LPB_JPEG_TRANSFORM_FLIP_VERTICAL = 4,
+    LPB_JPEG_TRANSFORM_TRANSPOSE = 5,
+    LPB_JPEG_TRANSFORM_TRANSVERSE = 6
+} lpb_jpeg_transform;
+
+LPB_API lpb_result LPB_CALL lpb_transform_jpeg_losslessly(
+    lpb_context* context,
+    const char* input_image_path,
+    const char* output_image_path,
+    lpb_jpeg_transform transform);
 
 /*
  * Transcodes video natively.

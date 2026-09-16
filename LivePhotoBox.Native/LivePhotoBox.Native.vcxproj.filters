@@ -63,6 +63,9 @@
     <ClInclude Include="src\media\image_converter.h">
       <Filter>src\media</Filter>
     </ClInclude>
+    <ClInclude Include="src\media\jpeg_backend.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
     <ClInclude Include="src\media\media_cleaner.h">
       <Filter>src\media</Filter>
     </ClInclude>
@@ -75,10 +78,10 @@
     <ClInclude Include="src\media\video_converter.h">
       <Filter>src\media</Filter>
     </ClInclude>
-    <ClInclude Include="src\metadata\exif_rewrite.h">
+    <ClInclude Include="src\metadata\exif.h">
       <Filter>src\metadata</Filter>
     </ClInclude>
-    <ClInclude Include="src\metadata\exif.h">
+    <ClInclude Include="src\metadata\exif_rewrite.h">
       <Filter>src\metadata</Filter>
     </ClInclude>
     <ClInclude Include="src\metadata\jpeg.h">
@@ -87,10 +90,10 @@
     <ClInclude Include="src\platform\windows_filesystem.h">
       <Filter>src\platform</Filter>
     </ClInclude>
-    <ClInclude Include="src\protocols\apple_mebx_templates.h">
+    <ClInclude Include="src\protocols\apple.h">
       <Filter>src\protocols</Filter>
     </ClInclude>
-    <ClInclude Include="src\protocols\apple.h">
+    <ClInclude Include="src\protocols\apple_mebx_templates.h">
       <Filter>src\protocols</Filter>
     </ClInclude>
     <ClInclude Include="src\protocols\clean\heif_cleaner.h">
@@ -131,6 +134,9 @@
     <ClCompile Include="src\media\image_converter.cpp">
       <Filter>src\media</Filter>
     </ClCompile>
+    <ClCompile Include="src\media\jpeg_backend.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
     <ClCompile Include="src\media\media_api.cpp">
       <Filter>src\media</Filter>
     </ClCompile>
@@ -149,10 +155,10 @@
     <ClCompile Include="src\media\video_converter.cpp">
       <Filter>src\media</Filter>
     </ClCompile>
-    <ClCompile Include="src\metadata\exif_rewrite.cpp">
+    <ClCompile Include="src\metadata\exif.cpp">
       <Filter>src\metadata</Filter>
     </ClCompile>
-    <ClCompile Include="src\metadata\exif.cpp">
+    <ClCompile Include="src\metadata\exif_rewrite.cpp">
       <Filter>src\metadata</Filter>
     </ClCompile>
     <ClCompile Include="src\metadata\jpeg.cpp">
@@ -161,10 +167,10 @@
     <ClCompile Include="src\platform\windows_filesystem.cpp">
       <Filter>src\platform</Filter>
     </ClCompile>
-    <ClCompile Include="src\protocols\apple_mebx.cpp">
+    <ClCompile Include="src\protocols\apple.cpp">
       <Filter>src\protocols</Filter>
     </ClCompile>
-    <ClCompile Include="src\protocols\apple.cpp">
+    <ClCompile Include="src\protocols\apple_mebx.cpp">
       <Filter>src\protocols</Filter>
     </ClCompile>
     <ClCompile Include="src\protocols\clean\heif_cleaner.cpp">

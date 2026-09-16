@@ -16,6 +16,8 @@ public sealed class NativeRuntimeTests
         Assert.Equal(NativeRuntime.SupportedAbiVersion, info.AbiVersion);
         Assert.False(string.IsNullOrWhiteSpace(info.Version));
         Assert.NotEqual(0UL, info.Capabilities & NativeRuntime.FoundationCapability);
+        Assert.NotEqual(0UL, info.Capabilities & NativeRuntime.JpegBackendCapability);
+        Assert.Equal("libjpeg-turbo 3002000", info.JpegBackendVersion);
 
         string managedVersion = typeof(NativeRuntime).Assembly.GetName().Version!.ToString(4);
         Assert.Equal(managedVersion, info.Version);

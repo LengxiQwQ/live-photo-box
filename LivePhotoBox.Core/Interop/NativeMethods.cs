@@ -54,6 +54,11 @@ namespace LivePhotoBox.Interop
         [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
         internal static partial nint GetVersion();
 
+        [LibraryImport(LibraryName, EntryPoint = "lpb_get_jpeg_backend_version")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+        internal static partial nint GetJpegBackendVersion();
+
         [LibraryImport(LibraryName, EntryPoint = "lpb_create_context")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
         [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

@@ -2,5 +2,7 @@
   "name": "live-photo-box-native",
   "version-string": "2.2.2",
   "builtin-baseline": "9e44ec0e9f247d77c230ced0ee66c76296837807",
-  "dependencies": []
+  "dependencies": [
+    "libjpeg-turbo"
+  ]
 }

@@ -505,6 +505,22 @@ public static class NativeMediaService
         }, cancellationToken);
     }
 
+    public static Task TransformJpegLosslesslyAsync(
+        string inputImagePath,
+        string outputImagePath,
+        int transform,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.Run(() =>
+        {
+            using var ctx = NativeContext.Create(cancellationToken);
+            NativeResult res = NativeMethods.TransformJpegLosslessly(
+                ctx.Handle, inputImagePath, outputImagePath, transform);
+            ctx.ThrowIfFailed(res);
+        }, cancellationToken);
+    }
+
     public static Task<string> TranscodeVideoAsync(
         string inputVideoPath,
         string outputVideoPath,

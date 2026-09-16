@@ -12,12 +12,14 @@ namespace LivePhotoBox.Interop
             bool isAvailable,
             uint abiVersion,
             string? version,
+            string? jpegBackendVersion,
             ulong capabilities,
             string? diagnostic)
         {
             IsAvailable = isAvailable;
             AbiVersion = abiVersion;
             Version = version;
+            JpegBackendVersion = jpegBackendVersion;
             Capabilities = capabilities;
             Diagnostic = diagnostic;
         }
@@ -30,6 +32,9 @@ namespace LivePhotoBox.Interop
 
         /// <summary>Gets the product version reported by the native runtime.</summary>
         public string? Version { get; }
+
+        /// <summary>Gets the Native JPEG backend identity when available.</summary>
+        public string? JpegBackendVersion { get; }
 
         /// <summary>Gets the native capability bit mask.</summary>
         public ulong Capabilities { get; }
@@ -59,6 +64,7 @@ namespace LivePhotoBox.Interop
         public const ulong SamsungJpegCapability = 1UL << 14;
         public const ulong SamsungHeicCapability = 1UL << 15;
         public const ulong AppleCapability = 1UL << 16;
+        public const ulong JpegBackendCapability = 1UL << 17;
 
         /// <summary>The fixed native ABI capacity for auxiliary item facts.</summary>
     internal const int MaxAuxiliaryItems = 8;
@@ -100,10 +106,14 @@ namespace LivePhotoBox.Interop
                 }
 
                 string? version = Marshal.PtrToStringUTF8(NativeMethods.GetVersion());
+                string? jpegBackendVersion = (runtimeInfo.Capabilities & JpegBackendCapability) != 0
+                    ? Marshal.PtrToStringUTF8(NativeMethods.GetJpegBackendVersion())
+                    : null;
                 return new NativeRuntimeInfo(
                     isAvailable: true,
                     abiVersion: runtimeInfo.AbiVersion,
                     version,
+                    jpegBackendVersion,
                     runtimeInfo.Capabilities,
                     diagnostic: null);
             }
@@ -138,6 +148,7 @@ namespace LivePhotoBox.Interop
                 isAvailable: false,
                 abiVersion,
                 version: null,
+                jpegBackendVersion: null,
                 capabilities: 0,
                 diagnostic);
 

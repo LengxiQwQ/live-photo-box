@@ -10,6 +10,12 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
+# R4 codec dependency authority: vcpkg manifest -> CMake imported target.
+# libjpeg-turbo owns pixels/DCT only; project code remains the JPEG structure
+# and metadata/protocol authority.
+find_package(JPEG REQUIRED)
+find_package(libjpeg-turbo CONFIG REQUIRED)
+
 set(LPB_NATIVE_OUTPUT_ROOT "${CMAKE_SOURCE_DIR}/artifacts/native" CACHE PATH "Native artifact root")
 set(LPB_MANIFEST "${CMAKE_SOURCE_DIR}/LivePhotoBox/Package.appxmanifest")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${LPB_MANIFEST}")
@@ -46,6 +52,7 @@ set(LPB_WINDOWS_PLATFORM_SOURCES
   LivePhotoBox.Native/src/foundation/context.cpp
   LivePhotoBox.Native/src/platform/windows_filesystem.cpp)
 set(LPB_MEDIA_SOURCES
+  LivePhotoBox.Native/src/media/jpeg_backend.cpp
   LivePhotoBox.Native/src/media/image_converter.cpp
   LivePhotoBox.Native/src/media/media_api.cpp
   LivePhotoBox.Native/src/media/media_cleaner.cpp
@@ -82,7 +89,9 @@ function(lpb_native_target target_name output_name harness)
     $<$<CONFIG:Release>:/O2> $<$<CONFIG:Release>:/Oi> $<$<CONFIG:Release>:/Gy> $<$<CONFIG:Release>:/GL>)
   target_link_options(${target_name} PRIVATE /guard:cf /DEBUG
     $<$<CONFIG:Release>:/OPT:REF> $<$<CONFIG:Release>:/OPT:ICF> $<$<CONFIG:Release>:/LTCG>)
-  target_link_libraries(${target_name} PRIVATE bcrypt windowscodecs ole32 shlwapi
+  target_link_libraries(${target_name} PRIVATE JPEG::JPEG
+    $<IF:$<TARGET_EXISTS:libjpeg-turbo::turbojpeg>,libjpeg-turbo::turbojpeg,libjpeg-turbo::turbojpeg-static>
+    bcrypt windowscodecs ole32 shlwapi
     mfplat mfreadwrite mfuuid)
   set_target_properties(${target_name} PROPERTIES
     OUTPUT_NAME "${output_name}"

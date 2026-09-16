@@ -1,6 +1,7 @@
 #include "media/media_inspector.h"
 #include "media/media_extractor.h"
 #include "media/image_converter.h"
+#include "media/jpeg_backend.h"
 #include "media/video_converter.h"
 #include "media/media_cleaner.h"
 #include "foundation/internal.h"
@@ -108,6 +109,11 @@ bool validate_gainmap_binding(lpb_context* context,
 }
 
 extern "C" {
+
+LPB_API const char* LPB_CALL lpb_get_jpeg_backend_version(void)
+{
+    return jpeg_backend_version();
+}
 
 LPB_API lpb_result LPB_CALL lpb_inspect_media(
     lpb_context* context,
@@ -1325,6 +1331,15 @@ LPB_API lpb_result LPB_CALL lpb_convert_image(
     int32_t* out_reencoded)
 {
     return convert_image_file(context, input_image_path, output_image_path, target_container, quality, out_reencoded);
+}
+
+LPB_API lpb_result LPB_CALL lpb_transform_jpeg_losslessly(
+    lpb_context* context,
+    const char* input_image_path,
+    const char* output_image_path,
+    lpb_jpeg_transform transform)
+{
+    return transform_jpeg_losslessly(context, input_image_path, output_image_path, static_cast<int32_t>(transform));
 }
 
 LPB_API lpb_result LPB_CALL lpb_transcode_video(

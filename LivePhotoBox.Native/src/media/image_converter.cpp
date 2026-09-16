@@ -1,4 +1,5 @@
 #include "media/image_converter.h"
+#include "media/jpeg_backend.h"
 #include "media/media_inspector.h"
 #include "foundation/internal.h"
 #include "platform/windows_filesystem.h"
@@ -25,6 +26,84 @@ static lpb_result fast_file_copy(lpb_context* context, const char* in_path, cons
     if (!output.create(p_out, L"lpb-image-copy") ||
         !output.copy_from_readonly(p_in) || !output.publish_no_replace(p_out)) {
         set_error(context, "Failed to copy image file.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    return LPB_RESULT_OK;
+}
+
+// R4 keeps WIC only at the HEIC container boundary. JPEG bytes are decoded by
+// the Native backend before this function is reached, and no JPEG encoder is
+// selected here. HEIC metadata/auxiliary reattachment is deliberately not
+// claimed: that project-owned contract belongs to R5.
+static lpb_result encode_rgb_to_heic_wic(lpb_context* context, const char* output_path,
+    const jpeg_rgb_image& image) noexcept {
+    const uint64_t expected_byte_count = static_cast<uint64_t>(image.width) * image.height * 3;
+    if (!context || !output_path || image.width == 0 || image.height == 0 ||
+        image.width > std::numeric_limits<UINT>::max() / 3 ||
+        expected_byte_count > std::numeric_limits<UINT>::max() ||
+        image.pixels.size() != static_cast<size_t>(expected_byte_count)) {
+        if (context) set_error(context, "HEIC encode received an invalid Native JPEG RGB image.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+    const bool co_initialized = SUCCEEDED(hr);
+    IWICImagingFactory* factory = nullptr;
+    hr = CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+        IID_PPV_ARGS(&factory));
+    if (FAILED(hr) || !factory) {
+        if (co_initialized) CoUninitialize();
+        set_error(context, "WIC HEIC encoder factory creation failed.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+
+    windows_owned_output output;
+    const fs::path destination = utf8_to_path(output_path);
+    if (!output.create(destination, L"lpb-heic-encode")) {
+        factory->Release();
+        if (co_initialized) CoUninitialize();
+        set_error(context, "Failed to create an owned HEIC staging file.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+
+    IWICBitmap* bitmap = nullptr;
+    IWICStream* stream = nullptr;
+    IWICBitmapEncoder* encoder = nullptr;
+    IWICBitmapFrameEncode* frame = nullptr;
+    IPropertyBag2* properties = nullptr;
+    const UINT stride = image.width * 3;
+    hr = factory->CreateBitmapFromMemory(image.width, image.height, GUID_WICPixelFormat24bppRGB,
+        stride, static_cast<UINT>(image.pixels.size()),
+        const_cast<BYTE*>(reinterpret_cast<const BYTE*>(image.pixels.data())), &bitmap);
+    if (SUCCEEDED(hr)) hr = factory->CreateStream(&stream);
+    if (SUCCEEDED(hr)) {
+        IStream* file_stream = nullptr;
+        hr = SHCreateStreamOnFileEx(output.path().c_str(), STGM_WRITE | STGM_SHARE_DENY_NONE,
+            FILE_ATTRIBUTE_NORMAL, FALSE, nullptr, &file_stream);
+        if (SUCCEEDED(hr) && file_stream) {
+            hr = stream->InitializeFromIStream(file_stream);
+            file_stream->Release();
+        }
+    }
+    if (SUCCEEDED(hr)) hr = factory->CreateEncoder(GUID_ContainerFormatHeif, nullptr, &encoder);
+    if (SUCCEEDED(hr)) hr = encoder->Initialize(stream, WICBitmapEncoderNoCache);
+    if (SUCCEEDED(hr)) hr = encoder->CreateNewFrame(&frame, &properties);
+    if (SUCCEEDED(hr)) hr = frame->Initialize(properties);
+    if (SUCCEEDED(hr)) hr = frame->WriteSource(bitmap, nullptr);
+    if (SUCCEEDED(hr)) hr = frame->Commit();
+    if (SUCCEEDED(hr)) hr = encoder->Commit();
+
+    if (properties) properties->Release();
+    if (frame) frame->Release();
+    if (encoder) encoder->Release();
+    if (stream) stream->Release();
+    if (bitmap) bitmap->Release();
+    factory->Release();
+    if (co_initialized) CoUninitialize();
+
+    if (FAILED(hr) || !output.publish_no_replace(destination)) {
+        output.abort();
+        set_error(context, "WIC HEIC encoding failed before an owned output could be published.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
     return LPB_RESULT_OK;
@@ -72,7 +151,21 @@ lpb_result convert_image_file(
         return fast_file_copy(context, input_image_path, output_image_path);
     }
 
-    // 2. Cross-container conversion using Windows Imaging Component (WIC)
+    // R4: a JPEG source is always decoded by libjpeg-turbo before the still
+    // Windows-specific HEIC encoder is invoked. This is a pixel conversion:
+    // its managed BestEffort record remains explicitly partial for any
+    // protocol tail/GainMap carrier; R5 owns structural detach/reassembly.
+    if (src_cont == LPB_IMAGE_CONTAINER_JPEG && target_container == LPB_IMAGE_CONTAINER_HEIC) {
+        jpeg_rgb_image decoded;
+        const lpb_result decoded_result = decode_jpeg_rgb_file(context, input_image_path, decoded);
+        if (decoded_result != LPB_RESULT_OK) return decoded_result;
+        const lpb_result encoded_result = encode_rgb_to_heic_wic(context, output_image_path, decoded);
+        if (encoded_result == LPB_RESULT_OK && out_reencoded) *out_reencoded = 1;
+        return encoded_result;
+    }
+
+    // 2. HEIC -> JPEG: WIC decodes the HEIC container; libjpeg-turbo owns the
+    // result-affecting JPEG encoding below. R5 replaces the HEIC decoder.
     HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
     bool co_initialized = SUCCEEDED(hr);
 
@@ -134,6 +227,53 @@ lpb_result convert_image_file(
         factory->Release();
         if (co_initialized) CoUninitialize();
         set_error(context, "Failed to get image frame from decoder.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+
+    // JPEG pixels are owned by libjpeg-turbo from R4 onward. WIC remains only
+    // the temporary HEIC decoder here; it is not allowed to choose or run the
+    // result-affecting JPEG encoder. Metadata/container preservation for the
+    // cross-container HEIC path remains explicitly partial until R5 supplies
+    // the HEIF structural reattachment contract.
+    if (target_container == LPB_IMAGE_CONTAINER_JPEG) {
+        UINT width = 0, height = 0;
+        IWICFormatConverter* converter = nullptr;
+        if (SUCCEEDED(frame_decode->GetSize(&width, &height)) && width > 0 && height > 0 &&
+            SUCCEEDED(factory->CreateFormatConverter(&converter)) && converter &&
+            SUCCEEDED(converter->Initialize(frame_decode, GUID_WICPixelFormat24bppRGB,
+                WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeCustom))) {
+            const uint64_t byte_count = static_cast<uint64_t>(width) * height * 3;
+            if (width <= std::numeric_limits<UINT>::max() / 3 &&
+                byte_count <= std::numeric_limits<UINT>::max() &&
+                byte_count <= std::numeric_limits<size_t>::max()) {
+                try {
+                    std::vector<uint8_t> rgb(static_cast<size_t>(byte_count));
+                    const UINT stride = width * 3;
+                    hr = converter->CopyPixels(nullptr, stride, static_cast<UINT>(byte_count), rgb.data());
+                    if (SUCCEEDED(hr)) {
+                        converter->Release();
+                        frame_decode->Release();
+                        decoder->Release();
+                        factory->Release();
+                        if (co_initialized) CoUninitialize();
+                        const lpb_result encoded = encode_rgb_jpeg_file(context, output_image_path,
+                            width, height, rgb, quality);
+                        if (encoded == LPB_RESULT_OK && out_reencoded) *out_reencoded = 1;
+                        return encoded;
+                    }
+                } catch (const std::bad_alloc&) {
+                    hr = E_OUTOFMEMORY;
+                }
+            } else {
+                hr = E_OUTOFMEMORY;
+            }
+        }
+        if (converter) converter->Release();
+        frame_decode->Release();
+        decoder->Release();
+        factory->Release();
+        if (co_initialized) CoUninitialize();
+        set_error(context, "Failed to decode source pixels for libjpeg-turbo JPEG encoding.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
 

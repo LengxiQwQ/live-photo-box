@@ -155,6 +155,15 @@ internal static partial class NativeMethods
         int quality,
         out int outReencoded);
 
+    [LibraryImport(LibraryName, EntryPoint = "lpb_transform_jpeg_losslessly", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult TransformJpegLosslessly(
+        nint context,
+        string inputImagePath,
+        string outputImagePath,
+        int transform);
+
     [LibraryImport(LibraryName, EntryPoint = "lpb_transcode_video", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
