@@ -202,6 +202,18 @@ internal static partial class NativeMethods
         byte* outEncoderUsed,
         nuint encoderBufLen);
 
+    [LibraryImport(LibraryName, EntryPoint = "lpb_transcode_video_v2", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult TranscodeVideoV2(
+        nint context,
+        string inputVideoPath,
+        string outputVideoPath,
+        int targetContainer,
+        int targetCodec,
+        int crf,
+        ref NativeVideoBackendDiagnostics outDiagnostics);
+
     [LibraryImport(LibraryName, EntryPoint = "lpb_reassemble_jpeg_gainmap", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

@@ -47,6 +47,24 @@ struct mf_byte_stream_closer {
     }
 };
 
+static void set_backend_diagnostics(
+    lpb_video_backend_diagnostics* diagnostics,
+    lpb_video_backend_kind backend,
+    lpb_video_hardware_mode hardware_mode,
+    bool fallback_occurred,
+    const char* selected_encoder,
+    const char* fallback_reason) noexcept
+{
+    if (!diagnostics) return;
+    std::memset(diagnostics, 0, sizeof(*diagnostics));
+    diagnostics->struct_size = sizeof(*diagnostics);
+    diagnostics->backend = backend;
+    diagnostics->hardware_mode = hardware_mode;
+    diagnostics->hardware_fallback_occurred = fallback_occurred ? 1 : 0;
+    strncpy_s(diagnostics->selected_encoder, selected_encoder ? selected_encoder : "", _TRUNCATE);
+    strncpy_s(diagnostics->fallback_reason, fallback_reason ? fallback_reason : "", _TRUNCATE);
+}
+
 static lpb_result probe_video_reader(
     lpb_context* context,
     const lpb::random_access_reader& source,
@@ -542,8 +560,11 @@ lpb_result transcode_video_file(
     lpb_video_codec target_codec,
     int32_t crf,
     char* out_encoder_used,
-    size_t encoder_buf_len) noexcept
+    size_t encoder_buf_len,
+    lpb_video_backend_diagnostics* out_diagnostics) noexcept
 {
+    set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_UNKNOWN, LPB_VIDEO_HARDWARE_UNKNOWN,
+        false, "", "No backend selected.");
     if (!input_video_path || !output_video_path) {
         set_error(context, "Invalid arguments for video transcode.");
         return LPB_RESULT_INVALID_ARGUMENT;
@@ -564,9 +585,15 @@ lpb_result transcode_video_file(
     // If target codec is copy or matches source codec, perform stream remux directly
     if (target_codec == LPB_VIDEO_CODEC_COPY || target_codec == src_facts.codec) {
         if (out_encoder_used && encoder_buf_len > 0) {
-            strncpy_s(out_encoder_used, encoder_buf_len, "Native-StreamRemux", _TRUNCATE);
+            strncpy_s(out_encoder_used, encoder_buf_len, "ProjectIsoBmffStreamRemux", _TRUNCATE);
         }
-        return remux_video_file(context, input_video_path, output_video_path, target_container);
+        lpb_result remux_result = remux_video_file(context, input_video_path, output_video_path, target_container);
+        if (remux_result == LPB_RESULT_OK) {
+            set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_PROJECT_ISOBMFF_REMUX,
+                LPB_VIDEO_HARDWARE_NOT_APPLICABLE, false, "ProjectIsoBmffStreamRemux",
+                "No codec transform: project-owned ISO-BMFF remux path.");
+        }
+        return remux_result;
     }
 
     // Real cross-codec transcoding via Windows Media Foundation
@@ -600,7 +627,7 @@ lpb_result transcode_video_file(
     IMFAttributes* pReaderAttrs = nullptr;
     MFCreateAttributes(&pReaderAttrs, 2);
     if (pReaderAttrs) {
-        pReaderAttrs->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, TRUE);
+        pReaderAttrs->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, FALSE);
         pReaderAttrs->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, TRUE);
     }
 
@@ -639,7 +666,7 @@ lpb_result transcode_video_file(
     IMFAttributes* pWriterAttrs = nullptr;
     MFCreateAttributes(&pWriterAttrs, 2);
     if (pWriterAttrs) {
-        pWriterAttrs->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, TRUE);
+        pWriterAttrs->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, FALSE);
         pWriterAttrs->SetUINT32(MF_SINK_WRITER_DISABLE_THROTTLING, TRUE);
     }
 
@@ -739,53 +766,64 @@ lpb_result transcode_video_file(
     bool has_audio_stream = (src_facts.has_audio != 0);
     if (has_audio_stream) {
         IMFMediaType* pNativeAudio = nullptr;
-        if (SUCCEEDED(pReader->GetNativeMediaType(static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM), 0, &pNativeAudio)) && pNativeAudio) {
-            UINT32 raw_sample_rate = 48000;
-            UINT32 raw_channels = 2;
-            pNativeAudio->GetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, &raw_sample_rate);
-            pNativeAudio->GetUINT32(MF_MT_AUDIO_NUM_CHANNELS, &raw_channels);
-            pNativeAudio->Release();
+        hr = pReader->GetNativeMediaType(static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM), 0, &pNativeAudio);
+        if (FAILED(hr) || !pNativeAudio) {
+            pWriter->Release();
+            pReader->Release();
+            output.abort();
+            MFShutdown();
+            if (co_inited) CoUninitialize();
+            set_error(context, "Source declares audio, but Media Foundation cannot read its native audio type; refusing to silently drop audio.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
 
-            // Normalize audio parameters: AAC encoder reliably supports 1 (mono) or 2 (stereo)
-            UINT32 target_channels = (raw_channels == 1) ? 1 : 2;
-            UINT32 target_sample_rate = (raw_sample_rate == 44100) ? 44100 : 48000;
-            UINT32 avg_bytes = (target_channels == 1) ? 12000 : 16000; // 96 kbps mono / 128 kbps stereo
+        UINT32 raw_sample_rate = 48000;
+        UINT32 raw_channels = 2;
+        pNativeAudio->GetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, &raw_sample_rate);
+        pNativeAudio->GetUINT32(MF_MT_AUDIO_NUM_CHANNELS, &raw_channels);
+        pNativeAudio->Release();
 
-            IMFMediaType* pOutAudioType = nullptr;
-            MFCreateMediaType(&pOutAudioType);
-            pOutAudioType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
-            pOutAudioType->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_AAC);
-            pOutAudioType->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, 16);
-            pOutAudioType->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, target_sample_rate);
-            pOutAudioType->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS, target_channels);
-            pOutAudioType->SetUINT32(MF_MT_AUDIO_AVG_BYTES_PER_SECOND, avg_bytes);
+        // Normalize audio parameters: AAC encoder reliably supports 1 (mono) or 2 (stereo)
+        UINT32 target_channels = (raw_channels == 1) ? 1 : 2;
+        UINT32 target_sample_rate = (raw_sample_rate == 44100) ? 44100 : 48000;
+        UINT32 avg_bytes = (target_channels == 1) ? 12000 : 16000; // 96 kbps mono / 128 kbps stereo
 
-            if (SUCCEEDED(pWriter->AddStream(pOutAudioType, &sinkAudioIndex))) {
-                IMFMediaType* pInAudioType = nullptr;
-                MFCreateMediaType(&pInAudioType);
-                pInAudioType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
-                pInAudioType->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_PCM);
-                pInAudioType->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, 16);
-                pInAudioType->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, target_sample_rate);
-                pInAudioType->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS, target_channels);
-                pInAudioType->SetUINT32(MF_MT_AUDIO_BLOCK_ALIGNMENT, target_channels * 2);
-                pInAudioType->SetUINT32(MF_MT_AUDIO_AVG_BYTES_PER_SECOND, target_sample_rate * target_channels * 2);
+        IMFMediaType* pOutAudioType = nullptr;
+        hr = MFCreateMediaType(&pOutAudioType);
+        if (SUCCEEDED(hr)) {
+            hr = pOutAudioType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
+        }
+        if (SUCCEEDED(hr)) hr = pOutAudioType->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_AAC);
+        if (SUCCEEDED(hr)) hr = pOutAudioType->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, 16);
+        if (SUCCEEDED(hr)) hr = pOutAudioType->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, target_sample_rate);
+        if (SUCCEEDED(hr)) hr = pOutAudioType->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS, target_channels);
+        if (SUCCEEDED(hr)) hr = pOutAudioType->SetUINT32(MF_MT_AUDIO_AVG_BYTES_PER_SECOND, avg_bytes);
+        if (SUCCEEDED(hr)) hr = pWriter->AddStream(pOutAudioType, &sinkAudioIndex);
+        if (pOutAudioType) pOutAudioType->Release();
 
-                hr = pWriter->SetInputMediaType(sinkAudioIndex, pInAudioType, nullptr);
-                if (SUCCEEDED(hr)) {
-                    hr = pReader->SetCurrentMediaType(static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM), nullptr, pInAudioType);
-                }
-                pInAudioType->Release();
+        IMFMediaType* pInAudioType = nullptr;
+        if (SUCCEEDED(hr)) hr = MFCreateMediaType(&pInAudioType);
+        if (SUCCEEDED(hr)) hr = pInAudioType->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
+        if (SUCCEEDED(hr)) hr = pInAudioType->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_PCM);
+        if (SUCCEEDED(hr)) hr = pInAudioType->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, 16);
+        if (SUCCEEDED(hr)) hr = pInAudioType->SetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, target_sample_rate);
+        if (SUCCEEDED(hr)) hr = pInAudioType->SetUINT32(MF_MT_AUDIO_NUM_CHANNELS, target_channels);
+        if (SUCCEEDED(hr)) hr = pInAudioType->SetUINT32(MF_MT_AUDIO_BLOCK_ALIGNMENT, target_channels * 2);
+        if (SUCCEEDED(hr)) hr = pInAudioType->SetUINT32(MF_MT_AUDIO_AVG_BYTES_PER_SECOND, target_sample_rate * target_channels * 2);
+        if (SUCCEEDED(hr)) hr = pWriter->SetInputMediaType(sinkAudioIndex, pInAudioType, nullptr);
+        if (SUCCEEDED(hr)) {
+            hr = pReader->SetCurrentMediaType(static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM), nullptr, pInAudioType);
+        }
+        if (pInAudioType) pInAudioType->Release();
 
-                if (FAILED(hr)) {
-                    has_audio_stream = false;
-                }
-            } else {
-                has_audio_stream = false;
-            }
-            pOutAudioType->Release();
-        } else {
-            has_audio_stream = false;
+        if (FAILED(hr)) {
+            pWriter->Release();
+            pReader->Release();
+            output.abort();
+            MFShutdown();
+            if (co_inited) CoUninitialize();
+            set_error(context, "Source declares audio, but Media Foundation cannot configure an AAC audio path; refusing to silently drop audio.");
+            return LPB_RESULT_INTERNAL_ERROR;
         }
     }
 
@@ -905,10 +943,15 @@ lpb_result transcode_video_file(
         }
     }
 
+    const char* enc_name = (target_codec == LPB_VIDEO_CODEC_HEVC)
+        ? "WindowsMediaFoundationSoftwareHEVC"
+        : "WindowsMediaFoundationSoftwareH264";
     if (out_encoder_used && encoder_buf_len > 0) {
-        const char* enc_name = (target_codec == LPB_VIDEO_CODEC_HEVC) ? "MF-HEVC-Encoder-MFT" : "MF-H264-Encoder-MFT";
         strncpy_s(out_encoder_used, encoder_buf_len, enc_name, _TRUNCATE);
     }
+    set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_WINDOWS_MEDIA_FOUNDATION,
+        LPB_VIDEO_HARDWARE_SOFTWARE_FORCED, false, enc_name,
+        "Hardware transforms are disabled by the frozen P4 policy; no fallback occurred.");
 
     return LPB_RESULT_OK;
 }

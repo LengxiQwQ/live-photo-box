@@ -23,6 +23,7 @@ lpb_result transcode_video_file(
     lpb_video_codec target_codec,
     int32_t crf,
     char* out_encoder_used,
-    size_t encoder_buf_len) noexcept;
+    size_t encoder_buf_len,
+    lpb_video_backend_diagnostics* out_diagnostics = nullptr) noexcept;
 
 } // namespace lpb::media

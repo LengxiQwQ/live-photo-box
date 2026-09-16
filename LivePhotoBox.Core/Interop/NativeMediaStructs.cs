@@ -79,6 +79,17 @@ internal unsafe struct NativeAuxiliaryItemFacts
 }
 
 [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+internal unsafe struct NativeVideoBackendDiagnostics
+{
+    public uint StructSize;
+    public int Backend;
+    public int HardwareMode;
+    public int HardwareFallbackOccurred;
+    public fixed byte SelectedEncoder[64];
+    public fixed byte FallbackReason[128];
+}
+
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
 internal unsafe struct NativePreservationCarrierFacts
 {
     public uint StructSize;

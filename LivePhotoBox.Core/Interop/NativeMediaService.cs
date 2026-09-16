@@ -51,7 +51,10 @@ public static class NativeMediaService
             (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.SecondarySha256)) != 448 ||
             (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.HasSecondarySource)) != 480 ||
             (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.AuxiliaryCount)) != 484 ||
-            (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.PreservationCarrierCount)) != 18152)
+            (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.PreservationCarrierCount)) != 18152 ||
+            Marshal.SizeOf<NativeVideoBackendDiagnostics>() != 208 ||
+            (int)Marshal.OffsetOf<NativeVideoBackendDiagnostics>(nameof(NativeVideoBackendDiagnostics.SelectedEncoder)) != 16 ||
+            (int)Marshal.OffsetOf<NativeVideoBackendDiagnostics>(nameof(NativeVideoBackendDiagnostics.FallbackReason)) != 80)
         {
             throw new InvalidOperationException("Managed Native facts layout does not match ABI v7.");
         }
@@ -593,7 +596,20 @@ public static class NativeMediaService
         }, cancellationToken);
     }
 
-    public static Task<string> TranscodeVideoAsync(
+    public static async Task<string> TranscodeVideoAsync(
+        string inputVideoPath,
+        string outputVideoPath,
+        VideoContainer targetContainer,
+        VideoCodec targetCodec,
+        int crf,
+        CancellationToken cancellationToken = default)
+    {
+        NativeVideoTranscodeResult result = await TranscodeVideoWithDiagnosticsAsync(
+            inputVideoPath, outputVideoPath, targetContainer, targetCodec, crf, cancellationToken).ConfigureAwait(false);
+        return result.SelectedEncoder;
+    }
+
+    internal static Task<NativeVideoTranscodeResult> TranscodeVideoWithDiagnosticsAsync(
         string inputVideoPath,
         string outputVideoPath,
         VideoContainer targetContainer,
@@ -606,31 +622,45 @@ public static class NativeMediaService
         return Task.Run(() =>
         {
             using var ctx = NativeContext.Create(cancellationToken);
-            Span<byte> encoderBuf = stackalloc byte[128];
-            NativeResult res;
             unsafe
             {
-                fixed (byte* pBuf = encoderBuf)
+                var native = new NativeVideoBackendDiagnostics
                 {
-                    res = NativeMethods.TranscodeVideo(
-                        ctx.Handle,
-                        inputVideoPath,
-                        outputVideoPath,
-                        (int)targetContainer,
-                        (int)targetCodec,
-                        crf,
-                        pBuf,
-                        (nuint)encoderBuf.Length);
-                }
+                    StructSize = checked((uint)sizeof(NativeVideoBackendDiagnostics))
+                };
+                NativeResult res = NativeMethods.TranscodeVideoV2(
+                    ctx.Handle,
+                    inputVideoPath,
+                    outputVideoPath,
+                    (int)targetContainer,
+                    (int)targetCodec,
+                    crf,
+                    ref native);
+                ctx.ThrowIfFailed(res);
+
+                return new NativeVideoTranscodeResult(
+                    (VideoBackend)native.Backend,
+                    (VideoHardwareMode)native.HardwareMode,
+                    native.HardwareFallbackOccurred != 0,
+                    ReadFixedUtf8(native.SelectedEncoder, 64),
+                    ReadFixedUtf8(native.FallbackReason, 128));
             }
-
-            ctx.ThrowIfFailed(res);
-
-            int nullIdx = encoderBuf.IndexOf((byte)0);
-            if (nullIdx < 0) nullIdx = encoderBuf.Length;
-            return Encoding.UTF8.GetString(encoderBuf[..nullIdx]);
         }, cancellationToken);
     }
+
+    private static unsafe string ReadFixedUtf8(byte* bytes, int capacity)
+    {
+        int length = 0;
+        while (length < capacity && bytes[length] != 0) length++;
+        return length == 0 ? string.Empty : Encoding.UTF8.GetString(bytes, length);
+    }
+
+    internal sealed record NativeVideoTranscodeResult(
+        VideoBackend Backend,
+        VideoHardwareMode HardwareMode,
+        bool HardwareFallbackOccurred,
+        string SelectedEncoder,
+        string HardwareFallbackReason);
 
     internal static unsafe SourceMediaFacts MapFromNativeFacts(
         in NativeSourceMediaFacts native,

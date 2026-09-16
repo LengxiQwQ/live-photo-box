@@ -79,6 +79,9 @@ public sealed class VideoConverterTests
         Assert.NotNull(result.OutputArtifact);
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.True(result.ExecutionRecord.RemuxUsed);
+        Assert.Equal(VideoBackend.ProjectIsoBmffRemux, result.ExecutionRecord.Backend);
+        Assert.Equal(VideoHardwareMode.NotApplicable, result.ExecutionRecord.HardwareMode);
+        Assert.False(result.ExecutionRecord.HardwareFallbackOccurred);
         Assert.Equal(VideoContainer.Mov, result.ExecutionRecord.InputContainer);
         Assert.Equal(VideoContainer.Mp4, result.ExecutionRecord.OutputContainer);
         Assert.Equal(VideoCodec.Hevc, result.ExecutionRecord.OutputCodec);
@@ -150,6 +153,11 @@ public sealed class VideoConverterTests
         Assert.NotNull(result.OutputArtifact);
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.False(result.ExecutionRecord.RemuxUsed);
+        Assert.Equal(VideoBackend.WindowsMediaFoundation, result.ExecutionRecord.Backend);
+        Assert.Equal(VideoHardwareMode.SoftwareForced, result.ExecutionRecord.HardwareMode);
+        Assert.False(result.ExecutionRecord.HardwareFallbackOccurred);
+        Assert.Contains("Hardware transforms are disabled", result.ExecutionRecord.HardwareFallbackReason,
+            StringComparison.Ordinal);
         Assert.Equal(VideoCodec.H264, result.ExecutionRecord.OutputCodec);
         Assert.Equal(VideoContainer.Mp4, result.ExecutionRecord.OutputContainer);
 

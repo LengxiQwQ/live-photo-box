@@ -95,7 +95,7 @@ public sealed class VideoConverter : IVideoConverter
         try
         {
             // Transcode or Remux via Native
-            string encoderUsed = await NativeMediaService.TranscodeVideoAsync(
+            NativeMediaService.NativeVideoTranscodeResult backendDiagnostics = await NativeMediaService.TranscodeVideoWithDiagnosticsAsync(
                 request.SourceArtifact.Path,
                 outPath,
                 request.TargetContainer,
@@ -141,10 +141,17 @@ public sealed class VideoConverter : IVideoConverter
                 }
             }
 
-            bool remuxUsed = encoderUsed.Contains("Stream", StringComparison.OrdinalIgnoreCase) ||
-                             encoderUsed.Contains("Remux", StringComparison.OrdinalIgnoreCase);
-
             bool audioPreserved = sourceFacts.HasAudio ? probed.HasAudio : true;
+            bool rotationPreserved = sourceFacts.RotationDegrees == probed.RotationDegrees;
+            if (!audioPreserved)
+            {
+                throw new InvalidOperationException("Output video lost a source audio stream.");
+            }
+            if (!rotationPreserved)
+            {
+                throw new InvalidOperationException(
+                    $"Output video rotation mismatch: expected {sourceFacts.RotationDegrees}, actual {probed.RotationDegrees}.");
+            }
 
             var outArtifact = new MediaArtifact
             {
@@ -168,11 +175,14 @@ public sealed class VideoConverter : IVideoConverter
                     RequestedCodec = request.TargetCodec,
                     OutputContainer = probed.Container,
                     OutputCodec = probed.Codec,
-                    RemuxUsed = remuxUsed,
-                    SelectedEncoder = encoderUsed,
-                    HardwareFallbackOccurred = encoderUsed.Contains("Software", StringComparison.OrdinalIgnoreCase),
+                    RemuxUsed = backendDiagnostics.Backend == VideoBackend.ProjectIsoBmffRemux,
+                    Backend = backendDiagnostics.Backend,
+                    HardwareMode = backendDiagnostics.HardwareMode,
+                    SelectedEncoder = backendDiagnostics.SelectedEncoder,
+                    HardwareFallbackOccurred = backendDiagnostics.HardwareFallbackOccurred,
+                    HardwareFallbackReason = backendDiagnostics.HardwareFallbackReason,
                     AudioPreserved = audioPreserved,
-                    RotationPreserved = (sourceFacts.RotationDegrees == probed.RotationDegrees),
+                    RotationPreserved = rotationPreserved,
                     Duration = sw.Elapsed
                 }
             };

@@ -1506,7 +1506,24 @@ LPB_API lpb_result LPB_CALL lpb_transcode_video(
     char* out_encoder_used,
     size_t encoder_buf_len)
 {
-    return transcode_video_file(context, input_video_path, output_video_path, target_container, target_codec, crf, out_encoder_used, encoder_buf_len);
+    return transcode_video_file(context, input_video_path, output_video_path, target_container, target_codec, crf, out_encoder_used, encoder_buf_len, nullptr);
+}
+
+LPB_API lpb_result LPB_CALL lpb_transcode_video_v2(
+    lpb_context* context,
+    const char* input_video_path,
+    const char* output_video_path,
+    lpb_video_container target_container,
+    lpb_video_codec target_codec,
+    int32_t crf,
+    lpb_video_backend_diagnostics* out_diagnostics)
+{
+    if (!out_diagnostics || out_diagnostics->struct_size != sizeof(lpb_video_backend_diagnostics)) {
+        if (context) set_error(context, "Video backend diagnostics output has an incompatible struct size.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    return transcode_video_file(context, input_video_path, output_video_path, target_container, target_codec, crf,
+        nullptr, 0, out_diagnostics);
 }
 
 LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(

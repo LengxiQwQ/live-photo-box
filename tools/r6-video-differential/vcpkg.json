@@ -1,0 +1,20 @@
+{
+  "name": "live-photo-box-r6-video-differential",
+  "version-string": "0.1.0",
+  "builtin-baseline": "9e44ec0e9f247d77c230ced0ee66c76296837807",
+  "dependencies": [
+    {
+      "name": "ffmpeg",
+      "default-features": false,
+      "features": [
+        "avcodec",
+        "avformat",
+        "swresample",
+        "swscale",
+        "gpl",
+        "x264",
+        "x265"
+      ]
+    }
+  ]
+}

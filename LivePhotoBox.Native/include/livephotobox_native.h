@@ -594,6 +594,32 @@ typedef struct lpb_video_item_facts
     int32_t source_index;
 } lpb_video_item_facts;
 
+/* The transcode backend is reported as a versioned POD result so managed code
+ * never infers hardware state from a human-readable encoder name. */
+typedef enum lpb_video_backend_kind
+{
+    LPB_VIDEO_BACKEND_UNKNOWN = 0,
+    LPB_VIDEO_BACKEND_PROJECT_ISOBMFF_REMUX = 1,
+    LPB_VIDEO_BACKEND_WINDOWS_MEDIA_FOUNDATION = 2
+} lpb_video_backend_kind;
+
+typedef enum lpb_video_hardware_mode
+{
+    LPB_VIDEO_HARDWARE_NOT_APPLICABLE = 0,
+    LPB_VIDEO_HARDWARE_SOFTWARE_FORCED = 1,
+    LPB_VIDEO_HARDWARE_UNKNOWN = 2
+} lpb_video_hardware_mode;
+
+typedef struct lpb_video_backend_diagnostics
+{
+    uint32_t struct_size;
+    lpb_video_backend_kind backend;
+    lpb_video_hardware_mode hardware_mode;
+    int32_t hardware_fallback_occurred;
+    char selected_encoder[64];
+    char fallback_reason[128];
+} lpb_video_backend_diagnostics;
+
 typedef struct lpb_gainmap_item_facts
 {
     uint32_t struct_size;
@@ -1031,7 +1057,9 @@ LPB_API lpb_result LPB_CALL lpb_transform_jpeg_losslessly(
 /*
  * Transcodes video natively.
  * If target codec is COPY or matches source codec, performs native stream remuxing.
- * Otherwise uses Windows Media Foundation (supporting hardware MFTs with software fallback).
+ * Otherwise uses Windows Media Foundation with a software-forced policy.  The
+ * versioned v2 API returns a POD diagnostic record; it never guesses hardware
+ * selection from an encoder display name.
  */
 LPB_API lpb_result LPB_CALL lpb_transcode_video(
     lpb_context* context,
@@ -1042,6 +1070,15 @@ LPB_API lpb_result LPB_CALL lpb_transcode_video(
     int32_t crf,
     char* out_encoder_used,
     size_t encoder_buf_len);
+
+LPB_API lpb_result LPB_CALL lpb_transcode_video_v2(
+    lpb_context* context,
+    const char* input_video_path,
+    const char* output_video_path,
+    lpb_video_container target_container,
+    lpb_video_codec target_codec,
+    int32_t crf,
+    lpb_video_backend_diagnostics* out_diagnostics);
 
 /// Reassemble a JPEG primary image with an appended GainMap JPEG into a single
 /// multi-picture JPEG file. Validates JPEG magic bytes on both inputs before
