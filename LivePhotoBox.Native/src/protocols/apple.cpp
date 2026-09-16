@@ -509,43 +509,63 @@ static bool add_heif_exif_item(
     }
 
     const size_t iloc_end = iloc_start + iloc_len;
-    if (iloc_body + 8 > iloc_end || input[iloc_body] != 1 ||
-        input[iloc_body + 1] != 0 || input[iloc_body + 2] != 0 || input[iloc_body + 3] != 0 ||
-        (input[iloc_body + 4] >> 4) != 4 || (input[iloc_body + 4] & 0x0F) != 4 ||
-        (input[iloc_body + 5] >> 4) != 0 || (input[iloc_body + 5] & 0x0F) != 0) {
-        set_error(context, "Unsupported HEIF iloc layout for Exif item creation.");
+    const uint8_t iloc_version = iloc_body < iloc_end ? input[iloc_body] : 0xFF;
+    const uint8_t iloc_offset_size = iloc_body + 4 < iloc_end ? input[iloc_body + 4] >> 4 : 0xFF;
+    const uint8_t iloc_length_size = iloc_body + 4 < iloc_end ? input[iloc_body + 4] & 0x0F : 0xFF;
+    const uint8_t iloc_base_offset_size = iloc_body + 5 < iloc_end ? input[iloc_body + 5] >> 4 : 0xFF;
+    const uint8_t iloc_index_size = iloc_body + 5 < iloc_end ? input[iloc_body + 5] & 0x0F : 0xFF;
+    const bool supported_iloc_layout = iloc_body + 8 <= iloc_end &&
+        (iloc_version == 0 || iloc_version == 1) &&
+        input[iloc_body + 1] == 0 && input[iloc_body + 2] == 0 && input[iloc_body + 3] == 0 &&
+        iloc_offset_size == 4 && iloc_length_size == 4 && iloc_index_size == 0 &&
+        ((iloc_version == 0 && (iloc_base_offset_size == 0 || iloc_base_offset_size == 4)) ||
+         (iloc_version == 1 && iloc_base_offset_size == 0));
+    if (!supported_iloc_layout) {
+        const std::string diagnostic = "Unsupported HEIF iloc layout for Exif item creation (version=" +
+            std::to_string(iloc_version) + ", offset=" + std::to_string(iloc_offset_size) +
+            ", length=" + std::to_string(iloc_length_size) + ", base_offset=" +
+            std::to_string(iloc_base_offset_size) + ", index=" + std::to_string(iloc_index_size) + ").";
+        set_error(context, diagnostic.c_str());
         return false;
     }
 
+    // ISO BMFF iloc version 0 has no construction_method field. libheif
+    // legitimately emits that compact form with a 32-bit base offset for
+    // ordinary HEVC output. Version 1 carries the extra 16-bit method field.
+    const size_t iloc_item_prefix_size = iloc_version == 0 ? 4 : 6;
+    const size_t iloc_extent_count_offset = iloc_item_prefix_size + iloc_base_offset_size;
+    const size_t iloc_item_header_size = iloc_extent_count_offset + 2;
     uint32_t item_count = (static_cast<uint16_t>(input[iloc_body + 6]) << 8) | input[iloc_body + 7];
     size_t p = iloc_body + 8;
     uint32_t max_item_id = 0;
     for (uint32_t id : existing_item_ids) max_item_id = std::max(max_item_id, id);
     for (uint32_t i = 0; i < item_count; ++i) {
-        if (p + 8 > iloc_end) {
+        if (p + iloc_item_header_size > iloc_end) {
             set_error(context, "Truncated HEIF iloc while creating Exif item.");
             return false;
         }
         uint32_t item_id = (static_cast<uint16_t>(input[p]) << 8) | input[p + 1];
-        uint16_t construction_method = (static_cast<uint16_t>(input[p + 2]) << 8) | input[p + 3];
-        uint16_t extent_count = (static_cast<uint16_t>(input[p + 6]) << 8) | input[p + 7];
+        const uint16_t construction_method = iloc_version == 0
+            ? 0
+            : (static_cast<uint16_t>(input[p + 2]) << 8) | input[p + 3];
+        const uint64_t base_offset = iloc_base_offset_size == 0
+            ? 0
+            : read_be32u(input + p + iloc_item_prefix_size);
+        uint16_t extent_count = (static_cast<uint16_t>(input[p + iloc_extent_count_offset]) << 8) |
+            input[p + iloc_extent_count_offset + 1];
         max_item_id = std::max(max_item_id, item_id);
         if (std::find(existing_item_ids.begin(), existing_item_ids.end(), item_id) == existing_item_ids.end()) {
             set_error(context, "HEIF iloc references an unknown item while creating Exif item.");
             return false;
         }
         if (construction_method == 0 || construction_method == 1) {
-            size_t extent = p + 8;
+            size_t extent = p + iloc_item_header_size;
             for (uint16_t e = 0; e < extent_count; ++e) {
                 if (extent + 8 > iloc_end) {
                     set_error(context, "Truncated HEIF extent while creating Exif item.");
                     return false;
                 }
                 uint32_t old_offset = read_be32u(input + extent);
-                if (old_offset > 0xFFFFFFFFu - (21u + 16u)) {
-                    set_error(context, "HEIF iloc offset overflow while creating Exif item.");
-                    return false;
-                }
                 const uint32_t old_length = read_be32u(input + extent + 4);
                 const uint64_t owner_size = construction_method == 1 && have_idat
                     ? static_cast<uint64_t>(idat_start + idat_len - idat_body)
@@ -554,8 +574,8 @@ static bool add_heif_exif_item(
                     set_error(context, "HEIF iloc construction method 1 has no owning idat box.");
                     return false;
                 }
-                if (static_cast<uint64_t>(old_offset) > owner_size ||
-                    static_cast<uint64_t>(old_length) > owner_size - old_offset) {
+                if (base_offset > owner_size || static_cast<uint64_t>(old_offset) > owner_size - base_offset ||
+                    static_cast<uint64_t>(old_length) > owner_size - base_offset - old_offset) {
                     set_error(context, "HEIF iloc extent exceeds its owning data range.");
                     return false;
                 }
@@ -565,16 +585,17 @@ static bool add_heif_exif_item(
             set_error(context, "Unsupported HEIF construction method for Exif item creation.");
             return false;
         }
-        p += 8 + static_cast<size_t>(extent_count) * 8;
+        p += iloc_item_header_size + static_cast<size_t>(extent_count) * 8;
     }
     if (p != iloc_end || max_item_id >= 0xFFFFu || item_count >= 0xFFFFu) {
         set_error(context, "Unsupported HEIF iloc contents for Exif item creation.");
         return false;
     }
 
+    const size_t new_iloc_item_size = iloc_item_header_size + 8;
     if (iinf_len > std::numeric_limits<size_t>::max() - 21 ||
-        iloc_len > std::numeric_limits<size_t>::max() - 16 ||
-        input_size > std::numeric_limits<size_t>::max() - (21 + 16) ||
+        iloc_len > std::numeric_limits<size_t>::max() - new_iloc_item_size ||
+        input_size > std::numeric_limits<size_t>::max() - (21 + new_iloc_item_size) ||
         makernote_size > std::numeric_limits<size_t>::max() - 32) {
         set_error(context, "HEIF Exif item size overflow.");
         return false;
@@ -606,14 +627,14 @@ static bool add_heif_exif_item(
     }
     if (new_iref.size() < (have_iref ? iref_len : 0)) return false;
     const size_t iref_delta = new_iref.size() - (have_iref ? iref_len : 0);
-    if (iref_delta > std::numeric_limits<size_t>::max() - 37 ||
-        input_size > std::numeric_limits<size_t>::max() - (37 + iref_delta)) {
+    if (iref_delta > std::numeric_limits<size_t>::max() - (21 + new_iloc_item_size) ||
+        input_size > std::numeric_limits<size_t>::max() - (21 + new_iloc_item_size + iref_delta)) {
         set_error(context, "HEIF Exif metadata graph size overflows the host size type.");
         return false;
     }
     // The new iinf entry, iloc entry and cdsc owner relation enlarge meta.
     // Existing absolute extents move with the enlarged metadata box.
-    const size_t metadata_delta = 21 + 16 + iref_delta;
+    const size_t metadata_delta = 21 + new_iloc_item_size + iref_delta;
     if (metadata_delta > std::numeric_limits<uint32_t>::max()) {
         set_error(context, "HEIF Exif metadata graph delta exceeds 32-bit box fields.");
         return false;
@@ -639,37 +660,61 @@ static bool add_heif_exif_item(
     std::memcpy(infe + 16, "Exif", 4);
 
     std::vector<uint8_t> new_iloc(input + iloc_start, input + iloc_start + iloc_len);
-    new_iloc.resize(iloc_len + 16, 0);
+    new_iloc.resize(iloc_len + new_iloc_item_size, 0);
     if (new_iloc.size() > std::numeric_limits<uint32_t>::max()) {
         set_error(context, "HEIF iloc box exceeds its 32-bit size field.");
         return false;
     }
     write_be32(new_iloc.data(), static_cast<uint32_t>(new_iloc.size()));
     // iloc box header is 8 bytes; version/flags are at 8..11, sizes at
-    // 12..13, and the version-1 item count is at 14..15.
+    // 12..13, and the item count is at 14..15 for the supported v0/v1 forms.
     write_be16(new_iloc.data() + 14, static_cast<uint16_t>(item_count + 1));
     p = 16;
     for (uint32_t i = 0; i < item_count; ++i) {
-        uint16_t extent_count = (static_cast<uint16_t>(new_iloc[p + 6]) << 8) | new_iloc[p + 7];
-        uint16_t construction_method = (static_cast<uint16_t>(new_iloc[p + 2]) << 8) | new_iloc[p + 3];
+        uint16_t extent_count = (static_cast<uint16_t>(new_iloc[p + iloc_extent_count_offset]) << 8) |
+            new_iloc[p + iloc_extent_count_offset + 1];
+        const uint16_t construction_method = iloc_version == 0
+            ? 0
+            : (static_cast<uint16_t>(new_iloc[p + 2]) << 8) | new_iloc[p + 3];
         if (construction_method == 0) {
-            size_t extent = p + 8;
-            for (uint16_t e = 0; e < extent_count; ++e) {
-                uint32_t old_offset = read_be32u(new_iloc.data() + extent);
-                if (old_offset > std::numeric_limits<uint32_t>::max() - metadata_delta) {
-                    set_error(context, "HEIF iloc offset overflows after metadata owner update.");
+            if (iloc_base_offset_size == 4) {
+                const size_t base_offset = p + iloc_item_prefix_size;
+                const uint32_t old_base_offset = read_be32u(new_iloc.data() + base_offset);
+                if (old_base_offset > std::numeric_limits<uint32_t>::max() - metadata_delta) {
+                    set_error(context, "HEIF iloc base offset overflows after metadata owner update.");
                     return false;
                 }
-                write_be32(new_iloc.data() + extent, old_offset + static_cast<uint32_t>(metadata_delta));
-                extent += 8;
+                // Existing v0 extents are relative to this base. Moving the
+                // meta box moves their owner once; shifting both values would
+                // corrupt the referenced media range.
+                write_be32(new_iloc.data() + base_offset, old_base_offset + static_cast<uint32_t>(metadata_delta));
+            } else {
+                size_t extent = p + iloc_item_header_size;
+                for (uint16_t e = 0; e < extent_count; ++e) {
+                    uint32_t old_offset = read_be32u(new_iloc.data() + extent);
+                    if (old_offset > std::numeric_limits<uint32_t>::max() - metadata_delta) {
+                        set_error(context, "HEIF iloc offset overflows after metadata owner update.");
+                        return false;
+                    }
+                    write_be32(new_iloc.data() + extent, old_offset + static_cast<uint32_t>(metadata_delta));
+                    extent += 8;
+                }
             }
         }
-        p += 8 + static_cast<size_t>(extent_count) * 8;
+        p += iloc_item_header_size + static_cast<size_t>(extent_count) * 8;
     }
     write_be16(new_iloc.data() + p, static_cast<uint16_t>(exif_item_id));
-    write_be16(new_iloc.data() + p + 2, 0);
-    write_be16(new_iloc.data() + p + 4, 0);
-    write_be16(new_iloc.data() + p + 6, 1);
+    if (iloc_version == 0) {
+        write_be16(new_iloc.data() + p + 2, 0);
+        if (iloc_base_offset_size == 4) {
+            write_be32(new_iloc.data() + p + 4, 0);
+        }
+        write_be16(new_iloc.data() + p + iloc_extent_count_offset, 1);
+    } else {
+        write_be16(new_iloc.data() + p + 2, 0);
+        write_be16(new_iloc.data() + p + 4, 0);
+        write_be16(new_iloc.data() + p + 6, 1);
+    }
     std::vector<uint8_t> exif_item = build_heif_exif_item(makernote, makernote_size);
     size_t new_mdat_start = input_size + metadata_delta;
     if (exif_item.size() > std::numeric_limits<uint32_t>::max() - 8 ||
@@ -682,8 +727,9 @@ static bool add_heif_exif_item(
         set_error(context, "HEIF Exif output size overflows the host size type.");
         return false;
     }
-    write_be32(new_iloc.data() + p + 8, static_cast<uint32_t>(new_mdat_start + 8));
-    write_be32(new_iloc.data() + p + 12, static_cast<uint32_t>(exif_item.size()));
+    const size_t new_extent = p + iloc_item_header_size;
+    write_be32(new_iloc.data() + new_extent, static_cast<uint32_t>(new_mdat_start + 8));
+    write_be32(new_iloc.data() + new_extent + 4, static_cast<uint32_t>(exif_item.size()));
 
     std::vector<uint8_t> new_meta;
     new_meta.reserve(meta_len + metadata_delta);
@@ -1136,11 +1182,11 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_heic(
 
     uint64_t exif_offset, exif_length;
     if (lpb_heif_locate_exif_item(context, input, input_size, &exif_offset, &exif_length) != LPB_RESULT_OK) {
-        // WIC can produce a valid HEIC without an Exif item when the source
-        // image has no metadata block that it can carry across. Apple still
-        // needs a MakerNote for the pairing UUID, so create the smallest
-        // standards-shaped Exif item in Native instead of falling back to an
-        // external metadata tool.
+        // A generic HEIC encoder can produce a valid image without an Exif
+        // item when the source has no metadata block to carry across. Apple
+        // still needs a MakerNote for the pairing UUID, so create the smallest
+        // standards-shaped Exif item in Native instead of using an external
+        // metadata tool.
         std::vector<uint8_t> created;
         if (!add_heif_exif_item(context, input, input_size, makernote, makernote_size, created)) {
             return LPB_RESULT_INVALID_ARGUMENT;

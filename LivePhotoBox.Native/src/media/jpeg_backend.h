@@ -11,6 +11,7 @@ namespace lpb::media {
 struct jpeg_rgb_image {
     uint32_t width{};
     uint32_t height{};
+    std::vector<uint8_t> icc_profile;
     std::vector<uint8_t> pixels;
 };
 

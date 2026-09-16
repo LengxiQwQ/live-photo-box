@@ -67,6 +67,48 @@ bool find_jpeg_eoi(const std::vector<unsigned char>& data, size_t& after_eoi) no
     return false;
 }
 
+// Reassembles the ICC APP2 sequence exactly as defined by the JPEG ICC
+// convention. Color profile bytes are codec payload facts, not an excuse to
+// reinterpret the pixels as sRGB.
+bool extract_jpeg_icc_profile(const std::vector<unsigned char>& data, std::vector<uint8_t>& profile) noexcept {
+    profile.clear();
+    if (data.size() < 4 || data[0] != 0xFF || data[1] != 0xD8) return false;
+    const char signature[] = "ICC_PROFILE\0";
+    std::vector<std::vector<uint8_t>> chunks;
+    size_t p = 2;
+    while (p + 4 <= data.size()) {
+        if (data[p] != 0xFF) return false;
+        while (p < data.size() && data[p] == 0xFF) ++p;
+        if (p >= data.size()) return false;
+        const uint8_t marker = data[p++];
+        if (marker == 0xDA || marker == 0xD9) break;
+        if (marker == 0x00 || (marker >= 0xD0 && marker <= 0xD7)) continue;
+        if (p + 2 > data.size()) return false;
+        const size_t length = (static_cast<size_t>(data[p]) << 8) | data[p + 1];
+        if (length < 2 || length > data.size() - p) return false;
+        if (marker == 0xE2 && length >= 16 && std::memcmp(data.data() + p + 2, signature, 12) == 0) {
+            const uint8_t sequence = data[p + 14];
+            const uint8_t count = data[p + 15];
+            if (count == 0 || sequence == 0 || sequence > count) return false;
+            if (chunks.empty()) chunks.resize(count);
+            if (chunks.size() != count || !chunks[sequence - 1].empty()) return false;
+            chunks[sequence - 1].assign(data.begin() + p + 16, data.begin() + p + length);
+        }
+        p += length;
+    }
+    if (chunks.empty()) return true;
+    size_t total = 0;
+    for (const auto& chunk : chunks) {
+        if (chunk.empty() || chunk.size() > std::numeric_limits<size_t>::max() - total) return false;
+        total += chunk.size();
+    }
+    if (total == 0 || total > 4u * 1024u * 1024u) return false;
+    try { profile.reserve(total); }
+    catch (...) { return false; }
+    for (const auto& chunk : chunks) profile.insert(profile.end(), chunk.begin(), chunk.end());
+    return true;
+}
+
 bool valid_rgb_layout(uint32_t width, uint32_t height, std::span<const uint8_t> rgb) noexcept {
     if (width == 0 || height == 0 || static_cast<uint64_t>(width) * height > kMaxPixels) return false;
     const uint64_t bytes = static_cast<uint64_t>(width) * height * 3;
@@ -110,6 +152,10 @@ lpb_result decode_jpeg_rgb_file(lpb_context* context, const char* input_path,
     size_t after_eoi = 0;
     if (!find_jpeg_eoi(source, after_eoi)) {
         set_error(context, "JPEG decode requires a complete JPEG codestream.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (!extract_jpeg_icc_profile(source, output.icc_profile)) {
+        set_error(context, "JPEG ICC profile markers are malformed or exceed the configured limit.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     // Decode only the structurally delimited codestream. A cross-container

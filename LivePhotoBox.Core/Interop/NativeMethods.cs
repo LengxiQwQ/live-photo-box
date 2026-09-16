@@ -40,9 +40,9 @@ namespace LivePhotoBox.Interop
     internal static partial class NativeMethods
     {
         internal const string LibraryName = "LivePhotoBox.Native";
-        // ABI v4 appends the explicit GainMap/auxiliary binding contract and
-        // is intentionally incompatible with the published v3 facts layout.
-        internal const uint RequiredAbiVersion = 5;
+        // ABI v6 adds R5 HEIC codec facts/capabilities. Codec-private libheif
+        // types remain entirely on the Native side of this C ABI.
+        internal const uint RequiredAbiVersion = 6;
 
         [LibraryImport(LibraryName, EntryPoint = "lpb_get_abi_version")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
@@ -58,6 +58,11 @@ namespace LivePhotoBox.Interop
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
         [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
         internal static partial nint GetJpegBackendVersion();
+
+        [LibraryImport(LibraryName, EntryPoint = "lpb_get_heic_backend_version")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+        internal static partial nint GetHeicBackendVersion();
 
         [LibraryImport(LibraryName, EntryPoint = "lpb_create_context")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]

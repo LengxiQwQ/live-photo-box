@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define LPB_NATIVE_ABI_VERSION 5u
+#define LPB_NATIVE_ABI_VERSION 6u
 
 typedef struct lpb_context lpb_context;
 typedef struct lpb_extraction_plan lpb_extraction_plan;
@@ -116,7 +116,13 @@ enum lpb_capability
     LPB_CAPABILITY_SAMSUNG_HEIC = 1ull << 15,
     LPB_CAPABILITY_APPLE = 1ull << 16,
     /* R4: libjpeg-turbo is present behind project-owned Native contracts. */
-    LPB_CAPABILITY_JPEG_BACKEND = 1ull << 17
+    LPB_CAPABILITY_JPEG_BACKEND = 1ull << 17,
+    /* R5: libheif is the generic HEIC codec gateway; project code retains
+     * HEIF item/reference/vendor semantics. */
+    LPB_CAPABILITY_HEIC_BACKEND = 1ull << 18,
+    LPB_CAPABILITY_HEVC_DECODER = 1ull << 19,
+    LPB_CAPABILITY_HEVC_ENCODER = 1ull << 20,
+    LPB_CAPABILITY_HDR_PIXEL_SURFACE = 1ull << 21
 };
 
 LPB_API uint32_t LPB_CALL lpb_get_abi_version(void);
@@ -124,6 +130,8 @@ LPB_API const char* LPB_CALL lpb_get_version(void);
 /* R4 codec identity. This is a project-owned diagnostic string, not a
  * libjpeg-turbo type or API contract. */
 LPB_API const char* LPB_CALL lpb_get_jpeg_backend_version(void);
+/* R5 codec identity. This is project-owned diagnostics, never a libheif ABI. */
+LPB_API const char* LPB_CALL lpb_get_heic_backend_version(void);
 
 LPB_API lpb_result LPB_CALL lpb_create_context(
     const lpb_context_options* options,
@@ -402,6 +410,58 @@ typedef enum lpb_image_container
     LPB_IMAGE_CONTAINER_JPEG = 1,
     LPB_IMAGE_CONTAINER_HEIC = 2
 } lpb_image_container;
+
+/* Native codec facts only: item graph, Exif/XMP placement and vendor semantics
+ * remain the responsibility of the project HEIF structural engine. */
+typedef struct lpb_heic_image_info
+{
+    uint32_t struct_size;
+    uint32_t primary_item_id;
+    uint32_t width;
+    uint32_t height;
+    uint32_t source_bit_depth;
+    uint32_t auxiliary_count;
+    uint16_t nclx_primaries;
+    uint16_t nclx_transfer;
+    uint16_t nclx_matrix;
+    uint8_t has_alpha;
+    uint8_t has_icc;
+    uint8_t has_nclx;
+    uint8_t is_hdr_relevant;
+} lpb_heic_image_info;
+
+/* Codec facts for one auxiliary selected by its project-owned item identity.
+ * Calling lpb_decode_heic_auxiliary_image proves the item can be decoded into
+ * the Native pixel host; it does not assign vendor or GainMap semantics. */
+typedef struct lpb_heic_auxiliary_info
+{
+    uint32_t struct_size;
+    uint32_t item_id;
+    uint32_t width;
+    uint32_t height;
+    uint32_t source_bit_depth;
+    uint32_t decoded_signal_bit_depth;
+    uint32_t decoded_storage_bit_depth;
+    uint16_t nclx_primaries;
+    uint16_t nclx_transfer;
+    uint16_t nclx_matrix;
+    uint8_t has_alpha;
+    uint8_t has_icc;
+    uint8_t has_nclx;
+    uint8_t is_hdr_relevant;
+    char auxiliary_type[128];
+} lpb_heic_auxiliary_info;
+
+LPB_API lpb_result LPB_CALL lpb_inspect_heic_image(
+    lpb_context* context,
+    const char* input_image_path,
+    lpb_heic_image_info* out_info);
+
+LPB_API lpb_result LPB_CALL lpb_decode_heic_auxiliary_image(
+    lpb_context* context,
+    const char* input_image_path,
+    uint32_t auxiliary_item_id,
+    lpb_heic_auxiliary_info* out_info);
 
 typedef enum lpb_video_container
 {
@@ -883,7 +943,7 @@ LPB_API lpb_result LPB_CALL lpb_remux_video(
  * Converts image formats natively.
  * If target matches source container, performs structure copy (out_reencoded = 0).
  * Result-affecting JPEG decode/encode uses the project-owned libjpeg-turbo
- * backend. WIC remains only at the current HEIC container boundary pending R5.
+ * backend; HEIC decode/encode uses the project-owned libheif backend.
  */
 LPB_API lpb_result LPB_CALL lpb_convert_image(
     lpb_context* context,

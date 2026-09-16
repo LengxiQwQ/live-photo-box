@@ -1,4 +1,3 @@
-using ImageMagick;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Models;
 using System;
@@ -11,8 +10,8 @@ using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.Services
 {
-    // HEIC/HEIF → JPEG 转码服务
-    // 优先通过 LivePhotoBox.Native 转换，回退使用 Magick.NET。
+    // HEIC/HEIF → JPEG 转码服务。正式结果路径只使用 Native backend；
+    // UI display may use other decoders, but never this service's output.
     public static class HeicConverterService
     {
         // 判断指定文件是否为 HEIC 或 HEIF 格式（仅检查扩展名，不读取文件头）。
@@ -22,7 +21,7 @@ namespace LivePhotoBox.Services
                 || path.EndsWith(".heif", StringComparison.OrdinalIgnoreCase);
         }
 
-        // 解码器索引：0=Magick.NET / Native（保持兼容属性）
+        // 解码器索引：0=Native（保留旧设置契约，但没有 codec fallback）。
         public static int DecoderIndex => 0;
 
         // ── 公开 API ──────────────────────────────────────
@@ -31,11 +30,10 @@ namespace LivePhotoBox.Services
         {
             if (!IsHeicFile(heicPath)) return heicPath;
 
-            if (StandardHdrConversionService.HasAppleHeicGainMap(heicPath, token))
+            if (await StandardHdrConversionService.HasHeicGainMapAsync(heicPath, token).ConfigureAwait(false))
             {
                 string dir = Path.GetDirectoryName(heicPath) ?? string.Empty;
-                string? hdrPath = await TryConvertHdrToJpegAsync(heicPath, dir, token);
-                if (hdrPath != null) return hdrPath;
+                return await ConvertHdrToJpegOrFailAsync(heicPath, dir, token);
             }
 
             string jpegPath = Path.Combine(
@@ -49,10 +47,9 @@ namespace LivePhotoBox.Services
         {
             if (!IsHeicFile(heicPath)) return heicPath;
 
-            if (StandardHdrConversionService.HasAppleHeicGainMap(heicPath, token))
+            if (await StandardHdrConversionService.HasHeicGainMapAsync(heicPath, token).ConfigureAwait(false))
             {
-                string? hdrPath = await TryConvertHdrToJpegAsync(heicPath, outputDirectory, token);
-                if (hdrPath != null) return hdrPath;
+                return await ConvertHdrToJpegOrFailAsync(heicPath, outputDirectory, token);
             }
 
             // 临时文件名由 TempFileService 分配（GUID 后缀），并发任务互不冲突。
@@ -69,10 +66,9 @@ namespace LivePhotoBox.Services
         {
             if (!IsHeicFile(heicPath)) return heicPath;
 
-            if (StandardHdrConversionService.HasAppleHeicGainMap(heicPath, token))
+            if (await StandardHdrConversionService.HasHeicGainMapAsync(heicPath, token).ConfigureAwait(false))
             {
-                string? hdrPath = await TryConvertHdrToJpegAsync(heicPath, outputDirectory, token);
-                if (hdrPath != null) return hdrPath;
+                return await ConvertHdrToJpegOrFailAsync(heicPath, outputDirectory, token);
             }
 
             // 临时文件名由 TempFileService 分配（GUID 后缀），并发任务互不冲突。
@@ -108,13 +104,8 @@ namespace LivePhotoBox.Services
                 }
                 catch (Exception ex)
                 {
-                    // HDR 转换失败不应让整个合成/拆分任务失败：记录警告并回退
-                    // 普通 HEIC 转换（无增益图，仍可正常导入/显示 SDR 画面）。
-                    LogService.Merge(
-                        $"HDR conversion failed for {Path.GetFileName(sourcePath)}: {ex.Message}; "
-                        + "falling back to plain HEIC conversion (gain map dropped)",
-                        LogLevel.Warning, ex);
-                    resultPath = await ConvertPlainHeicAsync(sourcePath, outputDirectory, token);
+                    throw new InvalidOperationException(
+                        "HDR/GainMap HEIC conversion requires the explicit Native P5 semantic path; plain HEIC fallback is forbidden.", ex);
                 }
             }
             else
@@ -138,30 +129,9 @@ namespace LivePhotoBox.Services
                     LogLevel.Warning);
             }
 
-            // 部分编码产物对部分 JPEG 源（华为等 EXIF ColorSpace 未校准且带 ICC）只写 ICC 不写
-            // nclx；iOS 导入实况照片时可能因缺少色彩属性无法解析。无 nclx 时补 sRGB nclx。
-            if (HeifAuxImageWriter.TryHasNclxColr(resultPath, out bool hasNclx, out string? nclxCheckError))
-            {
-                string? nclxAddError = null;
-                if (!hasNclx && HeifAuxImageWriter.TryAddNclxColr(resultPath, out nclxAddError))
-                {
-                    LogService.Merge(
-                        $"HEIC nclx colr added for {Path.GetFileName(resultPath)}",
-                        LogLevel.Debug);
-                }
-                else if (!hasNclx)
-                {
-                    LogService.Merge(
-                        $"HEIC nclx colr add failed for {Path.GetFileName(resultPath)}: {nclxAddError}",
-                        LogLevel.Warning);
-                }
-            }
-            else
-            {
-                LogService.Merge(
-                    $"HEIC nclx check failed for {Path.GetFileName(resultPath)}: {nclxCheckError}",
-                    LogLevel.Warning);
-            }
+            // R5 Native HEIC encoding owns color properties. It either carries
+            // the source ICC profile or emits explicit nclx for an untagged
+            // SDR surface; managed code must not relabel pixels as sRGB.
 
             return resultPath;
         }
@@ -197,9 +167,9 @@ namespace LivePhotoBox.Services
             }
         }
 
-        // HDR 保真的 HEIC→JPEG 转换；失败时记录警告并返回 null，
-        // 由调用方回退普通转换（HDR 失败不应拖垮整个合成/拆分任务）。
-        private static async Task<string?> TryConvertHdrToJpegAsync(
+        // HDR/GainMap conversion must be explicit. R5 never hides a failed
+        // semantic conversion behind a successful plain-SDR JPEG result.
+        private static async Task<string> ConvertHdrToJpegOrFailAsync(
             string heicPath, string outputDirectory, CancellationToken token)
         {
             try
@@ -213,11 +183,8 @@ namespace LivePhotoBox.Services
             }
             catch (Exception ex)
             {
-                LogService.Merge(
-                    $"Apple HDR gain map conversion failed for {Path.GetFileName(heicPath)}: {ex.Message}; "
-                    + "falling back to plain JPEG conversion (gain map dropped)",
-                    LogLevel.Warning, ex);
-                return null;
+                throw new InvalidOperationException(
+                    $"HDR/GainMap conversion failed for {Path.GetFileName(heicPath)}; plain JPEG fallback is forbidden.", ex);
             }
         }
 
@@ -239,21 +206,10 @@ namespace LivePhotoBox.Services
             {
                 token.ThrowIfCancellationRequested();
 
-                bool converted = false;
-                try
-                {
-                    converted = await NativeMediaService.ConvertImageAsync(
-                        heicPath, outputPath, Media.Models.ImageContainer.Jpeg, quality, token).ConfigureAwait(false);
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    LogService.Merge($"Native HEIC to JPEG conversion failed, falling back to Magick.NET: {ex.Message}", LogLevel.Warning, ex);
-                }
-
+                bool converted = await NativeMediaService.ConvertImageAsync(
+                    heicPath, outputPath, Media.Models.ImageContainer.Jpeg, quality, token).ConfigureAwait(false);
                 if (!converted || !File.Exists(outputPath))
-                {
-                    await Task.Run(() => ConvertWithMagickNET(heicPath, outputPath, quality), token).ConfigureAwait(false);
-                }
+                    throw new InvalidOperationException("Native HEIC backend produced no JPEG output.");
 
                 LogService.Merge($"HEIC conversion successful: {outputPath}");
                 return outputPath;
@@ -269,27 +225,6 @@ namespace LivePhotoBox.Services
                 TryDelete(outputPath);
                 throw NewHeicError(heicPath, ex.Message);
             }
-        }
-
-        // ── Magick.NET 回退 ─────────────────────────────
-
-        // 使用 ImageMagick/libheif 解码 HEIC。
-        // 优点：完全自包含，无需外部工具；瓦片网格自动拼接；
-        // Display P3→sRGB 自动转换；EXIF 方向自动应用。
-        private static void ConvertWithMagickNET(string heicPath, string outputPath, int quality)
-        {
-            using var image = new MagickImage(heicPath);
-
-            // 自动应用 EXIF 方向并移除标签
-            image.AutoOrient();
-
-            // 强制 sRGB——Display P3 HEIC → JPEG 必须做，否则发白
-            image.ColorSpace = ColorSpace.sRGB;
-
-            image.Format = MagickFormat.Jpeg;
-            image.Quality = (uint)quality;
-
-            image.Write(outputPath);
         }
 
         // ── 工具方法 ──────────────────────────────────────

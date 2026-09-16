@@ -1,5 +1,6 @@
 using LivePhotoBox.Services.Protocols;
 using LivePhotoBox.Models;
+using LivePhotoBox.Media.Inspection;
 using ImageMagick;
 using System;
 using System.Collections.Generic;
@@ -37,10 +38,13 @@ public static class StandardHdrConversionService
         return tags.Contains("GainMapImage", StringComparison.Ordinal);
     }
 
-    public static bool HasAppleHeicGainMap(string sourcePath, CancellationToken token = default)
+    // Structural/GainMap identity belongs to the Native project parser. This
+    // deliberately does not invoke an external metadata CLI or infer meaning
+    // from libheif's codec auxiliary listing.
+    public static async Task<bool> HasHeicGainMapAsync(string sourcePath, CancellationToken token = default)
     {
-        string tags = ReadExifTags(sourcePath, token, "-s", "-AuxiliaryImageType");
-        return tags.Contains("urn:com:apple:photo:2020:aux:hdrgainmap", StringComparison.Ordinal);
+        var facts = await new SourceInspector().InspectAsync(sourcePath, null, token).ConfigureAwait(false);
+        return facts.GainMap is { IsPresent: true };
     }
 
     public static async Task<string> ConvertJpegToHeicAsync(

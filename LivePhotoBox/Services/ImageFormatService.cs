@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 namespace LivePhotoBox.Services
 {
     /// <summary>
-    /// 通用图片格式转换服务，基于 Rebuilt Native WIC 与 NeutralMediaService。
+    /// 通用图片格式转换服务，基于 Rebuilt Native codec backend 与 NeutralMediaService。
     /// 当前支持 JPEG、HEIC；PNG/WebP 不属于产品支持的输入或输出格式。
     /// </summary>
     public static class ImageFormatService

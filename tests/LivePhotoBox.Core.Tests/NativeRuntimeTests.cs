@@ -17,7 +17,12 @@ public sealed class NativeRuntimeTests
         Assert.False(string.IsNullOrWhiteSpace(info.Version));
         Assert.NotEqual(0UL, info.Capabilities & NativeRuntime.FoundationCapability);
         Assert.NotEqual(0UL, info.Capabilities & NativeRuntime.JpegBackendCapability);
+        Assert.NotEqual(0UL, info.Capabilities & NativeRuntime.HeicBackendCapability);
+        Assert.NotEqual(0UL, info.Capabilities & NativeRuntime.HevcDecoderCapability);
+        Assert.NotEqual(0UL, info.Capabilities & NativeRuntime.HevcEncoderCapability);
+        Assert.NotEqual(0UL, info.Capabilities & NativeRuntime.HdrPixelSurfaceCapability);
         Assert.Equal("libjpeg-turbo 3002000", info.JpegBackendVersion);
+        Assert.Equal("libheif 1.23.4", info.HeicBackendVersion);
 
         string managedVersion = typeof(NativeRuntime).Assembly.GetName().Version!.ToString(4);
         Assert.Equal(managedVersion, info.Version);
@@ -37,9 +42,9 @@ public sealed class NativeRuntimeTests
     }
 
     [Fact]
-    public void SupportedAbiVersion_IsFive()
+    public void SupportedAbiVersion_IsSix()
     {
-        Assert.Equal(5u, NativeRuntime.SupportedAbiVersion);
+        Assert.Equal(6u, NativeRuntime.SupportedAbiVersion);
     }
 
     [Fact]

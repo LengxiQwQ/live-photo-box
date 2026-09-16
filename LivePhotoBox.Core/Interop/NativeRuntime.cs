@@ -13,6 +13,7 @@ namespace LivePhotoBox.Interop
             uint abiVersion,
             string? version,
             string? jpegBackendVersion,
+            string? heicBackendVersion,
             ulong capabilities,
             string? diagnostic)
         {
@@ -20,6 +21,7 @@ namespace LivePhotoBox.Interop
             AbiVersion = abiVersion;
             Version = version;
             JpegBackendVersion = jpegBackendVersion;
+            HeicBackendVersion = heicBackendVersion;
             Capabilities = capabilities;
             Diagnostic = diagnostic;
         }
@@ -35,6 +37,9 @@ namespace LivePhotoBox.Interop
 
         /// <summary>Gets the Native JPEG backend identity when available.</summary>
         public string? JpegBackendVersion { get; }
+
+        /// <summary>Gets the Native HEIC backend identity when available.</summary>
+        public string? HeicBackendVersion { get; }
 
         /// <summary>Gets the native capability bit mask.</summary>
         public ulong Capabilities { get; }
@@ -65,6 +70,10 @@ namespace LivePhotoBox.Interop
         public const ulong SamsungHeicCapability = 1UL << 15;
         public const ulong AppleCapability = 1UL << 16;
         public const ulong JpegBackendCapability = 1UL << 17;
+        public const ulong HeicBackendCapability = 1UL << 18;
+        public const ulong HevcDecoderCapability = 1UL << 19;
+        public const ulong HevcEncoderCapability = 1UL << 20;
+        public const ulong HdrPixelSurfaceCapability = 1UL << 21;
 
         /// <summary>The fixed native ABI capacity for auxiliary item facts.</summary>
     internal const int MaxAuxiliaryItems = 8;
@@ -109,11 +118,15 @@ namespace LivePhotoBox.Interop
                 string? jpegBackendVersion = (runtimeInfo.Capabilities & JpegBackendCapability) != 0
                     ? Marshal.PtrToStringUTF8(NativeMethods.GetJpegBackendVersion())
                     : null;
+                string? heicBackendVersion = (runtimeInfo.Capabilities & HeicBackendCapability) != 0
+                    ? Marshal.PtrToStringUTF8(NativeMethods.GetHeicBackendVersion())
+                    : null;
                 return new NativeRuntimeInfo(
                     isAvailable: true,
                     abiVersion: runtimeInfo.AbiVersion,
                     version,
                     jpegBackendVersion,
+                    heicBackendVersion,
                     runtimeInfo.Capabilities,
                     diagnostic: null);
             }
@@ -149,6 +162,7 @@ namespace LivePhotoBox.Interop
                 abiVersion,
                 version: null,
                 jpegBackendVersion: null,
+                heicBackendVersion: null,
                 capabilities: 0,
                 diagnostic);
 

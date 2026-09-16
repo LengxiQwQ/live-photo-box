@@ -6,6 +6,18 @@ namespace LivePhotoBox.Interop;
 
 internal static partial class NativeMethods
 {
+    [LibraryImport(LibraryName, EntryPoint = "lpb_inspect_heic_image", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult InspectHeicImage(nint context, string inputImagePath,
+        ref NativeHeicImageInfo outInfo);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_decode_heic_auxiliary_image", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult DecodeHeicAuxiliaryImage(nint context, string inputImagePath,
+        uint auxiliaryItemId, ref NativeHeicAuxiliaryInfo outInfo);
+
     [LibraryImport(LibraryName, EntryPoint = "lpb_inspect_media", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -270,4 +282,43 @@ internal enum NativeExtractorFault
     TempPublishBarrier = 7,
     PostPublishBarrier = 8,
     CleanupFail = 0x80
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeHeicImageInfo
+{
+    public uint StructSize;
+    public uint PrimaryItemId;
+    public uint Width;
+    public uint Height;
+    public uint SourceBitDepth;
+    public uint AuxiliaryCount;
+    public ushort NclxPrimaries;
+    public ushort NclxTransfer;
+    public ushort NclxMatrix;
+    public byte HasAlpha;
+    public byte HasIcc;
+    public byte HasNclx;
+    public byte IsHdrRelevant;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeHeicAuxiliaryInfo
+{
+    public uint StructSize;
+    public uint ItemId;
+    public uint Width;
+    public uint Height;
+    public uint SourceBitDepth;
+    public uint DecodedSignalBitDepth;
+    public uint DecodedStorageBitDepth;
+    public ushort NclxPrimaries;
+    public ushort NclxTransfer;
+    public ushort NclxMatrix;
+    public byte HasAlpha;
+    public byte HasIcc;
+    public byte HasNclx;
+    public byte IsHdrRelevant;
+
+    public fixed byte AuxiliaryType[128];
 }

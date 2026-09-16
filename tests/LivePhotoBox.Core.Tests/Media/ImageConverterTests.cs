@@ -2,12 +2,15 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Image;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Workspace;
 using LivePhotoBox.Protocols.Cleaning;
+using LivePhotoBox.Services;
+using LivePhotoBox.Core.Tests.Support;
 using Xunit;
 
 namespace LivePhotoBox.Core.Tests.Media;
@@ -135,7 +138,7 @@ public sealed class ImageConverterTests
 
     // Generated once with an independent libjpeg fixture tool, then embedded so
     // the test has no machine-local codec/tool dependency. The production path
-    // below is Native libjpeg-turbo decode -> current WIC HEIC boundary.
+    // below is Native libjpeg-turbo decode -> project-owned libheif HEIC encode.
     [Theory]
     [InlineData("grayscale", "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/wAALCAAIAAgBAREA/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oACAEBAAA/AOf/AOSX/wDFpvhN/wAjr/x6694ms/8AmCdntbZx/wAvfUPIP+PflV/f5Nv/AP/Z")]
     [InlineData("progressive", "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wgARCAAIAAgDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAT/xAAVAQEBAAAAAAAAAAAAAAAAAAADBf/aAAwDAQACEAMQAAABvDyf/8QAFRABAQAAAAAAAAAAAAAAAAAAADT/2gAIAQEAAQUClf/EAB4RAAIBAwUAAAAAAAAAAAAAAAECBQMRMQBBQlHB/9oACAEDAQE/AZCRqxzhKQzfdxgkcGXrwWFhr//EABwRAAEDBQAAAAAAAAAAAAAAAAECA0EAERNRcf/aAAgBAgEBPwFhkPoyK3aI6DX/xAAgEAAABQMFAAAAAAAAAAAAAAABAgMRIRIiYRMjMUJD/9oACAEBAAY/AtBCxQsmOPlkeLowzdadr//EABcQAAMBAAAAAAAAAAAAAAAAAABRcfD/2gAIAQEAAT8hwaKFhH//2gAMAwEAAgADAAAAEPf/xAAZEQEAAgMAAAAAAAAAAAAAAAABESExQVH/2gAIAQMBAT8QnUFnKtDaGRjQh//EABgRAQEBAQEAAAAAAAAAAAAAAAERIQAx/9oACAECAQE/EKckQAQEQCD1u1da73//xAAZEAEAAgMAAAAAAAAAAAAAAAABACFBUbH/2gAIAQEAAT8Q6MOqhZqDBLGf/9k=")]
@@ -246,6 +249,65 @@ public sealed class ImageConverterTests
         Assert.Equal(PreservationOutcome.Preserved, result.ExecutionRecord.PreservationOutcome);
         Assert.Equal(ImageContainer.Heic, result.ExecutionRecord.InputContainer);
         Assert.Equal(ImageContainer.Heic, result.ExecutionRecord.OutputContainer);
+    }
+
+    [Theory]
+    [Trait("Category", "RealSamples")]
+    [InlineData("苹果双文件.HEIC", 4032, 3024)]
+    [InlineData("华为Mate80.heic", 3072, 4096)]
+    // The Samsung source advertises a rotated stored grid. The libheif decode
+    // contract reports the orientation-applied visual dimensions.
+    [InlineData("三星.heic", 3000, 4000)]
+    public async Task NativeHeicBackend_ReportsRealPrimaryFactsWithoutMutatingSource(
+        string sampleName, uint expectedWidth, uint expectedHeight)
+    {
+        string source = ResolveSample(sampleName);
+        string before = Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source)));
+        using var context = NativeContext.Create();
+        var info = new NativeHeicImageInfo
+        {
+            StructSize = checked((uint)Marshal.SizeOf<NativeHeicImageInfo>())
+        };
+
+        NativeResult result = NativeMethods.InspectHeicImage(context.Handle, source, ref info);
+        context.ThrowIfFailed(result);
+
+        Assert.NotEqual(0u, info.PrimaryItemId);
+        Assert.Equal(expectedWidth, info.Width);
+        Assert.Equal(expectedHeight, info.Height);
+        Assert.True(info.SourceBitDepth >= 8);
+        Assert.Equal(before, Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source))));
+    }
+
+    [Theory]
+    [Trait("Category", "RealSamples")]
+    [InlineData("苹果双文件.HEIC")]
+    [InlineData("三星.heic")]
+    public async Task NativeHeicBackend_DecodesRealAuxiliaryThroughStructuralItemIdentity(string sampleName)
+    {
+        string source = ResolveSample(sampleName);
+        string before = Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source)));
+        (NativeResult graphResult, string? graphError, NativeAuxiliaryItemFacts[] auxiliaries) =
+            W3NativeHeif.Enumerate(await File.ReadAllBytesAsync(source));
+        Assert.Equal(NativeResult.Ok, graphResult);
+        Assert.True(string.IsNullOrWhiteSpace(graphError), graphError);
+        NativeAuxiliaryItemFacts auxiliary = Assert.Single(auxiliaries);
+
+        using var context = NativeContext.Create();
+        var decoded = new NativeHeicAuxiliaryInfo
+        {
+            StructSize = checked((uint)Marshal.SizeOf<NativeHeicAuxiliaryInfo>())
+        };
+        NativeResult result = NativeMethods.DecodeHeicAuxiliaryImage(
+            context.Handle, source, auxiliary.ItemId, ref decoded);
+        context.ThrowIfFailed(result);
+
+        Assert.Equal(auxiliary.ItemId, decoded.ItemId);
+        Assert.True(decoded.Width > 0 && decoded.Height > 0);
+        Assert.True(decoded.SourceBitDepth >= 8);
+        Assert.True(decoded.DecodedSignalBitDepth >= decoded.SourceBitDepth);
+        Assert.True(decoded.DecodedStorageBitDepth is 8 or 16);
+        Assert.Equal(before, Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source))));
     }
 
     [Fact]
@@ -422,6 +484,58 @@ public sealed class ImageConverterTests
         Assert.Equal(PreservationOutcome.PartiallyPreserved, result.ExecutionRecord.PreservationOutcome);
         Assert.Equal(ImageContainer.Jpeg, result.ExecutionRecord.InputContainer);
         Assert.Equal(ImageContainer.Heic, result.ExecutionRecord.OutputContainer);
+        await AssertReadableByExifToolAsync(result.OutputArtifact.Path);
+
+        using var context = NativeContext.Create();
+        var facts = new NativeHeicImageInfo
+        {
+            StructSize = checked((uint)Marshal.SizeOf<NativeHeicImageInfo>())
+        };
+        NativeResult inspection = NativeMethods.InspectHeicImage(context.Handle, result.OutputArtifact.Path, ref facts);
+        context.ThrowIfFailed(inspection);
+        Assert.True(facts.Width > 0 && facts.Height > 0);
+        Assert.Equal(8u, facts.SourceBitDepth);
+        Assert.Equal(1, facts.HasIcc);
+        Assert.True(facts.HasNclx == 1 || facts.HasIcc == 1);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Convert_TruncatedHeic_FailsClosedWithoutPublishingOutputOrMutatingSource()
+    {
+        string source = ResolveSample("苹果双文件.HEIC");
+        string before = Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source)));
+        using var workspace = new MediaWorkspace();
+        string truncated = Path.Combine(workspace.RootDirectory, "truncated.heic");
+        string output = Path.Combine(workspace.RootDirectory, "must-not-publish.jpg");
+        await using (FileStream input = File.OpenRead(source))
+        await using (FileStream destination = File.Create(truncated))
+        {
+            byte[] prefix = new byte[1024];
+            int count = await input.ReadAsync(prefix);
+            await destination.WriteAsync(prefix.AsMemory(0, count));
+        }
+
+        await Assert.ThrowsAnyAsync<Exception>(() => NativeMediaService.ConvertImageAsync(
+            truncated, output, ImageContainer.Jpeg, quality: 90));
+        Assert.False(File.Exists(output));
+        Assert.Equal(before, Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source))));
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task HeicConverter_HdrGainMapWithoutP5SemanticEngine_FailsClosedInsteadOfPlainSdrFallback()
+    {
+        string source = ResolveSample("苹果双文件.HEIC");
+        string before = Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source)));
+        using var workspace = new MediaWorkspace();
+
+        InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => HeicConverterService.ConvertToJpegAsync(source, workspace.RootDirectory));
+
+        Assert.Contains("plain JPEG fallback is forbidden", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(Directory.EnumerateFiles(workspace.RootDirectory, "*.jpg", SearchOption.TopDirectoryOnly));
+        Assert.Equal(before, Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source))));
     }
 
     [Fact]
@@ -471,7 +585,7 @@ public sealed class ImageConverterTests
         };
 
         var converter = new ImageConverter();
-        // Requesting HEIC target for an MP4 video file will fail during container validation if WIC or native fails, or if container doesn't match
+        // An MP4 video is never a JPEG/HEIC image input for the Native codec boundary.
         var result = await converter.ConvertAsync(new ImageConversionRequest
         {
             SourceArtifact = artifact,

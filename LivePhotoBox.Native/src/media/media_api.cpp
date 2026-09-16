@@ -1,12 +1,14 @@
 #include "media/media_inspector.h"
 #include "media/media_extractor.h"
 #include "media/image_converter.h"
+#include "media/heic_backend.h"
 #include "media/jpeg_backend.h"
 #include "media/video_converter.h"
 #include "media/media_cleaner.h"
 #include "foundation/internal.h"
 #include "foundation/sha256.h"
 #include "platform/windows_filesystem.h"
+#include <algorithm>
 #include <cctype>
 #include <cstring>
 
@@ -113,6 +115,75 @@ extern "C" {
 LPB_API const char* LPB_CALL lpb_get_jpeg_backend_version(void)
 {
     return jpeg_backend_version();
+}
+
+LPB_API const char* LPB_CALL lpb_get_heic_backend_version(void)
+{
+    return heic_backend_version();
+}
+
+LPB_API lpb_result LPB_CALL lpb_inspect_heic_image(
+    lpb_context* context,
+    const char* input_image_path,
+    lpb_heic_image_info* out_info)
+{
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired() || !input_image_path || !out_info ||
+        out_info->struct_size < sizeof(lpb_heic_image_info)) {
+        if (context) set_error(context, "HEIC image inspection received incompatible arguments.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    heic_image_facts facts{};
+    const lpb_result result = inspect_heic_file(context, input_image_path, facts);
+    if (result != LPB_RESULT_OK) return result;
+    out_info->primary_item_id = facts.primary_item_id;
+    out_info->width = facts.width;
+    out_info->height = facts.height;
+    out_info->source_bit_depth = facts.bit_depth;
+    out_info->auxiliary_count = static_cast<uint32_t>(facts.auxiliaries.size());
+    out_info->nclx_primaries = facts.color.primaries;
+    out_info->nclx_transfer = facts.color.transfer;
+    out_info->nclx_matrix = facts.color.matrix;
+    out_info->has_alpha = facts.has_alpha ? 1 : 0;
+    out_info->has_icc = facts.color.has_icc ? 1 : 0;
+    out_info->has_nclx = facts.color.has_nclx ? 1 : 0;
+    out_info->is_hdr_relevant = facts.hdr_relevant ? 1 : 0;
+    return LPB_RESULT_OK;
+}
+
+LPB_API lpb_result LPB_CALL lpb_decode_heic_auxiliary_image(
+    lpb_context* context,
+    const char* input_image_path,
+    uint32_t auxiliary_item_id,
+    lpb_heic_auxiliary_info* out_info)
+{
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired() || !input_image_path || auxiliary_item_id == 0 || !out_info ||
+        out_info->struct_size < sizeof(lpb_heic_auxiliary_info)) {
+        if (context) set_error(context, "HEIC auxiliary decode received incompatible arguments.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    pixel_surface pixels{};
+    heic_auxiliary_facts facts{};
+    const lpb_result result = decode_heic_auxiliary_file(context, input_image_path, auxiliary_item_id, pixels, &facts);
+    if (result != LPB_RESULT_OK) return result;
+    out_info->item_id = facts.item_id;
+    out_info->width = facts.width;
+    out_info->height = facts.height;
+    out_info->source_bit_depth = facts.bit_depth;
+    out_info->decoded_signal_bit_depth = pixels.signal_bit_depth;
+    out_info->decoded_storage_bit_depth = pixels.storage_bit_depth;
+    out_info->nclx_primaries = facts.color.primaries;
+    out_info->nclx_transfer = facts.color.transfer;
+    out_info->nclx_matrix = facts.color.matrix;
+    out_info->has_alpha = facts.has_alpha ? 1 : 0;
+    out_info->has_icc = facts.color.has_icc ? 1 : 0;
+    out_info->has_nclx = facts.color.has_nclx ? 1 : 0;
+    out_info->is_hdr_relevant = facts.hdr_relevant ? 1 : 0;
+    const size_t type_length = std::min(facts.type.size(), sizeof(out_info->auxiliary_type) - 1);
+    if (type_length > 0) std::memcpy(out_info->auxiliary_type, facts.type.data(), type_length);
+    out_info->auxiliary_type[type_length] = '\0';
+    return LPB_RESULT_OK;
 }
 
 LPB_API lpb_result LPB_CALL lpb_inspect_media(
