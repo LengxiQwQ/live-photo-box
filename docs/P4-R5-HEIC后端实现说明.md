@@ -58,7 +58,7 @@ The repository is GPLv3; this is a compatibility observation, not legal advice. 
 
 Real samples are read only from `designs/各个机型测试/`. The R5 inventory test makes the formal corpus explicit: Apple, Huawei, and Samsung. All three primary images perform an actual Native pixel decode and are currently 8-bit source / 8-bit storage. Apple and Samsung are nevertheless real HDR samples: each has an embedded 8-bit HDR GainMap grid that the project parser identifies and Native decodes via its project-owned item identity. The corpus contains no confirmed >8-bit HEIC primary; this limits only a >8-bit **real-device coverage claim**, not the actual HDR/GainMap proof for the representation the corpus contains. See `P4-R5-Final-Closeout.md` and `tests/LivePhotoBox.Core.Tests/RealSampleManifest.json` for the exact matrix and hashes.
 
-When the project-owned Native inspector reports a HEIC GainMap, `HeicConverterService` routes to the P5 semantic path. Until that path is implemented, its failure is surfaced and a plain-SDR JPEG fallback is forbidden. The R5 regression test exercises this with the Apple HDR real sample.
+When the project-owned Native inspector reports a HEIC GainMap, the shared `ImageConversionEligibility` rule rejects HEIC→JPEG before generic primary-only codec conversion; `HeicConverterService` also routes to the P5 semantic path. Until that path is implemented, the failure is surfaced and a plain-SDR JPEG fallback is forbidden. R5 regressions exercise this with both the Apple and Samsung HDR real samples while retaining Huawei as the ordinary non-GainMap HEIC→JPEG codec proof.
 
 P5 owns GainMap mathematics, vendor semantic mapping, final HDR preservation/degradation policy, and structural assembly of any newly encoded auxiliary graph. R6 owns video work.
 
@@ -89,7 +89,7 @@ The following commands were run from the repository root after the final ICC and
 | 11. WIC policy | PASS | Result-affecting Native JPEG/HEIC paths: none; WIC is not linked by the Native target |
 | 12. RealSample integrity | PASS | Required existing samples ran without skip; their source hashes remain unchanged |
 | 13. No external HEIF CLI | PASS | No production `heif-enc`/`heif-dec` invocation; legacy CLI path remains fail-closed |
-| 14. Truthful failure/degradation | PASS | Truncated HEIC fails without output; Apple GainMap conversion fails closed rather than emitting plain SDR JPEG |
+| 14. Truthful failure/degradation | PASS | Truncated HEIC fails without output; Apple and Samsung GainMap conversion fail closed rather than emitting plain SDR JPEG, while Huawei still succeeds as ordinary HEIC codec proof |
 
 The closeout test independently parses the resulting HEIF item graph, verifies two distinct `hvc1` item identities and non-empty payload ranges, and explicitly verifies that no auxiliary relation exists before project-owned assembly. This establishes the missing auxiliary **codec encode foundation** without pretending that a generic second image already has GainMap semantics.
 

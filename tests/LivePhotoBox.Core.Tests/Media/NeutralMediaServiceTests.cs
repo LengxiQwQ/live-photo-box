@@ -40,6 +40,31 @@ public sealed class NeutralMediaServiceTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
+    public async Task CreateNeutralBundle_AppleGainMapToJpeg_FailsBeforePublishingFalseEmbeddedManifest()
+    {
+        string primary = ResolveSample("苹果双文件.HEIC");
+        string secondary = ResolveSample("苹果双文件.MOV");
+        string before = Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(primary)));
+        SourceMediaFacts facts = await new SourceInspector().InspectAsync(primary, secondary);
+        Assert.NotNull(facts.GainMap);
+        Assert.True(facts.GainMap!.IsPresent);
+        using var workspace = new MediaWorkspace();
+
+        var service = new NeutralMediaService();
+        InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.CreateNeutralBundleAsync(primary, secondary, workspace, new MediaFormatRequirement
+            {
+                ImageContainer = ImageContainer.Jpeg,
+                VideoContainer = VideoContainer.Unknown
+            }));
+
+        Assert.Contains("GainMap", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(Directory.EnumerateFiles(workspace.RootDirectory, "*.jpg", SearchOption.TopDirectoryOnly));
+        Assert.Equal(before, Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(primary))));
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
     public async Task CreateNeutralBundle_WithFormatConversion_ConvertsCorrectly()
     {
         string primary = ResolveSample("oppo.jpg");

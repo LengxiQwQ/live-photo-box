@@ -64,6 +64,58 @@ public sealed class ImageConverter : IImageConverter
             };
         }
 
+        // ImageConverter is the final managed boundary before the generic
+        // Native codec. Do not rely on callers to remember semantic policy:
+        // the project-owned inspector is authoritative for HEIF GainMap facts
+        // and this guard runs before an output pathname is even allocated.
+        if (request.TargetContainer == ImageContainer.Jpeg)
+        {
+            SourceMediaFacts sourceFacts = await NativeMediaService
+                .InspectMediaAsync(request.SourceArtifact.Path, cancellationToken: cancellationToken)
+                .ConfigureAwait(false);
+            if (sourceFacts.PrimaryImage.Container != request.SourceArtifact.ImageContainer)
+            {
+                sw.Stop();
+                return new ImageConversionResult
+                {
+                    Success = false,
+                    ErrorMessage = "Project inspection disagrees with the declared source image container; refusing codec conversion.",
+                    ExecutionRecord = new ImageExecutionRecord
+                    {
+                        InputContainer = request.SourceArtifact.ImageContainer,
+                        OutputContainer = request.TargetContainer,
+                        PixelReencoded = false,
+                        MetadataCopied = false,
+                        PreservationOutcome = PreservationOutcome.PartiallyPreserved,
+                        Duration = sw.Elapsed
+                    }
+                };
+            }
+
+            if (!ImageConversionEligibility.IsAllowed(
+                    sourceFacts,
+                    sourceFacts.PrimaryImage.Container,
+                    request.TargetContainer,
+                    out string? semanticError))
+            {
+                sw.Stop();
+                return new ImageConversionResult
+                {
+                    Success = false,
+                    ErrorMessage = semanticError,
+                    ExecutionRecord = new ImageExecutionRecord
+                    {
+                        InputContainer = request.SourceArtifact.ImageContainer,
+                        OutputContainer = request.TargetContainer,
+                        PixelReencoded = false,
+                        MetadataCopied = false,
+                        PreservationOutcome = PreservationOutcome.PartiallyPreserved,
+                        Duration = sw.Elapsed
+                    }
+                };
+            }
+        }
+
         string ext = request.TargetContainer switch
         {
             ImageContainer.Heic => ".heic",

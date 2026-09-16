@@ -336,9 +336,15 @@ public sealed class ImageConverterTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task Convert_HeicToJpeg_ConvertsPixelsAndEmitsTruthfulRecord()
+    public async Task Convert_NonGainMapHeicToJpeg_ConvertsPixelsAndEmitsTruthfulRecord()
     {
-        string sample = ResolveSample("苹果双文件.HEIC");
+        // The Huawei sample has no project-inspected HEIF GainMap auxiliary,
+        // so it remains the R5 proof that ordinary HEIC codec conversion is
+        // still available after the semantic-loss guard is introduced.
+        string sample = ResolveSample("华为Mate80.heic");
+        string before = Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(sample)));
+        SourceMediaFacts facts = await NativeMediaService.InspectMediaAsync(sample);
+        Assert.Null(facts.GainMap);
         using var workspace = new MediaWorkspace();
 
         var artifact = new MediaArtifact
@@ -368,13 +374,53 @@ public sealed class ImageConverterTests
         Assert.Equal(PreservationOutcome.PartiallyPreserved, result.ExecutionRecord.PreservationOutcome);
         Assert.Equal(ImageContainer.Heic, result.ExecutionRecord.InputContainer);
         Assert.Equal(ImageContainer.Jpeg, result.ExecutionRecord.OutputContainer);
+        Assert.Equal(before, Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(sample))));
+    }
+
+    [Theory]
+    [Trait("Category", "RealSamples")]
+    [InlineData("苹果双文件.HEIC")]
+    [InlineData("三星.heic")]
+    public async Task Convert_GainMapHeicToJpeg_FailsClosedWithoutPublishingOrMutatingSource(string sampleName)
+    {
+        string sample = ResolveSample(sampleName);
+        string before = Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(sample)));
+        using var workspace = new MediaWorkspace();
+
+        SourceMediaFacts facts = await NativeMediaService.InspectMediaAsync(sample);
+        Assert.NotNull(facts.GainMap);
+        Assert.True(facts.GainMap!.IsPresent);
+
+        ImageConversionResult result = await new ImageConverter().ConvertAsync(new ImageConversionRequest
+        {
+            SourceArtifact = new MediaArtifact
+            {
+                Path = sample,
+                Kind = MediaArtifactKind.PrimaryImage,
+                MimeType = "image/heic",
+                ImageContainer = ImageContainer.Heic,
+                ByteLength = new FileInfo(sample).Length
+            },
+            TargetContainer = ImageContainer.Jpeg,
+            TargetDirectory = workspace.RootDirectory,
+            Quality = 90,
+            PreservationPolicy = PreservationPolicy.BestEffort
+        });
+
+        Assert.False(result.Success);
+        Assert.Null(result.OutputArtifact);
+        Assert.False(result.ExecutionRecord.PixelReencoded);
+        Assert.Contains("GainMap", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("forbidden", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(Directory.EnumerateFiles(workspace.RootDirectory, "*.jpg", SearchOption.TopDirectoryOnly));
+        Assert.Equal(before, Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(sample))));
     }
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task Convert_HeicToJpeg_UsesNativeCodecAndSupportsPerfectDctTransform()
+    public async Task Convert_NonGainMapHeicToJpeg_UsesNativeCodecAndSupportsPerfectDctTransform()
     {
-        string sample = ResolveSample("苹果双文件.HEIC");
+        string sample = ResolveSample("华为Mate80.heic");
         using var workspace = new MediaWorkspace();
         var converted = await new ImageConverter().ConvertAsync(new ImageConversionRequest
         {

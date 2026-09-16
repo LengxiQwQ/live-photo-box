@@ -11,7 +11,7 @@
 | Branch | `master` |
 | Starting HEAD | `7b9d767cd230db5b3d7c0ca78713ab89dfc45a61` |
 | Remote check | `git fetch origin`; `origin/master` matched starting HEAD before this closeout work |
-| Ending HEAD | unchanged; closeout changes are intentionally uncommitted for review |
+| Previous closeout commit | `1a983e8922051352e02b438de1a277519b16b8f4` (`fix(native): close P4-R5 HEIC HDR validation gaps`), committed and pushed to `origin/master` |
 | Source samples | `designs/各个机型测试/`, read only; temporary diagnostic copies only in `.ai-tmp/cache/samples/P4-R5/` |
 
 ## Sample inventory
@@ -32,7 +32,7 @@ The real Apple and Samsung HDR samples are **8-bit SDR primary + embedded 8-bit 
 
 The Native `pixel_surface` remains high-bit capable: it retains `signal_bit_depth` and uses 16-bit storage for sources above 8-bit. The current formal corpus has no >8-bit primary, so it supplies no real-device >8-bit-primary compatibility claim. This is a coverage fact, not a fabricated R5 failure condition.
 
-For actual HDR samples, the project-owned inspector identifies the GainMap relationship, the project-owned structural graph supplies the auxiliary item ID, Native decodes that exact item, and `HeicConverterService` routes HDR/GainMap work to P5. Until P5 provides an explicit semantic transform, the route fails closed; it cannot return a plain SDR JPEG as success or preserved output.
+For actual HDR samples, the project-owned inspector identifies the GainMap relationship, the project-owned structural graph supplies the auxiliary item ID, Native decodes that exact item, and the shared `ImageConversionEligibility` rule rejects HEIC-to-JPEG before the generic primary-only codec path. `ImageConverter` independently re-inspects the actual source container immediately before codec conversion, so an incorrectly declared managed artifact cannot bypass this rule. `HeicConverterService` likewise routes HDR/GainMap work to P5. Until P5 provides an explicit semantic transform, these paths fail closed; they cannot return a plain SDR JPEG as success or preserved output.
 
 ## Auxiliary codec foundation
 
@@ -60,12 +60,11 @@ The same production-like Native decode helper now covers Apple, Huawei, and Sams
 
 | Command / scope | Result |
 |---|---|
-| `scripts/native/build-native.ps1 -Configuration Debug -RunTests` | Native Debug rebuild completed with the ABI v7 primary-decode export. |
-| Debug ABI + formal inventory + three real primary decodes + two real auxiliary decodes | 7/7 passed, 0 skipped |
-| `scripts/native/build-native.ps1 -Configuration Release -RunTests` | Native Release rebuild completed with the ABI v7 primary-decode export. |
-| Same ABI/inventory/decode set in Release | 7/7 passed, 0 skipped |
-| Release `ImageConverterTests|NativeRuntimeTests` | 47/47 passed, 0 skipped; includes the two-image HEVC codec proof |
-| Release P1–P4 regression filter (Inspector, Extractor, Cleaner, PlatformFilesystem, converters, GainMap, Native runtime) | 480/480 passed, 0 skipped |
+| `scripts/native/build-native.ps1 -Configuration Debug -RunTests` | Native Debug rebuild and harness: 15/15 passed, 0 skipped. |
+| `scripts/native/build-native.ps1 -Configuration Release -RunTests` | Native Release rebuild and harness: 15/15 passed, 0 skipped. |
+| Release `ImageConverterTests|NativeRuntimeTests|NeutralMediaServiceTests` | 56/56 passed, 0 skipped; includes Apple/Samsung fail-closed, Huawei ordinary codec success, real decode, and neutral manifest protection. |
+| Release CLI conversion tests | 6/6 passed, 0 skipped; includes actual Apple GainMap HEIC→JPEG CLI rejection. |
+| Release P1–P4 regression filter (Inspector, Extractor, Cleaner, PlatformFilesystem, converters, GainMap, Native runtime, Neutral pipeline) | 489/489 passed, 0 skipped |
 | Visual Studio bundled `ctest --test-dir .ai-tmp/workspace/P4-R3/cmake-build -C Release --output-on-failure` | `portable_io_smoke` 1/1 passed |
 | `scripts/native/sync-native-project.ps1 -Check` | passed after regenerating the compatibility source ordering |
 | `.ai/verify.ps1` | passed |
@@ -97,7 +96,7 @@ The same production-like Native decode helper now covers Apple, Huawei, and Sams
 | 11 | WIC policy | PASS | No result-affecting Native JPEG/HEIC WIC path |
 | 12 | RealSamples not skipped | PASS | Exact inventory and decode tests require the three formal samples |
 | 13 | No external HEIF CLI fallback | PASS | Production audit; legacy calls fail closed |
-| 14 | Truthful failure/degradation | PASS | GainMap semantic path does not emit ordinary SDR success |
+| 14 | Truthful failure/degradation | PASS | Apple and Samsung GainMap HEIC→JPEG requests fail before output publication; the non-GainMap Huawei HEIC→JPEG codec proof still succeeds |
 
 ## Final decision
 

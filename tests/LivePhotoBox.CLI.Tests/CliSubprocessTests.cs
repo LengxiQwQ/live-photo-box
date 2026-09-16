@@ -84,6 +84,34 @@ public sealed class CliSubprocessTests
     }
 
     [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task Convert_GainMapHeicToJpeg_FailsClosedBeforePublishingOutput()
+    {
+        string directory = CreateTempDirectory("lpb_cli_gainmap_heic_");
+        string sourcePath = ResolveSample("苹果双文件.HEIC");
+        string outputPath = Path.Combine(directory, "must-not-publish.jpg");
+        string settingsPath = Path.Combine(directory, "rebuilt-settings.json");
+        string sourceHash = await ComputeSha256Async(sourcePath);
+
+        try
+        {
+            CliResult result = await RunCliAsync(
+                directory, settingsPath,
+                "convert", sourcePath, "--output", outputPath);
+
+            Assert.NotEqual(0, result.ExitCode);
+            Assert.Contains("GainMap", result.StdOut + result.StdErr, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("forbidden", result.StdOut + result.StdErr, StringComparison.OrdinalIgnoreCase);
+            Assert.False(File.Exists(outputPath));
+            Assert.Equal(sourceHash, await ComputeSha256Async(sourcePath));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
+    [Fact]
     public async Task LegacySettingsAreInertAndIgnoredInCliProcess()
     {
         string directory = CreateTempDirectory("lpb_cli_legacy_inert_");

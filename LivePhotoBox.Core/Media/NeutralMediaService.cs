@@ -110,6 +110,19 @@ public sealed class NeutralMediaService : INeutralMediaService
             if (requirement.ImageContainer != ImageContainer.Unknown &&
                 requirement.ImageContainer != finalImage.ImageContainer)
             {
+                // The source inspector established semantic auxiliary facts at
+                // the start of this transaction. Do not let a requested
+                // cross-container conversion turn an embedded HEIF GainMap
+                // into a false "Embedded" manifest on an ordinary JPEG.
+                if (!ImageConversionEligibility.IsAllowed(
+                        facts,
+                        finalImage.ImageContainer,
+                        requirement.ImageContainer,
+                        out string? semanticError))
+                {
+                    throw new InvalidOperationException($"Image conversion failed in neutral pipeline: {semanticError}");
+                }
+
                 var imgConv = await _imageConverter.ConvertAsync(new ImageConversionRequest
                 {
                     SourceArtifact = finalImage,

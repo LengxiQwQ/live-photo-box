@@ -129,6 +129,19 @@ internal static class ConvertCommand
                 return 1;
             }
 
+            // CLI already has project-owned source facts. Apply the exact
+            // same semantic eligibility rule as the neutral pipeline before
+            // allocating or publishing a codec-only result.
+            if (!ImageConversionEligibility.IsAllowed(
+                    facts,
+                    facts.PrimaryImage.Container,
+                    imageContainer,
+                    out string? semanticError))
+            {
+                CliConsole.WriteErrorLine($"Error: {semanticError}");
+                return 1;
+            }
+
             var result = await new ImageConverter().ConvertAsync(new ImageConversionRequest
             {
                 SourceArtifact = new MediaArtifact
