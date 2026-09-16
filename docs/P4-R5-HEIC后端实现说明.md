@@ -11,7 +11,9 @@ HEIC -> libheif -> libde265 -> pixel_surface -> libjpeg-turbo -> JPEG
 
 `LivePhotoBox.Native/src/containers/heif.cpp` remains the authority for item graphs, extents, references, Exif/XMP placement, vendor semantics, and GainMap identity.  `libheif` codec evidence never assigns an Apple, Samsung, Huawei, or GainMap semantic role.
 
-`decode_heic_primary_file` and `decode_heic_auxiliary_file` apply libheif image transformations once and report the resulting visual dimensions.  The auxiliary API accepts the project-owned structural item id; it does not infer an item from a string match.  `lpb_decode_heic_auxiliary_image` proves a selected auxiliary can decode into the Native pixel host while returning only POD facts across the ABI.
+`decode_heic_primary_file` and `decode_heic_auxiliary_file` apply libheif image transformations once and report the resulting visual dimensions. `lpb_decode_heic_primary_image` exposes read-only primary pixel-surface facts (including source, decoded signal, and storage bit depth) as POD. The auxiliary API accepts the project-owned structural item id; it does not infer an item from a string match. `lpb_decode_heic_auxiliary_image` proves a selected auxiliary can decode into the Native pixel host while returning only POD facts across the ABI.
+
+`lpb_encode_heic_primary_and_secondary_jpegs` is the R5 closeout codec seam for P5: it decodes two 8-bit RGB JPEG inputs through the project-owned JPEG boundary and encodes two distinct HEVC image items through libheif/x265 into one owned-output HEIF file.  Its second item is intentionally only a **secondary coded image**, not an auxiliary semantic.  Only the project structural layer may validate and add `auxC`/`auxl`, item graph edges, and Apple/vendor GainMap meaning.
 
 ## Pixel and HDR boundary
 
@@ -54,7 +56,7 @@ The repository is GPLv3; this is a compatibility observation, not legal advice. 
 
 ## Evidence boundary
 
-Real samples are read only from `designs/各个机型测试/`.  The R5 tests cover Apple, Huawei, and Samsung primary facts; Apple and Samsung embedded HDR GainMap auxiliary item discovery and codec decode; orientation-applied Samsung dimensions; malformed HEIC rejection; native HEIC output structural inspection; and independent ExifTool readability for JPEG output.  The corpus contains embedded HDR GainMap grids but no confirmed standalone 10-bit HEIC primary.  R5 therefore proves the no-silent-quantization implementation boundary and records that additional 10-bit corpus evidence is still required before claiming a 10-bit RealSample acceptance proof.
+Real samples are read only from `designs/各个机型测试/`. The R5 inventory test makes the formal corpus explicit: Apple, Huawei, and Samsung. All three primary images perform an actual Native pixel decode and are currently 8-bit source / 8-bit storage. Apple and Samsung are nevertheless real HDR samples: each has an embedded 8-bit HDR GainMap grid that the project parser identifies and Native decodes via its project-owned item identity. The corpus contains no confirmed >8-bit HEIC primary; this limits only a >8-bit **real-device coverage claim**, not the actual HDR/GainMap proof for the representation the corpus contains. See `P4-R5-Final-Closeout.md` and `tests/LivePhotoBox.Core.Tests/RealSampleManifest.json` for the exact matrix and hashes.
 
 When the project-owned Native inspector reports a HEIC GainMap, `HeicConverterService` routes to the P5 semantic path. Until that path is implemented, its failure is surfaced and a plain-SDR JPEG fallback is forbidden. The R5 regression test exercises this with the Apple HDR real sample.
 
@@ -66,9 +68,9 @@ The following commands were run from the repository root after the final ICC and
 
 | Command / scope | Result |
 |---|---|
-| `scripts/native/build-native.ps1 -Configuration Debug -RunTests` plus `ImageConverterTests|NativeRuntimeTests` | 15/15 Native harness; 45/45 managed tests; 0 skipped |
-| `scripts/native/build-native.ps1 -Configuration Release -RunTests` plus `ImageConverterTests|NativeRuntimeTests` | 15/15 Native harness; 45/45 managed tests; 0 skipped |
-| P1--P4 focused regression filter (`SourceInspector`, extractor, cleaner, image/video converter, Native runtime, platform filesystem and gain-map reassembly) | 296/296; 0 skipped |
+| `scripts/native/build-native.ps1 -Configuration Debug -RunTests` plus `ImageConverterTests|NativeRuntimeTests` | 15/15 Native harness; 46/46 managed tests; 0 skipped |
+| `scripts/native/build-native.ps1 -Configuration Release -RunTests` plus `ImageConverterTests|NativeRuntimeTests` | 15/15 Native harness; 46/46 managed tests; 0 skipped |
+| P1--P4 focused regression filter (`SourceInspector`, extractor, cleaner, image/video converter, Native runtime, platform filesystem and gain-map reassembly) | 297/297; 0 skipped |
 | CMake Release `ctest --output-on-failure` | `portable_io_smoke` 1/1 |
 | `scripts/native/sync-native-project.ps1 -Check` | project and filters synchronized |
 
@@ -77,8 +79,8 @@ The following commands were run from the repository root after the final ICC and
 | 1. Canonical dependency graph | PASS | `vcpkg.json`, `CMakeLists.txt`, static vcpkg build graph |
 | 2. Native primary decode | PASS | Apple, Huawei and Samsung RealSample primary-fact/decode tests |
 | 3. Native primary encode | PASS | JPEG-to-HEIC uses Native libheif/x265; project structural inspection and independent ExifTool readability test validate output |
-| 4. Auxiliary foundation | PASS | Project-selected Apple/Samsung auxiliary grid item IDs are discovered structurally and decoded through the Native codec host |
-| 5. HDR / bit-depth | **BLOCKED** | Implementation retains greater-than-8-bit signal/storage facts and refuses silent JPEG quantization, but the current RealSample corpus has no confirmed 10-bit HEIC primary for the required corpus proof |
+| 4. Auxiliary foundation | PASS | Project-selected Apple/Samsung auxiliary grid item IDs decode through the Native host; the closeout seam also emits a separately verified second HEVC image item for project-owned auxiliary assembly |
+| 5. HDR / bit-depth | PASS | Real Apple/Samsung HDR is 8-bit primary plus an embedded HDR GainMap auxiliary; identity, exact-item decode, and fail-closed routing are proven. The >8-bit architecture remains; no >8-bit-primary RealSample claim is made for this corpus. |
 | 6. Structural authority | PASS | `containers/heif.cpp` and vendor protocol code remain authoritative; codec APIs accept structural IDs only |
 | 7. Ownership | PASS | Primary and selected auxiliary surfaces are separate owned Native values; GainMap semantics remain project-owned |
 | 8. x265 record | PASS | Dependency/distribution facts above; no legal conclusion invented |
@@ -89,4 +91,6 @@ The following commands were run from the repository root after the final ICC and
 | 13. No external HEIF CLI | PASS | No production `heif-enc`/`heif-dec` invocation; legacy CLI path remains fail-closed |
 | 14. Truthful failure/degradation | PASS | Truncated HEIC fails without output; Apple GainMap conversion fails closed rather than emitting plain SDR JPEG |
 
-**Current decision: P4-R5 is BLOCKED, and is not ready for P4-R6.** The sole acceptance blocker is Gate 5's required confirmed 10-bit HEIC RealSample proof. It must be resolved with a read-only credible corpus sample and its corresponding no-silent-degradation test; neither a synthetic fixture nor a skipped test can clear it.
+The closeout test independently parses the resulting HEIF item graph, verifies two distinct `hvc1` item identities and non-empty payload ranges, and explicitly verifies that no auxiliary relation exists before project-owned assembly. This establishes the missing auxiliary **codec encode foundation** without pretending that a generic second image already has GainMap semantics.
+
+**Current local decision: P4-R5 is PASS and ready for external acceptance review.** Gate 5 is evaluated against the actual HDR representation in the formal corpus, not an invented requirement that every HDR HEIC must have a >8-bit primary. This local decision does not mark the phase complete or automatically start R6; that requires explicit current-user/external-gate acceptance.

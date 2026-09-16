@@ -54,6 +54,18 @@ struct heic_image_facts {
     std::vector<heic_auxiliary_facts> auxiliaries;
 };
 
+// Codec-only result for a two-image HEIF staging file. The second image is
+// deliberately not called an auxiliary here: only the project structural
+// writer may attach auxC/auxl and assign its vendor/GainMap semantics.
+struct heic_encoded_image_facts {
+    uint32_t primary_item_id{};
+    uint32_t secondary_item_id{};
+    uint32_t primary_width{};
+    uint32_t primary_height{};
+    uint32_t secondary_width{};
+    uint32_t secondary_height{};
+};
+
 lpb_result inspect_heic_file(lpb_context* context, const char* input_path,
     heic_image_facts& output) noexcept;
 lpb_result decode_heic_primary_file(lpb_context* context, const char* input_path,
@@ -62,6 +74,9 @@ lpb_result decode_heic_auxiliary_file(lpb_context* context, const char* input_pa
     uint32_t auxiliary_item_id, pixel_surface& output, heic_auxiliary_facts* out_facts = nullptr) noexcept;
 lpb_result encode_heic_file(lpb_context* context, const char* output_path,
     const pixel_surface& input, int32_t quality) noexcept;
+lpb_result encode_heic_primary_and_secondary_file(lpb_context* context, const char* output_path,
+    const pixel_surface& primary, const pixel_surface& secondary, int32_t quality,
+    heic_encoded_image_facts& output) noexcept;
 const char* heic_backend_version() noexcept;
 
 } // namespace lpb::media

@@ -22,7 +22,19 @@ public static class NativeMediaService
 
     private static void ValidateNativeFactsLayout()
     {
-        if (Marshal.SizeOf<NativeGainMapItemFacts>() != 112 ||
+        if (Marshal.SizeOf<NativeHeicImageInfo>() != 36 ||
+            (int)Marshal.OffsetOf<NativeHeicImageInfo>(nameof(NativeHeicImageInfo.NclxPrimaries)) != 24 ||
+            (int)Marshal.OffsetOf<NativeHeicImageInfo>(nameof(NativeHeicImageInfo.HasAlpha)) != 30 ||
+            Marshal.SizeOf<NativeHeicPrimaryDecodeInfo>() != 40 ||
+            (int)Marshal.OffsetOf<NativeHeicPrimaryDecodeInfo>(nameof(NativeHeicPrimaryDecodeInfo.NclxPrimaries)) != 28 ||
+            (int)Marshal.OffsetOf<NativeHeicPrimaryDecodeInfo>(nameof(NativeHeicPrimaryDecodeInfo.HasAlpha)) != 34 ||
+            Marshal.SizeOf<NativeHeicAuxiliaryInfo>() != 168 ||
+            (int)Marshal.OffsetOf<NativeHeicAuxiliaryInfo>(nameof(NativeHeicAuxiliaryInfo.NclxPrimaries)) != 28 ||
+            (int)Marshal.OffsetOf<NativeHeicAuxiliaryInfo>(nameof(NativeHeicAuxiliaryInfo.AuxiliaryType)) != 38 ||
+            Marshal.SizeOf<NativeHeicEncodedImagesInfo>() != 28 ||
+            (int)Marshal.OffsetOf<NativeHeicEncodedImagesInfo>(nameof(NativeHeicEncodedImagesInfo.SecondaryItemId)) != 8 ||
+            (int)Marshal.OffsetOf<NativeHeicEncodedImagesInfo>(nameof(NativeHeicEncodedImagesInfo.SecondaryWidth)) != 20 ||
+            Marshal.SizeOf<NativeGainMapItemFacts>() != 112 ||
             (int)Marshal.OffsetOf<NativeGainMapItemFacts>(nameof(NativeGainMapItemFacts.FileRange)) != 32 ||
             (int)Marshal.OffsetOf<NativeGainMapItemFacts>(nameof(NativeGainMapItemFacts.Relationship)) != 48 ||
             Marshal.SizeOf<NativeAuxiliaryItemFacts>() != 2208 ||
@@ -41,8 +53,68 @@ public static class NativeMediaService
             (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.AuxiliaryCount)) != 484 ||
             (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.PreservationCarrierCount)) != 18152)
         {
-            throw new InvalidOperationException("Managed Native facts layout does not match ABI v5.");
+            throw new InvalidOperationException("Managed Native facts layout does not match ABI v7.");
         }
+    }
+
+    // R5 codec foundation only: Native encodes two HEVC image items. It does
+    // not attach auxC/auxl or assign GainMap/vendor meaning; those remain the
+    // project-owned structural writer's responsibility.
+    internal static Task<NativeHeicEncodedImagesInfo> EncodeHeicPrimaryAndSecondaryJpegsAsync(
+        string primaryJpegPath,
+        string secondaryJpegPath,
+        string outputHeicPath,
+        int quality,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(primaryJpegPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(secondaryJpegPath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputHeicPath);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var context = NativeContext.Create(cancellationToken);
+            var info = new NativeHeicEncodedImagesInfo
+            {
+                StructSize = checked((uint)Marshal.SizeOf<NativeHeicEncodedImagesInfo>())
+            };
+            NativeResult result = NativeMethods.EncodeHeicPrimaryAndSecondaryJpegs(
+                context.Handle, primaryJpegPath, secondaryJpegPath, outputHeicPath, quality, ref info);
+            context.ThrowIfFailed(result);
+            if (info.PrimaryItemId == 0 || info.SecondaryItemId == 0 || info.PrimaryItemId == info.SecondaryItemId)
+            {
+                throw new InvalidOperationException("Native HEIC two-image codec staging returned invalid item identities.");
+            }
+            return info;
+        }, cancellationToken);
+    }
+
+    // Read-only codec evidence for the actual primary pixel surface. This does
+    // not grant vendor or GainMap semantic authority to libheif.
+    internal static Task<NativeHeicPrimaryDecodeInfo> DecodeHeicPrimaryAsync(
+        string inputHeicPath,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(inputHeicPath);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var context = NativeContext.Create(cancellationToken);
+            var info = new NativeHeicPrimaryDecodeInfo
+            {
+                StructSize = checked((uint)Marshal.SizeOf<NativeHeicPrimaryDecodeInfo>())
+            };
+            NativeResult result = NativeMethods.DecodeHeicPrimaryImage(context.Handle, inputHeicPath, ref info);
+            context.ThrowIfFailed(result);
+            if (info.PrimaryItemId == 0 || info.Width == 0 || info.Height == 0 ||
+                info.SourceBitDepth == 0 || info.DecodedSignalBitDepth == 0 || info.DecodedStorageBitDepth == 0)
+            {
+                throw new InvalidOperationException("Native HEIC primary decode returned incomplete pixel facts.");
+            }
+            return info;
+        }, cancellationToken);
     }
 
     public static Task<SourceMediaFacts> InspectMediaAsync(

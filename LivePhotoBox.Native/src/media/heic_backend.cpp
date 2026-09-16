@@ -290,59 +290,79 @@ lpb_result decode_heic_auxiliary_file(lpb_context* context, const char* input_pa
     return LPB_RESULT_OK;
 }
 
-lpb_result encode_heic_file(lpb_context* context, const char* output_path, const pixel_surface& input,
-    int32_t quality) noexcept {
-    if (!context || !output_path || input.width == 0 || input.height == 0 || input.channels != 3 ||
-        input.signal_bit_depth != 8 || input.storage_bit_depth != 8 || input.stride != static_cast<uint64_t>(input.width) * 3 ||
-        quality < 1 || quality > 100 || !heif_have_encoder_for_format(heif_compression_HEVC)) {
-        if (context) set_error(context, "HEIC encode requires an 8-bit RGB surface and the libheif x265 HEVC encoder.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
+namespace {
+bool is_encodable_sdr_surface(const pixel_surface& input) noexcept {
     uint64_t row_bytes{}, total_bytes{};
-    if (!safe_dimensions(input.width, input.height, 3, 1, row_bytes, total_bytes) || input.pixels.size() != total_bytes) {
-        set_error(context, "HEIC encode received an invalid project-owned pixel surface.");
+    return input.width != 0 && input.height != 0 && input.channels == 3 &&
+        input.signal_bit_depth == 8 && input.storage_bit_depth == 8 &&
+        input.stride == static_cast<uint64_t>(input.width) * 3 &&
+        safe_dimensions(input.width, input.height, 3, 1, row_bytes, total_bytes) &&
+        input.pixels.size() == total_bytes;
+}
+
+bool make_encoded_image(const pixel_surface& input, heif_image_owner& image) noexcept {
+    if (!okay(heif_image_create(static_cast<int>(input.width), static_cast<int>(input.height),
+            heif_colorspace_RGB, heif_chroma_interleaved_RGB, &image.value)) || !image.value ||
+        !okay(heif_image_add_plane(image.value, heif_channel_interleaved,
+            static_cast<int>(input.width), static_cast<int>(input.height), 8))) return false;
+    size_t dst_stride{};
+    uint8_t* destination = heif_image_get_plane2(image.value, heif_channel_interleaved, &dst_stride);
+    if (!destination || dst_stride < input.stride) return false;
+    for (uint32_t y = 0; y < input.height; ++y) {
+        std::memcpy(destination + y * dst_stride, input.pixels.data() + static_cast<size_t>(y * input.stride),
+            static_cast<size_t>(input.stride));
+    }
+    const bool has_icc = input.color.has_icc && !input.color.icc_profile.empty();
+    if (has_icc) return okay(heif_image_set_raw_color_profile(image.value, "prof", input.color.icc_profile.data(), input.color.icc_profile.size()));
+    heif_nclx_owner nclx;
+    if (!nclx.value) return false;
+    nclx.value->version = 1;
+    nclx.value->color_primaries = heif_color_primaries_ITU_R_BT_709_5;
+    nclx.value->transfer_characteristics = heif_transfer_characteristic_IEC_61966_2_1;
+    nclx.value->matrix_coefficients = heif_matrix_coefficients_ITU_R_BT_601_6;
+    nclx.value->full_range_flag = 1;
+    return okay(heif_image_set_nclx_color_profile(image.value, nclx.value));
+}
+
+lpb_result encode_heic_images(lpb_context* context, const char* output_path, const pixel_surface& primary,
+    const pixel_surface* secondary, int32_t quality, heic_encoded_image_facts* facts) noexcept {
+    if (facts) *facts = {};
+    if (!context || !output_path || !is_encodable_sdr_surface(primary) ||
+        (secondary && !is_encodable_sdr_surface(*secondary)) || quality < 1 || quality > 100 ||
+        !heif_have_encoder_for_format(heif_compression_HEVC)) {
+        if (context) set_error(context, "HEIC encode requires 8-bit RGB project-owned surfaces and the libheif x265 HEVC encoder.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     heif_context_owner file;
-    heif_image_owner image;
+    heif_image_owner primary_image;
+    heif_image_owner secondary_image;
+    heif_handle_owner primary_handle;
+    heif_handle_owner secondary_handle;
     heif_encoder_owner encoder;
     heif_encode_options_owner options;
-    heif_nclx_owner nclx;
-    if (!file.value || !options.value || !nclx.value ||
-        !okay(heif_image_create(static_cast<int>(input.width), static_cast<int>(input.height), heif_colorspace_RGB, heif_chroma_interleaved_RGB, &image.value)) ||
-        !image.value || !okay(heif_image_add_plane(image.value, heif_channel_interleaved, static_cast<int>(input.width), static_cast<int>(input.height), 8))) {
-        set_error(context, "libheif could not allocate the HEIC encoder image.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-    size_t dst_stride{};
-    uint8_t* destination = heif_image_get_plane2(image.value, heif_channel_interleaved, &dst_stride);
-    if (!destination || dst_stride < row_bytes) {
-        set_error(context, "libheif returned an invalid HEIC encoder pixel plane.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-    for (uint32_t y = 0; y < input.height; ++y) std::memcpy(destination + y * dst_stride, input.pixels.data() + static_cast<size_t>(y * row_bytes), static_cast<size_t>(row_bytes));
-    const bool has_icc = input.color.has_icc && !input.color.icc_profile.empty();
-    if (has_icc) {
-        if (!okay(heif_image_set_raw_color_profile(image.value, "prof", input.color.icc_profile.data(), input.color.icc_profile.size()))) {
-            set_error(context, "libheif could not attach the source ICC profile to HEIC output.");
-            return LPB_RESULT_INTERNAL_ERROR;
-        }
-    } else {
-        // JPEG surfaces without a source profile are explicitly encoded as
-        // sRGB. This is an output policy for untagged SDR pixels, never a
-        // transform or relabeling of an ICC-tagged source.
-        nclx.value->version = 1;
-        nclx.value->color_primaries = heif_color_primaries_ITU_R_BT_709_5;
-        nclx.value->transfer_characteristics = heif_transfer_characteristic_IEC_61966_2_1;
-        nclx.value->matrix_coefficients = heif_matrix_coefficients_ITU_R_BT_601_6;
-        nclx.value->full_range_flag = 1;
-    }
-    if ((!has_icc && !okay(heif_image_set_nclx_color_profile(image.value, nclx.value))) ||
+    if (!file.value || !options.value || !make_encoded_image(primary, primary_image) ||
+        (secondary && !make_encoded_image(*secondary, secondary_image)) ||
         !okay(heif_context_get_encoder_for_format(file.value, heif_compression_HEVC, &encoder.value)) || !encoder.value ||
         !okay(heif_encoder_set_lossy_quality(encoder.value, quality)) ||
-        !okay(heif_context_encode_image(file.value, image.value, encoder.value, options.value, nullptr))) {
-        set_error(context, "libheif/x265 HEIC encode setup failed.");
+        !okay(heif_context_encode_image(file.value, primary_image.value, encoder.value, options.value, &primary_handle.value)) || !primary_handle.value ||
+        (secondary && (!okay(heif_context_encode_image(file.value, secondary_image.value, encoder.value, options.value, &secondary_handle.value)) || !secondary_handle.value)) ||
+        !okay(heif_context_set_primary_image(file.value, primary_handle.value))) {
+        set_error(context, "libheif/x265 HEIC image encode setup failed.");
         return LPB_RESULT_INTERNAL_ERROR;
+    }
+    if (facts) {
+        facts->primary_item_id = heif_image_handle_get_item_id(primary_handle.value);
+        facts->primary_width = primary.width;
+        facts->primary_height = primary.height;
+        if (secondary) {
+            facts->secondary_item_id = heif_image_handle_get_item_id(secondary_handle.value);
+            facts->secondary_width = secondary->width;
+            facts->secondary_height = secondary->height;
+        }
+        if (facts->primary_item_id == 0 || (secondary && (facts->secondary_item_id == 0 || facts->secondary_item_id == facts->primary_item_id))) {
+            set_error(context, "libheif did not produce distinct HEIC image item identities.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
     }
     windows_owned_output output;
     const fs::path destination_path = utf8_to_path(output_path);
@@ -359,5 +379,17 @@ lpb_result encode_heic_file(lpb_context* context, const char* output_path, const
         return LPB_RESULT_INTERNAL_ERROR;
     }
     return LPB_RESULT_OK;
+}
+} // namespace
+
+lpb_result encode_heic_file(lpb_context* context, const char* output_path, const pixel_surface& input,
+    int32_t quality) noexcept {
+    return encode_heic_images(context, output_path, input, nullptr, quality, nullptr);
+}
+
+lpb_result encode_heic_primary_and_secondary_file(lpb_context* context, const char* output_path,
+    const pixel_surface& primary, const pixel_surface& secondary, int32_t quality,
+    heic_encoded_image_facts& output) noexcept {
+    return encode_heic_images(context, output_path, primary, &secondary, quality, &output);
 }
 } // namespace lpb::media

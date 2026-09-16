@@ -1,6 +1,7 @@
 using LivePhotoBox.Services.Protocols;
 using LivePhotoBox.Models;
 using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Interop;
 using ImageMagick;
 using System;
 using System.Collections.Generic;
@@ -668,10 +669,15 @@ public static class StandardHdrConversionService
         }
     }
 
-    private static Task RunHeifEncTwoImagesAsync(
+    private static async Task RunHeifEncTwoImagesAsync(
         string primaryPath, string gainMapPath, string outputPath, CancellationToken token)
     {
-        throw new NotSupportedException("heif-enc is not supported in the Rebuilt Native engine.");
+        // This replaces the former heif-enc process seam with the R5 Native
+        // codec foundation. It intentionally produces two coded image items
+        // only; the following project-owned HeifAuxImageWriter is solely
+        // responsible for auxC/auxl and Apple GainMap structure.
+        _ = await NativeMediaService.EncodeHeicPrimaryAndSecondaryJpegsAsync(
+            primaryPath, gainMapPath, outputPath, quality: 90, token).ConfigureAwait(false);
     }
 
     private static Task RunHeifDecWithAuxAsync(

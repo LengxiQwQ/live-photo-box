@@ -21,6 +21,7 @@ public sealed class NativeRuntimeTests
         Assert.NotEqual(0UL, info.Capabilities & NativeRuntime.HevcDecoderCapability);
         Assert.NotEqual(0UL, info.Capabilities & NativeRuntime.HevcEncoderCapability);
         Assert.NotEqual(0UL, info.Capabilities & NativeRuntime.HdrPixelSurfaceCapability);
+        Assert.NotEqual(0UL, info.Capabilities & NativeRuntime.HeicSecondaryImageEncoderCapability);
         Assert.Equal("libjpeg-turbo 3002000", info.JpegBackendVersion);
         Assert.Equal("libheif 1.23.4", info.HeicBackendVersion);
 
@@ -42,9 +43,9 @@ public sealed class NativeRuntimeTests
     }
 
     [Fact]
-    public void SupportedAbiVersion_IsSix()
+    public void SupportedAbiVersion_IsSeven()
     {
-        Assert.Equal(6u, NativeRuntime.SupportedAbiVersion);
+        Assert.Equal(7u, NativeRuntime.SupportedAbiVersion);
     }
 
     [Fact]
@@ -136,6 +137,19 @@ public sealed class NativeRuntimeTests
         Assert.Equal(344, (int)Marshal.OffsetOf<NativeCleanupAction>("IsMandatory"));
         Assert.Equal(56, sizeof(NativeCleanupArtifactBinding));
         Assert.Equal(524, sizeof(NativeRemovedProtocolFact));
+
+        Assert.Equal(36, sizeof(NativeHeicImageInfo));
+        Assert.Equal(24, (int)Marshal.OffsetOf<NativeHeicImageInfo>(nameof(NativeHeicImageInfo.NclxPrimaries)));
+        Assert.Equal(30, (int)Marshal.OffsetOf<NativeHeicImageInfo>(nameof(NativeHeicImageInfo.HasAlpha)));
+        Assert.Equal(40, sizeof(NativeHeicPrimaryDecodeInfo));
+        Assert.Equal(28, (int)Marshal.OffsetOf<NativeHeicPrimaryDecodeInfo>(nameof(NativeHeicPrimaryDecodeInfo.NclxPrimaries)));
+        Assert.Equal(34, (int)Marshal.OffsetOf<NativeHeicPrimaryDecodeInfo>(nameof(NativeHeicPrimaryDecodeInfo.HasAlpha)));
+        Assert.Equal(168, sizeof(NativeHeicAuxiliaryInfo));
+        Assert.Equal(28, (int)Marshal.OffsetOf<NativeHeicAuxiliaryInfo>(nameof(NativeHeicAuxiliaryInfo.NclxPrimaries)));
+        Assert.Equal(38, (int)Marshal.OffsetOf<NativeHeicAuxiliaryInfo>(nameof(NativeHeicAuxiliaryInfo.AuxiliaryType)));
+        Assert.Equal(28, sizeof(NativeHeicEncodedImagesInfo));
+        Assert.Equal(8, (int)Marshal.OffsetOf<NativeHeicEncodedImagesInfo>(nameof(NativeHeicEncodedImagesInfo.SecondaryItemId)));
+        Assert.Equal(20, (int)Marshal.OffsetOf<NativeHeicEncodedImagesInfo>(nameof(NativeHeicEncodedImagesInfo.SecondaryWidth)));
     }
 
     [Fact]

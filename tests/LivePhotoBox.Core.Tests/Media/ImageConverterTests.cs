@@ -89,6 +89,30 @@ public sealed class ImageConverterTests
 
     private static string ResolveSample(string fileName) => TestSampleResolver.ResolveSample(fileName);
 
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public void FormalHeicRealSampleInventory_IsExplicitAndComplete()
+    {
+        string directory = Path.GetDirectoryName(ResolveSample("苹果双文件.HEIC"))!;
+        string[] copiedSamples = Directory.EnumerateFiles(directory)
+            .Where(path => string.Equals(Path.GetExtension(path), ".heic", StringComparison.OrdinalIgnoreCase))
+            .Select(path => Path.GetFileName(path)!)
+            .OrderBy(name => name, StringComparer.Ordinal)
+            .ToArray();
+
+        // The test project also copies the explicitly non-real Google fixture
+        // from designs/. It remains visible here so it cannot be silently
+        // mistaken for a device corpus member, but it is not formal evidence.
+        Assert.Contains("谷歌自己合成的.heic", copiedSamples);
+        string[] actual = copiedSamples
+            .Where(name => !string.Equals(name, "谷歌自己合成的.heic", StringComparison.Ordinal))
+            .ToArray();
+
+        Assert.Equal(
+            new[] { "华为Mate80.heic", "三星.heic", "苹果双文件.HEIC" }.OrderBy(name => name, StringComparer.Ordinal),
+            actual);
+    }
+
     private static async Task CopyRangeAsync(string sourcePath, string destinationPath, long offset, long length)
     {
         Assert.True(offset >= 0 && length > 0);
@@ -253,37 +277,35 @@ public sealed class ImageConverterTests
 
     [Theory]
     [Trait("Category", "RealSamples")]
-    [InlineData("苹果双文件.HEIC", 4032, 3024)]
-    [InlineData("华为Mate80.heic", 3072, 4096)]
+    [InlineData("苹果双文件.HEIC", 4032, 3024, 8, 8, "868F29D1408D090193D04EBE5C71FEA139705381B9C1B8673C40C62E1A456998")]
+    [InlineData("华为Mate80.heic", 3072, 4096, 8, 8, "904E94CD37CC0336060409C07025C1341A5621EDA3AB53AE2840EE6613F5834A")]
     // The Samsung source advertises a rotated stored grid. The libheif decode
     // contract reports the orientation-applied visual dimensions.
-    [InlineData("三星.heic", 3000, 4000)]
-    public async Task NativeHeicBackend_ReportsRealPrimaryFactsWithoutMutatingSource(
-        string sampleName, uint expectedWidth, uint expectedHeight)
+    [InlineData("三星.heic", 3000, 4000, 8, 8, "DBFB8AD846A16291B0B09599FCF588A3E6C20D58B96782E357D5652E3EC544C4")]
+    public async Task NativeHeicBackend_DecodesRealPrimaryPixelsWithoutMutatingSource(
+        string sampleName, uint expectedWidth, uint expectedHeight, uint expectedSourceBitDepth, uint expectedStorageBitDepth,
+        string expectedSha256)
     {
         string source = ResolveSample(sampleName);
         string before = Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source)));
-        using var context = NativeContext.Create();
-        var info = new NativeHeicImageInfo
-        {
-            StructSize = checked((uint)Marshal.SizeOf<NativeHeicImageInfo>())
-        };
-
-        NativeResult result = NativeMethods.InspectHeicImage(context.Handle, source, ref info);
-        context.ThrowIfFailed(result);
+        NativeHeicPrimaryDecodeInfo info = await NativeMediaService.DecodeHeicPrimaryAsync(source);
 
         Assert.NotEqual(0u, info.PrimaryItemId);
         Assert.Equal(expectedWidth, info.Width);
         Assert.Equal(expectedHeight, info.Height);
-        Assert.True(info.SourceBitDepth >= 8);
+        Assert.Equal(expectedSourceBitDepth, info.SourceBitDepth);
+        Assert.True(info.DecodedSignalBitDepth >= info.SourceBitDepth);
+        Assert.Equal(expectedStorageBitDepth, info.DecodedStorageBitDepth);
+        Assert.Equal(expectedSha256, before);
         Assert.Equal(before, Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source))));
     }
 
     [Theory]
     [Trait("Category", "RealSamples")]
-    [InlineData("苹果双文件.HEIC")]
-    [InlineData("三星.heic")]
-    public async Task NativeHeicBackend_DecodesRealAuxiliaryThroughStructuralItemIdentity(string sampleName)
+    [InlineData("苹果双文件.HEIC", 63u, 2016u, 1512u, 8u)]
+    [InlineData("三星.heic", 55u, 750u, 1000u, 8u)]
+    public async Task NativeHeicBackend_DecodesRealAuxiliaryThroughStructuralItemIdentity(
+        string sampleName, uint expectedItemId, uint expectedWidth, uint expectedHeight, uint expectedBitDepth)
     {
         string source = ResolveSample(sampleName);
         string before = Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source)));
@@ -303,10 +325,12 @@ public sealed class ImageConverterTests
         context.ThrowIfFailed(result);
 
         Assert.Equal(auxiliary.ItemId, decoded.ItemId);
-        Assert.True(decoded.Width > 0 && decoded.Height > 0);
-        Assert.True(decoded.SourceBitDepth >= 8);
-        Assert.True(decoded.DecodedSignalBitDepth >= decoded.SourceBitDepth);
-        Assert.True(decoded.DecodedStorageBitDepth is 8 or 16);
+        Assert.Equal(expectedItemId, decoded.ItemId);
+        Assert.Equal(expectedWidth, decoded.Width);
+        Assert.Equal(expectedHeight, decoded.Height);
+        Assert.Equal(expectedBitDepth, decoded.SourceBitDepth);
+        Assert.Equal(expectedBitDepth, decoded.DecodedSignalBitDepth);
+        Assert.Equal(expectedBitDepth, decoded.DecodedStorageBitDepth);
         Assert.Equal(before, Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source))));
     }
 
@@ -497,6 +521,37 @@ public sealed class ImageConverterTests
         Assert.Equal(8u, facts.SourceBitDepth);
         Assert.Equal(1, facts.HasIcc);
         Assert.True(facts.HasNclx == 1 || facts.HasIcc == 1);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task NativeHeicBackend_EncodesSecondCodecImageForProjectOwnedAuxiliaryAssembly()
+    {
+        string source = ResolveSample("oppo.jpg");
+        string before = Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source)));
+        using var workspace = new MediaWorkspace();
+        string output = Path.Combine(workspace.RootDirectory, "two-coded-images.heic");
+
+        // This deliberately proves codec staging, not an invented GainMap
+        // semantic: a project-owned writer must still validate and establish
+        // auxC/auxl before this second image can be called an auxiliary.
+        NativeHeicEncodedImagesInfo encoded = await NativeMediaService.EncodeHeicPrimaryAndSecondaryJpegsAsync(
+            source, source, output, quality: 90);
+
+        Assert.True(File.Exists(output));
+        Assert.NotEqual(0u, encoded.PrimaryItemId);
+        Assert.NotEqual(0u, encoded.SecondaryItemId);
+        Assert.NotEqual(encoded.PrimaryItemId, encoded.SecondaryItemId);
+        await AssertReadableByExifToolAsync(output);
+
+        W3IndependentHeifGraph graph = W3IndependentHeifParser.Parse(await File.ReadAllBytesAsync(output));
+        Assert.Equal(encoded.PrimaryItemId, graph.PrimaryItemId);
+        W3IndependentHeifItem secondary = Assert.Single(graph.Items, item => item.ItemId == encoded.SecondaryItemId);
+        Assert.Equal("hvc1", secondary.ItemType);
+        Assert.NotEmpty(secondary.Ranges);
+        Assert.All(secondary.Ranges, range => Assert.True(range.Length > 0));
+        Assert.Empty(graph.Auxiliaries);
+        Assert.Equal(before, Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source))));
     }
 
     [Fact]

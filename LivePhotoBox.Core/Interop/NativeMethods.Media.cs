@@ -12,11 +12,24 @@ internal static partial class NativeMethods
     internal static partial NativeResult InspectHeicImage(nint context, string inputImagePath,
         ref NativeHeicImageInfo outInfo);
 
+    [LibraryImport(LibraryName, EntryPoint = "lpb_decode_heic_primary_image", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult DecodeHeicPrimaryImage(nint context, string inputImagePath,
+        ref NativeHeicPrimaryDecodeInfo outInfo);
+
     [LibraryImport(LibraryName, EntryPoint = "lpb_decode_heic_auxiliary_image", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeResult DecodeHeicAuxiliaryImage(nint context, string inputImagePath,
         uint auxiliaryItemId, ref NativeHeicAuxiliaryInfo outInfo);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_encode_heic_primary_and_secondary_jpegs", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult EncodeHeicPrimaryAndSecondaryJpegs(nint context,
+        string primaryJpegPath, string secondaryJpegPath, string outputHeicPath, int quality,
+        ref NativeHeicEncodedImagesInfo outInfo);
 
     [LibraryImport(LibraryName, EntryPoint = "lpb_inspect_media", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
@@ -303,6 +316,25 @@ internal struct NativeHeicImageInfo
 }
 
 [StructLayout(LayoutKind.Sequential)]
+internal struct NativeHeicPrimaryDecodeInfo
+{
+    public uint StructSize;
+    public uint PrimaryItemId;
+    public uint Width;
+    public uint Height;
+    public uint SourceBitDepth;
+    public uint DecodedSignalBitDepth;
+    public uint DecodedStorageBitDepth;
+    public ushort NclxPrimaries;
+    public ushort NclxTransfer;
+    public ushort NclxMatrix;
+    public byte HasAlpha;
+    public byte HasIcc;
+    public byte HasNclx;
+    public byte IsHdrRelevant;
+}
+
+[StructLayout(LayoutKind.Sequential)]
 internal unsafe struct NativeHeicAuxiliaryInfo
 {
     public uint StructSize;
@@ -321,4 +353,16 @@ internal unsafe struct NativeHeicAuxiliaryInfo
     public byte IsHdrRelevant;
 
     public fixed byte AuxiliaryType[128];
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeHeicEncodedImagesInfo
+{
+    public uint StructSize;
+    public uint PrimaryItemId;
+    public uint SecondaryItemId;
+    public uint PrimaryWidth;
+    public uint PrimaryHeight;
+    public uint SecondaryWidth;
+    public uint SecondaryHeight;
 }

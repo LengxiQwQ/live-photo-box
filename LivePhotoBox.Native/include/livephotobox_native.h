@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define LPB_NATIVE_ABI_VERSION 6u
+#define LPB_NATIVE_ABI_VERSION 7u
 
 typedef struct lpb_context lpb_context;
 typedef struct lpb_extraction_plan lpb_extraction_plan;
@@ -122,7 +122,10 @@ enum lpb_capability
     LPB_CAPABILITY_HEIC_BACKEND = 1ull << 18,
     LPB_CAPABILITY_HEVC_DECODER = 1ull << 19,
     LPB_CAPABILITY_HEVC_ENCODER = 1ull << 20,
-    LPB_CAPABILITY_HDR_PIXEL_SURFACE = 1ull << 21
+    LPB_CAPABILITY_HDR_PIXEL_SURFACE = 1ull << 21,
+    /* R5 closeout: libheif/x265 can stage a primary and a second coded image
+     * for project-owned auxiliary structural assembly. */
+    LPB_CAPABILITY_HEIC_SECONDARY_IMAGE_ENCODER = 1ull << 22
 };
 
 LPB_API uint32_t LPB_CALL lpb_get_abi_version(void);
@@ -430,6 +433,28 @@ typedef struct lpb_heic_image_info
     uint8_t is_hdr_relevant;
 } lpb_heic_image_info;
 
+/* Codec facts after decoding the primary image into the Native pixel host.
+ * This is deliberately separate from HEIF structural/vendor interpretation:
+ * it proves the decoded pixel representation without assigning GainMap
+ * semantics to the primary item. */
+typedef struct lpb_heic_primary_decode_info
+{
+    uint32_t struct_size;
+    uint32_t primary_item_id;
+    uint32_t width;
+    uint32_t height;
+    uint32_t source_bit_depth;
+    uint32_t decoded_signal_bit_depth;
+    uint32_t decoded_storage_bit_depth;
+    uint16_t nclx_primaries;
+    uint16_t nclx_transfer;
+    uint16_t nclx_matrix;
+    uint8_t has_alpha;
+    uint8_t has_icc;
+    uint8_t has_nclx;
+    uint8_t is_hdr_relevant;
+} lpb_heic_primary_decode_info;
+
 /* Codec facts for one auxiliary selected by its project-owned item identity.
  * Calling lpb_decode_heic_auxiliary_image proves the item can be decoded into
  * the Native pixel host; it does not assign vendor or GainMap semantics. */
@@ -452,16 +477,46 @@ typedef struct lpb_heic_auxiliary_info
     char auxiliary_type[128];
 } lpb_heic_auxiliary_info;
 
+/* Codec-only identifiers for a two-image HEIF staging output. The second
+ * image has no auxiliary/vendor meaning until project-owned structural code
+ * explicitly validates and links it. */
+typedef struct lpb_heic_encoded_images_info
+{
+    uint32_t struct_size;
+    uint32_t primary_item_id;
+    uint32_t secondary_item_id;
+    uint32_t primary_width;
+    uint32_t primary_height;
+    uint32_t secondary_width;
+    uint32_t secondary_height;
+} lpb_heic_encoded_images_info;
+
 LPB_API lpb_result LPB_CALL lpb_inspect_heic_image(
     lpb_context* context,
     const char* input_image_path,
     lpb_heic_image_info* out_info);
+
+LPB_API lpb_result LPB_CALL lpb_decode_heic_primary_image(
+    lpb_context* context,
+    const char* input_image_path,
+    lpb_heic_primary_decode_info* out_info);
 
 LPB_API lpb_result LPB_CALL lpb_decode_heic_auxiliary_image(
     lpb_context* context,
     const char* input_image_path,
     uint32_t auxiliary_item_id,
     lpb_heic_auxiliary_info* out_info);
+
+/* Encodes two 8-bit RGB JPEG sources through the approved Native codecs into
+ * one HEIF file. It creates two coded image items only; auxC/auxl and vendor
+ * semantics must be added by the project structural authority afterwards. */
+LPB_API lpb_result LPB_CALL lpb_encode_heic_primary_and_secondary_jpegs(
+    lpb_context* context,
+    const char* primary_jpeg_path,
+    const char* secondary_jpeg_path,
+    const char* output_heic_path,
+    int32_t quality,
+    lpb_heic_encoded_images_info* out_info);
 
 typedef enum lpb_video_container
 {
@@ -1413,6 +1468,18 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
 static_assert(sizeof(lpb_media_range) == 16, "lpb_media_range size mismatch");
 static_assert(sizeof(lpb_image_item_facts) == 40, "lpb_image_item_facts size mismatch");
 static_assert(sizeof(lpb_video_item_facts) == 80, "lpb_video_item_facts size mismatch");
+static_assert(sizeof(lpb_heic_image_info) == 36, "lpb_heic_image_info size mismatch");
+static_assert(offsetof(lpb_heic_image_info, nclx_primaries) == 24, "lpb_heic_image_info.nclx_primaries offset mismatch");
+static_assert(offsetof(lpb_heic_image_info, has_alpha) == 30, "lpb_heic_image_info.has_alpha offset mismatch");
+static_assert(sizeof(lpb_heic_primary_decode_info) == 40, "lpb_heic_primary_decode_info size mismatch");
+static_assert(offsetof(lpb_heic_primary_decode_info, nclx_primaries) == 28, "lpb_heic_primary_decode_info.nclx_primaries offset mismatch");
+static_assert(offsetof(lpb_heic_primary_decode_info, has_alpha) == 34, "lpb_heic_primary_decode_info.has_alpha offset mismatch");
+static_assert(sizeof(lpb_heic_auxiliary_info) == 168, "lpb_heic_auxiliary_info size mismatch");
+static_assert(offsetof(lpb_heic_auxiliary_info, nclx_primaries) == 28, "lpb_heic_auxiliary_info.nclx_primaries offset mismatch");
+static_assert(offsetof(lpb_heic_auxiliary_info, auxiliary_type) == 38, "lpb_heic_auxiliary_info.auxiliary_type offset mismatch");
+static_assert(sizeof(lpb_heic_encoded_images_info) == 28, "lpb_heic_encoded_images_info size mismatch");
+static_assert(offsetof(lpb_heic_encoded_images_info, secondary_item_id) == 8, "lpb_heic_encoded_images_info.secondary_item_id offset mismatch");
+static_assert(offsetof(lpb_heic_encoded_images_info, secondary_width) == 20, "lpb_heic_encoded_images_info.secondary_width offset mismatch");
 static_assert(sizeof(lpb_gainmap_item_facts) == 112, "lpb_gainmap_item_facts size mismatch");
 static_assert(sizeof(lpb_auxiliary_item_facts) == 2208, "lpb_auxiliary_item_facts size mismatch");
 static_assert(sizeof(lpb_preservation_carrier_facts) == 464, "lpb_preservation_carrier_facts size mismatch");

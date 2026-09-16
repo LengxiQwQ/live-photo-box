@@ -151,6 +151,37 @@ LPB_API lpb_result LPB_CALL lpb_inspect_heic_image(
     return LPB_RESULT_OK;
 }
 
+LPB_API lpb_result LPB_CALL lpb_decode_heic_primary_image(
+    lpb_context* context,
+    const char* input_image_path,
+    lpb_heic_primary_decode_info* out_info)
+{
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired() || !input_image_path || !out_info ||
+        out_info->struct_size < sizeof(lpb_heic_primary_decode_info)) {
+        if (context) set_error(context, "HEIC primary decode received incompatible arguments.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    pixel_surface pixels{};
+    heic_image_facts facts{};
+    const lpb_result result = decode_heic_primary_file(context, input_image_path, pixels, &facts);
+    if (result != LPB_RESULT_OK) return result;
+    out_info->primary_item_id = facts.primary_item_id;
+    out_info->width = facts.width;
+    out_info->height = facts.height;
+    out_info->source_bit_depth = facts.bit_depth;
+    out_info->decoded_signal_bit_depth = pixels.signal_bit_depth;
+    out_info->decoded_storage_bit_depth = pixels.storage_bit_depth;
+    out_info->nclx_primaries = facts.color.primaries;
+    out_info->nclx_transfer = facts.color.transfer;
+    out_info->nclx_matrix = facts.color.matrix;
+    out_info->has_alpha = facts.has_alpha ? 1 : 0;
+    out_info->has_icc = facts.color.has_icc ? 1 : 0;
+    out_info->has_nclx = facts.color.has_nclx ? 1 : 0;
+    out_info->is_hdr_relevant = facts.hdr_relevant ? 1 : 0;
+    return LPB_RESULT_OK;
+}
+
 LPB_API lpb_result LPB_CALL lpb_decode_heic_auxiliary_image(
     lpb_context* context,
     const char* input_image_path,
@@ -183,6 +214,58 @@ LPB_API lpb_result LPB_CALL lpb_decode_heic_auxiliary_image(
     const size_t type_length = std::min(facts.type.size(), sizeof(out_info->auxiliary_type) - 1);
     if (type_length > 0) std::memcpy(out_info->auxiliary_type, facts.type.data(), type_length);
     out_info->auxiliary_type[type_length] = '\0';
+    return LPB_RESULT_OK;
+}
+
+LPB_API lpb_result LPB_CALL lpb_encode_heic_primary_and_secondary_jpegs(
+    lpb_context* context,
+    const char* primary_jpeg_path,
+    const char* secondary_jpeg_path,
+    const char* output_heic_path,
+    int32_t quality,
+    lpb_heic_encoded_images_info* out_info)
+{
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired() || !primary_jpeg_path || !secondary_jpeg_path || !output_heic_path || !out_info ||
+        out_info->struct_size < sizeof(lpb_heic_encoded_images_info)) {
+        if (context) set_error(context, "HEIC primary/secondary encode received incompatible arguments.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    jpeg_rgb_image primary_jpeg{};
+    jpeg_rgb_image secondary_jpeg{};
+    lpb_result result = decode_jpeg_rgb_file(context, primary_jpeg_path, primary_jpeg);
+    if (result != LPB_RESULT_OK) return result;
+    result = decode_jpeg_rgb_file(context, secondary_jpeg_path, secondary_jpeg);
+    if (result != LPB_RESULT_OK) return result;
+    pixel_surface primary{};
+    primary.width = primary_jpeg.width;
+    primary.height = primary_jpeg.height;
+    primary.channels = 3;
+    primary.signal_bit_depth = 8;
+    primary.storage_bit_depth = 8;
+    primary.stride = static_cast<uint64_t>(primary.width) * 3;
+    primary.color.has_icc = !primary_jpeg.icc_profile.empty();
+    primary.color.icc_profile = std::move(primary_jpeg.icc_profile);
+    primary.pixels = std::move(primary_jpeg.pixels);
+    pixel_surface secondary{};
+    secondary.width = secondary_jpeg.width;
+    secondary.height = secondary_jpeg.height;
+    secondary.channels = 3;
+    secondary.signal_bit_depth = 8;
+    secondary.storage_bit_depth = 8;
+    secondary.stride = static_cast<uint64_t>(secondary.width) * 3;
+    secondary.color.has_icc = !secondary_jpeg.icc_profile.empty();
+    secondary.color.icc_profile = std::move(secondary_jpeg.icc_profile);
+    secondary.pixels = std::move(secondary_jpeg.pixels);
+    heic_encoded_image_facts facts{};
+    result = encode_heic_primary_and_secondary_file(context, output_heic_path, primary, secondary, quality, facts);
+    if (result != LPB_RESULT_OK) return result;
+    out_info->primary_item_id = facts.primary_item_id;
+    out_info->secondary_item_id = facts.secondary_item_id;
+    out_info->primary_width = facts.primary_width;
+    out_info->primary_height = facts.primary_height;
+    out_info->secondary_width = facts.secondary_width;
+    out_info->secondary_height = facts.secondary_height;
     return LPB_RESULT_OK;
 }
 

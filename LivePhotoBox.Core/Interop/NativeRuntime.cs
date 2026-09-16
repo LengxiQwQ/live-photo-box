@@ -74,6 +74,7 @@ namespace LivePhotoBox.Interop
         public const ulong HevcDecoderCapability = 1UL << 19;
         public const ulong HevcEncoderCapability = 1UL << 20;
         public const ulong HdrPixelSurfaceCapability = 1UL << 21;
+        public const ulong HeicSecondaryImageEncoderCapability = 1UL << 22;
 
         /// <summary>The fixed native ABI capacity for auxiliary item facts.</summary>
     internal const int MaxAuxiliaryItems = 8;

@@ -40,9 +40,9 @@ namespace LivePhotoBox.Interop
     internal static partial class NativeMethods
     {
         internal const string LibraryName = "LivePhotoBox.Native";
-        // ABI v6 adds R5 HEIC codec facts/capabilities. Codec-private libheif
+        // ABI v7 adds the R5 two-image HEIC codec seam. Codec-private libheif
         // types remain entirely on the Native side of this C ABI.
-        internal const uint RequiredAbiVersion = 6;
+        internal const uint RequiredAbiVersion = 7;
 
         [LibraryImport(LibraryName, EntryPoint = "lpb_get_abi_version")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
