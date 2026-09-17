@@ -1,5 +1,5 @@
 #include "residue_fingerprint.h"
-#include "sha256.h"
+#include "sha256_core.h"
 
 #include <cstring>
 #include <vector>

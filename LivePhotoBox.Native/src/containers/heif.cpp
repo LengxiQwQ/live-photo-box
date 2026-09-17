@@ -1,5 +1,5 @@
-#include "foundation/internal.h"
-#include "foundation/sha256.h"
+#include "foundation/portable_internal.h"
+#include "foundation/sha256_core.h"
 #include "binary/binary_io.h"
 #include "containers/isobmff.h"
 #include <algorithm>

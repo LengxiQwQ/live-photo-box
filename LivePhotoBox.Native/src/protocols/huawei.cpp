@@ -1,4 +1,4 @@
-#include "foundation/internal.h"
+#include "foundation/portable_internal.h"
 #include "containers/isobmff.h"
 
 namespace {

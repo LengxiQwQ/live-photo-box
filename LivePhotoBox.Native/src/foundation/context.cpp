@@ -752,6 +752,14 @@ lpb_result LPB_CALL lpb_get_runtime_info(
     return LPB_RESULT_OK;
 }
 
+bool lpb_has_clean_authority(const lpb_context* context) noexcept
+{
+    return context != nullptr &&
+        tls_cleanup_authority.context == static_cast<const void*>(context) &&
+        tls_cleanup_authority.token != 0 &&
+        tls_cleanup_authority.token == context->active_clean_authority_token;
+}
+
 lpb_result LPB_CALL lpb_get_runtime_capability_identity(
     lpb_context* context,
     lpb_runtime_operation_class operation,
@@ -813,7 +821,10 @@ lpb_result LPB_CALL lpb_get_runtime_capability_identity(
         break;
     case LPB_RUNTIME_OPERATION_VIDEO_TRANSCODE_HDR_10BIT:
         identity->backend = LPB_RUNTIME_BACKEND_MINIMAL_LIBAV;
-        identity->codec = LPB_RUNTIME_CODEC_HEVC;
+        // This is a generic HDR/10-bit capability foundation.  P4 freezes its
+        // future backend owner, not P5's target-codec policy (which may be
+        // H.264 High10 or HEVC Main10), so no codec is claimed yet.
+        identity->codec = LPB_RUNTIME_CODEC_UNKNOWN;
         identity->is_available = 0;
         version = "not packaged";
         fallback_reason = "Minimal libav is frozen for P5 HDR/10-bit dispatch but is not linked or packaged by this runtime.";

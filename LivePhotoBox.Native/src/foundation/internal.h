@@ -237,13 +237,7 @@ inline thread_local lpb_clean_authority_binding tls_cleanup_authority{};
 // True when the current thread is inside the plan-authorized clean invocation
 // for the given context (same thread + unforgeable token match).  This is the
 // single gate every low-level destructive primitive checks.
-inline bool lpb_has_clean_authority(const lpb_context* context) noexcept
-{
-    return context != nullptr &&
-        tls_cleanup_authority.context == static_cast<const void*>(context) &&
-        tls_cleanup_authority.token != 0 &&
-        tls_cleanup_authority.token == context->active_clean_authority_token;
-}
+bool lpb_has_clean_authority(const lpb_context* context) noexcept;
 
 class lpb_context_operation
 {

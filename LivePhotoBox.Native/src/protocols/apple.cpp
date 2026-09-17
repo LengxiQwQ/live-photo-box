@@ -1,7 +1,7 @@
 #include <cstdio>
 #include "protocols/apple.h"
 #include "foundation/residue_fingerprint.h"
-#include "foundation/internal.h"
+#include "foundation/portable_internal.h"
 #include "binary/endian.h"
 #include "containers/isobmff.h"
 #include <cstring>

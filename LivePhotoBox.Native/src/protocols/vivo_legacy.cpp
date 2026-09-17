@@ -1,4 +1,5 @@
-#include "foundation/internal.h"
+#include "foundation/portable_internal.h"
+#include "binary/endian.h"
 #include "containers/isobmff.h"
 
 namespace

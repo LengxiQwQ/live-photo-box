@@ -32,23 +32,25 @@ configure_file("${CMAKE_SOURCE_DIR}/LivePhotoBox.Native/src/foundation/native_ve
 # Explicit groups are the build authority; adding a production source requires editing this graph.
 set(LPB_PORTABLE_SOURCES
   LivePhotoBox.Native/src/containers/isobmff.cpp
-  LivePhotoBox.Native/src/metadata/exif_rewrite.cpp)
-set(LPB_PROTOCOL_METADATA_SOURCES
   LivePhotoBox.Native/src/containers/heif.cpp
-  LivePhotoBox.Native/src/containers/mp4_strip.cpp
   LivePhotoBox.Native/src/foundation/residue_fingerprint.cpp
-  LivePhotoBox.Native/src/foundation/sha256.cpp
+  LivePhotoBox.Native/src/foundation/sha256_core.cpp
   LivePhotoBox.Native/src/metadata/exif.cpp
+  LivePhotoBox.Native/src/metadata/exif_rewrite.cpp
   LivePhotoBox.Native/src/metadata/jpeg.cpp
   LivePhotoBox.Native/src/protocols/apple.cpp
   LivePhotoBox.Native/src/protocols/apple_mebx.cpp
+  LivePhotoBox.Native/src/protocols/huawei.cpp
+  LivePhotoBox.Native/src/protocols/samsung_sef.cpp
+  LivePhotoBox.Native/src/protocols/vivo_legacy.cpp)
+set(LPB_PROTOCOL_METADATA_SOURCES
+  LivePhotoBox.Native/src/containers/mp4_strip.cpp
+  LivePhotoBox.Native/src/foundation/sha256.cpp
   LivePhotoBox.Native/src/protocols/clean/heif_cleaner.cpp
   LivePhotoBox.Native/src/protocols/clean/jpeg_structure_cleaner.cpp
   LivePhotoBox.Native/src/protocols/clean/samsung_sef_cleaner.cpp
   LivePhotoBox.Native/src/protocols/clean/xmp_cleaner.cpp
-  LivePhotoBox.Native/src/protocols/huawei.cpp
-  LivePhotoBox.Native/src/protocols/samsung_sef.cpp
-  LivePhotoBox.Native/src/protocols/vivo_legacy.cpp)
+  )
 set(LPB_WINDOWS_PLATFORM_SOURCES
   LivePhotoBox.Native/src/foundation/context.cpp
   LivePhotoBox.Native/src/platform/windows_filesystem.cpp)
@@ -63,7 +65,7 @@ set(LPB_MEDIA_SOURCES
   LivePhotoBox.Native/src/media/preservation_observation.cpp
   LivePhotoBox.Native/src/media/video_converter.cpp)
 source_group("Portable core" FILES ${LPB_PORTABLE_SOURCES})
-source_group("Protocol and metadata (Windows-bound remaining)" FILES ${LPB_PROTOCOL_METADATA_SOURCES})
+source_group("Windows transaction and hash adapters" FILES ${LPB_PROTOCOL_METADATA_SOURCES})
 source_group("Windows platform" FILES ${LPB_WINDOWS_PLATFORM_SOURCES})
 source_group("Media backend" FILES ${LPB_MEDIA_SOURCES})
 
@@ -73,7 +75,9 @@ source_group("Media backend" FILES ${LPB_MEDIA_SOURCES})
 # portable build cannot silently prove a copied or divergent implementation.
 add_library(livephotobox_portable_core STATIC ${LPB_PORTABLE_SOURCES})
 target_include_directories(livephotobox_portable_core PRIVATE
+  "${CMAKE_SOURCE_DIR}/LivePhotoBox.Native/include"
   "${CMAKE_SOURCE_DIR}/LivePhotoBox.Native/src")
+target_compile_definitions(livephotobox_portable_core PRIVATE LPB_NATIVE_BUILD)
 target_compile_options(livephotobox_portable_core PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
 
 function(lpb_native_target target_name output_name harness)

@@ -1,6 +1,6 @@
 #include "protocols/samsung_sef.h"
 #include "foundation/residue_fingerprint.h"
-#include "foundation/internal.h"
+#include "foundation/portable_internal.h"
 #include "binary/binary_io.h"
 #include "containers/isobmff.h"
 
@@ -346,4 +346,3 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_samsung_sef_build_trailer(
 
     return copy_output(context, buffer, output, output_size, out_written);
 }
-

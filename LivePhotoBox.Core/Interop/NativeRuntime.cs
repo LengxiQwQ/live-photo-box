@@ -27,11 +27,20 @@ namespace LivePhotoBox.Interop
         MinimalLibav = 5
     }
 
+    public enum NativeRuntimeCodec
+    {
+        Unknown = 0,
+        Jpeg = 1,
+        HeicHevc = 2,
+        H264 = 3,
+        Hevc = 4
+    }
+
     public sealed class NativeRuntimeCapabilityIdentity
     {
         internal NativeRuntimeCapabilityIdentity(
             NativeRuntimeOperationClass operation, NativeRuntimeBackend backend,
-            int codec, bool isAvailable, int hardwareMode, bool fallbackOccurred,
+            NativeRuntimeCodec codec, bool isAvailable, int hardwareMode, bool fallbackOccurred,
             string backendVersion, string fallbackReason)
         {
             Operation = operation;
@@ -46,7 +55,7 @@ namespace LivePhotoBox.Interop
 
         public NativeRuntimeOperationClass Operation { get; }
         public NativeRuntimeBackend Backend { get; }
-        public int Codec { get; }
+        public NativeRuntimeCodec Codec { get; }
         public bool IsAvailable { get; }
         public int HardwareMode { get; }
         public bool FallbackOccurred { get; }
@@ -244,7 +253,7 @@ namespace LivePhotoBox.Interop
             return new NativeRuntimeCapabilityIdentity(
                 (NativeRuntimeOperationClass)native.Operation,
                 (NativeRuntimeBackend)native.Backend,
-                native.Codec,
+                (NativeRuntimeCodec)native.Codec,
                 native.IsAvailable != 0,
                 native.HardwareMode,
                 native.FallbackOccurred != 0,

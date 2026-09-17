@@ -1,5 +1,5 @@
 ﻿#include "livephotobox_native.h"
-#include "foundation/internal.h"
+#include "foundation/portable_internal.h"
 #include "binary/endian.h"
 #include "apple_mebx_templates.h"
 #include "containers/isobmff.h"
@@ -711,6 +711,5 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_append_mebx_tracks_with_content
         context, data, data_size, cover_seconds, content_id,
         output, output_size, out_written);
 }
-
 
 

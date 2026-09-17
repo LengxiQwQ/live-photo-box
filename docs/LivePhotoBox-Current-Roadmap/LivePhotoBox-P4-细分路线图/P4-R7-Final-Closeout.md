@@ -18,21 +18,28 @@ acceptance, or authorization to start P5.
 
 ```text
 livephotobox_portable_core (static)
-  ├─ containers/isobmff.cpp
-  └─ metadata/exif_rewrite.cpp
+  ├─ binary/ISO-BMFF + HEIF structural truth
+  ├─ TIFF/EXIF/JPEG metadata truth and in-memory rewrites
+  ├─ Apple, Huawei, Samsung and vivo protocol parsers/mutators
+  └─ SHA-256/fingerprint algorithm
           ↓ same source objects, no copies
 LivePhotoBox.Native.dll
-  ├─ protocol / metadata / structural sources
+  ├─ Windows SHA file/path adapter
+  ├─ Windows transaction-owned MP4/cleaner publication adapters
   ├─ Windows PlatformFilesystem
   └─ JPEG, HEIC and Media Foundation backends
 ```
 
 `livephotobox_portable_core` is a real CMake static target, not a source
 group. Both the production Native DLL and `lpb_portable_io_smoke` link it.
-The target contains the production ISO-BMFF scanner and EXIF rewrite source;
-it has no direct Win32 filesystem, WIC, or Media Foundation link dependency.
-The Windows product remains Windows x64: PlatformFilesystem and Media
-Foundation are still legitimate lower-layer backends.
+It compiles the production protocol/container/metadata/hash sources directly,
+with no copied implementation and no direct `windows.h`, filesystem, WIC, or
+Media Foundation dependency. `portable_internal.h` carries only the opaque C
+ABI context plus error/authority/output-buffer callbacks; the Windows context
+retains the actual capability token. `sha256_core.cpp` is the algorithm;
+`sha256.cpp` is exclusively the Win32 HANDLE/path reader. The Windows product
+remains Windows x64: PlatformFilesystem, handle ownership, atomic publication
+and Media Foundation are deliberate lower-layer backends.
 
 ## Runtime capability identity
 
@@ -48,7 +55,7 @@ codec-private type. Managed interop probes every operation at startup.
 | Video remux | project-owned ISO-BMFF / container copy | product Native version | not applicable; no fallback |
 | SDR H.264 transcode | Windows Media Foundation / H.264 | software-forced MF path | hardware transforms disabled by frozen policy; no fallback |
 | SDR HEVC transcode | Windows Media Foundation / HEVC | software-forced MF path | hardware transforms disabled by frozen policy; no fallback |
-| HDR/10-bit HEVC transcode | minimal libav (frozen P5 owner) | **not packaged** | unavailable; no retry or fallback is implied |
+| HDR/10-bit transcode | minimal libav (frozen P5 owner) / **codec unknown** | **not packaged** | unavailable; no retry or fallback is implied |
 
 The final row deliberately reports the approved P5 backend as unavailable in
 this runtime. No libav DLL, library linkage, or package sidecar was added.
@@ -69,8 +76,13 @@ POD, including selected encoder and fallback reason.
 | WIC / Windows imaging APIs | GUI preview/thumbnail path | UI-only | no Native result-affecting JPEG/HEIC WIC path |
 | lcms2 | none | not shipped by Native P4 graph | no current ICC transform owner; not added |
 
-The self-contained GUI publish inspected for this record had 380 files and
-268,228,560 bytes. Its Native data-plane DLL was 8,656,896 bytes; only
+The first temporary self-contained GUI publish inspected for this record had
+380 files and 268,228,560 bytes. The like-for-like final MSIX baseline is now
+`LivePhotoBox_2.2.2.0_x64.msix`: 120,754,160 compressed bytes, 625 entries,
+and 290,171,856 uncompressed bytes, versus R1's 118,928,770 / 625 /
+282,439,820. The delta is +1,825,390 compressed bytes and +7,732,036
+uncompressed bytes; it is recorded, not treated as a size optimization claim.
+Its Native data-plane DLL was 8,619,008 bytes; only
 `bcrypt.dll`, `ole32.dll`, `MFPlat.dll`, `MFReadWrite.dll`, `KERNEL32.dll`,
 and `ADVAPI32.dll` appear in its PE dependency list. The JPEG/HEIC codec
 libraries are statically linked. This is a package-footprint baseline, not a
@@ -111,7 +123,7 @@ no unobserved codec/plugin binary was introduced by R7.
 | Release Native runtime/ABI | CMake Release build + `NativeRuntimeTests` | 16 | 0 / 0 |
 | Portable core | `lpb_portable_io_smoke` linked to `livephotobox_portable_core` | 1 | 0 / 0 |
 | P1–P3/R2/R4–R6 scoped Debug regression | Inspector, Extractor, Cleaner, PlatformFilesystem, Image/HEIC/GainMap and Video filters | 285 | 0 / 0 |
-| Package baseline | temporary self-contained GUI publish | completed | no MSIX was created or published |
+| Package baseline | current-head local MSIX: 120,754,160 compressed B, 625 entries, 290,171,856 uncompressed B | completed | R1 delta recorded; no Store publish |
 
 The 285-test scoped result includes the existing `RealSamples` tests for JPEG,
 HEIC/HDR/GainMap and video. The original sample corpus was not written; test
@@ -121,19 +133,19 @@ workspace and TRX evidence are under `.ai-tmp/workspace/P4-R7/`.
 
 | # | Gate | Implementation evidence | Test / RealSample evidence | Status | Residual risk |
 |---:|---|---|---|---|---|
-| 1 | R1 actions closed/residualized | R1 map reclassified in this closeout | source/call graph inspection | PASS | UI-only dependencies retained intentionally |
+| 1 | R1 actions closed/residualized | protocol/container/metadata/hash B-class sources moved to portable core; Windows file/transaction adapters classified | source/build graph inspection | PASS | UI-only dependencies retained intentionally |
 | 2 | Backend responsibility clear | dependency table and runtime identity | ABI probe | PASS | none |
 | 3 | filesystem publish consolidated | `windows_owned_output` / handle publish | scoped transaction tests | PASS | correctness-critical reads remain Windows backend |
 | 4 | canonical CMake build | CMake production targets | Debug and Release builds | PASS | none |
 | 5 | reproducible dependency restore | manifest-mode vcpkg configure | fresh configure during both builds | PASS | host toolchain still required |
 | 6 | JPEG/HEIC/video frozen | CMake graph and R4–R6 decisions | JPEG/HEIC/video scoped tests | PASS | libav awaits P5 packaging |
 | 7 | lcms2/WIC policy frozen | no Native lcms2/WIC codec path | package/call graph inspection | PASS | UI WIC remains allowed |
-| 8 | runtime identity diagnosable | ABI v8 POD identity | Debug/Release 16 ABI tests | PASS | no P5 outcome record yet |
+| 8 | runtime identity diagnosable | ABI v8 POD identity; generic HDR/10-bit codec is unknown until P5 invocation | Debug/Release 16 ABI tests | PASS | no P5 outcome record yet |
 | 9 | duplicate report complete | dependency table above | actual publish/runtime inspection | PASS | UI codecs intentionally duplicate UI-only functions |
 | 10 | runtime feature purpose known | package purpose table above | PE imports and publish inventory | PASS | managed package is large |
 | 11 | external media CLI clear | production call-path audit | source scan | PASS | research tools remain offline-only |
-| 12 | footprint baseline complete | 268,228,560-byte self-contained GUI publish | actual file inventory | PASS | no MSIX artifact built |
-| 13 | portable core independent proof | real static target, same production sources | Debug/Release portable smoke | PASS | non-Windows compile smoke intentionally not added |
+| 12 | footprint baseline complete | actual current-head MSIX compared like-for-like to R1 | 120,754,160 B / 625 / 290,171,856 B inventory and CLI absence scan | PASS | no Store publish |
+| 13 | portable core independent proof | real static target contains protocol/container/metadata/hash truth; shell has only Windows adapters | Release portable smoke, same production sources | PASS | non-Windows compile smoke intentionally not added |
 | 14 | public ABI no leakage | C ABI v8 POD review | ABI layout and export test | PASS | none |
 | 15 | P1–P3 regressions | no authority/publish semantic change | 285 scoped tests | PASS | none observed |
 | 16 | R4–R6 RealSamples reproducible | no sample mutation, affected graph rebuilt | scoped RealSample tests, 0 skip | PASS | corpus coverage remains the recorded R4–R6 corpus |

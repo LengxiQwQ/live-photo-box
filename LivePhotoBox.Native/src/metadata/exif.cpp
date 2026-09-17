@@ -1,4 +1,4 @@
-#include "foundation/internal.h"
+#include "foundation/portable_internal.h"
 #include "binary/binary_io.h"
 #include "exif.h"
 
@@ -37,4 +37,3 @@ bool parse_ifd(const uint8_t* data, size_t data_size, size_t tiff_start, size_t 
 }
 
 }
-

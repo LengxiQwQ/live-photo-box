@@ -1,4 +1,4 @@
-#include "foundation/internal.h"
+#include "foundation/portable_internal.h"
 #include "binary/binary_io.h"
 #include "jpeg.h"
 

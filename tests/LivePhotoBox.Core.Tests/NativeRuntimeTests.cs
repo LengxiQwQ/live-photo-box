@@ -66,6 +66,7 @@ public sealed class NativeRuntimeTests
             item => item.Operation == NativeRuntimeOperationClass.VideoTranscodeHdr10Bit);
         Assert.False(hdr.IsAvailable);
         Assert.Equal(NativeRuntimeBackend.MinimalLibav, hdr.Backend);
+        Assert.Equal(NativeRuntimeCodec.Unknown, hdr.Codec);
         Assert.Equal("not packaged", hdr.BackendVersion);
         Assert.Contains("not linked or packaged", hdr.FallbackReason);
     }
