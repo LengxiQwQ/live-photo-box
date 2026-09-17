@@ -434,6 +434,22 @@ fail:
 
 } // namespace
 
+#if defined(LPB_R6_BACKEND_LIBRARY)
+// This is deliberately a tiny C ABI surface: a production-shaped candidate
+// must not expose C++/libav types across a future managed/native boundary.
+extern "C" __declspec(dllexport) int lpb_r6_transcode_video_utf16(
+    const wchar_t* input_path, const wchar_t* output_path, const wchar_t* target_codec_name) {
+    const std::string input = utf8_from_windows_wide(input_path);
+    const std::string output = utf8_from_windows_wide(output_path);
+    const std::string target = utf8_from_windows_wide(target_codec_name);
+    if ((input_path != nullptr && *input_path != L'\0' && input.empty()) ||
+        (output_path != nullptr && *output_path != L'\0' && output.empty()) ||
+        (target_codec_name != nullptr && *target_codec_name != L'\0' && target.empty())) {
+        return 64;
+    }
+    return transcode(input.c_str(), output.c_str(), target.c_str());
+}
+#else
 int wmain(int argc, wchar_t** argv) {
     std::vector<std::string> utf8_arguments;
     utf8_arguments.reserve(static_cast<size_t>(argc));
@@ -453,3 +469,4 @@ int wmain(int argc, wchar_t** argv) {
         return 64;
     }
 }
+#endif

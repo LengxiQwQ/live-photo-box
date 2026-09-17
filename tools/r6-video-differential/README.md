@@ -10,11 +10,26 @@ experiment: `avformat`, `avcodec`, `avutil`, `swscale`, `x264`, and `x265`.
 instead of resampling it. It deliberately does **not** enable `ffmpeg`,
 `ffprobe`, `ffplay`, filters, devices, or networking.
 
-This is **not** a claim that vcpkg's FFmpeg port is an internally
-`--disable-everything` minimal codec build. Its archive footprint and the
-research executable size must be reported separately from any hypothetical
-production linkage. The candidate is not linked into production, so the
-actual production binary delta is zero.
+The vcpkg manifest remains a feature-constrained research baseline; it is
+not described as an internally `--disable-everything` build. The separately
+reproducible minimal build is `Invoke-MinimalLibavBuild.ps1`: it starts from a
+pinned FFmpeg source tree, disables everything, and explicitly enables only
+the MOV/MP4, H.264/HEVC, AAC packet-copy and swscale closure used by
+`matrix.json`. It produces static libraries only—never `ffmpeg`, `ffprobe`,
+or another production subprocess.
+
+When CMake receives `LPB_R6_MINIMAL_PREFIX` and
+`LPB_R6_EXTERNAL_CODEC_PREFIX`, it builds three research artifacts from that
+minimal prefix:
+
+- `lpb_r6_libav_probe.exe`, the differential CLI;
+- `lpb_r6_minimal_libav_backend.dll`, a static, production-shaped DLL with
+  only the UTF-16 C ABI `lpb_r6_transcode_video_utf16`;
+- `lpb_r6_libav_backend_smoke.exe`, a loader that proves the DLL ABI.
+
+None is in the production CMake/vcpkg/runtime graph. The DLL is the measured
+sidecar-package cost for a future hybrid integration; it is not an assertion
+that the current product binary already contains libav*.
 
 The executable establishes independently repeatable library-level input
 compatibility and stream facts. It uses `wmain`, converts Windows UTF-16
