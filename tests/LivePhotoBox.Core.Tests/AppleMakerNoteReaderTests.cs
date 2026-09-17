@@ -139,6 +139,11 @@ public sealed class AppleMakerNoteReaderTests
 
     private static byte[] BuildOwnedJpeg(params byte[][] makerNotes)
     {
+        if (makerNotes.Length == 1)
+        {
+            return AppleMakerNoteFixture.BuildJpegWithFormalExifMakerNote(makerNotes[0]);
+        }
+
         var jpeg = new List<byte> { 0xFF, 0xD8 };
         foreach (byte[] makerNote in makerNotes)
         {
