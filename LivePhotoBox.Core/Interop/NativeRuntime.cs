@@ -1,11 +1,59 @@
 namespace LivePhotoBox.Interop
 {
     using System;
+    using System.Collections.Generic;
     using System.Runtime.InteropServices;
 
     /// <summary>
     /// Describes the currently loadable LivePhotoBox native runtime.
     /// </summary>
+    public enum NativeRuntimeOperationClass
+    {
+        JpegCodec = 1,
+        HeicCodec = 2,
+        VideoRemux = 3,
+        VideoTranscodeSdrH264 = 4,
+        VideoTranscodeSdrHevc = 5,
+        VideoTranscodeHdr10Bit = 6
+    }
+
+    public enum NativeRuntimeBackend
+    {
+        Unknown = 0,
+        LibJpegTurbo = 1,
+        LibHeif = 2,
+        ProjectIsoBmff = 3,
+        WindowsMediaFoundation = 4,
+        MinimalLibav = 5
+    }
+
+    public sealed class NativeRuntimeCapabilityIdentity
+    {
+        internal NativeRuntimeCapabilityIdentity(
+            NativeRuntimeOperationClass operation, NativeRuntimeBackend backend,
+            int codec, bool isAvailable, int hardwareMode, bool fallbackOccurred,
+            string backendVersion, string fallbackReason)
+        {
+            Operation = operation;
+            Backend = backend;
+            Codec = codec;
+            IsAvailable = isAvailable;
+            HardwareMode = hardwareMode;
+            FallbackOccurred = fallbackOccurred;
+            BackendVersion = backendVersion;
+            FallbackReason = fallbackReason;
+        }
+
+        public NativeRuntimeOperationClass Operation { get; }
+        public NativeRuntimeBackend Backend { get; }
+        public int Codec { get; }
+        public bool IsAvailable { get; }
+        public int HardwareMode { get; }
+        public bool FallbackOccurred { get; }
+        public string BackendVersion { get; }
+        public string FallbackReason { get; }
+    }
+
     public sealed class NativeRuntimeInfo
     {
         internal NativeRuntimeInfo(
@@ -15,6 +63,7 @@ namespace LivePhotoBox.Interop
             string? jpegBackendVersion,
             string? heicBackendVersion,
             ulong capabilities,
+            IReadOnlyList<NativeRuntimeCapabilityIdentity> capabilityIdentities,
             string? diagnostic)
         {
             IsAvailable = isAvailable;
@@ -23,6 +72,7 @@ namespace LivePhotoBox.Interop
             JpegBackendVersion = jpegBackendVersion;
             HeicBackendVersion = heicBackendVersion;
             Capabilities = capabilities;
+            CapabilityIdentities = capabilityIdentities;
             Diagnostic = diagnostic;
         }
 
@@ -43,6 +93,9 @@ namespace LivePhotoBox.Interop
 
         /// <summary>Gets the native capability bit mask.</summary>
         public ulong Capabilities { get; }
+
+        /// <summary>Factual identities for current packaged capability owners.</summary>
+        public IReadOnlyList<NativeRuntimeCapabilityIdentity> CapabilityIdentities { get; }
 
         /// <summary>Gets a diagnostic message when the runtime is unavailable.</summary>
         public string? Diagnostic { get; }
@@ -122,6 +175,21 @@ namespace LivePhotoBox.Interop
                 string? heicBackendVersion = (runtimeInfo.Capabilities & HeicBackendCapability) != 0
                     ? Marshal.PtrToStringUTF8(NativeMethods.GetHeicBackendVersion())
                     : null;
+                var identities = new List<NativeRuntimeCapabilityIdentity>();
+                foreach (NativeRuntimeOperationClass operation in Enum.GetValues<NativeRuntimeOperationClass>())
+                {
+                    var identity = new NativeRuntimeCapabilityIdentityData
+                    {
+                        StructSize = checked((uint)Marshal.SizeOf<NativeRuntimeCapabilityIdentityData>())
+                    };
+                    NativeResult identityResult = NativeMethods.GetRuntimeCapabilityIdentity(
+                        context, (int)operation, ref identity);
+                    if (identityResult != NativeResult.Ok)
+                    {
+                        return Unavailable($"Native capability identity query failed: {identityResult}.", abiVersion);
+                    }
+                    identities.Add(MapIdentity(identity));
+                }
                 return new NativeRuntimeInfo(
                     isAvailable: true,
                     abiVersion: runtimeInfo.AbiVersion,
@@ -129,6 +197,7 @@ namespace LivePhotoBox.Interop
                     jpegBackendVersion,
                     heicBackendVersion,
                     runtimeInfo.Capabilities,
+                    identities,
                     diagnostic: null);
             }
             catch (Exception ex) when (
@@ -165,7 +234,23 @@ namespace LivePhotoBox.Interop
                 jpegBackendVersion: null,
                 heicBackendVersion: null,
                 capabilities: 0,
+                capabilityIdentities: Array.Empty<NativeRuntimeCapabilityIdentity>(),
                 diagnostic);
+
+        private static unsafe NativeRuntimeCapabilityIdentity MapIdentity(NativeRuntimeCapabilityIdentityData native)
+        {
+            byte* version = native.BackendVersion;
+            byte* reason = native.FallbackReason;
+            return new NativeRuntimeCapabilityIdentity(
+                (NativeRuntimeOperationClass)native.Operation,
+                (NativeRuntimeBackend)native.Backend,
+                native.Codec,
+                native.IsAvailable != 0,
+                native.HardwareMode,
+                native.FallbackOccurred != 0,
+                Marshal.PtrToStringUTF8((nint)version) ?? string.Empty,
+                Marshal.PtrToStringUTF8((nint)reason) ?? string.Empty);
+        }
 
         private static string? ReadLastError(nint context)
         {

@@ -67,9 +67,18 @@ source_group("Protocol and metadata (Windows-bound remaining)" FILES ${LPB_PROTO
 source_group("Windows platform" FILES ${LPB_WINDOWS_PLATFORM_SOURCES})
 source_group("Media backend" FILES ${LPB_MEDIA_SOURCES})
 
+# This is deliberately a real target, rather than an IDE-only source group.
+# It compiles the exact production structural sources without a Windows media
+# or platform dependency.  The production DLL links this target too, so a
+# portable build cannot silently prove a copied or divergent implementation.
+add_library(livephotobox_portable_core STATIC ${LPB_PORTABLE_SOURCES})
+target_include_directories(livephotobox_portable_core PRIVATE
+  "${CMAKE_SOURCE_DIR}/LivePhotoBox.Native/src")
+target_compile_options(livephotobox_portable_core PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+
 function(lpb_native_target target_name output_name harness)
   add_library(${target_name} SHARED
-    ${LPB_PORTABLE_SOURCES} ${LPB_PROTOCOL_METADATA_SOURCES}
+    ${LPB_PROTOCOL_METADATA_SOURCES}
     ${LPB_WINDOWS_PLATFORM_SOURCES} ${LPB_MEDIA_SOURCES})
   target_include_directories(${target_name} PRIVATE
     "${CMAKE_SOURCE_DIR}/LivePhotoBox.Native/include"
@@ -91,7 +100,7 @@ function(lpb_native_target target_name output_name harness)
     $<$<CONFIG:Release>:/O2> $<$<CONFIG:Release>:/Oi> $<$<CONFIG:Release>:/Gy> $<$<CONFIG:Release>:/GL>)
   target_link_options(${target_name} PRIVATE /guard:cf /DEBUG
     $<$<CONFIG:Release>:/OPT:REF> $<$<CONFIG:Release>:/OPT:ICF> $<$<CONFIG:Release>:/LTCG>)
-  target_link_libraries(${target_name} PRIVATE JPEG::JPEG heif
+  target_link_libraries(${target_name} PRIVATE livephotobox_portable_core JPEG::JPEG heif
     $<IF:$<TARGET_EXISTS:libjpeg-turbo::turbojpeg>,libjpeg-turbo::turbojpeg,libjpeg-turbo::turbojpeg-static>
     bcrypt ole32
     mfplat mfreadwrite mfuuid)
@@ -110,10 +119,10 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-  add_executable(lpb_portable_io_smoke tests/native/portable_io_smoke.cpp
-    LivePhotoBox.Native/src/containers/isobmff.cpp)
+  add_executable(lpb_portable_io_smoke tests/native/portable_io_smoke.cpp)
   target_include_directories(lpb_portable_io_smoke PRIVATE LivePhotoBox.Native/src)
   target_compile_options(lpb_portable_io_smoke PRIVATE /W4 /WX /utf-8 /EHsc)
+  target_link_libraries(lpb_portable_io_smoke PRIVATE livephotobox_portable_core)
   add_test(NAME portable_io_smoke COMMAND lpb_portable_io_smoke
     "${CMAKE_CURRENT_BINARY_DIR}/portable-io-fixture.bin")
 endif()

@@ -1,4 +1,6 @@
 #include "foundation/internal.h"
+#include "media/heic_backend.h"
+#include "media/jpeg_backend.h"
 #include <windows.h>
 #include <bcrypt.h>
 
@@ -747,6 +749,85 @@ lpb_result LPB_CALL lpb_get_runtime_info(
     info->capabilities = LPB_CAPABILITY_FOUNDATION | LPB_CAPABILITY_VIVO_LEGACY | LPB_CAPABILITY_HUAWEI_HONOR | LPB_CAPABILITY_SAMSUNG_JPEG | LPB_CAPABILITY_SAMSUNG_HEIC | LPB_CAPABILITY_JPEG_BACKEND |
         LPB_CAPABILITY_HEIC_BACKEND | LPB_CAPABILITY_HEVC_DECODER | LPB_CAPABILITY_HEVC_ENCODER | LPB_CAPABILITY_HDR_PIXEL_SURFACE |
         LPB_CAPABILITY_HEIC_SECONDARY_IMAGE_ENCODER;
+    return LPB_RESULT_OK;
+}
+
+lpb_result LPB_CALL lpb_get_runtime_capability_identity(
+    lpb_context* context,
+    lpb_runtime_operation_class operation,
+    lpb_runtime_capability_identity* identity)
+{
+    if (context == nullptr || identity == nullptr)
+    {
+        set_error(context, "Context and runtime capability identity are required.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (identity->struct_size < sizeof(lpb_runtime_capability_identity))
+    {
+        set_error(context, "Runtime capability identity structure is too small.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    *identity = {};
+    identity->struct_size = sizeof(lpb_runtime_capability_identity);
+    identity->operation = operation;
+    identity->hardware_mode = LPB_VIDEO_HARDWARE_NOT_APPLICABLE;
+    const char* version = nullptr;
+    const char* fallback_reason = "No fallback was attempted.";
+
+    switch (operation)
+    {
+    case LPB_RUNTIME_OPERATION_JPEG_CODEC:
+        identity->backend = LPB_RUNTIME_BACKEND_LIBJPEG_TURBO;
+        identity->codec = LPB_RUNTIME_CODEC_JPEG;
+        identity->is_available = 1;
+        version = lpb::media::jpeg_backend_version();
+        break;
+    case LPB_RUNTIME_OPERATION_HEIC_CODEC:
+        identity->backend = LPB_RUNTIME_BACKEND_LIBHEIF;
+        identity->codec = LPB_RUNTIME_CODEC_HEIC_HEVC;
+        identity->is_available = 1;
+        version = lpb::media::heic_backend_version();
+        break;
+    case LPB_RUNTIME_OPERATION_VIDEO_REMUX:
+        identity->backend = LPB_RUNTIME_BACKEND_PROJECT_ISOBMFF;
+        identity->codec = LPB_RUNTIME_CODEC_UNKNOWN;
+        identity->is_available = 1;
+        version = LPB_PRODUCT_VERSION;
+        break;
+    case LPB_RUNTIME_OPERATION_VIDEO_TRANSCODE_SDR_H264:
+        identity->backend = LPB_RUNTIME_BACKEND_WINDOWS_MEDIA_FOUNDATION;
+        identity->codec = LPB_RUNTIME_CODEC_H264;
+        identity->is_available = 1;
+        identity->hardware_mode = LPB_VIDEO_HARDWARE_SOFTWARE_FORCED;
+        version = "Windows Media Foundation";
+        fallback_reason = "Hardware transforms are disabled by the frozen P4 policy; no fallback occurred.";
+        break;
+    case LPB_RUNTIME_OPERATION_VIDEO_TRANSCODE_SDR_HEVC:
+        identity->backend = LPB_RUNTIME_BACKEND_WINDOWS_MEDIA_FOUNDATION;
+        identity->codec = LPB_RUNTIME_CODEC_HEVC;
+        identity->is_available = 1;
+        identity->hardware_mode = LPB_VIDEO_HARDWARE_SOFTWARE_FORCED;
+        version = "Windows Media Foundation";
+        fallback_reason = "Hardware transforms are disabled by the frozen P4 policy; no fallback occurred.";
+        break;
+    case LPB_RUNTIME_OPERATION_VIDEO_TRANSCODE_HDR_10BIT:
+        identity->backend = LPB_RUNTIME_BACKEND_MINIMAL_LIBAV;
+        identity->codec = LPB_RUNTIME_CODEC_HEVC;
+        identity->is_available = 0;
+        version = "not packaged";
+        fallback_reason = "Minimal libav is frozen for P5 HDR/10-bit dispatch but is not linked or packaged by this runtime.";
+        break;
+    default:
+        set_error(context, "Unknown runtime operation class.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    if (version != nullptr)
+    {
+        strncpy_s(identity->backend_version, sizeof(identity->backend_version), version, _TRUNCATE);
+    }
+    strncpy_s(identity->fallback_reason, sizeof(identity->fallback_reason), fallback_reason, _TRUNCATE);
     return LPB_RESULT_OK;
 }
 

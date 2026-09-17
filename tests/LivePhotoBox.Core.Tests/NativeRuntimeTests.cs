@@ -43,9 +43,31 @@ public sealed class NativeRuntimeTests
     }
 
     [Fact]
-    public void SupportedAbiVersion_IsSeven()
+    public void SupportedAbiVersion_IsEight()
     {
-        Assert.Equal(7u, NativeRuntime.SupportedAbiVersion);
+        Assert.Equal(8u, NativeRuntime.SupportedAbiVersion);
+    }
+
+    [Fact]
+    public void Probe_ReportsTruthfulCapabilityIdentity()
+    {
+        NativeRuntimeInfo info = NativeRuntime.Probe();
+        Assert.True(info.IsAvailable, info.Diagnostic);
+        Assert.Equal(6, info.CapabilityIdentities.Count);
+
+        NativeRuntimeCapabilityIdentity jpeg = Assert.Single(info.CapabilityIdentities,
+            item => item.Operation == NativeRuntimeOperationClass.JpegCodec);
+        Assert.True(jpeg.IsAvailable);
+        Assert.Equal(NativeRuntimeBackend.LibJpegTurbo, jpeg.Backend);
+        Assert.StartsWith("libjpeg-turbo ", jpeg.BackendVersion);
+        Assert.False(jpeg.FallbackOccurred);
+
+        NativeRuntimeCapabilityIdentity hdr = Assert.Single(info.CapabilityIdentities,
+            item => item.Operation == NativeRuntimeOperationClass.VideoTranscodeHdr10Bit);
+        Assert.False(hdr.IsAvailable);
+        Assert.Equal(NativeRuntimeBackend.MinimalLibav, hdr.Backend);
+        Assert.Equal("not packaged", hdr.BackendVersion);
+        Assert.Contains("not linked or packaged", hdr.FallbackReason);
     }
 
     [Fact]
@@ -102,6 +124,9 @@ public sealed class NativeRuntimeTests
     [Fact]
     public unsafe void NativeStructs_LayoutAgreement_MatchesNativeDefinition()
     {
+        Assert.Equal(252, sizeof(NativeRuntimeCapabilityIdentityData));
+        Assert.Equal(28, (int)Marshal.OffsetOf<NativeRuntimeCapabilityIdentityData>(nameof(NativeRuntimeCapabilityIdentityData.BackendVersion)));
+        Assert.Equal(124, (int)Marshal.OffsetOf<NativeRuntimeCapabilityIdentityData>(nameof(NativeRuntimeCapabilityIdentityData.FallbackReason)));
         Assert.Equal(16, sizeof(NativeMediaRange));
         Assert.Equal(40, sizeof(NativeImageItemFacts));
         Assert.Equal(80, sizeof(NativeVideoItemFacts));

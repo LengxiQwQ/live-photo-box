@@ -37,12 +37,26 @@ namespace LivePhotoBox.Interop
         public ulong Capabilities;
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    internal unsafe struct NativeRuntimeCapabilityIdentityData
+    {
+        public uint StructSize;
+        public int Operation;
+        public int Backend;
+        public int Codec;
+        public int IsAvailable;
+        public int HardwareMode;
+        public int FallbackOccurred;
+        public fixed byte BackendVersion[96];
+        public fixed byte FallbackReason[128];
+    }
+
     internal static partial class NativeMethods
     {
         internal const string LibraryName = "LivePhotoBox.Native";
-        // ABI v7 adds the R5 two-image HEIC codec seam. Codec-private libheif
-        // types remain entirely on the Native side of this C ABI.
-        internal const uint RequiredAbiVersion = 7;
+        // ABI v8 adds versioned, capability-level runtime identity. Codec and
+        // platform implementation types remain entirely Native-private.
+        internal const uint RequiredAbiVersion = 8;
 
         [LibraryImport(LibraryName, EntryPoint = "lpb_get_abi_version")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
@@ -80,6 +94,14 @@ namespace LivePhotoBox.Interop
         internal static partial NativeResult GetRuntimeInfo(
             nint context,
             ref NativeRuntimeInfoData info);
+
+        [LibraryImport(LibraryName, EntryPoint = "lpb_get_runtime_capability_identity")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+        internal static partial NativeResult GetRuntimeCapabilityIdentity(
+            nint context,
+            int operation,
+            ref NativeRuntimeCapabilityIdentityData identity);
 
         [LibraryImport(LibraryName, EntryPoint = "lpb_get_last_error")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]

@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define LPB_NATIVE_ABI_VERSION 7u
+#define LPB_NATIVE_ABI_VERSION 8u
 
 typedef struct lpb_context lpb_context;
 typedef struct lpb_extraction_plan lpb_extraction_plan;
@@ -103,6 +103,56 @@ typedef struct lpb_runtime_info
     uint64_t capabilities;
 } lpb_runtime_info;
 
+/* Runtime identity is intentionally narrower than P5's ExecutionRecord. It
+ * reports only the runtime capability owner and the factual selected path;
+ * transform, preservation and quality outcomes remain P5 responsibilities. */
+typedef enum lpb_runtime_operation_class
+{
+    LPB_RUNTIME_OPERATION_UNKNOWN = 0,
+    LPB_RUNTIME_OPERATION_JPEG_CODEC = 1,
+    LPB_RUNTIME_OPERATION_HEIC_CODEC = 2,
+    LPB_RUNTIME_OPERATION_VIDEO_REMUX = 3,
+    LPB_RUNTIME_OPERATION_VIDEO_TRANSCODE_SDR_H264 = 4,
+    LPB_RUNTIME_OPERATION_VIDEO_TRANSCODE_SDR_HEVC = 5,
+    LPB_RUNTIME_OPERATION_VIDEO_TRANSCODE_HDR_10BIT = 6
+} lpb_runtime_operation_class;
+
+typedef enum lpb_runtime_backend_kind
+{
+    LPB_RUNTIME_BACKEND_UNKNOWN = 0,
+    LPB_RUNTIME_BACKEND_LIBJPEG_TURBO = 1,
+    LPB_RUNTIME_BACKEND_LIBHEIF = 2,
+    LPB_RUNTIME_BACKEND_PROJECT_ISOBMFF = 3,
+    LPB_RUNTIME_BACKEND_WINDOWS_MEDIA_FOUNDATION = 4,
+    /* Reserved for the frozen P5 dependency decision.  It is never reported
+     * as available until it is linked and packaged by the production runtime. */
+    LPB_RUNTIME_BACKEND_MINIMAL_LIBAV = 5
+} lpb_runtime_backend_kind;
+
+typedef enum lpb_runtime_codec_kind
+{
+    LPB_RUNTIME_CODEC_UNKNOWN = 0,
+    LPB_RUNTIME_CODEC_JPEG = 1,
+    LPB_RUNTIME_CODEC_HEIC_HEVC = 2,
+    LPB_RUNTIME_CODEC_H264 = 3,
+    LPB_RUNTIME_CODEC_HEVC = 4
+} lpb_runtime_codec_kind;
+
+typedef struct lpb_runtime_capability_identity
+{
+    uint32_t struct_size;
+    lpb_runtime_operation_class operation;
+    lpb_runtime_backend_kind backend;
+    lpb_runtime_codec_kind codec;
+    int32_t is_available;
+    /* Numeric values intentionally match lpb_video_hardware_mode, which is
+     * declared with the video operation ABI below. */
+    int32_t hardware_mode;
+    int32_t fallback_occurred;
+    char backend_version[96];
+    char fallback_reason[128];
+} lpb_runtime_capability_identity;
+
 enum lpb_capability
 {
     LPB_CAPABILITY_FOUNDATION = 1ull << 0,
@@ -145,6 +195,13 @@ LPB_API void LPB_CALL lpb_destroy_context(lpb_context* context);
 LPB_API lpb_result LPB_CALL lpb_get_runtime_info(
     lpb_context* context,
     lpb_runtime_info* info);
+
+/* Queries a currently packaged runtime capability.  No operation is run and
+ * unavailable means exactly that: callers must not infer a retry path. */
+LPB_API lpb_result LPB_CALL lpb_get_runtime_capability_identity(
+    lpb_context* context,
+    lpb_runtime_operation_class operation,
+    lpb_runtime_capability_identity* identity);
 
 LPB_API lpb_result LPB_CALL lpb_context_check_cancelled(lpb_context* context);
 
