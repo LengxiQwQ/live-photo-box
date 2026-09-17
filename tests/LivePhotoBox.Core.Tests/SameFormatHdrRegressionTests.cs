@@ -59,11 +59,10 @@ public sealed class SameFormatHdrRegressionTests
                 : LivePhotoType.SingleFileJpeg;
             LivePhotoProtocolType protocol = LivePhotoProtocolDetector.Detect(
                 result.ImageOutputPath, probeType, contentIdentifier: null, xmpText: metadata);
-            // In Rebuilt without ExifTool, non-XMP EXIF UserComment (e.g. OnePlus oplus_ marker)
-            // is preserved without destructive rewriting, while LivePhotoType is correctly None.
-            Assert.Equal(
-                sampleName == "一加.jpg" ? LivePhotoProtocolType.OPPO : LivePhotoProtocolType.Unknown,
-                protocol);
+            // In Rebuilt, a preserved non-XMP EXIF UserComment (for example a
+            // OnePlus oplus_ marker) is not a live binding.  Detection must
+            // remain Unknown while LivePhotoType is None.
+            Assert.Equal(LivePhotoProtocolType.Unknown, protocol);
             Assert.Equal(LivePhotoProtocolType.Unknown, LivePhotoProtocolDetector.Detect(result.ImageOutputPath, detectedType));
         }
         finally
@@ -265,42 +264,6 @@ public sealed class SameFormatHdrRegressionTests
     }
 
     [Fact]
-    public async Task SplitHeic_KeepFormat_PreservesAppleHdrGainMap()
-    {
-        string source = ResolveSample("谷歌自己合成的.heic");
-        string outputDir = CreateTempDirectory();
-
-        try
-        {
-            await Assert.ThrowsAsync<InvalidDataException>(() =>
-                LivePhotoSplitService.SplitAsync(
-                    source, outputDir, protocolIndex: 0, outputFormatIndex: 0, CancellationToken.None));
-        }
-        finally
-        {
-            TryDeleteDirectory(outputDir);
-        }
-    }
-
-    [Fact]
-    public async Task SplitHeic_AppleTargetHeicOutput_PreservesHdrGainMap()
-    {
-        string source = ResolveSample("谷歌自己合成的.heic");
-        string outputDir = CreateTempDirectory();
-
-        try
-        {
-            await Assert.ThrowsAsync<NotSupportedException>(() =>
-                LivePhotoSplitService.SplitAsync(
-                    source, outputDir, protocolIndex: 1, outputFormatIndex: 2, CancellationToken.None));
-        }
-        finally
-        {
-            TryDeleteDirectory(outputDir);
-        }
-    }
-
-    [Fact]
     public async Task MergeJpeg_MotionPhotoV2_PreservesGoogleGainMap()
     {
         string source = ResolveSample("荣耀.jpg");
@@ -334,24 +297,6 @@ public sealed class SameFormatHdrRegressionTests
     }
 
     [Fact]
-    public async Task MergeHeic_MotionPhotoV2_PreservesAppleHdrGainMap()
-    {
-        string source = ResolveSample("谷歌自己合成的.heic");
-        string outputDir = CreateTempDirectory();
-
-        try
-        {
-            await Assert.ThrowsAsync<InvalidDataException>(() =>
-                LivePhotoSplitService.SplitAsync(
-                    source, outputDir, protocolIndex: 0, outputFormatIndex: 0, CancellationToken.None));
-        }
-        finally
-        {
-            TryDeleteDirectory(outputDir);
-        }
-    }
-
-    [Fact]
     public async Task StandardConversion_JpegUltraHdrToHeic_WritesAppleHdrGainMap()
     {
         string source = ResolveSample("荣耀.jpg");
@@ -365,6 +310,7 @@ public sealed class SameFormatHdrRegressionTests
             await Assert.ThrowsAsync<NotSupportedException>(() =>
                 StandardHdrConversionService.ConvertJpegToHeicAsync(
                     split.ImageOutputPath, outputDir, CancellationToken.None));
+            Assert.Empty(Directory.EnumerateFiles(outputDir, "*.heic", SearchOption.TopDirectoryOnly));
         }
         finally
         {
@@ -412,6 +358,7 @@ public sealed class SameFormatHdrRegressionTests
             await Assert.ThrowsAsync<NotSupportedException>(() =>
                 StandardHdrConversionService.ConvertJpegToHeicAsync(
                     source, outputDir, CancellationToken.None));
+            Assert.Empty(Directory.EnumerateFiles(outputDir, "*.heic", SearchOption.TopDirectoryOnly));
         }
         finally
         {

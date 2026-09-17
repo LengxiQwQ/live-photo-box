@@ -164,13 +164,7 @@ public sealed class VivoDualFileCoverMetadataTests
         return directory;
     }
 
-    private static string ResolveSample(params string[] pathParts)
-    {
-        string path = Path.Combine([AppContext.BaseDirectory, "samples", .. pathParts]);
-        if (!File.Exists(path))
-            throw new FileNotFoundException($"Sample not found: {path}");
-        return path;
-    }
+    private static string ResolveSample(string filename) => TestSampleResolver.ResolveSample(filename);
 
     private static byte[] ReadVivoTail(byte[] image)
     {

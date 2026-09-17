@@ -48,58 +48,18 @@ public static class StandardHdrConversionService
         return facts.GainMap is { IsPresent: true };
     }
 
-    public static async Task<string> ConvertJpegToHeicAsync(
+    public static Task<string> ConvertJpegToHeicAsync(
         string sourcePath, string outputDirectory, CancellationToken token = default)
     {
-        Directory.CreateDirectory(outputDirectory);
+        token.ThrowIfCancellationRequested();
 
-        string isoGainMapPath = TempFileService.AllocateTempPath(outputDirectory, "uhdr_gainmap", "jpg");
-        string appleGainMapPath = TempFileService.AllocateTempPath(outputDirectory, "apple_gainmap", "jpg");
-        string heicPath = TempFileService.AllocateTempPath(outputDirectory, "uhdr", "heic");
-
-        try
-        {
-            if (!await TryExtractJpegGainMapAsync(sourcePath, isoGainMapPath, token))
-            {
-                throw new InvalidDataException("Source JPEG does not contain a standard Ultra HDR gain map.");
-            }
-
-            // 元数据优先从源文件主 XMP 读（hdrgm 命名空间属主容器所有），
-            // 增益图 JPEG 自带的 XMP 作回退；两者都没有时 ReadIsoGainMapMetadata
-            // 内部使用默认值。
-            IsoGainMapMetadata iso = TryReadIsoGainMapMetadataFromXmp(sourcePath, out IsoGainMapMetadata parsed)
-                ? parsed
-                : ReadIsoGainMapMetadata(isoGainMapPath, token);
-            double headroom = Math.Pow(2.0, iso.HDRCapacityMax);
-            WarnIfHeadroomUnrepresentable(headroom);
-
-            (byte[] appleGain, uint width, uint height) = ComputeAppleGainMap(
-                isoGainMapPath, iso, headroom);
-            WriteGrayJpeg(appleGain, width, height, appleGainMapPath);
-
-            await RunHeifEncTwoImagesAsync(sourcePath, appleGainMapPath, heicPath, token);
-            if (!HeifAuxImageWriter.TryAddHdrGainMapAux(heicPath, out string? patchError))
-            {
-                throw new InvalidOperationException($"Failed to add Apple hdrgainmap auxiliary image: {patchError}");
-            }
-
-            await InjectAppleHdrGainMapXmpAsync(heicPath, token);
-            InjectAppleHdrMakerNote(heicPath, headroom);
-
-            return heicPath;
-        }
-        catch
-        {
-            TryDelete(isoGainMapPath);
-            TryDelete(appleGainMapPath);
-            TryDelete(heicPath);
-            throw;
-        }
-        finally
-        {
-            TryDelete(isoGainMapPath);
-            TryDelete(appleGainMapPath);
-        }
+        // P4 owns observation and safe preservation of existing HDR
+        // structure.  JPEG Ultra HDR -> Apple HEIC HDRGainMap needs a
+        // project-owned HEIF item graph (including auxC/auxl) and formal
+        // cross-format gain-map semantics, which belongs to P5.  Do not stage
+        // pixels or publish a partial HEIC before that capability exists.
+        return Task.FromException<string>(new NotSupportedException(
+            "JPEG Ultra HDR to Apple HEIC HDRGainMap conversion is unavailable in the Rebuilt P4 foundation; P5 semantic conversion is not implemented."));
     }
 
     public static async Task<string> ConvertHeicToJpegAsync(

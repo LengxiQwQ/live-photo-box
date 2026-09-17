@@ -8,9 +8,9 @@ namespace LivePhotoBox.Services.Protocols;
 /*
  * HeifAuxImageWriter.cs
  *
- * 把 heif-enc 生成的“多张顶层图像 HEIC”原地改造成含 Apple hdrgainmap 辅助图的 HEIC。
+ * 把历史多图 HEIC staging 输出原地改造成含 Apple hdrgainmap 辅助图的 HEIC。
  *
- *   - heif-enc 已生成多个 hvc1 图像 item 及 iloc/iinf/iprp/ipco/ipma/iref
+ *   - 该历史原型要求已有 iloc/iinf/iprp/ipco/ipma/iref；P4 不调用它做跨格式转换
  *   - 本类只追加 auxC 属性、ipma 关联和 auxl 引用，并同步修正 iloc 的绝对偏移
  */
 internal static class HeifAuxImageWriter
@@ -224,7 +224,9 @@ internal static class HeifAuxImageWriter
 
         if (ilocStart < 0 || iinfBodyStart < 0 || pitmBodyStart < 0 || iprpStart < 0 || irefStart < 0)
         {
-            error = "Required HEIF boxes are missing.";
+            error = irefStart < 0
+                ? "HEIF staging file is missing meta/iref, required to declare the auxl relationship."
+                : "HEIF staging file is missing one or more required meta children (iloc, iinf, pitm, or iprp).";
             return false;
         }
 

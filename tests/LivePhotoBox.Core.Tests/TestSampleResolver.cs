@@ -19,13 +19,9 @@ public static class TestSampleResolver
         string dir = AppContext.BaseDirectory;
         while (!string.IsNullOrEmpty(dir))
         {
-            // Primary local development folder
-            string candidate1 = Path.Combine(dir, "designs", "各个机型测试", filename);
-            if (File.Exists(candidate1)) return candidate1;
-
             // Reproducible fixture location (clean checkout / CI)
-            string candidate2 = Path.Combine(dir, "tests", "fixtures", "realsamples", filename);
-            if (File.Exists(candidate2)) return candidate2;
+            string candidate = Path.Combine(dir, "tests", "fixtures", "realsamples", filename);
+            if (File.Exists(candidate)) return candidate;
 
             // samples folder
             string candidate3 = Path.Combine(dir, "samples", filename);
@@ -37,7 +33,28 @@ public static class TestSampleResolver
         }
 
         throw new FileNotFoundException(
-            $"Real sample fixture '{filename}' not found. Searched designs/各个机型测试, tests/fixtures/realsamples, and LIVEPHOTOBOX_TEST_SAMPLES_DIR.",
+            $"Real sample fixture '{filename}' not found. Searched tests/fixtures/realsamples and LIVEPHOTOBOX_TEST_SAMPLES_DIR.",
+            filename);
+    }
+
+    public static string ResolveSyntheticFixture(string filename)
+    {
+        string dir = AppContext.BaseDirectory;
+        while (!string.IsNullOrEmpty(dir))
+        {
+            string fixtureCandidate = Path.Combine(dir, "tests", "fixtures", "synthetic", filename);
+            if (File.Exists(fixtureCandidate)) return fixtureCandidate;
+
+            string outputCandidate = Path.Combine(dir, "synthetic", filename);
+            if (File.Exists(outputCandidate)) return outputCandidate;
+
+            string? parent = Directory.GetParent(dir)?.FullName;
+            if (parent == null || parent == dir) break;
+            dir = parent;
+        }
+
+        throw new FileNotFoundException(
+            $"Synthetic fixture '{filename}' not found. Searched tests/fixtures/synthetic and test output.",
             filename);
     }
 }

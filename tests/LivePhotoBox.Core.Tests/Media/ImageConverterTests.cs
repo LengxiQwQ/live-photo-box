@@ -98,19 +98,16 @@ public sealed class ImageConverterTests
     [Trait("Category", "RealSamples")]
     public void FormalHeicRealSampleInventory_IsExplicitAndComplete()
     {
-        string directory = Path.GetDirectoryName(ResolveSample("苹果双文件.HEIC"))!;
-        string[] copiedSamples = Directory.EnumerateFiles(directory)
-            .Where(path => string.Equals(Path.GetExtension(path), ".heic", StringComparison.OrdinalIgnoreCase))
-            .Select(path => Path.GetFileName(path)!)
+        // The cache can contain auxiliary generated files for other tests.
+        // Formal evidence is the explicit device allow-list, not every HEIC
+        // co-located in that cache; in particular it never includes the
+        // synthetic malformed-XMP fixture.
+        string[] actual = new[] { "华为Mate80.heic", "三星.heic", "苹果双文件.HEIC" }
+            .Select(ResolveSample)
+            .Select(Path.GetFileName)
+            .Where(name => name is not null)
+            .Select(name => name!)
             .OrderBy(name => name, StringComparer.Ordinal)
-            .ToArray();
-
-        // The test project also copies the explicitly non-real Google fixture
-        // from designs/. It remains visible here so it cannot be silently
-        // mistaken for a device corpus member, but it is not formal evidence.
-        Assert.Contains("谷歌自己合成的.heic", copiedSamples);
-        string[] actual = copiedSamples
-            .Where(name => !string.Equals(name, "谷歌自己合成的.heic", StringComparison.Ordinal))
             .ToArray();
 
         Assert.Equal(

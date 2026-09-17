@@ -4493,10 +4493,14 @@ lpb_result inspect_source(
                         out_facts->gain_map.container = LPB_IMAGE_CONTAINER_JPEG;
                         out_facts->gain_map.file_range.offset = gainmap_offset;
                         out_facts->gain_map.file_range.length = gainmap_item->length;
-                        if (gainmap_offset > jpeg_end) {
-                            out_facts->protocol_tail_range.offset = jpeg_end;
-                            out_facts->protocol_tail_range.length = gainmap_offset - jpeg_end;
-                        }
+                        // A bounded non-motion SEF carrier between the primary
+                        // JPEG and the GainMap is preservation metadata, not a
+                        // live-photo protocol tail.  The range was validated
+                        // above by is_valid_non_motion_sef_range; publishing
+                        // it as protocol_tail_range would make a neutral
+                        // Samsung image fail the post-clean live binding gate.
+                        out_facts->protocol_tail_range.offset = 0;
+                        out_facts->protocol_tail_range.length = 0;
                         if (!publish_gainmap_auxiliary(out_facts, primary_data, LPB_IMAGE_CONTAINER_JPEG,
                                 out_facts->gain_map.file_range)) {
                             set_error(context, "Neutral GainMap could not be bound to an auxiliary identity.");
