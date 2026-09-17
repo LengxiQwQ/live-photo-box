@@ -3,8 +3,12 @@
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <cwchar>
 #include <memory>
 #include <string>
+#include <vector>
+
+#include <windows.h>
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -51,6 +55,25 @@ void close_format_context(AVFormatContext* context) noexcept {
     avformat_close_input(&context);
 }
 
+std::string utf8_from_windows_wide(const wchar_t* value) {
+    if (value == nullptr) return {};
+    const int source_length = static_cast<int>(std::wcslen(value));
+    if (source_length == 0) return {};
+    const int output_length = WideCharToMultiByte(
+        CP_UTF8, WC_ERR_INVALID_CHARS, value, source_length, nullptr, 0, nullptr, nullptr);
+    if (output_length <= 0) {
+        std::fprintf(stderr, "UTF-16 to UTF-8 command-line conversion failed (Win32 error %lu).\n", GetLastError());
+        return {};
+    }
+    std::string output(static_cast<size_t>(output_length), '\0');
+    if (WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value, source_length,
+        output.data(), output_length, nullptr, nullptr) != output_length) {
+        std::fprintf(stderr, "UTF-16 to UTF-8 command-line conversion was incomplete (Win32 error %lu).\n", GetLastError());
+        return {};
+    }
+    return output;
+}
+
 void json_string(const char* value) {
     std::putchar('"');
     for (const char* p = safe_name(value); *p != '\0'; ++p) {
@@ -75,7 +98,7 @@ int report(const char* path) {
         return 3;
     }
 
-    std::printf("{\"candidate\":\"minimal-libav-libraries\",\"libraries\":{");
+    std::printf("{\"candidate\":\"research-libav-libraries\",\"libraries\":{");
     std::printf("\"avformat\":%u,\"avcodec\":%u,\"avutil\":%u", avformat_version(), avcodec_version(), avutil_version());
     std::printf("},\"format\":");
     json_string(format->iformat != nullptr ? format->iformat->name : "unknown");
@@ -411,9 +434,19 @@ fail:
 
 } // namespace
 
-int main(int argc, char** argv) {
-    if (argc == 3 && std::strcmp(argv[1], "probe") == 0) return report(argv[2]);
-    if (argc == 5 && std::strcmp(argv[1], "transcode") == 0) return transcode(argv[2], argv[3], argv[4]);
+int wmain(int argc, wchar_t** argv) {
+    std::vector<std::string> utf8_arguments;
+    utf8_arguments.reserve(static_cast<size_t>(argc));
+    for (int index = 0; index < argc; ++index) {
+        std::string value = utf8_from_windows_wide(argv[index]);
+        if (argv[index] != nullptr && *argv[index] != L'\0' && value.empty()) return 64;
+        utf8_arguments.push_back(std::move(value));
+    }
+
+    if (argc == 3 && utf8_arguments[1] == "probe") return report(utf8_arguments[2].c_str());
+    if (argc == 5 && utf8_arguments[1] == "transcode") {
+        return transcode(utf8_arguments[2].c_str(), utf8_arguments[3].c_str(), utf8_arguments[4].c_str());
+    }
     {
         std::fputs("usage: lpb_r6_libav_probe probe <standalone-video>\n"
                    "       lpb_r6_libav_probe transcode <input> <output.mov|output.mp4> <h264|hevc>\n", stderr);

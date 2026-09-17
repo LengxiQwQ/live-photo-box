@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    { "id": "apple-hevc-to-h264", "input": "dual/苹果-双文件_jpg/苹果-双文件_video.mov", "targetContainer": "mov", "targetCodec": "h264", "semanticFocus": "Apple MOV, HEVC, PCM audio, auxiliary/data tracks" },
+    { "id": "vivo-h264-to-hevc", "input": "dual/vivo双文件_jpg/vivo双文件_video.mp4", "targetContainer": "mp4", "targetCodec": "hevc", "semanticFocus": "vivo H.264, HE-AAC audio, VFR timing" },
+    { "id": "huawei-main10-hlg-to-h264", "input": "single/华为-Mate80_jpg/华为-Mate80_video.mp4", "targetContainer": "mp4", "targetCodec": "h264", "semanticFocus": "Huawei Main10, BT.2020/HLG, rotation, AAC" },
+    { "id": "samsung-hevc-to-h264", "input": "single/三星_jpg/三星_video.mp4", "targetContainer": "mp4", "targetCodec": "h264", "semanticFocus": "Samsung HEVC, rotation, stereo AAC" }
+  ]
+}

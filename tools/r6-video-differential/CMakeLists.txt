@@ -20,7 +20,23 @@ find_package(FFMPEG REQUIRED)
 add_executable(lpb_r6_libav_probe libav_probe.cpp)
 target_include_directories(lpb_r6_libav_probe PRIVATE ${FFMPEG_INCLUDE_DIRS})
 target_link_directories(lpb_r6_libav_probe PRIVATE ${FFMPEG_LIBRARY_DIRS})
-target_link_libraries(lpb_r6_libav_probe PRIVATE ${FFMPEG_LIBRARIES})
+# FFmpeg's CMake helper can list swresample whenever an older installed port
+# exposed it.  This candidate packet-copies audio, so reject that unused
+# archive at the final link boundary as well as in the research manifest.
+set(LPB_R6_LINK_LIBRARIES)
+set(_lpb_r6_remaining_libraries ${FFMPEG_LIBRARIES})
+while(_lpb_r6_remaining_libraries)
+  list(POP_FRONT _lpb_r6_remaining_libraries _lpb_r6_item)
+  if(_lpb_r6_item MATCHES "^(optimized|debug|general)$")
+    list(POP_FRONT _lpb_r6_remaining_libraries _lpb_r6_library)
+    if(NOT _lpb_r6_library MATCHES "[/\\\\]swresample\\.lib$")
+      list(APPEND LPB_R6_LINK_LIBRARIES ${_lpb_r6_item} ${_lpb_r6_library})
+    endif()
+  else()
+    list(APPEND LPB_R6_LINK_LIBRARIES ${_lpb_r6_item})
+  endif()
+endwhile()
+target_link_libraries(lpb_r6_libav_probe PRIVATE ${LPB_R6_LINK_LIBRARIES})
 # Keep warnings-as-errors for the candidate.  FFmpeg's public headers are an
 # external dependency and MSVC emits conversion warnings inside them under W4.
 target_compile_options(lpb_r6_libav_probe PRIVATE /W4 /WX /permissive- /utf-8 /external:anglebrackets /external:W0)

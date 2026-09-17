@@ -9,7 +9,6 @@
       "features": [
         "avcodec",
         "avformat",
-        "swresample",
         "swscale",
         "gpl",
         "x264",
