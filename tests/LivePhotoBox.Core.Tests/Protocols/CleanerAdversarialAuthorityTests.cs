@@ -372,6 +372,36 @@ public sealed class CleanerAdversarialAuthorityTests
     }
 
     [Fact]
+    public void Adversarial_ProductionNativeAppleHeicInjection_WithoutCleanupAuthority_FailsClosed()
+    {
+        // The raw HEIC MakerNote writer is a production destructive primitive.
+        // TestHarness exercises the same source with test-only semantics, but a
+        // direct production-DLL call must always require cleanup-plan authority.
+        byte[] heic = File.ReadAllBytes(ResolveSample("苹果双文件.HEIC"));
+        byte[] makerNote = System.Text.Encoding.ASCII.GetBytes("Apple iOS\0");
+        byte[] output = new byte[heic.Length + makerNote.Length + 1024];
+        using var context = NativeContext.Create();
+
+        unsafe
+        {
+            fixed (byte* pHeic = heic)
+            fixed (byte* pMakerNote = makerNote)
+            fixed (byte* pOutput = output)
+            {
+                NativeResult result = LpbAppleInjectMakerNoteHeic(
+                    context.Handle, pHeic, (nuint)heic.Length,
+                    pMakerNote, (nuint)makerNote.Length,
+                    pOutput, (nuint)output.Length, out _);
+                Assert.Equal(NativeResult.AuthorityViolation, result);
+            }
+        }
+
+        string? error = context.GetLastError();
+        Assert.NotNull(error);
+        Assert.Contains("authority", error, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task Adversarial_ProductionNativeSefTrailer_WithoutCleanupAuthority_FailsClosed()
     {
         // The production DLL also gates SEF trailer construction (a live-photo
@@ -439,6 +469,11 @@ public sealed class CleanerAdversarialAuthorityTests
 
     [DllImport("LivePhotoBox.Native", CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_apple_strip_live_photo_entries")]
     private static unsafe extern NativeResult LpbAppleStripLivePhotoEntries(nint context, byte* data, nuint dataSize);
+
+    [DllImport("LivePhotoBox.Native", CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_apple_inject_makernote_heic")]
+    private static unsafe extern NativeResult LpbAppleInjectMakerNoteHeic(
+        nint context, byte* input, nuint inputSize, byte* makerNote, nuint makerNoteSize,
+        byte* output, nuint outputSize, out nuint outWritten);
 
     [DllImport("LivePhotoBox.Native", CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_samsung_sef_build_trailer")]
     private static unsafe extern NativeResult LpbSamsungSefBuildTrailer(

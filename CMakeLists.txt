@@ -70,15 +70,28 @@ source_group("Windows platform" FILES ${LPB_WINDOWS_PLATFORM_SOURCES})
 source_group("Media backend" FILES ${LPB_MEDIA_SOURCES})
 
 # This is deliberately a real target, rather than an IDE-only source group.
-# It compiles the exact production structural sources without a Windows media
-# or platform dependency.  The production DLL links this target too, so a
-# portable build cannot silently prove a copied or divergent implementation.
-add_library(livephotobox_portable_core STATIC ${LPB_PORTABLE_SOURCES})
-target_include_directories(livephotobox_portable_core PRIVATE
-  "${CMAKE_SOURCE_DIR}/LivePhotoBox.Native/include"
-  "${CMAKE_SOURCE_DIR}/LivePhotoBox.Native/src")
-target_compile_definitions(livephotobox_portable_core PRIVATE LPB_NATIVE_BUILD)
-target_compile_options(livephotobox_portable_core PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+# Both variants compile the exact same structural sources without a Windows
+# media or platform dependency.  The test-only variant exists because the
+# harness needs its test-only authority semantics while exercising those same
+# sources; the production DLL always links the production variant.
+function(lpb_portable_core_target target_name harness)
+  add_library(${target_name} STATIC ${LPB_PORTABLE_SOURCES})
+  target_include_directories(${target_name} PRIVATE
+    "${CMAKE_SOURCE_DIR}/LivePhotoBox.Native/include"
+    "${CMAKE_SOURCE_DIR}/LivePhotoBox.Native/src")
+  target_compile_definitions(${target_name} PRIVATE LPB_NATIVE_BUILD)
+  if(harness)
+    target_compile_definitions(${target_name} PRIVATE LPB_NATIVE_TEST_HARNESS)
+  endif()
+  target_compile_options(${target_name} PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+endfunction()
+
+lpb_portable_core_target(livephotobox_portable_core FALSE)
+
+option(LPB_BUILD_TEST_HARNESS "Build a separate test-only ABI DLL" OFF)
+if(LPB_BUILD_TEST_HARNESS)
+  lpb_portable_core_target(livephotobox_portable_core_test TRUE)
+endif()
 
 function(lpb_native_target target_name output_name harness)
   add_library(${target_name} SHARED
@@ -97,14 +110,16 @@ function(lpb_native_target target_name output_name harness)
     set_property(TARGET ${target_name} PROPERTY MSVC_DEBUG_INFORMATION_FORMAT
       "$<$<CONFIG:Debug>:Embedded>")
     set(artifact_subdir "TestHarness/$<CONFIG>/win-x64")
+    set(portable_core_target livephotobox_portable_core_test)
   else()
     set(artifact_subdir "$<CONFIG>/win-x64")
+    set(portable_core_target livephotobox_portable_core)
   endif()
   target_compile_options(${target_name} PRIVATE /W4 /WX /sdl /permissive- /utf-8 /EHsc /guard:cf
     $<$<CONFIG:Release>:/O2> $<$<CONFIG:Release>:/Oi> $<$<CONFIG:Release>:/Gy> $<$<CONFIG:Release>:/GL>)
   target_link_options(${target_name} PRIVATE /guard:cf /DEBUG
     $<$<CONFIG:Release>:/OPT:REF> $<$<CONFIG:Release>:/OPT:ICF> $<$<CONFIG:Release>:/LTCG>)
-  target_link_libraries(${target_name} PRIVATE livephotobox_portable_core JPEG::JPEG heif
+  target_link_libraries(${target_name} PRIVATE ${portable_core_target} JPEG::JPEG heif
     $<IF:$<TARGET_EXISTS:libjpeg-turbo::turbojpeg>,libjpeg-turbo::turbojpeg,libjpeg-turbo::turbojpeg-static>
     bcrypt ole32
     mfplat mfreadwrite mfuuid)
@@ -116,7 +131,6 @@ function(lpb_native_target target_name output_name harness)
 endfunction()
 
 lpb_native_target(LivePhotoBoxNative "LivePhotoBox.Native" FALSE)
-option(LPB_BUILD_TEST_HARNESS "Build a separate test-only ABI DLL" OFF)
 if(LPB_BUILD_TEST_HARNESS)
   lpb_native_target(LivePhotoBoxNativeTestHarness "LivePhotoBox.Native.TestHarness" TRUE)
 endif()

@@ -53,6 +53,7 @@ public sealed class ImageConverterTests
     public async Task AppleMakerNoteInjection_CreatesOrUpdatesHeifExifItem()
     {
         string sample = ResolveSample("oppo.jpg");
+        string sourceHashBefore = Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(sample)));
         using var workspace = new MediaWorkspace();
         var result = await new ImageConverter().ConvertAsync(new ImageConversionRequest
         {
@@ -85,6 +86,10 @@ public sealed class ImageConverterTests
         Assert.True(exifLength > 0);
         Assert.Contains("Apple iOS", System.Text.Encoding.ASCII.GetString(rewritten!), StringComparison.Ordinal);
         Assert.Contains(contentId, System.Text.Encoding.ASCII.GetString(rewritten!), StringComparison.Ordinal);
+        string rewrittenPath = Path.Combine(workspace.RootDirectory, "apple-makernote.heic");
+        await File.WriteAllBytesAsync(rewrittenPath, rewritten!);
+        await AssertReadableByExifToolAsync(rewrittenPath);
+        Assert.Equal(sourceHashBefore, Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(sample))));
     }
 
     private static string ResolveSample(string fileName) => TestSampleResolver.ResolveSample(fileName);
