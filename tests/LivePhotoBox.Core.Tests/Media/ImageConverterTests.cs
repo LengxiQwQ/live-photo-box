@@ -102,7 +102,8 @@ public sealed class ImageConverterTests
         // Formal evidence is the explicit device allow-list, not every HEIC
         // co-located in that cache; in particular it never includes the
         // synthetic malformed-XMP fixture.
-        string[] actual = new[] { "华为Mate80.heic", "三星.heic", "苹果双文件.HEIC" }
+        string[] actual = RealSampleCorpusManifest.R5HeicExpectations
+            .Select(expectation => expectation.Filename)
             .Select(ResolveSample)
             .Select(Path.GetFileName)
             .Where(name => name is not null)
@@ -111,7 +112,9 @@ public sealed class ImageConverterTests
             .ToArray();
 
         Assert.Equal(
-            new[] { "华为Mate80.heic", "三星.heic", "苹果双文件.HEIC" }.OrderBy(name => name, StringComparer.Ordinal),
+            RealSampleCorpusManifest.R5HeicExpectations
+                .Select(expectation => expectation.Filename)
+                .OrderBy(name => name, StringComparer.Ordinal),
             actual);
     }
 
@@ -279,37 +282,38 @@ public sealed class ImageConverterTests
 
     [Theory]
     [Trait("Category", "RealSamples")]
-    [InlineData("苹果双文件.HEIC", 4032, 3024, 8, 8, "868F29D1408D090193D04EBE5C71FEA139705381B9C1B8673C40C62E1A456998")]
-    [InlineData("华为Mate80.heic", 3072, 4096, 8, 8, "904E94CD37CC0336060409C07025C1341A5621EDA3AB53AE2840EE6613F5834A")]
+    [InlineData("苹果双文件.HEIC")]
+    [InlineData("华为Mate80.heic")]
     // The Samsung source advertises a rotated stored grid. The libheif decode
     // contract reports the orientation-applied visual dimensions.
-    [InlineData("三星.heic", 3000, 4000, 8, 8, "DBFB8AD846A16291B0B09599FCF588A3E6C20D58B96782E357D5652E3EC544C4")]
-    public async Task NativeHeicBackend_DecodesRealPrimaryPixelsWithoutMutatingSource(
-        string sampleName, uint expectedWidth, uint expectedHeight, uint expectedSourceBitDepth, uint expectedStorageBitDepth,
-        string expectedSha256)
+    [InlineData("三星.heic")]
+    public async Task NativeHeicBackend_DecodesRealPrimaryPixelsWithoutMutatingSource(string sampleName)
     {
         string source = ResolveSample(sampleName);
+        R5HeicExpectation expectation = RealSampleCorpusManifest.GetR5HeicExpectation(sampleName);
+        CorpusSample sample = RealSampleCorpusManifest.GetRequiredSample(sampleName);
         string before = Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source)));
         NativeHeicPrimaryDecodeInfo info = await NativeMediaService.DecodeHeicPrimaryAsync(source);
 
         Assert.NotEqual(0u, info.PrimaryItemId);
-        Assert.Equal(expectedWidth, info.Width);
-        Assert.Equal(expectedHeight, info.Height);
-        Assert.Equal(expectedSourceBitDepth, info.SourceBitDepth);
+        Assert.Equal(expectation.VisualDimensions[0], info.Width);
+        Assert.Equal(expectation.VisualDimensions[1], info.Height);
+        Assert.Equal(expectation.PrimaryBitDepth, info.SourceBitDepth);
         Assert.True(info.DecodedSignalBitDepth >= info.SourceBitDepth);
-        Assert.Equal(expectedStorageBitDepth, info.DecodedStorageBitDepth);
-        Assert.Equal(expectedSha256, before);
+        Assert.Equal(expectation.PrimaryBitDepth, info.DecodedStorageBitDepth);
+        Assert.Equal(sample.Sha256, before);
         Assert.Equal(before, Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source))));
     }
 
     [Theory]
     [Trait("Category", "RealSamples")]
-    [InlineData("苹果双文件.HEIC", 63u, 2016u, 1512u, 8u)]
-    [InlineData("三星.heic", 55u, 750u, 1000u, 8u)]
-    public async Task NativeHeicBackend_DecodesRealAuxiliaryThroughStructuralItemIdentity(
-        string sampleName, uint expectedItemId, uint expectedWidth, uint expectedHeight, uint expectedBitDepth)
+    [InlineData("苹果双文件.HEIC")]
+    [InlineData("三星.heic")]
+    public async Task NativeHeicBackend_DecodesRealAuxiliaryThroughStructuralItemIdentity(string sampleName)
     {
         string source = ResolveSample(sampleName);
+        R5AuxiliaryExpectation expectation = Assert.IsType<R5AuxiliaryExpectation>(
+            RealSampleCorpusManifest.GetR5HeicExpectation(sampleName).Auxiliary);
         string before = Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source)));
         (NativeResult graphResult, string? graphError, NativeAuxiliaryItemFacts[] auxiliaries) =
             W3NativeHeif.Enumerate(await File.ReadAllBytesAsync(source));
@@ -327,12 +331,13 @@ public sealed class ImageConverterTests
         context.ThrowIfFailed(result);
 
         Assert.Equal(auxiliary.ItemId, decoded.ItemId);
-        Assert.Equal(expectedItemId, decoded.ItemId);
-        Assert.Equal(expectedWidth, decoded.Width);
-        Assert.Equal(expectedHeight, decoded.Height);
-        Assert.Equal(expectedBitDepth, decoded.SourceBitDepth);
-        Assert.Equal(expectedBitDepth, decoded.DecodedSignalBitDepth);
-        Assert.Equal(expectedBitDepth, decoded.DecodedStorageBitDepth);
+        Assert.Equal(expectation.ItemId, decoded.ItemId);
+        Assert.Equal(expectation.ItemId, auxiliary.ItemId);
+        Assert.Equal(expectation.VisualDimensions[0], decoded.Width);
+        Assert.Equal(expectation.VisualDimensions[1], decoded.Height);
+        Assert.Equal(expectation.BitDepth, decoded.SourceBitDepth);
+        Assert.Equal(expectation.BitDepth, decoded.DecodedSignalBitDepth);
+        Assert.Equal(expectation.BitDepth, decoded.DecodedStorageBitDepth);
         Assert.Equal(before, Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(source))));
     }
 

@@ -1,0 +1,212 @@
+{
+  "schemaVersion": 2,
+  "corpus": {
+    "version": "P4-v1",
+    "purpose": "Canonical identity and provenance authority for every required Category=RealSamples fixture. Media is intentionally excluded from source control and must be provisioned before verification.",
+    "acquisition": {
+      "mode": "verifier-supplied-archive",
+      "publiclyDownloadable": false,
+      "reason": "No public redistribution authorization is recorded for the project-owned real-device captures. Do not upload or download them from an unapproved location."
+    },
+    "archive": {
+      "filename": "LivePhotoBox-RealSamples-P4-v1.zip",
+      "byteSize": 113797235,
+      "sha256": "E6AC9A75B34A0EA7CBF0C882596118140A0D040D2AA090875B341981095CE7E6",
+      "layout": "flat-root; exactly the required filenames in samples, with no nested directories or extra entries"
+    }
+  },
+  "samples": [
+    {
+      "filename": "红米老款-GV1.JPG",
+      "sha256": "48C7490F30C25D5F9E7CFC763D766BA3FDEDA8B12AA72A38426167233276C477",
+      "byteSize": 8943926,
+      "vendor": "Xiaomi/Redmi",
+      "sourceCategory": "real device capture",
+      "mediaKind": "JPEG",
+      "protocolRole": "Google MicroVideo V1 single-file source",
+      "required": true,
+      "provenance": { "platform": "Xiaomi/Redmi", "originalFilename": "红米老款-GV1.JPG", "modification": "unknown", "redistribution": "verifier-supplied only; public redistribution authorization is not recorded" }
+    },
+    {
+      "filename": "华为-Mate80.jpg",
+      "sha256": "317526B2B7B6A5774CC41FBB232FB2526901EE358AB4B470ADEEF7AC3617794A",
+      "byteSize": 9316483,
+      "vendor": "Huawei",
+      "sourceCategory": "real device capture",
+      "mediaKind": "JPEG",
+      "protocolRole": "Huawei Moving Photo JPEG source",
+      "required": true,
+      "provenance": { "platform": "Huawei", "originalFilename": "华为-Mate80.jpg", "modification": "unknown", "redistribution": "verifier-supplied only; public redistribution authorization is not recorded" }
+    },
+    {
+      "filename": "华为Mate80.heic",
+      "sha256": "904E94CD37CC0336060409C07025C1341A5621EDA3AB53AE2840EE6613F5834A",
+      "byteSize": 6816675,
+      "vendor": "Huawei",
+      "sourceCategory": "real device capture",
+      "mediaKind": "HEIC",
+      "protocolRole": "Huawei HEIC primary and R5 codec coverage",
+      "required": true,
+      "provenance": { "platform": "Huawei", "originalFilename": "华为Mate80.heic", "modification": "unknown", "redistribution": "verifier-supplied only; public redistribution authorization is not recorded" }
+    },
+    {
+      "filename": "苹果-双文件.JPG",
+      "sha256": "998C82938748DE56C8A226B0B4C8984D2ED0EE04A2AB4EF436267CFB5B59D55F",
+      "byteSize": 2823948,
+      "vendor": "Apple",
+      "sourceCategory": "real device capture",
+      "mediaKind": "JPEG",
+      "protocolRole": "Apple dual-file alternate primary",
+      "required": true,
+      "provenance": { "platform": "Apple", "originalFilename": "苹果-双文件.JPG", "modification": "unknown", "redistribution": "verifier-supplied only; public redistribution authorization is not recorded" }
+    },
+    {
+      "filename": "苹果-双文件.MOV",
+      "sha256": "026ACE53263731C03EC05A14310E42692A99A51B0E62579021FE6F915513C63D",
+      "byteSize": 3911870,
+      "vendor": "Apple",
+      "sourceCategory": "real device capture",
+      "mediaKind": "MOV",
+      "protocolRole": "Apple dual-file alternate motion video",
+      "required": true,
+      "provenance": { "platform": "Apple", "originalFilename": "苹果-双文件.MOV", "modification": "unknown", "redistribution": "verifier-supplied only; public redistribution authorization is not recorded" }
+    },
+    {
+      "filename": "苹果双文件.HEIC",
+      "sha256": "868F29D1408D090193D04EBE5C71FEA139705381B9C1B8673C40C62E1A456998",
+      "byteSize": 2856220,
+      "vendor": "Apple",
+      "sourceCategory": "real device capture",
+      "mediaKind": "HEIC",
+      "protocolRole": "Apple dual-file primary and R5 HDR GainMap coverage",
+      "required": true,
+      "provenance": { "platform": "Apple", "originalFilename": "苹果双文件.HEIC", "modification": "unknown", "redistribution": "verifier-supplied only; public redistribution authorization is not recorded" }
+    },
+    {
+      "filename": "苹果双文件.MOV",
+      "sha256": "D47C0E8FC052393E91A6ECB0AA941AFB20758CD244220943E3C06C52BC2DF381",
+      "byteSize": 2782940,
+      "vendor": "Apple",
+      "sourceCategory": "real device capture",
+      "mediaKind": "MOV",
+      "protocolRole": "Apple dual-file motion video",
+      "required": true,
+      "provenance": { "platform": "Apple", "originalFilename": "苹果双文件.MOV", "modification": "unknown", "redistribution": "verifier-supplied only; public redistribution authorization is not recorded" }
+    },
+    {
+      "filename": "荣耀.jpg",
+      "sha256": "970658F835ADD139247694A67803E21A0CA0421290A3A2D269D52D970CABF759",
+      "byteSize": 10418919,
+      "vendor": "Honor",
+      "sourceCategory": "real device capture",
+      "mediaKind": "JPEG",
+      "protocolRole": "Honor Moving Photo JPEG source",
+      "required": true,
+      "provenance": { "platform": "Honor", "originalFilename": "荣耀.jpg", "modification": "unknown", "redistribution": "verifier-supplied only; public redistribution authorization is not recorded" }
+    },
+    {
+      "filename": "三星.heic",
+      "sha256": "DBFB8AD846A16291B0B09599FCF588A3E6C20D58B96782E357D5652E3EC544C4",
+      "byteSize": 5136712,
+      "vendor": "Samsung",
+      "sourceCategory": "real device capture",
+      "mediaKind": "HEIC",
+      "protocolRole": "Samsung HEIC and R5 HDR GainMap coverage",
+      "required": true,
+      "provenance": { "platform": "Samsung", "originalFilename": "三星.heic", "modification": "unknown", "redistribution": "verifier-supplied only; public redistribution authorization is not recorded" }
+    },
+    {
+      "filename": "三星.jpg",
+      "sha256": "6CAEF9FD8F5AA65CE13BA4282A9BE7773DFBD5BD52ECB568AA3354E71C8C8488",
+      "byteSize": 7749650,
+      "vendor": "Samsung",
+      "sourceCategory": "real device capture",
+      "mediaKind": "JPEG",
+      "protocolRole": "Samsung Motion Photo JPEG/SEF source",
+      "required": true,
+      "provenance": { "platform": "Samsung", "originalFilename": "三星.jpg", "modification": "unknown", "redistribution": "verifier-supplied only; public redistribution authorization is not recorded" }
+    },
+    {
+      "filename": "小米.jpg",
+      "sha256": "71F49FB21B5A7397D8A0FB499F644A1CD7D701D5C6FA6BBC9BC251E55E27F9E3",
+      "byteSize": 4038241,
+      "vendor": "Xiaomi",
+      "sourceCategory": "real device capture",
+      "mediaKind": "JPEG",
+      "protocolRole": "Xiaomi Google MotionPhoto V2 source",
+      "required": true,
+      "provenance": { "platform": "Xiaomi", "originalFilename": "小米.jpg", "modification": "unknown", "redistribution": "verifier-supplied only; public redistribution authorization is not recorded" }
+    },
+    {
+      "filename": "一加-改了封面照片.jpg",
+      "sha256": "AC2EACEF2E09043F8F34A1E3D714AA8940CB561B3829AC9A40FC0726860C07E1",
+      "byteSize": 20123765,
+      "vendor": "OnePlus",
+      "sourceCategory": "real device capture",
+      "mediaKind": "JPEG",
+      "protocolRole": "OnePlus O-Live Photo edited-cover regression source",
+      "required": true,
+      "provenance": { "platform": "OnePlus", "originalFilename": "一加-改了封面照片.jpg", "modification": "edited cover; reflected by the original filename", "redistribution": "verifier-supplied only; public redistribution authorization is not recorded" }
+    },
+    {
+      "filename": "一加.jpg",
+      "sha256": "2065994C59495F65FFDA59D768D6CC2C73E8DFB861CD5D815E1273C82BA54C01",
+      "byteSize": 13762654,
+      "vendor": "OnePlus",
+      "sourceCategory": "real device capture",
+      "mediaKind": "JPEG",
+      "protocolRole": "OnePlus O-Live Photo source",
+      "required": true,
+      "provenance": { "platform": "OnePlus", "originalFilename": "一加.jpg", "modification": "unknown", "redistribution": "verifier-supplied only; public redistribution authorization is not recorded" }
+    },
+    {
+      "filename": "oppo.jpg",
+      "sha256": "9C6E3FA8926660D066D1208EF99E9AB7D6A30E4B18905C5CA2C0221C9424BC0F",
+      "byteSize": 6752474,
+      "vendor": "OPPO",
+      "sourceCategory": "real device capture",
+      "mediaKind": "JPEG",
+      "protocolRole": "OPPO O-Live Photo source",
+      "required": true,
+      "provenance": { "platform": "OPPO", "originalFilename": "oppo.jpg", "modification": "unknown", "redistribution": "verifier-supplied only; public redistribution authorization is not recorded" }
+    },
+    {
+      "filename": "vivo.jpg",
+      "sha256": "631CF8DAC983A9F58FC1D8CB63AAF8CC0569C45B80F046F1B995936D608320B9",
+      "byteSize": 8270322,
+      "vendor": "vivo",
+      "sourceCategory": "real device capture",
+      "mediaKind": "JPEG",
+      "protocolRole": "vivo X300-and-later HDR GainMap Motion Photo source",
+      "required": true,
+      "provenance": { "platform": "vivo", "originalFilename": "vivo.jpg", "modification": "unknown", "redistribution": "verifier-supplied only; public redistribution authorization is not recorded" }
+    },
+    {
+      "filename": "vivo双文件.jpg",
+      "sha256": "751A39426D618404D144D6FC061CEE7FFDA389396516A11CAE1C926B056D47E6",
+      "byteSize": 4096218,
+      "vendor": "vivo",
+      "sourceCategory": "real device capture",
+      "mediaKind": "JPEG",
+      "protocolRole": "vivo X200-and-earlier dual-file primary",
+      "required": true,
+      "provenance": { "platform": "vivo", "originalFilename": "vivo双文件.jpg", "modification": "unknown", "redistribution": "verifier-supplied only; public redistribution authorization is not recorded" }
+    },
+    {
+      "filename": "vivo双文件.mp4",
+      "sha256": "21C45D75AF6738A52DB0EAAFE383FCED216FA3367A3AB159191F45869A7A60D9",
+      "byteSize": 3163201,
+      "vendor": "vivo",
+      "sourceCategory": "real device capture",
+      "mediaKind": "MP4",
+      "protocolRole": "vivo X200-and-earlier dual-file motion video",
+      "required": true,
+      "provenance": { "platform": "vivo", "originalFilename": "vivo双文件.mp4", "modification": "unknown", "redistribution": "verifier-supplied only; public redistribution authorization is not recorded" }
+    }
+  ],
+  "r5HeicExpectations": [
+    { "filename": "苹果双文件.HEIC", "visualDimensions": [4032, 3024], "primaryBitDepth": 8, "hdrRepresentation": "8-bit primary plus embedded Apple HDR GainMap auxiliary", "auxiliary": { "itemId": 63, "visualDimensions": [2016, 1512], "bitDepth": 8 } },
+    { "filename": "华为Mate80.heic", "visualDimensions": [3072, 4096], "primaryBitDepth": 8, "hdrRepresentation": "No HEIF HDR GainMap auxiliary in the formal sample", "auxiliary": null },
+    { "filename": "三星.heic", "visualDimensions": [3000, 4000], "primaryBitDepth": 8, "hdrRepresentation": "8-bit primary plus embedded Samsung HDR GainMap auxiliary", "auxiliary": { "itemId": 55, "visualDimensions": [750, 1000], "bitDepth": 8 } }
+  ]
+}
