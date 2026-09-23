@@ -250,12 +250,12 @@ python scripts/testing/run-cli-integration-test.py
 <!-- INSIGHTS:START -->
 **📊 仓库流量**
 
-访问次数：**3,806** ｜ 不重复访客：**258**（近 14 天） ｜ 仓库克隆：**4,798** ｜ 不重复克隆：**301**（近 14 天）
+访问次数：**3,839** ｜ 不重复访客：**246**（近 14 天） ｜ 仓库克隆：**4,847** ｜ 不重复克隆：**284**（近 14 天）
 
 **热门来源（近 14 天）：** github.com · Google · Bing · chatgpt.com · yandex.ru · DuckDuckGo  
 **热门内容（近 14 天）：** releases · releases/tag/v2.2.1 · README.zh-CN.md · commits/master
 
-> 数据开始：2026-08-02 · 最后更新：2026-09-22 (UTC+8)
+> 数据开始：2026-08-02 · 最后更新：2026-09-23 (UTC+8)
 <!-- INSIGHTS:END -->
 
 ---
