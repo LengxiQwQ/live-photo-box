@@ -1,0 +1,422 @@
+{
+  "fetched_at": "2026-09-24T07:36:35Z",
+  "data": {
+    "views": {
+      "count": 921,
+      "uniques": 246,
+      "views": [
+        {
+          "timestamp": "2026-09-09T00:00:00Z",
+          "count": 78,
+          "uniques": 29
+        },
+        {
+          "timestamp": "2026-09-10T00:00:00Z",
+          "count": 140,
+          "uniques": 21
+        },
+        {
+          "timestamp": "2026-09-11T00:00:00Z",
+          "count": 148,
+          "uniques": 33
+        },
+        {
+          "timestamp": "2026-09-12T00:00:00Z",
+          "count": 47,
+          "uniques": 15
+        },
+        {
+          "timestamp": "2026-09-13T00:00:00Z",
+          "count": 64,
+          "uniques": 17
+        },
+        {
+          "timestamp": "2026-09-14T00:00:00Z",
+          "count": 64,
+          "uniques": 21
+        },
+        {
+          "timestamp": "2026-09-15T00:00:00Z",
+          "count": 37,
+          "uniques": 17
+        },
+        {
+          "timestamp": "2026-09-16T00:00:00Z",
+          "count": 54,
+          "uniques": 15
+        },
+        {
+          "timestamp": "2026-09-17T00:00:00Z",
+          "count": 86,
+          "uniques": 21
+        },
+        {
+          "timestamp": "2026-09-18T00:00:00Z",
+          "count": 38,
+          "uniques": 22
+        },
+        {
+          "timestamp": "2026-09-19T00:00:00Z",
+          "count": 52,
+          "uniques": 24
+        },
+        {
+          "timestamp": "2026-09-20T00:00:00Z",
+          "count": 43,
+          "uniques": 17
+        },
+        {
+          "timestamp": "2026-09-21T00:00:00Z",
+          "count": 37,
+          "uniques": 18
+        },
+        {
+          "timestamp": "2026-09-22T00:00:00Z",
+          "count": 33,
+          "uniques": 11
+        }
+      ]
+    },
+    "clones": {
+      "count": 1398,
+      "uniques": 284,
+      "clones": [
+        {
+          "timestamp": "2026-09-09T00:00:00Z",
+          "count": 25,
+          "uniques": 12
+        },
+        {
+          "timestamp": "2026-09-10T00:00:00Z",
+          "count": 165,
+          "uniques": 70
+        },
+        {
+          "timestamp": "2026-09-11T00:00:00Z",
+          "count": 77,
+          "uniques": 24
+        },
+        {
+          "timestamp": "2026-09-12T00:00:00Z",
+          "count": 63,
+          "uniques": 25
+        },
+        {
+          "timestamp": "2026-09-13T00:00:00Z",
+          "count": 497,
+          "uniques": 53
+        },
+        {
+          "timestamp": "2026-09-14T00:00:00Z",
+          "count": 10,
+          "uniques": 6
+        },
+        {
+          "timestamp": "2026-09-15T00:00:00Z",
+          "count": 23,
+          "uniques": 13
+        },
+        {
+          "timestamp": "2026-09-16T00:00:00Z",
+          "count": 22,
+          "uniques": 7
+        },
+        {
+          "timestamp": "2026-09-17T00:00:00Z",
+          "count": 70,
+          "uniques": 25
+        },
+        {
+          "timestamp": "2026-09-18T00:00:00Z",
+          "count": 187,
+          "uniques": 50
+        },
+        {
+          "timestamp": "2026-09-19T00:00:00Z",
+          "count": 170,
+          "uniques": 49
+        },
+        {
+          "timestamp": "2026-09-20T00:00:00Z",
+          "count": 27,
+          "uniques": 25
+        },
+        {
+          "timestamp": "2026-09-21T00:00:00Z",
+          "count": 13,
+          "uniques": 9
+        },
+        {
+          "timestamp": "2026-09-22T00:00:00Z",
+          "count": 49,
+          "uniques": 29
+        }
+      ]
+    },
+    "referrers": [
+      {
+        "referrer": "github.com",
+        "count": 321,
+        "uniques": 50
+      },
+      {
+        "referrer": "Google",
+        "count": 98,
+        "uniques": 57
+      },
+      {
+        "referrer": "Bing",
+        "count": 63,
+        "uniques": 37
+      },
+      {
+        "referrer": "chatgpt.com",
+        "count": 26,
+        "uniques": 16
+      },
+      {
+        "referrer": "yandex.ru",
+        "count": 10,
+        "uniques": 2
+      },
+      {
+        "referrer": "DuckDuckGo",
+        "count": 7,
+        "uniques": 1
+      },
+      {
+        "referrer": "doubao.com",
+        "count": 5,
+        "uniques": 5
+      },
+      {
+        "referrer": "developer.huawei.com.cn",
+        "count": 4,
+        "uniques": 1
+      },
+      {
+        "referrer": "search.brave.com",
+        "count": 3,
+        "uniques": 1
+      }
+    ],
+    "paths": [
+      {
+        "path": "/LengxiQwQ/live-photo-box",
+        "title": "Overview",
+        "count": 454,
+        "uniques": 173
+      },
+      {
+        "path": "/LengxiQwQ/live-photo-box/releases",
+        "title": "/releases",
+        "count": 83,
+        "uniques": 54
+      },
+      {
+        "path": "/lengxiqwq/live-photo-box/releases",
+        "title": "/releases",
+        "count": 57,
+        "uniques": 38
+      },
+      {
+        "path": "/LengxiQwQ/live-photo-box/releases/tag/v2.2.1",
+        "title": "/releases/tag/v2.2.1",
+        "count": 53,
+        "uniques": 41
+      },
+      {
+        "path": "/LengxiQwQ/live-photo-box/blob/master/README.zh-CN.md",
+        "title": "/blob/master/README.zh-CN.md",
+        "count": 53,
+        "uniques": 38
+      },
+      {
+        "path": "/LengxiQwQ/live-photo-box/commits/master",
+        "title": "/commits/master",
+        "count": 24,
+        "uniques": 4
+      },
+      {
+        "path": "/LengxiQwQ/live-photo-box/blob/v2.2.1/docs/CLI-User-Guide.zh-CN.md",
+        "title": "/blob/v2.2.1/docs/CLI-User-Guide.zh-CN.md",
+        "count": 15,
+        "uniques": 11
+      },
+      {
+        "path": "/LengxiQwQ/live-photo-box/tree/master",
+        "title": "/tree/master",
+        "count": 12,
+        "uniques": 11
+      },
+      {
+        "path": "/LengxiQwQ/live-photo-box/issues",
+        "title": "/issues",
+        "count": 12,
+        "uniques": 6
+      },
+      {
+        "path": "/LengxiQwQ/live-photo-box/actions/workflows/build.yml",
+        "title": "/actions/workflows/build.yml",
+        "count": 9,
+        "uniques": 1
+      }
+    ],
+    "repo_meta": {
+      "id": 1291002177,
+      "node_id": "R_kgDOTPMhQQ",
+      "name": "live-photo-box",
+      "full_name": "LengxiQwQ/live-photo-box",
+      "private": false,
+      "owner": {
+        "login": "LengxiQwQ",
+        "id": 97082679,
+        "node_id": "U_kgDOBcldNw",
+        "avatar_url": "https://avatars.githubusercontent.com/u/97082679?v=4",
+        "gravatar_id": "",
+        "url": "https://api.github.com/users/LengxiQwQ",
+        "html_url": "https://github.com/LengxiQwQ",
+        "followers_url": "https://api.github.com/users/LengxiQwQ/followers",
+        "following_url": "https://api.github.com/users/LengxiQwQ/following{/other_user}",
+        "gists_url": "https://api.github.com/users/LengxiQwQ/gists{/gist_id}",
+        "starred_url": "https://api.github.com/users/LengxiQwQ/starred{/owner}{/repo}",
+        "subscriptions_url": "https://api.github.com/users/LengxiQwQ/subscriptions",
+        "organizations_url": "https://api.github.com/users/LengxiQwQ/orgs",
+        "repos_url": "https://api.github.com/users/LengxiQwQ/repos",
+        "events_url": "https://api.github.com/users/LengxiQwQ/events{/privacy}",
+        "received_events_url": "https://api.github.com/users/LengxiQwQ/received_events",
+        "type": "User",
+        "user_view_type": "public",
+        "site_admin": false
+      },
+      "html_url": "https://github.com/LengxiQwQ/live-photo-box",
+      "description": "Live Photo Box（实况照片工具箱） — A Windows desktop solution for processing Live Photos across different devices, brands, and platforms, with powerful conversion and editing capabilities. | 面向 Windows 的实况照片处理工具，帮助不同设备、品牌与平台之间自由转换和处理实况照片，并尽可能保留原始照片的细节与信息。",
+      "fork": false,
+      "url": "https://api.github.com/repos/LengxiQwQ/live-photo-box",
+      "forks_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/forks",
+      "keys_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/keys{/key_id}",
+      "collaborators_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/collaborators{/collaborator}",
+      "teams_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/teams",
+      "hooks_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/hooks",
+      "issue_events_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/issues/events{/number}",
+      "events_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/events",
+      "assignees_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/assignees{/user}",
+      "branches_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/branches{/branch}",
+      "tags_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/tags",
+      "blobs_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/git/blobs{/sha}",
+      "git_tags_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/git/tags{/sha}",
+      "git_refs_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/git/refs{/sha}",
+      "trees_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/git/trees{/sha}",
+      "statuses_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/statuses/{sha}",
+      "languages_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/languages",
+      "stargazers_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/stargazers",
+      "contributors_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/contributors",
+      "subscribers_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/subscribers",
+      "subscription_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/subscription",
+      "commits_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/commits{/sha}",
+      "git_commits_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/git/commits{/sha}",
+      "comments_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/comments{/number}",
+      "issue_comment_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/issues/comments{/number}",
+      "contents_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/contents/{+path}",
+      "compare_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/compare/{base}...{head}",
+      "merges_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/merges",
+      "archive_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/{archive_format}{/ref}",
+      "downloads_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/downloads",
+      "issues_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/issues{/number}",
+      "pulls_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/pulls{/number}",
+      "milestones_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/milestones{/number}",
+      "notifications_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/notifications{?since,all,participating}",
+      "labels_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/labels{/name}",
+      "releases_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/releases{/id}",
+      "deployments_url": "https://api.github.com/repos/LengxiQwQ/live-photo-box/deployments",
+      "created_at": "2026-07-06T12:15:50Z",
+      "updated_at": "2026-09-23T07:45:27Z",
+      "pushed_at": "2026-09-23T07:45:23Z",
+      "git_url": "git://github.com/LengxiQwQ/live-photo-box.git",
+      "ssh_url": "git@github.com:LengxiQwQ/live-photo-box.git",
+      "clone_url": "https://github.com/LengxiQwQ/live-photo-box.git",
+      "svn_url": "https://github.com/LengxiQwQ/live-photo-box",
+      "homepage": "",
+      "size": 257385,
+      "stargazers_count": 41,
+      "watchers_count": 41,
+      "language": "C#",
+      "has_issues": true,
+      "has_projects": true,
+      "has_downloads": false,
+      "has_wiki": true,
+      "has_pages": false,
+      "has_discussions": true,
+      "forks_count": 2,
+      "mirror_url": null,
+      "archived": false,
+      "disabled": false,
+      "open_issues_count": 0,
+      "license": {
+        "key": "gpl-3.0",
+        "name": "GNU General Public License v3.0",
+        "spdx_id": "GPL-3.0",
+        "url": "https://api.github.com/licenses/gpl-3.0",
+        "node_id": "MDc6TGljZW5zZTk="
+      },
+      "allow_forking": true,
+      "is_template": false,
+      "web_commit_signoff_required": false,
+      "has_pull_requests": true,
+      "pull_request_creation_policy": "all",
+      "topics": [
+        "cli",
+        "livephoto",
+        "livephotobox",
+        "livephotoskit",
+        "microvideo",
+        "motionphoto",
+        "photo",
+        "photo-editor"
+      ],
+      "visibility": "public",
+      "forks": 2,
+      "open_issues": 0,
+      "watchers": 41,
+      "default_branch": "master",
+      "permissions": {
+        "admin": true,
+        "maintain": true,
+        "push": true,
+        "triage": true,
+        "pull": true
+      },
+      "temp_clone_token": "",
+      "allow_squash_merge": true,
+      "allow_merge_commit": true,
+      "allow_rebase_merge": true,
+      "allow_auto_merge": false,
+      "delete_branch_on_merge": false,
+      "allow_update_branch": false,
+      "use_squash_pr_title_as_default": false,
+      "squash_merge_commit_message": "COMMIT_MESSAGES",
+      "squash_merge_commit_title": "COMMIT_OR_PR_TITLE",
+      "merge_commit_message": "PR_TITLE",
+      "merge_commit_title": "MERGE_MESSAGE",
+      "security_and_analysis": {
+        "secret_scanning": {
+          "status": "enabled"
+        },
+        "secret_scanning_push_protection": {
+          "status": "enabled"
+        },
+        "dependabot_security_updates": {
+          "status": "disabled"
+        },
+        "secret_scanning_non_provider_patterns": {
+          "status": "disabled"
+        },
+        "secret_scanning_validity_checks": {
+          "status": "disabled"
+        }
+      },
+      "network_count": 2,
+      "subscribers_count": 1
+    }
+  }
+}
