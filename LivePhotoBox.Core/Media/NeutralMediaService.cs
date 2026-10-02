@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using LivePhotoBox.Interop;
@@ -82,14 +83,13 @@ public sealed class NeutralMediaService : INeutralMediaService
 
         // A Google/Vivo/Xiaomi Ultra HDR source carries the GainMap as a
         // second JPEG after the primary JPEG. Extraction keeps it separate so
-        // the cleaner can remove only the motion-photo ranges. Before the
-        // a JPEG neutral artifact leaves this workspace, restore that
-        // standard representation; otherwise the retained hdrgm/Container
-        // metadata would point at bytes that are no longer in the artifact.
+        // the cleaner can remove only the motion-photo ranges. Restore the
+        // standard single-file neutral JPEG before binding it for any R3
+        // semantic conversion; Native binds both images and their exact
+        // current byte ranges in that artifact.
         bool gainMapEmbeddedInPrimary = false;
         if (cleanResult.CleanedGainMap != null
-            && finalImage.ImageContainer == ImageContainer.Jpeg
-            && (requirement == null || requirement.ImageContainer != ImageContainer.Heic))
+            && finalImage.ImageContainer == ImageContainer.Jpeg)
         {
             finalImage = await ReassembleJpegGainMapAsync(
                 finalImage, cleanResult.CleanedGainMap, cleanResult.GainMapExpectedSha256,
@@ -98,7 +98,24 @@ public sealed class NeutralMediaService : INeutralMediaService
             gainMapEmbeddedInPrimary = true;
         }
 
+        // Bind R3 authority to the actual cleaned neutral artifact (not the
+        // pre-clean source facts). This is also the identity handed to an
+        // explicit cross-container semantic conversion below.
+        SourceMediaFacts neutralInputFacts = await _inspector
+            .InspectAsync(finalImage.Path, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
+        ImageHdrGainMapSourceBinding? hdrGainMapBinding = neutralInputFacts.GainMap is { IsPresent: true }
+            ? await CreateHdrGainMapBindingAsync(
+                finalImage, neutralInputFacts,
+                cleanResult.AuxiliaryMedia.Count > 0 ? cleanResult.AuxiliaryMedia : extracted.AuxiliaryMedia,
+                workspace, cancellationToken, gainMapEmbeddedInPrimary,
+                gainMapEmbeddedInPrimary ? cleanResult.CleanedGainMap : null).ConfigureAwait(false)
+            : null;
+        var auxiliaryHandoff = new List<AuxiliaryMediaDescriptor>(
+            cleanResult.AuxiliaryMedia.Count > 0 ? cleanResult.AuxiliaryMedia : extracted.AuxiliaryMedia);
+
         PreservationOutcome imageOutcome = cleanResult.PreservationOutcome;
+        bool gainMapSemanticallyReencoded = false;
         PreservationOutcome videoOutcome = cleanResult.CleanedVideo == null
             ? PreservationOutcome.Preserved
             : cleanResult.PreservationOutcome;
@@ -110,25 +127,22 @@ public sealed class NeutralMediaService : INeutralMediaService
             if (requirement.ImageContainer != ImageContainer.Unknown &&
                 requirement.ImageContainer != finalImage.ImageContainer)
             {
-                // The source inspector established semantic auxiliary facts at
-                // the start of this transaction. Do not let a requested
-                // cross-container conversion turn an embedded HEIF GainMap
-                // into a false "Embedded" manifest on an ordinary JPEG.
-                if (!ImageConversionEligibility.IsAllowed(
-                        facts,
-                        finalImage.ImageContainer,
-                        requirement.ImageContainer,
-                        out string? semanticError))
-                {
-                    throw new InvalidOperationException($"Image conversion failed in neutral pipeline: {semanticError}");
-                }
-
                 var imgConv = await _imageConverter.ConvertAsync(new ImageConversionRequest
                 {
                     SourceArtifact = finalImage,
                     TargetContainer = requirement.ImageContainer,
                     TargetDirectory = workspace.RootDirectory,
-                    PreservationPolicy = preservationPolicy
+                    PreservationPolicy = preservationPolicy,
+                    TrustedSourceFacts = ImageConversionEligibility.ToConversionFacts(neutralInputFacts),
+                    TrustedHdrGainMapBinding = hdrGainMapBinding,
+                    TargetHdrGainMapSemantic = hdrGainMapBinding is null
+                        ? ImageHdrGainMapTargetSemantic.Unknown
+                        : requirement.ImageContainer switch
+                        {
+                            ImageContainer.Jpeg => ImageHdrGainMapTargetSemantic.JpegIsoGainMap,
+                            ImageContainer.Heic => ImageHdrGainMapTargetSemantic.HeicGainMapAuxiliary,
+                            _ => ImageHdrGainMapTargetSemantic.Unknown
+                        }
                 }, cancellationToken).ConfigureAwait(false);
 
                 if (!imgConv.Success || imgConv.OutputArtifact == null)
@@ -144,6 +158,34 @@ public sealed class NeutralMediaService : INeutralMediaService
 
                 finalImage = imgConv.OutputArtifact;
                 imageOutcome = CombineOutcome(imageOutcome, imgConv.ExecutionRecord.PreservationOutcome);
+                gainMapSemanticallyReencoded =
+                    imgConv.ExecutionRecord.Truth.ActualOperationKind == ConversionOperationKind.HdrGainMapConversion &&
+                    imgConv.ExecutionRecord.Truth.HdrGainMap == ConversionComponentOutcome.Reencoded;
+                if (gainMapSemanticallyReencoded)
+                {
+                    // The converter only reports this truth after the target
+                    // semantic and staged output graph have passed Native and
+                    // managed post-validation. Reflect that verified output
+                    // representation in the neutral artifact manifest.
+                    gainMapEmbeddedInPrimary = true;
+
+                    // The binding handed to the caller authorizes a future
+                    // semantic conversion of the current neutral artifact.
+                    // Replace the source-container identity with facts freshly
+                    // inspected from the committed target before returning it.
+                    SourceMediaFacts convertedFacts = await _inspector
+                        .InspectAsync(finalImage.Path, cancellationToken: cancellationToken)
+                        .ConfigureAwait(false);
+                    AuxiliaryMediaDescriptor convertedGainMap = CreateInspectedGainMapDescriptor(
+                        convertedFacts, imageOutcome);
+                    auxiliaryHandoff.RemoveAll(item => item.ArtifactRole == MediaArtifactKind.GainMap ||
+                        string.Equals(item.Semantic, "GainMap", StringComparison.Ordinal));
+                    auxiliaryHandoff.Add(convertedGainMap);
+                    hdrGainMapBinding = await CreateHdrGainMapBindingAsync(
+                        finalImage, convertedFacts, [convertedGainMap], workspace, cancellationToken,
+                        wasReassembledIntoPrimary: false, reassembledGainMapArtifact: null)
+                        .ConfigureAwait(false);
+                }
             }
 
             // Convert Video if video exists and target differs
@@ -151,13 +193,25 @@ public sealed class NeutralMediaService : INeutralMediaService
                 (requirement.VideoContainer != VideoContainer.Unknown && requirement.VideoContainer != finalVideo.VideoContainer) ||
                 (requirement.VideoCodec != VideoCodec.Copy && requirement.VideoCodec != VideoCodec.Unknown && requirement.VideoCodec != finalVideo.VideoCodec)))
             {
+                VideoFacts videoFacts = await _videoConverter
+                    .ProbeAsync(finalVideo.Path, cancellationToken)
+                    .ConfigureAwait(false);
                 var vidConv = await _videoConverter.ConvertAsync(new VideoConversionRequest
                 {
                     SourceArtifact = finalVideo,
                     TargetContainer = requirement.VideoContainer != VideoContainer.Unknown ? requirement.VideoContainer : finalVideo.VideoContainer,
                     TargetCodec = requirement.VideoCodec != VideoCodec.Unknown ? requirement.VideoCodec : VideoCodec.Copy,
                     TargetDirectory = workspace.RootDirectory,
-                    TargetFps = requirement.TargetFps ?? 0
+                    TargetFps = requirement.TargetFps ?? 0,
+                    PreservationPolicy = preservationPolicy,
+                    TrustedSourceFacts = new VideoConversionSourceFacts
+                    {
+                        Container = videoFacts.Container,
+                        Codec = videoFacts.Codec,
+                        HasAudio = videoFacts.HasAudio,
+                        RotationDegrees = videoFacts.RotationDegrees,
+                        DurationSeconds = videoFacts.DurationSeconds
+                    }
                 }, cancellationToken).ConfigureAwait(false);
 
                 if (!vidConv.Success || vidConv.OutputArtifact == null)
@@ -166,11 +220,7 @@ public sealed class NeutralMediaService : INeutralMediaService
                 }
 
                 finalVideo = vidConv.OutputArtifact;
-                PreservationOutcome convOutcome = (vidConv.ExecutionRecord.AudioPreserved && vidConv.ExecutionRecord.RotationPreserved)
-                    ? (vidConv.ExecutionRecord.RemuxUsed ? PreservationOutcome.Preserved : PreservationOutcome.Reencoded)
-                    : PreservationOutcome.PartiallyPreserved;
-
-                videoOutcome = CombineOutcome(videoOutcome, convOutcome);
+                videoOutcome = CombineOutcome(videoOutcome, vidConv.ExecutionRecord.Truth.PreservationOutcome);
             }
 
             if (preservationPolicy == PreservationPolicy.Strict &&
@@ -199,8 +249,6 @@ public sealed class NeutralMediaService : INeutralMediaService
         // Cleaner boundary.  A materialized GainMap is represented once by
         // the typed GainMap slot; other materialized auxiliary artifacts are
         // added to the manifest by stable identity below.
-        var auxiliaryHandoff = new List<AuxiliaryMediaDescriptor>(
-            cleanResult.AuxiliaryMedia.Count > 0 ? cleanResult.AuxiliaryMedia : extracted.AuxiliaryMedia);
         for (int i = 0; i < auxiliaryHandoff.Count; i++)
         {
             AuxiliaryMediaDescriptor descriptor = auxiliaryHandoff[i];
@@ -311,7 +359,9 @@ public sealed class NeutralMediaService : INeutralMediaService
                 SourceSha256 = gainMapDescriptor.SourceSha256,
                 ByteLength = finalImage.ByteLength > 0 ? finalImage.ByteLength : new FileInfo(finalImage.Path).Length,
                 ImageContainer = finalImage.ImageContainer,
-                PreservationOutcome = gainMapDescriptor.PreservationOutcome,
+                PreservationOutcome = gainMapSemanticallyReencoded
+                    ? imageOutcome
+                    : gainMapDescriptor.PreservationOutcome,
                 GainMapRepresentation = GainMapRepresentation.Embedded
             });
         }
@@ -363,6 +413,7 @@ public sealed class NeutralMediaService : INeutralMediaService
             PrimaryImage = finalImage,
             MotionVideo = finalVideo,
             GainMap = cleanResult.CleanedGainMap,
+            HdrGainMapBinding = hdrGainMapBinding,
             GainMapRepresentation = gainMapRep,
             SourceProvenance = facts,
             RemovedProtocolFacts = [.. extracted.ExtractedProtocolFacts, .. cleanResult.RemovedFacts],
@@ -442,6 +493,124 @@ public sealed class NeutralMediaService : INeutralMediaService
         }
     }
 
+    private static async Task<ImageHdrGainMapSourceBinding> CreateHdrGainMapBindingAsync(
+        MediaArtifact sourceArtifact,
+        SourceMediaFacts sourceFacts,
+        IReadOnlyList<AuxiliaryMediaDescriptor> descriptors,
+        IMediaWorkspace workspace,
+        CancellationToken cancellationToken,
+        bool wasReassembledIntoPrimary,
+        MediaArtifact? reassembledGainMapArtifact)
+    {
+        GainMapFacts gainMap = sourceFacts.GainMap
+            ?? throw new InvalidDataException("GainMap binding was requested without inspected GainMap facts.");
+        if (!gainMap.IsPresent || gainMap.AuxiliaryIndex >= sourceFacts.AuxiliaryItems.Count)
+            throw new InvalidDataException("Inspected GainMap does not identify an in-range auxiliary graph entry.");
+
+        AuxiliaryMediaFacts observed = sourceFacts.AuxiliaryItems[checked((int)gainMap.AuxiliaryIndex)];
+        if (!observed.IsPresent || observed.ItemId == 0 || observed.ItemId != gainMap.ItemId ||
+            observed.Container != gainMap.Container || observed.Representation != gainMap.Representation ||
+            observed.Ownership != gainMap.Ownership ||
+            !string.Equals(observed.Relationship, gainMap.Relationship, StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(observed.StableIdentity) ||
+            !string.Equals(observed.Semantic, "GainMap", StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(observed.OwnerIdentity) ||
+            observed.ByteLength <= 0 || observed.Sha256.Length != 64)
+        {
+            throw new InvalidDataException("Inspected GainMap identity, owner, relationship, representation, range, or content hash is incomplete or inconsistent.");
+        }
+
+        AuxiliaryMediaDescriptor[] matches = descriptors.Where(item =>
+            item.ArtifactRole == MediaArtifactKind.GainMap &&
+            string.Equals(item.StableIdentity, observed.StableIdentity, StringComparison.Ordinal) &&
+            string.Equals(item.Semantic, observed.Semantic, StringComparison.Ordinal) &&
+            string.Equals(item.OwnerIdentity, observed.OwnerIdentity, StringComparison.Ordinal) &&
+            string.Equals(item.Relationship, observed.Relationship, StringComparison.Ordinal) &&
+            item.ImageContainer == observed.Container &&
+            item.Representation == observed.Representation &&
+            item.Ownership == observed.Ownership &&
+            item.SourceLength == observed.ByteLength &&
+            string.Equals(item.SourceSha256, observed.Sha256, StringComparison.OrdinalIgnoreCase)).ToArray();
+        // JPEG GainMaps can be extracted for cleaning and then reassembled as
+        // one neutral JPEG. That creates a new primary owner identity while
+        // preserving the exact separately verified GainMap bytes and stable
+        // item identity. Permit only this explicit owner transition.
+        AuxiliaryMediaDescriptor[] ownerTransitionCandidates = wasReassembledIntoPrimary
+            ? descriptors.Where(item =>
+                item.ArtifactRole == MediaArtifactKind.GainMap &&
+                string.Equals(item.Semantic, observed.Semantic, StringComparison.Ordinal) &&
+                string.Equals(item.Relationship, observed.Relationship, StringComparison.Ordinal) &&
+                item.ImageContainer == observed.Container &&
+                item.Representation == observed.Representation &&
+                item.Ownership == observed.Ownership &&
+                item.SourceLength == observed.ByteLength &&
+                string.Equals(item.SourceSha256, observed.Sha256, StringComparison.OrdinalIgnoreCase)).ToArray()
+            : [];
+        if (matches.Length != 1 && ownerTransitionCandidates.Length != 1)
+        {
+            string candidates = string.Join(" | ", descriptors
+                .Where(item => item.ArtifactRole == MediaArtifactKind.GainMap ||
+                    string.Equals(item.Semantic, "GainMap", StringComparison.Ordinal))
+                .Select(item => $"id={item.StableIdentity},semantic={item.Semantic},owner={item.OwnerIdentity}," +
+                    $"relationship={item.Relationship},length={item.SourceLength}," +
+                    $"container={item.ImageContainer},representation={item.Representation},ownership={item.Ownership}"));
+            throw new InvalidDataException(
+                $"Neutral GainMap descriptor does not uniquely bind the inspected item identity and bytes " +
+                $"(observed id={observed.StableIdentity},semantic={observed.Semantic},owner={observed.OwnerIdentity}," +
+                $"relationship={observed.Relationship},length={observed.ByteLength}," +
+                $"container={observed.Container},representation={observed.Representation},ownership={observed.Ownership}; " +
+                $"candidates: {candidates}).");
+        }
+
+        AuxiliaryMediaDescriptor lineage = matches.Length == 1 ? matches[0] : ownerTransitionCandidates[0];
+
+        if (matches.Length != 1)
+        {
+            if (reassembledGainMapArtifact == null)
+                throw new InvalidDataException("Neutral GainMap owner changed without a verified reassembly artifact.");
+            string reassembledSha = await workspace
+                .ComputeFileSha256Async(reassembledGainMapArtifact.Path, cancellationToken)
+                .ConfigureAwait(false);
+            if (!string.Equals(reassembledSha, observed.Sha256, StringComparison.OrdinalIgnoreCase) ||
+                (!string.IsNullOrWhiteSpace(reassembledGainMapArtifact.Sha256) &&
+                 !string.Equals(reassembledSha, reassembledGainMapArtifact.Sha256, StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new InvalidDataException("Reassembled GainMap bytes do not match the freshly inspected owner graph.");
+            }
+        }
+
+        string sourceSha256 = await workspace.ComputeFileSha256Async(sourceArtifact.Path, cancellationToken).ConfigureAwait(false);
+        if (sourceSha256.Length != 64 ||
+            (!string.IsNullOrWhiteSpace(sourceArtifact.Sha256) &&
+             !string.Equals(sourceArtifact.Sha256, sourceSha256, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidDataException("Cleaned GainMap source artifact changed or disagrees with inspected source identity.");
+        }
+
+        return new ImageHdrGainMapSourceBinding(
+            sourceArtifact.Path,
+            sourceSha256,
+            sourceFacts.PrimarySha256,
+            WindowsFileIdentity.Capture(sourceArtifact.Path),
+            sourceFacts.PrimaryImage.Container,
+            lineage.StableIdentity,
+            observed.StableIdentity,
+            observed.Semantic,
+            lineage.OwnerIdentity,
+            observed.OwnerIdentity,
+            observed.Relationship,
+            observed.Sha256,
+            observed.ItemId,
+            gainMap.AuxiliaryIndex,
+            observed.ByteOffset,
+            observed.ByteLength,
+            lineage.SourceOffset,
+            lineage.SourceLength,
+            observed.Representation,
+            observed.Ownership,
+            gainMap.OwnerArtifactRole);
+    }
+
     private static bool IsValidSha256(string? value)
     {
         if (string.IsNullOrWhiteSpace(value) || value.Length != 64) return false;
@@ -453,6 +622,50 @@ public sealed class NeutralMediaService : INeutralMediaService
             if (c != '0') nonZero = true;
         }
         return nonZero;
+    }
+
+    private static AuxiliaryMediaDescriptor CreateInspectedGainMapDescriptor(
+        SourceMediaFacts facts,
+        PreservationOutcome preservationOutcome)
+    {
+        GainMapFacts gainMap = facts.GainMap
+            ?? throw new InvalidDataException("Converted artifact inspection did not find its GainMap.");
+        if (!gainMap.IsPresent || gainMap.AuxiliaryIndex >= facts.AuxiliaryItems.Count)
+            throw new InvalidDataException("Converted artifact GainMap does not identify an in-range auxiliary entry.");
+
+        AuxiliaryMediaFacts auxiliary = facts.AuxiliaryItems[checked((int)gainMap.AuxiliaryIndex)];
+        if (!auxiliary.IsPresent || auxiliary.ItemId != gainMap.ItemId ||
+            auxiliary.Container != gainMap.Container || auxiliary.Representation != gainMap.Representation ||
+            auxiliary.Ownership != gainMap.Ownership || auxiliary.ByteOffset != gainMap.ByteOffset ||
+            auxiliary.ByteLength != gainMap.ByteLength ||
+            !string.Equals(auxiliary.Semantic, "GainMap", StringComparison.Ordinal) ||
+            !string.Equals(auxiliary.Relationship, gainMap.Relationship, StringComparison.Ordinal) ||
+            string.IsNullOrWhiteSpace(auxiliary.StableIdentity) ||
+            string.IsNullOrWhiteSpace(auxiliary.OwnerIdentity) || !IsValidSha256(auxiliary.Sha256))
+        {
+            throw new InvalidDataException("Converted artifact GainMap identity, graph, range, or hash is incomplete or inconsistent.");
+        }
+
+        return new AuxiliaryMediaDescriptor
+        {
+            ArtifactRole = MediaArtifactKind.GainMap,
+            StableIdentity = auxiliary.StableIdentity,
+            Semantic = auxiliary.Semantic,
+            OwnerIdentity = auxiliary.OwnerIdentity,
+            Relationship = auxiliary.Relationship,
+            SourceIndex = auxiliary.SourceIndex,
+            SourceOffset = auxiliary.ByteOffset,
+            SourceLength = auxiliary.ByteLength,
+            SourceSha256 = auxiliary.Sha256,
+            ImageContainer = auxiliary.Container,
+            Codec = auxiliary.Codec,
+            Representation = auxiliary.Representation,
+            Ownership = auxiliary.Ownership,
+            ItemType = auxiliary.ItemType,
+            GraphComplete = auxiliary.GraphComplete,
+            Dependencies = auxiliary.Dependencies,
+            PreservationOutcome = preservationOutcome
+        };
     }
 
     private static void VerifyPreservationCarrierHandoff(IReadOnlyList<PreservationCarrier> carriers)
@@ -510,7 +723,8 @@ public sealed class NeutralMediaService : INeutralMediaService
         {
             Path = outputPath,
             ByteLength = new FileInfo(outputPath).Length,
-            Sha256 = await workspace.ComputeFileSha256Async(outputPath, cancellationToken).ConfigureAwait(false)
+            Sha256 = await workspace.ComputeFileSha256Async(outputPath, cancellationToken).ConfigureAwait(false),
+            FileIdentity = WindowsFileIdentity.Capture(outputPath)
         };
     }
 }

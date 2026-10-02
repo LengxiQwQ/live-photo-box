@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|x64">
@@ -55,6 +55,14 @@
             Label="LocalAppDataPlatform" />
   </ImportGroup>
 
+  <PropertyGroup Label="Vcpkg">
+    <VcpkgEnableManifest>true</VcpkgEnableManifest>
+    <VcpkgManifestInstall>true</VcpkgManifestInstall>
+    <VcpkgUseStatic>true</VcpkgUseStatic>
+    <VcpkgTriplet>x64-windows-static</VcpkgTriplet>
+    <VcpkgManifestDirectory>$(MSBuildThisFileDirectory)..</VcpkgManifestDirectory>
+  </PropertyGroup>
+
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
     <OutDir>$(MSBuildThisFileDirectory)..\artifacts\native\compat\$(Configuration)\win-x64\</OutDir>
@@ -71,18 +79,20 @@
       <PreprocessorDefinitions>LPB_NATIVE_BUILD;$(LPB_NATIVE_EXTRA_DEFINITIONS);_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)src;$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)src;$(IntDir);$(MSBuildThisFileDirectory)..\.ai-tmp\workspace\P4-R3\cmake-build\vcpkg_installed\x64-windows-static\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <ExceptionHandling>Sync</ExceptionHandling>
       <ControlFlowGuard>Guard</ControlFlowGuard>
-      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <DebugInformationFormat>OldStyle</DebugInformationFormat>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(OutDir)$(TargetName).pdb</ProgramDatabaseFile>
       <ControlFlowGuard>Guard</ControlFlowGuard>
+      <AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)..\.ai-tmp\workspace\P4-R3\cmake-build\vcpkg_installed\x64-windows-static\debug\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>bcrypt.lib;ole32.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;heif.lib;libde265.lib;x265-static.lib;turbojpeg.lib;jpeg.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
@@ -94,7 +104,7 @@
       <PreprocessorDefinitions>LPB_NATIVE_BUILD;$(LPB_NATIVE_EXTRA_DEFINITIONS);NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)src;$(IntDir);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)src;$(IntDir);$(MSBuildThisFileDirectory)..\.ai-tmp\workspace\P4-R3\cmake-build\vcpkg_installed\x64-windows-static\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <ExceptionHandling>Sync</ExceptionHandling>
@@ -109,6 +119,8 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(OutDir)$(TargetName).pdb</ProgramDatabaseFile>
       <ControlFlowGuard>Guard</ControlFlowGuard>
+      <AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)..\.ai-tmp\workspace\P4-R3\cmake-build\vcpkg_installed\x64-windows-static\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>bcrypt.lib;ole32.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;heif.lib;libde265.lib;x265-static.lib;turbojpeg.lib;jpeg.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
 
@@ -148,7 +160,10 @@
     <ClCompile Include="src\foundation\context.cpp" />
     <ClCompile Include="src\foundation\residue_fingerprint.cpp" />
     <ClCompile Include="src\foundation\sha256.cpp" />
+    <ClCompile Include="src\foundation\sha256_core.cpp" />
     <ClCompile Include="src\media\heic_backend.cpp" />
+    <ClCompile Include="src\media\gainmap_math.cpp" />
+    <ClCompile Include="src\media\hdr_gainmap_conversion.cpp" />
     <ClCompile Include="src\media\image_converter.cpp" />
     <ClCompile Include="src\media\jpeg_backend.cpp" />
     <ClCompile Include="src\media\media_api.cpp" />

@@ -1,11 +1,48 @@
 using System;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
+using LivePhotoBox.Media.Models;
+using LivePhotoBox.Protocols.Cleaning;
 
 namespace LivePhotoBox.Interop;
 
 internal static partial class NativeMethods
 {
+    [LibraryImport(LibraryName, EntryPoint = "lpb_inspect_gainmap_metadata_v1", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult InspectGainMapMetadataV1(nint context,
+        string primaryImagePath, string? materializedGainMapPath, ref NativeGainMapMetadataV1 outMetadata);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_stage_hdr_gainmap_v1", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult StageHdrGainMapV1(nint context,
+        string sourcePath, string outputPath,
+        ref NativeHdrGainMapConversionRequestV1 request,
+        ref NativeHdrGainMapConversionResultV1 outResult);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_commit_hdr_gainmap_v1")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult CommitHdrGainMapV1(nint context, ulong transactionToken);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_abort_hdr_gainmap_v1")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult AbortHdrGainMapV1(nint context, ulong transactionToken);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+        EntryPoint = "lpb_inspect_hdr_gainmap_stage_v1", ExactSpelling = true)]
+    internal static extern NativeResult InspectHdrGainMapStageV1(
+        nint context,
+        ulong transactionToken,
+        ref NativeSourceMediaFacts outFacts,
+        ref NativeGainMapMetadataV1 outMetadata,
+        ref NativePreservationObservation outPreservation);
+
     [LibraryImport(LibraryName, EntryPoint = "lpb_inspect_heic_image", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -377,4 +414,194 @@ internal struct NativeHeicEncodedImagesInfo
     public uint PrimaryHeight;
     public uint SecondaryWidth;
     public uint SecondaryHeight;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeGainMapMetadataV1
+{
+    public uint StructSize;
+    public uint ApiVersion;
+    public int Kind;
+    public uint Reserved;
+    public fixed double GainMapMin[3];
+    public fixed double GainMapMax[3];
+    public fixed double Gamma[3];
+    public fixed double OffsetSdr[3];
+    public fixed double OffsetHdr[3];
+    public double HdrCapacityMin;
+    public double HdrCapacityMax;
+    public int BaseRenditionIsHdr;
+    public int Reserved2;
+    public double AppleMakerNote33;
+    public double AppleMakerNote48;
+
+    public double GetGainMapMin(int channel) { fixed (double* p = GainMapMin) return p[channel]; }
+    public double GetGainMapMax(int channel) { fixed (double* p = GainMapMax) return p[channel]; }
+    public double GetGamma(int channel) { fixed (double* p = Gamma) return p[channel]; }
+    public double GetOffsetSdr(int channel) { fixed (double* p = OffsetSdr) return p[channel]; }
+    public double GetOffsetHdr(int channel) { fixed (double* p = OffsetHdr) return p[channel]; }
+
+}
+
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+internal unsafe struct NativeHdrGainMapConversionRequestV1
+{
+    public uint StructSize;
+    public uint ApiVersion;
+    public int SourceContainer;
+    public int TargetSemantic;
+    public int Quality;
+    public int HdrOutputPolicy;
+    public uint ItemId;
+    public uint AuxiliaryIndex;
+    public int Representation;
+    public int Ownership;
+    public int OwnerArtifactRole;
+    public uint Reserved;
+    public NativeMediaRange SourceRange;
+    public uint ExpectedVolumeSerial;
+    public uint ExpectedLinkCount;
+    public ulong ExpectedFileIndex;
+    public ulong ExpectedFileSize;
+    public fixed byte SourceSha256[32];
+    public fixed byte PrimarySha256[32];
+    public fixed byte GainMapSha256[32];
+    public fixed byte StableIdentity[96];
+    public fixed byte InspectedStableIdentity[96];
+    public fixed byte Semantic[64];
+    public fixed byte OwnerIdentity[96];
+    public fixed byte InspectedOwnerIdentity[96];
+    public fixed byte Relationship[64];
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeHdrGainMapConversionResultV1
+{
+    public uint StructSize;
+    public uint ApiVersion;
+    public int TargetSemantic;
+    public int ActualContainer;
+    public int GainMapOutcome;
+    public int MetadataComplete;
+    public uint PrimaryWidth;
+    public uint PrimaryHeight;
+    public uint GainMapWidth;
+    public uint GainMapHeight;
+    public NativeMediaRange GainMapRange;
+    public fixed byte OutputSha256[32];
+    public fixed byte GainMapSha256[32];
+    public double HdrCapacityMin;
+    public double HdrCapacityMax;
+    public fixed double GainMapMin[3];
+    public fixed double GainMapMax[3];
+    public fixed double Gamma[3];
+    public fixed double OffsetSdr[3];
+    public fixed double OffsetHdr[3];
+    public ulong TransactionToken;
+    public fixed byte StagingPath[1024];
+
+    public double GetGainMapMin(int channel) { fixed (double* p = GainMapMin) return p[channel]; }
+    public double GetGainMapMax(int channel) { fixed (double* p = GainMapMax) return p[channel]; }
+    public double GetGamma(int channel) { fixed (double* p = Gamma) return p[channel]; }
+    public double GetOffsetSdr(int channel) { fixed (double* p = OffsetSdr) return p[channel]; }
+    public double GetOffsetHdr(int channel) { fixed (double* p = OffsetHdr) return p[channel]; }
+    public string GetOutputSha256Hex() { fixed (byte* p = OutputSha256) return Convert.ToHexString(new ReadOnlySpan<byte>(p, 32)); }
+    public string GetGainMapSha256Hex() { fixed (byte* p = GainMapSha256) return Convert.ToHexString(new ReadOnlySpan<byte>(p, 32)); }
+    public string GetStagingPath()
+    {
+        fixed (byte* p = StagingPath)
+        {
+            ReadOnlySpan<byte> bytes = new(p, 1024);
+            int length = bytes.IndexOf((byte)0);
+            if (length <= 0) throw new InvalidDataException("Native HDR/GainMap staging path is missing or truncated.");
+            return Encoding.UTF8.GetString(bytes[..length]);
+        }
+    }
+}
+
+internal sealed class NativeHdrGainMapConversionTransaction : IDisposable
+{
+    private NativeContext? _context;
+    private bool _completed;
+
+    internal NativeHdrGainMapConversionTransaction(
+        NativeContext context,
+        NativeHdrGainMapConversionResultV1 result,
+        string stagingPath)
+    {
+        _context = context;
+        Result = result;
+        StagingPath = stagingPath;
+    }
+
+    internal NativeHdrGainMapConversionResultV1 Result { get; }
+    internal string StagingPath { get; }
+
+    internal (SourceMediaFacts Facts, NativeGainMapMetadataV1 Metadata, PreservationObservation Preservation) Inspect()
+    {
+        NativeContext context = _context ?? throw new ObjectDisposedException(nameof(NativeHdrGainMapConversionTransaction));
+        if (_completed) throw new InvalidOperationException("HDR/GainMap conversion transaction is already finalized.");
+        var facts = new NativeSourceMediaFacts
+        {
+            StructSize = checked((uint)Marshal.SizeOf<NativeSourceMediaFacts>())
+        };
+        var metadata = new NativeGainMapMetadataV1
+        {
+            StructSize = checked((uint)Marshal.SizeOf<NativeGainMapMetadataV1>()),
+            ApiVersion = 1
+        };
+        var preservation = new NativePreservationObservation
+        {
+            StructSize = checked((uint)Marshal.SizeOf<NativePreservationObservation>())
+        };
+        using NativeContextLease lease = context.AcquireOperationLease();
+        NativeResult result = NativeMethods.InspectHdrGainMapStageV1(
+            lease.Handle, Result.TransactionToken, ref facts, ref metadata, ref preservation);
+        context.ThrowIfFailed(result);
+        return (
+            NativeMediaService.MapFromNativeFacts(facts),
+            metadata,
+            PreservationObservation.FromNative(in preservation));
+    }
+
+    internal void Commit()
+    {
+        NativeContext context = _context ?? throw new ObjectDisposedException(nameof(NativeHdrGainMapConversionTransaction));
+        if (_completed) throw new InvalidOperationException("HDR/GainMap conversion transaction is already finalized.");
+        using NativeContextLease lease = context.AcquireOperationLease();
+        NativeResult result = NativeMethods.CommitHdrGainMapV1(lease.Handle, Result.TransactionToken);
+        context.ThrowIfFailed(result);
+        _completed = true;
+    }
+
+    internal void Abort()
+    {
+        NativeContext context = _context ?? throw new ObjectDisposedException(nameof(NativeHdrGainMapConversionTransaction));
+        if (_completed) return;
+        using NativeContextLease lease = context.AcquireOperationLease();
+        NativeResult result = NativeMethods.AbortHdrGainMapV1(lease.Handle, Result.TransactionToken);
+        context.ThrowIfFailed(result);
+        _completed = true;
+    }
+
+    public void Dispose()
+    {
+        NativeContext? context = _context;
+        if (context is null) return;
+        try
+        {
+            if (!_completed) Abort();
+        }
+        catch
+        {
+            // Context destruction releases any still-registered stage through
+            // its Native-owned output handle; explicit callers use Abort() to
+            // surface cleanup failure before reaching this safety path.
+        }
+        finally
+        {
+            _context = null;
+            context.Dispose();
+        }
+    }
 }

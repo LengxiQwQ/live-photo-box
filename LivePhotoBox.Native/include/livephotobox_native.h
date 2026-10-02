@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define LPB_NATIVE_ABI_VERSION 8u
+#define LPB_NATIVE_ABI_VERSION 10u
 
 typedef struct lpb_context lpb_context;
 typedef struct lpb_extraction_plan lpb_extraction_plan;
@@ -548,10 +548,133 @@ typedef struct lpb_heic_encoded_images_info
     uint32_t secondary_height;
 } lpb_heic_encoded_images_info;
 
+typedef struct lpb_media_range
+{
+    uint64_t offset;
+    uint64_t length;
+} lpb_media_range;
+
+typedef enum lpb_gainmap_metadata_kind
+{
+    LPB_GAINMAP_METADATA_UNKNOWN = 0,
+    LPB_GAINMAP_METADATA_APPLE = 1,
+    LPB_GAINMAP_METADATA_ISO = 2
+} lpb_gainmap_metadata_kind;
+
+/* Versioned, read-only metadata projection for a freshly inspected GainMap.
+   The caller still must bind it to the exact artifact and source identity
+   before requesting any conversion. */
+typedef struct lpb_gainmap_metadata_v1
+{
+    uint32_t struct_size;
+    uint32_t api_version;
+    lpb_gainmap_metadata_kind kind;
+    uint32_t reserved;
+    double gain_map_min[3];
+    double gain_map_max[3];
+    double gamma[3];
+    double offset_sdr[3];
+    double offset_hdr[3];
+    double hdr_capacity_min;
+    double hdr_capacity_max;
+    int32_t base_rendition_is_hdr;
+    int32_t reserved2;
+    double apple_maker_note_33;
+    double apple_maker_note_48;
+} lpb_gainmap_metadata_v1;
+
+typedef enum lpb_hdr_gainmap_target_semantic
+{
+    LPB_HDR_GAINMAP_TARGET_UNKNOWN = 0,
+    LPB_HDR_GAINMAP_TARGET_JPEG_ISO_GAINMAP = 1,
+    LPB_HDR_GAINMAP_TARGET_HEIC_GAINMAP_AUXILIARY = 2
+} lpb_hdr_gainmap_target_semantic;
+
+/* Versioned Native-owned semantic conversion authority. Hashes are raw
+ * SHA-256 bytes; all identity strings are fixed UTF-8 buffers. No codec or
+ * pixel types cross this ABI. */
+typedef struct lpb_hdr_gainmap_conversion_request_v1
+{
+    uint32_t struct_size;
+    uint32_t api_version;
+    int32_t source_container;
+    lpb_hdr_gainmap_target_semantic target_semantic;
+    int32_t quality;
+    int32_t hdr_output_policy;
+    uint32_t item_id;
+    uint32_t auxiliary_index;
+    int32_t representation;
+    int32_t ownership;
+    int32_t owner_artifact_role;
+    uint32_t reserved;
+    lpb_media_range source_range;
+    uint32_t expected_volume_serial;
+    uint32_t expected_link_count;
+    uint64_t expected_file_index;
+    uint64_t expected_file_size;
+    uint8_t source_sha256[32];
+    uint8_t primary_sha256[32];
+    uint8_t gainmap_sha256[32];
+    char stable_identity[96];
+    char inspected_stable_identity[96];
+    char semantic[64];
+    char owner_identity[96];
+    char inspected_owner_identity[96];
+    char relationship[64];
+} lpb_hdr_gainmap_conversion_request_v1;
+
+typedef enum lpb_hdr_gainmap_conversion_outcome
+{
+    LPB_HDR_GAINMAP_OUTCOME_UNKNOWN = 0,
+    LPB_HDR_GAINMAP_OUTCOME_REENCODED = 1
+} lpb_hdr_gainmap_conversion_outcome;
+
+typedef struct lpb_hdr_gainmap_conversion_result_v1
+{
+    uint32_t struct_size;
+    uint32_t api_version;
+    lpb_hdr_gainmap_target_semantic target_semantic;
+    int32_t actual_container;
+    lpb_hdr_gainmap_conversion_outcome gainmap_outcome;
+    int32_t metadata_complete;
+    uint32_t primary_width;
+    uint32_t primary_height;
+    uint32_t gainmap_width;
+    uint32_t gainmap_height;
+    lpb_media_range gainmap_range;
+    uint8_t output_sha256[32];
+    uint8_t gainmap_sha256[32];
+    double hdr_capacity_min;
+    double hdr_capacity_max;
+    double gain_map_min[3];
+    double gain_map_max[3];
+    double gamma[3];
+    double offset_sdr[3];
+    double offset_hdr[3];
+    uint64_t transaction_token;
+    char staging_path[1024];
+} lpb_hdr_gainmap_conversion_result_v1;
+
 LPB_API lpb_result LPB_CALL lpb_inspect_heic_image(
     lpb_context* context,
     const char* input_image_path,
     lpb_heic_image_info* out_info);
+
+LPB_API lpb_result LPB_CALL lpb_inspect_gainmap_metadata_v1(
+    lpb_context* context,
+    const char* primary_image_path,
+    const char* materialized_gainmap_path,
+    lpb_gainmap_metadata_v1* out_metadata);
+
+LPB_API lpb_result LPB_CALL lpb_stage_hdr_gainmap_v1(
+    lpb_context* context,
+    const char* source_path,
+    const char* output_path,
+    const lpb_hdr_gainmap_conversion_request_v1* request,
+    lpb_hdr_gainmap_conversion_result_v1* out_result);
+
+LPB_API lpb_result LPB_CALL lpb_commit_hdr_gainmap_v1(lpb_context* context, uint64_t transaction_token);
+LPB_API lpb_result LPB_CALL lpb_abort_hdr_gainmap_v1(lpb_context* context, uint64_t transaction_token);
 
 LPB_API lpb_result LPB_CALL lpb_decode_heic_primary_image(
     lpb_context* context,
@@ -605,12 +728,6 @@ typedef enum lpb_source_protocol
     LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO = 10,
     LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO = 11
 } lpb_source_protocol;
-
-typedef struct lpb_media_range
-{
-    uint64_t offset;
-    uint64_t length;
-} lpb_media_range;
 
 /*
  * Enumerates all structurally located HEIF XMP item ranges.  A HEIF may
@@ -1498,6 +1615,13 @@ LPB_API lpb_result LPB_CALL lpb_capture_preservation_observation(
     lpb_image_container container_hint,
     lpb_preservation_observation* out_observation);
 
+LPB_API lpb_result LPB_CALL lpb_inspect_hdr_gainmap_stage_v1(
+    lpb_context* context,
+    uint64_t transaction_token,
+    lpb_source_media_facts* out_facts,
+    lpb_gainmap_metadata_v1* out_metadata,
+    lpb_preservation_observation* out_preservation);
+
 /* Preservation Check Outcomes (Maps to C# PreservationCheckStatus) */
 #define LPB_PRESERVATION_STATUS_VERIFIED_PRESERVED     0
 #define LPB_PRESERVATION_STATUS_FAILED                 1
@@ -1574,6 +1698,25 @@ static_assert(offsetof(lpb_heic_auxiliary_info, auxiliary_type) == 38, "lpb_heic
 static_assert(sizeof(lpb_heic_encoded_images_info) == 28, "lpb_heic_encoded_images_info size mismatch");
 static_assert(offsetof(lpb_heic_encoded_images_info, secondary_item_id) == 8, "lpb_heic_encoded_images_info.secondary_item_id offset mismatch");
 static_assert(offsetof(lpb_heic_encoded_images_info, secondary_width) == 20, "lpb_heic_encoded_images_info.secondary_width offset mismatch");
+static_assert(sizeof(lpb_gainmap_metadata_v1) == 176, "lpb_gainmap_metadata_v1 size mismatch");
+static_assert(offsetof(lpb_gainmap_metadata_v1, gain_map_min) == 16, "lpb_gainmap_metadata_v1.gain_map_min offset mismatch");
+static_assert(offsetof(lpb_gainmap_metadata_v1, apple_maker_note_33) == 160, "lpb_gainmap_metadata_v1.apple_maker_note_33 offset mismatch");
+static_assert(sizeof(lpb_hdr_gainmap_conversion_request_v1) == 696, "lpb_hdr_gainmap_conversion_request_v1 size mismatch");
+static_assert(offsetof(lpb_hdr_gainmap_conversion_request_v1, source_range) == 48, "lpb_hdr_gainmap_conversion_request_v1.source_range offset mismatch");
+static_assert(offsetof(lpb_hdr_gainmap_conversion_request_v1, source_sha256) == 88, "lpb_hdr_gainmap_conversion_request_v1.source_sha256 offset mismatch");
+static_assert(offsetof(lpb_hdr_gainmap_conversion_request_v1, stable_identity) == 184, "lpb_hdr_gainmap_conversion_request_v1.stable_identity offset mismatch");
+static_assert(offsetof(lpb_hdr_gainmap_conversion_request_v1, relationship) == 632, "lpb_hdr_gainmap_conversion_request_v1.relationship offset mismatch");
+static_assert(sizeof(lpb_hdr_gainmap_conversion_result_v1) == 1288, "lpb_hdr_gainmap_conversion_result_v1 size mismatch");
+static_assert(offsetof(lpb_hdr_gainmap_conversion_result_v1, gainmap_range) == 40, "lpb_hdr_gainmap_conversion_result_v1.gainmap_range offset mismatch");
+static_assert(offsetof(lpb_hdr_gainmap_conversion_result_v1, output_sha256) == 56, "lpb_hdr_gainmap_conversion_result_v1.output_sha256 offset mismatch");
+static_assert(offsetof(lpb_hdr_gainmap_conversion_result_v1, hdr_capacity_min) == 120, "lpb_hdr_gainmap_conversion_result_v1.hdr_capacity_min offset mismatch");
+static_assert(offsetof(lpb_hdr_gainmap_conversion_result_v1, gain_map_min) == 136, "lpb_hdr_gainmap_conversion_result_v1.gain_map_min offset mismatch");
+static_assert(offsetof(lpb_hdr_gainmap_conversion_result_v1, gain_map_max) == 160, "lpb_hdr_gainmap_conversion_result_v1.gain_map_max offset mismatch");
+static_assert(offsetof(lpb_hdr_gainmap_conversion_result_v1, gamma) == 184, "lpb_hdr_gainmap_conversion_result_v1.gamma offset mismatch");
+static_assert(offsetof(lpb_hdr_gainmap_conversion_result_v1, offset_sdr) == 208, "lpb_hdr_gainmap_conversion_result_v1.offset_sdr offset mismatch");
+static_assert(offsetof(lpb_hdr_gainmap_conversion_result_v1, offset_hdr) == 232, "lpb_hdr_gainmap_conversion_result_v1.offset_hdr offset mismatch");
+static_assert(offsetof(lpb_hdr_gainmap_conversion_result_v1, transaction_token) == 256, "lpb_hdr_gainmap_conversion_result_v1.transaction_token offset mismatch");
+static_assert(offsetof(lpb_hdr_gainmap_conversion_result_v1, staging_path) == 264, "lpb_hdr_gainmap_conversion_result_v1.staging_path offset mismatch");
 static_assert(sizeof(lpb_gainmap_item_facts) == 112, "lpb_gainmap_item_facts size mismatch");
 static_assert(sizeof(lpb_auxiliary_item_facts) == 2208, "lpb_auxiliary_item_facts size mismatch");
 static_assert(sizeof(lpb_preservation_carrier_facts) == 464, "lpb_preservation_carrier_facts size mismatch");

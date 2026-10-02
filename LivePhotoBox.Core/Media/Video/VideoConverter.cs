@@ -27,6 +27,9 @@ public sealed class VideoConverter : IVideoConverter
         cancellationToken.ThrowIfCancellationRequested();
 
         var sw = Stopwatch.StartNew();
+        ConversionOperationKind requestedOperation = request.TargetFps > 0
+            ? ConversionOperationKind.Unsupported
+            : request.TargetCodec == VideoCodec.Copy ? ConversionOperationKind.ContainerRemux : ConversionOperationKind.LossyReencode;
 
         // TargetFps handling
         if (request.TargetFps > 0)
@@ -49,6 +52,7 @@ public sealed class VideoConverter : IVideoConverter
                     HardwareFallbackOccurred = false,
                     AudioPreserved = false,
                     RotationPreserved = false,
+                    Truth = FailureTruth(requestedOperation, ConversionCapability.VideoTranscodeSdr, request, ConversionFactsOrigin.ArtifactDeclaration, ConversionFailureStage.InvalidRequest, ConversionFailureCategory.Unsupported),
                     Duration = sw.Elapsed
                 }
             };
@@ -58,6 +62,7 @@ public sealed class VideoConverter : IVideoConverter
         string outPath = Path.Combine(request.TargetDirectory, $"vid-conv-{Guid.NewGuid():N}{ext}");
 
         VideoFacts? sourceFacts = null;
+        bool backendCompleted = false;
         try
         {
             sourceFacts = await ProbeAsync(request.SourceArtifact.Path, cancellationToken).ConfigureAwait(false);
@@ -70,6 +75,9 @@ public sealed class VideoConverter : IVideoConverter
         catch (Exception ex)
         {
             sw.Stop();
+            ConversionFailureCategory category = IsBackendUnavailable(ex)
+                ? ConversionFailureCategory.BackendUnavailable
+                : ConversionFailureCategory.SourceInspection;
             return new VideoConversionResult
             {
                 Success = false,
@@ -87,6 +95,15 @@ public sealed class VideoConverter : IVideoConverter
                     HardwareFallbackOccurred = false,
                     AudioPreserved = false,
                     RotationPreserved = false,
+                    Truth = FailureTruth(
+                        requestedOperation,
+                        ConversionCapability.VideoTranscodeSdr,
+                        request,
+                        ConversionFactsOrigin.CompatibilityInspectionOrProbe,
+                        category == ConversionFailureCategory.BackendUnavailable
+                            ? ConversionFailureStage.BackendUnavailable
+                            : ConversionFailureStage.SourceInspection,
+                        category),
                     Duration = sw.Elapsed
                 }
             };
@@ -94,6 +111,11 @@ public sealed class VideoConverter : IVideoConverter
 
         try
         {
+            if (request.TrustedSourceFacts is { } trusted &&
+                (trusted.Container != sourceFacts.Container || trusted.Codec != sourceFacts.Codec))
+            {
+                throw new InvalidOperationException("Trusted conversion facts disagree with the probed source video; refusing conversion.");
+            }
             // Transcode or Remux via Native
             NativeMediaService.NativeVideoTranscodeResult backendDiagnostics = await NativeMediaService.TranscodeVideoWithDiagnosticsAsync(
                 request.SourceArtifact.Path,
@@ -102,6 +124,7 @@ public sealed class VideoConverter : IVideoConverter
                 request.TargetCodec,
                 request.Crf,
                 cancellationToken).ConfigureAwait(false);
+            backendCompleted = true;
 
             sw.Stop();
 
@@ -183,26 +206,70 @@ public sealed class VideoConverter : IVideoConverter
                     HardwareFallbackReason = backendDiagnostics.HardwareFallbackReason,
                     AudioPreserved = audioPreserved,
                     RotationPreserved = rotationPreserved,
+                    Truth = new ConversionExecutionTruth
+                    {
+                        RequestedOperationKind = requestedOperation,
+                        ActualOperationKind = backendDiagnostics.Backend == VideoBackend.ProjectIsoBmffRemux ? ConversionOperationKind.ContainerRemux : ConversionOperationKind.LossyReencode,
+                        SelectedCapability = backendDiagnostics.Backend == VideoBackend.ProjectIsoBmffRemux ? ConversionCapability.VideoRemux : ConversionCapability.VideoTranscodeSdr,
+                        ActualCapability = backendDiagnostics.Backend == VideoBackend.ProjectIsoBmffRemux ? ConversionCapability.VideoRemux : ConversionCapability.VideoTranscodeSdr,
+                        FactsOrigin = request.TrustedSourceFacts == null ? ConversionFactsOrigin.CompatibilityInspectionOrProbe : ConversionFactsOrigin.CallerTrustedNeutralFacts,
+                        PreservationPolicy = request.PreservationPolicy,
+                        BackendName = backendDiagnostics.Backend.ToString(),
+                        HardwareMode = backendDiagnostics.HardwareMode.ToString(),
+                        FallbackOccurred = backendDiagnostics.HardwareFallbackOccurred,
+                        FallbackReason = backendDiagnostics.HardwareFallbackReason,
+                        Pixel = ConversionComponentOutcome.NotApplicable,
+                        Metadata = ConversionComponentOutcome.NotEvaluated,
+                        ColorIcc = ConversionComponentOutcome.NotEvaluated,
+                        HdrGainMap = ConversionComponentOutcome.NotApplicable,
+                        Auxiliary = ConversionComponentOutcome.NotApplicable,
+                        // Existing probe checks remain compatibility diagnostics; R1 does not
+                        // promote them into component-preservation evidence.
+                        Audio = ConversionComponentOutcome.NotEvaluated,
+                        Timing = ConversionComponentOutcome.NotEvaluated,
+                        Orientation = ConversionComponentOutcome.NotEvaluated,
+                        // R5 owns the complete independent video preservation proof.
+                        // A successful remux is not enough for Strict to claim every
+                        // deferred component was preserved.
+                        PreservationOutcome = backendDiagnostics.Backend == VideoBackend.ProjectIsoBmffRemux
+                            ? PreservationOutcome.PartiallyPreserved
+                            : PreservationOutcome.Reencoded
+                    },
                     Duration = sw.Elapsed
                 }
             };
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException ex)
         {
             sw.Stop();
-            if (File.Exists(outPath))
+            if (!TryDeleteOutput(outPath))
             {
-                try { File.Delete(outPath); } catch { /* ignore cleanup errors */ }
+                throw new IOException(
+                    "Video conversion was cancelled, but its staged output could not be removed.",
+                    ex);
             }
             throw;
         }
         catch (Exception ex)
         {
             sw.Stop();
-            if (File.Exists(outPath))
+            bool cleanupSucceeded = TryDeleteOutput(outPath);
+            ConversionFailureCategory category = !cleanupSucceeded
+                ? ConversionFailureCategory.CleanupFailure
+                : IsBackendUnavailable(ex)
+                    ? ConversionFailureCategory.BackendUnavailable
+                : backendCompleted && ex is FileNotFoundException
+                    ? ConversionFailureCategory.OutputMissing
+                    : backendCompleted && ex is InvalidOperationException
+                        ? ConversionFailureCategory.OutputValidation
+                        : ConversionFailureCategory.BackendFailure;
+            ConversionFailureStage stage = category switch
             {
-                try { File.Delete(outPath); } catch { /* ignore cleanup errors */ }
-            }
+                ConversionFailureCategory.CleanupFailure => ConversionFailureStage.Cleanup,
+                ConversionFailureCategory.OutputMissing or ConversionFailureCategory.OutputValidation => ConversionFailureStage.OutputValidation,
+                ConversionFailureCategory.BackendUnavailable => ConversionFailureStage.BackendUnavailable,
+                _ => ConversionFailureStage.BackendExecution
+            };
 
             return new VideoConversionResult
             {
@@ -221,9 +288,43 @@ public sealed class VideoConverter : IVideoConverter
                     HardwareFallbackOccurred = false,
                     AudioPreserved = false,
                     RotationPreserved = false,
+                    Truth = FailureTruth(requestedOperation, request.TargetCodec == VideoCodec.Copy ? ConversionCapability.VideoRemux : ConversionCapability.VideoTranscodeSdr, request, request.TrustedSourceFacts == null ? ConversionFactsOrigin.CompatibilityInspectionOrProbe : ConversionFactsOrigin.CallerTrustedNeutralFacts, ex.Message.StartsWith("Trusted conversion facts", StringComparison.Ordinal) ? ConversionFailureStage.TrustedFactsMismatch : stage, ex.Message.StartsWith("Trusted conversion facts", StringComparison.Ordinal) ? ConversionFailureCategory.TrustedFactsMismatch : category),
                     Duration = sw.Elapsed
                 }
             };
         }
     }
+
+    private static bool TryDeleteOutput(string path)
+    {
+        if (!File.Exists(path)) return true;
+        try { File.Delete(path); return !File.Exists(path); }
+        catch { return false; }
+    }
+
+    private static bool IsBackendUnavailable(Exception ex) =>
+        ex is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException;
+
+    private static ConversionExecutionTruth FailureTruth(ConversionOperationKind requested, ConversionCapability capability, VideoConversionRequest request, ConversionFactsOrigin origin, ConversionFailureStage stage, ConversionFailureCategory category) => new()
+    {
+        RequestedOperationKind = requested,
+        ActualOperationKind = category == ConversionFailureCategory.Unsupported ? ConversionOperationKind.Unsupported : ConversionOperationKind.Unknown,
+        SelectedCapability = capability,
+        ActualCapability = ConversionCapability.Unknown,
+        FactsOrigin = origin,
+        PreservationPolicy = request.PreservationPolicy,
+        BackendName = "LivePhotoBox.Native",
+        HardwareMode = "Unknown",
+        Pixel = ConversionComponentOutcome.NotApplicable,
+        Metadata = ConversionComponentOutcome.NotEvaluated,
+        ColorIcc = ConversionComponentOutcome.NotEvaluated,
+        HdrGainMap = ConversionComponentOutcome.NotApplicable,
+        Auxiliary = ConversionComponentOutcome.NotApplicable,
+        Audio = ConversionComponentOutcome.NotEvaluated,
+        Timing = ConversionComponentOutcome.NotEvaluated,
+        Orientation = ConversionComponentOutcome.NotEvaluated,
+        PreservationOutcome = PreservationOutcome.PartiallyPreserved,
+        FailureStage = stage,
+        FailureCategory = category
+    };
 }

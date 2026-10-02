@@ -35,7 +35,7 @@ bool read_file_bounded(const fs::path& path, std::vector<unsigned char>& bytes) 
 // Returns the byte immediately after the codestream EOI. It deliberately
 // reaches EOI through the legal marker hierarchy instead of treating a string
 // hit anywhere in a file as JPEG structure.
-bool find_jpeg_eoi(const std::vector<unsigned char>& data, size_t& after_eoi) noexcept {
+bool find_jpeg_eoi(std::span<const unsigned char> data, size_t& after_eoi) noexcept {
     if (data.size() < 4 || data[0] != 0xFF || data[1] != 0xD8) return false;
     size_t pos = 2;
     bool in_scan = false;
@@ -70,7 +70,7 @@ bool find_jpeg_eoi(const std::vector<unsigned char>& data, size_t& after_eoi) no
 // Reassembles the ICC APP2 sequence exactly as defined by the JPEG ICC
 // convention. Color profile bytes are codec payload facts, not an excuse to
 // reinterpret the pixels as sRGB.
-bool extract_jpeg_icc_profile(const std::vector<unsigned char>& data, std::vector<uint8_t>& profile) noexcept {
+bool extract_jpeg_icc_profile(std::span<const unsigned char> data, std::vector<uint8_t>& profile) noexcept {
     profile.clear();
     if (data.size() < 4 || data[0] != 0xFF || data[1] != 0xD8) return false;
     const char signature[] = "ICC_PROFILE\0";
@@ -149,6 +149,19 @@ lpb_result decode_jpeg_rgb_file(lpb_context* context, const char* input_path,
         set_error(context, "JPEG input is unavailable, too large for the configured safety limit, or malformed.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
+    return decode_jpeg_rgb_bytes(context, source, output);
+}
+
+lpb_result decode_jpeg_rgb_bytes(lpb_context* context, std::span<const uint8_t> input,
+    jpeg_rgb_image& output) noexcept {
+    output = {};
+    if (!context || input.empty() || input.size() > kMaxCompressedBytes ||
+        input.size() > std::numeric_limits<unsigned long>::max()) {
+        if (context) set_error(context, "JPEG byte decode requires one bounded non-empty input buffer.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const std::span<const unsigned char> source(
+        reinterpret_cast<const unsigned char*>(input.data()), input.size());
     size_t after_eoi = 0;
     if (!find_jpeg_eoi(source, after_eoi)) {
         set_error(context, "JPEG decode requires a complete JPEG codestream.");
@@ -210,10 +223,18 @@ lpb_result decode_jpeg_rgb_file(lpb_context* context, const char* input_path,
     return LPB_RESULT_OK;
 }
 
-lpb_result encode_rgb_jpeg_file(lpb_context* context, const char* output_path,
-    uint32_t width, uint32_t height, std::span<const uint8_t> rgb, int32_t quality) noexcept {
-    if (!context || !output_path || !valid_rgb_layout(width, height, rgb)) {
-        if (context) set_error(context, "JPEG encode received invalid dimensions or RGB buffer.");
+lpb_result encode_rgb_jpeg_bytes(lpb_context* context, uint32_t width, uint32_t height,
+    std::span<const uint8_t> rgb, int32_t quality, std::span<const uint8_t> icc_profile,
+    std::vector<uint8_t>& output) noexcept {
+    output.clear();
+    if (!context || !valid_rgb_layout(width, height, rgb)) {
+        if (context) set_error(context, "JPEG byte encode received invalid dimensions or RGB buffer.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    constexpr size_t icc_segment_data_capacity = 65533u - 14u;
+    if (icc_profile.size() > 4u * 1024u * 1024u ||
+        (icc_profile.size() + icc_segment_data_capacity - 1) / icc_segment_data_capacity > 255u) {
+        set_error(context, "JPEG ICC profile exceeds the project-owned APP2 representation limit.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     tjhandle codec = tjInitCompress();
@@ -230,12 +251,66 @@ lpb_result encode_rgb_jpeg_file(lpb_context* context, const char* output_path,
         set_error(context, "libjpeg-turbo JPEG encoding failed.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
+    try {
+        std::vector<uint8_t> jpeg;
+        if (icc_profile.empty()) {
+            jpeg.assign(encoded, encoded + static_cast<size_t>(encoded_size));
+        } else {
+            if (encoded_size < 2 || encoded[0] != 0xFF || encoded[1] != 0xD8) {
+                tjFree(encoded);
+                set_error(context, "JPEG encoder returned an invalid SOI marker before ICC insertion.");
+                return LPB_RESULT_INTERNAL_ERROR;
+            }
+            const size_t chunk_count = (icc_profile.size() + icc_segment_data_capacity - 1) /
+                icc_segment_data_capacity;
+            jpeg.reserve(static_cast<size_t>(encoded_size) + icc_profile.size() + chunk_count * 18u);
+            jpeg.insert(jpeg.end(), encoded, encoded + 2);
+            constexpr uint8_t signature[] = { 'I','C','C','_','P','R','O','F','I','L','E',0 };
+            size_t profile_offset = 0;
+            for (size_t index = 0; index < chunk_count; ++index) {
+                const size_t chunk_size = std::min(icc_segment_data_capacity, icc_profile.size() - profile_offset);
+                const uint16_t marker_length = static_cast<uint16_t>(chunk_size + sizeof(signature) + 4u);
+                jpeg.push_back(0xFF);
+                jpeg.push_back(0xE2);
+                jpeg.push_back(static_cast<uint8_t>(marker_length >> 8));
+                jpeg.push_back(static_cast<uint8_t>(marker_length));
+                jpeg.insert(jpeg.end(), std::begin(signature), std::end(signature));
+                jpeg.push_back(static_cast<uint8_t>(index + 1));
+                jpeg.push_back(static_cast<uint8_t>(chunk_count));
+                jpeg.insert(jpeg.end(), icc_profile.begin() + static_cast<std::ptrdiff_t>(profile_offset),
+                    icc_profile.begin() + static_cast<std::ptrdiff_t>(profile_offset + chunk_size));
+                profile_offset += chunk_size;
+            }
+            jpeg.insert(jpeg.end(), encoded + 2, encoded + static_cast<size_t>(encoded_size));
+        }
+        output = std::move(jpeg);
+    } catch (...) {
+        output.clear();
+    }
+    tjFree(encoded);
+    if (output.empty()) {
+        output.clear();
+        set_error(context, "Failed to assemble the libjpeg-turbo encoded JPEG bytes.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    return LPB_RESULT_OK;
+}
+
+lpb_result encode_rgb_jpeg_file(lpb_context* context, const char* output_path,
+    uint32_t width, uint32_t height, std::span<const uint8_t> rgb, int32_t quality,
+    std::span<const uint8_t> icc_profile) noexcept {
+    if (!context || !output_path) {
+        if (context) set_error(context, "JPEG encode requires a context and output path.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    std::vector<uint8_t> jpeg;
+    const lpb_result encoded = encode_rgb_jpeg_bytes(context, width, height, rgb,
+        quality, icc_profile, jpeg);
+    if (encoded != LPB_RESULT_OK) return encoded;
     const fs::path output_path_native = utf8_to_path(output_path);
     windows_owned_output output;
     const bool written = output.create(output_path_native, L"lpb-jpeg-encode") &&
-        output.write_all(std::span<const uint8_t>(encoded, static_cast<size_t>(encoded_size))) &&
-        output.publish_no_replace(output_path_native);
-    tjFree(encoded);
+        output.write_all(jpeg) && output.publish_no_replace(output_path_native);
     if (!written) {
         output.abort();
         set_error(context, "Failed to publish the libjpeg-turbo encoded JPEG.");

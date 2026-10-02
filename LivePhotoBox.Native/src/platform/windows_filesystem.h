@@ -36,14 +36,17 @@ public:
     ~windows_owned_output() noexcept;
 
     bool create(const std::filesystem::path& destination,
-        const wchar_t* prefix, const wchar_t* suffix = L".tmp") noexcept;
+        const wchar_t* prefix, const wchar_t* suffix = L".tmp",
+        bool deny_foreign_writes = false) noexcept;
     const std::filesystem::path& path() const noexcept { return temp_path_; }
     bool write_all(std::span<const uint8_t> bytes) noexcept;
     bool copy_from_readonly(const std::filesystem::path& source) noexcept;
+    bool compute_sha256(uint8_t out_hash[32]) noexcept;
     bool flush() noexcept;
     bool ready_to_consume() noexcept;
     lpb::random_access_reader reader() noexcept;
     bool publish_no_replace(const std::filesystem::path& destination) noexcept;
+    bool abort_and_confirm() noexcept;
     void abort() noexcept;
 
 private:

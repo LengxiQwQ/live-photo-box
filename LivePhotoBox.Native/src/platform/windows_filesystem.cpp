@@ -1,4 +1,5 @@
 #include "foundation/internal.h"
+#include "foundation/sha256.h"
 #include "platform/windows_filesystem.h"
 
 lpb_platform_error lpb_platform_classify_error(uint32_t code) noexcept {
@@ -464,14 +465,14 @@ bool lpb_platform_pin_directory(const std::filesystem::path& directory,
 windows_owned_output::~windows_owned_output() noexcept { abort(); }
 
 bool windows_owned_output::create(const std::filesystem::path& destination,
-    const wchar_t* prefix, const wchar_t* suffix) noexcept
+    const wchar_t* prefix, const wchar_t* suffix, bool deny_foreign_writes) noexcept
 {
     if (handle_ != nullptr || destination.empty() || prefix == nullptr || suffix == nullptr) return false;
     try {
         const auto directory = destination.parent_path();
         if (directory.empty()) return false;
         if (!lpb_platform_pin_directory(directory, directory_handle_)) return false;
-        HANDLE file = lpb_create_unique_temp_file(directory, prefix, temp_path_, suffix);
+        HANDLE file = lpb_create_unique_temp_file(directory, prefix, temp_path_, suffix, deny_foreign_writes);
         if (file == INVALID_HANDLE_VALUE) {
             CloseHandle(static_cast<HANDLE>(directory_handle_));
             directory_handle_ = nullptr;
@@ -512,6 +513,12 @@ bool windows_owned_output::copy_from_readonly(const std::filesystem::path& sourc
     }
     CloseHandle(input);
     return okay;
+}
+
+bool windows_owned_output::compute_sha256(uint8_t out_hash[32]) noexcept {
+    HANDLE file = static_cast<HANDLE>(handle_);
+    return out_hash && file != nullptr && file != INVALID_HANDLE_VALUE &&
+        lpb::crypto::sha256_file(file, out_hash);
 }
 
 bool windows_owned_output::flush() noexcept {
@@ -566,14 +573,21 @@ bool windows_owned_output::publish_no_replace(const std::filesystem::path& desti
 }
 
 void windows_owned_output::abort() noexcept {
+    static_cast<void>(abort_and_confirm());
+}
+
+bool windows_owned_output::abort_and_confirm() noexcept {
     HANDLE file = static_cast<HANDLE>(handle_);
     if (file != nullptr && file != INVALID_HANDLE_VALUE) {
-        static_cast<void>(lpb_platform_dispose_owned(file));
+        const bool disposed = lpb_platform_dispose_owned(file);
+        if (!disposed) return false;
         CloseHandle(file);
+        handle_ = nullptr;
     }
     HANDLE directory = static_cast<HANDLE>(directory_handle_);
     if (directory != nullptr && directory != INVALID_HANDLE_VALUE) CloseHandle(directory);
     handle_ = nullptr;
     directory_handle_ = nullptr;
     temp_path_.clear();
+    return true;
 }

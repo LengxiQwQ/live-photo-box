@@ -1,4 +1,6 @@
 #include <cstdio>
+#include <bit>
+#include <cmath>
 #include "protocols/apple.h"
 #include "foundation/residue_fingerprint.h"
 #include "foundation/portable_internal.h"
@@ -1523,6 +1525,44 @@ bool apple_makernote_get_tag_fingerprint(
     return false;
 }
 
+bool apple_makernote_get_float_tag(
+    const uint8_t* data, size_t start, size_t end, uint16_t target_tag, double& out_value)
+{
+    out_value = 0.0;
+    owned_makernote note{};
+    if (!locate_owned_makernote(data, start, end, note)) return false;
+    const uint16_t entry_count = read_be16u(data + note.start + 14);
+    const size_t entries = note.start + 16;
+    for (uint16_t i = 0; i < entry_count; ++i) {
+        const size_t entry = entries + static_cast<size_t>(i) * 12;
+        if (read_be16u(data + entry) != target_tag) continue;
+        const uint16_t type = read_be16u(data + entry + 2);
+        const uint32_t count = read_be32u(data + entry + 4);
+        if (count != 1 || (type != 10 && type != 11)) return false;
+        const size_t value_size = type == 10 ? 8u : 4u;
+        const uint8_t* value_data = data + entry + 8;
+        if (value_size > 4) {
+            const uint32_t offset = read_be32u(data + entry + 8);
+            if (offset > note.end - note.start || value_size > note.end - note.start - offset) return false;
+            value_data = data + note.start + offset;
+        }
+        if (type == 11) {
+            const float value = std::bit_cast<float>(read_be32u(value_data));
+            if (!std::isfinite(value)) return false;
+            out_value = static_cast<double>(value);
+            return true;
+        }
+        const int32_t numerator = static_cast<int32_t>(read_be32u(value_data));
+        const int32_t denominator = static_cast<int32_t>(read_be32u(value_data + 4));
+        if (denominator == 0) return false;
+        const double value = static_cast<double>(numerator) / static_cast<double>(denominator);
+        if (!std::isfinite(value)) return false;
+        out_value = value;
+        return true;
+    }
+    return false;
+}
+
 bool apple_image_has_tag(
     lpb_context* context, const std::vector<uint8_t>& data,
     lpb_image_container container, uint16_t tag)
@@ -1593,6 +1633,43 @@ bool apple_image_get_tag_fingerprint(
             offset > data.size() || length > data.size() - static_cast<size_t>(offset)) return false;
         return apple_makernote_get_tag_fingerprint(data.data(), static_cast<size_t>(offset),
             static_cast<size_t>(offset + length), tag, out_fp);
+    }
+    return false;
+}
+
+bool apple_image_get_float_tag(
+    lpb_context* context, const std::vector<uint8_t>& data,
+    lpb_image_container container, uint16_t tag, double& out_value)
+{
+    out_value = 0.0;
+    if (container == LPB_IMAGE_CONTAINER_JPEG && data.size() >= 2 && data[0] == 0xFF && data[1] == 0xD8) {
+        size_t p = 2;
+        while (p + 2 <= data.size()) {
+            if (data[p++] != 0xFF) return false;
+            while (p < data.size() && data[p] == 0xFF) ++p;
+            if (p >= data.size()) return false;
+            const uint8_t marker = data[p++];
+            if (marker == 0xDA || marker == 0xD9) break;
+            if (marker == 0x00 || (marker >= 0xD0 && marker <= 0xD7)) continue;
+            if (p + 2 > data.size()) return false;
+            const size_t segment_length = (static_cast<size_t>(data[p]) << 8) | data[p + 1];
+            if (segment_length < 2 || segment_length - 2 > data.size() - (p + 2)) return false;
+            const size_t payload = p + 2;
+            const size_t payload_size = segment_length - 2;
+            if (marker == 0xE1 && payload_size >= 6 && std::memcmp(data.data() + payload, "Exif\0\0", 6) == 0 &&
+                apple_makernote_get_float_tag(data.data(), payload + 6, payload + payload_size, tag, out_value)) {
+                return true;
+            }
+            p = payload + payload_size;
+        }
+        return false;
+    }
+    if (container == LPB_IMAGE_CONTAINER_HEIC) {
+        uint64_t offset = 0, length = 0;
+        if (!context || lpb_heif_locate_exif_item(context, data.data(), data.size(), &offset, &length) != LPB_RESULT_OK ||
+            offset > data.size() || length > data.size() - static_cast<size_t>(offset)) return false;
+        return apple_makernote_get_float_tag(data.data(), static_cast<size_t>(offset),
+            static_cast<size_t>(offset + length), tag, out_value);
     }
     return false;
 }

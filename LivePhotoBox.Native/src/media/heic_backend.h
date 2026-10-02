@@ -3,6 +3,7 @@
 #include "livephotobox_native.h"
 
 #include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -77,6 +78,10 @@ lpb_result encode_heic_file(lpb_context* context, const char* output_path,
 lpb_result encode_heic_primary_and_secondary_file(lpb_context* context, const char* output_path,
     const pixel_surface& primary, const pixel_surface& secondary, int32_t quality,
     heic_encoded_image_facts& output) noexcept;
+lpb_result encode_heic_primary_and_gainmap_bytes(lpb_context* context,
+    const pixel_surface& primary, const pixel_surface& gainmap, int32_t quality,
+    std::span<const uint8_t> gainmap_xmp, std::vector<uint8_t>& output,
+    heic_encoded_image_facts& facts) noexcept;
 const char* heic_backend_version() noexcept;
 
 } // namespace lpb::media

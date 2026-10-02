@@ -137,6 +137,9 @@
     <ClCompile Include="src\media\heic_backend.cpp">
       <Filter>src\media</Filter>
     </ClCompile>
+    <ClCompile Include="src\media\gainmap_math.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
     <ClCompile Include="src\media\image_converter.cpp">
       <Filter>src\media</Filter>
     </ClCompile>
@@ -147,6 +150,9 @@
       <Filter>src\media</Filter>
     </ClCompile>
     <ClCompile Include="src\media\media_cleaner.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\hdr_gainmap_conversion.cpp">
       <Filter>src\media</Filter>
     </ClCompile>
     <ClCompile Include="src\media\media_extractor.cpp">

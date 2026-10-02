@@ -1,0 +1,66 @@
+{
+  "schemaVersion": 2,
+  "suiteId": "P5-R3-v2",
+  "roadmap": "docs/LivePhotoBox-Current-Roadmap/LivePhotoBox-P5-细分路线图/04-P5-R3-HDR与GainMap语义转换.md",
+  "referencePolicy": "reference-policy-v1.json",
+  "structuralPolicy": "source-structure-policy-v2.json",
+  "validator": "validate_p5_r3_v2.py",
+  "sampleCache": ".ai-tmp/cache/samples/P5-R3-v1",
+  "workingArtifacts": ".ai-tmp/workspace/P5-R3/iteration-5-preflight-v2",
+  "evidenceRoot": ".ai-tmp/evidence/P5-R3",
+  "preserveP4V1ManifestIdentity": true,
+  "supportingInputs": [
+    {
+      "file": "苹果双文件.MOV",
+      "sha256": "D47C0E8FC052393E91A6ECB0AA941AFB20758CD244220943E3C06C52BC2DF381",
+      "purpose": "Apple NeutralMediaService source-cleaning companion; not an additional conversion route."
+    }
+  ],
+  "canonicalRoutes": [
+    {
+      "id": "honor-jpeg-to-heic",
+      "sourceFile": "荣耀.jpg",
+      "sourceSha256": "970658F835ADD139247694A67803E21A0CA0421290A3A2D269D52D970CABF759",
+      "sourceContainer": "jpeg-ultra-hdr-iso-gainmap",
+      "targetFile": "honor-jpeg-to-heic.heic",
+      "targetContainer": "heif-gainmap-auxiliary",
+      "expectedGainMapRelationship": "urn:com:photo:aux:hdrgainmap"
+    },
+    {
+      "id": "vivo-jpeg-to-heic",
+      "sourceFile": "vivo.jpg",
+      "sourceSha256": "631CF8DAC983A9F58FC1D8CB63AAF8CC0569C45B80F046F1B995936D608320B9",
+      "sourceContainer": "jpeg-ultra-hdr-iso-gainmap",
+      "targetFile": "vivo-jpeg-to-heic.heic",
+      "targetContainer": "heif-gainmap-auxiliary",
+      "expectedGainMapRelationship": "urn:com:photo:aux:hdrgainmap"
+    },
+    {
+      "id": "apple-heic-to-jpeg",
+      "sourceFile": "苹果双文件.HEIC",
+      "sourceSha256": "868F29D1408D090193D04EBE5C71FEA139705381B9C1B8673C40C62E1A456998",
+      "sourceContainer": "heif-apple-gainmap-auxiliary",
+      "targetFile": "apple-heic-to-jpeg.jpg",
+      "targetContainer": "jpeg-ultra-hdr-iso-gainmap",
+      "expectedGainMapRelationship": "MPF second image + XMP GainMap item"
+    },
+    {
+      "id": "samsung-heic-to-jpeg",
+      "sourceFile": "三星.heic",
+      "sourceSha256": "DBFB8AD846A16291B0B09599FCF588A3E6C20D58B96782E357D5652E3EC544C4",
+      "sourceContainer": "heif-samsung-iso-gainmap-auxiliary",
+      "targetFile": "samsung-heic-to-jpeg.jpg",
+      "targetContainer": "jpeg-ultra-hdr-iso-gainmap",
+      "expectedGainMapRelationship": "MPF second image + XMP GainMap item"
+    }
+  ],
+  "independentChecks": [
+    "input and output SHA-256",
+    "JPEG marker boundaries, XMP Container Directory, MPF entry boundaries and exact GainMap codestream hash",
+    "HEIF pitm/iinf/iloc/iref/iprp item graph, exact auxiliary payload hash, auxC and auxl relationships, and item-bound cdsc XMP",
+    "complete GainMap metadata and before/after mapping values",
+    "independent primary and auxiliary decode, reference reconstruction, and frozen similarity thresholds",
+    "all four canonical routes present; no skip"
+  ],
+  "sourceAnomalyPolicyScope": "The Vivo exception is source-only and applies only when every exact source, range, marker, MPF, XMP and interval-hash invariant in source-structure-policy-v2.json is satisfied. All JPEG targets retain strict MPF primary-size equality."
+}

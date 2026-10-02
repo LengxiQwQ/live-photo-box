@@ -76,6 +76,8 @@ public sealed class VideoConverterTests
         });
 
         Assert.True(result.Success, result.ErrorMessage);
+        Assert.Equal(ConversionOperationKind.ContainerRemux, result.ExecutionRecord.Truth.ActualOperationKind);
+        Assert.Equal(PreservationOutcome.PartiallyPreserved, result.ExecutionRecord.Truth.PreservationOutcome);
         Assert.NotNull(result.OutputArtifact);
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.True(result.ExecutionRecord.RemuxUsed);
@@ -115,6 +117,7 @@ public sealed class VideoConverterTests
         });
 
         Assert.True(result.Success, result.ErrorMessage);
+        Assert.Equal(ConversionOperationKind.ContainerRemux, result.ExecutionRecord.Truth.ActualOperationKind);
         Assert.NotNull(result.OutputArtifact);
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.True(result.ExecutionRecord.RemuxUsed);
@@ -412,5 +415,7 @@ public sealed class VideoConverterTests
                 TargetCodec = VideoCodec.H264,
                 TargetDirectory = workspace.RootDirectory
             }, cts.Token));
+
+        Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "vid-conv-*"));
     }
 }

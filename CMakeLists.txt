@@ -38,6 +38,7 @@ set(LPB_PORTABLE_SOURCES
   LivePhotoBox.Native/src/metadata/exif.cpp
   LivePhotoBox.Native/src/metadata/exif_rewrite.cpp
   LivePhotoBox.Native/src/metadata/jpeg.cpp
+  LivePhotoBox.Native/src/media/gainmap_math.cpp
   LivePhotoBox.Native/src/protocols/apple.cpp
   LivePhotoBox.Native/src/protocols/apple_mebx.cpp
   LivePhotoBox.Native/src/protocols/huawei.cpp
@@ -56,6 +57,7 @@ set(LPB_WINDOWS_PLATFORM_SOURCES
   LivePhotoBox.Native/src/platform/windows_filesystem.cpp)
 set(LPB_MEDIA_SOURCES
   LivePhotoBox.Native/src/media/heic_backend.cpp
+  LivePhotoBox.Native/src/media/hdr_gainmap_conversion.cpp
   LivePhotoBox.Native/src/media/jpeg_backend.cpp
   LivePhotoBox.Native/src/media/image_converter.cpp
   LivePhotoBox.Native/src/media/media_api.cpp

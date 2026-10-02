@@ -129,19 +129,6 @@ internal static class ConvertCommand
                 return 1;
             }
 
-            // CLI already has project-owned source facts. Apply the exact
-            // same semantic eligibility rule as the neutral pipeline before
-            // allocating or publishing a codec-only result.
-            if (!ImageConversionEligibility.IsAllowed(
-                    facts,
-                    facts.PrimaryImage.Container,
-                    imageContainer,
-                    out string? semanticError))
-            {
-                CliConsole.WriteErrorLine($"Error: {semanticError}");
-                return 1;
-            }
-
             var result = await new ImageConverter().ConvertAsync(new ImageConversionRequest
             {
                 SourceArtifact = new MediaArtifact
@@ -155,7 +142,8 @@ internal static class ConvertCommand
                 TargetContainer = imageContainer,
                 TargetDirectory = Path.GetDirectoryName(outputPath)!,
                 Quality = 95,
-                PreservationPolicy = PreservationPolicy.BestEffort
+                PreservationPolicy = PreservationPolicy.BestEffort,
+                TrustedSourceFacts = ImageConversionEligibility.ToConversionFacts(facts)
             }, cancellationToken).ConfigureAwait(false);
 
             if (!result.Success || result.OutputArtifact == null)
@@ -204,7 +192,15 @@ internal static class ConvertCommand
                 TargetContainer = videoContainer,
                 TargetCodec = targetCodec,
                 TargetDirectory = Path.GetDirectoryName(outputPath)!,
-                Crf = 23
+                Crf = 23,
+                TrustedSourceFacts = new VideoConversionSourceFacts
+                {
+                    Container = facts.Container,
+                    Codec = facts.Codec,
+                    HasAudio = facts.HasAudio,
+                    RotationDegrees = facts.RotationDegrees,
+                    DurationSeconds = facts.DurationSeconds
+                }
             }, cancellationToken).ConfigureAwait(false);
 
             if (!result.Success || result.OutputArtifact == null)
@@ -216,7 +212,7 @@ internal static class ConvertCommand
             File.Move(result.OutputArtifact.Path, outputPath, overwrite: true);
             CliConsole.WriteLine(
                 $"Converted video: {outputPath} ({result.ExecutionRecord.InputCodec} -> {result.ExecutionRecord.OutputCodec}, " +
-                $"{(result.ExecutionRecord.RemuxUsed ? "remux" : "transcode")})",
+                $"{result.ExecutionRecord.Truth.ActualOperationKind})",
                 CliConsole.Success);
             return 0;
         }

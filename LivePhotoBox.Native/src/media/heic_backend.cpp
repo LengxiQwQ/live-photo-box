@@ -209,6 +209,21 @@ heif_error write_owned_output(heif_context*, const void* bytes, size_t size, voi
     if (output && output->write_all(std::span<const uint8_t>(static_cast<const uint8_t*>(bytes), size))) return {heif_error_Ok, heif_suberror_Unspecified, ""};
     return {heif_error_Encoding_error, heif_suberror_Cannot_write_output_data, "LivePhotoBox owned output write failed"};
 }
+
+heif_error write_vector_output(heif_context*, const void* bytes, size_t size, void* user) noexcept {
+    auto* output = static_cast<std::vector<uint8_t>*>(user);
+    if (!output || (!bytes && size) || output->size() > kMaxCompressedBytes ||
+        size > kMaxCompressedBytes - output->size()) {
+        return {heif_error_Encoding_error, heif_suberror_Cannot_write_output_data, "LivePhotoBox bounded HEIF buffer write failed"};
+    }
+    try {
+        const auto* first = static_cast<const uint8_t*>(bytes);
+        output->insert(output->end(), first, first + size);
+        return {heif_error_Ok, heif_suberror_Unspecified, ""};
+    } catch (...) {
+        return {heif_error_Encoding_error, heif_suberror_Cannot_write_output_data, "LivePhotoBox HEIF buffer allocation failed"};
+    }
+}
 } // namespace
 
 namespace lpb::media {
@@ -325,11 +340,15 @@ bool make_encoded_image(const pixel_surface& input, heif_image_owner& image) noe
 }
 
 lpb_result encode_heic_images(lpb_context* context, const char* output_path, const pixel_surface& primary,
-    const pixel_surface* secondary, int32_t quality, heic_encoded_image_facts* facts) noexcept {
+    const pixel_surface* secondary, int32_t quality, heic_encoded_image_facts* facts,
+    std::span<const uint8_t> secondary_xmp = {}, std::vector<uint8_t>* output_bytes = nullptr) noexcept {
     if (facts) *facts = {};
-    if (!context || !output_path || !is_encodable_sdr_surface(primary) ||
+    if (output_bytes) output_bytes->clear();
+    if (!context || (!output_path && !output_bytes) || !is_encodable_sdr_surface(primary) ||
         (secondary && !is_encodable_sdr_surface(*secondary)) || quality < 1 || quality > 100 ||
-        !heif_have_encoder_for_format(heif_compression_HEVC)) {
+        !heif_have_encoder_for_format(heif_compression_HEVC) ||
+        (!secondary_xmp.empty() && (!output_bytes || !secondary ||
+            secondary_xmp.size() > static_cast<size_t>(std::numeric_limits<int>::max())))) {
         if (context) set_error(context, "HEIC encode requires 8-bit RGB project-owned surfaces and the libheif x265 HEVC encoder.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
@@ -364,6 +383,23 @@ lpb_result encode_heic_images(lpb_context* context, const char* output_path, con
             return LPB_RESULT_INTERNAL_ERROR;
         }
     }
+    if (!secondary_xmp.empty() &&
+        !okay(heif_context_add_XMP_metadata(file.value, secondary_handle.value,
+            secondary_xmp.data(), static_cast<int>(secondary_xmp.size())))) {
+        set_error(context, "libheif could not attach the complete GainMap XMP to the exact secondary item.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    if (output_bytes) {
+        heif_writer writer{};
+        writer.writer_api_version = 1;
+        writer.write = write_vector_output;
+        if (!okay(heif_context_write(file.value, &writer, output_bytes)) || output_bytes->empty()) {
+            output_bytes->clear();
+            set_error(context, "libheif/x265 failed to encode bounded HEIF bytes before semantic graph assembly.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+        return LPB_RESULT_OK;
+    }
     windows_owned_output output;
     const fs::path destination_path = utf8_to_path(output_path);
     if (!output.create(destination_path, L"lpb-heic-encode")) {
@@ -391,5 +427,18 @@ lpb_result encode_heic_primary_and_secondary_file(lpb_context* context, const ch
     const pixel_surface& primary, const pixel_surface& secondary, int32_t quality,
     heic_encoded_image_facts& output) noexcept {
     return encode_heic_images(context, output_path, primary, &secondary, quality, &output);
+}
+
+lpb_result encode_heic_primary_and_gainmap_bytes(lpb_context* context,
+    const pixel_surface& primary, const pixel_surface& gainmap, int32_t quality,
+    std::span<const uint8_t> gainmap_xmp, std::vector<uint8_t>& output,
+    heic_encoded_image_facts& facts) noexcept {
+    if (gainmap_xmp.empty()) {
+        output.clear();
+        facts = {};
+        if (context) set_error(context, "HEIF GainMap encoding requires complete metadata attached to its exact item.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    return encode_heic_images(context, nullptr, primary, &gainmap, quality, &facts, gainmap_xmp, &output);
 }
 } // namespace lpb::media

@@ -6,6 +6,7 @@
 #include "protocols/apple.h"
 #include "protocols/samsung_sef.h"
 #include "containers/mp4_strip.h"
+#include "containers/heif_internal.h"
 #include "binary/binary_io.h"
 #include "containers/isobmff.h"
 #include <fstream>
@@ -18,6 +19,7 @@
 #include <vector>
 #include <cstdlib>
 #include <charconv>
+#include <cmath>
 
 namespace fs = std::filesystem;
 
@@ -383,6 +385,57 @@ static int get_global_attribute_string(const std::vector<xmp_node>& nodes,
     return 0;
 }
 
+static bool parse_double_exact(std::string_view text, double& out_value) noexcept {
+    if (text.empty()) return false;
+    const char* first = text.data();
+    const char* last = first + text.size();
+    const auto parsed = std::from_chars(first, last, out_value, std::chars_format::general);
+    return parsed.ec == std::errc{} && parsed.ptr == last && std::isfinite(out_value);
+}
+
+enum class iso_metadata_parse_result { absent, marker_only, complete, malformed };
+
+static iso_metadata_parse_result get_iso_gainmap_metadata(const std::vector<xmp_node>& nodes,
+    iso_gainmap_metadata& out_metadata) noexcept {
+    static constexpr std::string_view uri = "http://ns.adobe.com/hdr-gain-map/1.0/";
+    static constexpr std::string_view names[] = {
+        "Version", "GainMapMin", "GainMapMax", "Gamma", "OffsetSDR", "OffsetHDR",
+        "HDRCapacityMin", "HDRCapacityMax", "BaseRenditionIsHDR"
+    };
+    std::string_view values[std::size(names)]{};
+    size_t found_count = 0;
+    for (size_t index = 0; index < std::size(names); ++index) {
+        const int result = get_global_attribute_string(nodes, uri, names[index], values[index]);
+        if (result < 0) return iso_metadata_parse_result::malformed;
+        if (result > 0) ++found_count;
+    }
+    if (found_count == 0) return iso_metadata_parse_result::absent;
+    // An isolated version declaration is emitted by some HEIF producers as
+    // a top-level marker while the complete metadata is cdsc-owned by the
+    // GainMap image item. The full packet is selected separately below.
+    if (found_count == 1 && values[0] == "1.0") return iso_metadata_parse_result::marker_only;
+    if (found_count != std::size(names) || values[0] != "1.0") return iso_metadata_parse_result::malformed;
+
+    double min{}, max{}, gamma{}, offset_sdr{}, offset_hdr{}, capacity_min{}, capacity_max{};
+    if (!parse_double_exact(values[1], min) || !parse_double_exact(values[2], max) ||
+        !parse_double_exact(values[3], gamma) || !parse_double_exact(values[4], offset_sdr) ||
+        !parse_double_exact(values[5], offset_hdr) || !parse_double_exact(values[6], capacity_min) ||
+        !parse_double_exact(values[7], capacity_max) || gamma <= 0.0 || min > max ||
+        offset_sdr < 0.0 || offset_hdr < 0.0 || capacity_min < 0.0 || capacity_max <= capacity_min ||
+        (values[8] != "True" && values[8] != "False")) return iso_metadata_parse_result::malformed;
+
+    out_metadata = {};
+    out_metadata.gain_map_min.fill(min);
+    out_metadata.gain_map_max.fill(max);
+    out_metadata.gamma.fill(gamma);
+    out_metadata.offset_sdr.fill(offset_sdr);
+    out_metadata.offset_hdr.fill(offset_hdr);
+    out_metadata.hdr_capacity_min = capacity_min;
+    out_metadata.hdr_capacity_max = capacity_max;
+    out_metadata.base_rendition_is_hdr = values[8] == "True";
+    return iso_metadata_parse_result::complete;
+}
+
 static std::string get_attribute_value_in_nodes(const std::vector<xmp_node>& nodes,
     std::string_view uri, std::string_view local) {
     std::string_view val;
@@ -693,7 +746,8 @@ static bool validate_xmp_protocol_ownership(const std::vector<xmp_node>& nodes,
 
 } // namespace
 
-static std::vector<uint8_t> read_file_bytes(const char* path, size_t max_bytes = 0) {
+static std::vector<uint8_t> read_file_bytes(const char* path, size_t max_bytes = 0,
+    bool share_existing_writer = false) {
     if (!path) return {};
     auto p = utf8_to_path(path);
     // P3 holds a DELETE-capable lease over staged outputs until post-clean
@@ -702,7 +756,7 @@ static std::vector<uint8_t> read_file_bytes(const char* path, size_t max_bytes =
     HANDLE handle = CreateFileW(
         p.c_str(),
         GENERIC_READ,
-        FILE_SHARE_READ | FILE_SHARE_DELETE,
+        FILE_SHARE_READ | FILE_SHARE_DELETE | (share_existing_writer ? FILE_SHARE_WRITE : 0),
         nullptr,
         OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN,
@@ -2714,10 +2768,13 @@ static bool bind_gainmap_from_heif_auxiliary(lpb_context* context,
         "urn:com:apple:photo:2020:aux:hdrgainmap";
     constexpr std::string_view samsung_gainmap_relationship =
         "urn:com:samsung:photo:2024:aux:hdrgainmap";
+    constexpr std::string_view iso_gainmap_relationship =
+        "urn:com:photo:aux:hdrgainmap";
     size_t gainmap_index = std::numeric_limits<size_t>::max();
     for (size_t i = 0; i < facts->auxiliary_count; ++i) {
         const std::string_view relationship(facts->auxiliary_items[i].relationship);
-        if (relationship != apple_gainmap_relationship && relationship != samsung_gainmap_relationship) continue;
+        if (relationship != apple_gainmap_relationship && relationship != samsung_gainmap_relationship &&
+            relationship != iso_gainmap_relationship) continue;
         if (gainmap_index != std::numeric_limits<size_t>::max()) {
             set_error(context, "HEIF contains duplicate GainMap auxiliary relationships.");
             return false;
@@ -2798,7 +2855,8 @@ lpb_result inspect_source(
     const char* primary_path,
     const char* secondary_path,
     lpb_source_media_facts* out_facts,
-    std::vector<lpb_confirmed_residue>* out_residues) noexcept
+    std::vector<lpb_confirmed_residue>* out_residues,
+    bool share_existing_writer) noexcept
 {
     if (!context || !primary_path || !out_facts) {
         return LPB_RESULT_INVALID_ARGUMENT;
@@ -2834,7 +2892,7 @@ lpb_result inspect_source(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    auto primary_data = read_file_bytes(primary_path);
+    auto primary_data = read_file_bytes(primary_path, 0, share_existing_writer);
     if (primary_data.empty()) {
         set_error(context, "Failed to read primary file.");
         set_inspection_status(context, LPB_INSPECTION_FAILURE_IO, LPB_INSPECTION_STAGE_READ);
@@ -2867,7 +2925,7 @@ lpb_result inspect_source(
 
     // Dual file check
     if (secondary_path && std::strlen(secondary_path) > 0) {
-        auto sec_data = read_file_bytes(secondary_path);
+        auto sec_data = read_file_bytes(secondary_path, 0, share_existing_writer);
         uint64_t secondary_size = sec_data.size();
         if (secondary_size == 0) {
             set_error(context, "Secondary file is empty or does not exist.");
@@ -4715,6 +4773,218 @@ lpb_result inspect_source_with_plan(
     catch (...)
     {
         set_error(context, "Failed to allocate an extraction authority plan.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+}
+
+lpb_result inspect_gainmap_metadata(lpb_context* context, const char* primary_path,
+    const char* materialized_gainmap_path, gainmap_metadata_facts& out_metadata,
+    bool share_existing_writer) noexcept {
+    out_metadata = {};
+    if (!context || !primary_path || primary_path[0] == '\0') return LPB_RESULT_INVALID_ARGUMENT;
+    try {
+        const auto load_bounded = [share_existing_writer](const char* path,
+            std::vector<uint8_t>& bytes) noexcept {
+            if (!path || path[0] == '\0') return false;
+            std::error_code ec;
+            const uintmax_t size = fs::file_size(utf8_to_path(path), ec);
+            if (ec || size == 0 || size > 512ull * 1024ull * 1024ull ||
+                size > std::numeric_limits<size_t>::max()) return false;
+            bytes = read_file_bytes(path, static_cast<size_t>(size), share_existing_writer);
+            return bytes.size() == static_cast<size_t>(size);
+        };
+
+        lpb_source_media_facts source_facts{};
+        source_facts.struct_size = sizeof(source_facts);
+        const lpb_result inspection = inspect_source(context, primary_path, nullptr, &source_facts,
+            nullptr, share_existing_writer);
+        if (inspection != LPB_RESULT_OK || !source_facts.gain_map.is_present ||
+            source_facts.gain_map.auxiliary_index >= source_facts.auxiliary_count) {
+            set_error(context, "GainMap metadata inspection requires one freshly inspected auxiliary binding.");
+            return inspection == LPB_RESULT_OK ? LPB_RESULT_INVALID_ARGUMENT : inspection;
+        }
+        size_t semantic_gainmap_count = 0;
+        const lpb_auxiliary_item_facts* bound_auxiliary = nullptr;
+        for (uint32_t index = 0; index < source_facts.auxiliary_count; ++index) {
+            const auto& auxiliary = source_facts.auxiliary_items[index];
+            if (std::string_view(auxiliary.semantic) == "GainMap") {
+                ++semantic_gainmap_count;
+                if (index == source_facts.gain_map.auxiliary_index) bound_auxiliary = &auxiliary;
+            }
+        }
+        if (semantic_gainmap_count != 1 || !bound_auxiliary ||
+            !bound_auxiliary->is_present || bound_auxiliary->item_id != source_facts.gain_map.item_id ||
+            bound_auxiliary->file_range.offset != source_facts.gain_map.file_range.offset ||
+            bound_auxiliary->file_range.length != source_facts.gain_map.file_range.length ||
+            std::string_view(bound_auxiliary->relationship) != std::string_view(source_facts.gain_map.relationship)) {
+            set_error(context, "GainMap metadata identity is duplicate, stale, or inconsistent with the inspected auxiliary graph.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+
+        std::vector<uint8_t> primary_bytes;
+        if (!load_bounded(primary_path, primary_bytes)) {
+            set_error(context, "GainMap metadata inspection could not read a bounded primary image.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        const lpb_image_container container = detect_image_container(primary_bytes);
+        if ((container != LPB_IMAGE_CONTAINER_JPEG && container != LPB_IMAGE_CONTAINER_HEIC) ||
+            source_facts.gain_map.container != container) {
+            set_error(context, "GainMap metadata container disagrees with the freshly inspected source identity.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+
+        std::vector<iso_gainmap_metadata> iso_candidates;
+        bool saw_malformed_iso = false;
+        bool saw_apple_version = false;
+        const auto inspect_packet = [&](std::string_view packet) {
+            std::vector<xmp_node> nodes;
+            if (packet.empty() || !scan_xmp_tree(packet, nodes)) {
+                saw_malformed_iso = true;
+                return;
+            }
+            iso_gainmap_metadata metadata{};
+            switch (get_iso_gainmap_metadata(nodes, metadata)) {
+            case iso_metadata_parse_result::absent:
+            case iso_metadata_parse_result::marker_only:
+                break;
+            case iso_metadata_parse_result::complete:
+                iso_candidates.push_back(metadata);
+                break;
+            case iso_metadata_parse_result::malformed:
+                saw_malformed_iso = true;
+                break;
+            }
+            constexpr std::string_view apple_uri = "http://ns.apple.com/HDRGainMap/1.0/";
+            std::string_view version;
+            const int apple_version = get_global_attribute_string(nodes, apple_uri, "HDRGainMapVersion", version);
+            if (apple_version < 0) saw_malformed_iso = true;
+            else if (apple_version == 1 && !version.empty()) saw_apple_version = true;
+        };
+
+        if (container == LPB_IMAGE_CONTAINER_JPEG) {
+            bool invalid_xmp = false;
+            std::string packet = extract_xmp_string(context, primary_bytes, container, &invalid_xmp);
+            if (invalid_xmp) {
+                set_error(context, "JPEG GainMap XMP is malformed or ambiguous.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (!packet.empty()) inspect_packet(packet);
+            bool inspected_embedded_gainmap = false;
+            if (source_facts.gain_map.representation == LPB_AUX_REPRESENTATION_EMBEDDED &&
+                source_facts.gain_map.file_range.length > 0 &&
+                source_facts.gain_map.file_range.offset <= primary_bytes.size() &&
+                source_facts.gain_map.file_range.length <= primary_bytes.size() -
+                    static_cast<size_t>(source_facts.gain_map.file_range.offset)) {
+                const size_t offset = static_cast<size_t>(source_facts.gain_map.file_range.offset);
+                const size_t length = static_cast<size_t>(source_facts.gain_map.file_range.length);
+                if (!is_valid_jpeg_media_range(primary_bytes.data(), primary_bytes.size(), offset, length)) {
+                    set_error(context, "Embedded GainMap range is not one complete JPEG codestream.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                std::vector<uint8_t> map_bytes(primary_bytes.begin() + static_cast<std::ptrdiff_t>(offset),
+                    primary_bytes.begin() + static_cast<std::ptrdiff_t>(offset + length));
+                std::string map_packet = extract_xmp_string(context, map_bytes,
+                    LPB_IMAGE_CONTAINER_JPEG, &invalid_xmp);
+                if (invalid_xmp) {
+                    set_error(context, "Embedded GainMap XMP is malformed or ambiguous.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                if (!map_packet.empty()) inspect_packet(map_packet);
+                inspected_embedded_gainmap = true;
+            }
+            if (!inspected_embedded_gainmap && materialized_gainmap_path && materialized_gainmap_path[0] != '\0') {
+                std::vector<uint8_t> map_bytes;
+                if (!load_bounded(materialized_gainmap_path, map_bytes) ||
+                    detect_image_container(map_bytes) != LPB_IMAGE_CONTAINER_JPEG) {
+                    set_error(context, "Materialized GainMap metadata source is not a bounded JPEG artifact.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                std::string map_packet = extract_xmp_string(context, map_bytes, LPB_IMAGE_CONTAINER_JPEG, &invalid_xmp);
+                if (invalid_xmp) {
+                    set_error(context, "Materialized GainMap XMP is malformed or ambiguous.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                if (!map_packet.empty()) inspect_packet(map_packet);
+            }
+        } else {
+            std::vector<lpb_media_range> ranges;
+            constexpr std::string_view iso_relationship = "urn:com:photo:aux:hdrgainmap";
+            if (std::string_view(source_facts.gain_map.relationship) == iso_relationship) {
+                std::string relationship_error;
+                if (!containers::enumerate_xmp_ranges_describing_item(primary_bytes,
+                        source_facts.gain_map.item_id, ranges, relationship_error) || ranges.size() != 1) {
+                    set_error(context, relationship_error.empty()
+                        ? "ISO HEIF GainMap requires exactly one XMP packet related to its exact item."
+                        : relationship_error.c_str());
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+            } else {
+                size_t count = 0;
+                const lpb_result count_result = lpb_heif_enumerate_xmp_items(context,
+                    primary_bytes.data(), primary_bytes.size(), nullptr, 0, &count);
+                if (count_result == LPB_RESULT_BUFFER_TOO_SMALL) {
+                    if (count == 0 || count > 64) {
+                        set_error(context, "HEIF GainMap XMP item count is outside the supported bound.");
+                        return LPB_RESULT_INVALID_ARGUMENT;
+                    }
+                    ranges.resize(count);
+                    size_t actual_count = count;
+                    if (lpb_heif_enumerate_xmp_items(context, primary_bytes.data(), primary_bytes.size(),
+                            ranges.data(), ranges.size(), &actual_count) != LPB_RESULT_OK || actual_count != count) {
+                        set_error(context, "HEIF GainMap XMP item graph is malformed or changed during inspection.");
+                        return LPB_RESULT_INVALID_ARGUMENT;
+                    }
+                } else if (count_result != LPB_RESULT_OK) {
+                    set_error(context, "HEIF GainMap XMP item enumeration failed.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+            }
+            for (const auto& range : ranges) {
+                if (range.length == 0 || range.offset > primary_bytes.size() ||
+                    range.length > primary_bytes.size() - static_cast<size_t>(range.offset)) {
+                    set_error(context, "HEIF GainMap XMP extent is outside the source file.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                const std::string packet = extract_xml_fragment(std::string_view(
+                    reinterpret_cast<const char*>(primary_bytes.data() + static_cast<size_t>(range.offset)),
+                    static_cast<size_t>(range.length)));
+                inspect_packet(packet);
+            }
+        }
+
+        if (saw_malformed_iso || iso_candidates.size() > 1) {
+            set_error(context, "GainMap metadata is malformed, duplicated, shadowed, or ambiguous.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if (iso_candidates.size() == 1) {
+            out_metadata.kind = gainmap_metadata_kind::iso;
+            out_metadata.iso = iso_candidates.front();
+            return LPB_RESULT_OK;
+        }
+
+        if (container == LPB_IMAGE_CONTAINER_HEIC && saw_apple_version &&
+            std::string_view(source_facts.gain_map.relationship) == "urn:com:apple:photo:2020:aux:hdrgainmap" &&
+            protocols::apple::apple_image_get_float_tag(context, primary_bytes, container, 33,
+                out_metadata.apple_maker_note_33) &&
+            protocols::apple::apple_image_get_float_tag(context, primary_bytes, container, 48,
+                out_metadata.apple_maker_note_48)) {
+            double headroom{};
+            if (apple_gainmap_headroom(out_metadata.apple_maker_note_33,
+                    out_metadata.apple_maker_note_48, headroom) && headroom > 1.0) {
+                out_metadata.kind = gainmap_metadata_kind::apple;
+                return LPB_RESULT_OK;
+            }
+        }
+        set_error(context, "GainMap metadata lacks a complete supported ISO or Apple mapping.");
+        out_metadata = {};
+        return LPB_RESULT_INVALID_ARGUMENT;
+    } catch (const std::exception& ex) {
+        set_error(context, ex.what());
+        out_metadata = {};
+        return LPB_RESULT_INTERNAL_ERROR;
+    } catch (...) {
+        set_error(context, "GainMap metadata inspection failed without a typed diagnostic.");
+        out_metadata = {};
         return LPB_RESULT_INTERNAL_ERROR;
     }
 }

@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "policyId": "P5-R3-independent-reference-v1",
+  "status": "frozen-before-formal-output-validation",
+  "inputSources": [
+    "docs/LivePhotoBox-Current-Roadmap/LivePhotoBox-P5-细分路线图/04-P5-R3-HDR与GainMap语义转换.md",
+    "docs/LivePhotoBox-Current-Roadmap/12-中性媒体契约.md",
+    "docs/实况照片协议分析文档/vivo-Live-Photo-X300-and-later.md",
+    "P5-R3 Native semantic mapping contract, reproduced independently by this validator"
+  ],
+  "independence": {
+    "structureParser": "Python standard-library parser implemented in this tool; it does not call the product Native inspector or HEIF parser.",
+    "jpegDecoder": "Pillow JPEG decoder receives exact primary and MPF GainMap codestream byte ranges.",
+    "heifDecoder": "heif-convert --with-aux, libheif command-line decoder, receives source/target files and writes separate primary/auxiliary PNGs.",
+    "metadataReader": "ExifTool is used only for Apple MakerNote values and tool/version reporting; ISO XMP and container graph checks are parsed by this tool.",
+    "productSelfReadForbidden": true
+  },
+  "rendering": {
+    "orientation": "Use Pillow ImageOps.exif_transpose for JPEG codestreams; heif-convert's decoded PNG output is used as rendered for HEIF. Record both coded and rendered dimensions.",
+    "primaryColor": "If an embedded ICC profile exists, transform to IEC 61966-2-1 sRGB with LittleCMS through Pillow ImageCms. If absent, treat decoded RGB as sRGB and record the missing profile. Do not change this rule per route.",
+    "gainMapColor": "Treat decoded GainMap channels as code values in [0,1]; do not apply the image ICC profile to map codes.",
+    "gainMapResize": "Resize the decoded GainMap to rendered primary dimensions with Pillow BILINEAR at pixel centers. Do not crop or alter the primary image dimensions.",
+    "linearization": "Apply the standard sRGB EOTF to color-managed primary RGB before HDR reconstruction. For Apple's encoded grayscale map conversion, apply the Rec.709 inverse transfer function used by the frozen Apple-to-ISO mapping."
+  },
+  "iso21496Reconstruction": {
+    "baseRenditionIsHdr": false,
+    "capacityWeight": 1.0,
+    "gainCode": "pow(mapCode, 1 / gamma)",
+    "log2Gain": "gainMapMin * (1 - gainCode) + gainMapMax * gainCode",
+    "linearHdr": "(linearSdr + offsetSdr) * pow(2, log2Gain * capacityWeight) - offsetHdr",
+    "capacityWeightMeaning": "Compare the full declared HDRCapacityMax rendition; reject BaseRenditionIsHDR=true or incomplete/non-finite metadata."
+  },
+  "appleToIsoMapping": {
+    "sourceFacts": "Read HDRHeadroom and HDRGain from the Apple MakerNote via ExifTool and require the HEIF auxiliary relationship to the exact map item.",
+    "stops": "if headroomTag < 1: gainTag <= 0.01 ? -20*gainTag+1.8 : -0.101*gainTag+1.601; otherwise gainTag <= 0.01 ? -70*gainTag+3.0 : -0.303*gainTag+2.303",
+    "headroom": "pow(2, stops)",
+    "mapCodeToRecovery": "linearMap = Rec709EOTF(mapCode); pixelGain = 1 + (headroom - 1) * linearMap; recovery = log2(pixelGain) / log2(headroom)",
+    "targetIsoMetadata": "GainMapMin=0, GainMapMax=HDRCapacityMax=log2(headroom), Gamma=1, OffsetSDR=OffsetHDR=0, BaseRenditionIsHDR=false for all three channels.",
+    "validity": "Require finite tags, headroom > 1, grayscale source auxiliary, and no clamping; otherwise fail the route."
+  },
+  "comparisonMetrics": {
+    "primaryLinearSrgb": {
+      "maeMax": 0.055,
+      "p95AbsoluteErrorMax": 0.20,
+      "psnrDbMin": 25.0,
+      "purpose": "Allow bounded 8-bit JPEG/HEVC re-encode error while detecting material primary changes."
+    },
+    "gainMapCode": {
+      "maeMax": 0.045,
+      "p95AbsoluteErrorMax": 0.15,
+      "psnrDbMin": 25.0,
+      "purpose": "Compare decoded source map (Apple source is first converted using the frozen equation) with the decoded target map after fixed bilinear alignment."
+    },
+    "reconstructedHdrHeadroomRelative": {
+      "normalizer": "max(1, pow(2, sourceHdrCapacityMax) - 1, pow(2, targetHdrCapacityMax) - 1)",
+      "maeMax": 0.08,
+      "p95AbsoluteErrorMax": 0.25,
+      "psnrDbMin": 22.0,
+      "purpose": "Compare independently decoded source and target reconstructions over the full primary-frame overlap."
+    },
+    "dimensionRule": "After the fixed orientation policy, input and output primary rendered dimensions must match exactly; a crop or primary rescale is a failure."
+  },
+  "metadataTolerance": {
+    "isoToIsoAbsoluteDeltaMax": 0.000001,
+    "appleDerivedAbsoluteDeltaMax": 0.00001,
+    "quantization": "GainMap code comparisons include decoder/codec quantization under the frozen thresholds; metadata is not quantized or relaxed."
+  },
+  "thresholdChangeRule": "Do not revise assumptions or thresholds after examining any iteration-4 output metric. A failed comparison remains failed and is reported as such."
+}

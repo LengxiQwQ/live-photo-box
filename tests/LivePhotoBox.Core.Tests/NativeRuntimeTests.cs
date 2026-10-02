@@ -43,9 +43,27 @@ public sealed class NativeRuntimeTests
     }
 
     [Fact]
-    public void SupportedAbiVersion_IsEight()
+    public void SupportedAbiVersion_IsTen()
     {
-        Assert.Equal(8u, NativeRuntime.SupportedAbiVersion);
+        Assert.Equal(10u, NativeRuntime.SupportedAbiVersion);
+    }
+
+    [Fact]
+    public void HdrGainMapConversionV1_ManagedPodLayoutsMatchNativeContract()
+    {
+        Assert.Equal(696, Marshal.SizeOf<NativeHdrGainMapConversionRequestV1>());
+        Assert.Equal(48, (int)Marshal.OffsetOf<NativeHdrGainMapConversionRequestV1>(nameof(NativeHdrGainMapConversionRequestV1.SourceRange)));
+        Assert.Equal(88, (int)Marshal.OffsetOf<NativeHdrGainMapConversionRequestV1>(nameof(NativeHdrGainMapConversionRequestV1.SourceSha256)));
+        Assert.Equal(184, (int)Marshal.OffsetOf<NativeHdrGainMapConversionRequestV1>(nameof(NativeHdrGainMapConversionRequestV1.StableIdentity)));
+        Assert.Equal(632, (int)Marshal.OffsetOf<NativeHdrGainMapConversionRequestV1>(nameof(NativeHdrGainMapConversionRequestV1.Relationship)));
+        Assert.Equal(1288, Marshal.SizeOf<NativeHdrGainMapConversionResultV1>());
+        Assert.Equal(40, (int)Marshal.OffsetOf<NativeHdrGainMapConversionResultV1>(nameof(NativeHdrGainMapConversionResultV1.GainMapRange)));
+        Assert.Equal(56, (int)Marshal.OffsetOf<NativeHdrGainMapConversionResultV1>(nameof(NativeHdrGainMapConversionResultV1.OutputSha256)));
+        Assert.Equal(120, (int)Marshal.OffsetOf<NativeHdrGainMapConversionResultV1>(nameof(NativeHdrGainMapConversionResultV1.HdrCapacityMin)));
+        Assert.Equal(136, (int)Marshal.OffsetOf<NativeHdrGainMapConversionResultV1>(nameof(NativeHdrGainMapConversionResultV1.GainMapMin)));
+        Assert.Equal(232, (int)Marshal.OffsetOf<NativeHdrGainMapConversionResultV1>(nameof(NativeHdrGainMapConversionResultV1.OffsetHdr)));
+        Assert.Equal(256, (int)Marshal.OffsetOf<NativeHdrGainMapConversionResultV1>(nameof(NativeHdrGainMapConversionResultV1.TransactionToken)));
+        Assert.Equal(264, (int)Marshal.OffsetOf<NativeHdrGainMapConversionResultV1>(nameof(NativeHdrGainMapConversionResultV1.StagingPath)));
     }
 
     [Fact]

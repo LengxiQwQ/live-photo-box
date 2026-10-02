@@ -37,7 +37,8 @@ void sha256_to_hex_upper(const uint8_t hash[32], char out_hex[LPB_POBS_SHA256_LE
     out_hex[64] = '\0';
 }
 
-bool read_file_binary(const char* path, std::vector<uint8_t>& out_data) {
+bool read_file_binary(const char* path, std::vector<uint8_t>& out_data,
+    bool share_existing_writer = false) {
     if (!path) return false;
     auto p = utf8_to_path(path);
     // P3 retains an exact DELETE-capable handle for every staged output while
@@ -47,7 +48,7 @@ bool read_file_binary(const char* path, std::vector<uint8_t>& out_data) {
     HANDLE handle = CreateFileW(
         p.c_str(),
         GENERIC_READ,
-        FILE_SHARE_READ | FILE_SHARE_DELETE,
+        FILE_SHARE_READ | FILE_SHARE_DELETE | (share_existing_writer ? FILE_SHARE_WRITE : 0),
         nullptr,
         OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL,
@@ -481,6 +482,8 @@ void observe_jpeg_icc(const std::vector<uint8_t>& data, lpb_preservation_observa
 
     size_t p = 2;
     std::vector<std::vector<uint8_t>> chunks;
+    std::vector<bool> seen_chunks;
+    uint8_t declared_chunk_count = 0;
     const char icc_header[] = "ICC_PROFILE\0";
 
     while (p + 4 <= data.size()) {
@@ -497,15 +500,40 @@ void observe_jpeg_icc(const std::vector<uint8_t>& data, lpb_preservation_observa
         if (marker == 0xE2) { // APP2
             if (len >= 14 && p + 14 <= data.size() &&
                 std::memcmp(data.data() + p + 2, icc_header, 12) == 0) {
-                size_t payload_len = len - 14;
-                std::vector<uint8_t> chunk(data.begin() + p + 14, data.begin() + p + 14 + payload_len);
-                chunks.push_back(std::move(chunk));
+                if (len < 16 || p + 16 > data.size()) {
+                    out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+                    return;
+                }
+                const uint8_t sequence = data[p + 14];
+                const uint8_t total = data[p + 15];
+                if (sequence == 0 || total == 0 || sequence > total ||
+                    (declared_chunk_count != 0 && declared_chunk_count != total)) {
+                    out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+                    return;
+                }
+                if (declared_chunk_count == 0) {
+                    declared_chunk_count = total;
+                    chunks.resize(total);
+                    seen_chunks.resize(total, false);
+                }
+                const size_t index = static_cast<size_t>(sequence - 1);
+                if (seen_chunks[index]) {
+                    out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+                    return;
+                }
+                seen_chunks[index] = true;
+                const size_t payload_len = len - 16;
+                chunks[index].assign(data.begin() + p + 16, data.begin() + p + 16 + payload_len);
             }
         }
         p += len;
     }
 
     if (!chunks.empty()) {
+        if (std::find(seen_chunks.begin(), seen_chunks.end(), false) != seen_chunks.end()) {
+            out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+            return;
+        }
         lpb::crypto::sha256_ctx sha;
         for (const auto& c : chunks) {
             sha.update(c.data(), c.size());
@@ -1341,8 +1369,35 @@ void observe_heic_icc(const std::vector<uint8_t>& data, const std::vector<isobmf
     }
 
     const isobmff_box* target_colr = matching_colrs[0];
+    if (target_colr->body_size < 4 ||
+        target_colr->body_start > data.size() ||
+        target_colr->body_size > data.size() - target_colr->body_start) {
+        out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+        return;
+    }
+
+    const uint8_t* color_type = data.data() + target_colr->body_start;
+    const size_t profile_offset = target_colr->body_start + 4;
+    const size_t profile_size = target_colr->body_size - 4;
+    const bool has_icc_profile =
+        std::memcmp(color_type, "prof", 4) == 0 ||
+        std::memcmp(color_type, "rICC", 4) == 0;
+    if (!has_icc_profile) {
+        if (std::memcmp(color_type, "nclx", 4) != 0) {
+            out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+        }
+        return;
+    }
+    if (profile_size == 0) {
+        out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+        return;
+    }
+
+    // JPEG observes the concatenated ICC_PROFILE payload, not APP2 framing.
+    // Hash the HEIF prof/rICC payload only as well, so a byte-preserved profile
+    // has the same project-owned fingerprint across JPEG <-> HEIC containers.
     uint8_t hash[32];
-    lpb::crypto::sha256_buffer(data.data() + target_colr->start, target_colr->size, hash);
+    lpb::crypto::sha256_buffer(data.data() + profile_offset, profile_size, hash);
     sha256_to_hex_upper(hash, out->icc_sha256);
     out->flags |= LPB_POBS_HAS_ICC;
 }
@@ -1812,14 +1867,13 @@ void observe_heic(lpb_context* context, const std::vector<uint8_t>& data, lpb_so
 
 } // namespace
 
-extern "C" {
-
-LPB_API lpb_result LPB_CALL lpb_capture_preservation_observation(
+lpb_result lpb_media_capture_preservation_observation(
     lpb_context* context,
     const char* media_path,
     lpb_source_protocol protocol_hint,
     lpb_image_container container_hint,
-    lpb_preservation_observation* out_observation)
+    lpb_preservation_observation* out_observation,
+    bool share_existing_writer) noexcept
 {
     if (!context || !media_path || !out_observation) return LPB_RESULT_INVALID_ARGUMENT;
     if (out_observation->struct_size < sizeof(lpb_preservation_observation)) return LPB_RESULT_INVALID_ARGUMENT;
@@ -1837,7 +1891,7 @@ LPB_API lpb_result LPB_CALL lpb_capture_preservation_observation(
     }
 
     std::vector<uint8_t> data;
-    if (!read_file_binary(media_path, data)) {
+    if (!read_file_binary(media_path, data, share_existing_writer)) {
         set_error(context, "Failed to read media file for preservation observation");
         return LPB_RESULT_INTERNAL_ERROR;
     }
@@ -1854,6 +1908,19 @@ LPB_API lpb_result LPB_CALL lpb_capture_preservation_observation(
     }
 
     return LPB_RESULT_OK;
+}
+
+extern "C" {
+
+LPB_API lpb_result LPB_CALL lpb_capture_preservation_observation(
+    lpb_context* context,
+    const char* media_path,
+    lpb_source_protocol protocol_hint,
+    lpb_image_container container_hint,
+    lpb_preservation_observation* out_observation)
+{
+    return lpb_media_capture_preservation_observation(context, media_path,
+        protocol_hint, container_hint, out_observation, false);
 }
 
 static bool shas_equal_ignore_case(const char* a, const char* b) {

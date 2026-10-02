@@ -3517,30 +3517,6 @@ Then click "Start Split".</value>
   <data name="AboutPage_OpenSourceTitle.Text" xml:space="preserve">
     <value>Open Source Credits</value>
   </data>
-  <data name="AboutPage_CreditExifToolLabel.Text" xml:space="preserve">
-    <value>EXIF</value>
-  </data>
-  <data name="AboutPage_CreditExifToolName.Text" xml:space="preserve">
-    <value>ExifTool</value>
-  </data>
-  <data name="AboutPage_CreditExifToolDesc.Text" xml:space="preserve">
-    <value>Global metadata parsing, injection, and XMP structure reconstruction</value>
-  </data>
-  <data name="AboutPage_CreditJPEGTranLabel.Text" xml:space="preserve">
-    <value>JPEG</value>
-  </data>
-  <data name="AboutPage_CreditJPEGTranName.Text" xml:space="preserve">
-    <value>JPEGTran</value>
-  </data>
-  <data name="AboutPage_CreditJPEGTranDesc.Text" xml:space="preserve">
-    <value>Lossless transformation based on DCT coefficient space</value>
-  </data>
-  <data name="AboutPage_CreditFFmpegName.Text" xml:space="preserve">
-    <value>FFmpeg</value>
-  </data>
-  <data name="AboutPage_CreditFFmpegDesc.Text" xml:space="preserve">
-    <value>Video transcoding and stream muxing engine</value>
-  </data>
   <data name="AboutPage_CreditMagickNETName.Text" xml:space="preserve">
     <value>Magick.NET</value>
   </data>
@@ -3934,10 +3910,7 @@ Then click "Start Split".</value>
     <value>YouTube</value>
   </data>
   <data name="AboutPage_DevWebsite.Text" xml:space="preserve">
-    <value>Website</value>
-  </data>
-  <data name="AboutPage_DevWebsite_ToolTip.Content" xml:space="preserve">
-    <value>In Development</value>
+    <value>Lengxi’s Corner</value>
   </data>
   <data name="Status_DoneSimple" xml:space="preserve">
     <value>Done</value>
@@ -4503,7 +4476,40 @@ Then click "Start Split".</value>
   <data name="EditPage_CloseFile.Label" xml:space="preserve">
     <value>Close File</value>
   </data>
-  <data name="EditPage_CloseFile.ToolTipService.ToolTip" xml:space="preserve">
-    <value>Close File</value>
+  <data name="EditPage_InspectorTab_Edit.Content" xml:space="preserve">
+    <value>Edit</value>
+  </data>
+  <data name="EditPage_InspectorTab_Properties.Content" xml:space="preserve">
+    <value>Properties</value>
+  </data>
+  <data name="EditPage_InspectorLocateInExplorerBtn.AutomationProperties.Name" xml:space="preserve">
+    <value>Reveal in File Explorer</value>
+  </data>
+  <data name="EditPage_InspectorLocateInExplorerLabel.Text" xml:space="preserve">
+    <value>Reveal in File Explorer</value>
+  </data>
+  <data name="EditPage_InspectorApplyPropsBtn.AutomationProperties.Name" xml:space="preserve">
+    <value>Apply Modifications</value>
+  </data>
+  <data name="EditPage_InspectorApplyPropsLabel.Text" xml:space="preserve">
+    <value>Apply Modifications</value>
+  </data>
+  <data name="EditPage_InspectorStripGps.Content" xml:space="preserve">
+    <value>Strip GPS Location</value>
+  </data>
+  <data name="EditPage_InspectorStripCamera.Content" xml:space="preserve">
+    <value>Strip Camera Model</value>
+  </data>
+  <data name="EditPage_InspectorDateLabel.Text" xml:space="preserve">
+    <value>Date and Time Taken</value>
+  </data>
+  <data name="EditPage_InspectorProtocolCardTitle.Text" xml:space="preserve">
+    <value>Live Photo Specs</value>
+  </data>
+  <data name="EditPage_InspectorExifCardTitle.Text" xml:space="preserve">
+    <value>Shooting Info (EXIF)</value>
+  </data>
+  <data name="EditPage_InspectorModifyCardTitle.Text" xml:space="preserve">
+    <value>Modify Properties</value>
   </data>
 </root>

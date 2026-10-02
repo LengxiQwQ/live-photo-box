@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using LivePhotoBox.Media;
 using LivePhotoBox.Media.Extraction;
+using LivePhotoBox.Media.Image;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Protocols.Cleaning;
@@ -36,21 +37,44 @@ public sealed class NeutralMediaServiceTests
         Assert.Equal(VideoContainer.Mov, bundle.MotionVideo.VideoContainer);
         Assert.NotEmpty(bundle.RemovedProtocolFacts);
         Assert.NotEmpty(bundle.Manifest);
+        Assert.NotNull(bundle.HdrGainMapBinding);
+        Assert.Equal(bundle.PrimaryImage.Path, bundle.HdrGainMapBinding!.SourcePath);
+        Assert.Equal(bundle.PrimaryImage.ImageContainer, bundle.HdrGainMapBinding.SourceContainer);
+        Assert.Equal(bundle.SourceProvenance.GainMap!.ItemId, bundle.HdrGainMapBinding.ItemId);
+        Assert.Equal(bundle.HdrGainMapBinding.StableIdentity, bundle.HdrGainMapBinding.InspectedStableIdentity);
+        Assert.Equal(bundle.HdrGainMapBinding.OwnerIdentity, bundle.HdrGainMapBinding.InspectedOwnerIdentity);
     }
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task CreateNeutralBundle_AppleGainMapToJpeg_FailsBeforePublishingFalseEmbeddedManifest()
+    public async Task CreateNeutralBundle_ReassembledSamsungGainMap_PreservesSourceAndInspectedIdentitiesSeparately()
+    {
+        string primary = ResolveSample("三星.jpg");
+        using var workspace = new MediaWorkspace();
+
+        NeutralMediaBundle bundle = await new NeutralMediaService()
+            .CreateNeutralBundleAsync(primary, null, workspace);
+
+        ImageHdrGainMapSourceBinding binding = Assert.IsType<ImageHdrGainMapSourceBinding>(bundle.HdrGainMapBinding);
+        Assert.Equal("samsung-jpeg:container:item:2", binding.StableIdentity);
+        Assert.Equal("auxiliary:gainmap:0", binding.InspectedStableIdentity);
+        Assert.Equal("primary:0", binding.OwnerIdentity);
+        Assert.Equal("primary:0", binding.InspectedOwnerIdentity);
+        Assert.Equal(binding.SourceByteLength, bundle.SourceProvenance.GainMap!.ByteLength);
+        Assert.True(binding.SourceByteLength > 0);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task CreateNeutralBundle_AppleGainMapToJpeg_SendsExplicitNeutralTargetSemantic()
     {
         string primary = ResolveSample("苹果双文件.HEIC");
         string secondary = ResolveSample("苹果双文件.MOV");
         string before = Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(primary)));
-        SourceMediaFacts facts = await new SourceInspector().InspectAsync(primary, secondary);
-        Assert.NotNull(facts.GainMap);
-        Assert.True(facts.GainMap!.IsPresent);
         using var workspace = new MediaWorkspace();
+        var converter = new CaptureFailingImageConverter();
 
-        var service = new NeutralMediaService();
+        var service = new NeutralMediaService(imageConverter: converter);
         InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             service.CreateNeutralBundleAsync(primary, secondary, workspace, new MediaFormatRequirement
             {
@@ -58,7 +82,12 @@ public sealed class NeutralMediaServiceTests
                 VideoContainer = VideoContainer.Unknown
             }));
 
-        Assert.Contains("GainMap", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("capture", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(converter.Request);
+        Assert.NotNull(converter.Request!.TrustedHdrGainMapBinding);
+        Assert.Equal(ImageHdrGainMapTargetSemantic.JpegIsoGainMap, converter.Request.TargetHdrGainMapSemantic);
+        Assert.Equal(ImageContainer.Heic, converter.Request.SourceArtifact.ImageContainer);
+        Assert.Equal(ImageContainer.Jpeg, converter.Request.TargetContainer);
         Assert.Empty(Directory.EnumerateFiles(workspace.RootDirectory, "*.jpg", SearchOption.TopDirectoryOnly));
         Assert.Equal(before, Convert.ToHexString(await SHA256.HashDataAsync(File.OpenRead(primary))));
     }
@@ -268,6 +297,38 @@ public sealed class NeutralMediaServiceTests
             string? secondaryPath,
             IMediaWorkspace workspace,
             CancellationToken cancellationToken = default) => Task.FromResult(bundle);
+    }
+
+    private sealed class CaptureFailingImageConverter : IImageConverter
+    {
+        public ImageConversionRequest? Request { get; private set; }
+
+        public Task<ImageConversionResult> ConvertAsync(
+            ImageConversionRequest request,
+            CancellationToken cancellationToken = default)
+        {
+            Request = request;
+            return Task.FromResult(new ImageConversionResult
+            {
+                Success = false,
+                ErrorMessage = "Captured R3 semantic conversion request.",
+                ExecutionRecord = new ImageExecutionRecord
+                {
+                    InputContainer = request.SourceArtifact.ImageContainer,
+                    OutputContainer = request.TargetContainer,
+                    PreservationOutcome = PreservationOutcome.PartiallyPreserved,
+                    Truth = new ConversionExecutionTruth
+                    {
+                        RequestedOperationKind = ConversionOperationKind.HdrGainMapConversion,
+                        ActualOperationKind = ConversionOperationKind.Unsupported,
+                        SelectedCapability = ConversionCapability.HdrGainMapConversion,
+                        ActualCapability = ConversionCapability.Unknown,
+                        FailureStage = ConversionFailureStage.BackendUnavailable,
+                        FailureCategory = ConversionFailureCategory.Unsupported
+                    }
+                }
+            });
+        }
     }
 
     private sealed class PreservationThenReplaceCleaner(byte[] replacement) : ISourceProtocolCleaner

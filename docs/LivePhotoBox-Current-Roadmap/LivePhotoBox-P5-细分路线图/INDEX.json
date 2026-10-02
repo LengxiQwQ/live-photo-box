@@ -1,0 +1,18 @@
+{
+  "title": "Live Photo Box P5 细分路线图",
+  "based_on": "当前 Roadmap、Neutral Media Contract、P4 已冻结后端记录、当前源码与 P4-v1 真实样本语料",
+  "implementation_rounds": 7,
+  "independent_gates": 2,
+  "order": [
+    "00-P5-细分路线图总览.md",
+    "01-P5-R0-契约边界与验收基线.md",
+    "02-P5-R1-Converter契约与执行真相.md",
+    "03-P5-R2-普通图像可靠性.md",
+    "04-P5-R3-HDR与GainMap语义转换.md",
+    "05-P5-R4-颜色与高位深策略.md",
+    "06-P5-R5-视频转换器可靠性.md",
+    "07-P5-R6-Converter集成与收口.md",
+    "08-P5-Audit-独立审计.md",
+    "09-P5-Verify-验证与外部门禁.md"
+  ]
+}

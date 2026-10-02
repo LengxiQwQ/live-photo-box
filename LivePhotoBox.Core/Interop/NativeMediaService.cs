@@ -34,6 +34,22 @@ public static class NativeMediaService
             Marshal.SizeOf<NativeHeicEncodedImagesInfo>() != 28 ||
             (int)Marshal.OffsetOf<NativeHeicEncodedImagesInfo>(nameof(NativeHeicEncodedImagesInfo.SecondaryItemId)) != 8 ||
             (int)Marshal.OffsetOf<NativeHeicEncodedImagesInfo>(nameof(NativeHeicEncodedImagesInfo.SecondaryWidth)) != 20 ||
+            Marshal.SizeOf<NativeGainMapMetadataV1>() != 176 ||
+            (int)Marshal.OffsetOf<NativeGainMapMetadataV1>(nameof(NativeGainMapMetadataV1.GainMapMin)) != 16 ||
+            (int)Marshal.OffsetOf<NativeGainMapMetadataV1>(nameof(NativeGainMapMetadataV1.AppleMakerNote33)) != 160 ||
+            Marshal.SizeOf<NativeHdrGainMapConversionRequestV1>() != 696 ||
+            (int)Marshal.OffsetOf<NativeHdrGainMapConversionRequestV1>(nameof(NativeHdrGainMapConversionRequestV1.SourceRange)) != 48 ||
+            (int)Marshal.OffsetOf<NativeHdrGainMapConversionRequestV1>(nameof(NativeHdrGainMapConversionRequestV1.SourceSha256)) != 88 ||
+            (int)Marshal.OffsetOf<NativeHdrGainMapConversionRequestV1>(nameof(NativeHdrGainMapConversionRequestV1.StableIdentity)) != 184 ||
+            (int)Marshal.OffsetOf<NativeHdrGainMapConversionRequestV1>(nameof(NativeHdrGainMapConversionRequestV1.Relationship)) != 632 ||
+            Marshal.SizeOf<NativeHdrGainMapConversionResultV1>() != 1288 ||
+            (int)Marshal.OffsetOf<NativeHdrGainMapConversionResultV1>(nameof(NativeHdrGainMapConversionResultV1.GainMapRange)) != 40 ||
+            (int)Marshal.OffsetOf<NativeHdrGainMapConversionResultV1>(nameof(NativeHdrGainMapConversionResultV1.OutputSha256)) != 56 ||
+            (int)Marshal.OffsetOf<NativeHdrGainMapConversionResultV1>(nameof(NativeHdrGainMapConversionResultV1.HdrCapacityMin)) != 120 ||
+            (int)Marshal.OffsetOf<NativeHdrGainMapConversionResultV1>(nameof(NativeHdrGainMapConversionResultV1.GainMapMin)) != 136 ||
+            (int)Marshal.OffsetOf<NativeHdrGainMapConversionResultV1>(nameof(NativeHdrGainMapConversionResultV1.OffsetHdr)) != 232 ||
+            (int)Marshal.OffsetOf<NativeHdrGainMapConversionResultV1>(nameof(NativeHdrGainMapConversionResultV1.TransactionToken)) != 256 ||
+            (int)Marshal.OffsetOf<NativeHdrGainMapConversionResultV1>(nameof(NativeHdrGainMapConversionResultV1.StagingPath)) != 264 ||
             Marshal.SizeOf<NativeGainMapItemFacts>() != 112 ||
             (int)Marshal.OffsetOf<NativeGainMapItemFacts>(nameof(NativeGainMapItemFacts.FileRange)) != 32 ||
             (int)Marshal.OffsetOf<NativeGainMapItemFacts>(nameof(NativeGainMapItemFacts.Relationship)) != 48 ||
@@ -56,8 +72,179 @@ public static class NativeMediaService
             (int)Marshal.OffsetOf<NativeVideoBackendDiagnostics>(nameof(NativeVideoBackendDiagnostics.SelectedEncoder)) != 16 ||
             (int)Marshal.OffsetOf<NativeVideoBackendDiagnostics>(nameof(NativeVideoBackendDiagnostics.FallbackReason)) != 80)
         {
-            throw new InvalidOperationException("Managed Native facts layout does not match ABI v7.");
+            throw new InvalidOperationException("Managed Native facts layout does not match ABI v10.");
         }
+    }
+
+    internal static Task<NativeGainMapMetadataV1> InspectGainMapMetadataAsync(
+        string primaryImagePath,
+        string? materializedGainMapPath = null,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(primaryImagePath);
+        PreflightInspectionPath(primaryImagePath, "Primary");
+        if (materializedGainMapPath is not null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            PreflightInspectionPath(materializedGainMapPath, "GainMap");
+        }
+        return Task.Run(() =>
+        {
+            using var context = NativeContext.Create(cancellationToken);
+            var metadata = new NativeGainMapMetadataV1
+            {
+                StructSize = checked((uint)Marshal.SizeOf<NativeGainMapMetadataV1>()),
+                ApiVersion = 1
+            };
+            NativeResult result = NativeMethods.InspectGainMapMetadataV1(
+                context.Handle, primaryImagePath, materializedGainMapPath, ref metadata);
+            context.ThrowIfFailed(result);
+            if (metadata.Kind is not (1 or 2))
+            {
+                throw new InvalidOperationException("Native GainMap metadata inspector returned an unknown metadata kind.");
+            }
+            return metadata;
+        }, cancellationToken);
+    }
+
+    internal static Task<NativeHdrGainMapConversionTransaction> StageHeicGainMapToJpegUltraHdrAsync(
+        string sourcePath,
+        string outputPath,
+        ImageHdrGainMapSourceBinding binding,
+        long expectedFileSize,
+        int quality,
+        HdrOutputPolicy hdrOutputPolicy,
+        CancellationToken cancellationToken = default) =>
+        StageBoundHdrGainMapAsync(sourcePath, outputPath, binding, expectedFileSize, quality,
+            hdrOutputPolicy, ImageHdrGainMapTargetSemantic.JpegIsoGainMap, cancellationToken);
+
+    internal static Task<NativeHdrGainMapConversionTransaction> StageJpegGainMapToHeicAsync(
+        string sourcePath,
+        string outputPath,
+        ImageHdrGainMapSourceBinding binding,
+        long expectedFileSize,
+        int quality,
+        HdrOutputPolicy hdrOutputPolicy,
+        CancellationToken cancellationToken = default) =>
+        StageBoundHdrGainMapAsync(sourcePath, outputPath, binding, expectedFileSize, quality,
+            hdrOutputPolicy, ImageHdrGainMapTargetSemantic.HeicGainMapAuxiliary, cancellationToken);
+
+    private static Task<NativeHdrGainMapConversionTransaction> StageBoundHdrGainMapAsync(
+        string sourcePath,
+        string outputPath,
+        ImageHdrGainMapSourceBinding binding,
+        long expectedFileSize,
+        int quality,
+        HdrOutputPolicy hdrOutputPolicy,
+        ImageHdrGainMapTargetSemantic targetSemantic,
+        CancellationToken cancellationToken)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
+        ArgumentNullException.ThrowIfNull(binding);
+        PreflightInspectionPath(sourcePath, "HDR/GainMap source");
+        if (expectedFileSize <= 0 || quality is < 1 or > 100)
+            throw new InvalidDataException("HDR/GainMap conversion requires a positive source size and quality in [1,100].");
+        if ((targetSemantic == ImageHdrGainMapTargetSemantic.JpegIsoGainMap && binding.SourceContainer != ImageContainer.Heic) ||
+            (targetSemantic == ImageHdrGainMapTargetSemantic.HeicGainMapAuxiliary && binding.SourceContainer != ImageContainer.Jpeg) ||
+            targetSemantic is not ImageHdrGainMapTargetSemantic.JpegIsoGainMap and
+                not ImageHdrGainMapTargetSemantic.HeicGainMapAuxiliary)
+            throw new InvalidDataException("The bound GainMap source and target semantic pair is unsupported.");
+        cancellationToken.ThrowIfCancellationRequested();
+
+        return Task.Run(() =>
+        {
+            byte[] sourceHash = ParseRequiredSha256(binding.SourceSha256, "source");
+            byte[] primaryHash = ParseRequiredSha256(binding.PrimaryImageSha256, "primary image");
+            byte[] gainMapHash = ParseRequiredSha256(binding.GainMapSha256, "GainMap");
+            var request = new NativeHdrGainMapConversionRequestV1
+            {
+                StructSize = checked((uint)Marshal.SizeOf<NativeHdrGainMapConversionRequestV1>()),
+                ApiVersion = 1,
+                SourceContainer = (int)binding.SourceContainer,
+                TargetSemantic = (int)targetSemantic,
+                Quality = quality,
+                HdrOutputPolicy = (int)hdrOutputPolicy,
+                ItemId = binding.ItemId,
+                AuxiliaryIndex = binding.AuxiliaryIndex,
+                Representation = (int)binding.Representation,
+                Ownership = (int)binding.Ownership,
+                OwnerArtifactRole = (int)binding.OwnerArtifactRole,
+                SourceRange = new NativeMediaRange
+                {
+                    Offset = checked((ulong)binding.ByteOffset),
+                    Length = checked((ulong)binding.ByteLength)
+                },
+                ExpectedVolumeSerial = binding.SourceFileIdentity.VolumeSerialNumber,
+                ExpectedLinkCount = binding.SourceFileIdentity.LinkCount,
+                ExpectedFileIndex = binding.SourceFileIdentity.FileIndex,
+                ExpectedFileSize = checked((ulong)expectedFileSize)
+            };
+
+            unsafe
+            {
+                byte* sourceHashBuffer = request.SourceSha256;
+                byte* primaryHashBuffer = request.PrimarySha256;
+                byte* gainMapHashBuffer = request.GainMapSha256;
+                byte* stableIdentityBuffer = request.StableIdentity;
+                byte* inspectedStableIdentityBuffer = request.InspectedStableIdentity;
+                byte* semanticBuffer = request.Semantic;
+                byte* ownerIdentityBuffer = request.OwnerIdentity;
+                byte* inspectedOwnerIdentityBuffer = request.InspectedOwnerIdentity;
+                byte* relationshipBuffer = request.Relationship;
+                sourceHash.CopyTo(new Span<byte>(sourceHashBuffer, 32));
+                primaryHash.CopyTo(new Span<byte>(primaryHashBuffer, 32));
+                gainMapHash.CopyTo(new Span<byte>(gainMapHashBuffer, 32));
+                CopyStrictUtf8(stableIdentityBuffer, binding.StableIdentity, 96);
+                CopyStrictUtf8(inspectedStableIdentityBuffer, binding.InspectedStableIdentity, 96);
+                CopyStrictUtf8(semanticBuffer, binding.Semantic, 64);
+                CopyStrictUtf8(ownerIdentityBuffer, binding.OwnerIdentity, 96);
+                CopyStrictUtf8(inspectedOwnerIdentityBuffer, binding.InspectedOwnerIdentity, 96);
+                CopyStrictUtf8(relationshipBuffer, binding.Relationship, 64);
+            }
+
+            var context = NativeContext.Create(cancellationToken);
+            var result = new NativeHdrGainMapConversionResultV1
+            {
+                StructSize = checked((uint)Marshal.SizeOf<NativeHdrGainMapConversionResultV1>()),
+                ApiVersion = 1
+            };
+            try
+            {
+                NativeResult nativeResult = NativeMethods.StageHdrGainMapV1(
+                context.Handle, sourcePath, outputPath, ref request, ref result);
+                context.ThrowIfFailed(nativeResult);
+                if (result.TransactionToken == 0)
+                    throw new InvalidDataException("Native HDR/GainMap stage did not return an owned transaction token.");
+                string stagingPath = result.GetStagingPath();
+                if (!Path.IsPathFullyQualified(stagingPath))
+                    throw new InvalidDataException("Native HDR/GainMap stage path is not absolute.");
+                return new NativeHdrGainMapConversionTransaction(context, result, stagingPath);
+            }
+            catch
+            {
+                context.Dispose();
+                throw;
+            }
+        }, cancellationToken);
+    }
+
+    private static byte[] ParseRequiredSha256(string value, string label)
+    {
+        byte[] bytes;
+        try { bytes = Convert.FromHexString(value); }
+        catch (FormatException ex) { throw new InvalidDataException($"Bound {label} SHA-256 is malformed.", ex); }
+        if (bytes.Length != 32) throw new InvalidDataException($"Bound {label} SHA-256 is not 32 bytes.");
+        return bytes;
+    }
+
+    private static unsafe void CopyStrictUtf8(byte* destination, string value, int capacity)
+    {
+        int count = Encoding.UTF8.GetByteCount(value);
+        if (count >= capacity)
+            throw new InvalidDataException("A bound UTF-8 GainMap identity exceeds its versioned Native ABI field.");
+        int written = Encoding.UTF8.GetBytes(value.AsSpan(), new Span<byte>(destination, count));
+        destination[written] = 0;
     }
 
     // R5 codec foundation only: Native encodes two HEVC image items. It does

@@ -24,6 +24,8 @@ public sealed record VideoConversionRequest
     public required string TargetDirectory { get; init; }
     public int Crf { get; init; } = 23;
     public int TargetFps { get; init; } = 0;
+    public PreservationPolicy PreservationPolicy { get; init; } = PreservationPolicy.BestEffort;
+    public VideoConversionSourceFacts? TrustedSourceFacts { get; init; }
 }
 
 public sealed record VideoExecutionRecord
@@ -43,6 +45,7 @@ public sealed record VideoExecutionRecord
     public bool AudioPreserved { get; init; }
     public bool RotationPreserved { get; init; }
     public TimeSpan Duration { get; init; }
+    public ConversionExecutionTruth Truth { get; init; } = new();
 }
 
 public sealed record VideoConversionResult

@@ -287,15 +287,13 @@
                         <!-- Social Links -->
                         <Grid ColumnDefinitions="*,Auto">
                             <StackPanel Orientation="Horizontal" Spacing="14">
-                            <!-- Website (placeholder) -->
-                            <Button CornerRadius="6" Padding="10,6" MinWidth="0" MinHeight="0"
-                                    IsEnabled="False"
+                            <!-- Website -->
+                            <Button Command="{x:Bind ViewModel.OpenLinkCommand}"
+                                    CommandParameter="https://lengxiqwq.com/"
+                                    CornerRadius="6" Padding="10,6" MinWidth="0" MinHeight="0"
                                     Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                                     BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                                     BorderThickness="1">
-                                <ToolTipService.ToolTip>
-                                    <ToolTip x:Uid="AboutPage_DevWebsite_ToolTip"/>
-                                </ToolTipService.ToolTip>
                                 <StackPanel Orientation="Horizontal" Spacing="6">
                                     <ic:SymbolIcon Symbol="Globe" FontSize="15" VerticalAlignment="Center"/>
                                     <TextBlock x:Uid="AboutPage_DevWebsite" FontSize="13" VerticalAlignment="Center"/>
@@ -495,65 +493,9 @@
                                FontFamily="Microsoft YaHei UI" VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <Grid ColumnDefinitions="*,*,*" RowDefinitions="*,*,*" ColumnSpacing="12" RowSpacing="12">
-                    <!-- FFmpeg (Row 0 Col 0) — 视频转码核心 -->
+                <Grid ColumnDefinitions="*,*,*" RowDefinitions="*,*" ColumnSpacing="12" RowSpacing="12">
+                    <!-- libheif (Row 0 Col 0) — HEIC 编解码管线 -->
                     <Button Grid.Row="0" Grid.Column="0" HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Stretch"
-                            CornerRadius="12"
-                            Background="{ThemeResource CustomPanelAcrylicBrush}"
-                            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                            BorderThickness="1" Padding="16"
-                            Command="{x:Bind ViewModel.OpenLinkCommand}"
-                            CommandParameter="https://ffmpeg.org/">
-                        <Grid ColumnDefinitions="Auto,*,Auto">
-                            <Rectangle Width="40" Height="40" RadiusX="8" RadiusY="8" Margin="0,0,16,0">
-                                <Rectangle.Fill>
-                                    <ImageBrush ImageSource="/Assets/Credits/ffmpeg.png"/>
-                                </Rectangle.Fill>
-                            </Rectangle>
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                <TextBlock x:Uid="AboutPage_CreditFFmpegName" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
-                                           FontFamily="Microsoft YaHei UI"/>
-                                <TextBlock x:Uid="AboutPage_CreditFFmpegDesc"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                           FontSize="12" TextTrimming="CharacterEllipsis"
-                                           FontFamily="Microsoft YaHei UI"/>
-                            </StackPanel>
-                            <FontIcon Grid.Column="2" Glyph="&#xE8A7;" FontSize="12"
-                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                        </Grid>
-                    </Button>
-
-                    <!-- ExifTool (Row 0 Col 1) — 元数据处理核心 -->
-                    <Button Grid.Row="0" Grid.Column="1" HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Stretch"
-                            CornerRadius="12"
-                            Background="{ThemeResource CustomPanelAcrylicBrush}"
-                            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                            BorderThickness="1" Padding="16"
-                            Command="{x:Bind ViewModel.OpenLinkCommand}"
-                            CommandParameter="https://exiftool.org/">
-                        <Grid ColumnDefinitions="Auto,*,Auto">
-                            <Rectangle Width="40" Height="40" RadiusX="8" RadiusY="8" Margin="0,0,16,0">
-                                <Rectangle.Fill>
-                                    <ImageBrush ImageSource="/Assets/Credits/exiftool.png"/>
-                                </Rectangle.Fill>
-                            </Rectangle>
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                <TextBlock x:Uid="AboutPage_CreditExifToolName" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
-                                           FontFamily="Microsoft YaHei UI"/>
-                                <TextBlock x:Uid="AboutPage_CreditExifToolDesc"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                           FontSize="12" TextTrimming="CharacterEllipsis"
-                                           FontFamily="Microsoft YaHei UI"/>
-                            </StackPanel>
-                            <FontIcon Grid.Column="2" Glyph="&#xE8A7;" FontSize="12"
-                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                        </Grid>
-                    </Button>
-
-                    <!-- libheif (Row 0 Col 2) — HEIC 编解码管线 -->
-                    <Button Grid.Row="0" Grid.Column="2" HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Stretch"
                             CornerRadius="12"
                             Background="{ThemeResource CustomPanelAcrylicBrush}"
@@ -580,36 +522,8 @@
                         </Grid>
                     </Button>
 
-                    <!-- JPEGTran (Row 1 Col 0) — 无损 JPEG 处理 -->
-                    <Button Grid.Row="1" Grid.Column="0" HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Stretch"
-                            CornerRadius="12"
-                            Background="{ThemeResource CustomPanelAcrylicBrush}"
-                            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                            BorderThickness="1" Padding="16"
-                            Command="{x:Bind ViewModel.OpenLinkCommand}"
-                            CommandParameter="http://jpegclub.org/jpegtran/">
-                        <Grid ColumnDefinitions="Auto,*,Auto">
-                            <Rectangle Width="40" Height="40" RadiusX="8" RadiusY="8" Margin="0,0,16,0">
-                                <Rectangle.Fill>
-                                    <ImageBrush ImageSource="/Assets/Credits/jpegtran.png"/>
-                                </Rectangle.Fill>
-                            </Rectangle>
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                <TextBlock x:Uid="AboutPage_CreditJPEGTranName" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
-                                           FontFamily="Microsoft YaHei UI"/>
-                                <TextBlock x:Uid="AboutPage_CreditJPEGTranDesc"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                           FontSize="12" TextTrimming="CharacterEllipsis"
-                                           FontFamily="Microsoft YaHei UI"/>
-                            </StackPanel>
-                            <FontIcon Grid.Column="2" Glyph="&#xE8A7;" FontSize="12"
-                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                        </Grid>
-                    </Button>
-
-                    <!-- Magick.NET (Row 1 Col 1) — HEIC 图像解码 -->
-                    <Button Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch"
+                    <!-- Magick.NET (Row 0 Col 1) — HEIC 图像解码 -->
+                    <Button Grid.Row="0" Grid.Column="1" HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Stretch"
                             CornerRadius="12"
                             Background="{ThemeResource CustomPanelAcrylicBrush}"
@@ -636,8 +550,8 @@
                         </Grid>
                     </Button>
 
-                    <!-- CommunityToolkit (Row 1 Col 2) — MVVM 框架 + UI 控件 -->
-                    <Button Grid.Row="1" Grid.Column="2" HorizontalAlignment="Stretch"
+                    <!-- CommunityToolkit (Row 0 Col 2) — MVVM 框架 + UI 控件 -->
+                    <Button Grid.Row="0" Grid.Column="2" HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Stretch"
                             CornerRadius="12"
                             Background="{ThemeResource CustomPanelAcrylicBrush}"
@@ -664,8 +578,8 @@
                         </Grid>
                     </Button>
 
-                    <!-- MagicScaler (Row 2 Col 0) — 高性能图片缩放 -->
-                    <Button Grid.Row="2" Grid.Column="0" HorizontalAlignment="Stretch"
+                    <!-- MagicScaler (Row 1 Col 0) — 高性能图片缩放 -->
+                    <Button Grid.Row="1" Grid.Column="0" HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Stretch"
                             CornerRadius="12"
                             Background="{ThemeResource CustomPanelAcrylicBrush}"
@@ -692,8 +606,8 @@
                         </Grid>
                     </Button>
 
-                    <!-- Markdig (Row 2 Col 1) — Markdown 渲染 -->
-                    <Button Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch"
+                    <!-- Markdig (Row 1 Col 1) — Markdown 渲染 -->
+                    <Button Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Stretch"
                             CornerRadius="12"
                             Background="{ThemeResource CustomPanelAcrylicBrush}"
@@ -720,8 +634,8 @@
                         </Grid>
                     </Button>
 
-                    <!-- FluentIcons (Row 2 Col 2) — Fluent Design 图标库 -->
-                    <Button Grid.Row="2" Grid.Column="2" HorizontalAlignment="Stretch"
+                    <!-- FluentIcons (Row 1 Col 2) — Fluent Design 图标库 -->
+                    <Button Grid.Row="1" Grid.Column="2" HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Stretch"
                             CornerRadius="12"
                             Background="{ThemeResource CustomPanelAcrylicBrush}"

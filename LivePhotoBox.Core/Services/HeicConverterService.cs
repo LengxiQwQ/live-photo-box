@@ -91,7 +91,7 @@ namespace LivePhotoBox.Services
             if (IsHeicFile(sourcePath)) return sourcePath;
 
             string resultPath;
-            if (StandardHdrConversionService.HasStandardJpegGainMap(sourcePath, token))
+            if (await StandardHdrConversionService.HasStandardJpegGainMapAsync(sourcePath, token).ConfigureAwait(false))
             {
                 try
                 {

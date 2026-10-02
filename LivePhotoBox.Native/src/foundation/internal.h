@@ -15,6 +15,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <mutex>
 #include <new>
 #include <string>
@@ -188,6 +189,8 @@ struct lpb_context
     uint64_t next_plan_generation{1};
     std::vector<lpb_cleanup_plan_record> cleanup_plans;
     uint64_t next_cleanup_generation{1};
+    std::mutex hdr_gainmap_mutex;
+    std::vector<std::pair<uint64_t, std::shared_ptr<void>>> hdr_gainmap_stages;
     // Non-zero only while a plan-authorized clean invocation is executing on
     // the thread that entered the cleaner (see cleaner_authority_guard).
     // Combined with the thread-local binding below, this is the unforgeable
@@ -337,6 +340,10 @@ constexpr size_t context_options_v1_size =
 void set_error(lpb_context* context, const char* message) noexcept;
 void set_inspection_status(lpb_context* context, lpb_inspection_failure_category category,
     lpb_inspection_stage stage, uint64_t capability = 0) noexcept;
+lpb_result lpb_media_capture_preservation_observation(
+    lpb_context* context, const char* media_path, lpb_source_protocol protocol_hint,
+    lpb_image_container container_hint, lpb_preservation_observation* out_observation,
+    bool share_existing_writer) noexcept;
 void log_message(lpb_context* context, lpb_log_level level, const char* message) noexcept;
 std::filesystem::path utf8_to_path(const char* utf8_str) noexcept;
 std::string path_to_utf8(const std::filesystem::path& path) noexcept;

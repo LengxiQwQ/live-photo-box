@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using LivePhotoBox.Media.Models;
 
 namespace LivePhotoBox.Media.Image;
@@ -9,14 +10,13 @@ namespace LivePhotoBox.Media.Image;
 /// </summary>
 public static class ImageConversionEligibility
 {
-    public const string GainMapHeicToJpegBlockedMessage =
-        "HDR/GainMap HEIC to JPEG requires the explicit P5 semantic conversion path. Plain SDR JPEG fallback is forbidden.";
+    public const string SemanticAuxiliaryBlockedMessage =
+        "HDR/GainMap or auxiliary image inputs require the explicit P5 semantic conversion path and are forbidden on ordinary R2 image routes.";
 
     /// <summary>
-    /// Rejects a lossy, primary-only HEIC-to-JPEG conversion when the project
-    /// inspector has established that the source contains a GainMap semantic.
-    /// P5 owns the semantic conversion; R5 must not manufacture a successful
-    /// SDR-only result in its place.
+    /// Rejects all ordinary R2 routes when inspection establishes GainMap or
+    /// auxiliary semantics. Same-container copies are also outside the
+    /// ordinary-image R2 contract for these inputs.
     /// </summary>
     public static bool IsAllowed(
         SourceMediaFacts sourceFacts,
@@ -26,15 +26,38 @@ public static class ImageConversionEligibility
     {
         ArgumentNullException.ThrowIfNull(sourceFacts);
 
-        if (sourceContainer == ImageContainer.Heic &&
-            targetContainer == ImageContainer.Jpeg &&
-            sourceFacts.GainMap is { IsPresent: true })
+        if (sourceFacts.GainMap is { IsPresent: true } ||
+            sourceFacts.AuxiliaryItems.Any(item => item.IsPresent))
         {
-            errorMessage = GainMapHeicToJpegBlockedMessage;
+            errorMessage = SemanticAuxiliaryBlockedMessage;
             return false;
         }
 
         errorMessage = null;
         return true;
     }
+
+    public static bool IsAllowed(
+        ImageConversionSourceFacts sourceFacts,
+        ImageContainer targetContainer,
+        out string? errorMessage)
+    {
+        ArgumentNullException.ThrowIfNull(sourceFacts);
+        if (sourceFacts.HasGainMap || sourceFacts.HasAuxiliaryMedia)
+        {
+            errorMessage = SemanticAuxiliaryBlockedMessage;
+            return false;
+        }
+
+        errorMessage = null;
+        return true;
+    }
+
+    public static ImageConversionSourceFacts ToConversionFacts(SourceMediaFacts facts) => new()
+    {
+        Container = facts.PrimaryImage.Container,
+        Codec = facts.PrimaryImage.Container == ImageContainer.Heic ? ImageCodec.Hevc : ImageCodec.Jpeg,
+        HasGainMap = facts.GainMap is { IsPresent: true },
+        HasAuxiliaryMedia = facts.GainMap is { IsPresent: true } || facts.AuxiliaryItems.Any(item => item.IsPresent)
+    };
 }

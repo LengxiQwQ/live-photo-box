@@ -1012,169 +1012,381 @@
                 <Border x:Name="InspectorBorder" Grid.Row="0" Grid.Column="1"
                         Style="{StaticResource CardBorderStyle}"
                         Padding="0" Margin="0,0,0,2">
-                    <Grid>
-                        <ScrollViewer
-                                      VerticalScrollBarVisibility="Visible"
-                                      VerticalScrollMode="Auto"
-                                      HorizontalScrollBarVisibility="Disabled"
-                                      HorizontalScrollMode="Disabled">
-                            <StackPanel Spacing="9" Margin="12,14,22,14">
-                                <!-- ── 封面与媒体替换（当前封面、原始封面、替换动态视频样式统一并排布在一起）── -->
-                                <!-- 1. 当前封面 -->
-                                <Grid ColumnSpacing="10">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="72"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" Spacing="3" VerticalAlignment="Top">
-                                        <TextBlock x:Uid="EditPage_InspectorCurrentCoverLabel"
-                                                   FontSize="12" FontWeight="SemiBold"
-                                                   Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                                        <TextBlock Text="{x:Bind ViewModel.CurrentFramePositionText, Mode=OneWay}"
-                                                   FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                   TextWrapping="Wrap"/>
-                                        <!-- 次级操作入口：在其他应用中编辑（UI 入口占位，保持 IsEnabled="False"） -->
-                                        <HyperlinkButton x:Uid="EditPage_InspectorEditCoverInAnotherApp"
-                                                         Padding="0" Margin="0,2,0,0" MinWidth="0" MinHeight="0"
-                                                         IsEnabled="False">
-                                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                                <FontIcon Glyph="&#xE7AC;" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                                <TextBlock x:Uid="EditPage_InspectorEditInAnotherAppText"
-                                                           FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                            </StackPanel>
-                                        </HyperlinkButton>
-                                    </StackPanel>
-                                    <Button x:Uid="EditPage_InspectorCurrentCover"
-                                            Grid.Column="1"
-                                            Width="72" Height="72" Padding="4"
-                                            HorizontalAlignment="Right"
-                                            VerticalAlignment="Top"
-                                            HorizontalContentAlignment="Center"
-                                            VerticalContentAlignment="Center"
-                                            CornerRadius="5">
-                                        <StackPanel Spacing="5" HorizontalAlignment="Center">
-                                            <FontIcon Glyph="&#xE722;" FontSize="18"
-                                                      HorizontalAlignment="Center"/>
-                                            <TextBlock x:Uid="EditPage_InspectorSelectImageLabel"
-                                                       FontSize="10" TextAlignment="Center"
-                                                       TextWrapping="Wrap"/>
-                                        </StackPanel>
-                                    </Button>
-                                </Grid>
+                    <Grid RowDefinitions="Auto,*">
+                        <!-- 顶部选项卡切换 -->
+                        <ctk:Segmented x:Name="InspectorTabSegmented"
+                                       Grid.Row="0"
+                                       SelectedIndex="{x:Bind ViewModel.SelectedInspectorTabIndex, Mode=TwoWay}"
+                                       Height="28" FontSize="12" Margin="12,12,12,8"
+                                       HorizontalAlignment="Stretch">
+                            <ctk:Segmented.ItemContainerStyle>
+                                <Style TargetType="ctk:SegmentedItem">
+                                    <Setter Property="FontSize" Value="12"/>
+                                    <Setter Property="MinHeight" Value="24"/>
+                                    <Setter Property="Padding" Value="8,0"/>
+                                    <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}"/>
+                                </Style>
+                            </ctk:Segmented.ItemContainerStyle>
+                            <ctk:SegmentedItem x:Uid="EditPage_InspectorTab_Edit" Tag="edit"/>
+                            <ctk:SegmentedItem x:Uid="EditPage_InspectorTab_Properties" Tag="properties"/>
+                        </ctk:Segmented>
 
-                                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
-
-                                <!-- 2. 原始封面（仅 OPPO 实况照片协议展示历史基准；其余厂商和普通媒体隐藏） -->
-                                <StackPanel Visibility="{x:Bind ViewModel.IsOriginalCoverAvailable, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
-                                            Spacing="9">
+                        <!-- 下方标签页视图容器 -->
+                        <Grid Grid.Row="1">
+                            <!-- 1. 【编辑标签页】 -->
+                            <ScrollViewer Visibility="{x:Bind ViewModel.IsInspectorEditTabVisible, Mode=OneWay}"
+                                          VerticalScrollBarVisibility="Visible"
+                                          VerticalScrollMode="Auto"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          HorizontalScrollMode="Disabled">
+                                <StackPanel Spacing="9" Margin="12,4,22,14">
+                                    <!-- ── 封面与媒体替换（当前封面、原始封面、替换动态视频样式统一并排布在一起）── -->
+                                    <!-- 1. 当前封面 -->
                                     <Grid ColumnSpacing="10">
                                         <Grid.ColumnDefinitions>
                                             <ColumnDefinition Width="*"/>
                                             <ColumnDefinition Width="72"/>
                                         </Grid.ColumnDefinitions>
                                         <StackPanel Grid.Column="0" Spacing="3" VerticalAlignment="Top">
-                                            <TextBlock x:Uid="EditPage_InspectorOriginalCoverLabel"
+                                            <TextBlock x:Uid="EditPage_InspectorCurrentCoverLabel"
                                                        FontSize="12" FontWeight="SemiBold"
                                                        Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                                            <TextBlock Text="{x:Bind ViewModel.TimelineInfo, Mode=OneWay}"
+                                            <TextBlock Text="{x:Bind ViewModel.CurrentFramePositionText, Mode=OneWay}"
                                                        FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
                                                        TextWrapping="Wrap"/>
+                                            <!-- 次级操作入口：在其他应用中编辑（UI 入口占位，保持 IsEnabled="False"） -->
+                                            <HyperlinkButton x:Uid="EditPage_InspectorEditCoverInAnotherApp"
+                                                             Padding="0" Margin="0,2,0,0" MinWidth="0" MinHeight="0"
+                                                             IsEnabled="False">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <FontIcon Glyph="&#xE7AC;" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                    <TextBlock x:Uid="EditPage_InspectorEditInAnotherAppText"
+                                                               FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                </StackPanel>
+                                            </HyperlinkButton>
                                         </StackPanel>
-                                        <!-- 右侧只读卡片/原始标签，不提供文件替换选择器与外部编辑入口 -->
-                                        <Border Grid.Column="1"
+                                        <Button x:Uid="EditPage_InspectorCurrentCover"
+                                                Grid.Column="1"
                                                 Width="72" Height="72" Padding="4"
                                                 HorizontalAlignment="Right"
                                                 VerticalAlignment="Top"
-                                                Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                                                BorderThickness="1"
+                                                HorizontalContentAlignment="Center"
+                                                VerticalContentAlignment="Center"
                                                 CornerRadius="5">
-                                            <StackPanel Spacing="5" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                            <StackPanel Spacing="5" HorizontalAlignment="Center">
                                                 <FontIcon Glyph="&#xE722;" FontSize="18"
-                                                          HorizontalAlignment="Center"
-                                                          Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                                <TextBlock x:Uid="EditPage_InspectorOriginalCoverTag"
+                                                          HorizontalAlignment="Center"/>
+                                                <TextBlock x:Uid="EditPage_InspectorSelectImageLabel"
                                                            FontSize="10" TextAlignment="Center"
-                                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                           TextWrapping="Wrap"/>
                                             </StackPanel>
-                                        </Border>
+                                        </Button>
                                     </Grid>
 
                                     <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
-                                </StackPanel>
 
-                                <!-- 3. 动态视频（移至两封面正下方，样式统一） -->
-                                <Grid ColumnSpacing="10">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="72"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" Spacing="3" VerticalAlignment="Top">
-                                        <TextBlock x:Uid="EditPage_InspectorReplaceVideo"
+                                    <!-- 2. 原始封面（仅 OPPO 实况照片协议展示历史基准；其余厂商和普通媒体隐藏） -->
+                                    <StackPanel Visibility="{x:Bind ViewModel.IsOriginalCoverAvailable, Mode=OneWay, Converter={StaticResource VisibilityConverter}}"
+                                                Spacing="9">
+                                        <Grid ColumnSpacing="10">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="72"/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel Grid.Column="0" Spacing="3" VerticalAlignment="Top">
+                                                <TextBlock x:Uid="EditPage_InspectorOriginalCoverLabel"
+                                                           FontSize="12" FontWeight="SemiBold"
+                                                           Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                                <TextBlock Text="{x:Bind ViewModel.TimelineInfo, Mode=OneWay}"
+                                                           FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                           TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                            <!-- 右侧只读卡片/原始标签，不提供文件替换选择器与外部编辑入口 -->
+                                            <Border Grid.Column="1"
+                                                    Width="72" Height="72" Padding="4"
+                                                    HorizontalAlignment="Right"
+                                                    VerticalAlignment="Top"
+                                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
+                                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                    BorderThickness="1"
+                                                    CornerRadius="5">
+                                                <StackPanel Spacing="5" HorizontalAlignment="Center" VerticalAlignment="Center">
+                                                    <FontIcon Glyph="&#xE722;" FontSize="18"
+                                                              HorizontalAlignment="Center"
+                                                              Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                    <TextBlock x:Uid="EditPage_InspectorOriginalCoverTag"
+                                                               FontSize="10" TextAlignment="Center"
+                                                               Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </Grid>
+
+                                        <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+                                    </StackPanel>
+
+                                    <!-- 3. 动态视频（移至两封面正下方，样式统一） -->
+                                    <Grid ColumnSpacing="10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="72"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Spacing="3" VerticalAlignment="Top">
+                                            <TextBlock x:Uid="EditPage_InspectorReplaceVideo"
+                                                       FontSize="12" FontWeight="SemiBold"
+                                                       Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                            <TextBlock x:Uid="EditPage_InspectorCurrentVideo"
+                                                       FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                                       TextWrapping="Wrap"/>
+                                            <!-- 次级操作入口：在其他应用中编辑（UI 入口占位，保持 IsEnabled="False"） -->
+                                            <HyperlinkButton x:Uid="EditPage_InspectorEditVideoInAnotherApp"
+                                                             Padding="0" Margin="0,2,0,0" MinWidth="0" MinHeight="0"
+                                                             IsEnabled="False">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <FontIcon Glyph="&#xE7AC;" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                    <TextBlock x:Uid="EditPage_InspectorEditInAnotherAppText"
+                                                               FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                </StackPanel>
+                                            </HyperlinkButton>
+                                        </StackPanel>
+                                        <Button x:Uid="EditPage_InspectorSelectVideo"
+                                                Grid.Column="1"
+                                                Width="72" Height="72" Padding="4"
+                                                HorizontalAlignment="Right"
+                                                VerticalAlignment="Top"
+                                                HorizontalContentAlignment="Center"
+                                                VerticalContentAlignment="Center"
+                                                CornerRadius="5">
+                                            <StackPanel Spacing="5" HorizontalAlignment="Center">
+                                                <FontIcon Glyph="&#xE714;" FontSize="18"
+                                                          HorizontalAlignment="Center"/>
+                                                <TextBlock x:Uid="EditPage_InspectorSelectVideoLabel"
+                                                           FontSize="10" TextAlignment="Center"
+                                                           TextWrapping="Wrap"/>
+                                            </StackPanel>
+                                        </Button>
+                                    </Grid>
+
+                                    <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+
+                                    <!-- 音频：间距舒展，移除音轨 CheckBox 内置文本间距恢复 -->
+                                    <StackPanel Spacing="10">
+                                        <TextBlock x:Uid="EditPage_InspectorAudio"
                                                    FontSize="12" FontWeight="SemiBold"
                                                    Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                                        <TextBlock x:Uid="EditPage_InspectorCurrentVideo"
-                                                   FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                                   TextWrapping="Wrap"/>
-                                        <!-- 次级操作入口：在其他应用中编辑（UI 入口占位，保持 IsEnabled="False"） -->
-                                        <HyperlinkButton x:Uid="EditPage_InspectorEditVideoInAnotherApp"
-                                                         Padding="0" Margin="0,2,0,0" MinWidth="0" MinHeight="0"
-                                                         IsEnabled="False">
-                                            <StackPanel Orientation="Horizontal" Spacing="4">
-                                                <FontIcon Glyph="&#xE7AC;" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                                <TextBlock x:Uid="EditPage_InspectorEditInAnotherAppText"
-                                                           FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                                            </StackPanel>
-                                        </HyperlinkButton>
+                                        <Grid ColumnSpacing="8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="36"/>
+                                            </Grid.ColumnDefinitions>
+                                            <ic:SymbolIcon Grid.Column="0" Symbol="Speaker2" FontSize="14"
+                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                           VerticalAlignment="Center"/>
+                                            <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="100"
+                                                    StepFrequency="1" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="2" x:Uid="EditPage_InspectorVolumeValue"
+                                                       FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                       VerticalAlignment="Center" TextAlignment="Right"/>
+                                        </Grid>
+                                        <CheckBox x:Uid="EditPage_InspectorRemoveTrack"
+                                                  FontSize="12" MinHeight="32"
+                                                  Padding="8,0,0,0" Margin="0,4,0,0"
+                                                  HorizontalAlignment="Left"
+                                                  VerticalContentAlignment="Center"/>
                                     </StackPanel>
-                                    <Button x:Uid="EditPage_InspectorSelectVideo"
-                                            Grid.Column="1"
-                                            Width="72" Height="72" Padding="4"
-                                            HorizontalAlignment="Right"
-                                            VerticalAlignment="Top"
-                                            HorizontalContentAlignment="Center"
-                                            VerticalContentAlignment="Center"
-                                            CornerRadius="5">
-                                        <StackPanel Spacing="5" HorizontalAlignment="Center">
-                                            <FontIcon Glyph="&#xE714;" FontSize="18"
-                                                      HorizontalAlignment="Center"/>
-                                            <TextBlock x:Uid="EditPage_InspectorSelectVideoLabel"
-                                                       FontSize="10" TextAlignment="Center"
-                                                       TextWrapping="Wrap"/>
-                                        </StackPanel>
-                                    </Button>
-                                </Grid>
-
-                                <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
-
-                                <!-- 音频：间距舒展，移除音轨 CheckBox 内置文本间距恢复 -->
-                                <StackPanel Spacing="10">
-                                    <TextBlock x:Uid="EditPage_InspectorAudio"
-                                               FontSize="12" FontWeight="SemiBold"
-                                               Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                                    <Grid ColumnSpacing="8">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="36"/>
-                                        </Grid.ColumnDefinitions>
-                                        <ic:SymbolIcon Grid.Column="0" Symbol="Speaker2" FontSize="14"
-                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                       VerticalAlignment="Center"/>
-                                        <Slider Grid.Column="1" Minimum="0" Maximum="100" Value="100"
-                                                StepFrequency="1" VerticalAlignment="Center"/>
-                                        <TextBlock Grid.Column="2" x:Uid="EditPage_InspectorVolumeValue"
-                                                   FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                   VerticalAlignment="Center" TextAlignment="Right"/>
-                                    </Grid>
-                                    <CheckBox x:Uid="EditPage_InspectorRemoveTrack"
-                                              FontSize="12" MinHeight="32"
-                                              Padding="8,0,0,0" Margin="0,4,0,0"
-                                              HorizontalAlignment="Left"
-                                              VerticalContentAlignment="Center"/>
                                 </StackPanel>
-                            </StackPanel>
-                        </ScrollViewer>
+                            </ScrollViewer>
+
+                            <!-- 2. 【属性修改标签页】 -->
+                            <ScrollViewer Visibility="{x:Bind ViewModel.IsInspectorPropertiesTabVisible, Mode=OneWay}"
+                                          VerticalScrollBarVisibility="Visible"
+                                          VerticalScrollMode="Auto"
+                                          HorizontalScrollBarVisibility="Disabled"
+                                          HorizontalScrollMode="Disabled">
+                                <StackPanel Spacing="10" Margin="12,4,22,14">
+                                    <!-- a. 实况照片规格卡片 -->
+                                    <Border Style="{StaticResource InfoCardBorderStyle}">
+                                        <StackPanel Spacing="8">
+                                            <Grid ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock x:Uid="EditPage_InspectorProtocolCardTitle"
+                                                           Style="{StaticResource CardTitleStyle}"/>
+                                                <!-- 协议徽标 + 协议名称 -->
+                                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="5" VerticalAlignment="Center"
+                                                            Visibility="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}">
+                                                    <Path Data="M21 32 A11 11 0 1 1 43 32 A11 11 0 1 1 21 32 M26 32 A6 6 0 1 1 38 32 A6 6 0 1 1 26 32 M29.4 13 A2.6 2.6 0 1 1 34.6 13 A2.6 2.6 0 1 1 29.4 13 M40.57 16.63 A2.6 2.6 0 1 1 45.77 16.63 A2.6 2.6 0 1 1 40.57 16.63 M47.47 26.13 A2.6 2.6 0 1 1 52.67 26.13 A2.6 2.6 0 1 1 47.47 26.13 M47.47 37.87 A2.6 2.6 0 1 1 52.67 37.87 A2.6 2.6 0 1 1 47.47 37.87 M40.57 47.37 A2.6 2.6 0 1 1 45.77 47.37 A2.6 2.6 0 1 1 40.57 47.37 M29.4 51 A2.6 2.6 0 1 1 34.6 51 A2.6 2.6 0 1 1 29.4 51 M18.23 47.37 A2.6 2.6 0 1 1 23.43 47.37 A2.6 2.6 0 1 1 18.23 47.37 M11.33 37.87 A2.6 2.6 0 1 1 16.53 37.87 A2.6 2.6 0 1 1 11.33 37.87 M11.33 26.13 A2.6 2.6 0 1 1 16.53 26.13 A2.6 2.6 0 1 1 11.33 26.13 M18.23 16.63 A2.6 2.6 0 1 1 23.43 16.63 A2.6 2.6 0 1 1 18.23 16.63"
+                                                          Width="11" Height="11" Stretch="Uniform"
+                                                          Fill="{x:Bind ViewModel.ProtocolIconBrush, Mode=OneWay}"
+                                                          VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{x:Bind ViewModel.ProtocolLine, Mode=OneWay}"
+                                                               FontSize="11" FontWeight="SemiBold"
+                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                               VerticalAlignment="Center"/>
+                                                </StackPanel>
+                                            </Grid>
+
+                                            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+
+                                            <!-- 照片规格 -->
+                                            <Grid ColumnSpacing="6" Visibility="{x:Bind ViewModel.IsPhotoRowVisible, Mode=OneWay}">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <FontIcon Glyph="&#xE722;" FontSize="11"
+                                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                                          VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.PhotoInfoLine, Mode=OneWay}"
+                                                           Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
+                                            </Grid>
+
+                                            <!-- 视频规格 -->
+                                            <Grid ColumnSpacing="6" Visibility="{x:Bind ViewModel.IsVideoRowVisible, Mode=OneWay}">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <FontIcon Glyph="&#xE714;" FontSize="11"
+                                                          Foreground="{ThemeResource AccentFillColorDefaultBrush}"
+                                                          VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.VideoInfoLine, Mode=OneWay}"
+                                                           Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"/>
+                                            </Grid>
+
+                                            <!-- 动态/时间轴规格（时长、帧率） -->
+                                            <StackPanel Orientation="Horizontal" Spacing="8"
+                                                        Visibility="{x:Bind ViewModel.IsSelectedLivePhoto, Mode=OneWay}">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <FontIcon Glyph="&#xE823;" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{x:Bind ViewModel.TimelineInfo, Mode=OneWay}" Style="{StaticResource SecondaryTextStyle}"/>
+                                                </StackPanel>
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <FontIcon Glyph="&#xE714;" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{x:Bind ViewModel.FpsDisplayText, Mode=OneWay}" Style="{StaticResource SecondaryTextStyle}"/>
+                                                </StackPanel>
+                                            </StackPanel>
+
+                                            <!-- 在文件资源管理器中定位按钮 -->
+                                            <Button x:Uid="EditPage_InspectorLocateInExplorerBtn"
+                                                    HorizontalAlignment="Stretch"
+                                                    Margin="0,4,0,0" Padding="0,5"
+                                                    IsEnabled="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"
+                                                    Command="{x:Bind ViewModel.LocateCurrentFileInExplorerCommand}">
+                                                <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                                                    <FontIcon Glyph="&#xEC50;" FontSize="12"/>
+                                                    <TextBlock x:Uid="EditPage_InspectorLocateInExplorerLabel" FontSize="11"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- b. 相机拍摄与 EXIF 简报卡片 -->
+                                    <Border Style="{StaticResource InfoCardBorderStyle}">
+                                        <StackPanel Spacing="8">
+                                            <TextBlock x:Uid="EditPage_InspectorExifCardTitle"
+                                                       Style="{StaticResource CardTitleStyle}"/>
+
+                                            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+
+                                            <!-- 相机型号 + 拍摄日期 -->
+                                            <Grid ColumnSpacing="6" Visibility="{x:Bind ViewModel.ExifCamera, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <FontIcon Glyph="&#xE722;" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" TextWrapping="Wrap" IsTextSelectionEnabled="True">
+                                                    <Run Text="{x:Bind ViewModel.ExifCamera, Mode=OneWay}" FontWeight="SemiBold" FontSize="11" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                                                    <Run Text="{x:Bind ViewModel.ExifCameraDateSuffix, Mode=OneWay}" FontSize="10" Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                                </TextBlock>
+                                            </Grid>
+
+                                            <!-- 镜头参数 -->
+                                            <Grid ColumnSpacing="6" Visibility="{x:Bind ViewModel.ExifLensParams, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <FontIcon Glyph="&#xE946;" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.ExifLensParams, Mode=OneWay}"
+                                                           Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+                                            </Grid>
+
+                                            <!-- 曝光参数 -->
+                                            <Grid ColumnSpacing="6" Visibility="{x:Bind ViewModel.ExifShootingParams, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <FontIcon Glyph="&#xE737;" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.ExifShootingParams, Mode=OneWay}"
+                                                           Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+                                            </Grid>
+
+                                            <!-- 拍摄地点 -->
+                                            <Grid ColumnSpacing="6" Visibility="{x:Bind ViewModel.ExifPlaceName, Mode=OneWay, Converter={StaticResource StringNotEmptyConverter}}">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <FontIcon Glyph="&#xE707;" FontSize="11" Foreground="{ThemeResource TextFillColorTertiaryBrush}" VerticalAlignment="Center"/>
+                                                <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.ExifPlaceName, Mode=OneWay}"
+                                                           Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+                                            </Grid>
+                                        </StackPanel>
+                                    </Border>
+
+                                    <!-- c. 更改属性与隐私工具卡片 -->
+                                    <Border Style="{StaticResource InfoCardBorderStyle}">
+                                        <StackPanel Spacing="8">
+                                            <TextBlock x:Uid="EditPage_InspectorModifyCardTitle"
+                                                       Style="{StaticResource CardTitleStyle}"/>
+
+                                            <Border Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+
+                                            <!-- 拍摄日期与时间标签 -->
+                                            <TextBlock x:Uid="EditPage_InspectorDateLabel"
+                                                       FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+
+                                            <!-- DatePicker 与 TimePicker -->
+                                            <DatePicker Date="{x:Bind ViewModel.EditCaptureDate, Mode=TwoWay}"
+                                                        IsEnabled="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"
+                                                        HorizontalAlignment="Stretch" Margin="0,0,0,4"/>
+                                            <TimePicker Time="{x:Bind ViewModel.EditCaptureTime, Mode=TwoWay}"
+                                                        IsEnabled="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"
+                                                        HorizontalAlignment="Stretch" ClockIdentifier="24HourClock" Margin="0,0,0,4"/>
+
+                                            <!-- 隐私抹除选项 -->
+                                            <CheckBox x:Uid="EditPage_InspectorStripGps"
+                                                      IsChecked="{x:Bind ViewModel.StripGpsLocation, Mode=TwoWay}"
+                                                      IsEnabled="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"
+                                                      FontSize="11" MinHeight="28" Padding="6,0,0,0" Margin="0,2,0,0"/>
+
+                                            <CheckBox x:Uid="EditPage_InspectorStripCamera"
+                                                      IsChecked="{x:Bind ViewModel.StripCameraModel, Mode=TwoWay}"
+                                                      IsEnabled="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"
+                                                      FontSize="11" MinHeight="28" Padding="6,0,0,0" Margin="0,0,0,4"/>
+
+                                            <!-- 应用属性修改按钮 -->
+                                            <Button x:Uid="EditPage_InspectorApplyPropsBtn"
+                                                    Style="{StaticResource AccentButtonStyle}"
+                                                    HorizontalAlignment="Stretch"
+                                                    Margin="0,4,0,0" Padding="0,6"
+                                                    IsEnabled="{x:Bind ViewModel.HasSelectedFile, Mode=OneWay}"
+                                                    Command="{x:Bind ViewModel.ApplyPropertyModificationsCommand}">
+                                                <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Center">
+                                                    <FontIcon Glyph="&#xE74E;" FontSize="12"/>
+                                                    <TextBlock x:Uid="EditPage_InspectorApplyPropsLabel" FontSize="11"/>
+                                                </StackPanel>
+                                            </Button>
+                                        </StackPanel>
+                                    </Border>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </Grid>
                     </Grid>
                 </Border>
 
@@ -1871,16 +2083,6 @@
                                 </Grid>
                             </Grid>
 
-                            <!-- ──────────────────────────────────────────────── -->
-                            <!--  更改文件属性面板（占位，后续扩展）                -->
-                            <!-- ──────────────────────────────────────────────── -->
-                            <Grid x:Name="DetailPropsPlaceholder" MinHeight="100"
-                                  Visibility="Collapsed">
-                                <TextBlock x:Uid="EditPage_DetailPropsPlaceholder"
-                                           FontSize="12"
-                                           Foreground="{ThemeResource TextFillColorTertiaryBrush}"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Grid>
 
                         </StackPanel>
                     </Grid>

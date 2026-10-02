@@ -2,6 +2,7 @@
 #include "foundation/sha256_core.h"
 #include "binary/binary_io.h"
 #include "containers/isobmff.h"
+#include "containers/heif_internal.h"
 #include <algorithm>
 #include <cstring>
 #include <functional>
@@ -1073,7 +1074,8 @@ namespace {
             strncpy_s(facts.relationship, relationship.c_str(), _TRUNCATE);
             strncpy_s(facts.semantic,
                 relationship == "urn:com:apple:photo:2020:aux:hdrgainmap" ||
-                relationship == "urn:com:samsung:photo:2024:aux:hdrgainmap" ? "GainMap" : "Auxiliary",
+                relationship == "urn:com:samsung:photo:2024:aux:hdrgainmap" ||
+                relationship == "urn:com:photo:aux:hdrgainmap" ? "GainMap" : "Auxiliary",
                 _TRUNCATE);
             facts.graph_flags = LPB_HEIF_GRAPH_COMPLETE;
             if (dependencies != nullptr) {
@@ -1101,6 +1103,692 @@ namespace {
         return true;
     }
 }
+
+namespace {
+struct ipma_entry {
+    uint32_t item_id{};
+    std::vector<uint16_t> associations;
+};
+
+uint32_t read_u32_at(const uint8_t* data, size_t position) noexcept {
+    return read_be32u(data + position);
+}
+
+void append_u16(std::vector<uint8_t>& output, uint16_t value) {
+    output.push_back(static_cast<uint8_t>(value >> 8));
+    output.push_back(static_cast<uint8_t>(value));
+}
+
+void append_u32(std::vector<uint8_t>& output, uint32_t value) {
+    output.push_back(static_cast<uint8_t>(value >> 24));
+    output.push_back(static_cast<uint8_t>(value >> 16));
+    output.push_back(static_cast<uint8_t>(value >> 8));
+    output.push_back(static_cast<uint8_t>(value));
+}
+
+void write_be_value(std::vector<uint8_t>& output, size_t position, size_t size, uint64_t value) {
+    for (size_t index = 0; index < size; ++index) {
+        output[position + size - index - 1] = static_cast<uint8_t>(value >> (index * 8));
+    }
+}
+
+uint64_t read_be_value(const std::vector<uint8_t>& input, size_t position, size_t size) noexcept {
+    uint64_t value = 0;
+    for (size_t index = 0; index < size; ++index) value = (value << 8) | input[position + index];
+    return value;
+}
+
+bool make_box(const char type[4], const std::vector<uint8_t>& payload,
+    std::vector<uint8_t>& output) {
+    if (payload.size() > std::numeric_limits<uint32_t>::max() - 8u) return false;
+    output.clear();
+    output.reserve(payload.size() + 8);
+    append_u32(output, static_cast<uint32_t>(payload.size() + 8));
+    output.insert(output.end(), type, type + 4);
+    output.insert(output.end(), payload.begin(), payload.end());
+    return true;
+}
+
+bool append_child(const std::vector<uint8_t>& input, const locator_box& parent,
+    const std::vector<uint8_t>& child, std::vector<uint8_t>& output) {
+    if (parent.header_size != 8 || parent.size > std::numeric_limits<uint32_t>::max() ||
+        child.size() > std::numeric_limits<uint32_t>::max() - parent.size) return false;
+    output.assign(input.begin() + static_cast<std::ptrdiff_t>(parent.start),
+        input.begin() + static_cast<std::ptrdiff_t>(parent.start + parent.size));
+    const uint32_t new_size = static_cast<uint32_t>(output.size() + child.size());
+    output[0] = static_cast<uint8_t>(new_size >> 24);
+    output[1] = static_cast<uint8_t>(new_size >> 16);
+    output[2] = static_cast<uint8_t>(new_size >> 8);
+    output[3] = static_cast<uint8_t>(new_size);
+    output.insert(output.end(), child.begin(), child.end());
+    return true;
+}
+
+bool rebuild_parent(const std::vector<uint8_t>& input, const locator_box& parent,
+    size_t children_start, const std::map<std::string_view, const std::vector<uint8_t>*>& replacements,
+    std::vector<uint8_t>& output, std::string& error) {
+    if (parent.header_size != 8 || children_start < parent.body_start ||
+        children_start > parent.start + parent.size) {
+        error = "Generated HEIF contains an unsupported parent box layout.";
+        return false;
+    }
+    std::vector<locator_box> children;
+    if (!parse_children_strict(input.data(), children_start, parent.start + parent.size, children)) {
+        error = "Generated HEIF has malformed nested boxes before GainMap graph assembly.";
+        return false;
+    }
+    std::map<std::string_view, size_t> replacement_counts;
+    std::vector<uint8_t> payload;
+    payload.insert(payload.end(), input.begin() + static_cast<std::ptrdiff_t>(parent.start + parent.header_size),
+        input.begin() + static_cast<std::ptrdiff_t>(children_start));
+    for (const auto& child : children) {
+        const auto replacement = replacements.find(std::string_view(child.type, 4));
+        if (replacement == replacements.end()) {
+            payload.insert(payload.end(), input.begin() + static_cast<std::ptrdiff_t>(child.start),
+                input.begin() + static_cast<std::ptrdiff_t>(child.start + child.size));
+        } else {
+            ++replacement_counts[replacement->first];
+            const auto& bytes = *replacement->second;
+            payload.insert(payload.end(), bytes.begin(), bytes.end());
+        }
+    }
+    for (const auto& [type, replacement] : replacements) {
+        (void)replacement;
+        if (replacement_counts[type] != 1) {
+            error = "Generated HEIF lacks one unique box required for GainMap graph assembly.";
+            return false;
+        }
+    }
+    if (!make_box(parent.type, payload, output)) {
+        error = "GainMap graph assembly exceeded a HEIF box size limit.";
+        return false;
+    }
+    return true;
+}
+
+bool parse_ipma(const std::vector<uint8_t>& input, const locator_box& ipma,
+    std::vector<ipma_entry>& entries, std::string& error) {
+    entries.clear();
+    if (ipma.header_size != 8 || ipma.body_size < 8) {
+        error = "Generated HEIF ipma box is truncated or unsupported.";
+        return false;
+    }
+    const size_t end = ipma.start + ipma.size;
+    const uint8_t version = input[ipma.body_start];
+    const uint32_t flags = (static_cast<uint32_t>(input[ipma.body_start + 1]) << 16) |
+        (static_cast<uint32_t>(input[ipma.body_start + 2]) << 8) | input[ipma.body_start + 3];
+    if (version > 1 || (flags & ~1u) != 0) {
+        error = "Generated HEIF ipma version or flags are unsupported.";
+        return false;
+    }
+    const bool wide = (flags & 1u) != 0;
+    size_t position = ipma.body_start + 4;
+    if (position + 4 > end) return false;
+    const uint32_t count = read_u32_at(input.data(), position);
+    position += 4;
+    if (count > 65535) {
+        error = "Generated HEIF ipma item count exceeds the supported writer bound.";
+        return false;
+    }
+    std::set<uint32_t> item_ids;
+    entries.reserve(count);
+    for (uint32_t index = 0; index < count; ++index) {
+        const size_t id_width = version == 0 ? 2 : 4;
+        if (position + id_width + 1 > end) {
+            error = "Generated HEIF ipma entry is truncated.";
+            return false;
+        }
+        ipma_entry entry{};
+        entry.item_id = id_width == 2 ? read_be16u(input.data() + position) : read_u32_at(input.data(), position);
+        position += id_width;
+        if (entry.item_id == 0 || !item_ids.insert(entry.item_id).second) {
+            error = "Generated HEIF ipma contains duplicate or zero item identities.";
+            return false;
+        }
+        const uint8_t association_count = input[position++];
+        entry.associations.reserve(association_count);
+        for (uint8_t association = 0; association < association_count; ++association) {
+            uint16_t value = 0;
+            if (wide) {
+                if (position + 2 > end) {
+                    error = "Generated HEIF wide ipma association is truncated.";
+                    return false;
+                }
+                value = read_be16u(input.data() + position);
+                position += 2;
+            } else {
+                if (position + 1 > end) {
+                    error = "Generated HEIF ipma association is truncated.";
+                    return false;
+                }
+                const uint8_t small = input[position++];
+                value = static_cast<uint16_t>(((small & 0x80u) ? 0x8000u : 0u) | (small & 0x7Fu));
+            }
+            const uint16_t property_index = static_cast<uint16_t>(value & 0x7FFFu);
+            if (property_index == 0) {
+                error = "Generated HEIF ipma contains a zero property association.";
+                return false;
+            }
+            entry.associations.push_back(value);
+        }
+        entries.push_back(std::move(entry));
+    }
+    if (position != end) {
+        error = "Generated HEIF ipma has trailing bytes.";
+        return false;
+    }
+    return true;
+}
+
+bool build_ipma(const std::vector<ipma_entry>& entries, std::vector<uint8_t>& output) {
+    std::vector<uint8_t> payload{ 1, 0, 0, 1 };
+    append_u32(payload, static_cast<uint32_t>(entries.size()));
+    for (const auto& entry : entries) {
+        if (entry.item_id == 0 || entry.associations.size() > 255) return false;
+        append_u32(payload, entry.item_id);
+        payload.push_back(static_cast<uint8_t>(entry.associations.size()));
+        for (const uint16_t association : entry.associations) append_u16(payload, association);
+    }
+    return make_box("ipma", payload, output);
+}
+
+bool shift_iloc_file_extents(const std::vector<uint8_t>& input, const locator_box& iloc,
+    size_t insertion_point, uint64_t delta, std::vector<uint8_t>& output, std::string& error) {
+    if (iloc.header_size != 8 || iloc.body_size < 8) {
+        error = "Generated HEIF iloc box is truncated or unsupported.";
+        return false;
+    }
+    output.assign(input.begin() + static_cast<std::ptrdiff_t>(iloc.start),
+        input.begin() + static_cast<std::ptrdiff_t>(iloc.start + iloc.size));
+    const size_t end = output.size();
+    const size_t body = 8;
+    const uint8_t version = output[body];
+    if (version > 2 || output[body + 1] || output[body + 2] || output[body + 3]) {
+        error = "Generated HEIF iloc version or flags are unsupported.";
+        return false;
+    }
+    size_t position = body + 4;
+    if (position + 2 > end) return false;
+    const uint8_t byte1 = output[position++];
+    const uint8_t byte2 = output[position++];
+    const size_t offset_size = static_cast<size_t>(byte1 >> 4);
+    const size_t length_size = static_cast<size_t>(byte1 & 0x0F);
+    const size_t base_size = static_cast<size_t>(byte2 >> 4);
+    const size_t index_size = version == 0 ? 0 : static_cast<size_t>(byte2 & 0x0F);
+    if (offset_size > 8 || length_size > 8 || base_size > 8 || index_size > 8 ||
+        (version == 0 && (byte2 & 0x0Fu) != 0)) {
+        error = "Generated HEIF iloc field widths are unsupported.";
+        return false;
+    }
+    uint32_t item_count = 0;
+    if (version < 2) {
+        if (position + 2 > end) return false;
+        item_count = read_be16u(output.data() + position);
+        position += 2;
+    } else {
+        if (position + 4 > end) return false;
+        item_count = read_u32_at(output.data(), position);
+        position += 4;
+    }
+    if (item_count > 1'000'000) {
+        error = "Generated HEIF iloc item count exceeds the supported writer bound.";
+        return false;
+    }
+    const auto max_for_width = [](size_t width) noexcept -> uint64_t {
+        return width == 8 ? std::numeric_limits<uint64_t>::max() :
+            (width == 0 ? 0 : ((uint64_t{1} << (width * 8)) - 1));
+    };
+    for (uint32_t item_index = 0; item_index < item_count; ++item_index) {
+        const size_t id_width = version < 2 ? 2 : 4;
+        if (position + id_width > end) return false;
+        position += id_width;
+        uint16_t construction_method = 0;
+        if (version == 1 || version == 2) {
+            if (position + 2 > end) return false;
+            construction_method = static_cast<uint16_t>(read_be16u(output.data() + position) & 0x000Fu);
+            if (construction_method > 1 || (read_be16u(output.data() + position) & 0xFFF0u) != 0) {
+                error = "Generated HEIF iloc construction method is unsupported.";
+                return false;
+            }
+            position += 2;
+        }
+        if (position + 2 + base_size + 2 > end) return false;
+        const uint16_t data_reference = read_be16u(output.data() + position);
+        position += 2;
+        if (data_reference != 0) {
+            error = "Generated HEIF iloc uses an external data reference.";
+            return false;
+        }
+        const size_t base_position = position;
+        const uint64_t base_offset = base_size == 0 ? 0 : read_be_value(output, position, base_size);
+        position += base_size;
+        const uint16_t extent_count = read_be16u(output.data() + position);
+        position += 2;
+        struct extent_field { size_t offset_position{}; uint64_t offset{}; bool shift{}; };
+        std::vector<extent_field> extents;
+        extents.reserve(extent_count);
+        for (uint16_t extent = 0; extent < extent_count; ++extent) {
+            if ((version == 1 || version == 2) && index_size != 0) {
+                if (position + index_size > end) return false;
+                position += index_size;
+            }
+            if (position + offset_size + length_size > end) return false;
+            const size_t offset_position = position;
+            const uint64_t extent_offset = offset_size == 0 ? 0 : read_be_value(output, position, offset_size);
+            position += offset_size;
+            const uint64_t extent_length = length_size == 0 ? 0 : read_be_value(output, position, length_size);
+            position += length_size;
+            if (construction_method == 0) {
+                if ((extent_offset > std::numeric_limits<uint64_t>::max() - base_offset) ||
+                    (extent_length != 0 && base_offset + extent_offset >
+                        std::numeric_limits<uint64_t>::max() - extent_length)) {
+                    error = "Generated HEIF iloc extent arithmetic overflowed.";
+                    return false;
+                }
+                const uint64_t absolute = base_offset + extent_offset;
+                const uint64_t absolute_end = absolute + extent_length;
+                if (absolute < insertion_point && absolute_end > insertion_point) {
+                    error = "Generated HEIF iloc extent crosses the metadata insertion boundary.";
+                    return false;
+                }
+                extents.push_back({ offset_position, extent_offset, absolute >= insertion_point });
+            } else {
+                extents.push_back({ offset_position, extent_offset, false });
+            }
+        }
+        if (construction_method == 0) {
+            const bool needs_shift = std::any_of(extents.begin(), extents.end(),
+                [](const extent_field& extent) { return extent.shift; });
+            if (needs_shift) {
+                const bool all_shift = std::all_of(extents.begin(), extents.end(),
+                    [](const extent_field& extent) { return extent.shift; });
+                bool can_shift_offsets = offset_size != 0 && delta <= max_for_width(offset_size);
+                if (can_shift_offsets) {
+                    for (const auto& extent : extents) {
+                        if (extent.shift && extent.offset > max_for_width(offset_size) - delta) {
+                            can_shift_offsets = false;
+                            break;
+                        }
+                    }
+                }
+                if (can_shift_offsets) {
+                    for (const auto& extent : extents) {
+                        if (extent.shift) write_be_value(output, extent.offset_position,
+                            offset_size, extent.offset + delta);
+                    }
+                } else if (all_shift && base_size != 0 && delta <= max_for_width(base_size) &&
+                    base_offset <= max_for_width(base_size) - delta) {
+                    write_be_value(output, base_position, base_size, base_offset + delta);
+                } else {
+                    error = "Generated HEIF iloc cannot represent shifted absolute media extents.";
+                    return false;
+                }
+            }
+        }
+    }
+    if (position != end) {
+        error = "Generated HEIF iloc has trailing bytes.";
+        return false;
+    }
+    return true;
+}
+
+} // namespace
+
+namespace lpb::containers {
+
+bool enumerate_xmp_ranges_describing_item(std::span<const uint8_t> input,
+    uint32_t described_item_id, std::vector<lpb_media_range>& ranges,
+    std::string& error) noexcept {
+    ranges.clear();
+    error.clear();
+    if (input.empty() || described_item_id == 0) {
+        error = "XMP relationship inspection requires a bounded file and item identity.";
+        return false;
+    }
+    try {
+        std::vector<locator_box> top;
+        if (!parse_children_strict(input.data(), 0, input.size(), top)) {
+            error = "Malformed HEIF top-level boxes during XMP relationship inspection.";
+            return false;
+        }
+        const locator_box* meta = nullptr;
+        for (const auto& box : top) {
+            if (!is_type(box, "meta")) continue;
+            if (meta) { error = "Duplicate HEIF meta boxes during XMP relationship inspection."; return false; }
+            meta = &box;
+        }
+        if (!meta || meta->body_size < 4) { error = "HEIF meta box is missing or truncated."; return false; }
+        std::vector<locator_box> children;
+        if (!parse_children_strict(input.data(), meta->body_start + 4, meta->start + meta->size, children)) {
+            error = "Malformed HEIF meta children during XMP relationship inspection.";
+            return false;
+        }
+        const locator_box *iinf = nullptr, *iloc = nullptr, *iref = nullptr;
+        for (const auto& box : children) {
+            const locator_box** slot = is_type(box, "iinf") ? &iinf : is_type(box, "iloc") ? &iloc :
+                is_type(box, "iref") ? &iref : nullptr;
+            if (!slot) continue;
+            if (*slot) { error = "Duplicate authoritative HEIF item graph box."; return false; }
+            *slot = &box;
+        }
+        if (!iinf || !iloc || !iref || iref->body_size < 4) {
+            error = "HEIF lacks an item info, location, or reference box.";
+            return false;
+        }
+        std::vector<locator_item> items;
+        std::string parse_error;
+        if (!parse_iinf(input.data(), *iinf, items, &parse_error)) {
+            error = "Malformed HEIF item info: " + parse_error;
+            return false;
+        }
+        const auto item_by_id = [&](uint32_t id) -> const locator_item* {
+            const auto found = std::find_if(items.begin(), items.end(), [id](const locator_item& item) { return item.id == id; });
+            return found == items.end() ? nullptr : &*found;
+        };
+        std::vector<uint32_t> xmp_ids;
+        for (const auto& item : items) {
+            if (item.type == 0x6D696D65u && item.content_type.rfind("application/rdf+xml", 0) == 0) {
+                xmp_ids.push_back(item.id);
+            }
+        }
+        if (xmp_ids.empty()) return true;
+        const uint8_t version = input[iref->body_start];
+        if (version > 1 || input[iref->body_start + 1] || input[iref->body_start + 2] || input[iref->body_start + 3]) {
+            error = "HEIF iref version or flags are malformed.";
+            return false;
+        }
+        std::vector<locator_box> references;
+        if (!parse_children_strict(input.data(), iref->body_start + 4, iref->start + iref->size, references)) {
+            error = "Malformed HEIF iref children during XMP relationship inspection.";
+            return false;
+        }
+        std::set<uint32_t> described_xmp_ids;
+        for (const auto& reference : references) {
+            if (!is_type(reference, "cdsc")) continue;
+            size_t position = reference.body_start;
+            const size_t end = reference.start + reference.size;
+            const size_t id_width = version == 0 ? 2 : 4;
+            if (position + id_width + 2 > end) { error = "Truncated HEIF cdsc relation."; return false; }
+            const uint32_t from_id = id_width == 2 ? read_be16u(input.data() + position) : read_u32_at(input.data(), position);
+            position += id_width;
+            const uint16_t target_count = read_be16u(input.data() + position);
+            position += 2;
+            if (target_count == 0) { error = "Empty HEIF cdsc relation."; return false; }
+            bool describes_target = false;
+            std::set<uint32_t> targets;
+            for (uint16_t index = 0; index < target_count; ++index) {
+                if (position + id_width > end) { error = "Truncated HEIF cdsc target."; return false; }
+                const uint32_t target_id = id_width == 2 ? read_be16u(input.data() + position) : read_u32_at(input.data(), position);
+                position += id_width;
+                if (!targets.insert(target_id).second || !item_by_id(target_id)) {
+                    error = "Duplicate or unknown HEIF cdsc target item.";
+                    return false;
+                }
+                describes_target = describes_target || target_id == described_item_id;
+            }
+            if (position != end || !item_by_id(from_id) || from_id == described_item_id) {
+                error = "Malformed HEIF cdsc item identity or trailing bytes.";
+                return false;
+            }
+            if (!describes_target) continue;
+            if (target_count != 1 || std::find(xmp_ids.begin(), xmp_ids.end(), from_id) == xmp_ids.end() ||
+                !described_xmp_ids.insert(from_id).second) {
+                error = "HEIF XMP metadata relationship to the GainMap is ambiguous or duplicated.";
+                return false;
+            }
+            uint64_t offset = 0, length = 0;
+            const locator_result located = locate_item(input.data(), input.size(), 0x6D696D65u, "XMP",
+                &offset, &length, error, from_id);
+            if (located != locator_result::present || length == 0) {
+                if (error.empty()) error = "HEIF GainMap XMP item has no valid iloc extent.";
+                return false;
+            }
+            ranges.push_back({ offset, length });
+        }
+        return true;
+    } catch (const std::exception& ex) {
+        ranges.clear();
+        error = ex.what();
+        return false;
+    } catch (...) {
+        ranges.clear();
+        error = "HEIF XMP relationship inspection failed without a typed diagnostic.";
+        return false;
+    }
+}
+
+bool attach_gainmap_auxiliary_graph(std::span<const uint8_t> input,
+    uint32_t primary_item_id, uint32_t gainmap_item_id,
+    std::vector<uint8_t>& output, std::string& error) noexcept {
+    output.clear();
+    error.clear();
+    constexpr std::string_view iso_gainmap_type = "urn:com:photo:aux:hdrgainmap";
+    if (input.empty() || primary_item_id == 0 || gainmap_item_id == 0 || primary_item_id == gainmap_item_id) {
+        error = "GainMap graph assembly requires exact distinct primary and auxiliary item identities.";
+        return false;
+    }
+    try {
+        constexpr uint64_t kMaxHeifBytes = 512ull * 1024ull * 1024ull;
+        if (input.size() > kMaxHeifBytes) {
+            error = "Generated HEIF exceeds the bounded GainMap assembly limit.";
+            return false;
+        }
+        const std::vector<uint8_t> raw(input.begin(), input.end());
+        std::vector<locator_box> top;
+        if (!parse_children_strict(raw.data(), 0, raw.size(), top)) {
+            error = "Generated HEIF top-level structure is malformed.";
+            return false;
+        }
+        const locator_box* meta = nullptr;
+        for (const auto& box : top) {
+            if (!is_type(box, "meta")) continue;
+            if (meta) { error = "Generated HEIF contains duplicate meta boxes."; return false; }
+            meta = &box;
+        }
+        if (!meta || meta->body_size < 4 || meta->header_size != 8) {
+            error = "Generated HEIF has no supported meta box.";
+            return false;
+        }
+        std::vector<locator_box> children;
+        if (!parse_children_strict(raw.data(), meta->body_start + 4, meta->start + meta->size, children)) {
+            error = "Generated HEIF meta children are malformed.";
+            return false;
+        }
+        const locator_box *pitm = nullptr, *iinf = nullptr, *iloc = nullptr, *iref = nullptr, *iprp = nullptr;
+        for (const auto& box : children) {
+            const locator_box** slot = is_type(box, "pitm") ? &pitm : is_type(box, "iinf") ? &iinf :
+                is_type(box, "iloc") ? &iloc : is_type(box, "iref") ? &iref : is_type(box, "iprp") ? &iprp : nullptr;
+            if (!slot) continue;
+            if (*slot) { error = "Generated HEIF has duplicate authoritative graph boxes."; return false; }
+            *slot = &box;
+        }
+        if (!pitm || !iinf || !iloc || !iref || !iprp || pitm->body_size < 6 || iref->body_size < 4) {
+            error = "Generated HEIF lacks the boxes required for GainMap graph assembly.";
+            return false;
+        }
+        const uint8_t pitm_version = raw[pitm->body_start];
+        if (pitm_version > 1 || raw[pitm->body_start + 1] || raw[pitm->body_start + 2] || raw[pitm->body_start + 3] ||
+            (pitm_version == 1 && pitm->body_size < 8)) {
+            error = "Generated HEIF pitm is malformed.";
+            return false;
+        }
+        const uint32_t primary = pitm_version == 0 ? read_be16u(raw.data() + pitm->body_start + 4) :
+            read_u32_at(raw.data(), pitm->body_start + 4);
+        if (primary != primary_item_id) {
+            error = "Generated HEIF primary identity changed before GainMap graph assembly.";
+            return false;
+        }
+        std::vector<locator_item> items;
+        std::string parse_error;
+        if (!parse_iinf(raw.data(), *iinf, items, &parse_error)) {
+            error = "Generated HEIF item info is malformed: " + parse_error;
+            return false;
+        }
+        const auto primary_item = std::find_if(items.begin(), items.end(), [primary_item_id](const locator_item& item) { return item.id == primary_item_id; });
+        const auto gainmap_item = std::find_if(items.begin(), items.end(), [gainmap_item_id](const locator_item& item) { return item.id == gainmap_item_id; });
+        if (primary_item == items.end() || gainmap_item == items.end() ||
+            (primary_item->type != 0x68766331u && primary_item->type != 0x68657631u) ||
+            (gainmap_item->type != 0x68766331u && gainmap_item->type != 0x68657631u)) {
+            error = "Generated HEIF encoder did not return two distinct coded image items.";
+            return false;
+        }
+        std::vector<lpb_media_range> xmp_ranges;
+        if (!enumerate_xmp_ranges_describing_item(raw, gainmap_item_id, xmp_ranges, error) || xmp_ranges.size() != 1) {
+            if (error.empty()) error = "Generated HEIF lacks exactly one XMP packet associated with the exact GainMap item.";
+            return false;
+        }
+
+        const uint8_t iref_version = raw[iref->body_start];
+        if (iref_version > 1 || raw[iref->body_start + 1] || raw[iref->body_start + 2] || raw[iref->body_start + 3]) {
+            error = "Generated HEIF iref version or flags are unsupported.";
+            return false;
+        }
+        std::vector<locator_box> references;
+        if (!parse_children_strict(raw.data(), iref->body_start + 4, iref->start + iref->size, references)) {
+            error = "Generated HEIF iref children are malformed.";
+            return false;
+        }
+        for (const auto& reference : references) {
+            if (is_type(reference, "auxl")) {
+                error = "Generated HEIF already contains an auxiliary relationship before GainMap assembly.";
+                return false;
+            }
+        }
+
+        std::vector<locator_box> iprp_children;
+        if (iprp->header_size != 8 || !parse_children_strict(raw.data(), iprp->body_start,
+                iprp->start + iprp->size, iprp_children)) {
+            error = "Generated HEIF iprp children are malformed or unsupported.";
+            return false;
+        }
+        const locator_box *ipco = nullptr, *ipma = nullptr;
+        for (const auto& box : iprp_children) {
+            const locator_box** slot = is_type(box, "ipco") ? &ipco : is_type(box, "ipma") ? &ipma : nullptr;
+            if (!slot) continue;
+            if (*slot) { error = "Generated HEIF iprp has duplicate ipco/ipma boxes."; return false; }
+            *slot = &box;
+        }
+        if (!ipco || !ipma || ipco->header_size != 8 || ipma->header_size != 8) {
+            error = "Generated HEIF iprp lacks supported ipco/ipma boxes.";
+            return false;
+        }
+        std::vector<locator_box> properties;
+        if (!parse_children_strict(raw.data(), ipco->body_start, ipco->start + ipco->size, properties) ||
+            properties.size() >= 0x7FFFu) {
+            error = "Generated HEIF ipco property graph is malformed or too large.";
+            return false;
+        }
+        const uint16_t property_index = static_cast<uint16_t>(properties.size() + 1);
+        std::vector<ipma_entry> associations;
+        if (!parse_ipma(raw, *ipma, associations, error)) return false;
+        for (const auto& property : properties) {
+            if (!is_type(property, "auxC")) continue;
+            size_t target_property = 0;
+            const size_t property_number = static_cast<size_t>(&property - properties.data()) + 1;
+            const auto item_entry = std::find_if(associations.begin(), associations.end(), [gainmap_item_id](const ipma_entry& entry) {
+                return entry.item_id == gainmap_item_id;
+            });
+            if (item_entry != associations.end()) {
+                for (const uint16_t association : item_entry->associations) {
+                    if ((association & 0x7FFFu) == property_number) ++target_property;
+                }
+            }
+            if (target_property != 0) {
+                error = "Generated HEIF GainMap item already has an auxiliary type property.";
+                return false;
+            }
+        }
+        std::vector<uint8_t> auxc_payload{ 0, 0, 0, 0 };
+        auxc_payload.insert(auxc_payload.end(), iso_gainmap_type.begin(), iso_gainmap_type.end());
+        auxc_payload.push_back(0);
+        std::vector<uint8_t> auxc_box;
+        std::vector<uint8_t> new_ipco;
+        if (!make_box("auxC", auxc_payload, auxc_box) || !append_child(raw, *ipco, auxc_box, new_ipco)) {
+            error = "GainMap auxC property could not be represented in the generated HEIF.";
+            return false;
+        }
+        auto gainmap_entry = std::find_if(associations.begin(), associations.end(), [gainmap_item_id](const ipma_entry& entry) {
+            return entry.item_id == gainmap_item_id;
+        });
+        if (gainmap_entry == associations.end()) {
+            associations.push_back({ gainmap_item_id, { property_index } });
+        } else {
+            gainmap_entry->associations.push_back(property_index);
+        }
+        std::vector<uint8_t> new_ipma;
+        if (!build_ipma(associations, new_ipma)) {
+            error = "GainMap item property association could not be encoded.";
+            return false;
+        }
+        const std::map<std::string_view, const std::vector<uint8_t>*> iprp_replacements{
+            { "ipco", &new_ipco }, { "ipma", &new_ipma }
+        };
+        std::vector<uint8_t> new_iprp;
+        if (!rebuild_parent(raw, *iprp,
+                iprp->body_start, iprp_replacements, new_iprp, error)) return false;
+
+        const size_t id_width = iref_version == 0 ? 2 : 4;
+        if (id_width == 2 && (gainmap_item_id > 0xFFFFu || primary_item_id > 0xFFFFu)) {
+            error = "Generated HEIF iref version cannot represent the item identities.";
+            return false;
+        }
+        std::vector<uint8_t> auxl_payload;
+        if (id_width == 2) append_u16(auxl_payload, static_cast<uint16_t>(gainmap_item_id));
+        else append_u32(auxl_payload, gainmap_item_id);
+        append_u16(auxl_payload, 1);
+        if (id_width == 2) append_u16(auxl_payload, static_cast<uint16_t>(primary_item_id));
+        else append_u32(auxl_payload, primary_item_id);
+        std::vector<uint8_t> auxl_box;
+        std::vector<uint8_t> new_iref;
+        if (!make_box("auxl", auxl_payload, auxl_box) ||
+            !append_child(raw, *iref, auxl_box, new_iref)) {
+            error = "GainMap auxl reference could not be represented in the generated HEIF.";
+            return false;
+        }
+        const size_t meta_end = meta->start + meta->size;
+        const size_t delta = (new_iprp.size() - iprp->size) + (new_iref.size() - iref->size);
+        std::vector<uint8_t> new_iloc;
+        if (!shift_iloc_file_extents(raw,
+                *iloc, meta_end, delta, new_iloc, error)) return false;
+        const std::map<std::string_view, const std::vector<uint8_t>*> meta_replacements{
+            { "iloc", &new_iloc }, { "iprp", &new_iprp }, { "iref", &new_iref }
+        };
+        std::vector<uint8_t> new_meta;
+        if (!rebuild_parent(raw, *meta,
+                meta->body_start + 4, meta_replacements, new_meta, error)) return false;
+        const size_t expected_delta = new_meta.size() - meta->size;
+        if (expected_delta != delta || new_meta.size() > std::numeric_limits<uint32_t>::max() ||
+            meta_end > input.size() || delta > kMaxHeifBytes - raw.size()) {
+            error = "GainMap HEIF metadata box size calculation was inconsistent.";
+            return false;
+        }
+        output.reserve(raw.size() + delta);
+        output.insert(output.end(), raw.begin(), raw.begin() + static_cast<std::ptrdiff_t>(meta->start));
+        output.insert(output.end(), new_meta.begin(), new_meta.end());
+        output.insert(output.end(), raw.begin() + static_cast<std::ptrdiff_t>(meta_end), raw.end());
+        std::vector<lpb_auxiliary_item_facts> parsed_auxiliaries;
+        if (!parse_auxiliary_graph(output.data(), output.size(), parsed_auxiliaries, error) ||
+            parsed_auxiliaries.size() != 1 || parsed_auxiliaries[0].item_id != gainmap_item_id ||
+            std::string_view(parsed_auxiliaries[0].semantic) != "GainMap" ||
+            std::string_view(parsed_auxiliaries[0].relationship) != iso_gainmap_type) {
+            if (error.empty()) error = "Native HEIF structural re-read did not confirm exactly one ISO GainMap auxiliary.";
+            output.clear();
+            return false;
+        }
+        return true;
+    } catch (const std::exception& ex) {
+        output.clear();
+        error = ex.what();
+        return false;
+    } catch (...) {
+        output.clear();
+        error = "Native HEIF GainMap graph assembly failed without a typed diagnostic.";
+        return false;
+    }
+}
+
+} // namespace lpb::containers
 
 extern "C" LPB_API lpb_result LPB_CALL lpb_heif_enumerate_auxiliary_items(
     lpb_context* context, const uint8_t* input, size_t input_size,

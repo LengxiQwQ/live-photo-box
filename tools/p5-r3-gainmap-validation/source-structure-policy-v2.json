@@ -1,0 +1,70 @@
+{
+  "schemaVersion": 2,
+  "policyId": "P5-R3-source-structure-v2",
+  "status": "frozen-after-read-only-vivo-mpf-forensics-before-v2-preflight",
+  "referencePolicySha256": "946A0B1E589CA1374E678D6DF26E4FBBD1408E1BE8CC6EE9D204D9B355DEB4BC",
+  "supersedesMatrixSha256ForSourceInterpretationOnly": "C0470EA2500F1F2C93D0376A2F4E95D0B4C1A090A881B7E08FE654425F50B522",
+  "forensicReport": {
+    "path": ".ai-tmp/workspace/P5-R3/iteration-5-vivo-mpf-forensic-v2.json",
+    "sha256": "EBEDD436491518593695492E3174BF59E0496DFEF570CC0A7DBA76250453513B",
+    "v1RunReportSha256": "8FE0E31FF8F2577461DB7DFAE02AF502D880AD568CE5882298702834BC294424",
+    "v1FormalStatus": "FAIL",
+    "v1FailurePredicate": "sourceMpfPrimaryEntrySizeMatchesMarkerRange"
+  },
+  "sourceOnlyCanonicalAnomaly": {
+    "file": "vivo.jpg",
+    "sha256": "631CF8DAC983A9F58FC1D8CB63AAF8CC0569C45B80F046F1B995936D608320B9",
+    "allowPrimaryMpfSizeMismatch": true,
+    "mpfEntry0DeclaredLength": 2001308,
+    "actualPrimarySoiThroughEoiLength": 2001908,
+    "mpfEntry0Endpoint": 2001308,
+    "actualPrimaryEoiEndpoint": 2001908,
+    "mpfEntry1AbsoluteStart": 2001908,
+    "mpfEntry1Length": 477680,
+    "gainMapSha256": "802B24A6256028298AB383AFBC1DA11204B69DCEF25A0E9BD832D136FBEAB34B",
+    "xmpPrimaryLength": null,
+    "xmpGainMapLength": 477680,
+    "xmpMotionPhotoLength": 5790734,
+    "xmpMotionPhotoPadding": 0,
+    "fileLength": 8270322,
+    "mismatchInterval": {
+      "start": 2001308,
+      "endExclusive": 2001908,
+      "length": 600,
+      "sha256": "021C213A08D369485D5D2DCE4106F8EF015AE299F24E30E2EBDD51FBB10829DC",
+      "classification": "598 entropy-coded scan bytes followed by the 2-byte JPEG EOI marker",
+      "scanData": {
+        "start": 2001308,
+        "endExclusive": 2001906,
+        "length": 598,
+        "sha256": "E33796ED62DFBF4FA42675163E765B9B5F791AEF6F73763278D17B0F15D411C4"
+      },
+      "eoi": {
+        "start": 2001906,
+        "endExclusive": 2001908,
+        "hex": "FFD9",
+        "sha256": "CDE66E78E5419DEA74DF7CF43D9AA876B8C669D40067992E719CEF90AC5F3FE0"
+      }
+    },
+    "exifToolCorroboration": {
+      "mpImage1Length": 2001308,
+      "mpImage1Start": 0,
+      "mpImage2Start": 2001908,
+      "mpImage2Length": 477680
+    },
+    "requiredInvariants": [
+      "The source file SHA-256 equals the exact locked Vivo canonical hash.",
+      "The first JPEG marker stream starts at byte 0 and its actual EOI endpoint is exactly 2001908.",
+      "The MPF entry-0 size is exactly 2001308; the 600-byte discrepancy interval hash and scan/EOI classification match this policy.",
+      "The MPF second-image absolute start is exactly 2001908 and its 477680-byte range is one complete JPEG ending at 2479588.",
+      "The XMP Container Directory has exactly one Primary, one GainMap and one MotionPhoto item; Primary has no explicit Length, GainMap length is 477680, and MotionPhoto length is 5790734.",
+      "Primary marker length + GainMap length + MotionPhoto length equals the exact 8270322-byte source file length.",
+      "Every output JPEG continues to require MPF entry-0 size equal to its marker-delimited SOI-through-EOI range."
+    ]
+  },
+  "targetJpegRule": {
+    "mpfPrimarySizeMustEqualMarkerDelimitedSoiThroughEoiLength": true,
+    "sourceAnomalyMayNotApplyToTarget": true
+  },
+  "numericReferenceThresholdsChanged": false
+}

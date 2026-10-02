@@ -3517,30 +3517,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="AboutPage_OpenSourceTitle.Text" xml:space="preserve">
     <value>开源致谢</value>
   </data>
-  <data name="AboutPage_CreditExifToolLabel.Text" xml:space="preserve">
-    <value>EXIF</value>
-  </data>
-  <data name="AboutPage_CreditExifToolName.Text" xml:space="preserve">
-    <value>ExifTool</value>
-  </data>
-  <data name="AboutPage_CreditExifToolDesc.Text" xml:space="preserve">
-    <value>全局元数据解析、注入与 XMP 结构重构</value>
-  </data>
-  <data name="AboutPage_CreditJPEGTranLabel.Text" xml:space="preserve">
-    <value>JPEG</value>
-  </data>
-  <data name="AboutPage_CreditJPEGTranName.Text" xml:space="preserve">
-    <value>JPEGTran</value>
-  </data>
-  <data name="AboutPage_CreditJPEGTranDesc.Text" xml:space="preserve">
-    <value>基于 DCT 系数空间的无损变换</value>
-  </data>
-  <data name="AboutPage_CreditFFmpegName.Text" xml:space="preserve">
-    <value>FFmpeg</value>
-  </data>
-  <data name="AboutPage_CreditFFmpegDesc.Text" xml:space="preserve">
-    <value>视频转码与流封装引擎</value>
-  </data>
   <data name="AboutPage_CreditMagickNETName.Text" xml:space="preserve">
     <value>Magick.NET</value>
   </data>
@@ -3934,10 +3910,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>YouTube</value>
   </data>
   <data name="AboutPage_DevWebsite.Text" xml:space="preserve">
-    <value>个人网站</value>
-  </data>
-  <data name="AboutPage_DevWebsite_ToolTip.Content" xml:space="preserve">
-    <value>开发中…</value>
+    <value>冷汐的杂货铺</value>
   </data>
   <data name="Status_DoneSimple" xml:space="preserve">
     <value>处理完成</value>
@@ -4545,7 +4518,40 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="EditPage_CloseFile.Label" xml:space="preserve">
     <value>关闭文件</value>
   </data>
-  <data name="EditPage_CloseFile.ToolTipService.ToolTip" xml:space="preserve">
-    <value>关闭文件</value>
+  <data name="EditPage_InspectorTab_Edit.Content" xml:space="preserve">
+    <value>编辑</value>
+  </data>
+  <data name="EditPage_InspectorTab_Properties.Content" xml:space="preserve">
+    <value>属性修改</value>
+  </data>
+  <data name="EditPage_InspectorLocateInExplorerBtn.AutomationProperties.Name" xml:space="preserve">
+    <value>在文件资源管理器中定位</value>
+  </data>
+  <data name="EditPage_InspectorLocateInExplorerLabel.Text" xml:space="preserve">
+    <value>在文件资源管理器中定位</value>
+  </data>
+  <data name="EditPage_InspectorApplyPropsBtn.AutomationProperties.Name" xml:space="preserve">
+    <value>应用属性修改</value>
+  </data>
+  <data name="EditPage_InspectorApplyPropsLabel.Text" xml:space="preserve">
+    <value>应用属性修改</value>
+  </data>
+  <data name="EditPage_InspectorStripGps.Content" xml:space="preserve">
+    <value>抹除 GPS 地理位置</value>
+  </data>
+  <data name="EditPage_InspectorStripCamera.Content" xml:space="preserve">
+    <value>抹除相机设备型号</value>
+  </data>
+  <data name="EditPage_InspectorDateLabel.Text" xml:space="preserve">
+    <value>拍摄日期与时间</value>
+  </data>
+  <data name="EditPage_InspectorProtocolCardTitle.Text" xml:space="preserve">
+    <value>实况照片规格</value>
+  </data>
+  <data name="EditPage_InspectorExifCardTitle.Text" xml:space="preserve">
+    <value>拍摄信息 (EXIF)</value>
+  </data>
+  <data name="EditPage_InspectorModifyCardTitle.Text" xml:space="preserve">
+    <value>更改属性</value>
   </data>
 </root>

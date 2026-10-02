@@ -151,6 +151,39 @@ LPB_API lpb_result LPB_CALL lpb_inspect_heic_image(
     return LPB_RESULT_OK;
 }
 
+LPB_API lpb_result LPB_CALL lpb_inspect_gainmap_metadata_v1(
+    lpb_context* context,
+    const char* primary_image_path,
+    const char* materialized_gainmap_path,
+    lpb_gainmap_metadata_v1* out_metadata)
+{
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired() || !primary_image_path || !out_metadata ||
+        out_metadata->struct_size < sizeof(lpb_gainmap_metadata_v1) || out_metadata->api_version != 1) {
+        if (context) set_error(context, "GainMap metadata v1 inspection received incompatible arguments.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    gainmap_metadata_facts metadata{};
+    const lpb_result result = inspect_gainmap_metadata(context, primary_image_path,
+        materialized_gainmap_path, metadata);
+    if (result != LPB_RESULT_OK) return result;
+    out_metadata->kind = static_cast<lpb_gainmap_metadata_kind>(metadata.kind);
+    if (metadata.kind == gainmap_metadata_kind::iso) {
+        std::copy(metadata.iso.gain_map_min.begin(), metadata.iso.gain_map_min.end(), out_metadata->gain_map_min);
+        std::copy(metadata.iso.gain_map_max.begin(), metadata.iso.gain_map_max.end(), out_metadata->gain_map_max);
+        std::copy(metadata.iso.gamma.begin(), metadata.iso.gamma.end(), out_metadata->gamma);
+        std::copy(metadata.iso.offset_sdr.begin(), metadata.iso.offset_sdr.end(), out_metadata->offset_sdr);
+        std::copy(metadata.iso.offset_hdr.begin(), metadata.iso.offset_hdr.end(), out_metadata->offset_hdr);
+        out_metadata->hdr_capacity_min = metadata.iso.hdr_capacity_min;
+        out_metadata->hdr_capacity_max = metadata.iso.hdr_capacity_max;
+        out_metadata->base_rendition_is_hdr = metadata.iso.base_rendition_is_hdr ? 1 : 0;
+    } else if (metadata.kind == gainmap_metadata_kind::apple) {
+        out_metadata->apple_maker_note_33 = metadata.apple_maker_note_33;
+        out_metadata->apple_maker_note_48 = metadata.apple_maker_note_48;
+    }
+    return LPB_RESULT_OK;
+}
+
 LPB_API lpb_result LPB_CALL lpb_decode_heic_primary_image(
     lpb_context* context,
     const char* input_image_path,

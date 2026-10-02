@@ -319,6 +319,7 @@ public sealed record NeutralMediaBundle
     public required MediaArtifact PrimaryImage { get; init; }
     public MediaArtifact? MotionVideo { get; init; }
     public MediaArtifact? GainMap { get; init; }
+    public ImageHdrGainMapSourceBinding? HdrGainMapBinding { get; init; }
     public GainMapRepresentation GainMapRepresentation { get; init; } = GainMapRepresentation.None;
     public required SourceMediaFacts SourceProvenance { get; init; }
     public required IReadOnlyList<RemovedProtocolFact> RemovedProtocolFacts { get; init; }
