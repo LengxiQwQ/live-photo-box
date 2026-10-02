@@ -344,6 +344,10 @@ lpb_result lpb_media_capture_preservation_observation(
     lpb_context* context, const char* media_path, lpb_source_protocol protocol_hint,
     lpb_image_container container_hint, lpb_preservation_observation* out_observation,
     bool share_existing_writer) noexcept;
+lpb_result lpb_media_capture_preservation_observation_bytes(
+    lpb_context* context, const std::vector<uint8_t>& media_bytes,
+    lpb_source_protocol protocol_hint, lpb_image_container container_hint,
+    lpb_preservation_observation* out_observation) noexcept;
 void log_message(lpb_context* context, lpb_log_level level, const char* message) noexcept;
 std::filesystem::path utf8_to_path(const char* utf8_str) noexcept;
 std::string path_to_utf8(const std::filesystem::path& path) noexcept;

@@ -1,6 +1,7 @@
 #include "media/heic_backend.h"
 
 #include "foundation/internal.h"
+#include "foundation/sha256_core.h"
 #include "platform/windows_filesystem.h"
 
 #include <libheif/heif.h>
@@ -172,8 +173,11 @@ lpb_result decode_image_handle(lpb_context* context, const heif_image_handle* ha
     options.value->num_library_threads = 1;
     options.value->num_codec_threads = 1;
     const heif_chroma chroma = source_bits > 8 ? heif_chroma_interleaved_RRGGBB_LE : heif_chroma_interleaved_RGB;
-    if (!okay(heif_decode_image(handle, &decoded.value, heif_colorspace_RGB, chroma, options.value)) || !decoded.value) {
-        set_error(context, "libheif/libde265 could not decode the HEIC image without color or bit-depth fallback.");
+    const heif_error decode_result = heif_decode_image(handle, &decoded.value, heif_colorspace_RGB, chroma, options.value);
+    if (!okay(decode_result) || !decoded.value) {
+        set_error(context, decode_result.message && *decode_result.message
+            ? decode_result.message
+            : "libheif/libde265 could not decode the HEIC primary with HDR downconversion disabled.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     const int width = heif_image_get_primary_width(decoded.value);
@@ -327,16 +331,115 @@ bool make_encoded_image(const pixel_surface& input, heif_image_owner& image) noe
         std::memcpy(destination + y * dst_stride, input.pixels.data() + static_cast<size_t>(y * input.stride),
             static_cast<size_t>(input.stride));
     }
-    const bool has_icc = input.color.has_icc && !input.color.icc_profile.empty();
-    if (has_icc) return okay(heif_image_set_raw_color_profile(image.value, "prof", input.color.icc_profile.data(), input.color.icc_profile.size()));
-    heif_nclx_owner nclx;
-    if (!nclx.value) return false;
-    nclx.value->version = 1;
-    nclx.value->color_primaries = heif_color_primaries_ITU_R_BT_709_5;
-    nclx.value->transfer_characteristics = heif_transfer_characteristic_IEC_61966_2_1;
-    nclx.value->matrix_coefficients = heif_matrix_coefficients_ITU_R_BT_601_6;
-    nclx.value->full_range_flag = 1;
-    return okay(heif_image_set_nclx_color_profile(image.value, nclx.value));
+    if (input.color.has_icc) {
+        if (input.color.icc_profile.empty() || input.color.has_nclx) return false;
+        return okay(heif_image_set_raw_color_profile(image.value, "prof",
+            input.color.icc_profile.data(), input.color.icc_profile.size()));
+    }
+    if (input.color.has_nclx) {
+        heif_nclx_owner nclx;
+        if (!nclx.value) return false;
+        nclx.value->version = 1;
+        nclx.value->color_primaries = static_cast<heif_color_primaries>(input.color.primaries);
+        nclx.value->transfer_characteristics = static_cast<heif_transfer_characteristics>(input.color.transfer);
+        nclx.value->matrix_coefficients = static_cast<heif_matrix_coefficients>(input.color.matrix);
+        nclx.value->full_range_flag = input.color.full_range ? 1 : 0;
+        return okay(heif_image_set_nclx_color_profile(image.value, nclx.value));
+    }
+    // Unknown input color stays unknown; do not synthesize an sRGB/BT.709 label.
+    return true;
+}
+
+bool icc_profile_matches_observation(const lpb_preservation_observation& observation,
+    std::span<const uint8_t> profile) noexcept {
+    if (profile.empty() || observation.icc_sha256[0] == '\0') return false;
+    uint8_t hash[32]{};
+    lpb::crypto::sha256_buffer(profile.data(), profile.size(), hash);
+    constexpr char digits[] = "0123456789ABCDEF";
+    std::array<char, LPB_POBS_SHA256_LEN> actual{};
+    for (size_t i = 0; i < 32; ++i) {
+        actual[i * 2] = digits[hash[i] >> 4];
+        actual[i * 2 + 1] = digits[hash[i] & 0x0F];
+    }
+    return std::memcmp(actual.data(), observation.icc_sha256, LPB_POBS_SHA256_LEN) == 0;
+}
+
+lpb_result encoded_primary_color_matches(lpb_context* context, windows_owned_output& staged,
+    const pixel_surface& expected) noexcept {
+    const lpb::random_access_reader staged_reader = staged.reader();
+    if (staged_reader.length == 0 || staged_reader.length > kMaxCompressedBytes ||
+        staged_reader.length > std::numeric_limits<size_t>::max()) {
+        set_error(context, "Owned staged HEIF bytes could not be read within the configured safety limit.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+
+    std::vector<uint8_t> staged_bytes;
+    try { staged_bytes.resize(static_cast<size_t>(staged_reader.length)); }
+    catch (...) {
+        set_error(context, "Owned staged HEIF bytes could not be allocated for validation.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    if (!staged_reader.read_exact(0, staged_bytes)) {
+        set_error(context, "Owned staged HEIF bytes could not be read from the retained file handle.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+
+    lpb_preservation_observation observation{};
+    observation.struct_size = sizeof(observation);
+    if (lpb_media_capture_preservation_observation_bytes(context, staged_bytes,
+            LPB_SOURCE_PROTOCOL_UNKNOWN, LPB_IMAGE_CONTAINER_HEIC, &observation) != LPB_RESULT_OK) {
+        set_error(context, "Owned staged HEIF bytes could not be structurally inspected.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if ((observation.flags & LPB_POBS_ICC_PARSE_ERROR) != 0) {
+        set_error(context, "Staged HEIF primary color graph is malformed or ambiguous.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    heif_context_owner file;
+    heif_handle_owner primary;
+    heic_image_facts actual{};
+    if (!file.value || !okay(heif_context_read_from_memory_without_copy(file.value,
+            staged_bytes.data(), staged_bytes.size(), nullptr)) ||
+        !okay(heif_context_get_primary_image_handle(file.value, &primary.value)) || !primary.value ||
+        !fill_facts(primary.value, actual)) {
+        set_error(context, "Owned staged HEIF bytes do not contain one readable primary image.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    const bool observed_icc = (observation.flags & LPB_POBS_HAS_ICC) != 0;
+    if (actual.color.has_nclx && !expected.color.has_nclx) {
+        set_error(context, "Staged HEIF primary has an unexpected NCLX color property.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (expected.color.has_icc && !actual.color.has_icc) {
+        set_error(context, "Staged HEIF primary is missing the expected ICC profile.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (!expected.color.has_icc && (actual.color.has_icc || observed_icc)) {
+        set_error(context, "Staged HEIF primary has an unexpected ICC profile.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (expected.color.has_icc && !observed_icc) {
+        set_error(context, "Staged HEIF primary color graph is missing a primary-associated ICC profile.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (expected.color.has_icc && (actual.color.icc_profile != expected.color.icc_profile ||
+            !icc_profile_matches_observation(observation, expected.color.icc_profile))) {
+        set_error(context, "Staged HEIF primary ICC bytes do not match the trusted source profile.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (expected.color.has_nclx && !actual.color.has_nclx) {
+        set_error(context, "Staged HEIF primary is missing the expected NCLX color property.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (expected.color.has_nclx && (actual.color.primaries != expected.color.primaries ||
+        actual.color.transfer != expected.color.transfer || actual.color.matrix != expected.color.matrix ||
+        actual.color.full_range != expected.color.full_range)) {
+        set_error(context, "Staged HEIF primary NCLX values do not match the trusted source representation.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    return LPB_RESULT_OK;
 }
 
 lpb_result encode_heic_images(lpb_context* context, const char* output_path, const pixel_surface& primary,
@@ -362,11 +465,35 @@ lpb_result encode_heic_images(lpb_context* context, const char* output_path, con
     if (!file.value || !options.value || !make_encoded_image(primary, primary_image) ||
         (secondary && !make_encoded_image(*secondary, secondary_image)) ||
         !okay(heif_context_get_encoder_for_format(file.value, heif_compression_HEVC, &encoder.value)) || !encoder.value ||
-        !okay(heif_encoder_set_lossy_quality(encoder.value, quality)) ||
-        !okay(heif_context_encode_image(file.value, primary_image.value, encoder.value, options.value, &primary_handle.value)) || !primary_handle.value ||
-        (secondary && (!okay(heif_context_encode_image(file.value, secondary_image.value, encoder.value, options.value, &secondary_handle.value)) || !secondary_handle.value)) ||
-        !okay(heif_context_set_primary_image(file.value, primary_handle.value))) {
-        set_error(context, "libheif/x265 HEIC image encode setup failed.");
+        !okay(heif_encoder_set_lossy_quality(encoder.value, quality))) {
+        set_error(context, "libheif/x265 HEIC encoder setup failed.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    // libheif converts RGB to the encoder's YCbCr input and supplies sRGB-like
+    // defaults when no source NCLX exists. For ordinary single-image R4 output,
+    // those defaults are not an authorized ICC-to-CICP mapping. Keep the HEIF
+    // item free of NCLX and make the HEVC bitstream say that these facts are
+    // unknown as well. Multi-image R3 GainMap encoding stays on its existing
+    // path, and a trusted explicit NCLX is left to the encoder unchanged.
+    if (!secondary && !primary.color.has_nclx &&
+        (!okay(heif_encoder_set_parameter_string(encoder.value, "x265:colorprim", "unknown")) ||
+            !okay(heif_encoder_set_parameter_string(encoder.value, "x265:transfer", "unknown")) ||
+        !okay(heif_encoder_set_parameter_string(encoder.value, "x265:colormatrix", "unknown")))) {
+        set_error(context, "x265 could not be configured to preserve unknown HEVC color-description values.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    if (!okay(heif_context_encode_image(file.value, primary_image.value, encoder.value, options.value, &primary_handle.value)) ||
+        !primary_handle.value) {
+        set_error(context, "libheif/x265 HEIC primary image encode failed.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    if (secondary && (!okay(heif_context_encode_image(file.value, secondary_image.value, encoder.value,
+            options.value, &secondary_handle.value)) || !secondary_handle.value)) {
+        set_error(context, "libheif/x265 HEIC secondary image encode failed.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    if (!okay(heif_context_set_primary_image(file.value, primary_handle.value))) {
+        set_error(context, "libheif could not select the encoded HEIC primary image.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
     if (facts) {
@@ -409,9 +536,29 @@ lpb_result encode_heic_images(lpb_context* context, const char* output_path, con
     heif_writer writer{};
     writer.writer_api_version = 1;
     writer.write = write_owned_output;
-    if (!okay(heif_context_write(file.value, &writer, &output)) || !output.flush() || !output.publish_no_replace(destination_path)) {
-        output.abort();
+    if (!okay(heif_context_write(file.value, &writer, &output)) || !output.flush() || !output.ready_to_consume()) {
+        const bool removed = output.abort_and_confirm();
+        if (!removed) {
+            set_error(context, "HEIC encode failed and its owned staging file could not be confirmed removed.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
         set_error(context, "libheif/x265 HEIC encode failed before publication.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    const lpb_result color_validation = encoded_primary_color_matches(context, output, primary);
+    if (color_validation != LPB_RESULT_OK) {
+        const bool removed = output.abort_and_confirm();
+        if (!removed) {
+            set_error(context, "HEIC color validation failed and its owned staging file could not be confirmed removed.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+        return color_validation;
+    }
+    if (!output.publish_no_replace(destination_path)) {
+        const bool removed = output.abort_and_confirm();
+        set_error(context, removed
+            ? "Failed to publish the validated owned HEIC without replacing an existing artifact."
+            : "HEIC publication failed and its owned staging file could not be confirmed removed.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
     return LPB_RESULT_OK;

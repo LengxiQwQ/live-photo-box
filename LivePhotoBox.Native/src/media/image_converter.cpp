@@ -5,7 +5,10 @@
 #include "media/jpeg_backend.h"
 #include "media/media_inspector.h"
 #include "platform/windows_filesystem.h"
+#include "foundation/sha256_core.h"
 
+#include <array>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 
@@ -31,6 +34,20 @@ bool read_header(const char* input_path, uint8_t (&header)[16]) noexcept {
     if (!input.is_open()) return false;
     input.read(reinterpret_cast<char*>(header), sizeof(header));
     return input.gcount() >= 8;
+}
+
+bool icc_profile_matches_observation(const lpb_preservation_observation& observation,
+    std::span<const uint8_t> profile) noexcept {
+    if (profile.empty() || observation.icc_sha256[0] == '\0') return false;
+    uint8_t hash[32]{};
+    lpb::crypto::sha256_buffer(profile.data(), profile.size(), hash);
+    constexpr char digits[] = "0123456789ABCDEF";
+    std::array<char, LPB_POBS_SHA256_LEN> actual{};
+    for (size_t i = 0; i < 32; ++i) {
+        actual[i * 2] = digits[hash[i] >> 4];
+        actual[i * 2 + 1] = digits[hash[i] & 0x0F];
+    }
+    return std::memcmp(actual.data(), observation.icc_sha256, LPB_POBS_SHA256_LEN) == 0;
 }
 } // namespace
 
@@ -75,6 +92,17 @@ lpb_result convert_image_file(lpb_context* context, const char* input_image_path
     }
 
     if (source_container == LPB_IMAGE_CONTAINER_HEIC && target_container == LPB_IMAGE_CONTAINER_JPEG) {
+        lpb_preservation_observation color_observation{};
+        color_observation.struct_size = sizeof(color_observation);
+        const lpb_result observation_result = lpb_media_capture_preservation_observation(
+            context, input_image_path, LPB_SOURCE_PROTOCOL_UNKNOWN,
+            LPB_IMAGE_CONTAINER_HEIC, &color_observation, true);
+        if (observation_result != LPB_RESULT_OK) return observation_result;
+        if ((color_observation.flags & LPB_POBS_ICC_PARSE_ERROR) != 0) {
+            set_error(context, "HEIC primary color-property association is ambiguous or malformed.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+
         pixel_surface pixels{};
         heic_image_facts facts{};
         const lpb_result decoded = decode_heic_primary_file(context, input_image_path, pixels, &facts);
@@ -85,8 +113,16 @@ lpb_result convert_image_file(lpb_context* context, const char* input_image_path
             set_error(context, "HEIC source is 10-bit or HDR-relevant; explicit P5 degradation/transform policy is required.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
+        const bool observed_icc = (color_observation.flags & LPB_POBS_HAS_ICC) != 0;
+        if (facts.color.has_nclx || pixels.color.has_nclx ||
+            facts.color.has_icc != observed_icc || pixels.color.has_icc != observed_icc ||
+            (observed_icc && (!icc_profile_matches_observation(color_observation, facts.color.icc_profile) ||
+                facts.color.icc_profile != pixels.color.icc_profile))) {
+            set_error(context, "HEIC primary has unsupported NCLX or inconsistent/ambiguous ICC color facts for JPEG.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         const lpb_result encoded = encode_rgb_jpeg_file(context, output_image_path, pixels.width, pixels.height,
-            pixels.pixels, quality);
+            pixels.pixels, quality, pixels.color.icc_profile);
         if (encoded == LPB_RESULT_OK && out_reencoded) *out_reencoded = 1;
         return encoded;
     }

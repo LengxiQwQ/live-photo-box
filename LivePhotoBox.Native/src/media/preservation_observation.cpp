@@ -1910,6 +1910,31 @@ lpb_result lpb_media_capture_preservation_observation(
     return LPB_RESULT_OK;
 }
 
+lpb_result lpb_media_capture_preservation_observation_bytes(
+    lpb_context* context,
+    const std::vector<uint8_t>& media_bytes,
+    lpb_source_protocol protocol_hint,
+    lpb_image_container container_hint,
+    lpb_preservation_observation* out_observation) noexcept
+{
+    if (!context || media_bytes.empty() || !out_observation ||
+        (container_hint != LPB_IMAGE_CONTAINER_JPEG && container_hint != LPB_IMAGE_CONTAINER_HEIC))
+        return LPB_RESULT_INVALID_ARGUMENT;
+    if (out_observation->struct_size < sizeof(lpb_preservation_observation)) return LPB_RESULT_INVALID_ARGUMENT;
+    if (lpb_context_check_cancelled(context) != LPB_RESULT_OK) return LPB_RESULT_CANCELLED;
+
+    const uint32_t saved_size = out_observation->struct_size;
+    std::memset(out_observation, 0, sizeof(lpb_preservation_observation));
+    out_observation->struct_size = saved_size;
+
+    if (container_hint == LPB_IMAGE_CONTAINER_JPEG) {
+        observe_jpeg(context, media_bytes, protocol_hint, out_observation);
+    } else {
+        observe_heic(context, media_bytes, protocol_hint, out_observation);
+    }
+    return LPB_RESULT_OK;
+}
+
 extern "C" {
 
 LPB_API lpb_result LPB_CALL lpb_capture_preservation_observation(

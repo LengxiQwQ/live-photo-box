@@ -1,0 +1,205 @@
+{
+  "schemaVersion": 1,
+  "profile": "P5-R4-v1",
+  "purpose": "Hash-locked R4 ICC-carriage, unprofiled-input, 10-bit fail-closed and exact passthrough evidence. This extension does not mutate P4-v1.",
+  "roadmapRevision": "317465937A08A908F318ED0F1005AFF7D5B41E637DFF75276F7C08732BB859A7",
+  "samples": [
+    {
+      "id": "apple-p3-jpeg-p4-v1",
+      "filename": "苹果-双文件.JPG",
+      "cachePath": ".ai-tmp/cache/samples/P5-R4-v1/苹果-双文件.JPG",
+      "byteSize": 2823948,
+      "sha256": "998C82938748DE56C8A226B0B4C8984D2ED0EE04A2AB4EF436267CFB5B59D55F",
+      "container": "JPEG",
+      "expectedIndependentFacts": {
+        "dimensions": { "width": 5712, "height": 4284 },
+        "orientation": "identity",
+        "iccSha256": "0FF6958F98684C61F6BBDCE1368DDEAF3873BAF84545BABA482E920D92A914C0",
+        "iccByteSize": 536,
+        "iccAssociation": "one complete JPEG APP2 ICC_PROFILE sequence"
+      },
+      "provenance": {
+        "kind": "P4-v1 real-device capture",
+        "authority": "tests/fixtures/realsamples-manifest.json",
+        "p4Reference": { "manifest": "tests/fixtures/realsamples-manifest.json", "filename": "苹果-双文件.JPG" },
+        "license": "verifier-supplied only; do not redistribute",
+        "capture": "Apple iPhone 16 Pro Max dual-file alternate primary",
+        "profile": "Display P3 ICC; JPEG IFD0 orientation is normal"
+      },
+      "routes": ["P5R4_AppleP3JpegToHeic"]
+    },
+    {
+      "id": "huawei-p3-heic-p4-v1",
+      "filename": "华为Mate80.heic",
+      "cachePath": ".ai-tmp/cache/samples/P5-R4-v1/华为Mate80.heic",
+      "byteSize": 6816675,
+      "sha256": "904E94CD37CC0336060409C07025C1341A5621EDA3AB53AE2840EE6613F5834A",
+      "container": "HEIC",
+      "expectedIndependentFacts": {
+        "primaryItemId": 15,
+        "primaryItemType": "grid",
+        "dimensions": { "width": 3072, "height": 4096 },
+        "primaryColorAssociationCount": 1,
+        "iccSha256": "F429BCB7F1D7F38D69FB371272E2566B90AA0177B4121AFF63352F2A1CA2B840",
+        "iccByteSize": 660,
+        "orientation": "identity",
+        "embeddedHuaweiVideo": { "start": 2073984, "byteSize": 4742631, "tailBytes": 60, "liveMarker": "LIVE_4742651" }
+      },
+      "materialization": {
+        "kind": "Neutral inspected PrimaryImage range",
+        "sourceSha256": "904E94CD37CC0336060409C07025C1341A5621EDA3AB53AE2840EE6613F5834A",
+        "sourceProtocolDataMustNotReachConverter": true,
+        "derivedArtifactSha256": "measure-and-record-before-conversion-in-evidence",
+        "byteRange": "measure-and-record-exact-inspected-offset-and-length-in-evidence"
+      },
+      "provenance": {
+        "kind": "P4-v1 real-device capture",
+        "authority": "tests/fixtures/realsamples-manifest.json",
+        "p4Reference": { "manifest": "tests/fixtures/realsamples-manifest.json", "filename": "华为Mate80.heic" },
+        "license": "verifier-supplied only; do not redistribute",
+        "capture": "Huawei Mate 80 HEIC primary in the canonical source sample",
+        "profile": "ExifTool reports an embedded DCI-P3-gamut/sRGB-EOTF ICC profile; R4 independent HEIF graph inspection must verify exact primary association before claiming carriage"
+      },
+      "routes": ["P5R4_HuaweiHeicPrimaryToJpeg"]
+    },
+    {
+      "id": "nikon-z8-10bit-sdr-heic-cc0",
+      "filename": "3B_HEIC_SDR.heic",
+      "cachePath": ".ai-tmp/cache/samples/P5-R4-v1/3B_HEIC_SDR.heic",
+      "byteSize": 4479456,
+      "sha256": "0E366A983DB397B1C1FBCB638E51ECBB6F2163F03F1E652F62EC8E192D96CE6E",
+      "container": "HEIC",
+      "expectedIndependentFacts": {
+        "primaryItemId": 1,
+        "primaryItemType": "hvc1",
+        "dimensions": { "width": 8256, "height": 5504 },
+        "primaryLumaBitDepth": 10,
+        "primaryChromaBitDepth": 10,
+        "ffprobePixelFormat": "yuv420p10le",
+        "iccSha256": "2B3AA1645779A9E634744FAF9B01E9102B0C9B88FD6DECED7934DF86B949AF7E",
+        "iccByteSize": 3144
+      },
+      "provenance": {
+        "kind": "real capture derivative",
+        "repository": "aaron-rust/hdr-sample-images",
+        "repositoryUrl": "https://github.com/aaron-rust/hdr-sample-images",
+        "revision": "df0d5df406ad0dbe2124d6f2a3700fe73dd3ead7",
+        "sourcePath": "different_file_formats_in_sdr_and_hdr/3B_HEIC_SDR.heic",
+        "sourceUrl": "https://github.com/aaron-rust/hdr-sample-images/blob/df0d5df406ad0dbe2124d6f2a3700fe73dd3ead7/different_file_formats_in_sdr_and_hdr/3B_HEIC_SDR.heic",
+        "gitLfsPointerBlobSha1": "1981ea325f4b01af7b7e84e67db4a2c7f18a89b3",
+        "gitLfsObjectSha256": "0E366A983DB397B1C1FBCB638E51ECBB6F2163F03F1E652F62EC8E192D96CE6E",
+        "gitLfsObjectByteSize": 4479456,
+        "readmeUrl": "https://github.com/aaron-rust/hdr-sample-images/blob/df0d5df406ad0dbe2124d6f2a3700fe73dd3ead7/README.md",
+        "licenseUrl": "https://github.com/aaron-rust/hdr-sample-images/blob/df0d5df406ad0dbe2124d6f2a3700fe73dd3ead7/LICENSE",
+        "license": "CC0-1.0",
+        "capture": "Nikon Z8 RAW photograph developed through Adobe Lightroom Classic as an SDR HEIC; not camera-original HEIC",
+        "colorEvidenceLimit": "Use only to prove 10-bit decode, unsupported HEIC-to-JPEG no-publish and byte-identical HEIC passthrough. Do not claim colorimetric correctness; independent readers report different ICC/NCLX details."
+      },
+      "routes": ["P5R4_TenBitHeicToJpeg", "P5R4_TenBitHeicPassthrough"]
+    },
+    {
+      "id": "nikon-z8-unprofiled-sdr-jpeg-cc0",
+      "filename": "5B_JPEG_SDR.jpg",
+      "cachePath": ".ai-tmp/cache/samples/P5-R4-v1/5B_JPEG_SDR.jpg",
+      "byteSize": 10500045,
+      "sha256": "B4D013555225A431FB744D44863DB529C9B34BA90843842A4B7AA450857BD6C9",
+      "container": "JPEG",
+      "expectedIndependentFacts": {
+        "dimensions": { "width": 8256, "height": 5504 },
+        "iccSha256": null,
+        "xmpColorInterpretationDeclarations": [],
+        "exifColorSpace": null,
+        "ffprobePixelFormat": "yuvj444p",
+        "provenanceNote": "XMP CameraRaw color-grade/profile and lens-correction fields are processing history; they are reported separately and do not define the output JPEG display profile."
+      },
+      "provenance": {
+        "kind": "real capture derivative",
+        "repository": "aaron-rust/hdr-sample-images",
+        "repositoryUrl": "https://github.com/aaron-rust/hdr-sample-images",
+        "revision": "df0d5df406ad0dbe2124d6f2a3700fe73dd3ead7",
+        "sourcePath": "different_file_formats_in_sdr_and_hdr/5B_JPEG_SDR.jpg",
+        "sourceUrl": "https://github.com/aaron-rust/hdr-sample-images/blob/df0d5df406ad0dbe2124d6f2a3700fe73dd3ead7/different_file_formats_in_sdr_and_hdr/5B_JPEG_SDR.jpg",
+        "gitLfsPointerBlobSha1": "3fd90027399398ba7d869af5d81f5c2fe503c339",
+        "gitLfsObjectSha256": "B4D013555225A431FB744D44863DB529C9B34BA90843842A4B7AA450857BD6C9",
+        "gitLfsObjectByteSize": 10500045,
+        "readmeUrl": "https://github.com/aaron-rust/hdr-sample-images/blob/df0d5df406ad0dbe2124d6f2a3700fe73dd3ead7/README.md",
+        "licenseUrl": "https://github.com/aaron-rust/hdr-sample-images/blob/df0d5df406ad0dbe2124d6f2a3700fe73dd3ead7/LICENSE",
+        "license": "CC0-1.0",
+        "capture": "Nikon Z8 RAW photograph developed through Adobe Lightroom Classic as an SDR JPEG; not camera-original JPEG",
+        "colorEvidenceLimit": "ExifTool found no embedded ICC profile. The validator must independently confirm color declarations before requiring the HEIC output to contain none."
+      },
+      "routes": ["P5R4_UnprofiledJpegToHeic"]
+    }
+  ],
+  "validation": {
+    "upstreamSourceLock": "tools/p5-r4-color-high-bit-depth-validation/profiles/P5-R4-v1/upstream-source-lock.json",
+    "independentImplementations": [
+      "R4-owned JPEG marker parser for APP2 ICC_PROFILE sequence assembly",
+      "R4-owned HEIF parser resolving pitm primary item through iprp/ipco/ipma to colr properties",
+      "ExifTool 13.55",
+      "FFmpeg and FFprobe 8.0.1",
+      "libheif 1.23.2 heif-convert default primary-image decoder for HEIF grid primary items"
+    ],
+    "renderComparison": {
+      "profiledRoutes": ["P5R4_AppleP3JpegToHeic", "P5R4_HuaweiHeicPrimaryToJpeg"],
+      "sourceAndTargetProfileBytesMustMatch": true,
+      "unprofiledSourceRule": "No explicit image-output color interpretation profile is present. The independent parser blocks exact XMP interpretation fields (ColorSpace, ColorPrimaries/Primaries, TransferCharacteristics/TransferFunction, MatrixCoefficients, Gamma, WhitePoint/Chromaticities, ICC/Output/ColorProfile, ColorMode, ColorEncoding, ColorRenderingIntent), ICC APP2, calibrated EXIF ColorSpace, extended XMP, or ExifTool color profile tags. Adobe CameraRaw development/history fields such as ColorGrade, ColorNoiseReduction, CameraProfile, ProfileName, and LensProfile are separately reported as processing metadata and are not treated as the JPEG's current display color profile.",
+      "decoder": "JPEG uses FFmpeg 8.0.1 CLI to decode exactly one selected stream/frame to RGB24 rawvideo. HEIF primary uses libheif 1.23.2 heif-convert default primary-image decode to PNG; the R4-owned HEIF parser independently resolves pitm/item properties, and decoded dimensions plus ICC bytes must equal that exact primary. Neither decoder applies ICC CMS; codec YCbCr-to-RGB is the only decoder color conversion. Do not insert colorspace/zscale/tonemap filters.",
+      "streamSelection": "JPEG must expose exactly one image/video stream in FFprobe. HEIF decode uses libheif's primary-image API path; no first-thumbnail fallback. Independently parsed pitm item type/dimensions/ICC must agree with the decoded default-primary PNG. FFprobe streams are only selected for a supplemental decode when AVStream.id equals pitm item_ID; absent match never authorizes selecting another stream.",
+      "decodeArguments": ["-hide_banner", "-v", "error", "-noautorotate", "-i", "<input>", "-map", "0:<selected-stream-index>", "-frames:v", "1", "-pix_fmt", "rgb24", "-f", "rawvideo", "<fixed-workspace-output>"],
+      "heifPrimaryDecodeArguments": ["heif-convert", "--quiet", "--output", "<fixed-workspace-output.png>", "<input>"],
+      "decodedPixelFormat": "rgb24",
+      "decodedSignalDepth": 8,
+      "colorManagement": "After FFmpeg decode, apply the exact independently extracted source ICC bytes exactly once using Pillow 12.1.1 ImageCms/LittleCMS 2.17 profileToProfile to an explicit Pillow sRGB destination profile, RGB-to-RGB, relative-colorimetric intent, black-point compensation off. Never apply a second CMS operation.",
+      "renderIntent": "relative-colorimetric",
+      "blackPointCompensation": false,
+      "orientation": "No orientation transform is applied. JPEG must have no EXIF Orientation or IFD0 Orientation=1. HEIF primary must have no associated irot/imir property and ExifTool must report Orientation absent or Horizontal (normal); disagreement or non-identity blocks the route. FFmpeg uses -noautorotate.",
+      "alignment": "Require the independent JPEG/HEIF primary dimensions and both FFprobe decoded dimensions to agree exactly before color management; source and output dimensions must match. No crop, translation, rotation, or resampling is permitted before comparison.",
+      "resize": "After the single ICC-to-sRGB conversion, resize both RGB images with Pillow Image.Resampling.LANCZOS to the same dimensions using scale=min(1,1024/max(width,height)); dimensions are round(original_dimension*scale) and each long edge is at most 1024. No other resize or alignment step.",
+      "metric": "CIEDE2000 in Lab after LittleCMS conversion to sRGB",
+      "thresholds": {
+        "meanDeltaE00Maximum": 2.0,
+        "p95DeltaE00Maximum": 5.0,
+        "p99DeltaE00Maximum": 9.0
+      },
+      "thresholdStatus": "frozen-before-formal-conversion; must not be adjusted after observing route outputs"
+    },
+    "negativeTests": [
+      {
+        "id": "P5R4_TargetProfileTransformUnsupported",
+        "kind": "request-policy unit test",
+        "testFilter": "FullyQualifiedName~ImageColorHighBitDepthTests.P5R4_TargetProfileTransformUnsupported",
+        "realSampleRoute": false,
+        "reason": "The existing public request has no target-profile intent; this unsupported-request assertion makes no sample preservation or colorimetric claim."
+      },
+      {
+        "id": "P5R4_AmbiguousColorMetadata",
+        "kind": "adversarial parser/policy test",
+        "testFilter": "FullyQualifiedName~ImageColorHighBitDepthTests.P5R4_AmbiguousColorMetadata",
+        "realSampleRoute": false,
+        "reason": "Malformed/duplicate/shadow color associations are exercised as explicit adversarial fixtures, not presented as RealSample conversion routes or as evidence for any positive route."
+      }
+    ],
+    "python": {
+      "pillow": "12.1.1",
+      "littleCms": "2.17",
+      "numpy": "2.5.0",
+      "scikitImage": "0.26.0"
+    },
+    "renderPipeline": {
+      "pipelineId": "P5R4-RGB24-LCMS-v1",
+      "primaryStreamRule": "JPEG must have one FFprobe stream. HEIF primary item is decoded by libheif 1.23.2 heif-convert default primary-image path; independently parsed pitm/item type, dimensions, ICC association and decoded PNG dimensions/profile must agree. FFprobe AVStream.id equality is required only for supplemental FFmpeg primary decode; no ordinal fallback.",
+      "frameRule": "Decode exactly frame 0 from that stream with -frames:v 1.",
+      "iccRule": "FFmpeg JPEG decode or libheif HEIF primary decode produces RGB code values without ICC CMS; Pillow only reads PNG RGB bytes; LittleCMS applies source ICC once after decode.",
+      "orientationRule": "Identity only, established from JPEG EXIF/HEIF transforms and cross-checked with ExifTool; -noautorotate; any disagreement blocks.",
+      "alignmentRule": "Exact width/height equality required before CMS; no crop/registration; one specified Lanczos resize after CMS only.",
+      "frozenBeforeFormalConversion": true
+    },
+    "coverageBlockers": [],
+    "workingPaths": {
+      "sampleCache": ".ai-tmp/cache/samples/P5-R4-v1/",
+      "workspace": ".ai-tmp/workspace/P5-R4/",
+      "formalEvidence": ".ai-tmp/evidence/P5-R4/"
+    }
+  }
+}

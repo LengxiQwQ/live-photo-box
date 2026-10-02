@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "profile": "P5-R4-v1",
+  "repository": "aaron-rust/hdr-sample-images",
+  "revision": "df0d5df406ad0dbe2124d6f2a3700fe73dd3ead7",
+  "readme": {
+    "path": "README.md",
+    "rawUrl": "https://raw.githubusercontent.com/aaron-rust/hdr-sample-images/df0d5df406ad0dbe2124d6f2a3700fe73dd3ead7/README.md",
+    "gitBlobSha1": "780523a03d31ca8c3a1c370e430c4011fc39b725",
+    "sha256": "9A6442D7F2DEC8603BAF52643476375F8D366D3A62AFCC4E9EE3E6A4B46DE121",
+    "byteSize": 4554,
+    "evidenceTokens": [
+      "Nikon Z8",
+      "Adobe Lightroom Classic",
+      "different_file_formats_in_sdr_and_hdr",
+      "Creative Commons Zero (CC0) license"
+    ]
+  },
+  "license": {
+    "path": "LICENSE",
+    "rawUrl": "https://raw.githubusercontent.com/aaron-rust/hdr-sample-images/df0d5df406ad0dbe2124d6f2a3700fe73dd3ead7/LICENSE",
+    "gitBlobSha1": "0e259d42c996742e9e3cba14c677129b2c1b6311",
+    "sha256": "A2010F343487D3F7618AFFE54F789F5487602331C0A8D03F49E9A7C547CF0499",
+    "byteSize": 7048,
+    "evidenceTokens": [
+      "Creative Commons Legal Code",
+      "CC0 1.0 Universal"
+    ],
+    "spdxId": "CC0-1.0"
+  },
+  "samples": [
+    {
+      "sampleId": "nikon-z8-10bit-sdr-heic-cc0",
+      "sourcePath": "different_file_formats_in_sdr_and_hdr/3B_HEIC_SDR.heic",
+      "rawUrl": "https://raw.githubusercontent.com/aaron-rust/hdr-sample-images/df0d5df406ad0dbe2124d6f2a3700fe73dd3ead7/different_file_formats_in_sdr_and_hdr/3B_HEIC_SDR.heic",
+      "gitLfsPointer": {
+        "text": "version https://git-lfs.github.com/spec/v1\noid sha256:0e366a983db397b1c1fbcb638e51ecbb6f2163f03f1e652f62ec8e192d96ce6e\nsize 4479456\n",
+        "gitBlobSha1": "1981ea325f4b01af7b7e84e67db4a2c7f18a89b3",
+        "sha256": "6E9BB7B69C8635E250EFE406FD8B2B8571009B612D66AF553BACAF424678E133",
+        "objectSha256": "0E366A983DB397B1C1FBCB638E51ECBB6F2163F03F1E652F62EC8E192D96CE6E",
+        "objectByteSize": 4479456
+      }
+    },
+    {
+      "sampleId": "nikon-z8-unprofiled-sdr-jpeg-cc0",
+      "sourcePath": "different_file_formats_in_sdr_and_hdr/5B_JPEG_SDR.jpg",
+      "rawUrl": "https://raw.githubusercontent.com/aaron-rust/hdr-sample-images/df0d5df406ad0dbe2124d6f2a3700fe73dd3ead7/different_file_formats_in_sdr_and_hdr/5B_JPEG_SDR.jpg",
+      "gitLfsPointer": {
+        "text": "version https://git-lfs.github.com/spec/v1\noid sha256:b4d013555225a431fb744d44863db529c9b34ba90843842a4b7aa450857bd6c9\nsize 10500045\n",
+        "gitBlobSha1": "3fd90027399398ba7d869af5d81f5c2fe503c339",
+        "sha256": "DD3E29B06FF8ED5A35824D02D44C8F6AFD0F4FA2E0E98B0F46A755BBE1BF3B7C",
+        "objectSha256": "B4D013555225A431FB744D44863DB529C9B34BA90843842A4B7AA450857BD6C9",
+        "objectByteSize": 10500045
+      }
+    }
+  ]
+}

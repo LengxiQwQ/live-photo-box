@@ -322,6 +322,72 @@ public sealed class ImageConverter : IImageConverter
             };
         }
 
+        // JPEG has no R4-frozen mapping for HEIF NCLX. Refuse high-bit-depth,
+        // HDR-relevant, ambiguous, or otherwise unrepresentable HEIC color
+        // facts before a destination path is allocated. Same-container HEIC
+        // passthrough intentionally bypasses this lossy-reencode preflight.
+        if (request.SourceArtifact.ImageContainer == ImageContainer.Heic &&
+            request.TargetContainer == ImageContainer.Jpeg)
+        {
+            try
+            {
+                NativeHeicPrimaryDecodeInfo primary = await NativeMediaService
+                    .DecodeHeicPrimaryAsync(request.SourceArtifact.Path, cancellationToken)
+                    .ConfigureAwait(false);
+                var color = await NativeMediaService.CapturePreservationObservationAsync(
+                    request.SourceArtifact.Path,
+                    SourceProtocol.Unknown,
+                    ImageContainer.Heic,
+                    cancellationToken).ConfigureAwait(false);
+
+                bool unsupported = primary.SourceBitDepth > 8 ||
+                    primary.DecodedSignalBitDepth > 8 ||
+                    primary.DecodedStorageBitDepth > 8 ||
+                    primary.IsHdrRelevant != 0 ||
+                    primary.HasNclx != 0 ||
+                    color.IccParseError ||
+                    (primary.HasIcc != 0) != color.HasIcc;
+                if (unsupported)
+                {
+                    sw.Stop();
+                    return new ImageConversionResult
+                    {
+                        Success = false,
+                        ErrorMessage = "HEIC primary depth or color properties are ambiguous or unsupported for JPEG under the current R4 policy.",
+                        ExecutionRecord = FailureRecord(
+                            request,
+                            requestedOperation,
+                            factsOrigin,
+                            ConversionFailureStage.PolicyRejection,
+                            ConversionFailureCategory.Unsupported,
+                            sw.Elapsed)
+                    };
+                }
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                sw.Stop();
+                ConversionFailureCategory category = IsBackendUnavailable(ex)
+                    ? ConversionFailureCategory.BackendUnavailable
+                    : ConversionFailureCategory.SourceInspection;
+                return new ImageConversionResult
+                {
+                    Success = false,
+                    ErrorMessage = $"HEIC primary color/depth inspection failed: {ex.Message}",
+                    ExecutionRecord = FailureRecord(
+                        request,
+                        requestedOperation,
+                        factsOrigin,
+                        category == ConversionFailureCategory.BackendUnavailable
+                            ? ConversionFailureStage.BackendUnavailable
+                            : ConversionFailureStage.SourceInspection,
+                        category,
+                        sw.Elapsed)
+                };
+            }
+        }
+
         string? ext = request.TargetContainer switch
         {
             ImageContainer.Heic => ".heic",
