@@ -88,3 +88,6 @@ LivePhotoBox/Tools/** linguist-vendored
 *.hpp linguist-language=C++
 LivePhotoBox.Native/** linguist-language=C++
 graphify-out/graph.json merge=graphify
+
+# Preserve frozen x265 overlay bytes across Windows checkouts; backend-build.json hashes these exact files.
+tools/p5-r5-video-validation/sidecar-dependencies/overlay-ports/x265/** -text
