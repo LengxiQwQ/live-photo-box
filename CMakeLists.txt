@@ -32,6 +32,8 @@ configure_file("${CMAKE_SOURCE_DIR}/LivePhotoBox.Native/src/foundation/native_ve
 # Explicit groups are the build authority; adding a production source requires editing this graph.
 set(LPB_PORTABLE_SOURCES
   LivePhotoBox.Native/src/containers/isobmff.cpp
+  LivePhotoBox.Native/src/containers/isobmff_mebx_transplant.cpp
+  LivePhotoBox.Native/src/containers/isobmff_video_profile.cpp
   LivePhotoBox.Native/src/containers/heif.cpp
   LivePhotoBox.Native/src/foundation/residue_fingerprint.cpp
   LivePhotoBox.Native/src/foundation/sha256_core.cpp
@@ -54,6 +56,7 @@ set(LPB_PROTOCOL_METADATA_SOURCES
   )
 set(LPB_WINDOWS_PLATFORM_SOURCES
   LivePhotoBox.Native/src/foundation/context.cpp
+  LivePhotoBox.Native/src/media/video_sidecar_loader.cpp
   LivePhotoBox.Native/src/platform/windows_filesystem.cpp)
 set(LPB_MEDIA_SOURCES
   LivePhotoBox.Native/src/media/heic_backend.cpp
@@ -65,6 +68,7 @@ set(LPB_MEDIA_SOURCES
   LivePhotoBox.Native/src/media/media_extractor.cpp
   LivePhotoBox.Native/src/media/media_inspector.cpp
   LivePhotoBox.Native/src/media/preservation_observation.cpp
+  LivePhotoBox.Native/src/media/video_sidecar_bridge.cpp
   LivePhotoBox.Native/src/media/video_converter.cpp)
 source_group("Portable core" FILES ${LPB_PORTABLE_SOURCES})
 source_group("Windows transaction and hash adapters" FILES ${LPB_PROTOCOL_METADATA_SOURCES})
@@ -93,6 +97,73 @@ lpb_portable_core_target(livephotobox_portable_core FALSE)
 option(LPB_BUILD_TEST_HARNESS "Build a separate test-only ABI DLL" OFF)
 if(LPB_BUILD_TEST_HARNESS)
   lpb_portable_core_target(livephotobox_portable_core_test TRUE)
+endif()
+
+option(LPB_BUILD_VIDEO_SIDECAR "Build the pinned P5-R5 minimal libav sidecar" OFF)
+set(LPB_P5_R5_FFMPEG_PREFIX "" CACHE PATH "Pinned minimal FFmpeg install prefix")
+set(LPB_P5_R5_CODEC_PREFIX "" CACHE PATH "Pinned x264/x265 static codec prefix")
+set(LPB_P5_R5_DUMPBIN_EXE "" CACHE FILEPATH "Exact MSVC dumpbin.exe used to bind the pinned video sidecar")
+if(LPB_BUILD_VIDEO_SIDECAR)
+  if(NOT LPB_P5_R5_FFMPEG_PREFIX OR NOT LPB_P5_R5_CODEC_PREFIX OR NOT LPB_P5_R5_DUMPBIN_EXE)
+    message(FATAL_ERROR "LPB_BUILD_VIDEO_SIDECAR requires exact FFmpeg, codec, and dumpbin paths.")
+  endif()
+  if(NOT EXISTS "${LPB_P5_R5_DUMPBIN_EXE}")
+    message(FATAL_ERROR "The exact MSVC PE import inspector is missing: ${LPB_P5_R5_DUMPBIN_EXE}")
+  endif()
+  foreach(_lpb_p5_archive avformat avcodec avutil swscale)
+    if(NOT EXISTS "${LPB_P5_R5_FFMPEG_PREFIX}/lib/${_lpb_p5_archive}.lib")
+      message(FATAL_ERROR "Pinned minimal FFmpeg archive is missing: ${LPB_P5_R5_FFMPEG_PREFIX}/lib/${_lpb_p5_archive}.lib")
+    endif()
+  endforeach()
+  foreach(_lpb_p5_archive libx264 x265-static)
+    if(NOT EXISTS "${LPB_P5_R5_CODEC_PREFIX}/lib/${_lpb_p5_archive}.lib")
+      message(FATAL_ERROR "Pinned static codec archive is missing: ${LPB_P5_R5_CODEC_PREFIX}/lib/${_lpb_p5_archive}.lib")
+    endif()
+  endforeach()
+
+  add_library(LivePhotoBoxVideoLibav SHARED LivePhotoBox.Native/src/media/video_sidecar.cpp)
+  target_include_directories(LivePhotoBoxVideoLibav PRIVATE
+    LivePhotoBox.Native/src)
+  target_include_directories(LivePhotoBoxVideoLibav SYSTEM PRIVATE
+    "${LPB_P5_R5_FFMPEG_PREFIX}/include"
+    "${LPB_P5_R5_CODEC_PREFIX}/include")
+  target_compile_definitions(LivePhotoBoxVideoLibav PRIVATE
+    LPB_VIDEO_SIDECAR_BUILD_VERSION="9.0.1")
+  target_compile_options(LivePhotoBoxVideoLibav PRIVATE
+    /W4 /WX /permissive- /utf-8 /EHsc /external:anglebrackets /external:W0
+    $<$<CONFIG:Release>:/O2> $<$<CONFIG:Release>:/Oi> $<$<CONFIG:Release>:/Gy>)
+  target_link_options(LivePhotoBoxVideoLibav PRIVATE /guard:cf /DEBUG
+    $<$<CONFIG:Release>:/OPT:REF> $<$<CONFIG:Release>:/OPT:ICF>)
+  target_link_libraries(LivePhotoBoxVideoLibav PRIVATE
+    "${LPB_P5_R5_FFMPEG_PREFIX}/lib/avformat.lib"
+    "${LPB_P5_R5_FFMPEG_PREFIX}/lib/avcodec.lib"
+    "${LPB_P5_R5_FFMPEG_PREFIX}/lib/swscale.lib"
+    "${LPB_P5_R5_FFMPEG_PREFIX}/lib/avutil.lib"
+    "${LPB_P5_R5_CODEC_PREFIX}/lib/libx264.lib"
+    "${LPB_P5_R5_CODEC_PREFIX}/lib/x265-static.lib"
+    secur32 ncrypt crypt32 ws2_32 advapi32 ole32 user32 bcrypt)
+  set_target_properties(LivePhotoBoxVideoLibav PROPERTIES
+    OUTPUT_NAME "LivePhotoBox.Video.Libav"
+    RUNTIME_OUTPUT_DIRECTORY "${LPB_NATIVE_OUTPUT_ROOT}/$<CONFIG>/win-x64"
+    LIBRARY_OUTPUT_DIRECTORY "${LPB_NATIVE_OUTPUT_ROOT}/$<CONFIG>/win-x64"
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/import/$<CONFIG>/win-x64")
+
+  find_program(LPB_P5_R5_POWERSHELL_EXE NAMES powershell.exe powershell REQUIRED)
+  set(LPB_P5_R5_IDENTITY_SCRIPT
+    "${CMAKE_SOURCE_DIR}/scripts/native/generate-p5-r5-video-sidecar-identity.ps1")
+  set(LPB_P5_R5_IDENTITY_HEADER
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>/video_sidecar_build_identity.h")
+  add_custom_command(OUTPUT "${LPB_P5_R5_IDENTITY_HEADER}"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>"
+    COMMAND "${LPB_P5_R5_POWERSHELL_EXE}" -NoProfile -ExecutionPolicy Bypass
+      -File "${LPB_P5_R5_IDENTITY_SCRIPT}"
+      -SidecarPath "$<TARGET_FILE:LivePhotoBoxVideoLibav>"
+      -DumpbinPath "${LPB_P5_R5_DUMPBIN_EXE}"
+      -HeaderPath "${LPB_P5_R5_IDENTITY_HEADER}"
+    DEPENDS LivePhotoBoxVideoLibav "${LPB_P5_R5_IDENTITY_SCRIPT}"
+    VERBATIM
+    COMMENT "Binding the Native build to its exact minimal-libav sidecar")
+  add_custom_target(lpb_p5_r5_video_sidecar_identity DEPENDS "${LPB_P5_R5_IDENTITY_HEADER}")
 endif()
 
 function(lpb_native_target target_name output_name harness)
@@ -125,6 +196,13 @@ function(lpb_native_target target_name output_name harness)
     $<IF:$<TARGET_EXISTS:libjpeg-turbo::turbojpeg>,libjpeg-turbo::turbojpeg,libjpeg-turbo::turbojpeg-static>
     bcrypt ole32
     mfplat mfreadwrite mfuuid)
+  if(NOT harness AND TARGET LivePhotoBoxVideoLibav)
+    target_include_directories(${target_name} PRIVATE
+      "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>")
+    target_compile_definitions(${target_name} PRIVATE LPB_VIDEO_SIDECAR_BUILD_IDENTITY=1)
+    add_dependencies(${target_name} LivePhotoBoxVideoLibav)
+    add_dependencies(${target_name} lpb_p5_r5_video_sidecar_identity)
+  endif()
   set_target_properties(${target_name} PROPERTIES
     OUTPUT_NAME "${output_name}"
     RUNTIME_OUTPUT_DIRECTORY "${LPB_NATIVE_OUTPUT_ROOT}/${artifact_subdir}"
@@ -145,4 +223,41 @@ if(BUILD_TESTING)
   target_link_libraries(lpb_portable_io_smoke PRIVATE livephotobox_portable_core)
   add_test(NAME portable_io_smoke COMMAND lpb_portable_io_smoke
     "${CMAKE_CURRENT_BINARY_DIR}/portable-io-fixture.bin")
+  add_executable(lpb_video_profile_smoke tests/native/video_profile_smoke.cpp)
+  target_include_directories(lpb_video_profile_smoke PRIVATE LivePhotoBox.Native/src)
+  target_compile_options(lpb_video_profile_smoke PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+  target_link_libraries(lpb_video_profile_smoke PRIVATE livephotobox_portable_core)
+  add_test(NAME P5R5_VideoProfileRealSamples COMMAND lpb_video_profile_smoke
+    "${CMAKE_SOURCE_DIR}/.ai-tmp/cache/samples/P5-R5-v1/苹果双文件.MOV"
+    "${CMAKE_SOURCE_DIR}/.ai-tmp/cache/samples/P5-R5-v1/vivo双文件.mp4"
+    "${CMAKE_SOURCE_DIR}/.ai-tmp/workspace/P5-R5/huawei-extraction-pass-b/motion.mp4")
+  add_executable(lpb_mf_vfr_encoder_smoke tests/native/mf_vfr_encoder_smoke.cpp)
+  target_include_directories(lpb_mf_vfr_encoder_smoke PRIVATE LivePhotoBox.Native/src)
+  target_compile_options(lpb_mf_vfr_encoder_smoke PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+  target_link_libraries(lpb_mf_vfr_encoder_smoke PRIVATE livephotobox_portable_core mfplat mfreadwrite mfuuid)
+  # The smoke allocates a fresh numbered attempt directory under this fixed root.
+  set(LPB_P5R5_VFR_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/p5r5-vfr-ctest")
+  file(MAKE_DIRECTORY "${LPB_P5R5_VFR_OUTPUT_DIR}")
+  add_test(NAME P5R5_MediaFoundationSoftwareVfrEncoderProof COMMAND lpb_mf_vfr_encoder_smoke
+    "${CMAKE_SOURCE_DIR}/.ai-tmp/cache/samples/P5-R5-v1/苹果双文件.MOV"
+    "${LPB_P5R5_VFR_OUTPUT_DIR}")
+  if(LPB_BUILD_VIDEO_SIDECAR)
+    add_executable(lpb_video_sidecar_runtime_smoke tests/native/video_sidecar_runtime_smoke.cpp)
+    target_include_directories(lpb_video_sidecar_runtime_smoke PRIVATE
+      LivePhotoBox.Native/include LivePhotoBox.Native/src)
+    target_compile_options(lpb_video_sidecar_runtime_smoke PRIVATE /W4 /WX /permissive- /utf-8)
+    target_link_libraries(lpb_video_sidecar_runtime_smoke PRIVATE LivePhotoBoxNative)
+    set_target_properties(lpb_video_sidecar_runtime_smoke PROPERTIES
+      RUNTIME_OUTPUT_DIRECTORY "${LPB_NATIVE_OUTPUT_ROOT}/$<CONFIG>/win-x64")
+    add_test(NAME P5R5_VideoSidecarRuntimeSiblingPositive
+      COMMAND lpb_video_sidecar_runtime_smoke 1)
+
+    add_executable(lpb_video_sidecar_conversion_smoke tests/native/video_sidecar_conversion_smoke.cpp)
+    target_include_directories(lpb_video_sidecar_conversion_smoke PRIVATE
+      LivePhotoBox.Native/include LivePhotoBox.Native/src)
+    target_compile_options(lpb_video_sidecar_conversion_smoke PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+    target_link_libraries(lpb_video_sidecar_conversion_smoke PRIVATE LivePhotoBoxNative livephotobox_portable_core)
+    set_target_properties(lpb_video_sidecar_conversion_smoke PROPERTIES
+      RUNTIME_OUTPUT_DIRECTORY "${LPB_NATIVE_OUTPUT_ROOT}/$<CONFIG>/win-x64")
+  endif()
 endif()

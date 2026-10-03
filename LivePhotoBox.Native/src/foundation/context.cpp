@@ -1,6 +1,7 @@
 #include "foundation/internal.h"
 #include "media/heic_backend.h"
 #include "media/jpeg_backend.h"
+#include "media/video_sidecar_loader.h"
 #include <windows.h>
 #include <bcrypt.h>
 
@@ -821,13 +822,25 @@ lpb_result LPB_CALL lpb_get_runtime_capability_identity(
         break;
     case LPB_RUNTIME_OPERATION_VIDEO_TRANSCODE_HDR_10BIT:
         identity->backend = LPB_RUNTIME_BACKEND_MINIMAL_LIBAV;
-        // This is a generic HDR/10-bit capability foundation.  P4 freezes its
-        // future backend owner, not P5's target-codec policy (which may be
-        // H.264 High10 or HEVC Main10), so no codec is claimed yet.
         identity->codec = LPB_RUNTIME_CODEC_UNKNOWN;
-        identity->is_available = 0;
-        version = "not packaged";
-        fallback_reason = "Minimal libav is frozen for P5 HDR/10-bit dispatch but is not linked or packaged by this runtime.";
+        identity->hardware_mode = LPB_VIDEO_HARDWARE_SOFTWARE_FORCED;
+        {
+            lpb::media::VideoSidecarModule sidecar;
+            if (sidecar.load())
+            {
+                const auto* sidecar_info = sidecar.info();
+                identity->is_available = 1;
+                version = "FFmpeg 9.0.1 (minimal static sidecar)";
+                fallback_reason = sidecar.failure_reason();
+                (void)sidecar_info;
+            }
+            else
+            {
+                identity->is_available = 0;
+                version = "not packaged";
+                fallback_reason = sidecar.failure_reason();
+            }
+        }
         break;
     default:
         set_error(context, "Unknown runtime operation class.");

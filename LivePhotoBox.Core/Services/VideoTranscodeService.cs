@@ -28,6 +28,7 @@ namespace LivePhotoBox.Services
             public string? ErrorMessage { get; set; }
             public TimeSpan Duration { get; set; }
             public bool WasRemux { get; set; }
+            internal bool WasTranscoded { get; set; }
         }
 
         // 检查编码器是否可用（外部 FFmpeg 已移除，返回 false）
@@ -47,7 +48,7 @@ namespace LivePhotoBox.Services
                 {
                     Success = false,
                     ErrorMessage = $"Input file not found: {inputPath}",
-                    WasRemux = true
+                    WasRemux = false
                 };
             }
 
@@ -71,21 +72,20 @@ namespace LivePhotoBox.Services
                         ByteLength = new FileInfo(inputPath).Length
                     },
                     TargetContainer = isMp4 ? VideoContainer.Mp4 : VideoContainer.Mov,
-                    TargetCodec = probe.Codec,
+                    TargetCodec = VideoCodec.Copy,
                     TargetDirectory = outDir
                 }, token).ConfigureAwait(false);
 
                 sw.Stop();
                 if (result.Success && result.OutputArtifact != null)
                 {
-                    File.Copy(result.OutputArtifact.Path, outputPath, overwrite: true);
-                    try { File.Delete(result.OutputArtifact.Path); } catch { }
+                    PublishConverterArtifactNoReplace(result.OutputArtifact.Path, outputPath);
                     return new TranscodeResult
                     {
                         Success = true,
                         OutputPath = outputPath,
                         Duration = sw.Elapsed,
-                        WasRemux = true
+                        WasRemux = result.ExecutionRecord.Truth.ActualOperationKind == ConversionOperationKind.ContainerRemux
                     };
                 }
 
@@ -94,7 +94,7 @@ namespace LivePhotoBox.Services
                     Success = false,
                     ErrorMessage = result.ErrorMessage,
                     Duration = sw.Elapsed,
-                    WasRemux = true
+                    WasRemux = false
                 };
             }
             catch (Exception ex)
@@ -105,7 +105,7 @@ namespace LivePhotoBox.Services
                     Success = false,
                     ErrorMessage = ex.Message,
                     Duration = sw.Elapsed,
-                    WasRemux = true
+                    WasRemux = false
                 };
             }
         }
@@ -149,16 +149,21 @@ namespace LivePhotoBox.Services
                 };
             }
 
+            if (!TryMapVideoCodec(videoCodec, out VideoCodec targetCodec))
+            {
+                return new TranscodeResult
+                {
+                    Success = false,
+                    ErrorMessage = $"Unsupported video codec selection: '{videoCodec}'."
+                };
+            }
+
             try
             {
                 var converter = new VideoConverter();
                 VideoFacts probe = await converter.ProbeAsync(inputPath, token).ConfigureAwait(false);
                 string outDir = Path.GetDirectoryName(outputPath) ?? ".";
                 Directory.CreateDirectory(outDir);
-
-                VideoCodec targetCodec = string.Equals(videoCodec, "hevc", StringComparison.OrdinalIgnoreCase)
-                    ? VideoCodec.Hevc
-                    : VideoCodec.H264;
 
                 var result = await converter.ConvertAsync(new VideoConversionRequest
                 {
@@ -179,14 +184,15 @@ namespace LivePhotoBox.Services
                 sw.Stop();
                 if (result.Success && result.OutputArtifact != null)
                 {
-                    File.Copy(result.OutputArtifact.Path, outputPath, overwrite: true);
-                    try { File.Delete(result.OutputArtifact.Path); } catch { }
+                    PublishConverterArtifactNoReplace(result.OutputArtifact.Path, outputPath);
+                    ConversionOperationKind operation = result.ExecutionRecord.Truth.ActualOperationKind;
                     return new TranscodeResult
                     {
                         Success = true,
                         OutputPath = outputPath,
                         Duration = sw.Elapsed,
-                        WasRemux = result.ExecutionRecord?.RemuxUsed ?? false
+                        WasRemux = operation == ConversionOperationKind.ContainerRemux,
+                        WasTranscoded = operation == ConversionOperationKind.LossyReencode
                     };
                 }
 
@@ -235,7 +241,9 @@ namespace LivePhotoBox.Services
             bool useFaststart = true,
             string videoCodec = "h264")
         {
-            string actionLabel = videoCodec == "copy" ? "Remuxing (HEVC passthrough)" : "Auto-transcoding";
+            string actionLabel = string.Equals(videoCodec, "copy", StringComparison.OrdinalIgnoreCase)
+                ? "Remuxing (video passthrough)"
+                : "Auto-transcoding";
             LogService.Merge(
                 $"{actionLabel} to MP4: '{Path.GetFileName(inputPath)}'",
                 LogLevel.Debug);
@@ -261,7 +269,70 @@ namespace LivePhotoBox.Services
                 $"{Path.GetFileName(inputPath)} → {Path.GetFileName(tempPath)}",
                 LogLevel.Debug);
 
-            return (tempPath, true);
+            return (tempPath, result.WasTranscoded);
+        }
+
+        private static bool TryMapVideoCodec(string? videoCodec, out VideoCodec targetCodec)
+        {
+            if (string.Equals(videoCodec, "copy", StringComparison.OrdinalIgnoreCase))
+            {
+                targetCodec = VideoCodec.Copy;
+                return true;
+            }
+            if (string.Equals(videoCodec, "h264", StringComparison.OrdinalIgnoreCase))
+            {
+                targetCodec = VideoCodec.H264;
+                return true;
+            }
+            if (string.Equals(videoCodec, "hevc", StringComparison.OrdinalIgnoreCase))
+            {
+                targetCodec = VideoCodec.Hevc;
+                return true;
+            }
+
+            targetCodec = VideoCodec.Unknown;
+            return false;
+        }
+
+        private static void PublishConverterArtifactNoReplace(string stagedPath, string callerOutputPath)
+        {
+            string stagedFullPath = Path.GetFullPath(stagedPath);
+            string outputFullPath = Path.GetFullPath(callerOutputPath);
+            string stagedName = Path.GetFileName(stagedFullPath);
+            if (!stagedName.StartsWith("vid-conv-", StringComparison.Ordinal) ||
+                !string.Equals(Path.GetDirectoryName(stagedFullPath), Path.GetDirectoryName(outputFullPath), StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException("Native video output was not a converter-owned sibling artifact; refusing caller-path publication.");
+            }
+
+            try
+            {
+                File.Move(stagedFullPath, outputFullPath, overwrite: false);
+            }
+            catch (Exception publishException)
+            {
+                Exception? cleanupException = null;
+                try
+                {
+                    if (File.Exists(stagedFullPath)) File.Delete(stagedFullPath);
+                    if (File.Exists(stagedFullPath))
+                    {
+                        cleanupException = new IOException("Converter-owned staging artifact still exists after cleanup.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    cleanupException = ex;
+                }
+
+                if (cleanupException is not null)
+                {
+                    throw new IOException(
+                        "No-overwrite output publication failed and the converter-owned staging artifact could not be removed.",
+                        new AggregateException(publishException, cleanupException));
+                }
+                throw new IOException("No-overwrite output publication failed; the caller destination was left untouched.", publishException);
+            }
         }
     }
 }

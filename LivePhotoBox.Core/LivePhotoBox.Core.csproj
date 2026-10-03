@@ -22,6 +22,22 @@
     </Content>
   </ItemGroup>
 
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(Configuration)' == 'Release' and '$(SkipNativeBuild)' != 'true'">
+    <Content Include="$(NativeArtifactsDir)\LivePhotoBox.Video.Libav.dll">
+      <Link>LivePhotoBox.Video.Libav.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(Configuration)' == 'Release' and '$(SkipNativeBuild)' != 'true'">
+    <Content Include="..\tools\p5-r5-video-validation\notices\*">
+      <Link>licenses\LivePhotoBox.Video.Libav\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
   <!--
     CMake is the canonical Native build. For standalone managed
     builds, invoke CMake through build-native.ps1. Full solution builds

@@ -591,3 +591,49 @@ bool windows_owned_output::abort_and_confirm() noexcept {
     temp_path_.clear();
     return true;
 }
+
+bool windows_owned_output::write_at(uint64_t offset, std::span<const uint8_t> bytes) noexcept {
+    HANDLE file = static_cast<HANDLE>(handle_);
+    if (file == nullptr || file == INVALID_HANDLE_VALUE ||
+        offset > static_cast<uint64_t>((std::numeric_limits<LONGLONG>::max)()) ||
+        bytes.size() > static_cast<size_t>((std::numeric_limits<LONGLONG>::max)() - static_cast<LONGLONG>(offset)) ||
+        !exact_owned_path(file, temp_path_)) return false;
+
+    LARGE_INTEGER current_size{};
+    if (!GetFileSizeEx(file, &current_size) || current_size.QuadPart < 0) return false;
+    const uint64_t file_size = static_cast<uint64_t>(current_size.QuadPart);
+    if (offset > file_size || (bytes.size() > file_size - offset && offset != file_size)) return false;
+    if (bytes.empty()) return true;
+
+    LARGE_INTEGER original_position{};
+    LARGE_INTEGER start{};
+    start.QuadPart = static_cast<LONGLONG>(offset);
+    if (!SetFilePointerEx(file, {}, &original_position, FILE_CURRENT) ||
+        !SetFilePointerEx(file, start, nullptr, FILE_BEGIN)) return false;
+
+    bool okay = true;
+    auto remaining = bytes;
+    while (!remaining.empty()) {
+        const DWORD count = static_cast<DWORD>(std::min<size_t>(remaining.size(), 1024 * 1024));
+        DWORD written = 0;
+        if (!WriteFile(file, remaining.data(), count, &written, nullptr) || written == 0 || written > count) {
+            okay = false;
+            break;
+        }
+        remaining = remaining.subspan(written);
+    }
+
+    const DWORD write_error = okay ? ERROR_SUCCESS : GetLastError();
+    const bool restored = SetFilePointerEx(file, original_position, nullptr, FILE_BEGIN) != FALSE;
+    if (!okay) SetLastError(write_error);
+    return okay && restored && exact_owned_path(file, temp_path_);
+}
+
+bool windows_owned_output::size(uint64_t& out_size) noexcept {
+    HANDLE file = static_cast<HANDLE>(handle_);
+    LARGE_INTEGER current_size{};
+    if (file == nullptr || file == INVALID_HANDLE_VALUE || !exact_owned_path(file, temp_path_) ||
+        !GetFileSizeEx(file, &current_size) || current_size.QuadPart < 0) return false;
+    out_size = static_cast<uint64_t>(current_size.QuadPart);
+    return true;
+}

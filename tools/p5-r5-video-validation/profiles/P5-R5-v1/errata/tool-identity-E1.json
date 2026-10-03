@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "erratumId": "P5-R5-v1-tool-identity-E1",
+  "profileId": "P5-R5-v1",
+  "manifestPath": "tools/p5-r5-video-validation/profiles/P5-R5-v1/manifest.json",
+  "manifestSha256": "791EA58EB93CA40D8458146003121C1A65B79998DDE9B7785DCBC54E86E329DB",
+  "targetField": "independentValidation.ffmpeg.version",
+  "frozenValue": "ffmpeg version 8.0.1-full_build-www.gyan.dev Copyright (c) 2007-2025 the FFmpeg developers",
+  "correctedValue": "ffmpeg version 8.0.1-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers",
+  "binary": {
+    "semanticVersion": "8.0.1-full_build-www.gyan.dev",
+    "sha256": "74DB6C184A03DBA2BDFE23E1A1F41CF5A8385BC1DE6A7A1B26DB1DC541ABEF93"
+  },
+  "reason": "The frozen ffmpeg version metadata contains a copyright-year transcription error. The exact hash-locked executable reports the corrected version line; executable identity and semantic version remain unchanged.",
+  "unchangedAcceptance": {
+    "p4SourceManifestSha256": "7149B13D84A305450704722475A4ED670DACD8D258F305051E54479C603C50DE",
+    "sourcesSha256": "0977D21C14458A44D684CC6CB6E87A835B71F782E6C82E4667EFC56073A61FCF",
+    "requiredRoutesSha256": "DC3857CDFF9685CEE7126A1367FCF8B8645113760FE663EE4931F650C68234DA",
+    "requiredFailureCasesSha256": "CBBE8C571E2CF285F794889D80EC8BDF0FC853CF25D8DF9F9BD1334616631214",
+    "timingRulesSha256": "BCEC329B85123A1827649F7996F98866E426B7495D91AAA9CC2128A892A86719",
+    "referenceMetricsSha256": "375333FA34433BF8427A04AD9A103A66AFA005C62204DDBAF398AAFF949F883F",
+    "skipPolicySha256": "4ECFAC295177701067A9B5D65D71ADB3453406FE27FA99AF24695E7ED6822E69",
+    "numericImageQualityThreshold": "none-specified-by-parent-roadmap"
+  },
+  "changeBoundary": [
+    "Only the copyright-year metadata in independentValidation.ffmpeg.version is corrected.",
+    "P5-R5-v1 routes, required failure cases, source identities, timing rules, quality model, skip policy, thresholds, executable hashes, and backend policy are unchanged.",
+    "This erratum does not authorize conversion-matrix execution or alter R5 acceptance status."
+  ]
+}

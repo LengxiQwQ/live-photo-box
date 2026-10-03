@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Globalization;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -791,12 +793,27 @@ public static class NativeMediaService
         int crf,
         CancellationToken cancellationToken = default)
     {
-        NativeVideoTranscodeResult result = await TranscodeVideoWithDiagnosticsAsync(
+        NativeVideoTranscodeAttempt attempt = await TranscodeVideoAttemptAsync(
             inputVideoPath, outputVideoPath, targetContainer, targetCodec, crf, cancellationToken).ConfigureAwait(false);
-        return result.SelectedEncoder;
+        ThrowIfVideoTranscodeFailed(attempt);
+        return attempt.Diagnostics.SelectedEncoder;
     }
 
-    internal static Task<NativeVideoTranscodeResult> TranscodeVideoWithDiagnosticsAsync(
+    internal static async Task<NativeVideoTranscodeResult> TranscodeVideoWithDiagnosticsAsync(
+        string inputVideoPath,
+        string outputVideoPath,
+        VideoContainer targetContainer,
+        VideoCodec targetCodec,
+        int crf,
+        CancellationToken cancellationToken = default)
+    {
+        NativeVideoTranscodeAttempt attempt = await TranscodeVideoAttemptAsync(
+            inputVideoPath, outputVideoPath, targetContainer, targetCodec, crf, cancellationToken).ConfigureAwait(false);
+        ThrowIfVideoTranscodeFailed(attempt);
+        return attempt.Diagnostics;
+    }
+
+    internal static Task<NativeVideoTranscodeAttempt> TranscodeVideoAttemptAsync(
         string inputVideoPath,
         string outputVideoPath,
         VideoContainer targetContainer,
@@ -823,16 +840,42 @@ public static class NativeMediaService
                     (int)targetCodec,
                     crf,
                     ref native);
-                ctx.ThrowIfFailed(res);
-
-                return new NativeVideoTranscodeResult(
+                var diagnostics = ProjectVideoDiagnostics(
                     (VideoBackend)native.Backend,
                     (VideoHardwareMode)native.HardwareMode,
                     native.HardwareFallbackOccurred != 0,
                     ReadFixedUtf8(native.SelectedEncoder, 64),
                     ReadFixedUtf8(native.FallbackReason, 128));
+                string? lastError = res == NativeResult.Ok ? null : ctx.GetLastError();
+                Exception? failureException = null;
+                if (res != NativeResult.Ok)
+                {
+                    try
+                    {
+                        ctx.ThrowIfFailed(res);
+                    }
+                    catch (Exception ex)
+                    {
+                        failureException = ex;
+                    }
+                }
+
+                return new NativeVideoTranscodeAttempt(res, diagnostics, lastError, failureException);
             }
         }, cancellationToken);
+    }
+
+    private static void ThrowIfVideoTranscodeFailed(NativeVideoTranscodeAttempt attempt)
+    {
+        if (attempt.ResultCode == NativeResult.Ok) return;
+        if (attempt.FailureException is { } exception)
+        {
+            ExceptionDispatchInfo.Capture(exception).Throw();
+        }
+        throw new InvalidOperationException(
+            string.IsNullOrWhiteSpace(attempt.LastError)
+                ? $"Native media operation failed with result: {attempt.ResultCode}"
+                : $"Native media operation failed ({attempt.ResultCode}): {attempt.LastError}");
     }
 
     private static unsafe string ReadFixedUtf8(byte* bytes, int capacity)
@@ -842,12 +885,125 @@ public static class NativeMediaService
         return length == 0 ? string.Empty : Encoding.UTF8.GetString(bytes, length);
     }
 
+    private static NativeVideoTranscodeResult ProjectVideoDiagnostics(
+        VideoBackend backend,
+        VideoHardwareMode hardwareMode,
+        bool fallbackOccurred,
+        string identity,
+        string fallbackReason)
+    {
+        string backendVersion = string.Empty;
+        string inputProfile = "Unknown";
+        string outputProfile = "Unknown";
+        string selectedEncoder = identity;
+        bool minimalLibavSelected = false;
+        bool outputCandidateObserved = false;
+        bool identityValid = false;
+
+        string[] fields = identity.Split('|');
+        if (fields.Length == 3 && fields[0] == "p1")
+        {
+            identityValid = TryReadProfile(fields[1], 'i', out inputProfile) &
+                TryReadProfile(fields[2], 'o', out outputProfile);
+            selectedEncoder = string.Empty;
+        }
+        else if (fields.Length == 3 && fields[0] == "r1")
+        {
+            identityValid = TryReadProfile(fields[1], 'i', out inputProfile) &
+                TryReadProfile(fields[2], 'o', out outputProfile);
+            selectedEncoder = "ProjectIsoBmffStreamRemux";
+        }
+        else if (fields.Length == 4 && fields[0] == "m1")
+        {
+            identityValid = TryReadProfile(fields[1], 'i', out inputProfile) &
+                TryReadProfile(fields[2], 'o', out outputProfile);
+            selectedEncoder = fields[3] switch
+            {
+                "h264" => "WindowsMediaFoundationSoftwareH264",
+                "hevc" => "WindowsMediaFoundationSoftwareHEVC",
+                _ => identity
+            };
+            identityValid &= selectedEncoder != identity;
+        }
+        else if (fields.Length == 5 &&
+            (fields[0] == "s1s" || fields[0] == "s1c" || fields[0] == "s1v"))
+        {
+            minimalLibavSelected = true;
+            outputCandidateObserved = fields[0] is "s1c" or "s1v";
+            identityValid = TryReadProfile(fields[3], 'i', out inputProfile) &
+                TryReadProfile(fields[4], 'o', out outputProfile);
+            backendVersion = fields[1] switch
+            {
+                "np" => "not-packaged",
+                "?" => "Unknown",
+                var version => version
+            };
+            selectedEncoder = fields[2] is "na" or "?"
+                ? "minimal-libav/P5-R5-v1"
+                : $"minimal-libav/P5-R5-v1/{fields[2]}";
+        }
+
+        return new NativeVideoTranscodeResult(
+            backend,
+            hardwareMode,
+            fallbackOccurred,
+            selectedEncoder,
+            fallbackReason,
+            backendVersion,
+            inputProfile,
+            outputProfile,
+            minimalLibavSelected,
+            outputCandidateObserved,
+            identityValid);
+    }
+
+    private static bool TryReadProfile(string field, char prefix, out string profile)
+    {
+        profile = "Unknown";
+        if (field.Length < 2 || field[0] != prefix) return false;
+        string token = field[1..];
+        if (token == "?") return true;
+
+        char codec = token[0];
+        string[] values = token[1..].Split('.');
+        if (values.Length != 6 || codec is not 'A' and not 'H' ||
+            !int.TryParse(values[0], NumberStyles.None, CultureInfo.InvariantCulture, out int lumaDepth) ||
+            !int.TryParse(values[1], NumberStyles.None, CultureInfo.InvariantCulture, out int chromaDepth) ||
+            !int.TryParse(values[2], NumberStyles.None, CultureInfo.InvariantCulture, out int primaries) ||
+            !int.TryParse(values[3], NumberStyles.None, CultureInfo.InvariantCulture, out int transfer) ||
+            !int.TryParse(values[4], NumberStyles.None, CultureInfo.InvariantCulture, out int matrix) ||
+            values[5] is not "F" and not "L" and not "?")
+        {
+            return false;
+        }
+
+        string codecName = codec == 'H' ? "HEVC" : "H.264";
+        string range = values[5] switch { "F" => "full", "L" => "limited", _ => "unknown" };
+        profile = $"{codecName};lumaDepth={lumaDepth};chromaDepth={chromaDepth};CICP={primaries}/{transfer}/{matrix};range={range}";
+        return true;
+    }
+
     internal sealed record NativeVideoTranscodeResult(
         VideoBackend Backend,
         VideoHardwareMode HardwareMode,
         bool HardwareFallbackOccurred,
         string SelectedEncoder,
-        string HardwareFallbackReason);
+        string HardwareFallbackReason,
+        string BackendVersion,
+        string InputProfile,
+        string OutputProfile,
+        bool MinimalLibavSelected,
+        bool OutputCandidateObserved,
+        bool IdentityValid);
+
+    internal sealed record NativeVideoTranscodeAttempt(
+        NativeResult ResultCode,
+        NativeVideoTranscodeResult Diagnostics,
+        string? LastError,
+        Exception? FailureException)
+    {
+        public bool Succeeded => ResultCode == NativeResult.Ok;
+    }
 
     internal static unsafe SourceMediaFacts MapFromNativeFacts(
         in NativeSourceMediaFacts native,

@@ -1,0 +1,329 @@
+{
+  "schemaVersion": 1,
+  "profileId": "P5-R5-v1",
+  "state": "frozen-before-conversion-matrix",
+  "conversionOutputsObservedBeforeFreeze": false,
+  "sourceManifest": {
+    "path": "tests/fixtures/realsamples-manifest.json",
+    "sha256": "7149B13D84A305450704722475A4ED670DACD8D258F305051E54479C603C50DE"
+  },
+  "sources": [
+    {
+      "id": "apple-motion-video",
+      "filename": "苹果双文件.MOV",
+      "sha256": "D47C0E8FC052393E91A6ECB0AA941AFB20758CD244220943E3C06C52BC2DF381",
+      "byteSize": 2782940,
+      "cacheRelativePath": ".ai-tmp/cache/samples/P5-R5-v1/苹果双文件.MOV",
+      "originalIsReadOnly": true
+    },
+    {
+      "id": "vivo-motion-video",
+      "filename": "vivo双文件.mp4",
+      "sha256": "21C45D75AF6738A52DB0EAAFE383FCED216FA3367A3AB159191F45869A7A60D9",
+      "byteSize": 3163201,
+      "cacheRelativePath": ".ai-tmp/cache/samples/P5-R5-v1/vivo双文件.mp4",
+      "originalIsReadOnly": true
+    },
+    {
+      "id": "huawei-parent-jpeg",
+      "filename": "华为-Mate80.jpg",
+      "sha256": "317526B2B7B6A5774CC41FBB232FB2526901EE358AB4B470ADEEF7AC3617794A",
+      "byteSize": 9316483,
+      "cacheRelativePath": ".ai-tmp/cache/samples/P5-R5-v1/华为-Mate80.jpg",
+      "originalIsReadOnly": true,
+      "canonicalExtraction": {
+        "implementation": "LivePhotoBox.Core SourceInspector.InspectWithPlanAsync -> SourceExtractor.ExtractAsync",
+        "parentRange": {
+          "byteOffset": 2797019,
+          "byteLength": 6519404,
+          "sourceIndex": 0,
+          "sha256": "664EF6DBA25D7B04228C79B874A0EDA742B1211E17EE770D0E82E765BD454CE6"
+        },
+        "derivedVideo": {
+          "filename": "motion.mp4",
+          "byteSize": 6519404,
+          "sha256": "664EF6DBA25D7B04228C79B874A0EDA742B1211E17EE770D0E82E765BD454CE6",
+          "duplicateExtractionByteSize": 6519404,
+          "duplicateExtractionSha256": "664EF6DBA25D7B04228C79B874A0EDA742B1211E17EE770D0E82E765BD454CE6"
+        },
+        "independentProbe": {
+          "validator": "ffprobe 8.0.1-full_build-www.gyan.dev",
+          "videoCodec": "hevc",
+          "profile": "Main 10",
+          "pixelFormat": "yuv420p10le",
+          "width": 1920,
+          "height": 1440,
+          "decodedVideoFrames": 86,
+          "colorRange": "pc",
+          "colorMatrix": "bt2020nc",
+          "colorTransfer": "arib-std-b67",
+          "colorPrimaries": "bt2020",
+          "rotationDegrees": -90,
+          "audio": "aac-lc-mono-32000-hz",
+          "dataTracks": ["mebx"]
+        },
+        "freezeDerivedIdentityBeforeAnyConversionOutput": true
+      }
+    }
+  ],
+  "requiredRoutes": [
+    {
+      "id": "apple-copy-mov-to-mp4",
+      "source": "apple-motion-video",
+      "targetContainer": "mp4",
+      "targetCodec": "copy",
+      "expectedOperation": "container-remux",
+      "owner": "project-owned-iso-bmff-remux",
+      "required": true,
+      "skipAllowed": false,
+      "checks": ["video-and-audio-packet-sha256-order", "normalized-packet-timing", "stream-inventory-including-data-tracks", "rotation", "container", "codec"]
+    },
+    {
+      "id": "apple-copy-mov-same-container",
+      "source": "apple-motion-video",
+      "targetContainer": "mov",
+      "targetCodec": "copy",
+      "expectedOperation": "passthrough-only-for-identical-bytes-else-container-remux",
+      "owner": "project-owned-iso-bmff-remux",
+      "required": true,
+      "skipAllowed": false,
+      "checks": ["byte-identity-or-remux-truth", "video-and-audio-packet-sha256-order", "normalized-packet-timing", "stream-inventory", "rotation"]
+    },
+    {
+      "id": "vivo-copy-mp4-to-mov",
+      "source": "vivo-motion-video",
+      "targetContainer": "mov",
+      "targetCodec": "copy",
+      "expectedOperation": "container-remux",
+      "owner": "project-owned-iso-bmff-remux",
+      "required": true,
+      "skipAllowed": false,
+      "checks": ["video-and-audio-packet-sha256-order", "normalized-packet-timing", "audio-profile", "variable-frame-timing", "rotation", "container", "codec"]
+    },
+    {
+      "id": "vivo-copy-mp4-same-container",
+      "source": "vivo-motion-video",
+      "targetContainer": "mp4",
+      "targetCodec": "copy",
+      "expectedOperation": "passthrough-only-for-identical-bytes-else-container-remux",
+      "owner": "project-owned-iso-bmff-remux",
+      "required": true,
+      "skipAllowed": false,
+      "checks": ["byte-identity-or-remux-truth", "video-and-audio-packet-sha256-order", "normalized-packet-timing", "audio-profile", "variable-frame-timing", "rotation"]
+    },
+    {
+      "id": "apple-hevc-to-h264-sdr",
+      "source": "apple-motion-video",
+      "targetContainer": "mov",
+      "targetCodec": "h264",
+      "expectedOperation": "lossy-reencode",
+      "owner": "media-foundation-software-forced",
+      "required": true,
+      "skipAllowed": false,
+      "checks": ["independent-decode-all-frames", "reference-metrics", "sdr-profile", "audio-stream-and-duration", "rotation", "timing"]
+    },
+    {
+      "id": "apple-hevc-to-h264-sdr-mp4",
+      "source": "apple-motion-video",
+      "targetContainer": "mp4",
+      "targetCodec": "h264",
+      "expectedOperation": "lossy-reencode",
+      "owner": "media-foundation-software-forced",
+      "required": true,
+      "skipAllowed": false,
+      "checks": ["independent-decode-all-frames", "reference-metrics", "sdr-profile", "audio-stream-and-duration", "rotation", "timing"]
+    },
+    {
+      "id": "vivo-h264-to-hevc-sdr",
+      "source": "vivo-motion-video",
+      "targetContainer": "mp4",
+      "targetCodec": "hevc",
+      "expectedOperation": "lossy-reencode",
+      "owner": "media-foundation-software-forced",
+      "required": true,
+      "skipAllowed": false,
+      "checks": ["independent-decode-all-frames", "reference-metrics", "sdr-profile", "audio-stream-and-duration", "variable-frame-timing", "rotation"]
+    },
+    {
+      "id": "huawei-main10-hlg-to-hevc-preservation",
+      "source": "huawei-parent-jpeg",
+      "derivedSource": "huawei-parent-jpeg.canonicalExtraction.derivedVideo",
+      "targetContainer": "mp4",
+      "targetCodec": "hevc",
+      "expectedOperation": "lossy-reencode-with-hdr-10-bit-preservation",
+      "owner": "minimal-libav-sidecar",
+      "required": true,
+      "skipAllowed": false,
+      "checks": ["independent-decode-all-frames", "bit-depth-greater-than-8", "bt2020-hlg-cicp", "audio", "rotation", "timing", "reference-metrics"]
+    },
+    {
+      "id": "huawei-main10-hlg-to-h264-preservation-required",
+      "source": "huawei-parent-jpeg",
+      "derivedSource": "huawei-parent-jpeg.canonicalExtraction.derivedVideo",
+      "targetContainer": "mp4",
+      "targetCodec": "h264",
+      "expectedOperation": "minimal-libav-selected; success-only-if-hdr-10-bit-preserved-otherwise-unsupported",
+      "owner": "minimal-libav-sidecar",
+      "required": true,
+      "skipAllowed": false,
+      "failure": "unsupported-no-output-no-media-foundation-retry",
+      "checks": ["selected-backend-recorded-before-execution", "independent-decode-all-frames", "bit-depth-greater-than-8", "bt2020-hlg-cicp", "no-output-on-unsupported", "no-retry"]
+    }
+  ],
+  "requiredFailureCases": [
+    { "id": "target-fps-positive", "required": true, "expected": "unsupported-no-output" },
+    { "id": "real-sidecar-missing", "required": true, "expected": "backend-unavailable-no-media-foundation-retry-no-output" },
+    { "id": "ambiguous-or-malformed-preservation-facts", "required": true, "expected": "fail-closed-no-output" },
+    { "id": "cancellation", "required": true, "expected": "truthful-cancelled-no-final-or-staging-artifact" },
+    { "id": "output-validation-or-publish-failure", "required": true, "expected": "truthful-failure-no-final-or-staging-artifact" }
+  ],
+  "independentValidation": {
+    "purpose": "offline-only; never a production write dependency",
+    "ffprobe": {
+      "version": "ffprobe version 8.0.1-full_build-www.gyan.dev Copyright (c) 2007-2025 the FFmpeg developers",
+      "sha256": "55BB6C6289367AE2383EFA86B26BF2596F8ADB72AC747360EB13DF162354161C"
+    },
+    "ffmpeg": {
+      "version": "ffmpeg version 8.0.1-full_build-www.gyan.dev Copyright (c) 2007-2025 the FFmpeg developers",
+      "sha256": "74DB6C184A03DBA2BDFE23E1A1F41CF5A8385BC1DE6A7A1B26DB1DC541ABEF93"
+    },
+    "referenceMetrics": {
+      "formula": "Reuse the P4-R6 comparison model: -noautorotate on both inputs; scale reference to the output stored dimensions; ffmpeg psnr=shortest=1;ssim=shortest=1.",
+      "resultUse": "Record independent PSNR/SSIM and successful full-frame decode. The parent P5 roadmap specifies no numeric image-quality acceptance threshold; do not invent or tune one from R5 outputs.",
+      "hdr": "Do not use SDR PSNR/SSIM as HDR preservation evidence; bit depth, CICP, decoded HDR signal, and independent stream facts are separate mandatory checks."
+    },
+    "timingRules": {
+      "packetCopy": "Packet count, order, and payload SHA-256 are exact. Normalize PTS/DTS to each stream's first timestamp; every source/output value must differ by no more than one rational tick of the coarser source/output time base. Compare duration independently; no accumulated timing drift is allowed.",
+      "reencode": "Require identical decoded video frame count and presentation order. After normalizing each stream start time, each frame timestamp delta is at most one source frame interval; audio duration differs by at most one audio packet duration. Compare VFR timestamp sequence, not only avg_frame_rate."
+    },
+    "skipPolicy": "All required routes and required failure cases execute; any skip is a failure."
+  },
+  "preflightSourceFacts": {
+    "validatorRecord": ".ai-tmp/workspace/P5-R5/source-probes.json",
+    "apple": {
+      "container": "mov,mp4,m4a,3gp,3g2,mj2",
+      "durationSeconds": 1.9,
+      "streamCount": 5,
+      "video": {
+        "streamIndex": 0,
+        "codec": "hevc",
+        "profile": "Main",
+        "pixelFormat": "yuvj420p",
+        "width": 1920,
+        "height": 1440,
+        "avgFrameRate": "366/13",
+        "timeBase": "1/600",
+        "colorRange": "pc",
+        "colorMatrix": "smpte170m",
+        "colorTransfer": "bt709",
+        "colorPrimaries": "smpte432",
+        "frameCropping": { "top": 66, "bottom": 66, "left": 88, "right": 88 }
+      },
+      "audio": { "streamIndex": 1, "codec": "pcm_s16le", "sampleRate": 44100, "channels": 1 },
+      "dataStreams": ["mebx", "mebx", "mebx"]
+    },
+    "vivo": {
+      "container": "mov,mp4,m4a,3gp,3g2,mj2",
+      "durationSeconds": 2.067311,
+      "streamCount": 2,
+      "video": {
+        "streamIndex": 1,
+        "codec": "h264",
+        "profile": "High",
+        "pixelFormat": "yuvj420p",
+        "bitDepth": 8,
+        "width": 1440,
+        "height": 1080,
+        "rFrameRate": "30/1",
+        "avgFrameRate": "2745000/93029",
+        "timeBase": "1/90000",
+        "colorRange": "pc",
+        "colorMatrix": "smpte170m",
+        "colorTransfer": "smpte170m",
+        "colorPrimaries": "bt470bg"
+      },
+      "audio": { "streamIndex": 0, "codec": "aac", "profile": "HE-AAC", "sampleRate": 16000, "channels": 2, "channelLayout": "stereo" }
+    },
+    "huaweiDerivedVideo": {
+      "validatorRecord": ".ai-tmp/workspace/P5-R5/huawei-independent-source-facts.json",
+      "container": "mov,mp4,m4a,3gp,3g2,mj2",
+      "durationSeconds": 2.867433,
+      "streamCount": 3,
+      "video": {
+        "streamIndex": 0,
+        "codec": "hevc",
+        "profile": "Main 10",
+        "pixelFormat": "yuv420p10le",
+        "width": 1920,
+        "height": 1440,
+        "frameCount": 86,
+        "timeBase": "1/90000",
+        "colorRange": "pc",
+        "colorMatrix": "bt2020nc",
+        "colorTransfer": "arib-std-b67",
+        "colorPrimaries": "bt2020",
+        "rotationDegrees": -90
+      },
+      "audio": { "streamIndex": 1, "codec": "aac", "profile": "LC", "sampleRate": 32000, "channels": 1, "channelLayout": "mono" },
+      "dataStreams": ["mebx"]
+    }
+  },
+  "preflightEvidence": [
+    {
+      "path": ".ai-tmp/workspace/P5-R5/iteration-2-governance-preflight.log",
+      "sha256": "455CE0C3062472D1C280AB9BC39B24CE189B5456D0DD275691E1F76809D055C6"
+    },
+    {
+      "path": ".ai-tmp/workspace/P5-R5/iteration-2-sample-cache.log",
+      "sha256": "8E0383325C3D048A19CA305BEEC5D6CF68F11CB7EB54B212105662CAA448E834"
+    },
+    {
+      "path": ".ai-tmp/workspace/P5-R5/native-release-build.log",
+      "sha256": "4DDE2F4708774C8F6596B00C7DF1B43AE1F0287944821C02985E062CCFC307BE"
+    },
+    {
+      "path": ".ai-tmp/workspace/P5-R5/source-probes.json",
+      "sha256": "F19DCA4821F6FF39500AF9153B7D79A932674C2CCA8856992D23FDC89E3DF997"
+    },
+    {
+      "path": ".ai-tmp/workspace/P5-R5/huawei-independent-source-facts.json",
+      "sha256": "464BB00C317A5A199F01A742AEA2B4741420B09084D1E76B19CC59DAF622D0ED"
+    },
+    {
+      "path": ".ai-tmp/workspace/P5-R5/huawei-independent-range-identity.json",
+      "sha256": "8235A8D96AA62C811F2B97805EF654C37332731438236BD0A20C46D4B95C3BB2"
+    },
+    {
+      "path": ".ai-tmp/workspace/P5-R5/huawei-independent-decode-pass-b.log",
+      "sha256": "A0DB20EEE073CB1DA1013527C67020473847A611CF948E2A9FDBADC3A34D4487"
+    },
+    {
+      "path": ".ai-tmp/workspace/P5-R5/huawei-independent-decode-pass-c.log",
+      "sha256": "E99778DD24CA6B34541F1011141273AA0ECBAEC87441E68D64874B8A610178CC"
+    },
+    {
+      "path": ".ai-tmp/workspace/P5-R5/huawei-extraction-pass-b.log",
+      "sha256": "78BE4F79D6C6330311C77DD3B4FD0FFEB3C4E7D99550862401062474A65EE6F3"
+    },
+    {
+      "path": ".ai-tmp/workspace/P5-R5/huawei-extraction-pass-c.log",
+      "sha256": "732F8029475DBF57E1924F9A28CC3544EFEC30BEB6AA5E410DE3E890060D3953"
+    },
+    {
+      "path": ".ai-tmp/workspace/P5-R5/huawei-extraction-pass-a.log",
+      "sha256": "14262DCF8D3A6F949833B988899A796BC37EB33CF24941EE2C8535246F947ECA"
+    },
+    {
+      "path": "tools/p5-r5-video-validation/preflight/P5R5Preflight.csproj",
+      "sha256": "D8B0153F4BF312EF5A81115A2186A1B3272BE5BB967A79EC09D5DF84A589329E"
+    },
+    {
+      "path": "tools/p5-r5-video-validation/preflight/Program.cs",
+      "sha256": "28CA44FDE1E79AC51384811FFAC215B66B7AEDA866A6890E0ED0EAAB4436051B"
+    },
+    {
+      "path": "artifacts/native/Release/win-x64/LivePhotoBox.Native.dll",
+      "sha256": "E0A7608E5E7CE4795D5B5957432BA40DE818253F3DC1D05C2233C83A6602D202"
+    }
+  ]
+}

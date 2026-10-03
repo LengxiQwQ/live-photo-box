@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Video;
 using LivePhotoBox.Media.Workspace;
@@ -51,7 +52,7 @@ public sealed class VideoConverterTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task Convert_MovToMp4_PrioritizesStreamRemux()
+    public async Task P5R5_Convert_MovToMp4_CopyRequest_ProjectsRemuxTruth()
     {
         string sample = ResolveSample("苹果双文件.MOV");
         using var workspace = new MediaWorkspace();
@@ -82,12 +83,94 @@ public sealed class VideoConverterTests
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.True(result.ExecutionRecord.RemuxUsed);
         Assert.Equal(VideoBackend.ProjectIsoBmffRemux, result.ExecutionRecord.Backend);
+        Assert.Contains("HEVC;", result.ExecutionRecord.Truth.InputProfile, StringComparison.Ordinal);
+        Assert.Equal(result.ExecutionRecord.Truth.InputProfile, result.ExecutionRecord.Truth.OutputProfile);
+        Assert.Equal(ConversionCapability.VideoRemux, result.ExecutionRecord.Truth.SelectedCapability);
+        Assert.Equal(ConversionCapability.VideoRemux, result.ExecutionRecord.Truth.ActualCapability);
+        Assert.Equal("ProjectIsoBmffRemux", result.ExecutionRecord.Truth.BackendName);
+        Assert.Equal(ConversionOperationKind.ContainerRemux, result.ExecutionRecord.Truth.ActualOperationKind);
         Assert.Equal(VideoHardwareMode.NotApplicable, result.ExecutionRecord.HardwareMode);
         Assert.False(result.ExecutionRecord.HardwareFallbackOccurred);
         Assert.Equal(VideoContainer.Mov, result.ExecutionRecord.InputContainer);
         Assert.Equal(VideoContainer.Mp4, result.ExecutionRecord.OutputContainer);
         Assert.Equal(VideoCodec.Hevc, result.ExecutionRecord.OutputCodec);
         Assert.True(result.ExecutionRecord.AudioPreserved);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task P5R5_Convert_AppleMovToMov_CopyRequest_ReportsByteIdenticalPassthrough()
+    {
+        string sample = ResolveSample("苹果双文件.MOV");
+        using var workspace = new MediaWorkspace();
+
+        var result = await new VideoConverter().ConvertAsync(new VideoConversionRequest
+        {
+            SourceArtifact = new MediaArtifact
+            {
+                Path = sample,
+                Kind = MediaArtifactKind.MotionVideo,
+                MimeType = "video/quicktime",
+                VideoContainer = VideoContainer.Mov,
+                VideoCodec = VideoCodec.Hevc,
+                ByteLength = new FileInfo(sample).Length
+            },
+            TargetContainer = VideoContainer.Mov,
+            TargetCodec = VideoCodec.Copy,
+            TargetDirectory = workspace.RootDirectory
+        });
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.NotNull(result.OutputArtifact);
+        Assert.Equal(await File.ReadAllBytesAsync(sample), await File.ReadAllBytesAsync(result.OutputArtifact.Path));
+        Assert.Equal(ConversionOperationKind.ContainerRemux, result.ExecutionRecord.Truth.RequestedOperationKind);
+        Assert.Equal(ConversionOperationKind.Passthrough, result.ExecutionRecord.Truth.ActualOperationKind);
+        Assert.Equal(PreservationOutcome.Preserved, result.ExecutionRecord.Truth.PreservationOutcome);
+        Assert.True(result.ExecutionRecord.RemuxUsed);
+        Assert.Equal(VideoBackend.ProjectIsoBmffRemux, result.ExecutionRecord.Backend);
+        Assert.Equal("ProjectIsoBmffStreamRemux", result.ExecutionRecord.SelectedEncoder);
+        Assert.Equal(ConversionCapability.VideoRemux, result.ExecutionRecord.Truth.SelectedCapability);
+        Assert.Equal(ConversionCapability.VideoRemux, result.ExecutionRecord.Truth.ActualCapability);
+        Assert.False(result.ExecutionRecord.Truth.FallbackOccurred);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task P5R5_Convert_VivoMp4ToMp4_CopyRequest_ReportsNonIdenticalContainerRemux()
+    {
+        string sample = ResolveSample("vivo双文件.mp4");
+        using var workspace = new MediaWorkspace();
+
+        var result = await new VideoConverter().ConvertAsync(new VideoConversionRequest
+        {
+            SourceArtifact = new MediaArtifact
+            {
+                Path = sample,
+                Kind = MediaArtifactKind.MotionVideo,
+                MimeType = "video/mp4",
+                VideoContainer = VideoContainer.Mp4,
+                VideoCodec = VideoCodec.H264,
+                ByteLength = new FileInfo(sample).Length
+            },
+            TargetContainer = VideoContainer.Mp4,
+            TargetCodec = VideoCodec.Copy,
+            TargetDirectory = workspace.RootDirectory
+        });
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.NotNull(result.OutputArtifact);
+        byte[] sourceBytes = await File.ReadAllBytesAsync(sample);
+        byte[] outputBytes = await File.ReadAllBytesAsync(result.OutputArtifact.Path);
+        Assert.False(sourceBytes.AsSpan().SequenceEqual(outputBytes));
+        Assert.Equal(ConversionOperationKind.ContainerRemux, result.ExecutionRecord.Truth.RequestedOperationKind);
+        Assert.Equal(ConversionOperationKind.ContainerRemux, result.ExecutionRecord.Truth.ActualOperationKind);
+        Assert.Equal(PreservationOutcome.PartiallyPreserved, result.ExecutionRecord.Truth.PreservationOutcome);
+        Assert.True(result.ExecutionRecord.RemuxUsed);
+        Assert.Equal(VideoBackend.ProjectIsoBmffRemux, result.ExecutionRecord.Backend);
+        Assert.Equal("ProjectIsoBmffStreamRemux", result.ExecutionRecord.SelectedEncoder);
+        Assert.Equal(ConversionCapability.VideoRemux, result.ExecutionRecord.Truth.SelectedCapability);
+        Assert.Equal(ConversionCapability.VideoRemux, result.ExecutionRecord.Truth.ActualCapability);
+        Assert.False(result.ExecutionRecord.Truth.FallbackOccurred);
     }
 
     [Fact]
@@ -128,7 +211,7 @@ public sealed class VideoConverterTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task Convert_HevcToH264_PerformsRealTranscode()
+    public async Task P5R5_Convert_AppleHevcToH264_ProjectsSoftwareForcedSdrTruth()
     {
         string sample = ResolveSample("苹果双文件.MOV");
         using var workspace = new MediaWorkspace();
@@ -159,6 +242,16 @@ public sealed class VideoConverterTests
         Assert.Equal(VideoBackend.WindowsMediaFoundation, result.ExecutionRecord.Backend);
         Assert.Equal(VideoHardwareMode.SoftwareForced, result.ExecutionRecord.HardwareMode);
         Assert.False(result.ExecutionRecord.HardwareFallbackOccurred);
+        Assert.Equal(ConversionOperationKind.LossyReencode, result.ExecutionRecord.Truth.ActualOperationKind);
+        Assert.Equal(ConversionCapability.VideoTranscodeSdr, result.ExecutionRecord.Truth.SelectedCapability);
+        Assert.Equal(ConversionCapability.VideoTranscodeSdr, result.ExecutionRecord.Truth.ActualCapability);
+        Assert.Equal("WindowsMediaFoundation", result.ExecutionRecord.Truth.BackendName);
+        Assert.Equal("SoftwareForced", result.ExecutionRecord.Truth.HardwareMode);
+        Assert.Contains("HEVC;", result.ExecutionRecord.Truth.InputProfile, StringComparison.Ordinal);
+        Assert.Contains("H.264;", result.ExecutionRecord.Truth.OutputProfile, StringComparison.Ordinal);
+        Assert.Contains("CICP=12/1/6;range=full", result.ExecutionRecord.Truth.InputProfile, StringComparison.Ordinal);
+        Assert.Contains("CICP=12/1/6;range=full", result.ExecutionRecord.Truth.OutputProfile, StringComparison.Ordinal);
+        Assert.False(result.ExecutionRecord.Truth.FallbackOccurred);
         Assert.Contains("Hardware transforms are disabled", result.ExecutionRecord.HardwareFallbackReason,
             StringComparison.Ordinal);
         Assert.Equal(VideoCodec.H264, result.ExecutionRecord.OutputCodec);
@@ -207,7 +300,7 @@ public sealed class VideoConverterTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task Convert_H264ToHevc_PerformsRealTranscode()
+    public async Task P5R5_Convert_VivoH264ToHevc_ProjectsSoftwareForcedSdrTruth()
     {
         string sample = ResolveSample("vivo双文件.mp4");
         using var workspace = new MediaWorkspace();
@@ -235,6 +328,15 @@ public sealed class VideoConverterTests
         Assert.NotNull(result.OutputArtifact);
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.False(result.ExecutionRecord.RemuxUsed);
+        Assert.Equal(ConversionOperationKind.LossyReencode, result.ExecutionRecord.Truth.ActualOperationKind);
+        Assert.Equal(ConversionCapability.VideoTranscodeSdr, result.ExecutionRecord.Truth.SelectedCapability);
+        Assert.Equal("WindowsMediaFoundation", result.ExecutionRecord.Truth.BackendName);
+        Assert.Equal("SoftwareForced", result.ExecutionRecord.Truth.HardwareMode);
+        Assert.Contains("H.264;", result.ExecutionRecord.Truth.InputProfile, StringComparison.Ordinal);
+        Assert.Contains("HEVC;", result.ExecutionRecord.Truth.OutputProfile, StringComparison.Ordinal);
+        Assert.Contains("CICP=5/6/6;range=full", result.ExecutionRecord.Truth.InputProfile, StringComparison.Ordinal);
+        Assert.Contains("CICP=5/6/6;range=full", result.ExecutionRecord.Truth.OutputProfile, StringComparison.Ordinal);
+        Assert.False(result.ExecutionRecord.Truth.FallbackOccurred);
         Assert.Equal(VideoCodec.Hevc, result.ExecutionRecord.OutputCodec);
         Assert.Equal(VideoContainer.Mp4, result.ExecutionRecord.OutputContainer);
 
@@ -247,7 +349,7 @@ public sealed class VideoConverterTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task Convert_TargetFps_ReturnsExplicitUnsupported()
+    public async Task P5R5_Convert_TargetFps_ReturnsExplicitUnsupportedWithoutOutput()
     {
         string sample = ResolveSample("苹果双文件.MOV");
         using var workspace = new MediaWorkspace();
@@ -274,6 +376,216 @@ public sealed class VideoConverterTests
 
         Assert.False(result.Success);
         Assert.Contains("TargetFps", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(ConversionOperationKind.Unsupported, result.ExecutionRecord.Truth.ActualOperationKind);
+        Assert.Equal(ConversionFailureCategory.Unsupported, result.ExecutionRecord.Truth.FailureCategory);
+        Assert.Equal(ConversionFailureStage.InvalidRequest, result.ExecutionRecord.Truth.FailureStage);
+        Assert.Equal(ConversionCapability.Unknown, result.ExecutionRecord.Truth.SelectedCapability);
+        Assert.Equal(PreservationOutcome.Unsupported, result.ExecutionRecord.Truth.PreservationOutcome);
+        Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "vid-conv-*"));
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task P5R5_Convert_TrustedFactsMismatchDoesNotSelectAnSdrOwner()
+    {
+        string sample = ResolveSample("苹果双文件.MOV");
+        using var workspace = new MediaWorkspace();
+        VideoConversionResult result = await new VideoConverter().ConvertAsync(new VideoConversionRequest
+        {
+            SourceArtifact = new MediaArtifact
+            {
+                Path = sample,
+                Kind = MediaArtifactKind.MotionVideo,
+                MimeType = "video/quicktime",
+                VideoContainer = VideoContainer.Mov,
+                VideoCodec = VideoCodec.Hevc,
+                ByteLength = new FileInfo(sample).Length
+            },
+            TargetContainer = VideoContainer.Mp4,
+            TargetCodec = VideoCodec.H264,
+            TargetDirectory = workspace.RootDirectory,
+            TrustedSourceFacts = new VideoConversionSourceFacts
+            {
+                Container = VideoContainer.Mov,
+                Codec = VideoCodec.H264
+            }
+        });
+
+        Assert.False(result.Success);
+        Assert.Equal(ConversionFailureCategory.TrustedFactsMismatch, result.ExecutionRecord.Truth.FailureCategory);
+        Assert.Equal(ConversionFailureStage.TrustedFactsMismatch, result.ExecutionRecord.Truth.FailureStage);
+        Assert.Equal(ConversionCapability.Unknown, result.ExecutionRecord.Truth.SelectedCapability);
+        Assert.Equal("Unknown", result.ExecutionRecord.Truth.InputProfile);
+        Assert.Equal("Unknown", result.ExecutionRecord.Truth.OutputProfile);
+        Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "vid-conv-*"));
+    }
+
+    [Fact]
+    public async Task P5R5_Convert_SourceProbeFailureDoesNotSelectAnSdrOwner()
+    {
+        using var workspace = new MediaWorkspace();
+        string missingSource = Path.Combine(workspace.RootDirectory, "missing-source.mp4");
+        VideoConversionResult result = await new VideoConverter().ConvertAsync(new VideoConversionRequest
+        {
+            SourceArtifact = new MediaArtifact
+            {
+                Path = missingSource,
+                Kind = MediaArtifactKind.MotionVideo,
+                MimeType = "video/mp4",
+                VideoContainer = VideoContainer.Mp4,
+                VideoCodec = VideoCodec.Hevc,
+                ByteLength = 1
+            },
+            TargetContainer = VideoContainer.Mp4,
+            TargetCodec = VideoCodec.H264,
+            TargetDirectory = workspace.RootDirectory
+        });
+
+        Assert.False(result.Success);
+        Assert.Equal(ConversionFailureCategory.SourceInspection, result.ExecutionRecord.Truth.FailureCategory);
+        Assert.Equal(ConversionCapability.Unknown, result.ExecutionRecord.Truth.SelectedCapability);
+        Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "vid-conv-*"));
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task P5R5_Convert_HuaweiMain10ToHevc_ReportsMinimalLibavAndHdrCapability()
+    {
+        string sample = ResolveHuaweiDerivedVideo();
+        using var workspace = new MediaWorkspace();
+        var result = await new VideoConverter().ConvertAsync(new VideoConversionRequest
+        {
+            SourceArtifact = new MediaArtifact
+            {
+                Path = sample,
+                Kind = MediaArtifactKind.MotionVideo,
+                MimeType = "video/mp4",
+                VideoContainer = VideoContainer.Mp4,
+                VideoCodec = VideoCodec.Hevc,
+                ByteLength = new FileInfo(sample).Length
+            },
+            TargetContainer = VideoContainer.Mp4,
+            TargetCodec = VideoCodec.Hevc,
+            TargetDirectory = workspace.RootDirectory,
+            PreservationPolicy = PreservationPolicy.Strict
+        });
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.NotNull(result.OutputArtifact);
+        Assert.True(File.Exists(result.OutputArtifact.Path));
+        Assert.Equal(VideoBackend.Unknown, result.ExecutionRecord.Backend);
+        Assert.Equal(VideoHardwareMode.SoftwareForced, result.ExecutionRecord.HardwareMode);
+        Assert.StartsWith("minimal-libav/P5-R5-v1/", result.ExecutionRecord.SelectedEncoder, StringComparison.Ordinal);
+        Assert.Equal(ConversionOperationKind.LossyReencode, result.ExecutionRecord.Truth.ActualOperationKind);
+        Assert.Equal(ConversionCapability.VideoTranscodeHdr10Bit, result.ExecutionRecord.Truth.SelectedCapability);
+        Assert.Equal(ConversionCapability.VideoTranscodeHdr10Bit, result.ExecutionRecord.Truth.ActualCapability);
+        Assert.Equal("minimal-libav", result.ExecutionRecord.Truth.BackendName);
+        Assert.Equal("9.0.1", result.ExecutionRecord.Truth.BackendVersion);
+        Assert.Contains("HEVC;", result.ExecutionRecord.Truth.InputProfile, StringComparison.Ordinal);
+        Assert.Contains("HEVC;", result.ExecutionRecord.Truth.OutputProfile, StringComparison.Ordinal);
+        Assert.False(result.ExecutionRecord.Truth.FallbackOccurred);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task P5R5_Convert_HuaweiMain10ToH264_ReturnsUnsupportedWithoutRetryOrArtifact()
+    {
+        string sample = ResolveHuaweiDerivedVideo();
+        using var workspace = new MediaWorkspace();
+        var result = await new VideoConverter().ConvertAsync(new VideoConversionRequest
+        {
+            SourceArtifact = new MediaArtifact
+            {
+                Path = sample,
+                Kind = MediaArtifactKind.MotionVideo,
+                MimeType = "video/mp4",
+                VideoContainer = VideoContainer.Mp4,
+                VideoCodec = VideoCodec.Hevc,
+                ByteLength = new FileInfo(sample).Length
+            },
+            TargetContainer = VideoContainer.Mp4,
+            TargetCodec = VideoCodec.H264,
+            TargetDirectory = workspace.RootDirectory,
+            PreservationPolicy = PreservationPolicy.Strict
+        });
+
+        Assert.False(result.Success);
+        Assert.Null(result.OutputArtifact);
+        Assert.StartsWith("Unsupported:", result.ErrorMessage, StringComparison.Ordinal);
+        Assert.Equal(VideoBackend.Unknown, result.ExecutionRecord.Backend);
+        Assert.Equal(VideoHardwareMode.SoftwareForced, result.ExecutionRecord.HardwareMode);
+        Assert.StartsWith("minimal-libav/P5-R5-v1", result.ExecutionRecord.SelectedEncoder, StringComparison.Ordinal);
+        Assert.Equal(ConversionOperationKind.Unsupported, result.ExecutionRecord.Truth.ActualOperationKind);
+        Assert.Equal(ConversionFailureCategory.Unsupported, result.ExecutionRecord.Truth.FailureCategory);
+        Assert.Equal(ConversionFailureStage.OutputValidation, result.ExecutionRecord.Truth.FailureStage);
+        Assert.Equal(ConversionCapability.VideoTranscodeHdr10Bit, result.ExecutionRecord.Truth.SelectedCapability);
+        Assert.Equal("minimal-libav", result.ExecutionRecord.Truth.BackendName);
+        Assert.Equal("9.0.1", result.ExecutionRecord.Truth.BackendVersion);
+        Assert.Equal(PreservationOutcome.Unsupported, result.ExecutionRecord.Truth.PreservationOutcome);
+        Assert.Contains("HEVC;", result.ExecutionRecord.Truth.InputProfile, StringComparison.Ordinal);
+        Assert.Equal("Unknown", result.ExecutionRecord.Truth.OutputProfile);
+        Assert.False(result.ExecutionRecord.Truth.FallbackOccurred);
+        Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "vid-conv-*"));
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task P5R5_NativeAttempt_RetainsUnsupportedResultCodeDiagnosticsAndLastError()
+    {
+        string sample = ResolveHuaweiDerivedVideo();
+        using var workspace = new MediaWorkspace();
+        string outputPath = Path.Combine(workspace.RootDirectory, "huawei-h264.mp4");
+
+        NativeMediaService.NativeVideoTranscodeAttempt attempt = await NativeMediaService.TranscodeVideoAttemptAsync(
+            sample,
+            outputPath,
+            VideoContainer.Mp4,
+            VideoCodec.H264,
+            23);
+
+        Assert.True(attempt.ResultCode == NativeResult.InvalidArgument, attempt.LastError ?? "Native failure result code was not the frozen Unsupported code.");
+        Assert.False(attempt.Succeeded);
+        Assert.NotNull(attempt.FailureException);
+        Assert.StartsWith("Unsupported:", attempt.LastError, StringComparison.Ordinal);
+        Assert.Equal(VideoBackend.Unknown, attempt.Diagnostics.Backend);
+        Assert.Equal(VideoHardwareMode.SoftwareForced, attempt.Diagnostics.HardwareMode);
+        Assert.StartsWith("minimal-libav/P5-R5-v1", attempt.Diagnostics.SelectedEncoder, StringComparison.Ordinal);
+        Assert.Equal("9.0.1", attempt.Diagnostics.BackendVersion);
+        Assert.True(attempt.Diagnostics.OutputCandidateObserved);
+        Assert.Contains("HEVC;", attempt.Diagnostics.InputProfile, StringComparison.Ordinal);
+        Assert.Equal("Unknown", attempt.Diagnostics.OutputProfile);
+        Assert.False(attempt.Diagnostics.HardwareFallbackOccurred);
+        Assert.False(File.Exists(outputPath));
+    }
+
+    private static string ResolveHuaweiDerivedVideo()
+    {
+        DirectoryInfo? directory = new(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, ".ai", "state.json")))
+        {
+            directory = directory.Parent;
+        }
+        if (directory is null)
+        {
+            throw new DirectoryNotFoundException("Could not locate the Live Photo Box workspace for the frozen P5-R5 Huawei source.");
+        }
+
+        string path = Path.Combine(directory.FullName, ".ai-tmp", "workspace", "P5-R5", "huawei-extraction-pass-c", "motion.mp4");
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException("The canonically extracted P5-R5 Huawei motion-video sample is required; this RealSamples test does not skip.", path);
+        }
+        if (new FileInfo(path).Length != 6_519_404)
+        {
+            throw new InvalidDataException("The P5-R5 Huawei motion-video sample has an unexpected byte length.");
+        }
+        using var stream = File.OpenRead(path);
+        string sha256 = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(stream));
+        if (!string.Equals(sha256, "664EF6DBA25D7B04228C79B874A0EDA742B1211E17EE770D0E82E765BD454CE6", StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("The P5-R5 Huawei motion-video sample identity does not match the frozen canonical extraction.");
+        }
+        return path;
     }
 
     [Fact]

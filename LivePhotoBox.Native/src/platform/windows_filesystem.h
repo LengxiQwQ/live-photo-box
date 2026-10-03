@@ -40,6 +40,8 @@ public:
         bool deny_foreign_writes = false) noexcept;
     const std::filesystem::path& path() const noexcept { return temp_path_; }
     bool write_all(std::span<const uint8_t> bytes) noexcept;
+    bool write_at(uint64_t offset, std::span<const uint8_t> bytes) noexcept;
+    bool size(uint64_t& out_size) noexcept;
     bool copy_from_readonly(const std::filesystem::path& source) noexcept;
     bool compute_sha256(uint8_t out_hash[32]) noexcept;
     bool flush() noexcept;
