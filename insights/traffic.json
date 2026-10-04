@@ -247,6 +247,10 @@
     "2026-10-02": {
       "count": 22,
       "uniques": 17
+    },
+    "2026-10-03": {
+      "count": 41,
+      "uniques": 17
     }
   },
   "clones": {
@@ -497,6 +501,10 @@
     "2026-10-02": {
       "count": 23,
       "uniques": 11
+    },
+    "2026-10-03": {
+      "count": 30,
+      "uniques": 16
     }
   },
   "referrer_snapshots": [
@@ -4215,6 +4223,61 @@
         },
         {
           "referrer": "doubao.com",
+          "count": 1,
+          "uniques": 1
+        }
+      ]
+    },
+    {
+      "fetched_at": "2026-10-04T08:26:49Z",
+      "referrers": [
+        {
+          "referrer": "Google",
+          "count": 75,
+          "uniques": 48
+        },
+        {
+          "referrer": "github.com",
+          "count": 63,
+          "uniques": 36
+        },
+        {
+          "referrer": "Bing",
+          "count": 42,
+          "uniques": 34
+        },
+        {
+          "referrer": "chatgpt.com",
+          "count": 10,
+          "uniques": 10
+        },
+        {
+          "referrer": "yandex.ru",
+          "count": 2,
+          "uniques": 1
+        },
+        {
+          "referrer": "Baidu",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "referrer": "DuckDuckGo",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "referrer": "apps.microsoft.com",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "referrer": "doubao.com",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "referrer": "lengxiqwq.com",
           "count": 1,
           "uniques": 1
         }
@@ -9096,6 +9159,71 @@
           "uniques": 2
         }
       ]
+    },
+    {
+      "fetched_at": "2026-10-04T08:26:49Z",
+      "paths": [
+        {
+          "path": "/LengxiQwQ/live-photo-box",
+          "title": "Overview",
+          "count": 224,
+          "uniques": 143
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/releases",
+          "title": "/releases",
+          "count": 41,
+          "uniques": 33
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/blob/master/README.zh-CN.md",
+          "title": "/blob/master/README.zh-CN.md",
+          "count": 33,
+          "uniques": 25
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/releases/tag/v2.2.1",
+          "title": "/releases/tag/v2.2.1",
+          "count": 31,
+          "uniques": 26
+        },
+        {
+          "path": "/lengxiqwq/live-photo-box/releases",
+          "title": "/releases",
+          "count": 29,
+          "uniques": 25
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/blob/master/docs/CLI-User-Guide.zh-CN.md",
+          "title": "/blob/master/docs/CLI-User-Guide.zh-CN.md",
+          "count": 12,
+          "uniques": 6
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/blob/v2.2.1/docs/CLI-User-Guide.zh-CN.md",
+          "title": "/blob/v2.2.1/docs/CLI-User-Guide.zh-CN.md",
+          "count": 6,
+          "uniques": 4
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/blob/master/README.zh-cn.md",
+          "title": "/blob/master/README.zh-cn.md",
+          "count": 5,
+          "uniques": 5
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/commits/master",
+          "title": "/commits/master",
+          "count": 5,
+          "uniques": 2
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/blob/master/docs/项目总览.md",
+          "title": "/blob/master/docs/项目总览.md",
+          "count": 4,
+          "uniques": 3
+        }
+      ]
     }
   ],
   "repo_meta_snapshots": [
@@ -9773,7 +9901,16 @@
       "open_issues": 0,
       "network": 2,
       "pushed_at": "2026-10-02T21:43:06Z"
+    },
+    {
+      "fetched_at": "2026-10-04T08:26:49Z",
+      "stars": 44,
+      "forks": 2,
+      "watchers": 1,
+      "open_issues": 0,
+      "network": 2,
+      "pushed_at": "2026-10-04T03:29:20Z"
     }
   ],
-  "updated_at": "2026-10-03T08:08:19Z"
+  "updated_at": "2026-10-04T08:26:49Z"
 }
