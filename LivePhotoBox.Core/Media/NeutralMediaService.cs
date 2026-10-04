@@ -188,19 +188,50 @@ public sealed class NeutralMediaService : INeutralMediaService
                 }
             }
 
+            VideoFacts? resolvedVideoFacts = null;
+            if (finalVideo != null)
+            {
+                resolvedVideoFacts = await _videoConverter
+                    .ProbeAsync(finalVideo.Path, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (!resolvedVideoFacts.IsPresent ||
+                    resolvedVideoFacts.Container == VideoContainer.Unknown ||
+                    resolvedVideoFacts.Codec == VideoCodec.Unknown)
+                {
+                    throw new InvalidDataException("Neutral video facts could not be verified.");
+                }
+
+                finalVideo = finalVideo with
+                {
+                    VideoContainer = resolvedVideoFacts.Container,
+                    VideoCodec = resolvedVideoFacts.Codec,
+                    MimeType = resolvedVideoFacts.Container switch
+                    {
+                        VideoContainer.Mp4 => "video/mp4",
+                        VideoContainer.Mov => "video/quicktime",
+                        _ => throw new InvalidDataException("Neutral video container is unsupported.")
+                    }
+                };
+            }
+
             // Convert Video if video exists and target differs
             if (finalVideo != null && (
+                requirement.TargetFps is > 0 ||
                 (requirement.VideoContainer != VideoContainer.Unknown && requirement.VideoContainer != finalVideo.VideoContainer) ||
                 (requirement.VideoCodec != VideoCodec.Copy && requirement.VideoCodec != VideoCodec.Unknown && requirement.VideoCodec != finalVideo.VideoCodec)))
             {
-                VideoFacts videoFacts = await _videoConverter
-                    .ProbeAsync(finalVideo.Path, cancellationToken)
-                    .ConfigureAwait(false);
+                VideoFacts videoFacts = resolvedVideoFacts ??
+                    throw new InvalidDataException("Neutral video facts were not resolved.");
+                VideoCodec converterTargetCodec = requirement.VideoCodec is VideoCodec.Unknown or VideoCodec.Copy ||
+                    requirement.VideoCodec == videoFacts.Codec
+                    ? VideoCodec.Copy
+                    : requirement.VideoCodec;
                 var vidConv = await _videoConverter.ConvertAsync(new VideoConversionRequest
                 {
                     SourceArtifact = finalVideo,
                     TargetContainer = requirement.VideoContainer != VideoContainer.Unknown ? requirement.VideoContainer : finalVideo.VideoContainer,
-                    TargetCodec = requirement.VideoCodec != VideoCodec.Unknown ? requirement.VideoCodec : VideoCodec.Copy,
+                    TargetCodec = converterTargetCodec,
                     TargetDirectory = workspace.RootDirectory,
                     TargetFps = requirement.TargetFps ?? 0,
                     PreservationPolicy = preservationPolicy,
@@ -221,6 +252,15 @@ public sealed class NeutralMediaService : INeutralMediaService
 
                 finalVideo = vidConv.OutputArtifact;
                 videoOutcome = CombineOutcome(videoOutcome, vidConv.ExecutionRecord.Truth.PreservationOutcome);
+            }
+
+            if (finalVideo != null &&
+                requirement.VideoCodec != VideoCodec.Copy &&
+                requirement.VideoCodec != VideoCodec.Unknown &&
+                finalVideo.VideoCodec != requirement.VideoCodec)
+            {
+                throw new InvalidDataException(
+                    $"Neutral video codec mismatch: expected {requirement.VideoCodec}, actual {finalVideo.VideoCodec}.");
             }
 
             if (preservationPolicy == PreservationPolicy.Strict &&
