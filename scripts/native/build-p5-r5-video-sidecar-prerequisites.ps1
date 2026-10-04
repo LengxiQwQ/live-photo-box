@@ -36,11 +36,77 @@ function Get-LocalFileHash {
     }
 }
 
+function Ensure-ExactVcpkgDownload {
+    param(
+        [Parameter(Mandatory)][string]$SourcePath,
+        [Parameter(Mandatory)][string]$DownloadsRoot,
+        [Parameter(Mandatory)][string]$ArchiveName,
+        [Parameter(Mandatory)][string]$ExpectedSha512
+    )
+
+    if (-not (Test-Path -LiteralPath $SourcePath -PathType Leaf)) {
+        throw "Pinned x264 source archive is missing: $SourcePath"
+    }
+    $sourceSha512 = Get-LocalFileHash -LiteralPath $SourcePath -Algorithm SHA512
+    if ($sourceSha512 -ne $ExpectedSha512) {
+        throw "Pinned x264 source archive SHA-512 mismatch: $sourceSha512"
+    }
+
+    [System.IO.Directory]::CreateDirectory($DownloadsRoot) | Out-Null
+    $destinationPath = Join-Path $DownloadsRoot $ArchiveName
+    if (Test-Path -LiteralPath $destinationPath) {
+        if (-not (Test-Path -LiteralPath $destinationPath -PathType Leaf)) {
+            throw "Existing vcpkg x264 download-cache entry is not a file: $destinationPath"
+        }
+        $existingSha512 = Get-LocalFileHash -LiteralPath $destinationPath -Algorithm SHA512
+        if ($existingSha512 -ne $ExpectedSha512) {
+            throw "Existing vcpkg x264 download-cache SHA-512 mismatch: $existingSha512"
+        }
+        Write-Output "VCPKG_X264_ARCHIVE_SOURCE=$destinationPath; SHA512=$existingSha512; state=verified-existing"
+        return
+    }
+
+    $sourceStream = [System.IO.File]::Open(
+        $SourcePath,
+        [System.IO.FileMode]::Open,
+        [System.IO.FileAccess]::Read,
+        [System.IO.FileShare]::Read)
+    try {
+        $destinationStream = [System.IO.File]::Open(
+            $destinationPath,
+            [System.IO.FileMode]::CreateNew,
+            [System.IO.FileAccess]::Write,
+            [System.IO.FileShare]::None)
+        try {
+            $sourceStream.CopyTo($destinationStream)
+            $destinationStream.Flush($true)
+        }
+        finally {
+            $destinationStream.Dispose()
+        }
+    }
+    finally {
+        $sourceStream.Dispose()
+    }
+
+    $seededSha512 = Get-LocalFileHash -LiteralPath $destinationPath -Algorithm SHA512
+    if ($seededSha512 -ne $ExpectedSha512) {
+        throw "Seeded vcpkg x264 download-cache SHA-512 mismatch: $seededSha512"
+    }
+    Write-Output "VCPKG_X264_ARCHIVE_SOURCE=$destinationPath; SHA512=$seededSha512; state=seeded-create-only"
+}
+
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $workspaceRoot = Join-Path $projectRoot '.ai-tmp\workspace\P5-R5'
 $buildInfoPath = Join-Path $projectRoot 'tools\p5-r5-video-validation\profiles\P5-R5-v1\backend-build.json'
 $dependencyManifest = Join-Path $projectRoot 'tools\p5-r5-video-validation\sidecar-dependencies\vcpkg.json'
 $sourceArchive = Join-Path $projectRoot 'tools\p5-r5-video-validation\sources\ffmpeg-n9.0.1.tar.gz'
+$x264SourceArchive = Join-Path $projectRoot 'tools\p5-r5-video-validation\sources\x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.gz'
+$x264ArchiveName = 'videolan-x264-b35605ace3ddf7c1a5d67a2eb553f034aef41d55.tar.gz'
+$x264ArchiveSha512 = 'BFAC118DA55DA2FCC4587B17A3184D9ED70D6E03188BC0497F5922DF22B5685FA49FA4325F9C5196C76D03E6E3F56D5906475C540D0DF7E1739DC4182816EEBE'
+$downloadsRoot = if ($env:VCPKG_DOWNLOADS) { $env:VCPKG_DOWNLOADS } else { Join-Path $env:LOCALAPPDATA 'vcpkg\downloads' }
+$downloadsRoot = [System.IO.Path]::GetFullPath($downloadsRoot)
+$env:VCPKG_DOWNLOADS = $downloadsRoot
 $buildInfo = Get-Content -LiteralPath $buildInfoPath -Raw | ConvertFrom-Json
 $dependencyInfo = Get-Content -LiteralPath $dependencyManifest -Raw | ConvertFrom-Json
 $x265Profile = $buildInfo.x265Main10
@@ -115,6 +181,8 @@ $codecPrefix = $codecPrefixCandidates | Where-Object {
 
 if (-not $codecPrefix -or -not (Test-Path -LiteralPath $codecIdentityPath -PathType Leaf)) {
     New-Item -ItemType Directory -Force -Path $workspaceRoot | Out-Null
+    Ensure-ExactVcpkgDownload -SourcePath $x264SourceArchive -DownloadsRoot $downloadsRoot `
+        -ArchiveName $x264ArchiveName -ExpectedSha512 $x264ArchiveSha512
     $installLogBase = Join-Path $workspaceRoot "$BuildId-vcpkg-codecs-install"
     $attempt = 1
     while (Test-Path -LiteralPath "$installLogBase-$attempt.log") { $attempt++ }
@@ -316,7 +384,6 @@ if (-not $alreadyBuilt) {
         }
     if ($LASTEXITCODE -ne 0) { throw "VsDevCmd failed with exit $LASTEXITCODE." }
 
-    $downloadsRoot = if ($env:VCPKG_DOWNLOADS) { $env:VCPKG_DOWNLOADS } else { Join-Path $env:LOCALAPPDATA 'vcpkg\downloads' }
     $msysToolsRoot = Join-Path $downloadsRoot 'tools\msys2'
     $bash = Get-ChildItem -LiteralPath $msysToolsRoot -Recurse -Filter bash.exe -File -ErrorAction SilentlyContinue |
         Where-Object {

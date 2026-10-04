@@ -132,12 +132,24 @@ if ($sidecarBuildEnabled) {
 }
 
 if ($RunTests -and -not $TestHarness) {
-    $portableArgs = @('--build', $buildDir, '--config', $Configuration, '--target', 'lpb_portable_io_smoke', '--', '/m:1', '/p:CL_MPCount=1', '/p:UseMultiToolTask=false', '/v:minimal')
-    & $cmake @portableArgs
-    if ($LASTEXITCODE -ne 0) { throw 'Portable-core smoke target build failed.' }
+    $smokeTargets = @(
+        'lpb_portable_io_smoke',
+        'lpb_video_profile_smoke',
+        'lpb_mf_vfr_encoder_smoke')
+    if ($sidecarBuildEnabled) { $smokeTargets += 'lpb_video_sidecar_runtime_smoke' }
+    $smokeBuildArgs = @('--build', $buildDir, '--config', $Configuration, '--target') +
+        $smokeTargets + @('--', '/m:1', '/p:CL_MPCount=1', '/p:UseMultiToolTask=false', '/v:minimal')
+    & $cmake @smokeBuildArgs
+    if ($LASTEXITCODE -ne 0) { throw 'Registered native CTest executable build failed.' }
     $ctest = Join-Path (Split-Path -Parent $cmake) 'ctest.exe'
-    & $ctest --test-dir $buildDir -C $Configuration --output-on-failure
-    if ($LASTEXITCODE -ne 0) { throw 'Portable-core smoke test failed.' }
+    $ctestArgs = @('--test-dir', $buildDir, '-C', $Configuration, '--output-on-failure')
+    $isGenericCi = [string]::Equals([string]$env:CI, 'true', [System.StringComparison]::OrdinalIgnoreCase)
+    if ($isGenericCi) {
+        $ctestArgs += @('-R', '^portable_io_smoke$')
+        Write-Host '[Native CMake] Generic CI runs the self-contained portable smoke; provisioned R5 RealSample filters remain a separate required gate.'
+    }
+    & $ctest @ctestArgs
+    if ($LASTEXITCODE -ne 0) { throw 'Native CTest verification failed.' }
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'build-native-test-harness.ps1') `
         -Configuration $Configuration -Architecture x64
     if ($LASTEXITCODE -ne 0) { throw 'CMake test harness build failed.' }
