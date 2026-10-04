@@ -86,7 +86,7 @@ public sealed class NativeRuntimeTests
         Assert.Equal(NativeRuntimeBackend.MinimalLibav, hdr.Backend);
         Assert.Equal(NativeRuntimeCodec.Unknown, hdr.Codec);
         Assert.Equal("not packaged", hdr.BackendVersion);
-        Assert.Contains("not linked or packaged", hdr.FallbackReason);
+        Assert.Contains("exact LivePhotoBox.Video.Libav.dll sibling", hdr.FallbackReason);
     }
 
     [Fact]

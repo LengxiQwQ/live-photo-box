@@ -91,3 +91,9 @@ graphify-out/graph.json merge=graphify
 
 # Preserve frozen x265 overlay bytes across Windows checkouts; backend-build.json hashes these exact files.
 tools/p5-r5-video-validation/sidecar-dependencies/overlay-ports/x265/** -text
+
+# Preserve pinned R5 package notice bytes across Windows checkouts.
+tools/p5-r5-video-validation/notices/** -text
+
+# Preserve frozen R5 validator profile bytes for raw-hash checks across Windows checkouts.
+tools/p5-r5-video-validation/profiles/P5-R5-v1/** -text
