@@ -1,6 +1,9 @@
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
+using LivePhotoBox.Interop;
+using Microsoft.Win32.SafeHandles;
 using LivePhotoBox.Core.Tests;
 using LivePhotoBox.Media;
 using LivePhotoBox.Media.Image;
@@ -367,6 +370,17 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
         WriteNewFile(videoTarget, oldVideo);
         string oldImageHash = await ComputeSha256Async(imageTarget);
         string oldVideoHash = await ComputeSha256Async(videoTarget);
+        WindowsFileIdentity imageIdentityBefore = WindowsFileIdentity.Capture(imageTarget);
+        WindowsFileIdentity videoIdentityBefore = WindowsFileIdentity.Capture(videoTarget);
+        var transactionEvidence = new List<SplitPublicationTargetEvidence>();
+        using IDisposable hook = LivePhotoSplitService.SetSplitPublicationTimingTestHook(
+            outputDirectory,
+            (trace, _) =>
+            {
+                if (trace.Boundary == SplitPublicationBoundary.BeforeCommitBarrier)
+                    transactionEvidence.Add(trace.Evidence);
+                return Task.CompletedTask;
+            });
 
         LivePhotoSplitResult result = await LivePhotoSplitService.SplitAsync(
             sourcePath,
@@ -382,10 +396,39 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
         await AssertSplitKeepOutputsAreValidAsync(result);
         string imageAfter = await ComputeSha256Async(imageTarget);
         string videoAfter = await ComputeSha256Async(videoTarget);
+        WindowsFileIdentity imageIdentityAfter = WindowsFileIdentity.Capture(imageTarget);
+        WindowsFileIdentity videoIdentityAfter = WindowsFileIdentity.Capture(videoTarget);
         Assert.NotEqual(oldImageHash, imageAfter);
         Assert.NotEqual(oldVideoHash, videoAfter);
+        Assert.Equal(imageIdentityBefore.VolumeSerialNumber, imageIdentityAfter.VolumeSerialNumber);
+        Assert.Equal(imageIdentityBefore.FileIndex, imageIdentityAfter.FileIndex);
+        Assert.Equal(imageIdentityBefore.FileAttributes, imageIdentityAfter.FileAttributes);
+        Assert.Equal(1u, imageIdentityAfter.LinkCount);
+        Assert.Equal(videoIdentityBefore.VolumeSerialNumber, videoIdentityAfter.VolumeSerialNumber);
+        Assert.Equal(videoIdentityBefore.FileIndex, videoIdentityAfter.FileIndex);
+        Assert.Equal(videoIdentityBefore.FileAttributes, videoIdentityAfter.FileAttributes);
+        Assert.Equal(1u, videoIdentityAfter.LinkCount);
         string sourceAfter = await ComputeSha256Async(sourcePath);
         Assert.Equal(sourceBefore, sourceAfter);
+
+        SplitPublicationTargetEvidence imageEvidence = Assert.Single(
+            transactionEvidence,
+            item => string.Equals(item.FinalPath, imageTarget, StringComparison.OrdinalIgnoreCase));
+        SplitPublicationTargetEvidence videoEvidence = Assert.Single(
+            transactionEvidence,
+            item => string.Equals(item.FinalPath, videoTarget, StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(imageIdentityBefore.FileIndex, imageEvidence.BaselineIdentity!.FileIndex);
+        Assert.Equal(imageIdentityBefore.FileIndex, imageEvidence.FinalIdentity!.FileIndex);
+        Assert.Equal(imageAfter, imageEvidence.FinalSha256);
+        Assert.Equal(imageAfter, imageEvidence.StageSha256);
+        AssertOwnedObjectCleanupProof(imageEvidence.StageIdentity, imageEvidence.StageCleanupProof, "image stage");
+        Assert.Equal("Unlinked", imageEvidence.BackupCleanupProof);
+        Assert.Equal(videoIdentityBefore.FileIndex, videoEvidence.BaselineIdentity!.FileIndex);
+        Assert.Equal(videoIdentityBefore.FileIndex, videoEvidence.FinalIdentity!.FileIndex);
+        Assert.Equal(videoAfter, videoEvidence.FinalSha256);
+        Assert.Equal(videoAfter, videoEvidence.StageSha256);
+        AssertOwnedObjectCleanupProof(videoEvidence.StageIdentity, videoEvidence.StageCleanupProof, "video stage");
+        Assert.Equal("Unlinked", videoEvidence.BackupCleanupProof);
         AssertNoSplitTransactionArtifacts(outputDirectory);
         string[] remaining = GetFileNames(outputDirectory);
         Assert.Equal(new[] { Path.GetFileName(imageTarget), Path.GetFileName(videoTarget) }.OrderBy(x => x), remaining.OrderBy(x => x));
@@ -403,7 +446,8 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
                 ["newVideoAfter"] = videoAfter
             },
             "Both staged real-sample outputs were published successfully; no forced failure.",
-            remaining);
+            remaining,
+            transactionEvidence);
         CleanupPublicationScenarioDirectory(outputDirectory, imageTarget, videoTarget);
     }
 
@@ -423,49 +467,93 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
         WriteNewFile(videoTarget, oldVideo);
         string imageBefore = await ComputeSha256Async(imageTarget);
         string videoBefore = await ComputeSha256Async(videoTarget);
+        WindowsFileIdentity imageIdentityBefore = WindowsFileIdentity.Capture(imageTarget);
+        WindowsFileIdentity videoIdentityBefore = WindowsFileIdentity.Capture(videoTarget);
+        string renameProbePath = imageTarget + ".foreign-rename-probe";
+        var firstMutation = new TaskCompletionSource<SplitPublicationTraceEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resumeFirstMutation = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var postRollbackEvidence = new List<SplitPublicationTargetEvidence>();
+        using IDisposable hook = LivePhotoSplitService.SetSplitPublicationTimingTestHook(
+            outputDirectory,
+            async (trace, token) =>
+            {
+                if (trace.Boundary == SplitPublicationBoundary.AfterRollbackCleanup)
+                {
+                    postRollbackEvidence.Add(trace.Evidence);
+                    return;
+                }
 
-        var imagePublished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var watcher = new FileSystemWatcher(outputDirectory)
-        {
-            NotifyFilter = NotifyFilters.FileName,
-            IncludeSubdirectories = false
-        };
-        watcher.Created += (_, args) =>
-        {
-            if (string.Equals(args.FullPath, imageTarget, StringComparison.OrdinalIgnoreCase))
-                imagePublished.TrySetResult(true);
-        };
-        watcher.Renamed += (_, args) =>
-        {
-            if (string.Equals(args.FullPath, imageTarget, StringComparison.OrdinalIgnoreCase))
-                imagePublished.TrySetResult(true);
-        };
-        watcher.EnableRaisingEvents = true;
+                if (trace.Boundary == SplitPublicationBoundary.AfterTargetMutation &&
+                    string.Equals(trace.FinalPath, imageTarget, StringComparison.OrdinalIgnoreCase))
+                {
+                    firstMutation.TrySetResult(trace);
+                    await resumeFirstMutation.Task.WaitAsync(token).ConfigureAwait(false);
+                }
+            });
 
+        Task<LivePhotoSplitResult> splitTask = LivePhotoSplitService.SplitAsync(
+            sourcePath,
+            outputDirectory,
+            ProtocolFormatMatrix.SplitProtocolNone,
+            ProtocolFormatMatrix.SplitFormatKeep,
+            CancellationToken.None,
+            outputBaseName: baseName,
+            overwriteExisting: true);
+
+        SplitPublicationTraceEvent firstMutationTrace;
+        NativeOpenAttempt readAttempt;
+        NativeOpenAttempt writeAttempt;
+        NativePathAttempt renameAttempt;
+        NativePathAttempt deleteAttempt;
         IOException failure;
         string videoAfter;
-        using (var videoLock = new FileStream(videoTarget, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        try
         {
-            failure = await Assert.ThrowsAsync<IOException>(() => LivePhotoSplitService.SplitAsync(
-                sourcePath,
-                outputDirectory,
-                ProtocolFormatMatrix.SplitProtocolNone,
-                ProtocolFormatMatrix.SplitFormatKeep,
-                CancellationToken.None,
-                outputBaseName: baseName,
-            overwriteExisting: true));
+            firstMutationTrace = await firstMutation.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            readAttempt = TryOpenNativeFile(imageTarget, GenericReadAccess, FileShareRead);
+            writeAttempt = TryOpenNativeFile(imageTarget, GenericReadAccess | GenericWriteAccess, 0);
+            renameAttempt = TryMoveNativeFile(imageTarget, renameProbePath);
+            deleteAttempt = renameAttempt.Succeeded
+                ? new NativePathAttempt(false, 0)
+                : TryDeleteNativeFile(imageTarget);
 
+            using var videoLock = new FileStream(videoTarget, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+            resumeFirstMutation.TrySetResult(true);
+            failure = await Assert.ThrowsAsync<IOException>(() => splitTask);
             AssertRealWin32Failure(failure, 32, 33);
             videoLock.Position = 0;
             videoAfter = Convert.ToHexString(SHA256.HashData(videoLock));
         }
+        finally
+        {
+            resumeFirstMutation.TrySetResult(true);
+        }
 
-        await imagePublished.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.False(readAttempt.Succeeded);
+        Assert.Contains(readAttempt.Win32Error, new[] { 32, 33 });
+        Assert.False(writeAttempt.Succeeded);
+        Assert.Contains(writeAttempt.Win32Error, new[] { 32, 33 });
+        Assert.False(renameAttempt.Succeeded);
+        Assert.Contains(renameAttempt.Win32Error, new[] { 32, 33 });
+        Assert.False(deleteAttempt.Succeeded);
+        Assert.Contains(deleteAttempt.Win32Error, new[] { 32, 33 });
+
         string imageAfter = await ComputeSha256Async(imageTarget);
         string sourceAfter = await ComputeSha256Async(sourcePath);
+        WindowsFileIdentity imageIdentityAfter = WindowsFileIdentity.Capture(imageTarget);
+        WindowsFileIdentity videoIdentityAfter = WindowsFileIdentity.Capture(videoTarget);
         Assert.Equal(imageBefore, imageAfter);
         Assert.Equal(videoBefore, videoAfter);
+        Assert.Equal(imageIdentityBefore.FileIndex, imageIdentityAfter.FileIndex);
+        Assert.Equal(imageIdentityBefore.VolumeSerialNumber, imageIdentityAfter.VolumeSerialNumber);
+        Assert.Equal(imageIdentityBefore.FileAttributes, imageIdentityAfter.FileAttributes);
+        Assert.Equal(1u, imageIdentityAfter.LinkCount);
+        Assert.Equal(videoIdentityBefore.FileIndex, videoIdentityAfter.FileIndex);
+        Assert.Equal(videoIdentityBefore.VolumeSerialNumber, videoIdentityAfter.VolumeSerialNumber);
+        Assert.Equal(videoIdentityBefore.FileAttributes, videoIdentityAfter.FileAttributes);
+        Assert.Equal(1u, videoIdentityAfter.LinkCount);
         Assert.Equal(sourceBefore, sourceAfter);
+        AssertPostRollbackCleanupProofs(postRollbackEvidence, expectedTargetCount: 2);
         AssertNoSplitTransactionArtifacts(outputDirectory);
         string[] remaining = GetFileNames(outputDirectory);
         Assert.Equal(new[] { Path.GetFileName(imageTarget), Path.GetFileName(videoTarget) }.OrderBy(x => x), remaining.OrderBy(x => x));
@@ -480,10 +568,19 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
                 ["originalImageBefore"] = imageBefore,
                 ["originalImageAfterRollback"] = imageAfter,
                 ["originalVideoBefore"] = videoBefore,
-                ["originalVideoAfterFailure"] = videoAfter
+                ["originalVideoAfterFailure"] = videoAfter,
+                ["readOpenWin32"] = readAttempt.Win32Error.ToString(),
+                ["writeOpenWin32"] = writeAttempt.Win32Error.ToString(),
+                ["renameWin32"] = renameAttempt.Win32Error.ToString(),
+                ["deleteWin32"] = deleteAttempt.Win32Error.ToString()
             },
-            "The existing video target was held open with a real Windows FileShare.None handle; the OS sharing violation occurred on the second target after FileSystemWatcher observed image publication. The image was rolled back to its original hash.",
-            remaining);
+            "After a real in-place image mutation, external read/write/rename/delete opens failed with sharing errors; a real FileShare.None lock on video caused the second mutation open to fail, and the image rolled back to the same FileId and original hash.",
+            remaining,
+            new
+            {
+                firstMutationEvidence = firstMutationTrace.Evidence,
+                postRollbackEvidence
+            });
         CleanupPublicationScenarioDirectory(outputDirectory, imageTarget, videoTarget);
     }
 
@@ -575,14 +672,22 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
         string oldVideoBefore = await ComputeSha256Async(oldVideoPath);
         var selectedVideo = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
         var resumePublication = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using IDisposable hook = LivePhotoSplitService.SetBeforeSplitPublicationTestHook(
+        var postRollbackEvidence = new List<SplitPublicationTargetEvidence>();
+        using IDisposable hook = LivePhotoSplitService.SetSplitPublicationTimingTestHook(
             outputDirectory,
-            (path, token) =>
+            (trace, token) =>
             {
-                if (!string.Equals(Path.GetFullPath(path), expectedVideoPath, StringComparison.OrdinalIgnoreCase))
+                if (trace.Boundary == SplitPublicationBoundary.AfterRollbackCleanup)
+                {
+                    postRollbackEvidence.Add(trace.Evidence);
+                    return Task.CompletedTask;
+                }
+
+                if (trace.Boundary != SplitPublicationBoundary.BeforeMissingTargetPublication ||
+                    !string.Equals(Path.GetFullPath(trace.FinalPath), expectedVideoPath, StringComparison.OrdinalIgnoreCase))
                     return Task.CompletedTask;
 
-                selectedVideo.TrySetResult(path);
+                selectedVideo.TrySetResult(trace.FinalPath);
                 return resumePublication.Task.WaitAsync(token);
             });
 
@@ -605,13 +710,14 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
             resumePublication.TrySetResult();
 
             IOException failure = await Assert.ThrowsAsync<IOException>(() => splitTask);
-            AssertRealWin32Failure(failure, 80, 183);
+            Win32Exception collision = AssertRealWin32Failure(failure, 80, 183);
             string foreignAfter = await ComputeSha256Async(selectedPath);
             string sourceAfter = await ComputeSha256Async(sourcePath);
             Assert.Equal(foreignBefore, foreignAfter);
             Assert.Equal(sourceBefore, sourceAfter);
             Assert.Equal(oldImageBefore, await ComputeSha256Async(oldImagePath));
             Assert.Equal(oldVideoBefore, await ComputeSha256Async(oldVideoPath));
+            AssertPostRollbackCleanupProofs(postRollbackEvidence, expectedTargetCount: 2);
             AssertNoSplitTransactionArtifacts(outputDirectory);
             Assert.False(File.Exists(expectedImagePath));
             string[] remaining = GetFileNames(outputDirectory);
@@ -634,7 +740,12 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
                     ["foreignBaseVideoAfter"] = await ComputeSha256Async(oldVideoPath)
                 },
                 "The per-call seam paused after selecting the second final name; the test created a real file there and resumed. The actual handle-bound no-replace rename failed with a Win32 name collision, the first staged publication was removed, and the foreign object remained byte-identical.",
-                remaining);
+                remaining,
+                new
+                {
+                    nativeErrorCode = collision.NativeErrorCode,
+                    postRollbackEvidence
+                });
         }
         finally
         {
@@ -648,10 +759,353 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
             expectedVideoPath);
     }
 
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task P5R6_SplitPublication_PreExistingHardLinkAlias_IsRejectedBeforeMutation()
+    {
+        const string baseName = "p5r6-publication-preexisting-alias";
+        string sourcePath = ResolveFrozenSample("红米老款-GV1.JPG");
+        string sourceBefore = await ComputeSha256Async(sourcePath);
+        string outputDirectory = CreatePublicationScenarioDirectory("preexisting-alias");
+        string imageTarget = Path.Combine(outputDirectory, baseName + ".JPG");
+        string videoTarget = Path.Combine(outputDirectory, baseName + ".MP4");
+        string aliasPath = Path.Combine(outputDirectory, baseName + ".JPG.preexisting-alias");
+        byte[] oldImage = [0x50, 0x52, 0x45, 0x2D, 0x41, 0x4C, 0x49, 0x41];
+        byte[] oldVideo = [0x50, 0x52, 0x45, 0x2D, 0x56, 0x49, 0x44, 0x45];
+        WriteNewFile(imageTarget, oldImage);
+        WriteNewFile(videoTarget, oldVideo);
+        (bool aliasCreated, int aliasError) = CreateHardLinkForSplitTest(aliasPath, imageTarget);
+        Assert.True(aliasCreated, $"CreateHardLinkW failed with Win32 error {aliasError}.");
+
+        string imageBefore = await ComputeSha256Async(imageTarget);
+        string videoBefore = await ComputeSha256Async(videoTarget);
+        WindowsFileIdentity imageIdentityBefore = WindowsFileIdentity.Capture(imageTarget);
+        WindowsFileIdentity videoIdentityBefore = WindowsFileIdentity.Capture(videoTarget);
+        Assert.Equal(2u, imageIdentityBefore.LinkCount);
+        var postRollbackEvidence = new List<SplitPublicationTargetEvidence>();
+        using IDisposable hook = LivePhotoSplitService.SetSplitPublicationTimingTestHook(
+            outputDirectory,
+            (trace, _) =>
+            {
+                if (trace.Boundary == SplitPublicationBoundary.AfterRollbackCleanup)
+                    postRollbackEvidence.Add(trace.Evidence);
+                return Task.CompletedTask;
+            });
+
+        IOException failure = await Assert.ThrowsAsync<IOException>(() => LivePhotoSplitService.SplitAsync(
+            sourcePath,
+            outputDirectory,
+            ProtocolFormatMatrix.SplitProtocolNone,
+            ProtocolFormatMatrix.SplitFormatKeep,
+            CancellationToken.None,
+            outputBaseName: baseName,
+            overwriteExisting: true));
+
+        Assert.Contains("link count", failure.Message, StringComparison.OrdinalIgnoreCase);
+        AssertPostRollbackCleanupProofs(postRollbackEvidence, expectedTargetCount: 2);
+        Assert.Equal(imageBefore, await ComputeSha256Async(imageTarget));
+        Assert.Equal(imageBefore, await ComputeSha256Async(aliasPath));
+        Assert.Equal(videoBefore, await ComputeSha256Async(videoTarget));
+        Assert.Equal(sourceBefore, await ComputeSha256Async(sourcePath));
+        WindowsFileIdentity imageIdentityAfter = WindowsFileIdentity.Capture(imageTarget);
+        WindowsFileIdentity aliasIdentityAfter = WindowsFileIdentity.Capture(aliasPath);
+        WindowsFileIdentity videoIdentityAfter = WindowsFileIdentity.Capture(videoTarget);
+        Assert.Equal(imageIdentityBefore.FileIndex, imageIdentityAfter.FileIndex);
+        Assert.Equal(imageIdentityBefore.FileIndex, aliasIdentityAfter.FileIndex);
+        Assert.Equal(2u, imageIdentityAfter.LinkCount);
+        Assert.Equal(videoIdentityBefore.FileIndex, videoIdentityAfter.FileIndex);
+        AssertNoSplitTransactionArtifacts(outputDirectory);
+        string[] remaining = GetFileNames(outputDirectory);
+        Assert.Equal(
+            new[] { Path.GetFileName(imageTarget), Path.GetFileName(videoTarget), Path.GetFileName(aliasPath) }.OrderBy(x => x),
+            remaining.OrderBy(x => x));
+
+        AppendPublicationEvidence(
+            "preexisting-alias",
+            sourcePath,
+            new Dictionary<string, string>
+            {
+                ["sourceBefore"] = sourceBefore,
+                ["sourceAfter"] = await ComputeSha256Async(sourcePath),
+                ["imageBefore"] = imageBefore,
+                ["imageAfter"] = await ComputeSha256Async(imageTarget),
+                ["aliasAfter"] = await ComputeSha256Async(aliasPath),
+                ["videoBefore"] = videoBefore,
+                ["videoAfter"] = await ComputeSha256Async(videoTarget),
+                ["imageFileId"] = imageIdentityAfter.FileIndex.ToString("X16"),
+                ["imageLinkCount"] = imageIdentityAfter.LinkCount.ToString()
+            },
+            "A real pre-existing hard link raised the baseline link count to two; Split rejected it before mutation and preserved both names and the other destination.",
+            remaining,
+            new
+            {
+                aliasCreationWin32 = aliasError,
+                imageIdentityBefore,
+                imageIdentityAfter,
+                aliasIdentityAfter,
+                videoIdentityBefore,
+                videoIdentityAfter,
+                postRollbackEvidence
+            });
+
+        CleanupPublicationScenarioDirectory(outputDirectory, imageTarget, videoTarget, aliasPath);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task P5R6_SplitPublication_ConcurrentAliasAtFinalBarrier_RollsBackAndPreservesAlias()
+    {
+        const string baseName = "p5r6-publication-concurrent-alias";
+        string sourcePath = ResolveFrozenSample("红米老款-GV1.JPG");
+        string sourceBefore = await ComputeSha256Async(sourcePath);
+        string outputDirectory = CreatePublicationScenarioDirectory("concurrent-alias-final-barrier");
+        string imageTarget = Path.Combine(outputDirectory, baseName + ".JPG");
+        string videoTarget = Path.Combine(outputDirectory, baseName + ".MP4");
+        string aliasPath = Path.Combine(outputDirectory, baseName + ".JPG.concurrent-alias");
+        byte[] oldImage = [0x43, 0x4F, 0x4E, 0x43, 0x2D, 0x49, 0x4D, 0x47];
+        byte[] oldVideo = [0x43, 0x4F, 0x4E, 0x43, 0x2D, 0x56, 0x49, 0x44];
+        WriteNewFile(imageTarget, oldImage);
+        WriteNewFile(videoTarget, oldVideo);
+        string imageBefore = await ComputeSha256Async(imageTarget);
+        string videoBefore = await ComputeSha256Async(videoTarget);
+        WindowsFileIdentity imageIdentityBefore = WindowsFileIdentity.Capture(imageTarget);
+        WindowsFileIdentity videoIdentityBefore = WindowsFileIdentity.Capture(videoTarget);
+
+        var barrierReached = new TaskCompletionSource<SplitPublicationTraceEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resumeBarrier = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var transactionEvidence = new List<SplitPublicationTargetEvidence>();
+        var postRollbackEvidence = new List<SplitPublicationTargetEvidence>();
+        using IDisposable hook = LivePhotoSplitService.SetSplitPublicationTimingTestHook(
+            outputDirectory,
+            async (trace, token) =>
+            {
+                if (trace.Boundary == SplitPublicationBoundary.AfterRollbackCleanup)
+                {
+                    postRollbackEvidence.Add(trace.Evidence);
+                    return;
+                }
+
+                if (trace.Boundary != SplitPublicationBoundary.BeforeCommitBarrier)
+                    return;
+
+                transactionEvidence.Add(trace.Evidence);
+                if (string.Equals(trace.FinalPath, imageTarget, StringComparison.OrdinalIgnoreCase))
+                {
+                    barrierReached.TrySetResult(trace);
+                    await resumeBarrier.Task.WaitAsync(token).ConfigureAwait(false);
+                }
+            });
+
+        Task<LivePhotoSplitResult> splitTask = LivePhotoSplitService.SplitAsync(
+            sourcePath,
+            outputDirectory,
+            ProtocolFormatMatrix.SplitProtocolNone,
+            ProtocolFormatMatrix.SplitFormatKeep,
+            CancellationToken.None,
+            outputBaseName: baseName,
+            overwriteExisting: true);
+
+        SplitPublicationTraceEvent barrierTrace;
+        bool aliasCreated;
+        int aliasError;
+        try
+        {
+            barrierTrace = await barrierReached.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            (aliasCreated, aliasError) = CreateHardLinkForSplitTest(aliasPath, imageTarget);
+        }
+        finally
+        {
+            resumeBarrier.TrySetResult(true);
+        }
+
+        Assert.True(aliasCreated, $"CreateHardLinkW failed with Win32 error {aliasError}.");
+        IOException failure = await Assert.ThrowsAsync<IOException>(() => splitTask);
+        Assert.Contains("alias", failure.Message, StringComparison.OrdinalIgnoreCase);
+
+        string imageAfter = await ComputeSha256Async(imageTarget);
+        string aliasAfter = await ComputeSha256Async(aliasPath);
+        string videoAfter = await ComputeSha256Async(videoTarget);
+        string sourceAfter = await ComputeSha256Async(sourcePath);
+        WindowsFileIdentity imageIdentityAfter = WindowsFileIdentity.Capture(imageTarget);
+        WindowsFileIdentity aliasIdentityAfter = WindowsFileIdentity.Capture(aliasPath);
+        WindowsFileIdentity videoIdentityAfter = WindowsFileIdentity.Capture(videoTarget);
+        Assert.Equal(imageBefore, imageAfter);
+        Assert.Equal(imageBefore, aliasAfter);
+        Assert.Equal(videoBefore, videoAfter);
+        Assert.Equal(sourceBefore, sourceAfter);
+        AssertPostRollbackCleanupProofs(postRollbackEvidence, expectedTargetCount: 2);
+        Assert.Equal(imageIdentityBefore.FileIndex, imageIdentityAfter.FileIndex);
+        Assert.Equal(imageIdentityBefore.FileIndex, aliasIdentityAfter.FileIndex);
+        Assert.Equal(imageIdentityBefore.VolumeSerialNumber, imageIdentityAfter.VolumeSerialNumber);
+        Assert.Equal(2u, imageIdentityAfter.LinkCount);
+        Assert.Equal(videoIdentityBefore.FileIndex, videoIdentityAfter.FileIndex);
+        Assert.Equal(1u, videoIdentityAfter.LinkCount);
+        AssertNoSplitTransactionArtifacts(outputDirectory);
+        string[] remaining = GetFileNames(outputDirectory);
+        Assert.Equal(
+            new[] { Path.GetFileName(imageTarget), Path.GetFileName(videoTarget), Path.GetFileName(aliasPath) }.OrderBy(x => x),
+            remaining.OrderBy(x => x));
+
+        AppendPublicationEvidence(
+            "concurrent-alias-final-barrier",
+            sourcePath,
+            new Dictionary<string, string>
+            {
+                ["sourceBefore"] = sourceBefore,
+                ["sourceAfter"] = sourceAfter,
+                ["imageBefore"] = imageBefore,
+                ["imageAfterRollback"] = imageAfter,
+                ["aliasAfterRollback"] = aliasAfter,
+                ["videoBefore"] = videoBefore,
+                ["videoAfterRollback"] = videoAfter,
+                ["imageLinkCountAfterRollback"] = imageIdentityAfter.LinkCount.ToString()
+            },
+            "A real hard-link alias was created after per-target verification while the transaction was paused at the final barrier. The barrier detected it; both existing targets rolled back and the test-owned alias remained untouched until test teardown.",
+            remaining,
+            new
+            {
+                aliasCreationWin32 = aliasError,
+                barrierEvidence = barrierTrace.Evidence,
+                allBarrierEvidence = transactionEvidence,
+                postRollbackEvidence,
+                imageIdentityBefore,
+                imageIdentityAfter,
+                aliasIdentityAfter,
+                videoIdentityBefore,
+                videoIdentityAfter
+            });
+
+        CleanupPublicationScenarioDirectory(outputDirectory, imageTarget, videoTarget, aliasPath);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task P5R6_SplitPublication_ForeignReplacementAfterBaseline_IsRejectedWithoutOverwritingForeignObject()
+    {
+        const string baseName = "p5r6-publication-baseline-replacement";
+        string sourcePath = ResolveFrozenSample("红米老款-GV1.JPG");
+        string sourceBefore = await ComputeSha256Async(sourcePath);
+        string outputDirectory = CreatePublicationScenarioDirectory("baseline-replacement");
+        string imageTarget = Path.Combine(outputDirectory, baseName + ".JPG");
+        string videoTarget = Path.Combine(outputDirectory, baseName + ".MP4");
+        string movedBaselinePath = imageTarget + ".captured-original";
+        byte[] oldImage = [0x42, 0x41, 0x53, 0x45, 0x2D, 0x49, 0x4D, 0x47];
+        byte[] oldVideo = [0x42, 0x41, 0x53, 0x45, 0x2D, 0x56, 0x49, 0x44];
+        byte[] foreignImage = [0x46, 0x4F, 0x52, 0x45, 0x49, 0x47, 0x4E, 0x2D, 0x49];
+        WriteNewFile(imageTarget, oldImage);
+        WriteNewFile(videoTarget, oldVideo);
+        string imageBefore = await ComputeSha256Async(imageTarget);
+        string videoBefore = await ComputeSha256Async(videoTarget);
+        WindowsFileIdentity imageIdentityBefore = WindowsFileIdentity.Capture(imageTarget);
+        WindowsFileIdentity videoIdentityBefore = WindowsFileIdentity.Capture(videoTarget);
+
+        var baselineReached = new TaskCompletionSource<SplitPublicationTraceEvent>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resumeMutation = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var postRollbackEvidence = new List<SplitPublicationTargetEvidence>();
+        using IDisposable hook = LivePhotoSplitService.SetSplitPublicationTimingTestHook(
+            outputDirectory,
+            async (trace, token) =>
+            {
+                if (trace.Boundary == SplitPublicationBoundary.AfterRollbackCleanup)
+                {
+                    postRollbackEvidence.Add(trace.Evidence);
+                    return;
+                }
+
+                if (trace.Boundary == SplitPublicationBoundary.BeforeMutationRevalidation &&
+                    string.Equals(trace.FinalPath, imageTarget, StringComparison.OrdinalIgnoreCase))
+                {
+                    baselineReached.TrySetResult(trace);
+                    await resumeMutation.Task.WaitAsync(token).ConfigureAwait(false);
+                }
+            });
+
+        Task<LivePhotoSplitResult> splitTask = LivePhotoSplitService.SplitAsync(
+            sourcePath,
+            outputDirectory,
+            ProtocolFormatMatrix.SplitProtocolNone,
+            ProtocolFormatMatrix.SplitFormatKeep,
+            CancellationToken.None,
+            outputBaseName: baseName,
+            overwriteExisting: true);
+
+        SplitPublicationTraceEvent baselineTrace;
+        string foreignBefore;
+        WindowsFileIdentity foreignIdentityBefore;
+        try
+        {
+            baselineTrace = await baselineReached.Task.WaitAsync(TimeSpan.FromSeconds(30));
+            File.Move(imageTarget, movedBaselinePath);
+            WriteNewFile(imageTarget, foreignImage);
+            foreignBefore = await ComputeSha256Async(imageTarget);
+            foreignIdentityBefore = WindowsFileIdentity.Capture(imageTarget);
+        }
+        finally
+        {
+            resumeMutation.TrySetResult(true);
+        }
+
+        IOException failure = await Assert.ThrowsAsync<IOException>(() => splitTask);
+        Assert.Contains("identity", failure.Message, StringComparison.OrdinalIgnoreCase);
+        string foreignAfter = await ComputeSha256Async(imageTarget);
+        string movedOriginalAfter = await ComputeSha256Async(movedBaselinePath);
+        string videoAfter = await ComputeSha256Async(videoTarget);
+        string sourceAfter = await ComputeSha256Async(sourcePath);
+        WindowsFileIdentity foreignIdentityAfter = WindowsFileIdentity.Capture(imageTarget);
+        WindowsFileIdentity movedOriginalIdentity = WindowsFileIdentity.Capture(movedBaselinePath);
+        WindowsFileIdentity videoIdentityAfter = WindowsFileIdentity.Capture(videoTarget);
+        Assert.Equal(foreignBefore, foreignAfter);
+        Assert.Equal(imageBefore, movedOriginalAfter);
+        Assert.Equal(videoBefore, videoAfter);
+        Assert.Equal(sourceBefore, sourceAfter);
+        AssertPostRollbackCleanupProofs(postRollbackEvidence, expectedTargetCount: 2);
+        Assert.Equal(foreignIdentityBefore.FileIndex, foreignIdentityAfter.FileIndex);
+        Assert.Equal(foreignIdentityBefore.VolumeSerialNumber, foreignIdentityAfter.VolumeSerialNumber);
+        Assert.Equal(imageIdentityBefore.FileIndex, movedOriginalIdentity.FileIndex);
+        Assert.Equal(videoIdentityBefore.FileIndex, videoIdentityAfter.FileIndex);
+        AssertNoSplitTransactionArtifacts(outputDirectory);
+        string[] remaining = GetFileNames(outputDirectory);
+        Assert.Equal(
+            new[] { Path.GetFileName(imageTarget), Path.GetFileName(videoTarget), Path.GetFileName(movedBaselinePath) }.OrderBy(x => x),
+            remaining.OrderBy(x => x));
+
+        AppendPublicationEvidence(
+            "baseline-replacement",
+            sourcePath,
+            new Dictionary<string, string>
+            {
+                ["sourceBefore"] = sourceBefore,
+                ["sourceAfter"] = sourceAfter,
+                ["foreignBefore"] = foreignBefore,
+                ["foreignAfter"] = foreignAfter,
+                ["movedOriginalBefore"] = imageBefore,
+                ["movedOriginalAfter"] = movedOriginalAfter,
+                ["videoBefore"] = videoBefore,
+                ["videoAfter"] = videoAfter,
+                ["foreignFileId"] = foreignIdentityAfter.FileIndex.ToString("X16"),
+                ["originalFileId"] = movedOriginalIdentity.FileIndex.ToString("X16")
+            },
+            "The test moved the baseline object and placed a known foreign object at the final path after baseline capture. Immediate retained-handle revalidation rejected the changed FileId before writing and preserved both objects.",
+            remaining,
+            new
+            {
+                baselineEvidence = baselineTrace.Evidence,
+                foreignIdentityBefore,
+                foreignIdentityAfter,
+                movedOriginalIdentity,
+                imageIdentityBefore,
+                videoIdentityBefore,
+                videoIdentityAfter,
+                postRollbackEvidence
+            });
+
+        CleanupPublicationScenarioDirectory(outputDirectory, imageTarget, videoTarget, movedBaselinePath);
+    }
+
     private static string CreatePublicationScenarioDirectory(string scenarioName)
     {
         string scenarioRoot = FindRepositoryRootAndJoin(
-            ".ai-tmp/workspace/P5-R6/neutral-split-publication-repair/scenarios");
+            ".ai-tmp/workspace/P5-R6/neutral-split-exact-object-content-transaction/scenarios");
         Directory.CreateDirectory(scenarioRoot);
         string scenarioDirectory = Path.Combine(scenarioRoot, scenarioName);
         if (Directory.Exists(scenarioDirectory))
@@ -684,6 +1138,24 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
             {
                 ["p5r6-publication-late-occupant.JPG"] = [0x4C, 0x41, 0x54, 0x45, 0x2D, 0x49, 0x4D, 0x47],
                 ["p5r6-publication-late-occupant.MP4"] = [0x4C, 0x41, 0x54, 0x45, 0x2D, 0x56, 0x49, 0x44]
+            },
+            "preexisting-alias" => new()
+            {
+                ["p5r6-publication-preexisting-alias.JPG"] = [0x50, 0x52, 0x45, 0x2D, 0x41, 0x4C, 0x49, 0x41],
+                ["p5r6-publication-preexisting-alias.MP4"] = [0x50, 0x52, 0x45, 0x2D, 0x56, 0x49, 0x44, 0x45],
+                ["p5r6-publication-preexisting-alias.JPG.preexisting-alias"] = [0x50, 0x52, 0x45, 0x2D, 0x41, 0x4C, 0x49, 0x41]
+            },
+            "concurrent-alias-final-barrier" => new()
+            {
+                ["p5r6-publication-concurrent-alias.JPG"] = [0x43, 0x4F, 0x4E, 0x43, 0x2D, 0x49, 0x4D, 0x47],
+                ["p5r6-publication-concurrent-alias.MP4"] = [0x43, 0x4F, 0x4E, 0x43, 0x2D, 0x56, 0x49, 0x44],
+                ["p5r6-publication-concurrent-alias.JPG.concurrent-alias"] = [0x43, 0x4F, 0x4E, 0x43, 0x2D, 0x49, 0x4D, 0x47]
+            },
+            "baseline-replacement" => new()
+            {
+                ["p5r6-publication-baseline-replacement.JPG"] = [0x46, 0x4F, 0x52, 0x45, 0x49, 0x47, 0x4E, 0x2D, 0x49],
+                ["p5r6-publication-baseline-replacement.MP4"] = [0x42, 0x41, 0x53, 0x45, 0x2D, 0x56, 0x49, 0x44],
+                ["p5r6-publication-baseline-replacement.JPG.captured-original"] = [0x42, 0x41, 0x53, 0x45, 0x2D, 0x49, 0x4D, 0x47]
             },
             _ => throw new ArgumentOutOfRangeException(nameof(scenarioName), scenarioName, "Unknown publication test scenario.")
         };
@@ -718,6 +1190,87 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
         stream.Write(bytes);
         stream.Flush(flushToDisk: true);
     }
+
+    private static (bool Succeeded, int Win32Error) CreateHardLinkForSplitTest(string linkPath, string targetPath)
+    {
+        bool succeeded = SplitPublicationNative.CreateHardLinkW(
+            Path.GetFullPath(linkPath),
+            Path.GetFullPath(targetPath),
+            IntPtr.Zero);
+        return (succeeded, succeeded ? 0 : Marshal.GetLastWin32Error());
+    }
+
+    private static NativeOpenAttempt TryOpenNativeFile(string path, uint desiredAccess, uint shareMode)
+    {
+        SafeFileHandle handle = SplitPublicationNative.CreateFileW(
+            Path.GetFullPath(path),
+            desiredAccess,
+            shareMode,
+            IntPtr.Zero,
+            SplitPublicationNative.OpenExisting,
+            SplitPublicationNative.OpenReparsePoint,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            int error = Marshal.GetLastWin32Error();
+            handle.Dispose();
+            return new NativeOpenAttempt(false, error);
+        }
+
+        handle.Dispose();
+        return new NativeOpenAttempt(true, 0);
+    }
+
+    private static NativePathAttempt TryMoveNativeFile(string sourcePath, string destinationPath)
+    {
+        bool succeeded = SplitPublicationNative.MoveFileExW(
+            Path.GetFullPath(sourcePath),
+            Path.GetFullPath(destinationPath),
+            flags: 0);
+        return new NativePathAttempt(succeeded, succeeded ? 0 : Marshal.GetLastWin32Error());
+    }
+
+    private static NativePathAttempt TryDeleteNativeFile(string path)
+    {
+        bool succeeded = SplitPublicationNative.DeleteFileW(Path.GetFullPath(path));
+        return new NativePathAttempt(succeeded, succeeded ? 0 : Marshal.GetLastWin32Error());
+    }
+
+    private sealed record NativeOpenAttempt(bool Succeeded, int Win32Error);
+
+    private sealed record NativePathAttempt(bool Succeeded, int Win32Error);
+
+    private static class SplitPublicationNative
+    {
+        public const uint OpenExisting = 3;
+        public const uint OpenReparsePoint = 0x00200000;
+
+        [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
+        public static extern SafeFileHandle CreateFileW(
+            string fileName,
+            uint desiredAccess,
+            uint shareMode,
+            IntPtr securityAttributes,
+            uint creationDisposition,
+            uint flagsAndAttributes,
+            IntPtr templateFile);
+
+        [DllImport("kernel32.dll", EntryPoint = "CreateHardLinkW", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool CreateHardLinkW(string linkPath, string existingPath, IntPtr securityAttributes);
+
+        [DllImport("kernel32.dll", EntryPoint = "MoveFileExW", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool MoveFileExW(string existingPath, string newPath, uint flags);
+
+        [DllImport("kernel32.dll", EntryPoint = "DeleteFileW", CharSet = CharSet.Unicode, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool DeleteFileW(string fileName);
+    }
+
+    private const uint GenericReadAccess = 0x80000000;
+    private const uint GenericWriteAccess = 0x40000000;
+    private const uint FileShareRead = 0x00000001;
 
     private static async Task AssertSplitKeepOutputsAreValidAsync(LivePhotoSplitResult result)
     {
@@ -783,10 +1336,11 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
         string sourcePath,
         IReadOnlyDictionary<string, string> hashes,
         string failureMechanism,
-        IEnumerable<string> remainingFiles)
+        IEnumerable<string> remainingFiles,
+        object? transactionEvidence = null)
     {
         string evidencePath = FindRepositoryRootAndJoin(
-            ".ai-tmp/workspace/P5-R6/neutral-split-publication-repair/publication-test-evidence.jsonl");
+            ".ai-tmp/workspace/P5-R6/neutral-split-exact-object-content-transaction/publication-test-evidence.jsonl");
         Directory.CreateDirectory(Path.GetDirectoryName(evidencePath)!);
         string json = JsonSerializer.Serialize(new
         {
@@ -796,6 +1350,7 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
             hashes,
             failureMechanism,
             remainingFiles = remainingFiles.OrderBy(name => name, StringComparer.Ordinal),
+            transactionEvidence,
             capturedAtUtc = DateTimeOffset.UtcNow
         });
 
@@ -803,11 +1358,49 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
             File.AppendAllText(evidencePath, json + Environment.NewLine);
     }
 
-    private static void AssertRealWin32Failure(Exception exception, params int[] expectedNativeErrors)
+    private static void AssertPostRollbackCleanupProofs(
+        IReadOnlyCollection<SplitPublicationTargetEvidence> evidence,
+        int expectedTargetCount)
+    {
+        Assert.Equal(expectedTargetCount, evidence.Count);
+        foreach (SplitPublicationTargetEvidence target in evidence)
+        {
+            AssertOwnedObjectCleanupProof(
+                target.StageIdentity,
+                target.StageCleanupProof,
+                $"stage for '{target.FinalPath}'");
+
+            if (target.BackupIdentity is not null)
+            {
+                AssertOwnedObjectCleanupProof(
+                    target.BackupIdentity,
+                    target.BackupCleanupProof,
+                    $"backup for '{target.FinalPath}'");
+            }
+            else
+            {
+                Assert.Null(target.BackupCleanupProof);
+            }
+        }
+    }
+
+    private static void AssertOwnedObjectCleanupProof(
+        WindowsFileIdentity? identity,
+        string? cleanupProof,
+        string role)
+    {
+        Assert.NotNull(identity);
+        Assert.True(
+            cleanupProof is "Gone" or "Unlinked",
+            $"The exact transaction-owned {role} object {identity!.VolumeSerialNumber:X8}:{identity.FileIndex:X16} has no accepted cleanup proof (actual: {cleanupProof ?? "missing"}).");
+    }
+
+    private static Win32Exception AssertRealWin32Failure(Exception exception, params int[] expectedNativeErrors)
     {
         Win32Exception? win32Exception = FindWin32Exception(exception);
         Assert.NotNull(win32Exception);
         Assert.Contains(win32Exception!.NativeErrorCode, expectedNativeErrors);
+        return win32Exception;
     }
 
     private static Win32Exception? FindWin32Exception(Exception exception)
