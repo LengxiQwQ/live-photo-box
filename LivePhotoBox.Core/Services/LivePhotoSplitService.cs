@@ -5,16 +5,20 @@ using LivePhotoBox.Media.Workspace;
 using NeutralMediaBundle = LivePhotoBox.Protocols.Cleaning.NeutralMediaBundle;
 using System;
 using System.Buffers;
+using System.Buffers.Binary;
+using System.ComponentModel;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
+using Microsoft.Win32.SafeHandles;
 
 /*
  * LivePhotoSplitService.cs
@@ -67,6 +71,8 @@ namespace LivePhotoBox.Services
             RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase,
             TimeSpan.FromSeconds(2));
 
+        private static readonly AsyncLocal<SplitPublicationTestHook?> s_splitPublicationTestHook = new();
+
         public static Task<LivePhotoSplitResult> SplitAsync(string sourcePath, string outputDirectory, int protocolIndex, int outputFormatIndex, CancellationToken token, string? inputDirectory = null, string? outputBaseName = null, bool overwriteExisting = false, long? keyTimestampUs = null)
         {
             return ProcessingPipelineRouter.RunRebuiltAsync("split", () => SplitRebuiltAsync(
@@ -118,24 +124,573 @@ namespace LivePhotoBox.Services
                 outputBaseName,
                 overwriteExisting);
 
+            await PublishSplitOutputsAsync(
+                bundle.PrimaryImage.Path,
+                bundle.MotionVideo.Path,
+                imageOutputPath,
+                videoOutputPath,
+                overwriteExisting,
+                token).ConfigureAwait(false);
+
+            return new LivePhotoSplitResult
+            {
+                ImageOutputPath = imageOutputPath,
+                VideoOutputPath = videoOutputPath
+            };
+        }
+
+        internal static IDisposable SetBeforeSplitPublicationTestHook(
+            string outputDirectory,
+            Func<string, CancellationToken, Task> callback)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(outputDirectory);
+            ArgumentNullException.ThrowIfNull(callback);
+
+            SplitPublicationTestHook? previous = s_splitPublicationTestHook.Value;
+            s_splitPublicationTestHook.Value = new SplitPublicationTestHook(
+                Path.GetFullPath(outputDirectory), callback);
+            return new SplitPublicationTestHookScope(previous);
+        }
+
+        private static async Task InvokeBeforeSplitPublicationTestHookAsync(
+            string finalPath,
+            CancellationToken token)
+        {
+            SplitPublicationTestHook? hook = s_splitPublicationTestHook.Value;
+            if (hook == null)
+                return;
+
+            string? finalDirectory = Path.GetDirectoryName(Path.GetFullPath(finalPath));
+            if (string.Equals(finalDirectory, hook.OutputDirectory, StringComparison.OrdinalIgnoreCase))
+                await hook.Callback(finalPath, token).ConfigureAwait(false);
+        }
+
+        private sealed record SplitPublicationTestHook(
+            string OutputDirectory,
+            Func<string, CancellationToken, Task> Callback);
+
+        private sealed class SplitPublicationTestHookScope(SplitPublicationTestHook? previous) : IDisposable
+        {
+            private bool _disposed;
+
+            public void Dispose()
+            {
+                if (_disposed)
+                    return;
+
+                s_splitPublicationTestHook.Value = previous;
+                _disposed = true;
+            }
+        }
+
+        private static async Task PublishSplitOutputsAsync(
+            string imageSourcePath,
+            string videoSourcePath,
+            string imageFinalPath,
+            string videoFinalPath,
+            bool overwriteExisting,
+            CancellationToken token)
+        {
+            using var transaction = new SplitOutputPublicationTransaction(
+                imageFinalPath, videoFinalPath, overwriteExisting);
+
             try
             {
-                File.Copy(bundle.PrimaryImage.Path, imageOutputPath, overwrite: true);
-                File.Copy(bundle.MotionVideo.Path, videoOutputPath, overwrite: true);
-
-                return new LivePhotoSplitResult
-                {
-                    ImageOutputPath = imageOutputPath,
-                    VideoOutputPath = videoOutputPath
-                };
+                await transaction.PrepareAsync(imageSourcePath, videoSourcePath, token).ConfigureAwait(false);
+                await transaction.CommitAsync(token).ConfigureAwait(false);
             }
-            catch
+            catch (Exception publicationFailure)
             {
-                try { if (File.Exists(imageOutputPath)) File.Delete(imageOutputPath); } catch { }
-                try { if (File.Exists(videoOutputPath)) File.Delete(videoOutputPath); } catch { }
+                Exception? rollbackFailure = transaction.Rollback();
+                if (rollbackFailure != null)
+                {
+                    throw new AggregateException(
+                        "Split output publication failed and exact-object rollback could not fully close the transaction.",
+                        publicationFailure,
+                        rollbackFailure);
+                }
+
                 throw;
             }
         }
+
+        private sealed class SplitOutputPublicationTransaction : IDisposable
+        {
+            private readonly string _imageFinalPath;
+            private readonly string _videoFinalPath;
+            private readonly string _targetDirectory;
+            private readonly bool _overwriteExisting;
+            private readonly List<SplitOriginalFile> _originals = [];
+            private SplitStagedFile? _imageStage;
+            private SplitStagedFile? _videoStage;
+            private SafeFileHandle? _targetDirectoryHandle;
+            private bool _committed;
+            private bool _rolledBack;
+
+            public SplitOutputPublicationTransaction(
+                string imageFinalPath,
+                string videoFinalPath,
+                bool overwriteExisting)
+            {
+                _imageFinalPath = Path.GetFullPath(imageFinalPath);
+                _videoFinalPath = Path.GetFullPath(videoFinalPath);
+                _overwriteExisting = overwriteExisting;
+
+                string? imageDirectory = Path.GetDirectoryName(_imageFinalPath);
+                string? videoDirectory = Path.GetDirectoryName(_videoFinalPath);
+                if (string.IsNullOrWhiteSpace(imageDirectory) ||
+                    !string.Equals(imageDirectory, videoDirectory, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new IOException("Split image and video outputs must share one target directory for transactional publication.");
+                }
+
+                _targetDirectory = imageDirectory;
+            }
+
+            public async Task PrepareAsync(
+                string imageSourcePath,
+                string videoSourcePath,
+                CancellationToken token)
+            {
+                token.ThrowIfCancellationRequested();
+                _imageStage = CreateStagedFile(_targetDirectory, "image");
+                _videoStage = CreateStagedFile(_targetDirectory, "video");
+
+                await CopyToStageAsync(imageSourcePath, _imageStage.Stream, token).ConfigureAwait(false);
+                await CopyToStageAsync(videoSourcePath, _videoStage.Stream, token).ConfigureAwait(false);
+
+                _imageStage.Identity = CaptureAndValidateOwnedFile(_imageStage.Stream.SafeFileHandle, _imageStage.Path);
+                _videoStage.Identity = CaptureAndValidateOwnedFile(_videoStage.Stream.SafeFileHandle, _videoStage.Path);
+            }
+
+            public async Task CommitAsync(CancellationToken token)
+            {
+                if (_imageStage == null || _videoStage == null)
+                    throw new InvalidOperationException("Both Split Neutral outputs must be staged before publication.");
+
+                token.ThrowIfCancellationRequested();
+                _targetDirectoryHandle = OpenTargetDirectory(
+                    _targetDirectory,
+                    exclusiveNamespace: _overwriteExisting);
+                WindowsFileIdentity directoryIdentity = WindowsFileIdentity.Capture(_targetDirectoryHandle);
+                if (directoryIdentity.IsReparsePoint ||
+                    (directoryIdentity.FileAttributes & FileAttributeDirectory) == 0 ||
+                    directoryIdentity.VolumeSerialNumber != _imageStage.Identity!.VolumeSerialNumber ||
+                    directoryIdentity.VolumeSerialNumber != _videoStage.Identity!.VolumeSerialNumber)
+                {
+                    throw new IOException("Split target directory is redirected, not a directory, or on a different volume from its staged artifacts.");
+                }
+
+                try
+                {
+                    await PublishOneAsync(_imageStage, _imageFinalPath, token).ConfigureAwait(false);
+                    await PublishOneAsync(_videoStage, _videoFinalPath, token).ConfigureAwait(false);
+
+                    // Both final names now refer to the staged objects. Only now
+                    // retire the exact displaced originals retained by this transaction.
+                    foreach (SplitOriginalFile original in _originals)
+                    {
+                        DeleteOwnedObject(original.Stream.SafeFileHandle, original.BackupPath);
+                        original.Deleted = true;
+                    }
+
+                    _committed = true;
+                }
+                catch
+                {
+                    Exception? rollbackFailure = Rollback();
+                    if (rollbackFailure != null)
+                    {
+                        throw new AggregateException(
+                            "Split output publication failed and exact-object rollback could not fully close the transaction.",
+                            rollbackFailure);
+                    }
+
+                    throw;
+                }
+            }
+
+            private async Task PublishOneAsync(
+                SplitStagedFile staged,
+                string finalPath,
+                CancellationToken token)
+            {
+                token.ThrowIfCancellationRequested();
+
+                if (_overwriteExisting)
+                {
+                    SplitOriginalFile? original = TryOpenOriginal(finalPath);
+                    if (original != null)
+                    {
+                        _originals.Add(original);
+                        original.BackupPath = CreateBackupPath(finalPath);
+                        RevalidateIdentity(original.Stream.SafeFileHandle, original.Identity, finalPath);
+                        RenameOwnedObject(
+                            original.Stream.SafeFileHandle,
+                            original.BackupPath,
+                            _targetDirectoryHandle!);
+                        original.IsBackedUp = true;
+                    }
+                }
+                else
+                {
+                    await InvokeBeforeSplitPublicationTestHookAsync(finalPath, token).ConfigureAwait(false);
+                }
+
+                RevalidateIdentity(staged.Stream.SafeFileHandle, staged.Identity!, staged.Path);
+                RenameOwnedObject(
+                    staged.Stream.SafeFileHandle,
+                    finalPath,
+                    _targetDirectoryHandle!);
+                staged.IsPublished = true;
+            }
+
+            public Exception? Rollback()
+            {
+                if (_committed || _rolledBack)
+                    return null;
+
+                _rolledBack = true;
+                var failures = new List<Exception>();
+
+                // Remove new outputs by the exact retained staging handles before
+                // restoring original objects to their final names.
+                TryDeleteStage(_videoStage, failures);
+                TryDeleteStage(_imageStage, failures);
+
+                for (int i = _originals.Count - 1; i >= 0; i--)
+                {
+                    SplitOriginalFile original = _originals[i];
+                    if (!original.IsBackedUp || original.Deleted)
+                        continue;
+
+                    try
+                    {
+                        RevalidateIdentity(original.Stream.SafeFileHandle, original.Identity, original.BackupPath);
+                        RenameOwnedObject(
+                            original.Stream.SafeFileHandle,
+                            original.FinalPath,
+                            _targetDirectoryHandle!);
+                        original.IsBackedUp = false;
+                    }
+                    catch (Exception exception)
+                    {
+                        failures.Add(new IOException(
+                            $"Unable to restore exact original Split target '{original.FinalPath}' from its transaction backup.",
+                            exception));
+                    }
+                }
+
+                return failures.Count switch
+                {
+                    0 => null,
+                    1 => failures[0],
+                    _ => new AggregateException("One or more exact-object Split rollback actions failed.", failures)
+                };
+            }
+
+            private static void TryDeleteStage(SplitStagedFile? staged, List<Exception> failures)
+            {
+                if (staged == null || staged.Deleted)
+                    return;
+
+                try
+                {
+                    DeleteOwnedObject(staged.Stream.SafeFileHandle, staged.Path);
+                    staged.Deleted = true;
+                }
+                catch (Exception exception)
+                {
+                    failures.Add(exception);
+                }
+            }
+
+            public void Dispose()
+            {
+                _targetDirectoryHandle?.Dispose();
+                _imageStage?.Stream.Dispose();
+                _videoStage?.Stream.Dispose();
+                foreach (SplitOriginalFile original in _originals)
+                    original.Stream.Dispose();
+            }
+        }
+
+        private sealed class SplitStagedFile(string path, FileStream stream)
+        {
+            public string Path { get; } = path;
+            public FileStream Stream { get; } = stream;
+            public WindowsFileIdentity? Identity { get; set; }
+            public bool IsPublished { get; set; }
+            public bool Deleted { get; set; }
+        }
+
+        private sealed class SplitOriginalFile(
+            string finalPath,
+            FileStream stream,
+            WindowsFileIdentity identity)
+        {
+            public string FinalPath { get; } = finalPath;
+            public FileStream Stream { get; } = stream;
+            public WindowsFileIdentity Identity { get; } = identity;
+            public string BackupPath { get; set; } = string.Empty;
+            public bool IsBackedUp { get; set; }
+            public bool Deleted { get; set; }
+        }
+
+        private static SplitStagedFile CreateStagedFile(string targetDirectory, string role)
+        {
+            for (int attempt = 0; attempt < 32; attempt++)
+            {
+                string path = Path.Combine(
+                    targetDirectory,
+                    $".lpb-split-stage-{role}-{Guid.NewGuid():N}.tmp");
+                SafeFileHandle handle = CreateFileW(
+                    path,
+                    GenericRead | GenericWrite | DeleteAccess | FileReadAttributes,
+                    FileShareRead | FileShareDelete,
+                    IntPtr.Zero,
+                    CreateNew,
+                    FileAttributeNormal | OpenReparsePoint,
+                    IntPtr.Zero);
+                if (!handle.IsInvalid)
+                {
+                    return new SplitStagedFile(
+                        path,
+                        new FileStream(handle, FileAccess.ReadWrite, 128 * 1024, isAsync: false));
+                }
+
+                int error = Marshal.GetLastWin32Error();
+                handle.Dispose();
+                if (error is ErrorFileExists or ErrorAlreadyExists)
+                    continue;
+
+                throw new IOException(
+                    $"Unable to create transaction-owned Split staging file '{path}'.",
+                    new Win32Exception(error));
+            }
+
+            throw new IOException("Unable to allocate a unique transaction-owned Split staging file name.");
+        }
+
+        private static async Task CopyToStageAsync(string sourcePath, FileStream stage, CancellationToken token)
+        {
+            await using var source = new FileStream(
+                sourcePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 128 * 1024,
+                useAsync: true);
+            await source.CopyToAsync(stage, 128 * 1024, token).ConfigureAwait(false);
+            stage.Flush(flushToDisk: true);
+        }
+
+        private static SplitOriginalFile? TryOpenOriginal(string path)
+        {
+            SafeFileHandle handle = CreateFileW(
+                path,
+                GenericRead | DeleteAccess | FileReadAttributes,
+                FileShareRead | FileShareDelete,
+                IntPtr.Zero,
+                OpenExisting,
+                OpenReparsePoint,
+                IntPtr.Zero);
+            if (handle.IsInvalid)
+            {
+                int error = Marshal.GetLastWin32Error();
+                handle.Dispose();
+                if (error == ErrorFileNotFound)
+                    return null;
+
+                throw new IOException(
+                    $"Unable to open existing Split destination '{path}' for exact-object preservation.",
+                    new Win32Exception(error));
+            }
+
+            try
+            {
+                var stream = new FileStream(handle, FileAccess.Read, 128 * 1024, isAsync: false);
+                WindowsFileIdentity identity = CaptureAndValidateOwnedFile(stream.SafeFileHandle, path);
+                return new SplitOriginalFile(path, stream, identity);
+            }
+            catch
+            {
+                if (!handle.IsClosed)
+                    handle.Dispose();
+                throw;
+            }
+        }
+
+        private static SafeFileHandle OpenTargetDirectory(string path, bool exclusiveNamespace)
+        {
+            uint shareMode = FileShareRead | FileShareDelete;
+            if (!exclusiveNamespace)
+                shareMode |= FileShareWrite;
+
+            SafeFileHandle handle = CreateFileW(
+                path,
+                FileListDirectory | FileAddFile | FileReadAttributes,
+                shareMode,
+                IntPtr.Zero,
+                OpenExisting,
+                BackupSemantics | OpenReparsePoint,
+                IntPtr.Zero);
+            if (handle.IsInvalid)
+            {
+                int error = Marshal.GetLastWin32Error();
+                handle.Dispose();
+                throw new IOException(
+                    $"Unable to open Split target directory '{path}' for handle-bound publication.",
+                    new Win32Exception(error));
+            }
+
+            return handle;
+        }
+
+        private static string CreateBackupPath(string finalPath) => Path.Combine(
+            Path.GetDirectoryName(finalPath)!,
+            $".lpb-split-backup-{Guid.NewGuid():N}.tmp");
+
+        private static WindowsFileIdentity CaptureAndValidateOwnedFile(SafeFileHandle handle, string path)
+        {
+            WindowsFileIdentity identity = WindowsFileIdentity.Capture(handle);
+            if (identity.IsReparsePoint ||
+                (identity.FileAttributes & FileAttributeDirectory) != 0 ||
+                identity.LinkCount != 1)
+            {
+                throw new IOException(
+                    $"Split transaction object '{path}' is not a single-link regular file; refusing to use pathname-based ownership.");
+            }
+
+            return identity;
+        }
+
+        private static void RevalidateIdentity(
+            SafeFileHandle handle,
+            WindowsFileIdentity expected,
+            string path)
+        {
+            WindowsFileIdentity actual = CaptureAndValidateOwnedFile(handle, path);
+            if (!expected.Matches(actual))
+                throw new IOException($"Split file identity changed before the publication boundary for '{path}'.");
+        }
+
+        private static void RenameOwnedObject(
+            SafeFileHandle fileHandle,
+            string destinationPath,
+            SafeFileHandle targetDirectoryHandle)
+        {
+            if (string.IsNullOrWhiteSpace(destinationPath))
+                throw new ArgumentException("A destination path is required for Split handle-based rename.", nameof(destinationPath));
+
+            string destinationName = Path.GetFileName(destinationPath);
+            if (string.IsNullOrWhiteSpace(destinationName))
+                throw new ArgumentException("A destination file name is required for Split handle-based rename.", nameof(destinationPath));
+
+            byte[] nameBytes = Encoding.Unicode.GetBytes(destinationName);
+            int replaceOffset = (int)Marshal.OffsetOf<SplitFileRenameInfoHeader>(nameof(SplitFileRenameInfoHeader.ReplaceIfExists));
+            int rootOffset = (int)Marshal.OffsetOf<SplitFileRenameInfoHeader>(nameof(SplitFileRenameInfoHeader.RootDirectory));
+            int lengthOffset = (int)Marshal.OffsetOf<SplitFileRenameInfoHeader>(nameof(SplitFileRenameInfoHeader.FileNameLength));
+            int fileNameOffset = checked(lengthOffset + sizeof(uint));
+            byte[] buffer = new byte[checked(fileNameOffset + nameBytes.Length)];
+            Span<byte> bytes = buffer;
+            BinaryPrimitives.WriteInt32LittleEndian(bytes.Slice(replaceOffset), 0);
+            if (IntPtr.Size == sizeof(long))
+                BinaryPrimitives.WriteInt64LittleEndian(bytes.Slice(rootOffset), targetDirectoryHandle.DangerousGetHandle().ToInt64());
+            else
+                BinaryPrimitives.WriteInt32LittleEndian(bytes.Slice(rootOffset), targetDirectoryHandle.DangerousGetHandle().ToInt32());
+            BinaryPrimitives.WriteUInt32LittleEndian(bytes.Slice(lengthOffset), (uint)nameBytes.Length);
+            nameBytes.CopyTo(bytes.Slice(fileNameOffset));
+
+            if (!SetFileInformationByHandle(
+                    fileHandle,
+                    FileRenameInfoClass,
+                    buffer,
+                    (uint)buffer.Length))
+            {
+                int error = Marshal.GetLastWin32Error();
+                throw new IOException(
+                    $"Handle-bound no-replace Split rename to '{destinationName}' failed.",
+                    new Win32Exception(error));
+            }
+        }
+
+        private static void DeleteOwnedObject(SafeFileHandle handle, string path)
+        {
+            var disposition = new SplitFileDispositionInfo { DeleteFile = 1 };
+            if (!SetFileInformationByHandle(
+                    handle,
+                    FileDispositionInfoClass,
+                    ref disposition,
+                    (uint)Marshal.SizeOf<SplitFileDispositionInfo>()))
+            {
+                int error = Marshal.GetLastWin32Error();
+                throw new IOException(
+                    $"Unable to remove exact transaction-owned Split object '{path}'.",
+                    new Win32Exception(error));
+            }
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct SplitFileRenameInfoHeader
+        {
+            public byte ReplaceIfExists;
+            public IntPtr RootDirectory;
+            public uint FileNameLength;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct SplitFileDispositionInfo
+        {
+            public byte DeleteFile;
+        }
+
+        [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern SafeFileHandle CreateFileW(
+            string fileName,
+            uint desiredAccess,
+            uint shareMode,
+            IntPtr securityAttributes,
+            uint creationDisposition,
+            uint flagsAndAttributes,
+            IntPtr templateFile);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetFileInformationByHandle(
+            SafeFileHandle fileHandle,
+            int fileInformationClass,
+            [In] byte[] fileInformation,
+            uint bufferSize);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool SetFileInformationByHandle(
+            SafeFileHandle fileHandle,
+            int fileInformationClass,
+            ref SplitFileDispositionInfo fileInformation,
+            uint bufferSize);
+
+        private const uint GenericRead = 0x80000000;
+        private const uint GenericWrite = 0x40000000;
+        private const uint DeleteAccess = 0x00010000;
+        private const uint FileReadAttributes = 0x00000080;
+        private const uint FileListDirectory = 0x00000001;
+        private const uint FileAddFile = 0x00000002;
+        private const uint FileShareRead = 0x00000001;
+        private const uint FileShareWrite = 0x00000002;
+        private const uint FileShareDelete = 0x00000004;
+        private const uint CreateNew = 1;
+        private const uint OpenExisting = 3;
+        private const uint FileAttributeNormal = 0x00000080;
+        private const uint FileAttributeDirectory = 0x00000010;
+        private const uint BackupSemantics = 0x02000000;
+        private const uint OpenReparsePoint = 0x00200000;
+        private const int FileRenameInfoClass = 3;
+        private const int FileDispositionInfoClass = 4;
+        private const int ErrorFileNotFound = 2;
+        private const int ErrorFileExists = 80;
+        private const int ErrorAlreadyExists = 183;
 
 
         // 从源文件流中读取前 <see cref="MetadataProbeBytes"/> 字节的文本内容，
@@ -533,21 +1088,22 @@ namespace LivePhotoBox.Services
                 subDir = PathHelper.GetRelativeSubDirectory(inputDirectory, sourcePath);
             }
 
+            string targetDir = subDir != null ? Path.Combine(outputDirectory, subDir) : outputDirectory;
+            Directory.CreateDirectory(targetDir);
+
             string imageOutputPath;
             string videoOutputPath;
 
             if (overwriteExisting)
             {
                 // 覆盖模式：使用确定性文件名（与源同名 baseName），后续写入前删除旧文件。
-                string targetDir = subDir != null ? Path.Combine(outputDirectory, subDir) : outputDirectory;
-                Directory.CreateDirectory(targetDir);
                 imageOutputPath = Path.Combine(targetDir, $"{baseName}{imageExtension}");
                 videoOutputPath = Path.Combine(targetDir, $"{baseName}{videoExtension}");
             }
             else
             {
-                imageOutputPath = PathHelper.GetUniqueFilePath(outputDirectory, $"{baseName}{imageExtension}", subDir);
-                videoOutputPath = PathHelper.GetUniqueFilePath(outputDirectory, $"{baseName}{videoExtension}", subDir);
+                imageOutputPath = GetSplitNoOverwriteCandidate(targetDir, $"{baseName}{imageExtension}");
+                videoOutputPath = GetSplitNoOverwriteCandidate(targetDir, $"{baseName}{videoExtension}");
             }
 
             string sourceFullPath = Path.GetFullPath(sourcePath);
@@ -564,6 +1120,26 @@ namespace LivePhotoBox.Services
             }
 
             return (imageOutputPath, videoOutputPath);
+        }
+
+        private static string GetSplitNoOverwriteCandidate(string targetDirectory, string fileName)
+        {
+            string candidate = Path.Combine(targetDirectory, fileName);
+            if (!File.Exists(candidate) && !Directory.Exists(candidate))
+                return candidate;
+
+            string nameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
+            string extension = Path.GetExtension(fileName);
+            for (int suffix = 2; suffix < 999; suffix++)
+            {
+                candidate = Path.Combine(targetDirectory, $"{nameWithoutExtension} ({suffix}){extension}");
+                if (!File.Exists(candidate) && !Directory.Exists(candidate))
+                    return candidate;
+            }
+
+            return Path.Combine(
+                targetDirectory,
+                $"{nameWithoutExtension} ({Guid.NewGuid():N}){extension}");
         }
 
         // 从源流复制指定字节数到目标流。
