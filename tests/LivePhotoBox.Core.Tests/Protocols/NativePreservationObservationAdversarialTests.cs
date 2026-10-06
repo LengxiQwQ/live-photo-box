@@ -847,3 +847,105 @@ public sealed class NativePreservationObservationAdversarialTests
     }
 }
 
+public sealed class NativePreservationObservationIccValidationTests
+{
+    private const int IccProfileSize = 548;
+
+    [Fact]
+    public async Task Observation_JpegIccHashesDeclaredProfileAndRejectsMalformedBounds()
+    {
+        using var workspace = new MediaWorkspace();
+        byte[] declaredProfile = CreateIccProfile();
+        byte[] withTrailingBytes = declaredProfile.Concat(new byte[]
+        {
+            0x46, 0x50, 0x58, 0x52, 0x00, 0x00, 0x00, 0x00
+        }).ToArray();
+        string validPath = workspace.AllocateFilePath("icc-declared-profile", ".jpg");
+        await File.WriteAllBytesAsync(validPath, CreateJpegWithIcc(withTrailingBytes));
+
+        var valid = await NativeMediaService.CapturePreservationObservationAsync(
+            validPath, SourceProtocol.Unknown, ImageContainer.Jpeg);
+        Assert.True(valid.HasIcc);
+        Assert.False(valid.IccParseError);
+        Assert.Equal(Convert.ToHexString(SHA256.HashData(declaredProfile)), valid.IccSha256);
+
+        byte[] changedTrailingBytes = declaredProfile.Concat(new byte[]
+        {
+            0x00, 0x11, 0x22, 0x33, 0xAA, 0xBB, 0xCC, 0xDD
+        }).ToArray();
+        string changedTrailingPath = workspace.AllocateFilePath("icc-changed-trailing-bytes", ".jpg");
+        await File.WriteAllBytesAsync(changedTrailingPath, CreateJpegWithIcc(changedTrailingBytes));
+        var changedTrailing = await NativeMediaService.CapturePreservationObservationAsync(
+            changedTrailingPath, SourceProtocol.Unknown, ImageContainer.Jpeg);
+        Assert.True(changedTrailing.HasIcc);
+        Assert.False(changedTrailing.IccParseError);
+        Assert.Equal(valid.IccSha256, changedTrailing.IccSha256);
+
+        byte[] truncatedProfile = CreateIccProfile();
+        Array.Resize(ref truncatedProfile, IccProfileSize - 1);
+        await AssertMalformedProfileAsync(workspace, "icc-truncated", truncatedProfile);
+
+        byte[] invalidTagRange = CreateIccProfile();
+        BinaryPrimitives.WriteUInt32BigEndian(invalidTagRange.AsSpan(136, 4), IccProfileSize - 4);
+        BinaryPrimitives.WriteUInt32BigEndian(invalidTagRange.AsSpan(140, 4), 8);
+        await AssertMalformedProfileAsync(workspace, "icc-tag-out-of-range", invalidTagRange);
+
+        await AssertMalformedProfileAsync(workspace, "icc-truncated-header", new byte[128]);
+    }
+
+    private static async Task AssertMalformedProfileAsync(
+        MediaWorkspace workspace,
+        string fileName,
+        byte[] profile)
+    {
+        string path = workspace.AllocateFilePath(fileName, ".jpg");
+        await File.WriteAllBytesAsync(path, CreateJpegWithIcc(profile));
+        var observation = await NativeMediaService.CapturePreservationObservationAsync(
+            path, SourceProtocol.Unknown, ImageContainer.Jpeg);
+        Assert.True(observation.IccParseError, $"{fileName} must fail closed with IccParseError.");
+        Assert.False(observation.HasIcc);
+        Assert.Empty(observation.IccSha256);
+    }
+
+    private static byte[] CreateIccProfile()
+    {
+        byte[] profile = new byte[IccProfileSize];
+        BinaryPrimitives.WriteUInt32BigEndian(profile.AsSpan(0, 4), IccProfileSize);
+        "acsp"u8.CopyTo(profile.AsSpan(36, 4));
+        BinaryPrimitives.WriteUInt32BigEndian(profile.AsSpan(128, 4), 1);
+        "desc"u8.CopyTo(profile.AsSpan(132, 4));
+        BinaryPrimitives.WriteUInt32BigEndian(profile.AsSpan(136, 4), 144);
+        BinaryPrimitives.WriteUInt32BigEndian(profile.AsSpan(140, 4), IccProfileSize - 144);
+        for (int i = 144; i < profile.Length; i++) profile[i] = (byte)(i * 31 + 7);
+        return profile;
+    }
+
+    private static byte[] CreateJpegWithIcc(byte[] profile)
+    {
+        byte[] signature = Encoding.ASCII.GetBytes("ICC_PROFILE\0");
+        int app2Length = 16 + profile.Length;
+        byte[] jpeg = new byte[2 + 2 + 2 + signature.Length + 2 + profile.Length + 2 + 2 + 1 + 2];
+        int position = 0;
+        jpeg[position++] = 0xFF;
+        jpeg[position++] = 0xD8;
+        jpeg[position++] = 0xFF;
+        jpeg[position++] = 0xE2;
+        BinaryPrimitives.WriteUInt16BigEndian(jpeg.AsSpan(position, 2), checked((ushort)app2Length));
+        position += 2;
+        signature.CopyTo(jpeg, position);
+        position += signature.Length;
+        jpeg[position++] = 1;
+        jpeg[position++] = 1;
+        profile.CopyTo(jpeg, position);
+        position += profile.Length;
+        jpeg[position++] = 0xFF;
+        jpeg[position++] = 0xDA;
+        jpeg[position++] = 0;
+        jpeg[position++] = 2;
+        jpeg[position++] = 0;
+        jpeg[position++] = 0xFF;
+        jpeg[position] = 0xD9;
+        return jpeg;
+    }
+}
+

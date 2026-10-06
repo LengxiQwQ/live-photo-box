@@ -1532,6 +1532,60 @@ public sealed class ImageConverterTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
+    public async Task Convert_VivoJpegIccIgnoresBytesBeyondDeclaredProfile()
+    {
+        const string expectedDeclaredIccSha = "D2CA36B1E85BD83C5F257869E63299FE41FBA4334F0404825436FF0883706E7D";
+        string source = ResolveSample("vivo双文件.jpg");
+        string companion = ResolveSample("vivo双文件.mp4");
+        string sourceHash = await ComputeSha256Async(source);
+        string companionHash = await ComputeSha256Async(companion);
+        SourceMediaFacts sourceFacts = await NativeMediaService.InspectMediaAsync(source, companion);
+        Assert.Equal(ImageContainer.Jpeg, sourceFacts.PrimaryImage.Container);
+        Assert.Null(sourceFacts.GainMap);
+
+        using var workspace = new MediaWorkspace();
+        string primaryPath = Path.Combine(workspace.RootDirectory, "vivo-primary.jpg");
+        await CopyRangeAsync(source, primaryPath,
+            sourceFacts.PrimaryImage.ByteOffset, sourceFacts.PrimaryImage.ByteLength);
+        var sourceColor = await NativeMediaService.CapturePreservationObservationAsync(
+            primaryPath, SourceProtocol.Unknown, ImageContainer.Jpeg);
+        Assert.True(sourceColor.HasIcc);
+        Assert.False(sourceColor.IccParseError);
+        Assert.Equal(expectedDeclaredIccSha, sourceColor.IccSha256);
+
+        var result = await new ImageConverter().ConvertAsync(new ImageConversionRequest
+        {
+            SourceArtifact = new MediaArtifact
+            {
+                Path = primaryPath,
+                Kind = MediaArtifactKind.PrimaryImage,
+                MimeType = "image/jpeg",
+                ImageContainer = ImageContainer.Jpeg,
+                ByteLength = new FileInfo(primaryPath).Length
+            },
+            TargetContainer = ImageContainer.Heic,
+            TargetDirectory = workspace.RootDirectory,
+            PreservationPolicy = PreservationPolicy.BestEffort
+        });
+
+        Assert.True(result.Success, result.ErrorMessage);
+        Assert.NotNull(result.OutputArtifact);
+        Assert.Equal(ConversionComponentOutcome.Preserved, result.ExecutionRecord.Truth.ColorIcc);
+        var outputColor = await NativeMediaService.CapturePreservationObservationAsync(
+            result.OutputArtifact!.Path, SourceProtocol.Unknown, ImageContainer.Heic);
+        Assert.True(outputColor.HasIcc);
+        Assert.False(outputColor.IccParseError);
+        Assert.Equal(expectedDeclaredIccSha, outputColor.IccSha256);
+
+        NativeHeicPrimaryDecodeInfo decoded = await NativeMediaService.DecodeHeicPrimaryAsync(result.OutputArtifact.Path);
+        Assert.Equal((byte)1, decoded.HasIcc);
+        Assert.Equal((byte)0, decoded.HasNclx);
+        Assert.Equal(sourceHash, await ComputeSha256Async(source));
+        Assert.Equal(companionHash, await ComputeSha256Async(companion));
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
     public async Task NativeHeicBackend_EncodesSecondCodecImageForProjectOwnedAuxiliaryAssembly()
     {
         string source = ResolveSample("oppo.jpg");

@@ -1,8 +1,8 @@
 # P5-Audit — Fresh Independent Converter Reliability Audit
 
 > **性质：** 独立审计；Auditor 默认只读，必须与 Implementer 的实现上下文独立。
-> **基线：** Roadmap revision `317465937A08A908F318ED0F1005AFF7D5B41E637DFF75276F7C08732BB859A7`；R6 post-accept HEAD `cc54298524bc441f9644b0bba6cc6f5a23deaa14`。
-> **状态：** P5 仍为 `in_progress`；R6 已获明确 ACCEPT 并完成提交、推送和要求的 CI；Audit 尚未执行，Verify 与最终 P5 Gate 尚未完成。
+> **基线：** Roadmap revision `317465937A08A908F318ED0F1005AFF7D5B41E637DFF75276F7C08732BB859A7`；R6 post-accept HEAD `64a90efc0ac2c30137b428a2f8a03182fc66a8e5`。
+> **状态：** P5 仍为 `in_progress`；R6 F-1 修复获 C2C task `c2c_f878` iteration 31 明确外部 ACCEPT，已提交并推送至上述 HEAD；Build & Release run `37297195557` 的 `verify` job，以及 CodeQL run `37297195521` 的 `Analyze csharp` 和 `Analyze c-cpp` 均成功。Audit 尚未执行，Verify 与最终 P5 Gate 尚未完成。
 > 本文只细化 P5 Audit，不修改 P5、Neutral Media Contract、公开 Contract/ABI、任何 R0–R6 验收条件或阶段顺序。
 
 ## 1. 权威与角色边界
@@ -35,7 +35,7 @@ Audit 不重开 P4 backend 选择，不新增 capability，不改公共 Contract
 - `.\.ai\reconcile.ps1` 的真实结果；
 - 审计读取的源文件、测试、profile/manifest、报告及其所绑定的 commit/hash。
 
-期望基线为 P5 `in_progress`，R6 post-accept HEAD `cc54298524bc441f9644b0bba6cc6f5a23deaa14`。若审计目标在进行中改变、revision/state/task 与权威不一致，或证据无法绑定到所审 HEAD，应停止结论并报告精确差异；不得把不同树的结果拼成一个 PASS。R6 快照中 Windows 工作树 CRLF 与归档 LF 造成的原始文件 SHA 差异，必须按已保存的 Git blob 身份及换行归一化绑定判断；不得谎称原始字节 SHA 相同。
+期望基线为 P5 `in_progress`，R6 post-accept HEAD `64a90efc0ac2c30137b428a2f8a03182fc66a8e5`。若审计目标在进行中改变、revision/state/task 与权威不一致，或证据无法绑定到所审 HEAD，应停止结论并报告精确差异；不得把不同树的结果拼成一个 PASS。R6 快照中 Windows 工作树 CRLF 与归档 LF 造成的原始文件 SHA 差异，必须按已保存的 Git blob 身份及换行归一化绑定判断；不得谎称原始字节 SHA 相同。
 
 ## 4. P5 Exit Criteria 审计矩阵
 

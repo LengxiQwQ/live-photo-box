@@ -1,4 +1,5 @@
 #include "livephotobox_native.h"
+#include "media/icc_profile_validation.h"
 #include "foundation/internal.h"
 #include "foundation/sha256.h"
 #include "metadata/exif.h"
@@ -10,6 +11,7 @@
 #include <cctype>
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -534,10 +536,24 @@ void observe_jpeg_icc(const std::vector<uint8_t>& data, lpb_preservation_observa
             out->flags |= LPB_POBS_ICC_PARSE_ERROR;
             return;
         }
-        lpb::crypto::sha256_ctx sha;
-        for (const auto& c : chunks) {
-            sha.update(c.data(), c.size());
+        size_t total = 0;
+        for (const auto& chunk : chunks) {
+            if (chunk.size() > std::numeric_limits<size_t>::max() - total) {
+                out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+                return;
+            }
+            total += chunk.size();
         }
+        std::vector<uint8_t> profile;
+        profile.reserve(total);
+        for (const auto& chunk : chunks) profile.insert(profile.end(), chunk.begin(), chunk.end());
+        size_t declared_profile_size = 0;
+        if (!lpb::media::detail::get_declared_icc_profile_size(profile, declared_profile_size)) {
+            out->flags |= LPB_POBS_ICC_PARSE_ERROR;
+            return;
+        }
+        lpb::crypto::sha256_ctx sha;
+        sha.update(profile.data(), declared_profile_size);
         uint8_t hash[32];
         sha.finalize(hash);
         sha256_to_hex_upper(hash, out->icc_sha256);

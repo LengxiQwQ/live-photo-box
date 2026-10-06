@@ -1,4 +1,5 @@
 #include "media/jpeg_backend.h"
+#include "media/icc_profile_validation.h"
 #include "foundation/internal.h"
 #include "platform/windows_filesystem.h"
 
@@ -106,6 +107,12 @@ bool extract_jpeg_icc_profile(std::span<const unsigned char> data, std::vector<u
     try { profile.reserve(total); }
     catch (...) { return false; }
     for (const auto& chunk : chunks) profile.insert(profile.end(), chunk.begin(), chunk.end());
+    size_t declared_profile_size = 0;
+    if (!lpb::media::detail::get_declared_icc_profile_size(profile, declared_profile_size)) {
+        profile.clear();
+        return false;
+    }
+    profile.resize(declared_profile_size);
     return true;
 }
 
