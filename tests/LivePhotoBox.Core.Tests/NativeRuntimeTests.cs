@@ -150,6 +150,15 @@ public sealed class NativeRuntimeTests
         Assert.Equal(40, sizeof(NativeImageItemFacts));
         Assert.Equal(80, sizeof(NativeVideoItemFacts));
         Assert.Equal(72, (int)Marshal.OffsetOf<NativeVideoItemFacts>("SourceIndex"));
+        Assert.Equal(844, Marshal.SizeOf<NativePreservationObservation>());
+        Assert.Equal(32, Marshal.SizeOf<NativeImageOrientationObservationV1>());
+        Assert.Equal(4, (int)Marshal.OffsetOf<NativeImageOrientationObservationV1>(nameof(NativeImageOrientationObservationV1.ApiVersion)));
+        Assert.Equal(8, (int)Marshal.OffsetOf<NativeImageOrientationObservationV1>(nameof(NativeImageOrientationObservationV1.Status)));
+        Assert.Equal(12, (int)Marshal.OffsetOf<NativeImageOrientationObservationV1>(nameof(NativeImageOrientationObservationV1.ClockwiseRotationDegrees)));
+        Assert.Equal(16, (int)Marshal.OffsetOf<NativeImageOrientationObservationV1>(nameof(NativeImageOrientationObservationV1.Reflection)));
+        Assert.Equal(20, (int)Marshal.OffsetOf<NativeImageOrientationObservationV1>(nameof(NativeImageOrientationObservationV1.RotationEvidence)));
+        Assert.Equal(24, (int)Marshal.OffsetOf<NativeImageOrientationObservationV1>(nameof(NativeImageOrientationObservationV1.ReflectionEvidence)));
+        Assert.Equal(28, (int)Marshal.OffsetOf<NativeImageOrientationObservationV1>(nameof(NativeImageOrientationObservationV1.Reserved0)));
 
         Assert.Equal(112, sizeof(NativeGainMapItemFacts));
         Assert.Equal(32, (int)Marshal.OffsetOf<NativeGainMapItemFacts>("FileRange"));

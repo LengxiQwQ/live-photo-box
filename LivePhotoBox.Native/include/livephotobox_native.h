@@ -1615,6 +1615,40 @@ LPB_API lpb_result LPB_CALL lpb_capture_preservation_observation(
     lpb_image_container container_hint,
     lpb_preservation_observation* out_observation);
 
+/* Normalized visual orientation of a final image artifact. This is a separate,
+   versioned semantic observation; it does not extend or reinterpret the
+   EXIF-only orientation field in lpb_preservation_observation. */
+#define LPB_IMAGE_ORIENTATION_API_V1 1u
+#define LPB_IMAGE_ORIENTATION_STATUS_UNKNOWN 0u
+#define LPB_IMAGE_ORIENTATION_STATUS_VERIFIED 1u
+#define LPB_IMAGE_ORIENTATION_REFLECTION_NONE 0u
+#define LPB_IMAGE_ORIENTATION_REFLECTION_HORIZONTAL 1u
+#define LPB_IMAGE_ORIENTATION_EVIDENCE_UNKNOWN 0u
+#define LPB_IMAGE_ORIENTATION_EVIDENCE_VERIFIED 1u
+
+typedef struct lpb_image_orientation_observation_v1
+{
+    uint32_t struct_size;
+    uint32_t api_version;
+    uint32_t status;
+    int32_t clockwise_rotation_degrees;
+    uint32_t reflection;
+    uint32_t rotation_evidence;
+    uint32_t reflection_evidence;
+    uint32_t reserved0;
+} lpb_image_orientation_observation_v1;
+
+/* Reads orientation from the final image's media semantics only. JPEG uses
+   EXIF Orientation; HEIC uses irot/imir properties associated with the pitm
+   primary item. The normalized convention applies clockwise rotation first,
+   then optional horizontal reflection in display coordinates. container_hint
+   identifies the expected image container and is checked against the signature. */
+LPB_API lpb_result LPB_CALL lpb_observe_image_orientation_v1(
+    lpb_context* context,
+    const char* image_path,
+    lpb_image_container container_hint,
+    lpb_image_orientation_observation_v1* out_observation);
+
 LPB_API lpb_result LPB_CALL lpb_inspect_hdr_gainmap_stage_v1(
     lpb_context* context,
     uint64_t transaction_token,
@@ -1741,6 +1775,14 @@ static_assert(offsetof(lpb_source_media_facts, auxiliary_count) == 484, "lpb_sou
 static_assert(offsetof(lpb_source_media_facts, preservation_carrier_count) == 18152, "lpb_source_media_facts.preservation_carrier_count offset mismatch");
 static_assert(sizeof(lpb_extraction_output) == 16, "lpb_extraction_output size mismatch");
 static_assert(sizeof(lpb_preservation_observation) == 844, "lpb_preservation_observation size mismatch");
+static_assert(sizeof(lpb_image_orientation_observation_v1) == 32, "lpb_image_orientation_observation_v1 size mismatch");
+static_assert(offsetof(lpb_image_orientation_observation_v1, api_version) == 4, "lpb_image_orientation_observation_v1.api_version offset mismatch");
+static_assert(offsetof(lpb_image_orientation_observation_v1, status) == 8, "lpb_image_orientation_observation_v1.status offset mismatch");
+static_assert(offsetof(lpb_image_orientation_observation_v1, clockwise_rotation_degrees) == 12, "lpb_image_orientation_observation_v1.clockwise_rotation_degrees offset mismatch");
+static_assert(offsetof(lpb_image_orientation_observation_v1, reflection) == 16, "lpb_image_orientation_observation_v1.reflection offset mismatch");
+static_assert(offsetof(lpb_image_orientation_observation_v1, rotation_evidence) == 20, "lpb_image_orientation_observation_v1.rotation_evidence offset mismatch");
+static_assert(offsetof(lpb_image_orientation_observation_v1, reflection_evidence) == 24, "lpb_image_orientation_observation_v1.reflection_evidence offset mismatch");
+static_assert(offsetof(lpb_image_orientation_observation_v1, reserved0) == 28, "lpb_image_orientation_observation_v1.reserved0 offset mismatch");
 static_assert(sizeof(lpb_preservation_verdict) == 264, "lpb_preservation_verdict size mismatch");
 #endif
 #endif

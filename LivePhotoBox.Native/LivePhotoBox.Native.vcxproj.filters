@@ -63,6 +63,9 @@
     <ClInclude Include="src\media\heic_backend.h">
       <Filter>src\media</Filter>
     </ClInclude>
+    <ClInclude Include="src\media\jpeg_gainmap_mpf.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
     <ClInclude Include="src\media\image_converter.h">
       <Filter>src\media</Filter>
     </ClInclude>

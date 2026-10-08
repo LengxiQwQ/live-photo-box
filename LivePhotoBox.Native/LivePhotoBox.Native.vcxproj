@@ -136,6 +136,7 @@
     <ClInclude Include="src\foundation\sha256.h" />
     <ClInclude Include="src\media\heic_backend.h" />
     <ClInclude Include="src\media\image_converter.h" />
+    <ClInclude Include="src\media\jpeg_gainmap_mpf.h" />
     <ClInclude Include="src\media\jpeg_backend.h" />
     <ClInclude Include="src\media\media_cleaner.h" />
     <ClInclude Include="src\media\media_extractor.h" />

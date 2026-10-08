@@ -1,4 +1,5 @@
 #include "media/media_inspector.h"
+#include "media/jpeg_gainmap_mpf.h"
 #include "media/video_converter.h"
 #include "foundation/internal.h"
 #include "foundation/sha256.h"
@@ -4533,10 +4534,33 @@ lpb_result inspect_source(
                 !gainmap_item->malformed_length && gainmap_item->length > 0 &&
                 gainmap_item->length < primary_size) {
                 const uint64_t gainmap_offset = primary_size - gainmap_item->length;
+                lpb::media::jpeg_gainmap_mpf::jpeg_info neutral_jpeg{};
+                if (!lpb::media::jpeg_gainmap_mpf::parse_jpeg(
+                        std::span<const uint8_t>(primary_data.data(), primary_data.size()), neutral_jpeg) ||
+                    neutral_jpeg.eoi_end != jpeg_end) {
+                    set_error(context, "Neutral GainMap JPEG marker or MPF structure is malformed.");
+                    set_inspection_status(context, LPB_INSPECTION_FAILURE_MALFORMED,
+                        LPB_INSPECTION_STAGE_CONTAINER);
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
                 const bool has_retained_sef = gainmap_offset >= jpeg_end &&
                     (gainmap_offset == jpeg_end || is_valid_non_motion_sef_range(
                         primary_data, jpeg_end, gainmap_offset - jpeg_end));
+                const bool mpf_matches_gainmap = neutral_jpeg.mpf_status ==
+                        lpb::media::jpeg_gainmap_mpf::status::absent ||
+                    (neutral_jpeg.mpf_status == lpb::media::jpeg_gainmap_mpf::status::present &&
+                        lpb::media::jpeg_gainmap_mpf::layout_matches(neutral_jpeg, primary_data.size(),
+                            static_cast<size_t>(jpeg_end), static_cast<size_t>(gainmap_offset),
+                            static_cast<size_t>(gainmap_item->length)));
                 if (has_retained_sef &&
+                    neutral_jpeg.mpf_status == lpb::media::jpeg_gainmap_mpf::status::present &&
+                    !mpf_matches_gainmap) {
+                    set_error(context, "Neutral GainMap MPF entries do not identify the exact bounded primary and GainMap ranges.");
+                    set_inspection_status(context, LPB_INSPECTION_FAILURE_MALFORMED,
+                        LPB_INSPECTION_STAGE_CONTAINER);
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                if (has_retained_sef && mpf_matches_gainmap &&
                     is_valid_jpeg_media_range(primary_data.data(), primary_data.size(),
                         gainmap_offset, gainmap_item->length)) {
                     const uint64_t primary_length = primary_item->has_length && primary_item->length > 0

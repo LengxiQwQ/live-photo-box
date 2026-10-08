@@ -6,6 +6,7 @@
 #include <cctype>
 #include <charconv>
 #include <cstring>
+#include <limits>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -501,7 +502,205 @@ static bool find_motion_ranges(std::string_view xml,
     return true;
 }
 
+struct neutral_directory_item_span
+{
+    neutral_container_item item;
+    size_t li_start{};
+    size_t li_end{};
+};
+
+static size_t direct_parent_index(const std::vector<parsed_element>& elements, size_t child_index) noexcept
+{
+    if (child_index >= elements.size()) return static_cast<size_t>(-1);
+    const auto& child = elements[child_index];
+    size_t best_parent = static_cast<size_t>(-1);
+    size_t best_span = std::numeric_limits<size_t>::max();
+    for (size_t index = 0; index < elements.size(); ++index)
+    {
+        if (index == child_index) continue;
+        const auto& candidate = elements[index];
+        if (candidate.start >= child.start || candidate.end < child.end) continue;
+        const size_t span = candidate.end - candidate.start;
+        if (span < best_span)
+        {
+            best_parent = index;
+            best_span = span;
+        }
+    }
+    return best_parent;
+}
+
+static bool is_element(const parsed_element& element, std::string_view uri,
+    std::string_view local) noexcept
+{
+    return local_name(element.name) == local &&
+        namespace_uri_for_name(element.name, element.bindings, false) == uri;
+}
+
+static bool parse_neutral_directory(std::string_view xml,
+    std::vector<neutral_directory_item_span>& out_items)
+{
+    out_items.clear();
+    std::vector<parsed_element> elements;
+    if (!parse_xml_elements(xml, elements)) return false;
+    std::vector<size_t> parents(elements.size(), static_cast<size_t>(-1));
+    for (size_t index = 0; index < elements.size(); ++index)
+    {
+        parents[index] = direct_parent_index(elements, index);
+    }
+
+    size_t directory_index = static_cast<size_t>(-1);
+    for (size_t index = 0; index < elements.size(); ++index)
+    {
+        if (!is_element(elements[index], google_container_namespace, "Directory")) continue;
+        if (directory_index != static_cast<size_t>(-1)) return false;
+        directory_index = index;
+    }
+    if (directory_index == static_cast<size_t>(-1)) return false;
+
+    size_t sequence_index = static_cast<size_t>(-1);
+    for (size_t index = 0; index < elements.size(); ++index)
+    {
+        if (parents[index] != directory_index) continue;
+        if (!is_element(elements[index], rdf_namespace, "Seq") ||
+            sequence_index != static_cast<size_t>(-1)) return false;
+        sequence_index = index;
+    }
+    if (sequence_index == static_cast<size_t>(-1)) return false;
+
+    std::vector<neutral_directory_item_span> parsed_items;
+    for (size_t li_index = 0; li_index < elements.size(); ++li_index)
+    {
+        if (parents[li_index] != sequence_index) continue;
+        const auto& li = elements[li_index];
+        if (!is_element(li, rdf_namespace, "li")) return false;
+
+        size_t item_index = static_cast<size_t>(-1);
+        for (size_t child_index = 0; child_index < elements.size(); ++child_index)
+        {
+            if (parents[child_index] != li_index) continue;
+            if (!is_element(elements[child_index], google_container_namespace, "Item") ||
+                item_index != static_cast<size_t>(-1)) return false;
+            item_index = child_index;
+        }
+        if (item_index == static_cast<size_t>(-1)) return false;
+        for (size_t child_index = 0; child_index < elements.size(); ++child_index)
+        {
+            if (parents[child_index] == item_index) return false;
+        }
+
+        neutral_container_item item{};
+        item.ordinal = parsed_items.size();
+        bool found_semantic = false;
+        bool found_mime = false;
+        bool found_length = false;
+        for (const auto& attribute : elements[item_index].attributes)
+        {
+            if (namespace_uri_for_name(attribute.name, elements[item_index].bindings, true) != google_item_namespace) continue;
+            const std::string_view local = local_name(attribute.name);
+            if (equals_icase(local, "Semantic"))
+            {
+                if (found_semantic || attribute.value.empty()) return false;
+                item.semantic.assign(attribute.value);
+                found_semantic = true;
+            }
+            else if (equals_icase(local, "Mime"))
+            {
+                if (found_mime || attribute.value.empty()) return false;
+                item.mime.assign(attribute.value);
+                found_mime = true;
+            }
+            else if (equals_icase(local, "Length"))
+            {
+                if (found_length) return false;
+                uint64_t length = 0;
+                const auto result = std::from_chars(attribute.value.data(),
+                    attribute.value.data() + attribute.value.size(), length);
+                if (result.ec != std::errc{} || result.ptr != attribute.value.data() + attribute.value.size()) return false;
+                item.length = length;
+                item.has_length = true;
+                found_length = true;
+            }
+        }
+        if (!found_semantic || !found_mime) return false;
+        parsed_items.push_back({ std::move(item), li.start, li.end });
+    }
+
+    if (parsed_items.size() < 2 || parsed_items.front().item.semantic != "Primary" ||
+        parsed_items.front().item.mime != "image/jpeg") return false;
+    size_t gainmap_count = 0;
+    std::vector<std::string> seen_semantics;
+    seen_semantics.reserve(parsed_items.size());
+    for (const auto& record : parsed_items)
+    {
+        const auto& item = record.item;
+        if (std::find(seen_semantics.begin(), seen_semantics.end(), item.semantic) != seen_semantics.end()) return false;
+        seen_semantics.push_back(item.semantic);
+        if (item.semantic == "MotionPhoto") return false;
+        if (item.semantic == "GainMap")
+        {
+            ++gainmap_count;
+            if (item.mime != "image/jpeg" || !item.has_length || item.length == 0) return false;
+        }
+        else if (item.semantic != "Primary" &&
+            (item.mime != "image/jpeg" || !item.has_length || item.length == 0))
+        {
+            // Only explicitly sized JPEG directory items can be mapped to a
+            // bounded source MPF entry and safely detached from this owner.
+            return false;
+        }
+    }
+    if (gainmap_count != 1) return false;
+    out_items = std::move(parsed_items);
+    return true;
+}
+
 } // namespace
+
+bool canonicalize_neutral_gainmap_directory(
+    const std::string& input_xmp,
+    uint64_t expected_gainmap_length,
+    std::string& output_xmp,
+    neutral_gainmap_directory& out_directory)
+{
+    output_xmp.clear();
+    out_directory = {};
+    if (input_xmp.empty() || expected_gainmap_length == 0) return false;
+
+    std::vector<neutral_directory_item_span> source_items;
+    if (!parse_neutral_directory(input_xmp, source_items)) return false;
+    const auto gainmap = std::find_if(source_items.begin(), source_items.end(),
+        [](const neutral_directory_item_span& item) { return item.item.semantic == "GainMap"; });
+    if (gainmap == source_items.end() || gainmap->item.length != expected_gainmap_length) return false;
+
+    out_directory.source_item_count = source_items.size();
+    out_directory.gainmap_ordinal = gainmap->item.ordinal;
+    out_directory.source_items.reserve(source_items.size());
+    for (const auto& record : source_items) out_directory.source_items.push_back(record.item);
+
+    output_xmp = input_xmp;
+    bool removed_extra = false;
+    for (const auto& record : source_items)
+    {
+        if (record.item.semantic == "Primary" || record.item.semantic == "GainMap") continue;
+        if (record.li_start > record.li_end || record.li_end > output_xmp.size()) return false;
+        for (size_t index = record.li_start; index < record.li_end; ++index)
+        {
+            if (output_xmp[index] != '\r' && output_xmp[index] != '\n') output_xmp[index] = ' ';
+        }
+        removed_extra = true;
+    }
+
+    if (output_xmp.size() != input_xmp.size()) return false;
+    if (removed_extra)
+    {
+        std::vector<neutral_directory_item_span> final_items;
+        if (!parse_neutral_directory(output_xmp, final_items) || final_items.size() != 2 ||
+            final_items[0].item.semantic != "Primary" || final_items[1].item.semantic != "GainMap" ||
+            final_items[1].item.length != expected_gainmap_length) return false;
+    }
+    return true;
+}
 
 bool clean_xmp_metadata_with_plan(
     const std::string& input_xmp,

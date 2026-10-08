@@ -72,10 +72,57 @@ public static class NativeMediaService
             (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.PreservationCarrierCount)) != 18152 ||
             Marshal.SizeOf<NativeVideoBackendDiagnostics>() != 208 ||
             (int)Marshal.OffsetOf<NativeVideoBackendDiagnostics>(nameof(NativeVideoBackendDiagnostics.SelectedEncoder)) != 16 ||
-            (int)Marshal.OffsetOf<NativeVideoBackendDiagnostics>(nameof(NativeVideoBackendDiagnostics.FallbackReason)) != 80)
+            (int)Marshal.OffsetOf<NativeVideoBackendDiagnostics>(nameof(NativeVideoBackendDiagnostics.FallbackReason)) != 80 ||
+            Marshal.SizeOf<NativePreservationObservation>() != 844 ||
+            Marshal.SizeOf<NativeImageOrientationObservationV1>() != 32 ||
+            (int)Marshal.OffsetOf<NativeImageOrientationObservationV1>(nameof(NativeImageOrientationObservationV1.Status)) != 8 ||
+            (int)Marshal.OffsetOf<NativeImageOrientationObservationV1>(nameof(NativeImageOrientationObservationV1.ClockwiseRotationDegrees)) != 12 ||
+            (int)Marshal.OffsetOf<NativeImageOrientationObservationV1>(nameof(NativeImageOrientationObservationV1.Reflection)) != 16 ||
+            (int)Marshal.OffsetOf<NativeImageOrientationObservationV1>(nameof(NativeImageOrientationObservationV1.RotationEvidence)) != 20 ||
+            (int)Marshal.OffsetOf<NativeImageOrientationObservationV1>(nameof(NativeImageOrientationObservationV1.ReflectionEvidence)) != 24 ||
+            (int)Marshal.OffsetOf<NativeImageOrientationObservationV1>(nameof(NativeImageOrientationObservationV1.Reserved0)) != 28)
         {
             throw new InvalidOperationException("Managed Native facts layout does not match ABI v10.");
         }
+    }
+
+    internal static Task<NativeImageOrientationObservationV1> ObserveImageOrientationAsync(
+        string imagePath,
+        ImageContainer container,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(imagePath);
+        if (container is not (ImageContainer.Jpeg or ImageContainer.Heic))
+            throw new ArgumentOutOfRangeException(nameof(container), "Image orientation observation requires a supported final image container.");
+        cancellationToken.ThrowIfCancellationRequested();
+        PreflightInspectionPath(imagePath, "Final image");
+
+        return Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var context = NativeContext.Create(cancellationToken);
+            var observation = new NativeImageOrientationObservationV1
+            {
+                StructSize = checked((uint)Marshal.SizeOf<NativeImageOrientationObservationV1>()),
+                ApiVersion = 1
+            };
+            NativeResult result = NativeMethods.ObserveImageOrientationV1(
+                context.Handle, imagePath, (int)container, ref observation);
+            context.ThrowIfFailed(result);
+
+            if (observation.StructSize < Marshal.SizeOf<NativeImageOrientationObservationV1>() ||
+                observation.ApiVersion != 1 ||
+                observation.Status != NativeImageOrientationStatus.Verified ||
+                observation.ClockwiseRotationDegrees is not (0 or 90 or 180 or 270) ||
+                observation.Reflection is not (NativeImageOrientationReflection.None or NativeImageOrientationReflection.Horizontal) ||
+                observation.RotationEvidence != NativeImageOrientationEvidence.Verified ||
+                observation.ReflectionEvidence != NativeImageOrientationEvidence.Verified ||
+                observation.Reserved0 != 0)
+            {
+                throw new InvalidDataException("Native could not establish an unambiguous final image orientation.");
+            }
+            return observation;
+        }, cancellationToken);
     }
 
     internal static Task<NativeGainMapMetadataV1> InspectGainMapMetadataAsync(

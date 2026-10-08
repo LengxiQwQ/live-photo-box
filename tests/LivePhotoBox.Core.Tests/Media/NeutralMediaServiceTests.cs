@@ -136,9 +136,9 @@ public sealed class NeutralMediaServiceTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task CreateNeutralBundle_XiaomiWithGainMap_PreservesGainMapInBundle()
+    public async Task CreateNeutralBundle_JpegGainMap_PreservesGainMapInBundle()
     {
-        string primary = ResolveSample("小米.jpg");
+        string primary = ResolveSample("vivo.jpg");
         using var workspace = new MediaWorkspace();
 
         var service = new NeutralMediaService();
@@ -163,13 +163,18 @@ public sealed class NeutralMediaServiceTests
         Assert.True(primaryBytes.AsSpan().IndexOf(gainMapBytes) >= 0,
             "Neutral primary must contain the exact GainMap bytes consumed by final reassembly.");
 
-        // Downstream ownership contract: must be unambiguously declared as Embedded
-        Assert.Equal(GainMapRepresentation.Embedded, bundle.GainMapRepresentation);
+        // One semantic GainMap is embedded in the reassembled JPEG and retained
+        // as an exactly verified materialized working artifact.
+        Assert.Equal(GainMapRepresentation.Both, bundle.GainMapRepresentation);
         var primaryManifest = Assert.Single(bundle.Manifest, x => x.Role == "PrimaryImage");
-        Assert.Equal(GainMapRepresentation.Embedded, primaryManifest.GainMapRepresentation);
+        Assert.Equal(GainMapRepresentation.Both, primaryManifest.GainMapRepresentation);
         var gainMapManifest = Assert.Single(bundle.Manifest, x => x.Role == "GainMap");
-        Assert.Equal(GainMapRepresentation.Embedded, gainMapManifest.GainMapRepresentation);
+        Assert.Equal(GainMapRepresentation.Both, gainMapManifest.GainMapRepresentation);
+        Assert.Equal(NeutralAuxiliaryRepresentation.Both, gainMapManifest.SemanticRepresentation);
+        Assert.Equal(bundle.GainMap!.Path, gainMapManifest.Path);
+        Assert.Equal(gainMapBytes.LongLength, gainMapManifest.ByteLength);
         Assert.Equal(Convert.ToHexString(SHA256.HashData(gainMapBytes)), gainMapManifest.Sha256);
+        Assert.Equal(NeutralAuxiliaryRepresentation.Both, bundle.Semantics.GainMap!.Representation);
     }
 
     [Fact]

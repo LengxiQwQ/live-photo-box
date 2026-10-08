@@ -271,6 +271,14 @@ internal static partial class NativeMethods
         ref NativePreservationObservation outObservation);
 
     [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
+        EntryPoint = "lpb_observe_image_orientation_v1", ExactSpelling = true)]
+    internal static extern NativeResult ObserveImageOrientationV1(
+        nint context,
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string imagePath,
+        int containerHint,
+        ref NativeImageOrientationObservationV1 outObservation);
+
+    [DllImport(LibraryName, CallingConvention = CallingConvention.Cdecl,
         EntryPoint = "lpb_verify_preservation", ExactSpelling = true)]
     internal static extern NativeResult lpb_verify_preservation(
         nint context,
@@ -320,6 +328,37 @@ internal struct NativePreservationObservation
     public string HeicAuxType;
     [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 65)]
     public string VideoMdatSha256;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeImageOrientationObservationV1
+{
+    public uint StructSize;
+    public uint ApiVersion;
+    public NativeImageOrientationStatus Status;
+    public int ClockwiseRotationDegrees;
+    public NativeImageOrientationReflection Reflection;
+    public NativeImageOrientationEvidence RotationEvidence;
+    public NativeImageOrientationEvidence ReflectionEvidence;
+    public uint Reserved0;
+}
+
+internal enum NativeImageOrientationStatus : uint
+{
+    Unknown = 0,
+    Verified = 1
+}
+
+internal enum NativeImageOrientationReflection : uint
+{
+    None = 0,
+    Horizontal = 1
+}
+
+internal enum NativeImageOrientationEvidence : uint
+{
+    Unknown = 0,
+    Verified = 1
 }
 
 [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]

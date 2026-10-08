@@ -81,29 +81,58 @@ public sealed class NeutralMediaService : INeutralMediaService
         MediaArtifact finalImage = cleanResult.CleanedImage;
         MediaArtifact? finalVideo = cleanResult.CleanedVideo;
 
-        // A Google/Vivo/Xiaomi Ultra HDR source carries the GainMap as a
-        // second JPEG after the primary JPEG. Extraction keeps it separate so
-        // the cleaner can remove only the motion-photo ranges. Restore the
-        // standard single-file neutral JPEG before binding it for any R3
-        // semantic conversion; Native binds both images and their exact
-        // current byte ranges in that artifact.
+        // A cleaned JPEG and verified GainMap bytes are first tested as a
+        // possible compound neutral image. Only the final Native Inspector
+        // can establish that representation. If the authoritative Inspector
+        // reports the appended bytes as ambiguous, retain the already-clean,
+        // independently inspected primary and carry the same GainMap as a
+        // detached semantic artifact.
         bool gainMapEmbeddedInPrimary = false;
+        SourceMediaFacts neutralInputFacts = await _inspector
+            .InspectAsync(finalImage.Path, cancellationToken: cancellationToken)
+            .ConfigureAwait(false);
         if (cleanResult.CleanedGainMap != null
             && finalImage.ImageContainer == ImageContainer.Jpeg)
         {
-            finalImage = await ReassembleJpegGainMapAsync(
+            if (!IsVerifiedNeutralPrimary(neutralInputFacts))
+                throw new InvalidDataException("Cleaned primary is not a verified neutral image before auxiliary representation selection.");
+
+            MediaArtifact cleanedPrimary = finalImage;
+            MediaArtifact reassembledCandidate = await ReassembleJpegGainMapAsync(
                 finalImage, cleanResult.CleanedGainMap, cleanResult.GainMapExpectedSha256,
                 workspace, cancellationToken)
                 .ConfigureAwait(false);
-            gainMapEmbeddedInPrimary = true;
+
+            try
+            {
+                SourceMediaFacts candidateFacts = await _inspector
+                    .InspectAsync(reassembledCandidate.Path, cancellationToken: cancellationToken)
+                    .ConfigureAwait(false);
+                if (IsVerifiedNeutralPrimary(candidateFacts) && candidateFacts.GainMap is { IsPresent: true })
+                {
+                    finalImage = reassembledCandidate;
+                    neutralInputFacts = candidateFacts;
+                    gainMapEmbeddedInPrimary = true;
+                }
+                else
+                {
+                    finalImage = cleanedPrimary;
+                }
+            }
+            catch (SourceInspectionException ex) when (ex.Category == SourceInspectionFailureCategory.Ambiguous)
+            {
+                // The append is not a recognized compound representation.
+                // Keep the pre-inspected primary and let the verified
+                // materialized handoff represent the GainMap as detached.
+                finalImage = cleanedPrimary;
+            }
         }
 
         // Bind R3 authority to the actual cleaned neutral artifact (not the
         // pre-clean source facts). This is also the identity handed to an
         // explicit cross-container semantic conversion below.
-        SourceMediaFacts neutralInputFacts = await _inspector
-            .InspectAsync(finalImage.Path, cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
+        if (!IsVerifiedNeutralPrimary(neutralInputFacts))
+            throw new InvalidDataException("Cleaned primary did not pass authoritative post-clean inspection.");
         ImageHdrGainMapSourceBinding? hdrGainMapBinding = neutralInputFacts.GainMap is { IsPresent: true }
             ? await CreateHdrGainMapBindingAsync(
                 finalImage, neutralInputFacts,
@@ -119,6 +148,12 @@ public sealed class NeutralMediaService : INeutralMediaService
         PreservationOutcome videoOutcome = cleanResult.CleanedVideo == null
             ? PreservationOutcome.Preserved
             : cleanResult.PreservationOutcome;
+        ConversionExecutionTruth? imageConversionTruth = null;
+        ConversionExecutionTruth? videoConversionTruth = null;
+        VideoFacts? resolvedVideoFacts = null;
+        NativeImageOrientationObservationV1? preConversionImageOrientation = null;
+        bool imageWasConverted = false;
+        bool videoWasConverted = false;
 
         // 4. Convert formats if requested
         if (requirement != null)
@@ -127,6 +162,13 @@ public sealed class NeutralMediaService : INeutralMediaService
             if (requirement.ImageContainer != ImageContainer.Unknown &&
                 requirement.ImageContainer != finalImage.ImageContainer)
             {
+                preConversionImageOrientation = await NativeMediaService
+                    .ObserveImageOrientationAsync(
+                        finalImage.Path,
+                        neutralInputFacts.PrimaryImage.Container,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
                 var imgConv = await _imageConverter.ConvertAsync(new ImageConversionRequest
                 {
                     SourceArtifact = finalImage,
@@ -149,6 +191,9 @@ public sealed class NeutralMediaService : INeutralMediaService
                 {
                     throw new InvalidOperationException($"Image conversion failed in neutral pipeline: {imgConv.ErrorMessage}");
                 }
+
+                imageConversionTruth = imgConv.ExecutionRecord.Truth;
+                imageWasConverted = imageConversionTruth.ActualOperationKind != ConversionOperationKind.Passthrough;
 
                 if (preservationPolicy == PreservationPolicy.Strict &&
                     imgConv.ExecutionRecord.PreservationOutcome != PreservationOutcome.Preserved)
@@ -188,7 +233,6 @@ public sealed class NeutralMediaService : INeutralMediaService
                 }
             }
 
-            VideoFacts? resolvedVideoFacts = null;
             if (finalVideo != null)
             {
                 resolvedVideoFacts = await _videoConverter
@@ -251,6 +295,8 @@ public sealed class NeutralMediaService : INeutralMediaService
                 }
 
                 finalVideo = vidConv.OutputArtifact;
+                videoConversionTruth = vidConv.ExecutionRecord.Truth;
+                videoWasConverted = true;
                 videoOutcome = CombineOutcome(videoOutcome, vidConv.ExecutionRecord.Truth.PreservationOutcome);
             }
 
@@ -270,6 +316,34 @@ public sealed class NeutralMediaService : INeutralMediaService
             }
         }
 
+        // The bundle represents final media, so probe the actual post-clean /
+        // post-conversion video even when no format requirement requested a
+        // conversion. The earlier requirement probe is only conversion input.
+        if (finalVideo != null)
+        {
+            resolvedVideoFacts = await _videoConverter
+                .ProbeAsync(finalVideo.Path, cancellationToken)
+                .ConfigureAwait(false);
+            if (!resolvedVideoFacts.IsPresent ||
+                resolvedVideoFacts.Container == VideoContainer.Unknown ||
+                resolvedVideoFacts.Codec == VideoCodec.Unknown)
+            {
+                throw new InvalidDataException("Final neutral video facts could not be verified.");
+            }
+
+            finalVideo = finalVideo with
+            {
+                VideoContainer = resolvedVideoFacts.Container,
+                VideoCodec = resolvedVideoFacts.Codec,
+                MimeType = resolvedVideoFacts.Container switch
+                {
+                    VideoContainer.Mp4 => "video/mp4",
+                    VideoContainer.Mov => "video/quicktime",
+                    _ => throw new InvalidDataException("Final neutral video container is unsupported.")
+                }
+            };
+        }
+
         // Final guard: a neutral bundle must not expose a still image that the
         // Native Inspector still recognizes as a Live/Motion Photo. This is a
         // post-clean check, not a second protocol parser or a writer check.
@@ -285,10 +359,41 @@ public sealed class NeutralMediaService : INeutralMediaService
                 $"Neutral media validation failed: Inspector reported {neutralFacts.Protocol} for the cleaned image.");
         }
 
-        // Carry descriptors and opaque preservation evidence across the
-        // Cleaner boundary.  A materialized GainMap is represented once by
-        // the typed GainMap slot; other materialized auxiliary artifacts are
-        // added to the manifest by stable identity below.
+        // Capture final media-semantic facts only after the post-clean Inspector
+        // has identified the exact non-live primary returned in the bundle.
+        NativeImageOrientationObservationV1 finalImageOrientation;
+        try
+        {
+            finalImageOrientation = await NativeMediaService
+                .ObserveImageOrientationAsync(finalImage.Path, neutralFacts.PrimaryImage.Container, cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (InvalidDataException ex)
+        {
+            throw new NotSupportedException(
+                "Neutral media is unsupported because final PrimaryImage orientation could not be established.",
+                ex);
+        }
+        PreservationObservation finalImageObservation = await NativeMediaService
+            .CapturePreservationObservationAsync(
+                finalImage.Path, SourceProtocol.Unknown, neutralFacts.PrimaryImage.Container, cancellationToken)
+            .ConfigureAwait(false);
+        if (finalImageObservation.IccParseError)
+            throw new InvalidDataException("Final image ICC profile could not be authoritatively inspected.");
+
+        NativeHeicPrimaryDecodeInfo? finalHeicPrimary = null;
+        if (neutralFacts.PrimaryImage.Container == ImageContainer.Heic)
+        {
+            finalHeicPrimary = await NativeMediaService.DecodeHeicPrimaryAsync(finalImage.Path, cancellationToken)
+                .ConfigureAwait(false);
+            if (finalHeicPrimary.Value.HasNclx > 1 || finalHeicPrimary.Value.IsHdrRelevant > 1 ||
+                finalHeicPrimary.Value.HasIcc > 1)
+                throw new InvalidDataException("Native HEIC primary decode returned invalid color/HDR flags.");
+        }
+
+        // Carry verified descriptors and opaque preservation evidence across
+        // the Cleaner boundary. Manifest rows are built later from the final
+        // Inspector graph plus materialized artifacts that pass byte checks.
         for (int i = 0; i < auxiliaryHandoff.Count; i++)
         {
             AuxiliaryMediaDescriptor descriptor = auxiliaryHandoff[i];
@@ -304,155 +409,68 @@ public sealed class NeutralMediaService : INeutralMediaService
         await VerifyAuxiliaryHandoffAsync(auxiliaryHandoff, workspace, cancellationToken).ConfigureAwait(false);
         VerifyPreservationCarrierHandoff(preservationCarriers);
 
-        // 5. Build Artifact Manifest with truthful outcomes and unambiguous GainMap ownership
-        AuxiliaryMediaDescriptor? gainMapDescriptor = null;
-        foreach (AuxiliaryMediaDescriptor descriptor in auxiliaryHandoff)
-        {
-            if (descriptor.ArtifactRole == MediaArtifactKind.GainMap ||
-                string.Equals(descriptor.Semantic, "GainMap", StringComparison.Ordinal))
-            {
-                gainMapDescriptor = descriptor;
-                break;
-            }
-        }
+        // 5. Build the semantic manifest only from final Inspector facts and
+        // verified materialized handoff artifacts. The cleaner's typed
+        // GainMap slot is never treated as proof of final representation.
+        NeutralManifestProjection manifestProjection = await BuildArtifactManifestAsync(
+            finalImage,
+            finalVideo,
+            neutralFacts,
+            auxiliaryHandoff,
+            cleanResult,
+            imageOutcome,
+            videoOutcome,
+            gainMapSemanticallyReencoded,
+            workspace,
+            cancellationToken).ConfigureAwait(false);
+        List<NeutralArtifactManifest> manifest = manifestProjection.Manifest;
+        GainMapRepresentation gainMapRep = manifestProjection.GainMapRepresentation;
 
-        GainMapRepresentation gainMapRep = GainMapRepresentation.None;
-        if (cleanResult.CleanedGainMap != null)
+        NativeGainMapMetadataV1? finalGainMapMetadata = null;
+        if (gainMapRep is GainMapRepresentation.Embedded or GainMapRepresentation.Both)
         {
-            gainMapRep = gainMapEmbeddedInPrimary ? GainMapRepresentation.Embedded : GainMapRepresentation.Detached;
-        }
-        else if (gainMapDescriptor is { Representation: AuxiliaryRepresentation.Embedded, Ownership: AuxiliaryOwnership.Primary })
-        {
-            // HEIF grid/derived GainMaps remain semantic members of the
-            // primary container.  The descriptor is represented once in the
-            // manifest, but never gets a detached pseudo-file.
-            gainMapRep = GainMapRepresentation.Embedded;
-        }
+            if (neutralFacts.GainMap is not { IsPresent: true })
+                throw new InvalidDataException("Embedded GainMap metadata inspection requires a freshly inspected primary binding.");
 
-        var manifest = new List<NeutralArtifactManifest>
-        {
-            new NeutralArtifactManifest
+            string? materializedGainMapPath = null;
+            if (gainMapRep == GainMapRepresentation.Both)
             {
-                Role = "PrimaryImage",
-                Path = finalImage.Path,
-                Sha256 = finalImage.Sha256 ?? await workspace.ComputeFileSha256Async(finalImage.Path, cancellationToken).ConfigureAwait(false),
-                ByteLength = finalImage.ByteLength > 0 ? finalImage.ByteLength : new FileInfo(finalImage.Path).Length,
-                ImageContainer = finalImage.ImageContainer,
-                PreservationOutcome = imageOutcome,
-                GainMapRepresentation = gainMapEmbeddedInPrimary ? GainMapRepresentation.Embedded : GainMapRepresentation.None
-            }
-        };
-
-        if (finalVideo != null)
-        {
-            manifest.Add(new NeutralArtifactManifest
-            {
-                Role = "MotionVideo",
-                Path = finalVideo.Path,
-                Sha256 = finalVideo.Sha256 ?? await workspace.ComputeFileSha256Async(finalVideo.Path, cancellationToken).ConfigureAwait(false),
-                ByteLength = finalVideo.ByteLength > 0 ? finalVideo.ByteLength : new FileInfo(finalVideo.Path).Length,
-                VideoContainer = finalVideo.VideoContainer,
-                VideoCodec = finalVideo.VideoCodec,
-                PreservationOutcome = videoOutcome,
-                GainMapRepresentation = GainMapRepresentation.None
-            });
-        }
-
-        if (cleanResult.CleanedGainMap != null)
-        {
-            manifest.Add(new NeutralArtifactManifest
-            {
-                Role = "GainMap",
-                Path = cleanResult.CleanedGainMap.Path,
-                Sha256 = cleanResult.GainMapExpectedSha256
-                    ?? throw new InvalidDataException("GainMap manifest identity is missing after verified consumption."),
-                StableIdentity = gainMapDescriptor?.StableIdentity ?? "gainmap:typed",
-                Semantic = gainMapDescriptor?.Semantic ?? "GainMap",
-                OwnerIdentity = gainMapDescriptor?.OwnerIdentity ?? "primary:0",
-                Relationship = gainMapDescriptor?.Relationship ?? "gain-map",
-                Representation = gainMapDescriptor?.Representation ?? AuxiliaryRepresentation.Embedded,
-                Ownership = gainMapDescriptor?.Ownership ?? AuxiliaryOwnership.Primary,
-                SourceOffset = gainMapDescriptor?.SourceOffset ?? 0,
-                SourceLength = gainMapDescriptor?.SourceLength ?? cleanResult.CleanedGainMap.ByteLength,
-                SourceSha256 = gainMapDescriptor?.SourceSha256 ?? cleanResult.GainMapExpectedSha256 ?? string.Empty,
-                ByteLength = cleanResult.CleanedGainMap.ByteLength > 0 ? cleanResult.CleanedGainMap.ByteLength : new FileInfo(cleanResult.CleanedGainMap.Path).Length,
-                ImageContainer = cleanResult.CleanedGainMap.ImageContainer,
-                PreservationOutcome = cleanResult.PreservationOutcome,
-                GainMapRepresentation = gainMapEmbeddedInPrimary ? GainMapRepresentation.Embedded : GainMapRepresentation.Detached
-            });
-        }
-        else if (gainMapDescriptor is { Representation: AuxiliaryRepresentation.Embedded, Ownership: AuxiliaryOwnership.Primary, MaterializedArtifact: null })
-        {
-            manifest.Add(new NeutralArtifactManifest
-            {
-                Role = "GainMap",
-                Path = finalImage.Path,
-                Sha256 = finalImage.Sha256 ?? await workspace.ComputeFileSha256Async(finalImage.Path, cancellationToken).ConfigureAwait(false),
-                StableIdentity = gainMapDescriptor.StableIdentity,
-                Semantic = gainMapDescriptor.Semantic,
-                OwnerIdentity = gainMapDescriptor.OwnerIdentity,
-                Relationship = gainMapDescriptor.Relationship,
-                Representation = gainMapDescriptor.Representation,
-                Ownership = gainMapDescriptor.Ownership,
-                SourceOffset = gainMapDescriptor.SourceOffset,
-                SourceLength = gainMapDescriptor.SourceLength,
-                SourceSha256 = gainMapDescriptor.SourceSha256,
-                ByteLength = finalImage.ByteLength > 0 ? finalImage.ByteLength : new FileInfo(finalImage.Path).Length,
-                ImageContainer = finalImage.ImageContainer,
-                PreservationOutcome = gainMapSemanticallyReencoded
-                    ? imageOutcome
-                    : gainMapDescriptor.PreservationOutcome,
-                GainMapRepresentation = GainMapRepresentation.Embedded
-            });
-        }
-
-        var materializedIdentities = new HashSet<string>(StringComparer.Ordinal);
-        foreach (AuxiliaryMediaDescriptor descriptor in auxiliaryHandoff)
-        {
-            MediaArtifact? artifact = descriptor.MaterializedArtifact;
-            if (artifact == null)
-            {
-                continue;
+                materializedGainMapPath = manifestProjection.GainMapArtifact?.Path
+                    ?? throw new InvalidDataException("Both GainMap representation requires its verified materialized artifact.");
             }
 
-            if (!materializedIdentities.Add(descriptor.StableIdentity))
-            {
-                throw new InvalidDataException(
-                    $"Auxiliary manifest would contain duplicate stable identity '{descriptor.StableIdentity}'.");
-            }
-
-            if (cleanResult.CleanedGainMap != null &&
-                string.Equals(artifact.Path, cleanResult.CleanedGainMap.Path, StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            manifest.Add(new NeutralArtifactManifest
-            {
-                Role = descriptor.ArtifactRole.ToString(),
-                Path = artifact.Path,
-                Sha256 = artifact.Sha256 ?? await workspace.ComputeFileSha256Async(artifact.Path, cancellationToken).ConfigureAwait(false),
-                StableIdentity = descriptor.StableIdentity,
-                Semantic = descriptor.Semantic,
-                OwnerIdentity = descriptor.OwnerIdentity,
-                Relationship = descriptor.Relationship,
-                Representation = descriptor.Representation,
-                Ownership = descriptor.Ownership,
-                SourceOffset = descriptor.SourceOffset,
-                SourceLength = descriptor.SourceLength,
-                SourceSha256 = descriptor.SourceSha256,
-                ByteLength = artifact.ByteLength > 0 ? artifact.ByteLength : new FileInfo(artifact.Path).Length,
-                ImageContainer = artifact.ImageContainer,
-                PreservationOutcome = descriptor.PreservationOutcome,
-                GainMapRepresentation = GainMapRepresentation.None
-            });
+            finalGainMapMetadata = await NativeMediaService.InspectGainMapMetadataAsync(
+                finalImage.Path,
+                materializedGainMapPath,
+                cancellationToken).ConfigureAwait(false);
         }
+
+        NeutralMediaSemantics semantics = ProjectNeutralSemantics(
+            manifest,
+            finalImage,
+            finalVideo,
+            neutralFacts,
+            facts.Timing,
+            cleanResult.PreservationReport,
+            imageOutcome,
+            videoOutcome,
+            imageConversionTruth,
+            videoConversionTruth,
+            resolvedVideoFacts,
+            preConversionImageOrientation,
+            finalImageOrientation,
+            finalImageObservation,
+            finalHeicPrimary,
+            finalGainMapMetadata,
+            imageWasConverted,
+            videoWasConverted,
+            gainMapRep);
 
         return new NeutralMediaBundle
         {
             PrimaryImage = finalImage,
             MotionVideo = finalVideo,
-            GainMap = cleanResult.CleanedGainMap,
+            GainMap = manifestProjection.GainMapArtifact,
             HdrGainMapBinding = hdrGainMapBinding,
             GainMapRepresentation = gainMapRep,
             SourceProvenance = facts,
@@ -460,8 +478,999 @@ public sealed class NeutralMediaService : INeutralMediaService
             Manifest = manifest,
             AuxiliaryMedia = auxiliaryHandoff,
             PreservationCarriers = preservationCarriers,
-            Timing = facts.Timing
+            Timing = facts.Timing,
+            Semantics = semantics
         };
+    }
+
+    private sealed record NeutralManifestProjection(
+        List<NeutralArtifactManifest> Manifest,
+        GainMapRepresentation GainMapRepresentation,
+        MediaArtifact? GainMapArtifact);
+
+    private sealed record ArtifactByteIdentity(string Sha256, long ByteLength);
+
+    private static bool IsVerifiedNeutralPrimary(SourceMediaFacts facts) =>
+        facts.PrimaryImage.IsPresent &&
+        facts.Protocol == SourceProtocol.NonLive &&
+        facts.MotionVideo == null &&
+        facts.ProtocolTailLength == 0 &&
+        facts.PairingIdentifier == null;
+
+    private static async Task<NeutralManifestProjection> BuildArtifactManifestAsync(
+        MediaArtifact finalImage,
+        MediaArtifact? finalVideo,
+        SourceMediaFacts finalFacts,
+        IReadOnlyList<AuxiliaryMediaDescriptor> auxiliaryHandoff,
+        ProtocolCleanResult cleanResult,
+        PreservationOutcome imageOutcome,
+        PreservationOutcome videoOutcome,
+        bool gainMapSemanticallyReencoded,
+        IMediaWorkspace workspace,
+        CancellationToken cancellationToken)
+    {
+        if (finalImage.Kind != MediaArtifactKind.PrimaryImage ||
+            finalImage.ImageContainer == ImageContainer.Unknown || finalImage.ImageCodec == ImageCodec.Unknown ||
+            !finalFacts.PrimaryImage.IsPresent || !IsValidSha256(finalFacts.PrimarySha256))
+        {
+            throw new InvalidDataException("Final primary image identity, container, codec, or inspection evidence is incomplete.");
+        }
+
+        ArtifactByteIdentity primaryBytes = await VerifyArtifactByteIdentityAsync(
+            finalImage, workspace, cancellationToken, "final primary image").ConfigureAwait(false);
+        if (!string.Equals(primaryBytes.Sha256, finalFacts.PrimarySha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Final Inspector primary hash does not identify the returned primary artifact bytes.");
+        string primaryIdentity = ContentIdentity(primaryBytes.Sha256);
+        var manifest = new List<NeutralArtifactManifest>
+        {
+            new()
+            {
+                Role = "PrimaryImage",
+                Path = finalImage.Path,
+                Sha256 = primaryBytes.Sha256,
+                StableIdentity = primaryIdentity,
+                Semantic = "Primary",
+                Relationship = "root",
+                Representation = AuxiliaryRepresentation.Materialized,
+                Ownership = AuxiliaryOwnership.Primary,
+                SourceLength = primaryBytes.ByteLength,
+                SourceSha256 = primaryBytes.Sha256,
+                ByteLength = primaryBytes.ByteLength,
+                ImageContainer = finalImage.ImageContainer,
+                ImageCodec = finalImage.ImageCodec,
+                SemanticRepresentation = NeutralAuxiliaryRepresentation.Materialized,
+                PreservationOutcome = imageOutcome
+            }
+        };
+
+        if (finalVideo != null)
+        {
+            if (finalVideo.Kind != MediaArtifactKind.MotionVideo ||
+                finalVideo.VideoContainer == VideoContainer.Unknown || finalVideo.VideoCodec == VideoCodec.Unknown)
+            {
+                throw new InvalidDataException("Final motion video container or codec is unknown.");
+            }
+
+            ArtifactByteIdentity videoBytes = await VerifyArtifactByteIdentityAsync(
+                finalVideo, workspace, cancellationToken, "final motion video").ConfigureAwait(false);
+            string videoIdentity = ContentIdentity(videoBytes.Sha256);
+            manifest.Add(new NeutralArtifactManifest
+            {
+                Role = "MotionVideo",
+                Path = finalVideo.Path,
+                Sha256 = videoBytes.Sha256,
+                StableIdentity = videoIdentity,
+                Semantic = "MotionVideo",
+                OwnerIdentity = primaryIdentity,
+                Relationship = "motion-companion",
+                Representation = AuxiliaryRepresentation.Materialized,
+                Ownership = AuxiliaryOwnership.Auxiliary,
+                SourceLength = videoBytes.ByteLength,
+                SourceSha256 = videoBytes.Sha256,
+                ByteLength = videoBytes.ByteLength,
+                VideoContainer = finalVideo.VideoContainer,
+                VideoCodec = finalVideo.VideoCodec,
+                SemanticRepresentation = NeutralAuxiliaryRepresentation.Materialized,
+                PreservationOutcome = videoOutcome
+            });
+        }
+
+        AuxiliaryMediaFacts[] finalItems = finalFacts.AuxiliaryItems.Where(item => item.IsPresent).ToArray();
+        foreach (AuxiliaryMediaFacts item in finalItems)
+            ValidateFinalAuxiliaryFacts(item, primaryBytes.ByteLength);
+
+        AuxiliaryMediaFacts? finalGainMap = ResolveFinalGainMap(finalFacts, finalItems);
+        AuxiliaryMediaFacts[] gainMapFactsItems = finalItems
+            .Where(item => string.Equals(item.Semantic, "GainMap", StringComparison.Ordinal))
+            .ToArray();
+        if ((finalGainMap == null && gainMapFactsItems.Length != 0) ||
+            (finalGainMap != null && (gainMapFactsItems.Length != 1 || !ReferenceEquals(gainMapFactsItems[0], finalGainMap))))
+        {
+            throw new InvalidDataException("Final Inspector auxiliary graph contains an unbound or ambiguous GainMap item.");
+        }
+
+        AuxiliaryMediaDescriptor[] gainMapDescriptors = auxiliaryHandoff.Where(IsGainMapDescriptor).ToArray();
+        AuxiliaryMediaDescriptor[] materializedGainMaps = gainMapDescriptors
+            .Where(item => item.MaterializedArtifact != null)
+            .ToArray();
+        AuxiliaryMediaDescriptor? inspectedGainMapDescriptor = finalGainMap == null
+            ? null
+            : FindHandoffDescriptor(finalGainMap, auxiliaryHandoff);
+
+        GainMapRepresentation gainMapRepresentation;
+        MediaArtifact? gainMapArtifact = null;
+        AuxiliaryMediaDescriptor? finalGainMapDescriptor = null;
+        if (finalGainMap != null)
+        {
+            if (materializedGainMaps.Length > 1)
+                throw new InvalidDataException("Final GainMap has multiple materialized handoff artifacts.");
+
+            if (materializedGainMaps.Length == 1)
+            {
+                finalGainMapDescriptor = materializedGainMaps[0];
+                if (!ReferenceEquals(finalGainMapDescriptor, inspectedGainMapDescriptor))
+                    throw new InvalidDataException("Materialized GainMap does not identify the final Inspector GainMap.");
+                ValidateDescriptorAgainstFinalFacts(finalGainMapDescriptor, finalGainMap);
+                gainMapArtifact = finalGainMapDescriptor.MaterializedArtifact;
+                ArtifactByteIdentity detachedBytes = await VerifyDescriptorArtifactAsync(
+                    finalGainMapDescriptor, workspace, cancellationToken).ConfigureAwait(false);
+                if (detachedBytes.ByteLength != finalGainMap.ByteLength ||
+                    !string.Equals(detachedBytes.Sha256, finalGainMap.Sha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidDataException("Embedded and materialized GainMap bytes do not have one exact semantic identity.");
+                }
+                gainMapRepresentation = GainMapRepresentation.Both;
+            }
+            else
+            {
+                finalGainMapDescriptor = inspectedGainMapDescriptor;
+                if (finalGainMapDescriptor != null)
+                    ValidateDescriptorAgainstFinalFacts(finalGainMapDescriptor, finalGainMap);
+                gainMapRepresentation = GainMapRepresentation.Embedded;
+            }
+        }
+        else if (materializedGainMaps.Length == 1)
+        {
+            finalGainMapDescriptor = materializedGainMaps[0];
+            ValidateCompleteDescriptor(finalGainMapDescriptor, requireMaterializedArtifact: true);
+            gainMapArtifact = finalGainMapDescriptor.MaterializedArtifact;
+            _ = await VerifyDescriptorArtifactAsync(finalGainMapDescriptor, workspace, cancellationToken)
+                .ConfigureAwait(false);
+            gainMapRepresentation = GainMapRepresentation.Detached;
+        }
+        else
+        {
+            if (materializedGainMaps.Length > 1)
+                throw new InvalidDataException("Detached GainMap handoff is ambiguous.");
+            gainMapRepresentation = GainMapRepresentation.None;
+        }
+
+        if (cleanResult.CleanedGainMap != null && materializedGainMaps.Length == 0 && !gainMapSemanticallyReencoded)
+        {
+            throw new InvalidDataException("Cleaner returned a GainMap artifact without a verified final semantic descriptor.");
+        }
+
+        var auxiliaryIdentities = new HashSet<string>(StringComparer.Ordinal);
+        if (finalGainMap != null)
+        {
+            MediaArtifact? materialized = gainMapRepresentation == GainMapRepresentation.Both ? gainMapArtifact : null;
+            NeutralAuxiliaryRepresentation semanticRepresentation = gainMapRepresentation switch
+            {
+                GainMapRepresentation.Both => NeutralAuxiliaryRepresentation.Both,
+                GainMapRepresentation.Embedded => NeutralAuxiliaryRepresentation.Embedded,
+                _ => throw new InvalidDataException("Inspected GainMap has an invalid final representation.")
+            };
+            manifest.Add(await CreateInspectedAuxiliaryManifestAsync(
+                finalGainMap,
+                finalGainMapDescriptor,
+                materialized,
+                semanticRepresentation,
+                "GainMap",
+                gainMapRepresentation,
+                imageOutcome,
+                finalImage,
+                workspace,
+                cancellationToken).ConfigureAwait(false));
+            auxiliaryIdentities.Add(finalGainMap.StableIdentity);
+        }
+        else if (gainMapRepresentation == GainMapRepresentation.Detached)
+        {
+            AuxiliaryMediaDescriptor descriptor = finalGainMapDescriptor
+                ?? throw new InvalidDataException("Detached GainMap has no verified descriptor.");
+            manifest.Add(await CreateMaterializedAuxiliaryManifestAsync(
+                descriptor,
+                descriptor.MaterializedArtifact!,
+                "GainMap",
+                GainMapRepresentation.Detached,
+                workspace,
+                cancellationToken).ConfigureAwait(false));
+            auxiliaryIdentities.Add(descriptor.StableIdentity);
+        }
+
+        var representedDescriptors = new HashSet<AuxiliaryMediaDescriptor>();
+        foreach (AuxiliaryMediaFacts item in finalItems.Where(item => !IsGainMapFacts(item)))
+        {
+            AuxiliaryMediaDescriptor? descriptor = FindHandoffDescriptor(item, auxiliaryHandoff);
+            if (descriptor != null)
+            {
+                ValidateDescriptorAgainstFinalFacts(descriptor, item);
+                representedDescriptors.Add(descriptor);
+            }
+
+            NeutralAuxiliaryRepresentation representation = descriptor?.MaterializedArtifact != null
+                ? NeutralAuxiliaryRepresentation.Both
+                : MapRepresentation(item.Representation);
+            if (representation == NeutralAuxiliaryRepresentation.Unknown)
+                throw new InvalidDataException($"Final auxiliary '{item.StableIdentity}' has an unknown representation.");
+
+            manifest.Add(await CreateInspectedAuxiliaryManifestAsync(
+                item,
+                descriptor,
+                descriptor?.MaterializedArtifact,
+                representation,
+                "Auxiliary",
+                GainMapRepresentation.None,
+                imageOutcome,
+                finalImage,
+                workspace,
+                cancellationToken).ConfigureAwait(false));
+            if (!auxiliaryIdentities.Add(item.StableIdentity))
+                throw new InvalidDataException($"Neutral manifest has duplicate auxiliary identity '{item.StableIdentity}'.");
+        }
+
+        foreach (AuxiliaryMediaDescriptor descriptor in auxiliaryHandoff)
+        {
+            if (IsGainMapDescriptor(descriptor) || descriptor.MaterializedArtifact == null || representedDescriptors.Contains(descriptor))
+                continue;
+            if (auxiliaryIdentities.Contains(descriptor.StableIdentity))
+            {
+                throw new InvalidDataException(
+                    $"Materialized auxiliary '{descriptor.StableIdentity}' conflicts with a final Inspector identity.");
+            }
+
+            manifest.Add(await CreateMaterializedAuxiliaryManifestAsync(
+                descriptor,
+                descriptor.MaterializedArtifact,
+                "Auxiliary",
+                GainMapRepresentation.None,
+                workspace,
+                cancellationToken).ConfigureAwait(false));
+            if (!auxiliaryIdentities.Add(descriptor.StableIdentity))
+                throw new InvalidDataException($"Neutral manifest has duplicate auxiliary identity '{descriptor.StableIdentity}'.");
+        }
+
+        // The primary row carries the bundle's single semantic GainMap state
+        // for callers that still consume this compatibility enum.
+        manifest[0] = manifest[0] with { GainMapRepresentation = gainMapRepresentation };
+
+        ValidateFinalManifest(manifest, primaryBytes.ByteLength);
+        return new NeutralManifestProjection(manifest, gainMapRepresentation, gainMapArtifact);
+    }
+
+    private static async Task<NeutralArtifactManifest> CreateInspectedAuxiliaryManifestAsync(
+        AuxiliaryMediaFacts item,
+        AuxiliaryMediaDescriptor? descriptor,
+        MediaArtifact? materializedArtifact,
+        NeutralAuxiliaryRepresentation semanticRepresentation,
+        string role,
+        GainMapRepresentation gainMapRepresentation,
+        PreservationOutcome fallbackOutcome,
+        MediaArtifact ownerArtifact,
+        IMediaWorkspace workspace,
+        CancellationToken cancellationToken)
+    {
+        string sha256 = item.Sha256;
+        long byteLength = item.ByteLength;
+        string path = ownerArtifact.Path;
+        if (materializedArtifact != null)
+        {
+            ArtifactByteIdentity actual = await VerifyDescriptorArtifactAsync(
+                descriptor ?? throw new InvalidDataException("Materialized auxiliary has no verified descriptor."),
+                workspace,
+                cancellationToken).ConfigureAwait(false);
+            if (actual.ByteLength != item.ByteLength ||
+                !string.Equals(actual.Sha256, item.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidDataException($"Materialized auxiliary '{item.StableIdentity}' differs from final Inspector bytes.");
+            }
+            sha256 = actual.Sha256;
+            byteLength = actual.ByteLength;
+            path = materializedArtifact.Path;
+        }
+
+        return new NeutralArtifactManifest
+        {
+            Role = role,
+            Path = path,
+            Sha256 = sha256,
+            // The final Inspector's stable identity is the identity of the
+            // final semantic graph, not the source handoff descriptor.
+            StableIdentity = item.StableIdentity,
+            Semantic = item.Semantic,
+            OwnerIdentity = item.OwnerIdentity,
+            Relationship = item.Relationship,
+            Representation = descriptor?.Representation ?? item.Representation,
+            Ownership = item.Ownership,
+            SourceOffset = descriptor?.SourceOffset ?? item.ByteOffset,
+            SourceLength = descriptor?.SourceLength ?? item.ByteLength,
+            SourceSha256 = descriptor?.SourceSha256 ?? item.Sha256,
+            ByteLength = byteLength,
+            ImageContainer = item.Container,
+            ImageCodec = ImageCodecFromAuxiliaryCodec(item.Codec),
+            AuxiliaryCodec = item.Codec,
+            SemanticRepresentation = semanticRepresentation,
+            OwnerByteOffset = item.Representation == AuxiliaryRepresentation.Embedded &&
+                item.Ownership == AuxiliaryOwnership.Primary ? item.ByteOffset : null,
+            PreservationOutcome = descriptor?.PreservationOutcome ?? fallbackOutcome,
+            GainMapRepresentation = gainMapRepresentation
+        };
+    }
+
+    private static async Task<NeutralArtifactManifest> CreateMaterializedAuxiliaryManifestAsync(
+        AuxiliaryMediaDescriptor descriptor,
+        MediaArtifact artifact,
+        string role,
+        GainMapRepresentation gainMapRepresentation,
+        IMediaWorkspace workspace,
+        CancellationToken cancellationToken)
+    {
+        ValidateCompleteDescriptor(descriptor, requireMaterializedArtifact: true);
+        ArtifactByteIdentity actual = await VerifyDescriptorArtifactAsync(descriptor, workspace, cancellationToken)
+            .ConfigureAwait(false);
+        NeutralAuxiliaryRepresentation representation = role == "GainMap"
+            ? NeutralAuxiliaryRepresentation.Detached
+            : descriptor.Representation switch
+            {
+                AuxiliaryRepresentation.Materialized => NeutralAuxiliaryRepresentation.Materialized,
+                AuxiliaryRepresentation.Detached => NeutralAuxiliaryRepresentation.Detached,
+                _ => NeutralAuxiliaryRepresentation.Detached
+            };
+        ImageContainer container = descriptor.ImageContainer != ImageContainer.Unknown
+            ? descriptor.ImageContainer
+            : artifact.ImageContainer;
+        if (container == ImageContainer.Unknown || descriptor.Codec == AuxiliaryCodec.Unknown)
+            throw new InvalidDataException($"Materialized auxiliary '{descriptor.StableIdentity}' has unknown format facts.");
+
+        return new NeutralArtifactManifest
+        {
+            Role = role,
+            Path = artifact.Path,
+            Sha256 = actual.Sha256,
+            StableIdentity = AuxiliaryStableIdentity(descriptor.Semantic, actual.Sha256),
+            Semantic = descriptor.Semantic,
+            OwnerIdentity = descriptor.OwnerIdentity,
+            Relationship = descriptor.Relationship,
+            Representation = descriptor.Representation,
+            Ownership = descriptor.Ownership,
+            SourceOffset = descriptor.SourceOffset,
+            SourceLength = descriptor.SourceLength,
+            SourceSha256 = descriptor.SourceSha256,
+            ByteLength = actual.ByteLength,
+            ImageContainer = container,
+            ImageCodec = ImageCodecFromAuxiliaryCodec(descriptor.Codec),
+            AuxiliaryCodec = descriptor.Codec,
+            SemanticRepresentation = representation,
+            PreservationOutcome = descriptor.PreservationOutcome,
+            GainMapRepresentation = gainMapRepresentation
+        };
+    }
+
+    private static async Task<ArtifactByteIdentity> VerifyArtifactByteIdentityAsync(
+        MediaArtifact artifact,
+        IMediaWorkspace workspace,
+        CancellationToken cancellationToken,
+        string label)
+    {
+        if (string.IsNullOrWhiteSpace(artifact.Path) || !File.Exists(artifact.Path))
+            throw new InvalidDataException($"The {label} artifact is missing.");
+
+        long actualLength = new FileInfo(artifact.Path).Length;
+        string actualSha256 = await workspace.ComputeFileSha256Async(artifact.Path, cancellationToken)
+            .ConfigureAwait(false);
+        if (actualLength <= 0 || !IsValidSha256(actualSha256) ||
+            (artifact.ByteLength > 0 && artifact.ByteLength != actualLength) ||
+            (!string.IsNullOrWhiteSpace(artifact.Sha256) &&
+             !string.Equals(artifact.Sha256, actualSha256, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new InvalidDataException($"The {label} artifact bytes disagree with their recorded identity.");
+        }
+        return new ArtifactByteIdentity(actualSha256, actualLength);
+    }
+
+    private static async Task<ArtifactByteIdentity> VerifyDescriptorArtifactAsync(
+        AuxiliaryMediaDescriptor descriptor,
+        IMediaWorkspace workspace,
+        CancellationToken cancellationToken)
+    {
+        ValidateCompleteDescriptor(descriptor, requireMaterializedArtifact: true);
+        MediaArtifact artifact = descriptor.MaterializedArtifact!;
+        ArtifactByteIdentity actual = await VerifyArtifactByteIdentityAsync(
+            artifact, workspace, cancellationToken, $"auxiliary '{descriptor.StableIdentity}'").ConfigureAwait(false);
+        if (actual.ByteLength != descriptor.SourceLength ||
+            !string.Equals(actual.Sha256, descriptor.SourceSha256, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException($"Materialized auxiliary '{descriptor.StableIdentity}' disagrees with its verified Inspector identity.");
+        }
+        return actual;
+    }
+
+    private static void ValidateCompleteDescriptor(
+        AuxiliaryMediaDescriptor descriptor,
+        bool requireMaterializedArtifact)
+    {
+        if (string.IsNullOrWhiteSpace(descriptor.StableIdentity) ||
+            string.IsNullOrWhiteSpace(descriptor.Semantic) ||
+            string.IsNullOrWhiteSpace(descriptor.OwnerIdentity) ||
+            string.IsNullOrWhiteSpace(descriptor.Relationship) ||
+            descriptor.SourceLength <= 0 || !IsValidSha256(descriptor.SourceSha256) ||
+            descriptor.ImageContainer == ImageContainer.Unknown || descriptor.Codec == AuxiliaryCodec.Unknown ||
+            (requireMaterializedArtifact && descriptor.MaterializedArtifact == null))
+        {
+            throw new InvalidDataException($"Auxiliary descriptor '{descriptor.StableIdentity}' is incomplete.");
+        }
+    }
+
+    private static void ValidateFinalAuxiliaryFacts(AuxiliaryMediaFacts item, long ownerLength)
+    {
+        if (string.IsNullOrWhiteSpace(item.StableIdentity) || string.IsNullOrWhiteSpace(item.Semantic) ||
+            string.IsNullOrWhiteSpace(item.OwnerIdentity) || string.IsNullOrWhiteSpace(item.Relationship) ||
+            item.ByteLength <= 0 || !IsValidSha256(item.Sha256) ||
+            item.Container == ImageContainer.Unknown || item.Codec == AuxiliaryCodec.Unknown ||
+            item.Representation == AuxiliaryRepresentation.Materialized && item.ByteOffset < 0)
+        {
+            throw new InvalidDataException("Final Inspector auxiliary facts are incomplete.");
+        }
+
+        if (item.Representation == AuxiliaryRepresentation.Embedded && item.Ownership == AuxiliaryOwnership.Primary)
+        {
+            long end;
+            try { end = checked(item.ByteOffset + item.ByteLength); }
+            catch (OverflowException ex) { throw new InvalidDataException("Final Inspector auxiliary range overflows.", ex); }
+            if (item.ByteOffset < 0 || end > ownerLength)
+                throw new InvalidDataException("Final Inspector auxiliary range is outside its authoritative owner artifact.");
+        }
+    }
+
+    private static AuxiliaryMediaFacts? ResolveFinalGainMap(
+        SourceMediaFacts finalFacts,
+        IReadOnlyList<AuxiliaryMediaFacts> finalItems)
+    {
+        if (finalFacts.GainMap is not { IsPresent: true } facts)
+            return null;
+        if (facts.AuxiliaryIndex >= finalFacts.AuxiliaryItems.Count)
+            throw new InvalidDataException("Final GainMap does not identify an in-range Inspector auxiliary item.");
+        AuxiliaryMediaFacts item = finalFacts.AuxiliaryItems[checked((int)facts.AuxiliaryIndex)];
+        if (!item.IsPresent || item.ItemId != facts.ItemId || item.ByteOffset != facts.ByteOffset ||
+            item.ByteLength != facts.ByteLength || item.Container != facts.Container ||
+            item.Representation != facts.Representation || item.Ownership != facts.Ownership ||
+            !string.Equals(item.Relationship, facts.Relationship, StringComparison.Ordinal) ||
+            !string.Equals(item.Semantic, "GainMap", StringComparison.Ordinal))
+        {
+            throw new InvalidDataException("Final GainMap item does not match its authoritative Inspector binding.");
+        }
+        if (!finalItems.Contains(item))
+            throw new InvalidDataException("Final GainMap binding is not present in the inspected auxiliary graph.");
+        return item;
+    }
+
+    private static void ValidateDescriptorAgainstFinalFacts(
+        AuxiliaryMediaDescriptor descriptor,
+        AuxiliaryMediaFacts item)
+    {
+        ValidateCompleteDescriptor(descriptor, requireMaterializedArtifact: false);
+        if (!string.Equals(descriptor.Semantic, item.Semantic, StringComparison.Ordinal) ||
+            !string.Equals(descriptor.Relationship, item.Relationship, StringComparison.Ordinal) ||
+            descriptor.SourceLength != item.ByteLength ||
+            !string.Equals(descriptor.SourceSha256, item.Sha256, StringComparison.OrdinalIgnoreCase) ||
+            descriptor.ImageContainer != item.Container || descriptor.Codec != item.Codec ||
+            descriptor.Ownership != item.Ownership)
+        {
+            throw new InvalidDataException(
+                $"Handoff descriptor '{descriptor.StableIdentity}' disagrees with final Inspector semantic, relationship, or byte facts.");
+        }
+    }
+
+    private static bool IsGainMapDescriptor(AuxiliaryMediaDescriptor descriptor) =>
+        descriptor.ArtifactRole == MediaArtifactKind.GainMap ||
+        string.Equals(descriptor.Semantic, "GainMap", StringComparison.Ordinal);
+
+    private static bool IsGainMapFacts(AuxiliaryMediaFacts item) =>
+        string.Equals(item.Semantic, "GainMap", StringComparison.Ordinal);
+
+    private static ImageCodec ImageCodecFromAuxiliaryCodec(AuxiliaryCodec codec) => codec switch
+    {
+        AuxiliaryCodec.Jpeg => ImageCodec.Jpeg,
+        AuxiliaryCodec.Hevc => ImageCodec.Hevc,
+        _ => ImageCodec.Unknown
+    };
+
+    private static string AuxiliaryStableIdentity(string semantic, string sha256)
+    {
+        if (string.IsNullOrWhiteSpace(semantic) || !IsValidSha256(sha256))
+            throw new InvalidDataException("Auxiliary semantic identity requires a semantic name and content SHA-256.");
+        return $"aux:{semantic}:sha256:{sha256.ToLowerInvariant()}";
+    }
+
+    private static void ValidateFinalManifest(IReadOnlyList<NeutralArtifactManifest> manifest, long primaryLength)
+    {
+        var stableIdentities = new HashSet<(string Role, string StableIdentity)>();
+        foreach (NeutralArtifactManifest item in manifest)
+        {
+            if (string.IsNullOrWhiteSpace(item.Role) || string.IsNullOrWhiteSpace(item.StableIdentity) ||
+                string.IsNullOrWhiteSpace(item.Semantic) || string.IsNullOrWhiteSpace(item.Relationship) ||
+                item.ByteLength <= 0 || !IsValidSha256(item.Sha256) ||
+                item.PreservationOutcome == PreservationOutcome.Unsupported ||
+                item.SemanticRepresentation == NeutralAuxiliaryRepresentation.Unknown ||
+                !stableIdentities.Add((item.Role, item.StableIdentity)))
+            {
+                throw new InvalidDataException("Neutral artifact manifest contains an incomplete, unsupported, or duplicate semantic row.");
+            }
+            if (item.Role is "PrimaryImage" or "MotionVideo")
+            {
+                if (item.Role == "PrimaryImage" &&
+                    (item.ImageContainer == ImageContainer.Unknown || item.ImageCodec == ImageCodec.Unknown))
+                    throw new InvalidDataException("Primary image manifest row is missing applicable format facts.");
+                if (item.Role == "MotionVideo" &&
+                    (item.VideoContainer == VideoContainer.Unknown || item.VideoCodec == VideoCodec.Unknown ||
+                     string.IsNullOrWhiteSpace(item.OwnerIdentity)))
+                    throw new InvalidDataException("Motion video manifest row is missing applicable format or owner facts.");
+            }
+            else
+            {
+                if (item.ImageContainer == ImageContainer.Unknown || item.AuxiliaryCodec == AuxiliaryCodec.Unknown ||
+                    string.IsNullOrWhiteSpace(item.OwnerIdentity))
+                    throw new InvalidDataException($"Auxiliary manifest row '{item.StableIdentity}' is missing applicable format or owner facts.");
+                if (item.OwnerByteOffset is long offset &&
+                    (offset < 0 || item.ByteLength > primaryLength || offset > primaryLength - item.ByteLength))
+                    throw new InvalidDataException($"Auxiliary manifest row '{item.StableIdentity}' has an out-of-range owner offset.");
+            }
+        }
+    }
+
+    private static NeutralMediaSemantics ProjectNeutralSemantics(
+        IReadOnlyList<NeutralArtifactManifest> manifest,
+        MediaArtifact finalImage,
+        MediaArtifact? finalVideo,
+        SourceMediaFacts finalFacts,
+        TimingFacts inspectedSourceTiming,
+        PreservationReport? preservationReport,
+        PreservationOutcome imageOutcome,
+        PreservationOutcome videoOutcome,
+        ConversionExecutionTruth? imageConversionTruth,
+        ConversionExecutionTruth? videoConversionTruth,
+        VideoFacts? resolvedVideoFacts,
+        NativeImageOrientationObservationV1? preConversionImageOrientation,
+        NativeImageOrientationObservationV1 finalImageOrientation,
+        PreservationObservation finalImageObservation,
+        NativeHeicPrimaryDecodeInfo? finalHeicPrimary,
+        NativeGainMapMetadataV1? finalGainMapMetadata,
+        bool imageWasConverted,
+        bool videoWasConverted,
+        GainMapRepresentation gainMapRepresentation)
+    {
+        NeutralArtifactManifest primaryManifest = manifest.Single(item => item.Role == "PrimaryImage");
+        NeutralArtifactSemantics primary = new()
+        {
+            Role = NeutralArtifactRole.PrimaryImage,
+            ContentIdentity = ContentIdentity(primaryManifest.Sha256),
+            Semantic = "Primary",
+            ImageContainer = finalImage.ImageContainer,
+            ImageCodec = finalImage.ImageCodec,
+            PreservationOutcome = imageOutcome,
+            EvidenceState = finalFacts.PrimaryImage.IsPresent
+                ? NeutralEvidenceState.Verified
+                : NeutralEvidenceState.Unknown
+        };
+
+        NeutralArtifactSemantics? motion = null;
+        if (finalVideo != null)
+        {
+            NeutralArtifactManifest videoManifest = manifest.Single(item => item.Role == "MotionVideo");
+            bool videoStructureVerified = videoWasConverted
+                ? videoConversionTruth is { ActualOperationKind: not ConversionOperationKind.Unsupported }
+                : resolvedVideoFacts is { IsPresent: true, Container: not VideoContainer.Unknown, Codec: not VideoCodec.Unknown };
+            motion = new NeutralArtifactSemantics
+            {
+                Role = NeutralArtifactRole.MotionVideo,
+                ContentIdentity = ContentIdentity(videoManifest.Sha256),
+                Semantic = "MotionVideo",
+                VideoContainer = finalVideo.VideoContainer,
+                VideoCodec = finalVideo.VideoCodec,
+                PreservationOutcome = videoOutcome,
+                EvidenceState = videoStructureVerified
+                    ? NeutralEvidenceState.Verified
+                    : NeutralEvidenceState.Unknown
+            };
+        }
+
+        NeutralAuxiliarySemantics? gainMap = ProjectFinalGainMap(manifest);
+        var auxiliarySemantics = ProjectOtherAuxiliaryMedia(manifest);
+
+        NeutralTimingSemantics timing = ProjectTiming(
+            finalVideo != null,
+            inspectedSourceTiming,
+            preservationReport,
+            videoConversionTruth,
+            videoWasConverted);
+        NeutralOrientationSemantics orientation = ProjectOrientation(
+            preConversionImageOrientation,
+            finalImageOrientation,
+            imageConversionTruth,
+            preservationReport,
+            imageWasConverted,
+            resolvedVideoFacts,
+            videoConversionTruth,
+            videoWasConverted);
+
+        bool finalImageInspected = finalFacts.PrimaryImage.IsPresent;
+        if (finalImageObservation.HasIcc && !IsValidSha256(finalImageObservation.IccSha256))
+            throw new InvalidDataException("Final ICC profile does not have a valid content SHA-256 identity.");
+
+        double? hdrCapacityMin = null;
+        double? hdrCapacityMax = null;
+        if (finalGainMapMetadata is { Kind: 2 } isoGainMapMetadata)
+        {
+            if (!double.IsFinite(isoGainMapMetadata.HdrCapacityMin) ||
+                !double.IsFinite(isoGainMapMetadata.HdrCapacityMax) ||
+                isoGainMapMetadata.HdrCapacityMin < 0 ||
+                isoGainMapMetadata.HdrCapacityMax <= isoGainMapMetadata.HdrCapacityMin)
+                throw new InvalidDataException("Final ISO GainMap metadata has invalid HDR capacity bounds.");
+            hdrCapacityMin = isoGainMapMetadata.HdrCapacityMin;
+            hdrCapacityMax = isoGainMapMetadata.HdrCapacityMax;
+        }
+
+        bool hasNclx = finalHeicPrimary is { HasNclx: 1 };
+        bool? isHdrRelevant = gainMap != null || finalGainMapMetadata.HasValue
+            ? true
+            : finalHeicPrimary is { } heicFacts ? heicFacts.IsHdrRelevant != 0 : null;
+        NeutralColorHdrSemantics colorHdr = new()
+        {
+            HasGainMap = finalImageInspected ? gainMap != null : null,
+            HdrState = !finalImageInspected
+                ? NeutralHdrState.Unknown
+                : gainMap != null
+                    ? NeutralHdrState.GainMapPresent
+                    : NeutralHdrState.NoGainMapObserved,
+            GainMapEvidence = finalImageInspected
+                ? NeutralEvidenceState.Verified
+                : NeutralEvidenceState.Unknown,
+            ColorSpaceState = finalImageObservation.HasIcc || hasNclx
+                ? NeutralColorSpaceState.Verified
+                : NeutralColorSpaceState.Unknown,
+            IccProfileSha256 = finalImageObservation.HasIcc ? finalImageObservation.IccSha256 : null,
+            IccProfileEvidence = NeutralEvidenceState.Verified,
+            EncodedBitDepth = finalHeicPrimary?.SourceBitDepth,
+            DecodedSignalBitDepth = finalHeicPrimary?.DecodedSignalBitDepth,
+            DecodedStorageBitDepth = finalHeicPrimary?.DecodedStorageBitDepth,
+            NclxPrimaries = hasNclx ? finalHeicPrimary!.Value.NclxPrimaries : null,
+            NclxTransfer = hasNclx ? finalHeicPrimary!.Value.NclxTransfer : null,
+            NclxMatrix = hasNclx ? finalHeicPrimary!.Value.NclxMatrix : null,
+            IsHdrRelevant = isHdrRelevant,
+            HdrEvidence = gainMap != null || finalHeicPrimary.HasValue || finalGainMapMetadata.HasValue
+                ? NeutralEvidenceState.Verified
+                : NeutralEvidenceState.Unknown,
+            HdrCapacityMin = hdrCapacityMin,
+            HdrCapacityMax = hdrCapacityMax,
+            GainMapMetadataEvidence = gainMap == null
+                ? NeutralEvidenceState.NotApplicable
+                : finalGainMapMetadata.HasValue ? NeutralEvidenceState.Verified : NeutralEvidenceState.Unknown,
+            ColorIccPreservation = ComponentOutcomeFromTruthOrReport(
+                imageConversionTruth?.ColorIcc, preservationReport, "Icc"),
+            GainMapPreservation = ComponentOutcomeFromTruthOrReport(
+                imageConversionTruth?.HdrGainMap, preservationReport, "GainMap", "Hdr"),
+            PreservationOutcome = imageOutcome,
+            PreservationEvidence = preservationReport != null || imageConversionTruth != null
+                ? PreservationFact(string.Empty, imageOutcome, evidenceAvailable: true).EvidenceState
+                : NeutralEvidenceState.Unknown
+        };
+
+        string primaryIdentity = primary.ContentIdentity;
+        NeutralArtifactPreservation primaryPreservation = PreservationFact(
+            primaryIdentity,
+            imageOutcome,
+            preservationReport != null || imageConversionTruth != null);
+        NeutralArtifactPreservation? motionPreservation = motion == null
+            ? null
+            : PreservationFact(
+                motion.ContentIdentity,
+                videoOutcome,
+                HasVideoPreservationEvidence(preservationReport) || videoConversionTruth != null);
+        NeutralArtifactPreservation? gainMapPreservation = gainMap == null
+            ? null
+            : PreservationFact(
+                gainMap.StableIdentity,
+                gainMap.PreservationOutcome,
+                gainMap.EvidenceState != NeutralEvidenceState.Unknown && gainMap.PreservationOutcome.HasValue);
+        var auxiliaryPreservation = auxiliarySemantics
+            .Select(item => PreservationFact(
+                item.StableIdentity,
+                item.PreservationOutcome,
+                item.EvidenceState != NeutralEvidenceState.Unknown && item.PreservationOutcome.HasValue))
+            .ToArray();
+
+        return new NeutralMediaSemantics
+        {
+            PrimaryImage = primary,
+            MotionVideo = motion,
+            GainMap = gainMap,
+            AuxiliaryMedia = auxiliarySemantics,
+            Timing = timing,
+            Orientation = orientation,
+            ColorHdr = colorHdr,
+            Preservation = new NeutralPreservationSemantics
+            {
+                PrimaryImage = primaryPreservation,
+                MotionVideo = motionPreservation,
+                GainMap = gainMapPreservation,
+                AuxiliaryMedia = auxiliaryPreservation
+            }
+        };
+    }
+
+    private static NeutralAuxiliarySemantics? ProjectFinalGainMap(
+        IReadOnlyList<NeutralArtifactManifest> manifest)
+    {
+        NeutralArtifactManifest? row = manifest.SingleOrDefault(item => item.Role == "GainMap");
+        if (row == null)
+            return null;
+        if (row.Semantic != "GainMap" || row.SemanticRepresentation is not (
+                NeutralAuxiliaryRepresentation.Embedded or
+                NeutralAuxiliaryRepresentation.Detached or
+                NeutralAuxiliaryRepresentation.Both))
+        {
+            throw new InvalidDataException("Final GainMap manifest row has an invalid semantic representation.");
+        }
+
+        return new NeutralAuxiliarySemantics
+        {
+            StableIdentity = row.StableIdentity,
+            Semantic = row.Semantic,
+            OwnerIdentity = row.OwnerIdentity,
+            Relationship = row.Relationship,
+            ImageContainer = row.ImageContainer,
+            VideoContainer = row.VideoContainer,
+            Codec = row.AuxiliaryCodec,
+            Representation = row.SemanticRepresentation,
+            Ownership = row.Ownership,
+            PreservationOutcome = row.PreservationOutcome,
+            EvidenceState = NeutralEvidenceState.Verified
+        };
+    }
+
+    private static IReadOnlyList<NeutralAuxiliarySemantics> ProjectOtherAuxiliaryMedia(
+        IReadOnlyList<NeutralArtifactManifest> manifest)
+    {
+        return manifest.Where(item => item.Role == "Auxiliary")
+            .Select(item => new NeutralAuxiliarySemantics
+            {
+                StableIdentity = item.StableIdentity,
+                Semantic = item.Semantic,
+                OwnerIdentity = item.OwnerIdentity,
+                Relationship = item.Relationship,
+                ImageContainer = item.ImageContainer,
+                VideoContainer = item.VideoContainer,
+                Codec = item.AuxiliaryCodec,
+                Representation = item.SemanticRepresentation,
+                Ownership = item.Ownership,
+                PreservationOutcome = item.PreservationOutcome,
+                EvidenceState = NeutralEvidenceState.Verified
+            })
+            .ToArray();
+    }
+
+    private static AuxiliaryMediaDescriptor? FindHandoffDescriptor(
+        AuxiliaryMediaFacts finalItem,
+        IReadOnlyList<AuxiliaryMediaDescriptor> auxiliaryHandoff)
+    {
+        AuxiliaryMediaDescriptor[] matches = auxiliaryHandoff.Where(item =>
+            string.Equals(item.Semantic, finalItem.Semantic, StringComparison.Ordinal) &&
+            string.Equals(item.Relationship, finalItem.Relationship, StringComparison.Ordinal) &&
+            item.SourceLength == finalItem.ByteLength &&
+            string.Equals(item.SourceSha256, finalItem.Sha256, StringComparison.OrdinalIgnoreCase)).ToArray();
+        AuxiliaryMediaDescriptor[] exact = matches.Where(item =>
+            string.Equals(item.StableIdentity, finalItem.StableIdentity, StringComparison.Ordinal) &&
+            string.Equals(item.OwnerIdentity, finalItem.OwnerIdentity, StringComparison.Ordinal)).ToArray();
+        if (exact.Length == 1)
+            return exact[0];
+        if (exact.Length > 1 || matches.Length > 1)
+            throw new InvalidDataException($"Final auxiliary '{finalItem.StableIdentity}' has ambiguous preservation handoff evidence.");
+        return matches.SingleOrDefault();
+    }
+
+    private static NeutralTimingSemantics ProjectTiming(
+        bool hasMotionVideo,
+        TimingFacts sourceTiming,
+        PreservationReport? preservationReport,
+        ConversionExecutionTruth? videoConversionTruth,
+        bool videoWasConverted)
+    {
+        if (!hasMotionVideo)
+            return new NeutralTimingSemantics { EvidenceState = NeutralEvidenceState.NotApplicable };
+
+        if (videoWasConverted)
+        {
+            if (videoConversionTruth?.Timing == ConversionComponentOutcome.Preserved)
+                return TimingFromSource(sourceTiming, NeutralEvidenceState.VerifiedPreserved);
+            if (videoConversionTruth?.Timing == ConversionComponentOutcome.NotApplicable)
+                return new NeutralTimingSemantics { EvidenceState = NeutralEvidenceState.NotApplicable };
+            return new NeutralTimingSemantics { EvidenceState = NeutralEvidenceState.Unknown };
+        }
+
+        PreservationCheckStatus? status = FindPreservationStatus(preservationReport, "Timing");
+        return status switch
+        {
+            PreservationCheckStatus.VerifiedPreserved or PreservationCheckStatus.SemanticallyPreserved =>
+                TimingFromSource(sourceTiming, NeutralEvidenceState.VerifiedPreserved),
+            PreservationCheckStatus.NotApplicable =>
+                new NeutralTimingSemantics { EvidenceState = NeutralEvidenceState.NotApplicable },
+            _ => new NeutralTimingSemantics { EvidenceState = NeutralEvidenceState.Unknown }
+        };
+    }
+
+    private static NeutralTimingSemantics TimingFromSource(TimingFacts timing, NeutralEvidenceState evidence) => new()
+    {
+        CoverTimestampUs = timing.CoverTimestampUs,
+        PrimaryTimestampUs = timing.PrimaryTimestampUs,
+        CoverFrameIndex = timing.CoverFrameIndex,
+        TotalFrames = timing.TotalFrames > 0 ? timing.TotalFrames : null,
+        EvidenceState = evidence
+    };
+
+    private static NeutralOrientationSemantics ProjectOrientation(
+        NativeImageOrientationObservationV1? preConversionImageOrientation,
+        NativeImageOrientationObservationV1 finalImageOrientation,
+        ConversionExecutionTruth? imageConversionTruth,
+        PreservationReport? preservationReport,
+        bool imageWasConverted,
+        VideoFacts? resolvedVideoFacts,
+        ConversionExecutionTruth? videoConversionTruth,
+        bool videoWasConverted)
+    {
+        if (imageWasConverted && !preConversionImageOrientation.HasValue)
+            throw new InvalidDataException("Image orientation preservation cannot be evaluated without a verified pre-conversion observation.");
+
+        ConversionComponentOutcome imageOrientationPreservation = imageWasConverted
+            ? imageConversionTruth?.Orientation ?? ConversionComponentOutcome.NotEvaluated
+            : ComponentOutcomeFromTruthOrReport(null, preservationReport, "Orientation");
+        if (imageWasConverted &&
+            imageOrientationPreservation == ConversionComponentOutcome.Preserved &&
+            (preConversionImageOrientation!.Value.ClockwiseRotationDegrees != finalImageOrientation.ClockwiseRotationDegrees ||
+             preConversionImageOrientation.Value.Reflection != finalImageOrientation.Reflection))
+            throw new InvalidDataException("Orientation preservation evidence disagrees with final Native orientation observation.");
+
+        NeutralOrientationTransform imageTransform = new()
+        {
+            ClockwiseRotationDegrees = finalImageOrientation.ClockwiseRotationDegrees,
+            Reflection = finalImageOrientation.Reflection switch
+            {
+                NativeImageOrientationReflection.None => NeutralReflection.None,
+                NativeImageOrientationReflection.Horizontal => NeutralReflection.Horizontal,
+                _ => NeutralReflection.Unknown
+            },
+            RotationEvidence = NeutralEvidenceState.Verified,
+            ReflectionEvidence = NeutralEvidenceState.Verified,
+            Preservation = imageOrientationPreservation
+        };
+
+        if (resolvedVideoFacts is not { IsPresent: true })
+            return new NeutralOrientationSemantics { PrimaryImage = imageTransform };
+
+        int? rotation = NormalizeRotation(resolvedVideoFacts.RotationDegrees);
+        ConversionComponentOutcome videoOrientationPreservation = videoWasConverted
+            ? videoConversionTruth?.Orientation ?? ConversionComponentOutcome.NotEvaluated
+            : ConversionComponentOutcome.NotEvaluated;
+        NeutralOrientationTransform videoTransform = rotation == null
+            ? new NeutralOrientationTransform { Preservation = videoOrientationPreservation }
+            : new NeutralOrientationTransform
+            {
+                ClockwiseRotationDegrees = rotation,
+                RotationEvidence = NeutralEvidenceState.Verified,
+                // Native currently reports rotation but does not prove a reflection state.
+                Reflection = NeutralReflection.Unknown,
+                ReflectionEvidence = NeutralEvidenceState.Unknown,
+                Preservation = videoOrientationPreservation
+            };
+
+        return new NeutralOrientationSemantics
+        {
+            PrimaryImage = imageTransform,
+            MotionVideo = videoTransform
+        };
+    }
+
+    private static int? NormalizeRotation(int degrees)
+    {
+        int normalized = ((degrees % 360) + 360) % 360;
+        return normalized is 0 or 90 or 180 or 270 ? normalized : null;
+    }
+
+    private static string ContentIdentity(string sha256)
+    {
+        if (!IsValidSha256(sha256))
+            throw new InvalidDataException("Final media artifact has no valid content SHA-256 identity.");
+        return $"sha256:{sha256.ToLowerInvariant()}";
+    }
+
+    private static NeutralAuxiliaryRepresentation MapRepresentation(AuxiliaryRepresentation representation) => representation switch
+    {
+        AuxiliaryRepresentation.Embedded => NeutralAuxiliaryRepresentation.Embedded,
+        AuxiliaryRepresentation.Detached => NeutralAuxiliaryRepresentation.Detached,
+        AuxiliaryRepresentation.Materialized => NeutralAuxiliaryRepresentation.Materialized,
+        _ => NeutralAuxiliaryRepresentation.Unknown
+    };
+
+    private static NeutralArtifactPreservation PreservationFact(
+        string identity,
+        PreservationOutcome? outcome,
+        bool evidenceAvailable)
+    {
+        NeutralEvidenceState evidence = !evidenceAvailable || !outcome.HasValue
+            ? NeutralEvidenceState.Unknown
+            : outcome.Value switch
+            {
+                PreservationOutcome.Preserved => NeutralEvidenceState.VerifiedPreserved,
+                PreservationOutcome.Reencoded or PreservationOutcome.TranscodedLossless => NeutralEvidenceState.VerifiedConverted,
+                PreservationOutcome.DiscardedNotApplicable => NeutralEvidenceState.NotApplicable,
+                PreservationOutcome.Unsupported => NeutralEvidenceState.Unknown,
+                _ => NeutralEvidenceState.Verified
+            };
+        return new NeutralArtifactPreservation
+        {
+            SemanticIdentity = identity,
+            Outcome = outcome,
+            EvidenceState = evidence
+        };
+    }
+
+    private static bool HasVideoPreservationEvidence(PreservationReport? report) =>
+        FindPreservationStatus(report, "VideoStreams", "Timing") is
+            PreservationCheckStatus.VerifiedPreserved or
+            PreservationCheckStatus.SemanticallyPreserved or
+            PreservationCheckStatus.NotApplicable;
+
+    private static ConversionComponentOutcome ComponentOutcomeFromReport(
+        PreservationReport? report,
+        params string[] names)
+    {
+        PreservationCheckStatus? status = FindPreservationStatus(report, names);
+        return status switch
+        {
+            PreservationCheckStatus.VerifiedPreserved or PreservationCheckStatus.SemanticallyPreserved =>
+                ConversionComponentOutcome.Preserved,
+            PreservationCheckStatus.NotApplicable => ConversionComponentOutcome.NotApplicable,
+            PreservationCheckStatus.Failed or PreservationCheckStatus.IntentionallyRemovedProtocolData =>
+                ConversionComponentOutcome.Lost,
+            _ => ConversionComponentOutcome.NotEvaluated
+        };
+    }
+
+    private static ConversionComponentOutcome ComponentOutcomeFromTruthOrReport(
+        ConversionComponentOutcome? conversionOutcome,
+        PreservationReport? report,
+        params string[] names) =>
+        conversionOutcome is { } outcome
+            ? outcome
+            : ComponentOutcomeFromReport(report, names);
+
+    private static PreservationCheckStatus? FindPreservationStatus(
+        PreservationReport? report,
+        params string[] names)
+    {
+        if (report == null)
+            return null;
+        PreservationReportItem[] matches = report.Items.Where(item =>
+            names.Contains(item.Name, StringComparer.Ordinal)).ToArray();
+        if (matches.Length == 0)
+            return null;
+        if (matches.Length == 1)
+            return matches[0].Status;
+        return matches.Any(item => item.Status == PreservationCheckStatus.Failed)
+            ? PreservationCheckStatus.Failed
+            : matches.All(item => item.Status == PreservationCheckStatus.NotApplicable)
+                ? PreservationCheckStatus.NotApplicable
+                : matches.All(item => item.Status is PreservationCheckStatus.VerifiedPreserved or PreservationCheckStatus.SemanticallyPreserved)
+                    ? PreservationCheckStatus.VerifiedPreserved
+                    : PreservationCheckStatus.UnableToVerify;
     }
 
     private static async Task VerifyAuxiliaryHandoffAsync(

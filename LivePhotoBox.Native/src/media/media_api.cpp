@@ -1,16 +1,22 @@
 #include "media/media_inspector.h"
+#include "media/jpeg_gainmap_mpf.h"
 #include "media/media_extractor.h"
 #include "media/image_converter.h"
 #include "media/heic_backend.h"
 #include "media/jpeg_backend.h"
 #include "media/video_converter.h"
 #include "media/media_cleaner.h"
+#include "metadata/jpeg.h"
+#include "protocols/clean/xmp_cleaner.h"
 #include "foundation/internal.h"
 #include "foundation/sha256.h"
 #include "platform/windows_filesystem.h"
 #include <algorithm>
 #include <cctype>
 #include <cstring>
+#include <limits>
+#include <span>
+#include <vector>
 
 using namespace lpb;
 using namespace lpb::media;
@@ -149,6 +155,44 @@ LPB_API lpb_result LPB_CALL lpb_inspect_heic_image(
     out_info->has_nclx = facts.color.has_nclx ? 1 : 0;
     out_info->is_hdr_relevant = facts.hdr_relevant ? 1 : 0;
     return LPB_RESULT_OK;
+}
+
+bool read_locked_media_file(lpb_context* context, HANDLE handle, std::vector<uint8_t>& bytes,
+    bool& cancelled) noexcept {
+    bytes.clear();
+    cancelled = false;
+    if (handle == INVALID_HANDLE_VALUE) return false;
+    LARGE_INTEGER file_size{};
+    if (!GetFileSizeEx(handle, &file_size) || file_size.QuadPart < 4 ||
+        static_cast<uint64_t>(file_size.QuadPart) > std::numeric_limits<size_t>::max()) return false;
+    try {
+        bytes.resize(static_cast<size_t>(file_size.QuadPart));
+    } catch (...) {
+        bytes.clear();
+        return false;
+    }
+    LARGE_INTEGER start{};
+    if (!SetFilePointerEx(handle, start, nullptr, FILE_BEGIN)) {
+        bytes.clear();
+        return false;
+    }
+    size_t position = 0;
+    while (position < bytes.size()) {
+        if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
+            bytes.clear();
+            cancelled = true;
+            return false;
+        }
+        const DWORD request_size = static_cast<DWORD>(std::min<size_t>(
+            bytes.size() - position, static_cast<size_t>(std::numeric_limits<DWORD>::max())));
+        DWORD read = 0;
+        if (!ReadFile(handle, bytes.data() + position, request_size, &read, nullptr) || read == 0) {
+            bytes.clear();
+            return false;
+        }
+        position += read;
+    }
+    return position == bytes.size();
 }
 
 LPB_API lpb_result LPB_CALL lpb_inspect_gainmap_metadata_v1(
@@ -1581,136 +1625,228 @@ LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    auto p_primary = utf8_to_path(primary_jpeg_path);
-    auto p_gainmap = utf8_to_path(gainmap_jpeg_path);
-    auto p_output = utf8_to_path(output_path);
+    struct input_handle_guard {
+        HANDLE value{INVALID_HANDLE_VALUE};
+        ~input_handle_guard() noexcept {
+            if (value != INVALID_HANDLE_VALUE && value != nullptr) CloseHandle(value);
+        }
+    };
 
-    HANDLE h_primary = CreateFileW(
-        p_primary.c_str(),
-        GENERIC_READ,
-        FILE_SHARE_READ,
-        NULL,
-        OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL,
-        NULL);
-    if (h_primary == INVALID_HANDLE_VALUE) {
+    const auto p_primary = utf8_to_path(primary_jpeg_path);
+    const auto p_gainmap = utf8_to_path(gainmap_jpeg_path);
+    const auto p_output = utf8_to_path(output_path);
+    input_handle_guard primary_handle{CreateFileW(p_primary.c_str(), GENERIC_READ, FILE_SHARE_READ,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+    if (primary_handle.value == INVALID_HANDLE_VALUE) {
         set_error(context, "Failed to open primary JPEG file.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
-
-    uint8_t magic[2]{};
-    DWORD bytes_read = 0;
-    if (!ReadFile(h_primary, magic, 2, &bytes_read, NULL) || bytes_read < 2 || magic[0] != 0xFF || magic[1] != 0xD8) {
-        CloseHandle(h_primary);
-        set_error(context, "Primary image is not a valid JPEG file (missing SOI marker).");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-    SetFilePointer(h_primary, 0, NULL, FILE_BEGIN);
-
-    HANDLE h_gainmap = CreateFileW(
-        p_gainmap.c_str(),
-        GENERIC_READ,
-        FILE_SHARE_READ,
-        NULL,
-        OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL,
-        NULL);
-    if (h_gainmap == INVALID_HANDLE_VALUE) {
-        CloseHandle(h_primary);
-        set_error(context, "Failed to open gainmap JPEG file.");
+    input_handle_guard gainmap_handle{CreateFileW(p_gainmap.c_str(), GENERIC_READ, FILE_SHARE_READ,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr)};
+    if (gainmap_handle.value == INVALID_HANDLE_VALUE) {
+        set_error(context, "Failed to open GainMap JPEG file.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    bytes_read = 0;
-    if (!ReadFile(h_gainmap, magic, 2, &bytes_read, NULL) || bytes_read < 2 || magic[0] != 0xFF || magic[1] != 0xD8) {
-        CloseHandle(h_primary);
-        CloseHandle(h_gainmap);
-        set_error(context, "GainMap image is not a valid JPEG file (missing SOI marker).");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-    SetFilePointer(h_gainmap, 0, NULL, FILE_BEGIN);
-
-    windows_owned_output output;
-    if (!output.create(p_output, L"lpb-gainmap")) {
-        CloseHandle(h_primary);
-        CloseHandle(h_gainmap);
-        set_error(context, "Failed to create an owned staging file for GainMap reassembly.");
-        return LPB_RESULT_INTERNAL_ERROR;
-    }
-
-    std::vector<uint8_t> buffer(64 * 1024);
-    lpb::crypto::sha256_ctx gainmap_sha;
-    bool failed = false;
-    bool cancelled = false;
-    bool identity_mismatch = false;
-
-    for (;;) {
-        if (!ReadFile(h_primary, buffer.data(), static_cast<DWORD>(buffer.size()), &bytes_read, NULL)) {
-            failed = true;
-            break;
+    try {
+        std::vector<uint8_t> primary_bytes;
+        std::vector<uint8_t> gainmap_bytes;
+        bool cancelled = false;
+        if (!read_locked_media_file(context, primary_handle.value, primary_bytes, cancelled)) {
+            set_error(context, cancelled ? "GainMap reassembly cancelled."
+                : "Failed to read the locked primary JPEG artifact.");
+            return cancelled ? LPB_RESULT_CANCELLED : LPB_RESULT_INVALID_ARGUMENT;
         }
-        if (bytes_read == 0) break;
-        if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
-            failed = true;
-            cancelled = true;
-            break;
+        if (!read_locked_media_file(context, gainmap_handle.value, gainmap_bytes, cancelled)) {
+            set_error(context, cancelled ? "GainMap reassembly cancelled."
+                : "Failed to read the locked GainMap JPEG artifact.");
+            return cancelled ? LPB_RESULT_CANCELLED : LPB_RESULT_INVALID_ARGUMENT;
         }
-        if (!output.write_all(std::span<const uint8_t>(buffer.data(), bytes_read))) {
-            failed = true;
-            break;
-        }
-    }
 
-    if (!failed) {
-        for (;;) {
-            if (!ReadFile(h_gainmap, buffer.data(), static_cast<DWORD>(buffer.size()), &bytes_read, NULL)) {
-                failed = true;
-                break;
-            }
-            if (bytes_read == 0) break;
-            if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
-                failed = true;
-                cancelled = true;
-                break;
-            }
-            if (!output.write_all(std::span<const uint8_t>(buffer.data(), bytes_read))) {
-                failed = true;
-                break;
-            }
-            gainmap_sha.update(buffer.data(), bytes_read);
+        const std::span<const uint8_t> primary_span(primary_bytes.data(), primary_bytes.size());
+        const std::span<const uint8_t> gainmap_span(gainmap_bytes.data(), gainmap_bytes.size());
+        lpb::media::jpeg_gainmap_mpf::jpeg_info primary_info{};
+        if (!lpb::media::jpeg_gainmap_mpf::parse_jpeg(primary_span, primary_info) ||
+            primary_info.mpf_status == lpb::media::jpeg_gainmap_mpf::status::malformed ||
+            (primary_info.mpf_status == lpb::media::jpeg_gainmap_mpf::status::present &&
+                primary_info.mpf.entries[0].relative_offset != 0)) {
+            set_error(context, "Cleaned primary JPEG has a malformed MPF index or invalid primary-image entry.");
+            return LPB_RESULT_INVALID_ARGUMENT;
         }
-    }
+        if (!lpb::media::jpeg_gainmap_mpf::valid_jpeg_media_range(gainmap_span, 0, gainmap_bytes.size())) {
+            set_error(context, "Detached GainMap artifact is not one bounded JPEG range with valid padding.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
 
-    if (!failed) {
         uint8_t actual_gainmap_sha[32]{};
-        gainmap_sha.finalize(actual_gainmap_sha);
+        lpb::crypto::sha256_buffer(gainmap_bytes.data(), gainmap_bytes.size(), actual_gainmap_sha);
         if (!sha256_matches_hex(actual_gainmap_sha, expected_gainmap_sha256)) {
-            failed = true;
-            identity_mismatch = true;
+            set_error(context, "GainMap artifact identity changed before final consumption.");
+            return LPB_RESULT_INVALID_ARGUMENT;
         }
-    }
 
-    if (!failed) {
-        if (!output.publish_no_replace(p_output)) {
-            failed = true;
+        std::string source_xmp;
+        if (!lpb::metadata::extract_standard_jpeg_xmp(primary_span, source_xmp)) {
+            set_error(context, "Cleaned primary must contain exactly one readable standard XMP packet for GainMap reassembly.");
+            return LPB_RESULT_INVALID_ARGUMENT;
         }
-    }
+        std::string owner_xmp;
+        lpb::protocols::clean::neutral_gainmap_directory directory{};
+        if (!lpb::protocols::clean::canonicalize_neutral_gainmap_directory(
+                source_xmp, gainmap_bytes.size(), owner_xmp, directory) ||
+            directory.source_item_count < 2 || directory.gainmap_ordinal == 0 ||
+            directory.gainmap_ordinal >= directory.source_item_count) {
+            set_error(context, "Cleaned primary XMP does not describe one unambiguous Primary plus exact GainMap directory.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
 
-    CloseHandle(h_primary);
-    CloseHandle(h_gainmap);
-    if (failed) {
-        output.abort();
-        if (cancelled) {
+        if (primary_info.mpf_status == lpb::media::jpeg_gainmap_mpf::status::present) {
+            if (primary_info.mpf.image_count != directory.source_item_count ||
+                directory.source_item_count > lpb::media::jpeg_gainmap_mpf::max_mpf_image_count ||
+                directory.gainmap_ordinal >= primary_info.mpf.image_count ||
+                primary_info.mpf.entries[directory.gainmap_ordinal].size != gainmap_bytes.size()) {
+                set_error(context, "Source MPF image order/count does not uniquely identify the exact XMP GainMap item.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            for (const auto& item : directory.source_items) {
+                if (item.semantic == "Primary" || item.semantic == "GainMap") continue;
+                if (item.ordinal >= primary_info.mpf.image_count || !item.has_length ||
+                    primary_info.mpf.entries[item.ordinal].size != item.length ||
+                    primary_info.mpf.entries[item.ordinal].absolute_offset < primary_bytes.size()) {
+                    set_error(context, "An extra XMP item still maps to bytes in the cleaned owner or lacks an exact detached MPF range.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+            }
+        } else if (directory.source_item_count != 2) {
+            set_error(context, "Extra XMP directory items cannot be detached safely without a matching MPF index.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+
+        std::vector<uint8_t> canonical_primary_bytes;
+        if (owner_xmp != source_xmp) {
+            if (owner_xmp.size() != source_xmp.size()) {
+                set_error(context, "Neutral Container Directory normalization must preserve the XMP packet length.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            std::string xmp_error;
+            const std::span<const uint8_t> owner_xmp_bytes(
+                reinterpret_cast<const uint8_t*>(owner_xmp.data()), owner_xmp.size());
+            const lpb_result replace_result = lpb::metadata::replace_standard_jpeg_xmp_unchecked(
+                primary_span, owner_xmp_bytes, canonical_primary_bytes, xmp_error);
+            if (replace_result != LPB_RESULT_OK) {
+                set_error(context, xmp_error.c_str());
+                return replace_result;
+            }
+        } else {
+            canonical_primary_bytes = primary_bytes;
+        }
+
+        const std::span<const uint8_t> canonical_primary_span(
+            canonical_primary_bytes.data(), canonical_primary_bytes.size());
+        lpb::media::jpeg_gainmap_mpf::jpeg_info canonical_primary_info{};
+        if (!lpb::media::jpeg_gainmap_mpf::parse_jpeg(canonical_primary_span, canonical_primary_info) ||
+            canonical_primary_info.mpf_status != primary_info.mpf_status ||
+            canonical_primary_info.eoi_end == 0 ||
+            (canonical_primary_info.mpf_status == lpb::media::jpeg_gainmap_mpf::status::present &&
+                canonical_primary_info.mpf.image_count != directory.source_item_count)) {
+            set_error(context, "XMP normalization changed or invalidated the source JPEG/MPF structure.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+
+        if (canonical_primary_bytes.size() > std::numeric_limits<size_t>::max() - gainmap_bytes.size()) {
+            set_error(context, "Combined GainMap JPEG size exceeds the supported address range.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        std::vector<uint8_t> output_bytes;
+        output_bytes.resize(canonical_primary_bytes.size() + gainmap_bytes.size());
+        std::copy(canonical_primary_bytes.begin(), canonical_primary_bytes.end(), output_bytes.begin());
+        std::copy(gainmap_bytes.begin(), gainmap_bytes.end(),
+            output_bytes.begin() + static_cast<std::ptrdiff_t>(canonical_primary_bytes.size()));
+
+        const std::span<uint8_t> output_span(output_bytes.data(), output_bytes.size());
+        if (canonical_primary_info.mpf_status == lpb::media::jpeg_gainmap_mpf::status::present &&
+            !lpb::media::jpeg_gainmap_mpf::patch_layout(output_span, canonical_primary_info.mpf,
+                canonical_primary_info.eoi_end, canonical_primary_bytes.size(), gainmap_bytes.size())) {
+            set_error(context, "MPF GainMap ranges cannot be represented without truncation.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+
+        lpb::media::jpeg_gainmap_mpf::jpeg_info output_info{};
+        const std::span<const uint8_t> validated_output(output_bytes.data(), output_bytes.size());
+        if (!lpb::media::jpeg_gainmap_mpf::parse_jpeg(validated_output, output_info) ||
+            output_info.mpf_status != canonical_primary_info.mpf_status ||
+            (canonical_primary_info.mpf_status == lpb::media::jpeg_gainmap_mpf::status::present &&
+                !lpb::media::jpeg_gainmap_mpf::layout_matches(output_info, output_bytes.size(),
+                    canonical_primary_info.eoi_end, canonical_primary_bytes.size(), gainmap_bytes.size())) ||
+            output_info.mpf.image_count != (canonical_primary_info.mpf_status ==
+                    lpb::media::jpeg_gainmap_mpf::status::present ? 2u : 0u) ||
+            output_info.eoi_end != canonical_primary_info.eoi_end ||
+            !lpb::media::jpeg_gainmap_mpf::valid_jpeg_media_range(
+                validated_output, canonical_primary_bytes.size(), gainmap_bytes.size()) ||
+            std::memcmp(output_bytes.data() + canonical_primary_bytes.size(), gainmap_bytes.data(), gainmap_bytes.size()) != 0) {
+            set_error(context, "Reassembled JPEG failed its MPF, bounded-range, or GainMap byte-identity check.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+
+        std::string final_xmp;
+        lpb::protocols::clean::neutral_gainmap_directory final_directory{};
+        std::string verified_xmp;
+        if (!lpb::metadata::extract_standard_jpeg_xmp(validated_output, final_xmp) ||
+            !lpb::protocols::clean::canonicalize_neutral_gainmap_directory(
+                final_xmp, gainmap_bytes.size(), verified_xmp, final_directory) ||
+            verified_xmp != final_xmp || final_directory.source_item_count != 2 ||
+            final_directory.gainmap_ordinal != 1) {
+            set_error(context, "Reassembled JPEG does not have a canonical Primary plus GainMap Container Directory.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+
+        windows_owned_output output;
+        if (!output.create(p_output, L"lpb-gainmap") ||
+            !output.write_all(validated_output) || !output.flush()) {
+            set_error(context, "Failed to write and flush an owned staging file for GainMap reassembly.");
+            output.abort();
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+        uint64_t staged_size = 0;
+        const lpb::random_access_reader staged_reader = output.reader();
+        if (!output.size(staged_size) || staged_size != output_bytes.size() ||
+            staged_reader.length != output_bytes.size() || staged_reader.read_at == nullptr) {
+            set_error(context, "Owned staging file size or identity could not be verified.");
+            output.abort();
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+        std::array<uint8_t, 64 * 1024> verify_buffer{};
+        for (size_t offset = 0; offset < output_bytes.size();) {
+            if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
+                set_error(context, "GainMap reassembly cancelled.");
+                output.abort();
+                return LPB_RESULT_CANCELLED;
+            }
+            const size_t count = std::min(verify_buffer.size(), output_bytes.size() - offset);
+            std::span<uint8_t> block(verify_buffer.data(), count);
+            if (!staged_reader.read_exact(offset, block) ||
+                std::memcmp(block.data(), output_bytes.data() + offset, count) != 0) {
+                set_error(context, "Owned staging file does not match the structurally validated JPEG bytes.");
+                output.abort();
+                return LPB_RESULT_INTERNAL_ERROR;
+            }
+            offset += count;
+        }
+        if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
             set_error(context, "GainMap reassembly cancelled.");
+            output.abort();
             return LPB_RESULT_CANCELLED;
         }
-        set_error(context, identity_mismatch
-            ? "GainMap artifact identity changed before or during final consumption."
-            : "Failed during GainMap JPEG reassembly write.");
+        if (!output.publish_no_replace(p_output)) {
+            set_error(context, "Failed to publish the verified GainMap JPEG without replacement.");
+            output.abort();
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+        return LPB_RESULT_OK;
+    } catch (...) {
+        set_error(context, "GainMap JPEG reassembly failed before publication.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
-
-    return LPB_RESULT_OK;
 }
 
 }

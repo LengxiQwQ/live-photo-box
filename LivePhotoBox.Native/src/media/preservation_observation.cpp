@@ -12,6 +12,7 @@
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -971,6 +972,11 @@ struct isobmff_box {
     size_t body_size{};
 };
 
+uint32_t extract_heic_primary_item_id(
+    const uint8_t* data,
+    const std::vector<isobmff_box>& meta_children,
+    lpb_preservation_observation* out);
+
 std::vector<isobmff_box> parse_boxes(const uint8_t* data, size_t start, size_t end) {
     std::vector<isobmff_box> boxes;
     size_t p = start;
@@ -1077,6 +1083,293 @@ bool parse_ipma_box(
     }
 
     return p == end;
+}
+
+struct neutral_image_orientation {
+    int32_t clockwise_rotation_degrees{};
+    uint32_t reflection{ LPB_IMAGE_ORIENTATION_REFLECTION_NONE };
+};
+
+struct orientation_matrix_2x2 {
+    int xx{};
+    int xy{};
+    int yx{};
+    int yy{};
+};
+
+orientation_matrix_2x2 multiply_orientation_matrices(
+    const orientation_matrix_2x2& left,
+    const orientation_matrix_2x2& right) noexcept {
+    return {
+        left.xx * right.xx + left.xy * right.yx,
+        left.xx * right.xy + left.xy * right.yy,
+        left.yx * right.xx + left.yy * right.yx,
+        left.yx * right.xy + left.yy * right.yy
+    };
+}
+
+bool canonicalize_orientation_matrix(
+    const orientation_matrix_2x2& matrix,
+    neutral_image_orientation& out) noexcept {
+    // Canonical convention: rotate clockwise first, then optionally reflect
+    // horizontally in display coordinates. This uniquely represents all
+    // eight right-angle/reflection transforms.
+    constexpr orientation_matrix_2x2 clockwise_rotations[] = {
+        { 1, 0, 0, 1 },
+        { 0, -1, 1, 0 },
+        { -1, 0, 0, -1 },
+        { 0, 1, -1, 0 }
+    };
+    constexpr orientation_matrix_2x2 horizontal_reflection{ -1, 0, 0, 1 };
+    constexpr int32_t clockwise_degrees[] = { 0, 90, 180, 270 };
+
+    for (size_t rotation_index = 0; rotation_index < 4; ++rotation_index) {
+        if (matrix.xx == clockwise_rotations[rotation_index].xx &&
+            matrix.xy == clockwise_rotations[rotation_index].xy &&
+            matrix.yx == clockwise_rotations[rotation_index].yx &&
+            matrix.yy == clockwise_rotations[rotation_index].yy) {
+            out.clockwise_rotation_degrees = clockwise_degrees[rotation_index];
+            out.reflection = LPB_IMAGE_ORIENTATION_REFLECTION_NONE;
+            return true;
+        }
+
+        const orientation_matrix_2x2 reflected = multiply_orientation_matrices(
+            horizontal_reflection, clockwise_rotations[rotation_index]);
+        if (matrix.xx == reflected.xx && matrix.xy == reflected.xy &&
+            matrix.yx == reflected.yx && matrix.yy == reflected.yy) {
+            out.clockwise_rotation_degrees = clockwise_degrees[rotation_index];
+            out.reflection = LPB_IMAGE_ORIENTATION_REFLECTION_HORIZONTAL;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool normalize_exif_orientation(uint16_t value, neutral_image_orientation& out) noexcept {
+    switch (value) {
+        case 1: out = { 0, LPB_IMAGE_ORIENTATION_REFLECTION_NONE }; return true;
+        case 2: out = { 0, LPB_IMAGE_ORIENTATION_REFLECTION_HORIZONTAL }; return true;
+        case 3: out = { 180, LPB_IMAGE_ORIENTATION_REFLECTION_NONE }; return true;
+        case 4: out = { 180, LPB_IMAGE_ORIENTATION_REFLECTION_HORIZONTAL }; return true;
+        case 5: out = { 90, LPB_IMAGE_ORIENTATION_REFLECTION_HORIZONTAL }; return true;
+        case 6: out = { 90, LPB_IMAGE_ORIENTATION_REFLECTION_NONE }; return true;
+        case 7: out = { 270, LPB_IMAGE_ORIENTATION_REFLECTION_HORIZONTAL }; return true;
+        case 8: out = { 270, LPB_IMAGE_ORIENTATION_REFLECTION_NONE }; return true;
+        default: return false;
+    }
+}
+
+bool parse_exif_orientation_value(
+    const uint8_t* tiff_data,
+    size_t tiff_size,
+    std::optional<uint16_t>& out_orientation) {
+    out_orientation.reset();
+    if (!tiff_data || tiff_size < 8) return false;
+
+    bool is_big_endian = false;
+    if (tiff_data[0] == 0x49 && tiff_data[1] == 0x49 &&
+        tiff_data[2] == 0x2A && tiff_data[3] == 0x00) {
+        is_big_endian = false;
+    } else if (tiff_data[0] == 0x4D && tiff_data[1] == 0x4D &&
+        tiff_data[2] == 0x00 && tiff_data[3] == 0x2A) {
+        is_big_endian = true;
+    } else {
+        return false;
+    }
+
+    const uint32_t ifd0_offset = is_big_endian
+        ? read_be32u(tiff_data + 4)
+        : read_le32u(tiff_data + 4);
+    if (ifd0_offset < 8 || ifd0_offset >= tiff_size) return false;
+
+    tiff_ifd ifd0{};
+    if (!parse_ifd(tiff_data, tiff_size, 0, ifd0_offset, is_big_endian, &ifd0)) return false;
+
+    const tiff_entry* orientation_entry = nullptr;
+    for (const auto& entry : ifd0.entries) {
+        if (entry.tag != 0x0112) continue;
+        if (orientation_entry) return false;
+        orientation_entry = &entry;
+    }
+
+    if (!orientation_entry) return true;
+    if (orientation_entry->type != 3 || orientation_entry->count != 1 ||
+        orientation_entry->absolute_pos > tiff_size ||
+        tiff_size - orientation_entry->absolute_pos < 12) {
+        return false;
+    }
+
+    const uint8_t* value = tiff_data + orientation_entry->absolute_pos + 8;
+    out_orientation = is_big_endian
+        ? read_be16u(value)
+        : static_cast<uint16_t>(value[0] | (static_cast<uint16_t>(value[1]) << 8));
+    return true;
+}
+
+bool parse_jpeg_orientation(
+    const std::vector<uint8_t>& data,
+    neutral_image_orientation& out) {
+    out = { 0, LPB_IMAGE_ORIENTATION_REFLECTION_NONE };
+    if (data.size() < 4 || data[0] != 0xFF || data[1] != 0xD8) return false;
+
+    bool found_exif = false;
+    std::optional<uint16_t> exif_orientation;
+    size_t p = 2;
+    while (p < data.size()) {
+        if (data[p] != 0xFF) return false;
+        while (p < data.size() && data[p] == 0xFF) ++p;
+        if (p >= data.size()) return false;
+        const uint8_t marker = data[p++];
+
+        if (marker == 0xDA) { // SOS: all APP metadata must precede image data.
+            if (p + 2 > data.size()) return false;
+            const uint16_t length = read_be16u(data.data() + p);
+            if (length < 2 || length > data.size() - p) return false;
+            if (!exif_orientation) return true; // No tag means identity.
+            return normalize_exif_orientation(*exif_orientation, out);
+        }
+        if (marker == 0xD9 || marker == 0x00) return false;
+        if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) continue;
+        if (p + 2 > data.size()) return false;
+
+        const uint16_t length = read_be16u(data.data() + p);
+        if (length < 2 || length > data.size() - p) return false;
+        const size_t payload_start = p + 2;
+        const size_t payload_size = length - 2;
+        if (marker == 0xE1 && payload_size >= 6 &&
+            std::memcmp(data.data() + payload_start, "Exif\0\0", 6) == 0) {
+            if (found_exif) return false;
+            found_exif = true;
+            if (!parse_exif_orientation_value(
+                    data.data() + payload_start + 6,
+                    payload_size - 6,
+                    exif_orientation)) {
+                return false;
+            }
+            if (exif_orientation && (*exif_orientation < 1 || *exif_orientation > 8)) return false;
+        }
+        p += length;
+    }
+    return false;
+}
+
+bool is_supported_heif_brand(const uint8_t* brand) noexcept {
+    return std::memcmp(brand, "heic", 4) == 0 ||
+        std::memcmp(brand, "heix", 4) == 0 ||
+        std::memcmp(brand, "heim", 4) == 0 ||
+        std::memcmp(brand, "heis", 4) == 0 ||
+        std::memcmp(brand, "mif1", 4) == 0 ||
+        std::memcmp(brand, "msf1", 4) == 0;
+}
+
+bool parse_heif_orientation(
+    const std::vector<uint8_t>& data,
+    neutral_image_orientation& out) {
+    out = { 0, LPB_IMAGE_ORIENTATION_REFLECTION_NONE };
+    std::vector<isobmff_box> top_boxes;
+    if (!parse_boxes_strict(data.data(), 0, data.size(), top_boxes) || top_boxes.empty() ||
+        top_boxes.front().type != "ftyp") return false;
+
+    const isobmff_box* ftyp = nullptr;
+    const isobmff_box* meta = nullptr;
+    for (const auto& box : top_boxes) {
+        if (box.type == "ftyp") {
+            if (ftyp) return false;
+            ftyp = &box;
+        } else if (box.type == "meta") {
+            if (meta) return false;
+            meta = &box;
+        }
+    }
+    if (!ftyp || ftyp->body_size < 8 || (ftyp->body_size - 8) % 4 != 0 ||
+        !is_supported_heif_brand(data.data() + ftyp->body_start) ||
+        !meta || meta->body_size < 4) return false;
+
+    if (data[meta->body_start] != 0 || data[meta->body_start + 1] != 0 ||
+        data[meta->body_start + 2] != 0 || data[meta->body_start + 3] != 0) return false;
+
+    std::vector<isobmff_box> meta_children;
+    if (!parse_boxes_strict(data.data(), meta->body_start + 4,
+            meta->start + meta->size, meta_children)) return false;
+    lpb_preservation_observation primary_observation{};
+    primary_observation.struct_size = sizeof(primary_observation);
+    const uint32_t primary_id = extract_heic_primary_item_id(
+        data.data(), meta_children, &primary_observation);
+    if (primary_id == 0 || (primary_observation.flags & LPB_POBS_CODESTREAM_ERROR) != 0) return false;
+
+    const isobmff_box* iprp = nullptr;
+    for (const auto& child : meta_children) {
+        if (child.type != "iprp") continue;
+        if (iprp) return false;
+        iprp = &child;
+    }
+    if (!iprp) return true;
+
+    std::vector<isobmff_box> iprp_children;
+    if (!parse_boxes_strict(data.data(), iprp->body_start,
+            iprp->start + iprp->size, iprp_children)) return false;
+    const isobmff_box* ipco = nullptr;
+    const isobmff_box* ipma = nullptr;
+    for (const auto& child : iprp_children) {
+        if (child.type == "ipco") {
+            if (ipco) return false;
+            ipco = &child;
+        } else if (child.type == "ipma") {
+            if (ipma) return false;
+            ipma = &child;
+        }
+    }
+    if (!ipma) return true; // No item-property associations means no primary transform.
+    if (!ipco) return false;
+
+    std::vector<isobmff_box> properties;
+    if (!parse_boxes_strict(data.data(), ipco->body_start,
+            ipco->start + ipco->size, properties)) return false;
+    std::vector<ipma_association> associations;
+    if (!parse_ipma_box(data, *ipma, properties.size(), associations)) return false;
+
+    std::vector<const isobmff_box*> primary_transforms;
+    for (const auto& association : associations) {
+        if (association.item_id != primary_id) continue;
+        const isobmff_box& property = properties[association.property_index - 1];
+        if (property.type == "irot" || property.type == "imir") {
+            primary_transforms.push_back(&property);
+        }
+    }
+
+    bool saw_irot = false;
+    bool saw_imir = false;
+    orientation_matrix_2x2 accumulated{ 1, 0, 0, 1 };
+    for (const isobmff_box* property : primary_transforms) {
+        if (!property || property->body_size != 1) return false;
+        const uint8_t raw = data[property->body_start];
+        orientation_matrix_2x2 transform{};
+        if (property->type == "irot") {
+            if (saw_irot || (raw & 0xFCu) != 0) return false;
+            saw_irot = true;
+            // ISO/IEC 23008-12 encodes counter-clockwise quarter-turns.
+            switch (raw & 0x03u) {
+                case 0: transform = { 1, 0, 0, 1 }; break;
+                case 1: transform = { 0, 1, -1, 0 }; break;
+                case 2: transform = { -1, 0, 0, -1 }; break;
+                case 3: transform = { 0, -1, 1, 0 }; break;
+                default: return false;
+            }
+        } else {
+            if (saw_imir || (raw & 0xFEu) != 0) return false;
+            saw_imir = true;
+            // axis=1 mirrors horizontally; axis=0 mirrors vertically.
+            transform = (raw & 0x01u) != 0
+                ? orientation_matrix_2x2{ -1, 0, 0, 1 }
+                : orientation_matrix_2x2{ 1, 0, 0, -1 };
+        }
+        // HEIF applies primary-associated property transforms in association
+        // order. With column vectors, each later property left-multiplies the
+        // transform accumulated from earlier properties.
+        accumulated = multiply_orientation_matrices(transform, accumulated);
+    }
+
+    return canonicalize_orientation_matrix(accumulated, out);
 }
 
 bool extract_heic_item_payload(
@@ -1962,6 +2255,49 @@ LPB_API lpb_result LPB_CALL lpb_capture_preservation_observation(
 {
     return lpb_media_capture_preservation_observation(context, media_path,
         protocol_hint, container_hint, out_observation, false);
+}
+
+LPB_API lpb_result LPB_CALL lpb_observe_image_orientation_v1(
+    lpb_context* context,
+    const char* image_path,
+    lpb_image_container container_hint,
+    lpb_image_orientation_observation_v1* out_observation)
+{
+    if (!context || !image_path || image_path[0] == '\0' || !out_observation ||
+        out_observation->struct_size < sizeof(lpb_image_orientation_observation_v1) ||
+        out_observation->api_version != LPB_IMAGE_ORIENTATION_API_V1 ||
+        (container_hint != LPB_IMAGE_CONTAINER_JPEG && container_hint != LPB_IMAGE_CONTAINER_HEIC)) {
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    const uint32_t saved_size = out_observation->struct_size;
+    std::memset(out_observation, 0, sizeof(*out_observation));
+    out_observation->struct_size = saved_size;
+    out_observation->api_version = LPB_IMAGE_ORIENTATION_API_V1;
+    out_observation->status = LPB_IMAGE_ORIENTATION_STATUS_UNKNOWN;
+    out_observation->reflection = LPB_IMAGE_ORIENTATION_REFLECTION_NONE;
+
+    if (lpb_context_check_cancelled(context) != LPB_RESULT_OK) return LPB_RESULT_CANCELLED;
+
+    std::vector<uint8_t> data;
+    if (!read_file_binary(image_path, data)) {
+        set_error(context, "Failed to read image for orientation observation");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+
+    neutral_image_orientation orientation{};
+    const bool verified = container_hint == LPB_IMAGE_CONTAINER_JPEG
+        ? parse_jpeg_orientation(data, orientation)
+        : parse_heif_orientation(data, orientation);
+    if (lpb_context_check_cancelled(context) != LPB_RESULT_OK) return LPB_RESULT_CANCELLED;
+    if (!verified) return LPB_RESULT_OK;
+
+    out_observation->status = LPB_IMAGE_ORIENTATION_STATUS_VERIFIED;
+    out_observation->clockwise_rotation_degrees = orientation.clockwise_rotation_degrees;
+    out_observation->reflection = orientation.reflection;
+    out_observation->rotation_evidence = LPB_IMAGE_ORIENTATION_EVIDENCE_VERIFIED;
+    out_observation->reflection_evidence = LPB_IMAGE_ORIENTATION_EVIDENCE_VERIFIED;
+    return LPB_RESULT_OK;
 }
 
 static bool shas_equal_ignore_case(const char* a, const char* b) {

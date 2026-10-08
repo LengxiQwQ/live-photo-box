@@ -303,28 +303,48 @@ public sealed record NeutralArtifactManifest
     public string SourceSha256 { get; init; } = string.Empty;
     public long ByteLength { get; init; }
     public ImageContainer ImageContainer { get; init; } = ImageContainer.Unknown;
+    public ImageCodec ImageCodec { get; init; } = ImageCodec.Unknown;
     public VideoContainer VideoContainer { get; init; } = VideoContainer.Unknown;
     public VideoCodec VideoCodec { get; init; } = VideoCodec.Unknown;
+    public AuxiliaryCodec AuxiliaryCodec { get; init; } = AuxiliaryCodec.Unknown;
+    /// <summary>
+    /// Platform-neutral representation of this final semantic asset. The legacy
+    /// <see cref="Representation"/> remains source/transport compatibility data.
+    /// </summary>
+    public NeutralAuxiliaryRepresentation SemanticRepresentation { get; init; } = NeutralAuxiliaryRepresentation.Unknown;
+    /// <summary>Authoritative byte offset in the owner artifact for embedded items.</summary>
+    public long? OwnerByteOffset { get; init; }
     public PreservationOutcome PreservationOutcome { get; init; }
     public GainMapRepresentation GainMapRepresentation { get; init; } = GainMapRepresentation.None;
 }
 
 /// <summary>
 /// NeutralMediaBundle: Immutable, fully cleaned and format-aligned bundle of media artifacts.
-/// The bundle retains provenance of the source media facts, but the artifacts themselves
-/// contain zero source Live/Motion Photo vendor dependencies.
+/// Source provenance and the legacy HDR binding are retained for diagnostics and compatibility;
+/// Neutral correctness consumers use the separate semantic projection.
 /// </summary>
 public sealed record NeutralMediaBundle
 {
     public required MediaArtifact PrimaryImage { get; init; }
     public MediaArtifact? MotionVideo { get; init; }
     public MediaArtifact? GainMap { get; init; }
+    /// <summary>
+    /// Compatibility/diagnostic binding retained for existing callers. Neutral correctness
+    /// decisions must use <see cref="Semantics"/> and must not consume this source-bound value.
+    /// </summary>
     public ImageHdrGainMapSourceBinding? HdrGainMapBinding { get; init; }
     public GainMapRepresentation GainMapRepresentation { get; init; } = GainMapRepresentation.None;
+    /// <summary>Historical/source diagnostics only; not authority for Neutral semantics.</summary>
     public required SourceMediaFacts SourceProvenance { get; init; }
     public required IReadOnlyList<RemovedProtocolFact> RemovedProtocolFacts { get; init; }
     public required IReadOnlyList<NeutralArtifactManifest> Manifest { get; init; }
     public IReadOnlyList<AuxiliaryMediaDescriptor> AuxiliaryMedia { get; init; } = [];
     public IReadOnlyList<PreservationCarrier> PreservationCarriers { get; init; } = [];
     public TimingFacts Timing { get; init; } = new();
+    /// <summary>
+    /// Platform-, backend-, and source-protocol-neutral facts for final media.
+    /// The default preserves source compatibility for callers constructing bundles;
+    /// NeutralMediaService always sets the complete projection it can currently prove.
+    /// </summary>
+    public NeutralMediaSemantics Semantics { get; init; } = NeutralMediaSemantics.Unknown;
 }

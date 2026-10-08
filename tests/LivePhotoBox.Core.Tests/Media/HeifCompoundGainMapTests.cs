@@ -245,10 +245,36 @@ public sealed class HeifCompoundGainMapTests
     {
         using var workspace = new W3EvidenceWorkspace("apple-neutral-manifest");
         string primaryPath = workspace.AllocateFilePath("primary", ".jpg");
-        byte[] primaryBytes = [0xFF, 0xD8, 0xFF, 0xD9];
+        byte[] gainMapPayload = [0x31, 0x42, 0x53, 0x64, 0x75, 0x86, 0x97, 0xA8];
+        byte[] primaryBytes = Enumerable.Range(0, 24).Select(value => (byte)value).ToArray();
+        Array.Copy(gainMapPayload, 0, primaryBytes, 8, gainMapPayload.Length);
         await File.WriteAllBytesAsync(primaryPath, primaryBytes);
         string primarySha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(primaryBytes));
-        string auxiliarySha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(new byte[] { 0x01 }));
+        string auxiliarySha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(gainMapPayload));
+        HeifDependencyFacts[] dependencies =
+        [
+            new HeifDependencyFacts { ItemId = 51, ItemType = "hvc1", ByteOffset = 1, ByteLength = 1 }
+        ];
+        var auxiliaryFacts = new AuxiliaryMediaFacts
+        {
+            IsPresent = true,
+            Container = ImageContainer.Heic,
+            Representation = AuxiliaryRepresentation.Embedded,
+            Ownership = AuxiliaryOwnership.Primary,
+            ItemId = 55,
+            ByteOffset = 8,
+            ByteLength = gainMapPayload.Length,
+            Relationship = SamsungGainMapUrn,
+            StableIdentity = "heif:item:55",
+            Semantic = "GainMap",
+            OwnerIdentity = "primary:0",
+            Sha256 = auxiliarySha,
+            Codec = AuxiliaryCodec.Hevc,
+            SourceIndex = 0,
+            ItemType = "grid",
+            GraphComplete = true,
+            Dependencies = dependencies
+        };
         var sourceFacts = new SourceMediaFacts
         {
             Protocol = SourceProtocol.NonLive,
@@ -258,6 +284,20 @@ public sealed class HeifCompoundGainMapTests
                 IsPresent = true,
                 Container = ImageContainer.Jpeg,
                 ByteLength = primaryBytes.Length
+            },
+            AuxiliaryItems = [auxiliaryFacts],
+            GainMap = new GainMapFacts
+            {
+                IsPresent = true,
+                Container = ImageContainer.Heic,
+                Representation = AuxiliaryRepresentation.Embedded,
+                Ownership = AuxiliaryOwnership.Primary,
+                OwnerArtifactRole = MediaArtifactKind.PrimaryImage,
+                AuxiliaryIndex = 0,
+                ItemId = 55,
+                ByteOffset = 8,
+                ByteLength = gainMapPayload.Length,
+                Relationship = SamsungGainMapUrn
             }
         };
         var descriptor = new AuxiliaryMediaDescriptor
@@ -276,7 +316,7 @@ public sealed class HeifCompoundGainMapTests
             Ownership = AuxiliaryOwnership.Primary,
             ItemType = "grid",
             GraphComplete = true,
-            Dependencies = [new HeifDependencyFacts { ItemId = 51, ItemType = "hvc1", ByteOffset = 1, ByteLength = 1 }]
+            Dependencies = dependencies
         };
         var extracted = new ExtractedMediaBundle
         {
@@ -305,8 +345,21 @@ public sealed class HeifCompoundGainMapTests
 
         Assert.Equal(GainMapRepresentation.Embedded, bundle.GainMapRepresentation);
         NeutralArtifactManifest gainMap = Assert.Single(bundle.Manifest, item => item.Role == "GainMap");
+        Assert.Null(bundle.GainMap);
         Assert.Equal(GainMapRepresentation.Embedded, gainMap.GainMapRepresentation);
+        Assert.Equal(NeutralAuxiliaryRepresentation.Embedded, gainMap.SemanticRepresentation);
         Assert.Equal(bundle.PrimaryImage.Path, gainMap.Path);
+        Assert.Equal("heif:item:55", gainMap.StableIdentity);
+        Assert.Equal("primary:0", gainMap.OwnerIdentity);
+        Assert.Equal(SamsungGainMapUrn, gainMap.Relationship);
+        Assert.Equal(8, gainMap.SourceOffset);
+        Assert.Equal(8, gainMap.OwnerByteOffset);
+        Assert.Equal(gainMapPayload.Length, gainMap.SourceLength);
+        Assert.Equal(auxiliarySha, gainMap.SourceSha256);
+        Assert.Equal(auxiliarySha, gainMap.Sha256);
+        Assert.Equal(gainMapPayload.Length, gainMap.ByteLength);
+        Assert.NotEqual(bundle.PrimaryImage.Sha256, gainMap.Sha256);
+        Assert.NotEqual(bundle.PrimaryImage.ByteLength, gainMap.ByteLength);
         Assert.DoesNotContain(bundle.Manifest, item =>
             item.Role == "GainMap" && item.Path != bundle.PrimaryImage.Path);
         Assert.Single(bundle.Manifest, item => item.StableIdentity == gainMap.StableIdentity);
