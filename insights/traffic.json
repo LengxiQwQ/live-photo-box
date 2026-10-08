@@ -263,6 +263,10 @@
     "2026-10-06": {
       "count": 33,
       "uniques": 17
+    },
+    "2026-10-07": {
+      "count": 43,
+      "uniques": 19
     }
   },
   "clones": {
@@ -529,6 +533,10 @@
     "2026-10-06": {
       "count": 43,
       "uniques": 20
+    },
+    "2026-10-07": {
+      "count": 22,
+      "uniques": 15
     }
   },
   "referrer_snapshots": [
@@ -4433,6 +4441,61 @@
         {
           "referrer": "chatgpt.com",
           "count": 12,
+          "uniques": 8
+        },
+        {
+          "referrer": "lengxiqwq.com",
+          "count": 2,
+          "uniques": 2
+        },
+        {
+          "referrer": "Baidu",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "referrer": "DuckDuckGo",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "referrer": "apps.microsoft.com",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "referrer": "noisedh.cn",
+          "count": 1,
+          "uniques": 1
+        },
+        {
+          "referrer": "noisedh.link",
+          "count": 1,
+          "uniques": 1
+        }
+      ]
+    },
+    {
+      "fetched_at": "2026-10-08T08:57:32Z",
+      "referrers": [
+        {
+          "referrer": "github.com",
+          "count": 84,
+          "uniques": 39
+        },
+        {
+          "referrer": "Google",
+          "count": 63,
+          "uniques": 47
+        },
+        {
+          "referrer": "Bing",
+          "count": 45,
+          "uniques": 37
+        },
+        {
+          "referrer": "chatgpt.com",
+          "count": 14,
           "uniques": 8
         },
         {
@@ -9603,6 +9666,71 @@
           "uniques": 2
         }
       ]
+    },
+    {
+      "fetched_at": "2026-10-08T08:57:32Z",
+      "paths": [
+        {
+          "path": "/LengxiQwQ/live-photo-box",
+          "title": "Overview",
+          "count": 248,
+          "uniques": 150
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/releases/tag/v2.2.1",
+          "title": "/releases/tag/v2.2.1",
+          "count": 43,
+          "uniques": 36
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/releases",
+          "title": "/releases",
+          "count": 41,
+          "uniques": 34
+        },
+        {
+          "path": "/lengxiqwq/live-photo-box/releases",
+          "title": "/releases",
+          "count": 30,
+          "uniques": 23
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/blob/master/README.zh-CN.md",
+          "title": "/blob/master/README.zh-CN.md",
+          "count": 27,
+          "uniques": 21
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/issues",
+          "title": "/issues",
+          "count": 22,
+          "uniques": 7
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/issues/9",
+          "title": "/issues/9",
+          "count": 14,
+          "uniques": 4
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/blob/master/docs/CLI-User-Guide.zh-CN.md",
+          "title": "/blob/master/docs/CLI-User-Guide.zh-CN.md",
+          "count": 8,
+          "uniques": 6
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/blob/master/README.md",
+          "title": "/blob/master/README.md",
+          "count": 6,
+          "uniques": 4
+        },
+        {
+          "path": "/LengxiQwQ/live-photo-box/pulls",
+          "title": "/pulls",
+          "count": 6,
+          "uniques": 2
+        }
+      ]
     }
   ],
   "repo_meta_snapshots": [
@@ -10316,7 +10444,16 @@
       "open_issues": 1,
       "network": 2,
       "pushed_at": "2026-10-06T17:07:10Z"
+    },
+    {
+      "fetched_at": "2026-10-08T08:57:32Z",
+      "stars": 48,
+      "forks": 2,
+      "watchers": 1,
+      "open_issues": 1,
+      "network": 2,
+      "pushed_at": "2026-10-08T02:41:34Z"
     }
   ],
-  "updated_at": "2026-10-07T08:38:52Z"
+  "updated_at": "2026-10-08T08:57:32Z"
 }
