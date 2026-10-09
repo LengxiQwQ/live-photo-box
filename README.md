@@ -249,12 +249,12 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
 <!-- INSIGHTS:START -->
 **📊 Repository Traffic**
 
-Views: **4,385** ｜ Uniques: **199** (14-day) ｜ Clones: **5,114** ｜ Cloners: **113** (14-day)
+Views: **4,462** ｜ Uniques: **215** (14-day) ｜ Clones: **5,137** ｜ Cloners: **120** (14-day)
 
 **Top referrers (14-day):** github.com · Google · Bing · chatgpt.com · lengxiqwq.com · Baidu  
-**Top content (14-day):** releases/tag/v2.2.1 · releases · README.zh-CN.md · issues
+**Top content (14-day):** releases · releases/tag/v2.2.1 · README.zh-CN.md · issues
 
-> Data since 2026-08-02 · Last updated: 2026-10-08 (UTC+8)
+> Data since 2026-08-02 · Last updated: 2026-10-09 (UTC+8)
 <!-- INSIGHTS:END -->
 
 ---
