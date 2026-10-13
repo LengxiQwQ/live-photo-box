@@ -367,7 +367,7 @@
                                                 <TextBlock x:Uid="AboutPage_ContactEmail"
                                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                                 <Grid ColumnDefinitions="*,Auto">
-                                                    <TextBlock Text="lengxiowo@gmail.com" FontSize="15"
+                                                    <TextBlock Text="me@lengxiqwq.com" FontSize="15"
                                                                FontFamily="Consolas, Microsoft YaHei UI"
                                                                IsTextSelectionEnabled="True"
                                                                VerticalAlignment="Center"/>

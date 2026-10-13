@@ -84,7 +84,7 @@ namespace LivePhotoBox.Views
         private async void OnCopyEmailClick(object sender, RoutedEventArgs e)
         {
             var dataPackage = new Windows.ApplicationModel.DataTransfer.DataPackage();
-            dataPackage.SetText("lengxiowo@gmail.com");
+            dataPackage.SetText("me@lengxiqwq.com");
             Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(dataPackage);
 
             // 显示"已复制"反馈
