@@ -9,11 +9,15 @@ permissions:
   contents: read
   security-events: write
 
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     name: Analyze ${{ matrix.language }}
     runs-on: windows-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -30,12 +34,30 @@ jobs:
           dotnet-version: |
             9.0.x
             10.0.x
+      - name: Cache pinned Native dependencies / 缓存 Native 依赖
+        uses: actions/cache@v4
+        with:
+          path: |
+            .ai-tmp/workspace/P5/R5/video-codecs-main10
+            .ai-tmp/workspace/P5/R5/r4-hevc-v2-codec-identity.json
+            .ai-tmp/workspace/P5/R5/cmake-build/vcpkg_installed
+            ~/AppData/Local/vcpkg/downloads
+          key: native-deps-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'tools/p5-r5-video-validation/sidecar-dependencies/**', 'tools/p5-r5-video-validation/profiles/P5-R5-v1/backend-build.json') }}
       - name: Initialize CodeQL / 初始化 CodeQL
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: manual
-      - name: Build Native project / 构建 Native 项目
+      - name: Build Native project for managed analysis / 构建 Native（C# 分析用 Debug）
+        if: matrix.language == 'csharp'
+        shell: pwsh
+        run: >-
+          powershell -NoProfile -ExecutionPolicy Bypass
+          -File scripts/native/build-native.ps1
+          -Configuration Debug
+          -Architecture x64
+      - name: Build Native project for C/C++ analysis / 构建 Native（C/C++ 分析用 Release）
+        if: matrix.language == 'c-cpp'
         shell: pwsh
         run: >-
           powershell -NoProfile -ExecutionPolicy Bypass
@@ -46,8 +68,8 @@ jobs:
         if: matrix.language == 'csharp'
         shell: pwsh
         run: |
-          dotnet build "LivePhotoBox/LivePhotoBox.csproj" -c Release -p:Platform=x64 -p:SkipNativeBuild=true
-          dotnet build "LivePhotoBox.CLI/LivePhotoBox.CLI.csproj" -c Release -p:Platform=x64 -p:SkipNativeBuild=true
+          dotnet build "LivePhotoBox/LivePhotoBox.csproj" -c Debug -p:Platform=x64 -p:SkipNativeBuild=true
+          dotnet build "LivePhotoBox.CLI/LivePhotoBox.CLI.csproj" -c Debug -p:Platform=x64 -p:SkipNativeBuild=true
       - name: Analyze / 分析
         uses: github/codeql-action/analyze@v4
         with:
