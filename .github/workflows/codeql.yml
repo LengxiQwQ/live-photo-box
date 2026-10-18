@@ -34,7 +34,18 @@ jobs:
           dotnet-version: |
             9.0.x
             10.0.x
-      - name: Cache pinned Native dependencies / 缓存 Native 依赖
+      - name: Restore pinned Native dependencies for managed analysis / 恢复 Native 依赖（C#）
+        if: matrix.language == 'csharp'
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            .ai-tmp/workspace/P5/R5/video-codecs-main10
+            .ai-tmp/workspace/P5/R5/r4-hevc-v2-codec-identity.json
+            .ai-tmp/workspace/P5/R5/cmake-build/vcpkg_installed
+            ~/AppData/Local/vcpkg/downloads
+          key: native-deps-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'tools/p5-r5-video-validation/sidecar-dependencies/**', 'tools/p5-r5-video-validation/profiles/P5-R5-v1/backend-build.json') }}
+      - name: Cache pinned Native dependencies for C/C++ analysis / 缓存 Native 依赖（C/C++）
+        if: matrix.language == 'c-cpp'
         uses: actions/cache@v4
         with:
           path: |
@@ -42,7 +53,7 @@ jobs:
             .ai-tmp/workspace/P5/R5/r4-hevc-v2-codec-identity.json
             .ai-tmp/workspace/P5/R5/cmake-build/vcpkg_installed
             ~/AppData/Local/vcpkg/downloads
-          key: native-deps-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'tools/p5-r5-video-validation/sidecar-dependencies/**', 'tools/p5-r5-video-validation/profiles/P5-R5-v1/backend-build.json') }}
+          key: native-deps-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'tools/p5-r5-video-validation/sidecar-dependencies/**', 'tools/p5-r5-video-validation/profiles/P5-R5-v1/backend-build.json') }}
       - name: Initialize CodeQL / 初始化 CodeQL
         uses: github/codeql-action/init@v4
         with:
