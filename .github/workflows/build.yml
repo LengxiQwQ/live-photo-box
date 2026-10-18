@@ -20,7 +20,7 @@ jobs:
   verify:
     if: github.event_name != 'push' || (github.event.head_commit.author.name != 'github-actions[bot]' && github.event.head_commit.committer.name != 'github-actions[bot]')
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     env:
       VERIFY_SCOPE: ${{ startsWith(github.ref, 'refs/tags/') && 'Release' || 'Build' }}
     steps:
@@ -61,7 +61,7 @@ jobs:
     needs: verify
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     permissions:
       contents: write
     steps:
