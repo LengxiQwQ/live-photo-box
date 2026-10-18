@@ -210,6 +210,16 @@ static bool read_file_binary_handle(void* file_handle, std::vector<uint8_t>& out
     return true;
 }
 
+static void set_output_io_error(lpb_context* context, DWORD error, const char* operation)
+{
+    const char* category = error == ERROR_DISK_FULL || error == ERROR_HANDLE_DISK_FULL ? "DiskFull"
+        : error == ERROR_ACCESS_DENIED ? "AccessDenied"
+        : error == ERROR_SHARING_VIOLATION || error == ERROR_LOCK_VIOLATION ? "LockedFile"
+        : "OutputCreateFailed";
+    const std::string message = std::string("[") + category + "] " + operation + " (Win32=" + std::to_string(error) + ").";
+    set_error(context, message.c_str());
+}
+
 static bool write_file_binary(lpb_context* context, int32_t artifact_role,
     const std::string& path, const std::vector<uint8_t>& data)
 {
@@ -229,7 +239,8 @@ static bool write_file_binary(lpb_context* context, int32_t artifact_role,
     HANDLE temp_handle = lpb_create_unique_temp_file(temp_dir, L"lpb", temp);
     if (temp_handle == INVALID_HANDLE_VALUE)
     {
-        set_error(context, "Failed to create a unique temp file for cleaned output.");
+        const DWORD error = GetLastError();
+        set_output_io_error(context, error, "Failed to create a unique temp file for cleaned output");
         return false;
     }
 
@@ -255,7 +266,8 @@ static bool write_file_binary(lpb_context* context, int32_t artifact_role,
     }
     else
     {
-        set_error(context, "Failed to write or flush cleaned output through the owning handle.");
+        const DWORD error = GetLastError();
+        set_output_io_error(context, error, "Failed to write or flush cleaned output through the owning handle");
     }
     if (!ok)
     {
@@ -330,7 +342,8 @@ static lpb_result clean_jpeg_xmp(
     const lpb_cleanup_action* actions,
     size_t action_count,
     bool require_protocol_xmp,
-    std::vector<lpb_removed_protocol_fact>& out_facts)
+    std::vector<lpb_removed_protocol_fact>& out_facts,
+    const lpb_source_media_facts* source_facts = nullptr)
 {
     std::vector<uint8_t> data = in_bytes;
 
@@ -351,6 +364,20 @@ static lpb_result clean_jpeg_xmp(
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         return write_file_binary(context, LPB_ARTIFACT_PRIMARY_IMAGE, out_path, data) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
+    }
+
+    if (protocol == LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1) {
+        if (!source_facts) {
+            set_error(context, "Google MicroVideo V1 cleaning requires its Inspector source facts.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        std::string rebased_xmp;
+        if (!protocols::clean::rebase_micamera_xmpmeta_offsets_for_google_v1_clean(
+                cleaned_xmp, *source_facts, static_cast<uint64_t>(in_bytes.size()), rebased_xmp)) {
+            set_error(context, "Inspector-bound MiCamera XMPMeta offsets could not be safely rebased for the extracted primary.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        cleaned_xmp.swap(rebased_xmp);
     }
 
     std::vector<uint8_t> out_buf(data.size() + cleaned_xmp.size() + 4096);
@@ -375,7 +402,6 @@ static lpb_result clean_jpeg_xmp(
     out_facts.insert(out_facts.end(), operation_facts.begin(), operation_facts.end());
 
     if (!write_file_binary(context, LPB_ARTIFACT_PRIMARY_IMAGE, out_path, data)) {
-        set_error(context, "Failed to write cleaned JPEG.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
 
@@ -507,7 +533,6 @@ static lpb_result clean_apple_image(
     }
 
     if (!write_file_binary(context, LPB_ARTIFACT_PRIMARY_IMAGE, out_path, data)) {
-        set_error(context, "Failed to write cleaned Apple image.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
     return LPB_RESULT_OK;
@@ -990,7 +1015,7 @@ lpb_result clean_source_protocol_with_plan(
         case LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO:
         case LPB_SOURCE_PROTOCOL_VIVO_X300:
             res = clean_jpeg_xmp(context, input_image_bytes, output_image_path,
-                static_cast<lpb_source_protocol>(facts->protocol), actions, action_count, true, removed_facts);
+                static_cast<lpb_source_protocol>(facts->protocol), actions, action_count, true, removed_facts, facts);
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
                 res = write_file_binary(context, LPB_ARTIFACT_MOTION_VIDEO, output_video_path, input_video_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             }

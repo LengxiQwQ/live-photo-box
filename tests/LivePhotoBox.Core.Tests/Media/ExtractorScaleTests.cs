@@ -1,3 +1,4 @@
+using LivePhotoBox.Core.Tests.Support;
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -89,7 +90,7 @@ public sealed partial class ExtractorScaleTests
             await fs.FlushAsync();
         }
 
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string sparseSha = await workspace.ComputeFileSha256Async(sparsePath);
 
         var facts = new SourceMediaFacts

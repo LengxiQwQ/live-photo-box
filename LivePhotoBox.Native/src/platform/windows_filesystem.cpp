@@ -26,6 +26,24 @@ bool lpb_platform_dispose_owned(void* owned_handle) noexcept {
     }
     FILE_DISPOSITION_INFO disposition{};
     disposition.DeleteFile = TRUE;
+    if (SetFileInformationByHandle(handle, FileDispositionInfo,
+            &disposition, sizeof(disposition)) != FALSE) return true;
+
+    const DWORD disposition_error = GetLastError();
+    if (disposition_error != ERROR_ACCESS_DENIED) return false;
+
+    // Windows refuses to mark a read-only file for deletion. Clear that bit
+    // through the retained CREATE_NEW handle, then retry disposition through
+    // the same handle. Never resolve or mutate the temporary pathname here.
+    FILE_BASIC_INFO basic{};
+    if (!GetFileInformationByHandleEx(handle, FileBasicInfo, &basic, sizeof(basic))) return false;
+    if ((basic.FileAttributes & FILE_ATTRIBUTE_READONLY) == 0) {
+        SetLastError(disposition_error);
+        return false;
+    }
+    basic.FileAttributes &= ~static_cast<DWORD>(FILE_ATTRIBUTE_READONLY);
+    if (basic.FileAttributes == 0) basic.FileAttributes = FILE_ATTRIBUTE_NORMAL;
+    if (!SetFileInformationByHandle(handle, FileBasicInfo, &basic, sizeof(basic))) return false;
     return SetFileInformationByHandle(handle, FileDispositionInfo,
         &disposition, sizeof(disposition)) != FALSE;
 }
@@ -545,7 +563,8 @@ lpb::random_access_reader windows_owned_output::reader() noexcept {
     return {identity.file_size, file, owned_handle_read_at};
 }
 
-bool windows_owned_output::publish_no_replace(const std::filesystem::path& destination) noexcept {
+bool windows_owned_output::publish_no_replace(const std::filesystem::path& destination,
+    const lpb_file_identity* expected_identity) noexcept {
     HANDLE file = static_cast<HANDLE>(handle_);
     if (file == nullptr || file == INVALID_HANDLE_VALUE || destination.empty() ||
         destination.parent_path() != temp_path_.parent_path() ||
@@ -563,6 +582,12 @@ bool windows_owned_output::publish_no_replace(const std::filesystem::path& desti
         published.volume_serial != staged.volume_serial ||
         published.file_index != staged.file_index ||
         published.file_size != staged.file_size ||
+        published.link_count != staged.link_count ||
+        (expected_identity != nullptr &&
+            (published.volume_serial != expected_identity->volume_serial ||
+                published.file_index != expected_identity->file_index ||
+                published.file_size != expected_identity->file_size ||
+                published.link_count != expected_identity->link_count)) ||
         !exact_owned_path(file, destination)) return false;
     CloseHandle(file);
     CloseHandle(static_cast<HANDLE>(directory_handle_));
@@ -572,24 +597,126 @@ bool windows_owned_output::publish_no_replace(const std::filesystem::path& desti
     return true;
 }
 
+bool windows_owned_output::publish_registered_no_replace(lpb_context* context,
+    int32_t artifact_role, const std::filesystem::path& destination) noexcept {
+    HANDLE file = static_cast<HANDLE>(handle_);
+    if (context == nullptr || file == nullptr || file == INVALID_HANDLE_VALUE ||
+        destination.empty() || destination.parent_path() != temp_path_.parent_path() ||
+        !ready_to_consume()) return false;
+
+    lpb_file_identity created{};
+    std::wstring created_path;
+    if (!capture_file_identity_from_handle(file, created, created_path) ||
+        created.file_size == 0 || created.link_count != 1) return false;
+
+    try {
+        const std::string final_path = path_to_utf8(destination);
+        if (final_path.empty()) return false;
+        record_cleaner_staged_output(context, artifact_role, final_path, created);
+        if (!has_unique_staged_output_registration(context, artifact_role, destination, created))
+            return false;
+    } catch (...) {
+        return false;
+    }
+
+    // publish_no_replace verifies the same still-open handle and fails closed
+    // on a destination collision. The registered identity was taken before
+    // this rename from the CREATE_NEW handle, never re-opened by pathname.
+    return publish_no_replace(destination, &created);
+}
+
+bool windows_owned_output::capture_cleanup_identity(lpb_file_identity& identity,
+    std::string& original_staging_path, std::string& actual_owned_handle_path) noexcept {
+    identity = {};
+    original_staging_path.clear();
+    actual_owned_handle_path.clear();
+    try { original_staging_path = path_to_utf8(temp_path_); }
+    catch (...) { original_staging_path.clear(); }
+
+    HANDLE file = static_cast<HANDLE>(handle_);
+    if (file == nullptr || file == INVALID_HANDLE_VALUE) return false;
+    std::wstring final_path;
+    if (!capture_file_identity_from_handle(file, identity, final_path)) return false;
+    try { actual_owned_handle_path = path_to_utf8(std::filesystem::path(final_path)); }
+    catch (...) { actual_owned_handle_path.clear(); }
+    return true;
+}
+
 void windows_owned_output::abort() noexcept {
     static_cast<void>(abort_and_confirm());
 }
 
 bool windows_owned_output::abort_and_confirm() noexcept {
     HANDLE file = static_cast<HANDLE>(handle_);
+    bool disposed = true;
+    DWORD cleanup_error = ERROR_SUCCESS;
     if (file != nullptr && file != INVALID_HANDLE_VALUE) {
-        const bool disposed = lpb_platform_dispose_owned(file);
-        if (!disposed) return false;
-        CloseHandle(file);
-        handle_ = nullptr;
+        disposed = lpb_platform_dispose_owned(file);
+        if (!disposed) cleanup_error = GetLastError();
+        if (!CloseHandle(file)) {
+            if (cleanup_error == ERROR_SUCCESS) cleanup_error = GetLastError();
+            disposed = false;
+        }
     }
     HANDLE directory = static_cast<HANDLE>(directory_handle_);
-    if (directory != nullptr && directory != INVALID_HANDLE_VALUE) CloseHandle(directory);
+    if (directory != nullptr && directory != INVALID_HANDLE_VALUE && !CloseHandle(directory)) {
+        if (cleanup_error == ERROR_SUCCESS) cleanup_error = GetLastError();
+        disposed = false;
+    }
     handle_ = nullptr;
     directory_handle_ = nullptr;
     temp_path_.clear();
-    return true;
+    SetLastError(disposed ? ERROR_SUCCESS : cleanup_error);
+    return disposed;
+}
+
+bool abort_owned_output_and_report(lpb_context* context, windows_owned_output& output,
+    const char* original_failure, bool report_original_on_success) noexcept {
+    std::string original_message;
+    std::string original_staging_path;
+    std::string actual_owned_handle_path;
+    lpb_file_identity owned_identity{};
+    const bool identity_captured = output.capture_cleanup_identity(
+        owned_identity, original_staging_path, actual_owned_handle_path);
+    try {
+        if (original_failure != nullptr) {
+            original_message = original_failure;
+        } else if (context != nullptr) {
+            std::scoped_lock lock(context->error_mutex);
+            original_message = context->last_error;
+        }
+    } catch (...) { }
+
+    const bool cleanup_confirmed = output.abort_and_confirm();
+    if (cleanup_confirmed) {
+        if (report_original_on_success && original_failure != nullptr) set_error(context, original_failure);
+        return true;
+    }
+
+    const DWORD cleanup_error = GetLastError();
+    try {
+        std::string message = "[CleanupFailed] Original failure: ";
+        message += original_message.empty() ? "Native operation failed." : original_message;
+        message += "; Native could not dispose of the exact owned staging object (Win32 error: ";
+        message += std::to_string(cleanup_error);
+        message += "; originalStagingPath=";
+        message += original_staging_path.empty() ? "<unavailable>" : original_staging_path;
+        if (identity_captured) {
+            message += "; ownedHandleIdentity.volumeSerial=";
+            message += std::to_string(owned_identity.volume_serial);
+            message += "; ownedHandleIdentity.fileIndex=";
+            message += std::to_string(owned_identity.file_index);
+            message += "; actualFinalPathFromOwnedHandle=";
+            message += actual_owned_handle_path.empty() ? "<unavailable>" : actual_owned_handle_path;
+        } else {
+            message += "; ownedHandleIdentity=<unavailable>";
+        }
+        message += "; identity and actual path were captured from the retained owned handle, without re-resolving the staging pathname).";
+        set_error(context, message.c_str());
+    } catch (...) {
+        set_error(context, "[CleanupFailed] Native could not dispose of the exact owned staging object.");
+    }
+    return false;
 }
 
 bool windows_owned_output::write_at(uint64_t offset, std::span<const uint8_t> bytes) noexcept {

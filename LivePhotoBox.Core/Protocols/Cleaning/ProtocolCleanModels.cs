@@ -164,6 +164,7 @@ public sealed record PreservationBaseline
     public string? GainMapSha256 { get; init; }
     public bool GainMapExpected { get; init; }
     public IReadOnlyList<PreservationCarrier> PreservationCarriers { get; init; } = [];
+    public IReadOnlyList<AuxiliaryMediaDescriptor> AuxiliaryMedia { get; init; } = [];
 
     public DateTimeOffset CapturedAt { get; init; } = DateTimeOffset.UtcNow;
 }

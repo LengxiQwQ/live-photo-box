@@ -426,3 +426,10 @@ docs/实况照片协议分析文档
 
 # 项目源码打包压缩包（本地生成，覆盖使用）
 /live-photo-box-source.zip
+
+# Local-only ChatGPT connection/runtime helpers
+/.c2c.json
+/scripts/local/Connections.ps1
+
+# Test evidence belongs in ignored .ai-tmp/evidence; also guard the retired path.
+/docs/测试证据/

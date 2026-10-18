@@ -1,4 +1,5 @@
 using LivePhotoBox.Interop;
+using LivePhotoBox.Core.Tests.Protocols;
 using Xunit;
 
 namespace LivePhotoBox.Core.Tests;
@@ -6,19 +7,10 @@ namespace LivePhotoBox.Core.Tests;
 [Trait("Category", "NativeContract")]
 public sealed class SamsungSefDifferentialTests
 {
-    private static byte[] CreateMinimalMp4()
-    {
-        return [
-            0x00, 0x00, 0x00, 0x10, (byte)'f', (byte)'t', (byte)'y', (byte)'p',
-            (byte)'i', (byte)'s', (byte)'o', (byte)'m', 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x08, (byte)'m', (byte)'d', (byte)'a', (byte)'t',
-            0x00, 0x00, 0x00, 0x08, (byte)'m', (byte)'o', (byte)'o', (byte)'v'];
-    }
-
     [Fact]
     public void BuildTrailer_ParseRoundTrip_UsesExactMotionPayload()
     {
-        byte[] video = CreateMinimalMp4();
+        byte[] video = SyntheticProtocolFixtures.CreateMinimalMp4();
         byte[]? trailer = NativeSamsungSef.BuildTrailer(video, "jpg");
 
         Assert.NotNull(trailer);
@@ -31,7 +23,7 @@ public sealed class SamsungSefDifferentialTests
     [Fact]
     public void BuildHeicTrailer_WritesAbsoluteMpv2Pointer()
     {
-        byte[] video = CreateMinimalMp4();
+        byte[] video = SyntheticProtocolFixtures.CreateMinimalMp4();
         const long imageSize = 4096;
         byte[]? trailer = NativeSamsungSef.BuildTrailer(video, "heic", imageSize);
 
@@ -45,7 +37,7 @@ public sealed class SamsungSefDifferentialTests
     [Fact]
     public void TryParse_RejectsWrongTotalSizeAndOutOfRangeDirectory()
     {
-        byte[] video = CreateMinimalMp4();
+        byte[] video = SyntheticProtocolFixtures.CreateMinimalMp4();
         byte[] trailer = NativeSamsungSef.BuildTrailer(video, "jpg")!;
         byte[] input = [0xFF, 0xD8, 0xFF, 0xD9, .. trailer];
 
@@ -65,7 +57,7 @@ public sealed class SamsungSefDifferentialTests
     public void TryParse_LocatesMotionPhotoDataPayload()
     {
         byte[] imagePrefix = new byte[37];
-        byte[] video = CreateMinimalMp4();
+        byte[] video = SyntheticProtocolFixtures.CreateMinimalMp4();
         byte[] trailer = NativeSamsungSef.BuildTrailer(video, "jpg")!;
         byte[] input = [.. imagePrefix, .. trailer];
 

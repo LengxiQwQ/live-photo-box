@@ -4,6 +4,10 @@
 
 namespace lpb::media {
 
+// Deployment availability only: enumerate/activate approved synchronous software
+// NV12 encoders. Request-specific type negotiation remains in conversion.
+bool software_video_encoder_available(lpb_context* context, lpb_video_codec codec) noexcept;
+
 lpb_result probe_video_file(
     lpb_context* context,
     const char* video_path,

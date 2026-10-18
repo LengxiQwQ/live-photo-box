@@ -160,11 +160,13 @@ video_sidecar_bridge_result run_video_sidecar_transcode(
     lpb_video_container target_container,
     lpb_video_codec target_codec,
     int32_t crf,
-    bool native_transplants_mebx) noexcept
+    bool native_transplants_mebx,
+    const isobmff_video_profile& source_profile) noexcept
 {
     video_sidecar_bridge_result outcome{};
+    const uint32_t expected_pixel_depth = source_profile.bit_depth_luma;
     if (context == nullptr || input.length == 0U || input.read_at == nullptr ||
-        crf < 0 || crf > 51 ||
+        crf < 0 || crf > 51 || (expected_pixel_depth != 8U && expected_pixel_depth != 10U) ||
         (target_container != LPB_VIDEO_CONTAINER_MOV && target_container != LPB_VIDEO_CONTAINER_MP4) ||
         (target_codec != LPB_VIDEO_CODEC_H264 && target_codec != LPB_VIDEO_CODEC_HEVC))
     {
@@ -208,6 +210,12 @@ video_sidecar_bridge_result run_video_sidecar_transcode(
     request.flags = native_transplants_mebx
         ? LPB_VIDEO_SIDECAR_REQUEST_NATIVE_TRANSPLANTS_MEBX
         : 0U;
+    request.flags |= LPB_VIDEO_SIDECAR_REQUEST_NATIVE_SOURCE_PROFILE;
+    request.source_color_range = source_profile.full_range != 0U ? 2 : 1;
+    request.source_color_primaries = source_profile.color_primaries;
+    request.source_color_transfer = source_profile.transfer_characteristics;
+    request.source_color_matrix = source_profile.matrix_coefficients;
+    request.source_pixel_depth = expected_pixel_depth;
 
     outcome.sidecar_result.struct_size = sizeof(outcome.sidecar_result);
     const int32_t status = sidecar.transcode()(&request, &io, &outcome.sidecar_result);
@@ -234,9 +242,10 @@ video_sidecar_bridge_result run_video_sidecar_transcode(
     const uint32_t required_codec_capability = target_codec == LPB_VIDEO_CODEC_HEVC
         ? LPB_VIDEO_SIDECAR_CAP_HEVC
         : LPB_VIDEO_SIDECAR_CAP_H264;
-    const uint32_t required_depth_capability = target_codec == LPB_VIDEO_CODEC_HEVC
-        ? LPB_VIDEO_SIDECAR_CAP_HEVC_10BIT
-        : LPB_VIDEO_SIDECAR_CAP_H264_10BIT;
+    const uint32_t required_depth_capability = expected_pixel_depth > 8U
+        ? (target_codec == LPB_VIDEO_CODEC_HEVC
+            ? LPB_VIDEO_SIDECAR_CAP_HEVC_10BIT : LPB_VIDEO_SIDECAR_CAP_H264_10BIT)
+        : 0U;
     const auto* sidecar_info = sidecar.info();
     const bool reserved_zero = std::all_of(std::begin(outcome.sidecar_result.reserved),
         std::end(outcome.sidecar_result.reserved), [](uint32_t value) { return value == 0U; });
@@ -246,7 +255,7 @@ video_sidecar_bridge_result run_video_sidecar_transcode(
         outcome.sidecar_result.selected_capability != (required_codec_capability | required_depth_capability) ||
         outcome.sidecar_result.target_codec != request.target_codec ||
         outcome.sidecar_result.output_width == 0U || outcome.sidecar_result.output_height == 0U ||
-        outcome.sidecar_result.output_pixel_depth <= 8U || outcome.sidecar_result.video_frames == 0U ||
+        outcome.sidecar_result.output_pixel_depth != expected_pixel_depth || outcome.sidecar_result.video_frames == 0U ||
         outcome.sidecar_result.output_bytes == 0U ||
         outcome.sidecar_result.time_base_numerator <= 0 || outcome.sidecar_result.time_base_denominator <= 0 ||
         !reserved_zero || !valid_string(outcome.sidecar_result.encoder_name, sizeof(outcome.sidecar_result.encoder_name)) ||

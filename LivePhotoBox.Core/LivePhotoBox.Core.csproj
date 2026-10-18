@@ -12,7 +12,7 @@
     <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
     <NativeRuntimeIdentifier>win-x64</NativeRuntimeIdentifier>
     <NativeArtifactsDir>$(MSBuildThisFileDirectory)..\artifacts\native\$(Configuration)\$(NativeRuntimeIdentifier)</NativeArtifactsDir>
-    <VideoSidecarBuildId Condition="'$(VideoSidecarBuildId)' == ''">r5-main10-v1</VideoSidecarBuildId>
+    <VideoSidecarBuildId Condition="'$(VideoSidecarBuildId)' == ''">r4-hevc-v2</VideoSidecarBuildId>
   </PropertyGroup>
 
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
@@ -58,6 +58,15 @@
   <ItemGroup>
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>LivePhotoBox.Core.Tests</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>livephotobox-boot</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>LivePhotoBox.CLI.Tests</_Parameter1>
+    </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>Live Photo Box</_Parameter1>
     </AssemblyAttribute>
   </ItemGroup>
 

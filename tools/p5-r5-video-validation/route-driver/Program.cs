@@ -24,6 +24,8 @@ internal static class Program
         ["vivo-copy-mp4-same-container"] = new(VideoContainer.Mp4, VideoCodec.Copy, PreservationPolicy.BestEffort),
         ["apple-hevc-to-h264-sdr"] = new(VideoContainer.Mov, VideoCodec.H264, PreservationPolicy.BestEffort),
         ["apple-hevc-to-h264-sdr-mp4"] = new(VideoContainer.Mp4, VideoCodec.H264, PreservationPolicy.BestEffort),
+        ["apple-hevc-to-hevc-sdr-mov"] = new(VideoContainer.Mov, VideoCodec.Hevc, PreservationPolicy.BestEffort),
+        ["apple-hevc-to-hevc-sdr-mp4"] = new(VideoContainer.Mp4, VideoCodec.Hevc, PreservationPolicy.BestEffort),
         ["vivo-h264-to-hevc-sdr"] = new(VideoContainer.Mp4, VideoCodec.Hevc, PreservationPolicy.BestEffort),
         ["huawei-main10-hlg-to-hevc-preservation"] = new(VideoContainer.Mp4, VideoCodec.Hevc, PreservationPolicy.Strict),
         ["huawei-main10-hlg-to-h264-preservation-required"] = new(VideoContainer.Mp4, VideoCodec.H264, PreservationPolicy.Strict)

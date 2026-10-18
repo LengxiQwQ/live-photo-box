@@ -7,6 +7,8 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using LivePhotoBox.Interop;
+using LivePhotoBox.Media.Models;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services.Protocols;
 using LogLevel = LivePhotoBox.Models.LogLevel;
@@ -232,15 +234,60 @@ namespace LivePhotoBox.Services
             long presentationTimestampUs = 0,
             int outputFormatIndex = 0)
         {
-            return ProcessingPipelineRouter.RunRebuiltAsync("merge", () => WriteLivePhotoCoreAsync(
-                sourceImg, sourceVid, targetPath, selectedModeIndex, token,
-                presentationTimestampUs, outputFormatIndex));
+            return WriteLivePhotoRebuiltAsync(
+                sourceImg,
+                sourceVid,
+                targetPath,
+                selectedModeIndex,
+                token,
+                presentationTimestampUs,
+                outputFormatIndex,
+                overwriteExisting: true,
+                testHook: null);
+        }
+
+        internal static Task WriteLivePhotoRebuiltAsync(
+            string sourceImg,
+            string sourceVid,
+            string targetPath,
+            int selectedModeIndex,
+            CancellationToken token,
+            long presentationTimestampUs,
+            int outputFormatIndex,
+            bool overwriteExisting,
+            Func<SplitPublicationTraceEvent, CancellationToken, Task>? testHook)
+        {
+            return ProcessingPipelineRouter.RunRebuiltAsync("merge", async () =>
+            {
+                EnsureNoSourceAliasesTarget(sourceImg, sourceVid, targetPath);
+
+                // Preserve the existing pipeline-router boundary while ensuring
+                // missing inputs fail before the transaction creates staging files.
+                _ = new FileInfo(sourceVid).Length;
+                _ = new FileInfo(sourceImg).Length;
+
+                await WindowsSplitOutputPublisher.PublishSingleAsync(
+                    targetPath,
+                    overwriteExisting,
+                    (staging, stageToken) => WriteLivePhotoCoreAsync(
+                        sourceImg,
+                        sourceVid,
+                        staging,
+                        targetPath,
+                        selectedModeIndex,
+                        stageToken,
+                        presentationTimestampUs,
+                        outputFormatIndex),
+                    testHook,
+                    token).ConfigureAwait(false);
+            });
         }
 
         private static async Task WriteLivePhotoCoreAsync(
             string sourceImg,
             string sourceVid,
-            string targetPath,
+            Stream output,
+            string outputPath,
             int selectedModeIndex,
             CancellationToken token,
             long presentationTimestampUs = 0,
@@ -257,7 +304,7 @@ namespace LivePhotoBox.Services
                 && outputFormatIndex == ProtocolFormatMatrix.FormatHeicMp4)
             {
                 string videoMime = DetectVideoMime(sourceVid);
-                await WriteSamsungHeicAsync(sourceImg, sourceVid, targetPath, videoSize, videoMime, samHeic, token, presentationTimestampUs);
+                await WriteSamsungHeicAsync(sourceImg, sourceVid, outputPath, videoSize, videoMime, samHeic, token, presentationTimestampUs);
                 return;
             }
 
@@ -265,7 +312,7 @@ namespace LivePhotoBox.Services
             if (protocol is SamsungMotionPhotoProtocol samJpeg)
             {
                 string videoMime = DetectVideoMime(sourceVid);
-                await WriteSamsungJpegAsync(sourceImg, sourceVid, targetPath, videoSize, videoMime, samJpeg, token, presentationTimestampUs);
+                await WriteSamsungJpegAsync(sourceImg, sourceVid, output, outputPath, videoSize, videoMime, samJpeg, token, presentationTimestampUs);
                 return;
             }
 
@@ -277,7 +324,7 @@ namespace LivePhotoBox.Services
             {
                 string videoMime = DetectVideoMime(sourceVid);
                 byte[] xmpBytes = v2.BuildXmpMetadata(videoSize, presentationTimestampUs, "image/heic", "8", videoMime);
-                await WriteHeicNativeAsync(sourceImg, sourceVid, targetPath, xmpBytes, token);
+                await WriteHeicNativeAsync(sourceImg, sourceVid, outputPath, xmpBytes, token);
                 return;
             }
 
@@ -292,7 +339,7 @@ namespace LivePhotoBox.Services
                         && HeicConverterService.IsHeicFile(sourceImg));
                 // Pass raw presentation timestamp (microseconds) — WriteHuaweiNativeAsync
                 // converts it to a frame number using the actual video FPS.
-                await WriteHuaweiNativeAsync(sourceImg, sourceVid, targetPath,
+                await WriteHuaweiNativeToStreamAsync(sourceImg, sourceVid, output, outputPath,
                     isHeicOutput, presentationTimestampUs, token);
                 return;
             }
@@ -322,7 +369,7 @@ namespace LivePhotoBox.Services
             {
                 jpegXmpBytes = protocol.BuildXmpMetadata(videoSize, presentationTimestampUs);
             }
-            await WriteNativeAsync(sourceImg, sourceVid, targetPath, jpegXmpBytes, token);
+            await WriteNativeToStreamAsync(sourceImg, sourceVid, output, jpegXmpBytes, token);
         }
 
         // Detect the MIME type for a video file based on its container format.
@@ -468,10 +515,45 @@ namespace LivePhotoBox.Services
         // presentationTimestampUs: Cover frame timestamp in microseconds (0 = still image itself).
         //   Converted to a frame number using actual video FPS inside this method.
         // token: Cancellation token.
-        internal static async Task WriteHuaweiNativeAsync(
+        // Retain the original internal path-based helper for existing callers.
+        // It now uses the same staged publication boundary as the public merge API.
+        internal static Task WriteHuaweiNativeAsync(
             string sourceImg,
             string sourceVid,
             string targetPath,
+            bool isHeicOutput,
+            long presentationTimestampUs,
+            CancellationToken token,
+            int originalCoverMs = 0,
+            int originalDurationMs = 0,
+            string tailPrefix = "v6_f")
+        {
+            EnsureNoSourceAliasesTarget(sourceImg, sourceVid, targetPath);
+            _ = new FileInfo(sourceVid).Length;
+            _ = new FileInfo(sourceImg).Length;
+            return WindowsSplitOutputPublisher.PublishSingleAsync(
+                targetPath,
+                overwriteExisting: true,
+                (output, stageToken) => WriteHuaweiNativeToStreamAsync(
+                    sourceImg,
+                    sourceVid,
+                    output,
+                    targetPath,
+                    isHeicOutput,
+                    presentationTimestampUs,
+                    stageToken,
+                    originalCoverMs,
+                    originalDurationMs,
+                    tailPrefix),
+                testHook: null,
+                token);
+        }
+
+        private static async Task WriteHuaweiNativeToStreamAsync(
+            string sourceImg,
+            string sourceVid,
+            Stream output,
+            string outputPath,
             bool isHeicOutput,
             long presentationTimestampUs,
             CancellationToken token,
@@ -501,9 +583,7 @@ namespace LivePhotoBox.Services
             //     major=mp42 / compat=[iso2, mp42]，而 ffmpeg 默认写 isom/[isom,iso2,avc1,mp41]。
             //     字节级改写品牌（保持 box 尺寸不变，避免破坏 moov/stco 偏移），
             //     与真机结构一致，拆分定位逻辑（按 ftyp 定位）不受影响。
-            sourceVid = await PatchMp4FtypBrandAsync(sourceVid, targetPath, token);
-            string? patchedMp4ToCleanup = sourceVid;
-            videoSize = new FileInfo(sourceVid).Length; // 品牌改写不改变尺寸，保险起见重读
+            videoSize = new FileInfo(sourceVid).Length;
 
             // 2. Build 60-byte tail (preserve original PPP:QQQQ when provided)
             byte[] tail = originalDurationMs > 0
@@ -517,7 +597,9 @@ namespace LivePhotoBox.Services
                 // Read source HEIC, patch ftyp to include "tmap" brand
                 byte[] heicData = await File.ReadAllBytesAsync(sourceImg, token);
                 byte[] patched = InsertTmapBrand(heicData);
-                await File.WriteAllBytesAsync(targetPath, patched, token);
+                output.Position = 0;
+                output.SetLength(0);
+                await output.WriteAsync(patched, token);
             }
             else
             {
@@ -525,39 +607,25 @@ namespace LivePhotoBox.Services
                 using var imgFs = new FileStream(
                     sourceImg, FileMode.Open, FileAccess.Read, FileShare.Read,
                     bufferSize: 8192, useAsync: true);
-                using var targetFs = new FileStream(
-                    targetPath, FileMode.Create, FileAccess.Write, FileShare.None,
-                    bufferSize: 8192, useAsync: true);
-                await imgFs.CopyToAsync(targetFs, token);
+                output.Position = 0;
+                output.SetLength(0);
+                await imgFs.CopyToAsync(output, token);
             }
 
             // 4. Append MP4 video
-            using (var targetFs = new FileStream(
-                targetPath, FileMode.Append, FileAccess.Write, FileShare.None,
-                bufferSize: 8192, useAsync: true))
-            using (var vidFs = new FileStream(
-                sourceVid, FileMode.Open, FileAccess.Read, FileShare.Read,
-                bufferSize: 8192, useAsync: true))
-            {
-                await vidFs.CopyToAsync(targetFs, token);
-                await targetFs.WriteAsync(tail, 0, tail.Length, token);
-            }
-            // Clean up temp MP4 created by ftyp brand patch
-            if (patchedMp4ToCleanup != null)
-            {
-                try { if (File.Exists(patchedMp4ToCleanup)) File.Delete(patchedMp4ToCleanup); } catch { }
-            }
+            await CopyMp4WithPatchedFtypAsync(sourceVid, output, token);
+            await output.WriteAsync(tail, 0, tail.Length, token);
 
             // 5. ©too 补丁：真机华为 HEIC 实况的 moov/udta/meta/ilst 含
             //    ©too = "Openharmony6.1"。ffmpeg 默认写 "LavfXX.XX.XXX" 且
             //    -metadata too=... 无效（实测仍为 Lavf），需字节级改写。
-            PatchMp4TooAtom(targetPath, token);
+            PatchMp4TooAtom(output, token);
 
             // 6. JPEG 后处理：方案 A——不改写 EXIF Make（保留来源 Make，避免 exiftool
             //    对残留 Apple MakerNote 实况条目报 Bad format）。详见方法头注释的方案 A/B。
 
             LogService.Merge(
-                $"HUAWEI Moving Photo written: {Path.GetFileName(targetPath)} " +
+                $"HUAWEI Moving Photo assembled for publication: {Path.GetFileName(outputPath)} " +
                 $"(format={(isHeicOutput ? "HEIC" : "JPEG")}, " +
                 $"video={videoSize} bytes, tail=LIVE_{videoSize + 20})");
         }
@@ -661,38 +729,78 @@ namespace LivePhotoBox.Services
             try
             {
                 byte[] data = await File.ReadAllBytesAsync(mp4Path, token);
-                if (data.Length < 24 || data[4] != (byte)'f' || data[5] != (byte)'t'
-                    || data[6] != (byte)'y' || data[7] != (byte)'p')
-                {
-                    LogService.Merge("ftyp patch: video does not start with ftyp box, skipping",
-                        LogLevel.Warning);
-                    return mp4Path;
-                }
+                PatchMp4FtypBrand(data);
 
-                // major brand → "mp42"，minor → 0
-                data[8] = (byte)'m'; data[9] = (byte)'p';
-                data[10] = (byte)'4'; data[11] = (byte)'2';
-                data[12] = 0; data[13] = 0; data[14] = 0; data[15] = 0;
-
-                // compat[0] → "iso2"，compat[1] → "mp42"（保留后续 brand，无害）
-                if (data.Length >= 24)
-                {
-                    data[16] = (byte)'i'; data[17] = (byte)'s';
-                    data[18] = (byte)'o'; data[19] = (byte)'2';
-                    data[20] = (byte)'m'; data[21] = (byte)'p';
-                    data[22] = (byte)'4'; data[23] = (byte)'2';
-                }
-
-                await File.WriteAllBytesAsync(patchedPath, data, token);
+                await WindowsSplitOutputPublisher.PublishSingleAsync(
+                    patchedPath,
+                    overwriteExisting: false,
+                    (stage, stageToken) => stage.WriteAsync(data, 0, data.Length, stageToken),
+                    testHook: null,
+                    token).ConfigureAwait(false);
                 return patchedPath;
             }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex)
             {
                 LogService.Merge($"ftyp brand patch failed: {ex.Message}", LogLevel.Warning);
-                try { if (File.Exists(patchedPath)) File.Delete(patchedPath); } catch { }
                 return mp4Path;
             }
+        }
+
+        private static void PatchMp4FtypBrand(byte[] data)
+        {
+            if (data.Length < 24 || data[4] != (byte)'f' || data[5] != (byte)'t'
+                || data[6] != (byte)'y' || data[7] != (byte)'p')
+            {
+                LogService.Merge("ftyp patch: video does not start with ftyp box, skipping",
+                    LogLevel.Warning);
+                return;
+            }
+
+            // major brand → "mp42", minor → 0
+            data[8] = (byte)'m'; data[9] = (byte)'p';
+            data[10] = (byte)'4'; data[11] = (byte)'2';
+            data[12] = 0; data[13] = 0; data[14] = 0; data[15] = 0;
+
+            // compat[0] → "iso2", compat[1] → "mp42"（保留后续 brand，无害）
+            data[16] = (byte)'i'; data[17] = (byte)'s';
+            data[18] = (byte)'o'; data[19] = (byte)'2';
+            data[20] = (byte)'m'; data[21] = (byte)'p';
+            data[22] = (byte)'4'; data[23] = (byte)'2';
+        }
+
+        private static async Task CopyMp4WithPatchedFtypAsync(
+            string sourceVid,
+            Stream output,
+            CancellationToken token)
+        {
+            using var video = new FileStream(
+                sourceVid,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 8192,
+                useAsync: true);
+
+            if (video.Length < 24)
+            {
+                await video.CopyToAsync(output, token).ConfigureAwait(false);
+                return;
+            }
+
+            byte[] header = new byte[24];
+            await video.ReadExactlyAsync(header, 0, header.Length, token).ConfigureAwait(false);
+            if (header[4] != (byte)'f' || header[5] != (byte)'t'
+                || header[6] != (byte)'y' || header[7] != (byte)'p')
+            {
+                video.Position = 0;
+                await video.CopyToAsync(output, token).ConfigureAwait(false);
+                return;
+            }
+
+            PatchMp4FtypBrand(header);
+            await output.WriteAsync(header, 0, header.Length, token).ConfigureAwait(false);
+            await video.CopyToAsync(output, token).ConfigureAwait(false);
         }
 
         // "openharmony6" — 12 bytes, exactly replaces ffmpeg's "LavfXX.XX.XXX"
@@ -705,8 +813,17 @@ namespace LivePhotoBox.Services
         // once in the entire combined file, inside the MP4's ©too atom).
         internal static void PatchMp4TooAtom(string targetPath, CancellationToken token)
         {
-            using var fs = new FileStream(targetPath, FileMode.Open,
-                FileAccess.ReadWrite, FileShare.None, bufferSize: 4096);
+            using var fs = new FileStream(
+                targetPath,
+                FileMode.Open,
+                FileAccess.ReadWrite,
+                FileShare.None,
+                bufferSize: 4096);
+            PatchMp4TooAtom(fs, token);
+        }
+
+        private static void PatchMp4TooAtom(Stream fs, CancellationToken token)
+        {
             long fileSize = fs.Length;
             if (fileSize < 1024) return;
 
@@ -758,6 +875,77 @@ namespace LivePhotoBox.Services
             byte[] xmpBytes,
             CancellationToken token)
         {
+            EnsureNoSourceAliasesTarget(sourceImg, sourceVid, targetPath);
+            await WindowsSplitOutputPublisher.PublishSingleAsync(
+                targetPath,
+                overwriteExisting: true,
+                (output, stageToken) => WriteNativeToStreamAsync(
+                    sourceImg,
+                    sourceVid,
+                    output,
+                    xmpBytes,
+                    stageToken),
+                testHook: null,
+                token).ConfigureAwait(false);
+        }
+
+        private static void EnsureNoSourceAliasesTarget(
+            string sourceImg,
+            string sourceVid,
+            string targetPath)
+        {
+            string fullTargetPath = Path.GetFullPath(targetPath);
+            EnsureNoAlias(sourceImg, fullTargetPath, nameof(sourceImg));
+            EnsureNoAlias(sourceVid, fullTargetPath, nameof(sourceVid));
+        }
+
+        private static void EnsureNoAlias(string sourcePath, string fullTargetPath, string sourceName)
+        {
+            string fullSourcePath = Path.GetFullPath(sourcePath);
+            if (string.Equals(fullSourcePath, fullTargetPath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException(
+                    $"Merge {sourceName} '{fullSourcePath}' cannot also be the output target.");
+            }
+
+            if (!File.Exists(fullSourcePath) || !File.Exists(fullTargetPath))
+                return;
+
+            // Follow any source reparse indirection when comparing identities:
+            // the merge writer opens the media path normally and therefore reads
+            // the referenced object, not a reparse-point directory entry.
+            using var source = new FileStream(
+                fullSourcePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 1,
+                FileOptions.SequentialScan);
+            using var target = new FileStream(
+                fullTargetPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 1,
+                FileOptions.SequentialScan);
+
+            WindowsFileIdentity sourceIdentity = WindowsFileIdentity.Capture(source.SafeFileHandle);
+            WindowsFileIdentity targetIdentity = WindowsFileIdentity.Capture(target.SafeFileHandle);
+            if (sourceIdentity.VolumeSerialNumber == targetIdentity.VolumeSerialNumber &&
+                sourceIdentity.FileIndex == targetIdentity.FileIndex)
+            {
+                throw new IOException(
+                    $"Merge {sourceName} '{fullSourcePath}' aliases output target '{fullTargetPath}' by filesystem identity.");
+            }
+        }
+
+        private static async Task WriteNativeToStreamAsync(
+            string sourceImg,
+            string sourceVid,
+            Stream output,
+            byte[] xmpBytes,
+            CancellationToken token)
+        {
             int segmentLength = 2 + XmpHeader.Length + xmpBytes.Length;
             if (segmentLength > ushort.MaxValue)
             {
@@ -797,25 +985,23 @@ namespace LivePhotoBox.Services
             prefix[5] = (byte)(segmentLength & 0xFF);         // segment length lo
             Array.Copy(XmpHeader, 0, prefix, 6, XmpHeader.Length);   // XMP header
 
-            using var targetFs = new FileStream(
-                targetPath, FileMode.Create, FileAccess.Write, FileShare.None,
-                bufferSize: 8192, useAsync: true);
-
-            await targetFs.WriteAsync(prefix, 0, prefix.Length, token);
-            await targetFs.WriteAsync(xmpBytes, 0, xmpBytes.Length, token);
+            output.Position = 0;
+            output.SetLength(0);
+            await output.WriteAsync(prefix, 0, prefix.Length, token);
+            await output.WriteAsync(xmpBytes, 0, xmpBytes.Length, token);
 
             // Copy the rest of the source JPEG (skipping its SOI which we already wrote)
             using var imgFs = new FileStream(
                 sourceImg, FileMode.Open, FileAccess.Read, FileShare.Read,
                 bufferSize: 8192, useAsync: true);
             imgFs.Position = 2;  // skip source JPEG's SOI
-            await imgFs.CopyToAsync(targetFs, token);
+            await imgFs.CopyToAsync(output, token);
 
             // Append video
             using var vidFs = new FileStream(
                 sourceVid, FileMode.Open, FileAccess.Read, FileShare.Read,
                 bufferSize: 8192, useAsync: true);
-            await vidFs.CopyToAsync(targetFs, token);
+            await vidFs.CopyToAsync(output, token);
         }
 
         // ── HEIC native writer ──────────────────────────────────────────
@@ -852,7 +1038,8 @@ namespace LivePhotoBox.Services
         private static async Task WriteSamsungJpegAsync(
             string sourceImg,
             string sourceVid,
-            string targetPath,
+            Stream output,
+            string outputPath,
             long videoSize,
             string videoMime,
             MotionPhotoV2Protocol protocol,
@@ -919,17 +1106,14 @@ namespace LivePhotoBox.Services
                 jpegData = ms.ToArray();
             }
 
-            // Write: JPEG (with injected XMP) + Trailer
-            using (var targetFs = new FileStream(
-                targetPath, FileMode.Create, FileAccess.Write, FileShare.None,
-                bufferSize: 8192, useAsync: true))
-            {
-                await targetFs.WriteAsync(jpegData, 0, jpegData.Length, token);
-                await targetFs.WriteAsync(trailer, 0, trailer.Length, token);
-            }
+            // Write: JPEG (with injected XMP) + Trailer into the held transaction stage.
+            output.Position = 0;
+            output.SetLength(0);
+            await output.WriteAsync(jpegData, 0, jpegData.Length, token);
+            await output.WriteAsync(trailer, 0, trailer.Length, token);
 
             LogService.Merge(
-                $"Samsung JPEG Motion Photo written: {Path.GetFileName(targetPath)} " +
+                $"Samsung JPEG Motion Photo assembled for publication: {Path.GetFileName(outputPath)} " +
                 $"(JPEG + XMP + Samsung Trailer[{trailer.Length} bytes], video={videoSize} bytes)");
         }
 

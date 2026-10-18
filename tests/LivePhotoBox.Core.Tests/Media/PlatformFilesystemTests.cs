@@ -16,7 +16,7 @@ public sealed class PlatformFilesystemTests
     [Trait("Category", "RealSamples")]
     public async Task ImageCopy_ExistingDestination_PreservesForeignFileAndCleansOwnedTemp()
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string destination = Path.Combine(workspace.RootDirectory, "目标-冲突.jpg");
         byte[] sentinel = [0x46, 0x4F, 0x52, 0x45, 0x49, 0x47, 0x4E];
         await File.WriteAllBytesAsync(destination, sentinel);
@@ -32,7 +32,7 @@ public sealed class PlatformFilesystemTests
     [Trait("Category", "RealSamples")]
     public async Task ImageCopy_RealExclusiveShareLock_FailsBeforePublish()
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string source = Path.Combine(workspace.RootDirectory, "源-锁定.jpg");
         string destination = Path.Combine(workspace.RootDirectory, "输出-锁定.jpg");
         File.Copy(Sample, source);
@@ -53,7 +53,7 @@ public sealed class PlatformFilesystemTests
     [Trait("Category", "RealSamples")]
     public async Task ImageCopy_UnicodePaths_PublishesExactCopyWithoutChangingSource()
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string source = Path.Combine(workspace.RootDirectory, "源-相片.jpg");
         string destination = Path.Combine(workspace.RootDirectory, "结果-相片.jpg");
         File.Copy(Sample, source);
@@ -72,7 +72,7 @@ public sealed class PlatformFilesystemTests
     [Trait("Category", "RealSamples")]
     public async Task ImageCopy_SourceDestinationAlias_IsRejectedWithoutMutation()
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string source = Path.Combine(workspace.RootDirectory, "源-同名.jpg");
         File.Copy(Sample, source);
         byte[] before = await File.ReadAllBytesAsync(source);

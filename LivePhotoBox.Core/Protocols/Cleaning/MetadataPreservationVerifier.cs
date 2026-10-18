@@ -70,7 +70,8 @@ public static class MetadataPreservationVerifier
             VideoObservation = videoObs,
             GainMapSha256 = bundle.GainMap?.Sha256,
             GainMapExpected = bundle.GainMap != null,
-            PreservationCarriers = bundle.PreservationCarriers
+            PreservationCarriers = bundle.PreservationCarriers,
+            AuxiliaryMedia = bundle.AuxiliaryMedia.Select(item => item with { }).ToArray()
         };
     }
 
@@ -283,7 +284,128 @@ public static class MetadataPreservationVerifier
             }
         }
 
-        return CreateReport(items, allPassed && carriersPassed);
+        bool auxiliaryMediaPassed = await VerifyMiCameraAuxiliaryPreservationAsync(
+            baseline.AuxiliaryMedia, stagedImagePath, items, cancellationToken).ConfigureAwait(false);
+
+        return CreateReport(items, allPassed && carriersPassed && auxiliaryMediaPassed);
+    }
+
+    private static async Task<bool> VerifyMiCameraAuxiliaryPreservationAsync(
+        IReadOnlyList<AuxiliaryMediaDescriptor> baselineAuxiliaryMedia,
+        string stagedImagePath,
+        List<PreservationReportItem> reportItems,
+        CancellationToken cancellationToken)
+    {
+        static bool IsMiCameraDescriptor(AuxiliaryMediaDescriptor descriptor) =>
+            descriptor.StableIdentity is "micamera:xmpmeta:subimage" or "micamera:xmpmeta:lenswatermark" ||
+            descriptor.Semantic is "MiCameraSubimage" or "MiCameraLensWatermark" ||
+            descriptor.Relationship is "micamera-xmpmeta-subimage" or "micamera-xmpmeta-lenswatermark";
+
+        static bool HasExpectedMiCameraIdentity(AuxiliaryMediaDescriptor descriptor) =>
+            (descriptor.StableIdentity == "micamera:xmpmeta:subimage" &&
+             descriptor.Semantic == "MiCameraSubimage" &&
+             descriptor.Relationship == "micamera-xmpmeta-subimage") ||
+            (descriptor.StableIdentity == "micamera:xmpmeta:lenswatermark" &&
+             descriptor.Semantic == "MiCameraLensWatermark" &&
+             descriptor.Relationship == "micamera-xmpmeta-lenswatermark");
+
+        AuxiliaryMediaDescriptor[] micameraItems = baselineAuxiliaryMedia
+            .Where(IsMiCameraDescriptor)
+            .ToArray();
+        if (micameraItems.Length == 0)
+        {
+            return true;
+        }
+
+        SourceMediaFacts? postCleanFacts = null;
+        string? inspectionFailure = null;
+        try
+        {
+            postCleanFacts = await new SourceInspector().InspectAsync(
+                stagedImagePath, null, cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            inspectionFailure = $"Fresh post-clean inspection failed: {exception.Message}";
+        }
+
+        bool allPassed = true;
+        bool baselineShapeValid = micameraItems.Length == 2 &&
+            micameraItems.Count(HasExpectedMiCameraIdentity) == 2 &&
+            micameraItems.Select(item => item.Semantic).Distinct(StringComparer.Ordinal).Count() == 2 &&
+            micameraItems.All(item =>
+                item.ArtifactRole == MediaArtifactKind.AuxiliaryItem &&
+                item.OwnerIdentity == "primary:0" &&
+                item.SourceIndex == 0 &&
+                item.SourceLength > 0 &&
+                !string.IsNullOrWhiteSpace(item.SourceSha256) &&
+                item.ImageContainer == ImageContainer.Jpeg &&
+                item.Codec == (item.StableIdentity == "micamera:xmpmeta:subimage"
+                    ? AuxiliaryCodec.Jpeg
+                    : AuxiliaryCodec.Copy) &&
+                item.Representation == AuxiliaryRepresentation.Embedded &&
+                item.Ownership == AuxiliaryOwnership.Primary &&
+                item.MaterializedArtifact is null);
+
+        foreach (AuxiliaryMediaDescriptor descriptor in micameraItems)
+        {
+            string itemName = $"Auxiliary:{descriptor.Semantic}";
+            var matchingItems = postCleanFacts?.AuxiliaryItems
+                .Where(candidate =>
+                    candidate.IsPresent &&
+                    string.Equals(candidate.StableIdentity, descriptor.StableIdentity, StringComparison.Ordinal) &&
+                    string.Equals(candidate.Semantic, descriptor.Semantic, StringComparison.Ordinal) &&
+                    string.Equals(candidate.Relationship, descriptor.Relationship, StringComparison.Ordinal) &&
+                    string.Equals(candidate.OwnerIdentity, descriptor.OwnerIdentity, StringComparison.Ordinal) &&
+                    candidate.SourceIndex == descriptor.SourceIndex &&
+                    candidate.ByteLength == descriptor.SourceLength &&
+                    string.Equals(candidate.Sha256, descriptor.SourceSha256, StringComparison.OrdinalIgnoreCase) &&
+                    candidate.Container == descriptor.ImageContainer &&
+                    candidate.Codec == descriptor.Codec &&
+                    candidate.Representation == descriptor.Representation &&
+                    candidate.Ownership == descriptor.Ownership)
+                .ToArray() ?? [];
+
+            bool descriptorValid = baselineShapeValid && HasExpectedMiCameraIdentity(descriptor);
+            AuxiliaryMediaFacts? rebound = matchingItems.Length == 1 ? matchingItems[0] : null;
+            bool rangeAndHashVerified = descriptorValid && rebound is not null &&
+                await VerifySourceRangeIdentityAsync(
+                    stagedImagePath,
+                    rebound.ByteOffset,
+                    descriptor.SourceLength,
+                    descriptor.SourceSha256,
+                    cancellationToken).ConfigureAwait(false);
+
+            if (!rangeAndHashVerified)
+            {
+                allPassed = false;
+                string details = !descriptorValid
+                    ? "Frozen MiCamera auxiliary baseline is incomplete, duplicated, or has unexpected ownership/representation facts."
+                    : inspectionFailure ?? (matchingItems.Length != 1
+                        ? $"Fresh post-clean Inspector returned {matchingItems.Length} exact MiCamera semantic/content identity matches; expected exactly one."
+                        : "Fresh MiCamera range was out of bounds or its post-clean SHA-256 did not match the frozen baseline.");
+                reportItems.Add(new PreservationReportItem
+                {
+                    Name = itemName,
+                    Status = PreservationCheckStatus.Failed,
+                    Details = details
+                });
+                continue;
+            }
+
+            reportItems.Add(new PreservationReportItem
+            {
+                Name = itemName,
+                Status = PreservationCheckStatus.VerifiedPreserved,
+                Details = $"Fresh Inspector rebound the embedded MiCamera item at offset {rebound!.ByteOffset}; length and SHA-256 match the frozen pre-clean descriptor."
+            });
+        }
+
+        return allPassed;
     }
 
     private static string MapCategoryToName(uint category) => category switch

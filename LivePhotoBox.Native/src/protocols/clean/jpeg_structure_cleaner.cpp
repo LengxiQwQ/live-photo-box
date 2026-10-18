@@ -31,11 +31,26 @@ static bool has_complete_heif_prefix(const std::vector<uint8_t>& data, size_t en
     return pos == end && !first;
 }
 
-static bool write_atomic(const fs::path& path, const std::vector<uint8_t>& data)
+static bool write_atomic(lpb_context* context, const fs::path& path,
+    const std::vector<uint8_t>& data)
 {
     windows_owned_output output;
-    return output.create(path, L"lpb-jpeg-cleaning") &&
-        output.write_all(data) && output.publish_no_replace(path);
+    if (!output.create(path, L"lpb-jpeg-cleaning")) {
+        static_cast<void>(abort_owned_output_and_report(context, output,
+            "Failed to create the owned JPEG cleaning stage."));
+        return false;
+    }
+    if (!output.write_all(data)) {
+        static_cast<void>(abort_owned_output_and_report(context, output,
+            "Failed to write the owned JPEG cleaning stage."));
+        return false;
+    }
+    if (!output.publish_no_replace(path)) {
+        static_cast<void>(abort_owned_output_and_report(context, output,
+            "Failed to publish the owned JPEG cleaning stage without replacement."));
+        return false;
+    }
+    return true;
 }
 
 static void add_fact(
@@ -177,8 +192,7 @@ lpb_result strip_jpeg_tail_data(
     data.resize(video_offset);
     add_fact(out_facts, proto, comp, desc);
 
-    if (!write_atomic(utf8_to_path(output_path.c_str()), data)) {
-        set_error(context, "Failed to write clean JPEG.");
+    if (!write_atomic(context, utf8_to_path(output_path.c_str()), data)) {
         return LPB_RESULT_INTERNAL_ERROR;
     }
 
@@ -252,8 +266,7 @@ lpb_result clean_huawei_image(
     data.resize(video_offset);
     add_fact(out_facts, "Huawei/Honor", "LIVE Tail", "Removed embedded MP4 and 60-byte LIVE_ tail from HEIC");
 
-    if (!write_atomic(utf8_to_path(output_path.c_str()), data)) {
-        set_error(context, "Failed to write clean Huawei HEIC.");
+    if (!write_atomic(context, utf8_to_path(output_path.c_str()), data)) {
         return LPB_RESULT_INTERNAL_ERROR;
     }
 

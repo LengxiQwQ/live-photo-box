@@ -97,3 +97,6 @@ tools/p5-r5-video-validation/notices/** -text
 
 # Preserve frozen R5 validator profile bytes for raw-hash checks across Windows checkouts.
 tools/p5-r5-video-validation/profiles/P5-R5-v1/** -text
+
+# Preserve the reopened HEVC profile identity on Windows checkouts.
+tools/p5-r5-video-validation/profiles/P7-R4-HEVC-v2/** -text

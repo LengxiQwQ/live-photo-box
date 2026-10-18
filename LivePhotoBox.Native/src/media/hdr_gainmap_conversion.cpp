@@ -11,6 +11,7 @@
 #include <bcrypt.h>
 #include <charconv>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -467,6 +468,12 @@ lpb_result fail(lpb_context* context, const char* message, lpb_result result = L
     return result;
 }
 
+lpb_result abort_and_fail(lpb_context* context, windows_owned_output& output,
+    const char* message, lpb_result result) noexcept {
+    return abort_owned_output_and_report(context, output, message)
+        ? result : LPB_RESULT_INTERNAL_ERROR;
+}
+
 lpb_result convert_heic_gainmap_to_jpeg_ultrahdr(lpb_context* context,
     const char* source_path, const char* output_path,
     const lpb_hdr_gainmap_conversion_request_v1& request,
@@ -650,8 +657,8 @@ lpb_result convert_heic_gainmap_to_jpeg_ultrahdr(lpb_context* context,
     staged->actual_container = LPB_IMAGE_CONTAINER_JPEG;
     if (!staged->output.create(output_native, L"lpb-hdr-jpeg", L".tmp", true) ||
         !staged->output.write_all(output_bytes) || !staged->output.ready_to_consume()) {
-        staged->output.abort();
-        return fail(context, "Native could not stage the complete HDR JPEG without publishing a partial target.", LPB_RESULT_INTERNAL_ERROR);
+        return abort_and_fail(context, staged->output,
+            "Native could not stage the complete HDR JPEG without publishing a partial target.", LPB_RESULT_INTERNAL_ERROR);
     }
     const std::string staged_path = path_to_utf8(staged->output.path());
     lpb_source_media_facts output_facts{};
@@ -665,8 +672,7 @@ lpb_result convert_heic_gainmap_to_jpeg_ultrahdr(lpb_context* context,
             std::scoped_lock lock(context->error_mutex);
             diagnostic += context->last_error;
         }
-        staged->output.abort();
-        return fail(context, diagnostic.c_str(), output_inspected);
+        return abort_and_fail(context, staged->output, diagnostic.c_str(), output_inspected);
     }
     if (output_facts.primary_image.container != LPB_IMAGE_CONTAINER_JPEG || !output_facts.gain_map.is_present ||
         output_facts.gain_map.container != LPB_IMAGE_CONTAINER_JPEG ||
@@ -683,8 +689,7 @@ lpb_result convert_heic_gainmap_to_jpeg_ultrahdr(lpb_context* context,
             std::to_string(output_facts.gain_map.file_range.length) + ", expectedLength=" +
             std::to_string(gainmap_with_xmp.size()) + ", auxiliaryCount=" +
             std::to_string(output_facts.auxiliary_count) + ").";
-        staged->output.abort();
-        return fail(context, diagnostic.c_str(), LPB_RESULT_INTERNAL_ERROR);
+        return abort_and_fail(context, staged->output, diagnostic.c_str(), LPB_RESULT_INTERNAL_ERROR);
     }
     const auto& output_auxiliary = output_facts.auxiliary_items[output_facts.gain_map.auxiliary_index];
     uint8_t expected_gainmap_hash[32]{};
@@ -694,15 +699,15 @@ lpb_result convert_heic_gainmap_to_jpeg_ultrahdr(lpb_context* context,
     if (output_auxiliary.item_id != output_facts.gain_map.item_id ||
         std::string_view(output_auxiliary.semantic) != "GainMap" ||
         !same_hash(output_auxiliary.sha256, expected_gainmap_hash)) {
-        staged->output.abort();
-        return fail(context, "Staged JPEG GainMap bytes or item semantic changed during structural inspection.", LPB_RESULT_INTERNAL_ERROR);
+        return abort_and_fail(context, staged->output,
+            "Staged JPEG GainMap bytes or item semantic changed during structural inspection.", LPB_RESULT_INTERNAL_ERROR);
     }
     gainmap_metadata_facts output_metadata{};
     const lpb_result output_metadata_result = inspect_gainmap_metadata(context,
         staged_path.c_str(), nullptr, output_metadata, true);
     if (output_metadata_result != LPB_RESULT_OK || !same_metadata(target_metadata, output_metadata)) {
-        staged->output.abort();
-        return fail(context, "Staged JPEG GainMap metadata failed complete Native re-read validation.",
+        return abort_and_fail(context, staged->output,
+            "Staged JPEG GainMap metadata failed complete Native re-read validation.",
             output_metadata_result == LPB_RESULT_OK ? LPB_RESULT_INTERNAL_ERROR : output_metadata_result);
     }
     uint8_t output_sha[32]{};
@@ -712,12 +717,12 @@ lpb_result convert_heic_gainmap_to_jpeg_ultrahdr(lpb_context* context,
     output_sha_ctx.finalize(expected_output_hash);
     if (!staged->output.ready_to_consume() || !staged->output.compute_sha256(output_sha) ||
         !same_hash(output_sha, expected_output_hash)) {
-        staged->output.abort();
-        return fail(context, "Staged JPEG bytes changed after Native structural validation.", LPB_RESULT_INTERNAL_ERROR);
+        return abort_and_fail(context, staged->output,
+            "Staged JPEG bytes changed after Native structural validation.", LPB_RESULT_INTERNAL_ERROR);
     }
     if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
-        staged->output.abort();
-        return fail(context, "HDR/GainMap conversion cancelled before managed semantic post-validation.", LPB_RESULT_CANCELLED);
+        return abort_and_fail(context, staged->output,
+            "[Cancelled] HDR/GainMap conversion cancelled before managed semantic post-validation.", LPB_RESULT_CANCELLED);
     }
 
     result.target_semantic = LPB_HDR_GAINMAP_TARGET_JPEG_ISO_GAINMAP;
@@ -741,13 +746,13 @@ lpb_result convert_heic_gainmap_to_jpeg_ultrahdr(lpb_context* context,
     std::copy(target_metadata.offset_hdr.begin(), target_metadata.offset_hdr.end(), result.offset_hdr);
     const std::string stable_staging_path = path_to_utf8(staged->output.path());
     if (stable_staging_path.empty() || stable_staging_path.size() >= sizeof(result.staging_path)) {
-        staged->output.abort();
-        return fail(context, "Native staging path exceeds the versioned conversion result capacity.", LPB_RESULT_INTERNAL_ERROR);
+        return abort_and_fail(context, staged->output,
+            "Native staging path exceeds the versioned conversion result capacity.", LPB_RESULT_INTERNAL_ERROR);
     }
     std::copy(std::begin(expected_output_hash), std::end(expected_output_hash), staged->expected_sha256.begin());
     if (!register_stage(context, staged, result.transaction_token)) {
-        staged->output.abort();
-        return fail(context, "Native could not register the owned HDR conversion stage for managed post-validation.", LPB_RESULT_INTERNAL_ERROR);
+        return abort_and_fail(context, staged->output,
+            "Native could not register the owned HDR conversion stage for managed post-validation.", LPB_RESULT_INTERNAL_ERROR);
     }
     std::memcpy(result.staging_path, stable_staging_path.data(), stable_staging_path.size());
     return LPB_RESULT_OK;
@@ -916,13 +921,13 @@ lpb_result convert_jpeg_gainmap_to_heic_auxiliary(lpb_context* context,
     staged->actual_container = LPB_IMAGE_CONTAINER_HEIC;
     if (!staged->output.create(output_native, L"lpb-hdr-heic", L".tmp", true) ||
         !staged->output.write_all(output_bytes) || !staged->output.ready_to_consume()) {
-        staged->output.abort();
-        return fail(context, "Native could not stage the complete HEIF GainMap without publishing a partial target.", LPB_RESULT_INTERNAL_ERROR);
+        return abort_and_fail(context, staged->output,
+            "Native could not stage the complete HEIF GainMap without publishing a partial target.", LPB_RESULT_INTERNAL_ERROR);
     }
     const std::string staged_path = path_to_utf8(staged->output.path());
     if (staged_path.empty()) {
-        staged->output.abort();
-        return fail(context, "Native HEIF staging path is not valid UTF-8.", LPB_RESULT_INTERNAL_ERROR);
+        return abort_and_fail(context, staged->output,
+            "Native HEIF staging path is not valid UTF-8.", LPB_RESULT_INTERNAL_ERROR);
     }
     lpb_source_media_facts output_facts{};
     output_facts.struct_size = sizeof(output_facts);
@@ -934,8 +939,7 @@ lpb_result convert_jpeg_gainmap_to_heic_auxiliary(lpb_context* context,
             std::scoped_lock lock(context->error_mutex);
             diagnostic += context->last_error;
         }
-        staged->output.abort();
-        return fail(context, diagnostic.c_str(), output_inspected);
+        return abort_and_fail(context, staged->output, diagnostic.c_str(), output_inspected);
     }
     if (output_facts.primary_image.container != LPB_IMAGE_CONTAINER_HEIC ||
         output_facts.gain_map.container != LPB_IMAGE_CONTAINER_HEIC || !output_facts.gain_map.is_present ||
@@ -945,8 +949,8 @@ lpb_result convert_jpeg_gainmap_to_heic_auxiliary(lpb_context* context,
         output_facts.gain_map.ownership != LPB_AUX_OWNER_PRIMARY ||
         output_facts.gain_map.owner_artifact_role != LPB_ARTIFACT_PRIMARY_IMAGE ||
         !valid_gainmap_graph(context, output_facts)) {
-        staged->output.abort();
-        return fail(context, "Staged HEIF does not contain exactly one embedded Primary-owned ISO GainMap item.", LPB_RESULT_INTERNAL_ERROR);
+        return abort_and_fail(context, staged->output,
+            "Staged HEIF does not contain exactly one embedded Primary-owned ISO GainMap item.", LPB_RESULT_INTERNAL_ERROR);
     }
     const auto& output_gainmap = output_facts.auxiliary_items[output_facts.gain_map.auxiliary_index];
     const uint64_t map_offset = output_facts.gain_map.file_range.offset;
@@ -955,22 +959,22 @@ lpb_result convert_jpeg_gainmap_to_heic_auxiliary(lpb_context* context,
         std::string_view(output_gainmap.relationship) != "urn:com:photo:aux:hdrgainmap" ||
         std::string_view(output_gainmap.semantic) != "GainMap" || map_length == 0 ||
         map_offset > output_bytes.size() || map_length > output_bytes.size() - map_offset) {
-        staged->output.abort();
-        return fail(context, "Staged HEIF GainMap item identity, relationship, or bounded byte range changed.", LPB_RESULT_INTERNAL_ERROR);
+        return abort_and_fail(context, staged->output,
+            "Staged HEIF GainMap item identity, relationship, or bounded byte range changed.", LPB_RESULT_INTERNAL_ERROR);
     }
     uint8_t expected_gainmap_hash[32]{};
     lpb::crypto::sha256_buffer(output_bytes.data() + static_cast<size_t>(map_offset),
         static_cast<size_t>(map_length), expected_gainmap_hash);
     if (!same_hash(output_gainmap.sha256, expected_gainmap_hash)) {
-        staged->output.abort();
-        return fail(context, "Staged HEIF GainMap bytes changed during graph inspection.", LPB_RESULT_INTERNAL_ERROR);
+        return abort_and_fail(context, staged->output,
+            "Staged HEIF GainMap bytes changed during graph inspection.", LPB_RESULT_INTERNAL_ERROR);
     }
     gainmap_metadata_facts output_metadata{};
     const lpb_result output_metadata_result = inspect_gainmap_metadata(context,
         staged_path.c_str(), nullptr, output_metadata, true);
     if (output_metadata_result != LPB_RESULT_OK || !same_metadata(target_metadata, output_metadata)) {
-        staged->output.abort();
-        return fail(context, "Staged HEIF GainMap metadata failed complete ISO relationship-bound re-read validation.",
+        return abort_and_fail(context, staged->output,
+            "Staged HEIF GainMap metadata failed complete ISO relationship-bound re-read validation.",
             output_metadata_result == LPB_RESULT_OK ? LPB_RESULT_INTERNAL_ERROR : output_metadata_result);
     }
     uint8_t output_sha[32]{};
@@ -980,12 +984,12 @@ lpb_result convert_jpeg_gainmap_to_heic_auxiliary(lpb_context* context,
     output_sha_ctx.finalize(expected_output_hash);
     if (!staged->output.ready_to_consume() || !staged->output.compute_sha256(output_sha) ||
         !same_hash(output_sha, expected_output_hash)) {
-        staged->output.abort();
-        return fail(context, "Staged HEIF bytes changed after Native graph and metadata validation.", LPB_RESULT_INTERNAL_ERROR);
+        return abort_and_fail(context, staged->output,
+            "Staged HEIF bytes changed after Native graph and metadata validation.", LPB_RESULT_INTERNAL_ERROR);
     }
     if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
-        staged->output.abort();
-        return fail(context, "HDR/GainMap conversion cancelled before managed semantic post-validation.", LPB_RESULT_CANCELLED);
+        return abort_and_fail(context, staged->output,
+            "[Cancelled] HDR/GainMap conversion cancelled before managed semantic post-validation.", LPB_RESULT_CANCELLED);
     }
 
     result.target_semantic = LPB_HDR_GAINMAP_TARGET_HEIC_GAINMAP_AUXILIARY;
@@ -1008,13 +1012,13 @@ lpb_result convert_jpeg_gainmap_to_heic_auxiliary(lpb_context* context,
     std::copy(target_metadata.offset_hdr.begin(), target_metadata.offset_hdr.end(), result.offset_hdr);
     const std::string stable_staging_path = path_to_utf8(staged->output.path());
     if (stable_staging_path.empty() || stable_staging_path.size() >= sizeof(result.staging_path)) {
-        staged->output.abort();
-        return fail(context, "Native staging path exceeds the versioned conversion result capacity.", LPB_RESULT_INTERNAL_ERROR);
+        return abort_and_fail(context, staged->output,
+            "Native staging path exceeds the versioned conversion result capacity.", LPB_RESULT_INTERNAL_ERROR);
     }
     std::copy(std::begin(expected_output_hash), std::end(expected_output_hash), staged->expected_sha256.begin());
     if (!register_stage(context, staged, result.transaction_token)) {
-        staged->output.abort();
-        return fail(context, "Native could not register the owned HEIF GainMap stage for managed post-validation.", LPB_RESULT_INTERNAL_ERROR);
+        return abort_and_fail(context, staged->output,
+            "Native could not register the owned HEIF GainMap stage for managed post-validation.", LPB_RESULT_INTERNAL_ERROR);
     }
     std::memcpy(result.staging_path, stable_staging_path.data(), stable_staging_path.size());
     return LPB_RESULT_OK;
@@ -1169,7 +1173,11 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_commit_hdr_gainmap_v1(
     if (!stage || !stage->output.ready_to_consume() || !stage->output.compute_sha256(current_hash) ||
         !same_hash(current_hash, stage->expected_sha256.data()))
         return fail(context, "HDR/GainMap staged artifact changed after managed post-validation.", LPB_RESULT_INVALID_ARGUMENT);
-    if (!stage->output.publish_no_replace(stage->destination))
+    const lpb_result cancellation = lpb_context_check_cancelled(context);
+    if (cancellation != LPB_RESULT_OK)
+        return fail(context, "HDR/GainMap conversion cancelled before final publication.", cancellation);
+    if (!stage->output.publish_registered_no_replace(
+            context, LPB_ARTIFACT_PRIMARY_IMAGE, stage->destination))
         return fail(context, "Native no-replace commit failed for the fully validated HDR/GainMap artifact.", LPB_RESULT_INTERNAL_ERROR);
     context->hdr_gainmap_stages.erase(found);
     return LPB_RESULT_OK;
@@ -1188,8 +1196,12 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_abort_hdr_gainmap_v1(
     if (found == context->hdr_gainmap_stages.end())
         return fail(context, "HDR/GainMap stage token is stale, replayed, or belongs to another Native context.");
     auto stage = std::static_pointer_cast<hdr_gainmap_stage>(found->second);
-    if (!stage || !stage->output.abort_and_confirm())
+    if (!stage)
         return fail(context, "Native could not confirm cleanup of the exact owned HDR/GainMap stage.", LPB_RESULT_INTERNAL_ERROR);
+    if (!abort_owned_output_and_report(context, stage->output,
+            "HDR/GainMap stage abort was requested.", false)) {
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
     context->hdr_gainmap_stages.erase(found);
     return LPB_RESULT_OK;
 }

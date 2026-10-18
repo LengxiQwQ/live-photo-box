@@ -8,10 +8,12 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 using LivePhotoBox.Media.Extraction;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Protocols.Cleaning;
+using LivePhotoBox.Media.Workspace;
 
 namespace LivePhotoBox.Interop;
 
@@ -816,6 +818,44 @@ public static class NativeMediaService
         }, cancellationToken);
     }
 
+    // Private producer binding for ImageConverter.  The staged-output record
+    // uses the existing ABI data shape, populated by Native from the CREATE_NEW
+    // handle.  Hash/length are then captured from a managed held handle only
+    // after that registered file ID has been matched; no pathname-only claim
+    // can become artifact ownership.
+    internal static Task<NativeImageConversionAttempt> ConvertImageWithOutputEvidenceAsync(
+        string inputImagePath,
+        string outputImagePath,
+        ImageContainer targetContainer,
+        int quality,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.Run(() =>
+        {
+            using var ctx = NativeContext.Create(cancellationToken);
+            NativeResult result = NativeMethods.ConvertImage(
+                ctx.Handle,
+                inputImagePath,
+                outputImagePath,
+                (int)targetContainer,
+                quality,
+                out int outReencoded);
+            ctx.ThrowIfFailed(result);
+
+            try
+            {
+                NativeRegisteredOutputEvidence evidence = CaptureRegisteredOutputEvidence(
+                    ctx, outputImagePath, MediaArtifactKind.PrimaryImage);
+                return new NativeImageConversionAttempt(outReencoded != 0, evidence, null);
+            }
+            catch (Exception evidenceFailure)
+            {
+                return new NativeImageConversionAttempt(outReencoded != 0, null, evidenceFailure);
+            }
+        }, cancellationToken);
+    }
+
     public static Task TransformJpegLosslesslyAsync(
         string inputImagePath,
         string outputImagePath,
@@ -829,6 +869,33 @@ public static class NativeMediaService
             NativeResult res = NativeMethods.TransformJpegLosslessly(
                 ctx.Handle, inputImagePath, outputImagePath, transform);
             ctx.ThrowIfFailed(res);
+        }, cancellationToken);
+    }
+
+    internal static Task<NativeImageConversionAttempt> TransformJpegLosslesslyWithOutputEvidenceAsync(
+        string inputImagePath,
+        string outputImagePath,
+        int transform,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.Run(() =>
+        {
+            using var ctx = NativeContext.Create(cancellationToken);
+            NativeResult result = NativeMethods.TransformJpegLosslessly(
+                ctx.Handle, inputImagePath, outputImagePath, transform);
+            ctx.ThrowIfFailed(result);
+
+            try
+            {
+                NativeRegisteredOutputEvidence evidence = CaptureRegisteredOutputEvidence(
+                    ctx, outputImagePath, MediaArtifactKind.PrimaryImage);
+                return new NativeImageConversionAttempt(false, evidence, null);
+            }
+            catch (Exception evidenceFailure)
+            {
+                return new NativeImageConversionAttempt(false, null, evidenceFailure);
+            }
         }, cancellationToken);
     }
 
@@ -907,10 +974,254 @@ public static class NativeMediaService
                     }
                 }
 
-                return new NativeVideoTranscodeAttempt(res, diagnostics, lastError, failureException);
+                NativeRegisteredOutputEvidence? outputEvidence = null;
+                Exception? outputEvidenceFailure = null;
+                if (res == NativeResult.Ok)
+                {
+                    try
+                    {
+                        outputEvidence = CaptureRegisteredOutputEvidence(
+                            ctx, outputVideoPath, MediaArtifactKind.MotionVideo);
+                    }
+                    catch (Exception ex)
+                    {
+                        outputEvidenceFailure = ex;
+                    }
+                }
+
+                return new NativeVideoTranscodeAttempt(
+                    res, diagnostics, lastError, failureException, outputEvidence, outputEvidenceFailure);
             }
         }, cancellationToken);
     }
+
+    internal static bool TryDeleteRegisteredOutput(
+        string outputPath,
+        NativeRegisteredOutputEvidence? expected)
+    {
+        if (!File.Exists(outputPath)) return true;
+        if (expected is null) return false;
+
+        try
+        {
+            using var handle = WindowsOwnedFilePublisher.OpenOwnedStagedFile(
+                outputPath, expected.FileIdentity);
+            PublishedOwnedFile current = WindowsOwnedFilePublisher.CaptureOwnedHandleEvidence(
+                handle, outputPath, expected.FileIdentity, CancellationToken.None);
+            if (!expected.FileIdentity.Matches(current.FileIdentity) ||
+                expected.ByteLength != current.ByteLength ||
+                !string.Equals(expected.Sha256, current.Sha256, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            OwnedObjectCleanupProof proof = WindowsOwnedFilePublisher.DeleteOwnedObjectWithProof(
+                handle, expected.FileIdentity, outputPath, out _);
+            return proof is OwnedObjectCleanupProof.Gone or OwnedObjectCleanupProof.Unlinked;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    internal static NativeRegisteredOutputEvidence CaptureRegisteredOutputEvidence(
+        NativeContext context,
+        string outputPath,
+        MediaArtifactKind expectedRole)
+    {
+        string fullOutputPath = Path.GetFullPath(outputPath);
+        IReadOnlyList<NativeCleanService.CleanStagedOutputRecord> records =
+            NativeCleanService.QueryStagedOutputs(context.Handle, useHarnessLibrary: false);
+        if (records.Count != 1)
+        {
+            throw new InvalidDataException(
+                $"Native conversion registered {records.Count} staged outputs; expected exactly one output for {expectedRole}.");
+        }
+
+        NativeCleanService.CleanStagedOutputRecord record = records[0];
+        if (record.ArtifactRole != expectedRole || record.LinkCount != 1 || record.FileSize == 0 ||
+            string.IsNullOrWhiteSpace(record.FinalPath) ||
+            !string.Equals(Path.GetFullPath(record.FinalPath), fullOutputPath, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidDataException(
+                "Native conversion staged-output role, path, or creating-handle identity did not match the requested output.");
+        }
+
+        var expectedIdentity = new WindowsFileIdentity
+        {
+            VolumeSerialNumber = record.VolumeSerial,
+            FileIndex = record.FileIndex,
+            LinkCount = record.LinkCount,
+            FileAttributes = 0
+        };
+        using var ownedHandle = WindowsOwnedFilePublisher.OpenOwnedStagedFile(
+            record.FinalPath, expectedIdentity);
+        PublishedOwnedFile evidence = WindowsOwnedFilePublisher.CaptureOwnedHandleEvidence(
+            ownedHandle, record.FinalPath, expectedIdentity, CancellationToken.None);
+        if (evidence.ByteLength <= 0 ||
+            (ulong)evidence.ByteLength != record.FileSize || evidence.FileIdentity.LinkCount != 1)
+        {
+            throw new InvalidDataException(
+                "Native registered output size or held-handle identity did not match the produced file.");
+        }
+
+        var outputEvidence = new NativeRegisteredOutputEvidence(
+            evidence.FileIdentity, evidence.ByteLength, evidence.Sha256);
+        _ = WorkspaceOwnershipRegistry.RegisterCreatedFile(
+            record.FinalPath,
+            outputEvidence.FileIdentity,
+            outputEvidence.ByteLength,
+            outputEvidence.Sha256,
+            expectedRole.ToString());
+        return outputEvidence;
+    }
+
+    /// <summary>
+    /// Captures the extraction outputs projected from Native's creating-handle
+    /// records.  The caller must invoke this while the extraction attempt is
+    /// active and before Native commits or rolls it back.
+    /// </summary>
+    internal static IReadOnlyList<NativeExtractionOutputEvidence> CaptureExtractionOutputEvidence(
+        ExtractionPlanAttempt attempt,
+        IReadOnlyList<NativeExtractionOutputBinding> expectedOutputs)
+    {
+        ArgumentNullException.ThrowIfNull(attempt);
+        ArgumentNullException.ThrowIfNull(expectedOutputs);
+        if (expectedOutputs.Count == 0)
+            throw new ArgumentException("At least one Native extraction output binding is required.", nameof(expectedOutputs));
+
+        var expectedByPath = new Dictionary<string, NativeExtractionOutputBinding>(StringComparer.OrdinalIgnoreCase);
+        var expectedRoles = new HashSet<(MediaArtifactKind ArtifactRole, uint AuxiliaryIndex)>();
+        foreach (NativeExtractionOutputBinding binding in expectedOutputs)
+        {
+            ArgumentNullException.ThrowIfNull(binding);
+            ArgumentException.ThrowIfNullOrWhiteSpace(binding.Path);
+            string fullPath = NormalizeExtractionReceiptPath(binding.Path);
+            if (!expectedByPath.TryAdd(fullPath, binding))
+                throw new InvalidDataException("Native extraction output bindings contain a duplicate destination path.");
+            if (!expectedRoles.Add((binding.ArtifactRole, binding.AuxiliaryIndex)))
+                throw new InvalidDataException("Native extraction output bindings contain a duplicate role/index pair.");
+        }
+
+        IReadOnlyList<NativeCleanService.CleanStagedOutputRecord> records =
+            NativeCleanService.QueryStagedOutputs(attempt.ContextLease.Handle, useHarnessLibrary: false);
+        if (records.Count != expectedByPath.Count)
+        {
+            throw new InvalidDataException(
+                $"Native extraction registered {records.Count} staged outputs; expected {expectedByPath.Count} output receipts.");
+        }
+
+        var recordsByPath = new Dictionary<string, NativeCleanService.CleanStagedOutputRecord>(StringComparer.OrdinalIgnoreCase);
+        foreach (NativeCleanService.CleanStagedOutputRecord record in records)
+        {
+            if (string.IsNullOrWhiteSpace(record.FinalPath))
+                throw new InvalidDataException("Native extraction returned an empty staged-output path.");
+            string fullPath = NormalizeExtractionReceiptPath(record.FinalPath);
+            if (!recordsByPath.TryAdd(fullPath, record))
+                throw new InvalidDataException("Native extraction returned duplicate staged-output paths.");
+        }
+
+        var captured = new List<NativeExtractionOutputEvidence>(expectedByPath.Count);
+        foreach ((string expectedFullPath, NativeExtractionOutputBinding binding) in expectedByPath)
+        {
+            if (!recordsByPath.TryGetValue(expectedFullPath, out NativeCleanService.CleanStagedOutputRecord record))
+            {
+                throw new InvalidDataException(
+                    $"Native extraction did not return the creating-handle receipt for '{binding.Path}'.");
+            }
+
+            if (record.ArtifactRole != binding.ArtifactRole ||
+                record.AuxiliaryIndex != binding.AuxiliaryIndex ||
+                record.LinkCount != 1 || record.FileSize == 0)
+            {
+                throw new InvalidDataException(
+                    "Native extraction staged-output role, auxiliary index, or creating-handle identity did not match the requested output.");
+            }
+
+            var expectedIdentity = new WindowsFileIdentity
+            {
+                VolumeSerialNumber = record.VolumeSerial,
+                FileIndex = record.FileIndex,
+                LinkCount = record.LinkCount,
+                FileAttributes = 0
+            };
+
+            // Native retains rollback handles until commit.  Open a compatible
+            // read-only handle which grants all share modes; the receipt's
+            // volume/file ID, not this path open, remains the ownership source.
+            using SafeFileHandle ownedHandle = OpenExtractionReceiptReadHandle(record.FinalPath);
+            PublishedOwnedFile evidence = WindowsOwnedFilePublisher.CaptureOwnedHandleEvidence(
+                ownedHandle, record.FinalPath, expectedIdentity, CancellationToken.None);
+            if (evidence.ByteLength <= 0 || (ulong)evidence.ByteLength != record.FileSize ||
+                evidence.FileIdentity.LinkCount != 1)
+            {
+                throw new InvalidDataException(
+                    "Native extraction receipt size or held-handle identity did not match the produced file.");
+            }
+
+            captured.Add(new NativeExtractionOutputEvidence(
+                binding.ArtifactRole,
+                binding.AuxiliaryIndex,
+                binding.Path,
+                evidence.FileIdentity,
+                evidence.ByteLength,
+                evidence.Sha256));
+        }
+
+        return captured;
+    }
+
+    private static string NormalizeExtractionReceiptPath(string path)
+    {
+        // GetFinalPathNameByHandle returns extended DOS/UNC syntax. Compare
+        // the same absolute namespace spelling without treating the prefix as
+        // a different destination; identity still comes from Native's handle.
+        if (path.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+            path = @"\\" + path[8..];
+        else if (path.StartsWith(@"\\?\", StringComparison.Ordinal) &&
+                 path.Length >= 7 && char.IsAsciiLetter(path[4]) && path[5] == ':' && path[6] == '\\')
+            path = path[4..];
+        return Path.GetFullPath(path);
+    }
+
+    private static SafeFileHandle OpenExtractionReceiptReadHandle(string path)
+    {
+        SafeFileHandle handle = CreateFileForExtractionReceipt(
+            path,
+            GenericRead,
+            FileShareRead | FileShareWrite | FileShareDelete,
+            IntPtr.Zero,
+            OpenExisting,
+            OpenReparsePoint,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            int error = Marshal.GetLastWin32Error();
+            handle.Dispose();
+            throw new System.ComponentModel.Win32Exception(
+                error,
+                $"Unable to open Native extraction receipt path '{path}' read-only.");
+        }
+        return handle;
+    }
+
+    [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern SafeFileHandle CreateFileForExtractionReceipt(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile);
+
+    private const uint GenericRead = 0x80000000;
+    private const uint FileShareRead = 0x00000001;
+    private const uint FileShareWrite = 0x00000002;
+    private const uint FileShareDelete = 0x00000004;
+    private const uint OpenExisting = 3;
+    private const uint OpenReparsePoint = 0x00200000;
 
     private static void ThrowIfVideoTranscodeFailed(NativeVideoTranscodeAttempt attempt)
     {
@@ -946,23 +1257,24 @@ public static class NativeMediaService
         bool minimalLibavSelected = false;
         bool outputCandidateObserved = false;
         bool identityValid = false;
+        bool inputRequiresHighPrecision = false;
 
         string[] fields = identity.Split('|');
         if (fields.Length == 3 && fields[0] == "p1")
         {
-            identityValid = TryReadProfile(fields[1], 'i', out inputProfile) &
+            identityValid = TryReadProfile(fields[1], 'i', out inputProfile, out inputRequiresHighPrecision) &
                 TryReadProfile(fields[2], 'o', out outputProfile);
             selectedEncoder = string.Empty;
         }
         else if (fields.Length == 3 && fields[0] == "r1")
         {
-            identityValid = TryReadProfile(fields[1], 'i', out inputProfile) &
+            identityValid = TryReadProfile(fields[1], 'i', out inputProfile, out inputRequiresHighPrecision) &
                 TryReadProfile(fields[2], 'o', out outputProfile);
             selectedEncoder = "ProjectIsoBmffStreamRemux";
         }
         else if (fields.Length == 4 && fields[0] == "m1")
         {
-            identityValid = TryReadProfile(fields[1], 'i', out inputProfile) &
+            identityValid = TryReadProfile(fields[1], 'i', out inputProfile, out inputRequiresHighPrecision) &
                 TryReadProfile(fields[2], 'o', out outputProfile);
             selectedEncoder = fields[3] switch
             {
@@ -977,7 +1289,7 @@ public static class NativeMediaService
         {
             minimalLibavSelected = true;
             outputCandidateObserved = fields[0] is "s1c" or "s1v";
-            identityValid = TryReadProfile(fields[3], 'i', out inputProfile) &
+            identityValid = TryReadProfile(fields[3], 'i', out inputProfile, out inputRequiresHighPrecision) &
                 TryReadProfile(fields[4], 'o', out outputProfile);
             backendVersion = fields[1] switch
             {
@@ -986,8 +1298,8 @@ public static class NativeMediaService
                 var version => version
             };
             selectedEncoder = fields[2] is "na" or "?"
-                ? "minimal-libav/P5-R5-v1"
-                : $"minimal-libav/P5-R5-v1/{fields[2]}";
+                ? "minimal-libav/P7-R4-HEVC-v2"
+                : $"minimal-libav/P7-R4-HEVC-v2/{fields[2]}";
         }
 
         return new NativeVideoTranscodeResult(
@@ -1001,11 +1313,16 @@ public static class NativeMediaService
             outputProfile,
             minimalLibavSelected,
             outputCandidateObserved,
-            identityValid);
+            identityValid,
+            inputRequiresHighPrecision);
     }
 
     private static bool TryReadProfile(string field, char prefix, out string profile)
+        => TryReadProfile(field, prefix, out profile, out _);
+
+    private static bool TryReadProfile(string field, char prefix, out string profile, out bool requiresHighPrecision)
     {
+        requiresHighPrecision = false;
         profile = "Unknown";
         if (field.Length < 2 || field[0] != prefix) return false;
         string token = field[1..];
@@ -1025,6 +1342,7 @@ public static class NativeMediaService
         }
 
         string codecName = codec == 'H' ? "HEVC" : "H.264";
+        requiresHighPrecision = lumaDepth > 8 || chromaDepth > 8 || transfer is >= 14 and <= 18;
         string range = values[5] switch { "F" => "full", "L" => "limited", _ => "unknown" };
         profile = $"{codecName};lumaDepth={lumaDepth};chromaDepth={chromaDepth};CICP={primaries}/{transfer}/{matrix};range={range}";
         return true;
@@ -1041,13 +1359,39 @@ public static class NativeMediaService
         string OutputProfile,
         bool MinimalLibavSelected,
         bool OutputCandidateObserved,
-        bool IdentityValid);
+        bool IdentityValid,
+        bool InputRequiresHighPrecision = false);
+
+    internal sealed record NativeRegisteredOutputEvidence(
+        WindowsFileIdentity FileIdentity,
+        long ByteLength,
+        string Sha256);
+
+    internal sealed record NativeExtractionOutputBinding(
+        MediaArtifactKind ArtifactRole,
+        uint AuxiliaryIndex,
+        string Path);
+
+    internal sealed record NativeExtractionOutputEvidence(
+        MediaArtifactKind ArtifactRole,
+        uint AuxiliaryIndex,
+        string FinalPath,
+        WindowsFileIdentity FileIdentity,
+        long ByteLength,
+        string Sha256);
+
+    internal sealed record NativeImageConversionAttempt(
+        bool Reencoded,
+        NativeRegisteredOutputEvidence? OutputEvidence,
+        Exception? OutputEvidenceFailure);
 
     internal sealed record NativeVideoTranscodeAttempt(
         NativeResult ResultCode,
         NativeVideoTranscodeResult Diagnostics,
         string? LastError,
-        Exception? FailureException)
+        Exception? FailureException,
+        NativeRegisteredOutputEvidence? OutputEvidence,
+        Exception? OutputEvidenceFailure)
     {
         public bool Succeeded => ResultCode == NativeResult.Ok;
     }
@@ -1754,6 +2098,22 @@ public static class NativeMediaService
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        return ReassembleJpegGainMapWithOutputEvidenceAsync(
+            primaryJpegPath,
+            gainmapJpegPath,
+            outputPath,
+            expectedGainMapSha256,
+            cancellationToken);
+    }
+
+    internal static Task<NativeRegisteredOutputEvidence> ReassembleJpegGainMapWithOutputEvidenceAsync(
+        string primaryJpegPath,
+        string gainmapJpegPath,
+        string outputPath,
+        string expectedGainMapSha256,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         return Task.Run(() =>
         {
             using var ctx = NativeContext.Create(cancellationToken);
@@ -1764,6 +2124,7 @@ public static class NativeMediaService
                 outputPath,
                 expectedGainMapSha256);
             ctx.ThrowIfFailed(res);
+            return CaptureRegisteredOutputEvidence(ctx, outputPath, MediaArtifactKind.PrimaryImage);
         }, cancellationToken);
     }
 

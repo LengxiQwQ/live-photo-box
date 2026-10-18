@@ -4,8 +4,8 @@ param(
     [switch]$RunTests,
     [switch]$Clean,
     [switch]$TestHarness,
-    [ValidatePattern('^[a-z0-9][a-z0-9-]{0,31}$')][string]$VideoSidecarBuildId = 'r5-main10-v1',
-    [ValidatePattern('^[a-z0-9][a-z0-9-]{0,31}$')][string]$ExecutionRecordId = 'r5-native-main10-v1'
+    [ValidatePattern('^[a-z0-9][a-z0-9-]{0,23}$')][string]$VideoSidecarBuildId = 'r4-hevc-v2',
+    [ValidatePattern('^[a-z0-9][a-z0-9-]{0,31}$')][string]$ExecutionRecordId = 'r4-native-hevc-v1'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -60,10 +60,10 @@ $ffmpegPrefix = ''
 $codecPrefix = ''
 $dumpbinPath = ''
 if ($sidecarBuildEnabled) {
-    $prerequisiteScript = Join-Path $PSScriptRoot 'build-p5-r5-video-sidecar-prerequisites.ps1'
+    $prerequisiteScript = Join-Path $PSScriptRoot 'build-p7-r4-hevc-prerequisites.ps1'
     & $prerequisiteScript -BuildId $VideoSidecarBuildId
     if (-not $?) { throw 'Pinned P5-R5 video sidecar prerequisite build failed.' }
-    $prerequisiteRecord = Join-Path $workspaceRoot "$VideoSidecarBuildId-libav-prerequisites.json"
+    $prerequisiteRecord = Join-Path $projectRoot ".ai-tmp\workspace\P7\R4-large-batch-soak\hevc-migration\$VideoSidecarBuildId-libav-prerequisites.json"
     if (-not (Test-Path -LiteralPath $prerequisiteRecord -PathType Leaf)) {
         throw "Pinned P5-R5 prerequisite record was not written: $prerequisiteRecord"
     }

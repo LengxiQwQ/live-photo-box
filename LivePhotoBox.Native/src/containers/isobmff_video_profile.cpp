@@ -772,9 +772,9 @@ bool parse_avcc(
         const uint8_t extension_count = bytes[position++];
         if ((chroma_header & 0xfcU) != 0xfcU || (luma_header & 0xf8U) != 0xf8U ||
             (chroma_depth_header & 0xf8U) != 0xf8U ||
-            (chroma_header & 0x03U) != output.chroma_format ||
-            (luma_header & 0x07U) + 8 != output.bit_depth_luma ||
-            (chroma_depth_header & 0x07U) + 8 != output.bit_depth_chroma) {
+            (chroma_header & 0x03U) != selected_facts.chroma_format ||
+            (luma_header & 0x07U) + 8 != selected_facts.bit_depth_luma ||
+            (chroma_depth_header & 0x07U) + 8 != selected_facts.bit_depth_chroma) {
             failure = video_profile_failure::ambiguous;
             return false;
         }
@@ -793,7 +793,10 @@ bool parse_avcc(
         failure = video_profile_failure::malformed;
         return false;
     }
-    if (have_profile) copy_sps_facts(selected_facts, output);
+    if (have_profile) {
+        copy_sps_facts(selected_facts, output);
+        output.avc_profile_idc = expected_profile;
+    }
     return have_profile;
 }
 
@@ -1450,7 +1453,9 @@ video_conversion_owner select_video_conversion_owner(
     if (target != requested_video_codec::h264 && target != requested_video_codec::hevc) {
         return video_conversion_owner::reject;
     }
-    if (source.classification == video_profile_class::preservation_critical) {
+    const bool source_hevc = source.codec_fourcc == 0x68766331U || source.codec_fourcc == 0x68657631U;
+    if (source.classification == video_profile_class::preservation_critical ||
+        source_hevc || target == requested_video_codec::hevc) {
         return video_conversion_owner::minimal_libav_sidecar;
     }
     return video_conversion_owner::media_foundation_software;

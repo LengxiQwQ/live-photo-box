@@ -21,9 +21,20 @@ lpb_result fast_file_copy(lpb_context* context, const char* input_path, const ch
     const fs::path source = utf8_to_path(input_path);
     const fs::path destination = utf8_to_path(output_path);
     windows_owned_output output;
-    if (!output.create(destination, L"lpb-image-copy") || !output.copy_from_readonly(source) ||
-        !output.publish_no_replace(destination)) {
-        set_error(context, "Failed to copy image through an owned output.");
+    if (!output.create(destination, L"lpb-image-copy") || !output.copy_from_readonly(source)) {
+        static_cast<void>(abort_owned_output_and_report(context, output,
+            "Failed to stage image through an owned output."));
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    const lpb_result cancellation = lpb_context_check_cancelled(context);
+    if (cancellation != LPB_RESULT_OK) {
+        return abort_owned_output_and_report(context, output,
+            "[Cancelled] Image copy was cancelled before publication.")
+            ? cancellation : LPB_RESULT_INTERNAL_ERROR;
+    }
+    if (!output.publish_registered_no_replace(context, LPB_ARTIFACT_PRIMARY_IMAGE, destination)) {
+        static_cast<void>(abort_owned_output_and_report(context, output,
+            "Failed to copy image through an owned output."));
         return LPB_RESULT_INTERNAL_ERROR;
     }
     return LPB_RESULT_OK;

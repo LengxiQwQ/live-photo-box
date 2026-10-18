@@ -385,6 +385,12 @@ internal static class NativeCleanService
                     if (res != NativeResult.Ok)
                     {
                         string? msg = ReadLastError(attempt.ContextLease.Handle, attempt.UseHarnessLibrary);
+                        CleanerFailureCategory? ioFailure = msg?.StartsWith("[DiskFull]", StringComparison.Ordinal) == true ? CleanerFailureCategory.DiskFull
+                            : msg?.StartsWith("[AccessDenied]", StringComparison.Ordinal) == true ? CleanerFailureCategory.AccessDenied
+                            : msg?.StartsWith("[LockedFile]", StringComparison.Ordinal) == true ? CleanerFailureCategory.LockedFile
+                            : msg?.StartsWith("[OutputCreateFailed]", StringComparison.Ordinal) == true ? CleanerFailureCategory.OutputCreateFailed : null;
+                        if (ioFailure.HasValue)
+                            throw new CleanerException(ioFailure.Value, CleanerFailureStage.Staging, SourceProtocol.Unknown, msg!);
                         if (msg != null &&
                             (msg.Contains("ObjectIdentity", StringComparison.OrdinalIgnoreCase) ||
                              msg.Contains("TOCTOU", StringComparison.OrdinalIgnoreCase) ||

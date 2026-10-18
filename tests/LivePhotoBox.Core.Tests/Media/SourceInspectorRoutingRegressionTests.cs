@@ -18,10 +18,11 @@ public sealed class SourceInspectorRoutingRegressionTests
     public void EditStillRouting_UsesNativeFacts_AndHasNoManagedRangeScanner()
     {
         string source = ReadProductionSource("LivePhotoBox", "ViewModels", "EditViewModel.cs");
+        string exportSource = ReadProductionSource("LivePhotoBox", "Services", "EditExportService.cs");
         string method = ExtractMethod(
-            source,
-            "private static async Task<string> ResolveStillPhotoSourceAsync",
-            "private async Task ExportOneFrameAsync");
+            exportSource,
+            "private static async Task<WindowsOwnedTemporaryArtifact?> ResolveStillPhotoSourceAsync",
+            "private static Exception CombineFinalizationFailures");
 
         Assert.Contains("SourceInspector", method, StringComparison.Ordinal);
         Assert.Contains("InspectAsync", method, StringComparison.Ordinal);
@@ -29,6 +30,8 @@ public sealed class SourceInspectorRoutingRegressionTests
         Assert.Contains("MotionVideo", method, StringComparison.Ordinal);
         Assert.Contains("ByteOffset", method, StringComparison.Ordinal);
         Assert.Contains("ByteLength", method, StringComparison.Ordinal);
+        Assert.Contains("ExportSourcePreparation.PrepareStillRangeAsync", method, StringComparison.Ordinal);
+        Assert.Contains("facts.PrimarySha256", method, StringComparison.Ordinal);
         Assert.DoesNotContain("GetMpvdVideoStart", method, StringComparison.Ordinal);
         Assert.DoesNotContain("GetHuaweiEmbeddedVideoRange", method, StringComparison.Ordinal);
         Assert.DoesNotContain("GetAppendedVideoLength", method, StringComparison.Ordinal);

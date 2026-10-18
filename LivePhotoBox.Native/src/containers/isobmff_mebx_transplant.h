@@ -44,4 +44,25 @@ bool validate_isobmff_mebx_transplant(
     std::span<const uint8_t> output,
     const isobmff_mebx_track_facts& expected) noexcept;
 
+// Multi-track extension of the same strict graph and byte-preservation rules.
+// Every mebx track must reference the unique video. IDs remain unique and
+// ordered; Stage A must contain no deferred metadata track.
+bool inspect_isobmff_mebx_tracks(std::span<const uint8_t> data,
+    std::vector<isobmff_mebx_track_facts>& facts) noexcept;
+bool transplant_isobmff_mebx_tracks(std::span<const uint8_t> source,
+    std::span<const uint8_t> stage_a, std::vector<uint8_t>& stage_b,
+    std::vector<isobmff_mebx_track_facts>& facts) noexcept;
+bool validate_isobmff_mebx_transplants(std::span<const uint8_t> source,
+    std::span<const uint8_t> output,
+    std::span<const isobmff_mebx_track_facts> expected) noexcept;
+
+// Preserve offset-free QuickTime/ISO metadata at movie and video-track scope.
+// Unknown metadata graphs, duplicate keys/boxes and malformed aperture boxes
+// fail closed. Encoded sample tables remain target-owned and are relocated.
+bool preserve_isobmff_static_metadata(std::span<const uint8_t> source,
+    std::span<const uint8_t> stage, std::vector<uint8_t>& output,
+    bool& changed) noexcept;
+bool validate_isobmff_static_metadata(std::span<const uint8_t> source,
+    std::span<const uint8_t> output) noexcept;
+
 } // namespace lpb::media

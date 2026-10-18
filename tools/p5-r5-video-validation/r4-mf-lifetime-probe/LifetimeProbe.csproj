@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="LivePhotoBox.Core"><HintPath>$(CandidateRuntime)/LivePhotoBox.Core.dll</HintPath><Private>false</Private></Reference>
+    <Compile Include="Program.cs" />
+    <Compile Include="StableCounters.cs" />
+    <Compile Include="../r4-sampler-probe/VirtualStats.cs" Link="VirtualStats.cs" />
+  </ItemGroup>
+</Project>

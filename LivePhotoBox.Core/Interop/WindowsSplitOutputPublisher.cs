@@ -4,11 +4,13 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using LivePhotoBox.Media.Models;
+using LivePhotoBox.Media.Workspace;
 using Microsoft.Win32.SafeHandles;
 
 namespace LivePhotoBox.Interop;
@@ -71,6 +73,8 @@ internal static class WindowsSplitOutputPublisher
     private const uint OpenReparsePoint = 0x00200000;
     private const uint FileFlagDeleteOnClose = 0x04000000;
 
+    internal static AsyncLocal<Func<SplitPublicationTraceEvent, CancellationToken, Task>?> TestHook { get; } = new();
+
     internal static async Task PublishAsync(
         string imageSourcePath,
         string videoSourcePath,
@@ -111,6 +115,45 @@ internal static class WindowsSplitOutputPublisher
         }
     }
 
+    internal static async Task<PublishedOwnedFile> PublishSingleAsync(
+        string finalPath,
+        bool overwriteExisting,
+        Func<Stream, CancellationToken, Task> writeStageAsync,
+        Func<SplitPublicationTraceEvent, CancellationToken, Task>? testHook,
+        CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(writeStageAsync);
+        using var transaction = new SplitOutputPublicationTransaction(
+            finalPath,
+            overwriteExisting,
+            testHook ?? TestHook.Value);
+
+        try
+        {
+            await transaction.PrepareSingleAsync(writeStageAsync, token).ConfigureAwait(false);
+            await transaction.CommitAsync(token).ConfigureAwait(false);
+            return transaction.SingleReceipt!;
+        }
+        catch (Exception publicationFailure)
+        {
+            Exception? rollbackFailure = transaction.Rollback();
+            Exception? evidenceFailure = await transaction.EmitRollbackEvidenceAsync().ConfigureAwait(false);
+            if (rollbackFailure != null || evidenceFailure != null)
+            {
+                var failures = new List<Exception> { publicationFailure };
+                if (rollbackFailure != null)
+                    failures.Add(rollbackFailure);
+                if (evidenceFailure != null)
+                    failures.Add(evidenceFailure);
+                throw new AggregateException(
+                    "Single output publication failed and exact-object rollback/evidence could not fully close the transaction.",
+                    failures);
+            }
+
+            throw;
+        }
+    }
+
     private sealed class SplitOutputPublicationTransaction : IDisposable
     {
         private readonly string _imageFinalPath;
@@ -121,15 +164,35 @@ internal static class WindowsSplitOutputPublisher
         private readonly List<OutputSlot> _slots;
         private bool _committed;
         private bool _rolledBack;
+        public PublishedOwnedFile? SingleReceipt { get; private set; }
 
         public SplitOutputPublicationTransaction(
             string imageFinalPath,
             string videoFinalPath,
             bool overwriteExisting,
             Func<SplitPublicationTraceEvent, CancellationToken, Task>? testHook)
+            : this([imageFinalPath, videoFinalPath], overwriteExisting, testHook)
         {
-            _imageFinalPath = Path.GetFullPath(imageFinalPath);
-            _videoFinalPath = Path.GetFullPath(videoFinalPath);
+        }
+
+        public SplitOutputPublicationTransaction(
+            string finalPath,
+            bool overwriteExisting,
+            Func<SplitPublicationTraceEvent, CancellationToken, Task>? testHook)
+            : this([finalPath], overwriteExisting, testHook)
+        {
+        }
+
+        private SplitOutputPublicationTransaction(
+            IReadOnlyList<string> finalPaths,
+            bool overwriteExisting,
+            Func<SplitPublicationTraceEvent, CancellationToken, Task>? testHook)
+        {
+            if (finalPaths.Count is < 1 or > 2)
+                throw new ArgumentOutOfRangeException(nameof(finalPaths));
+
+            _imageFinalPath = Path.GetFullPath(finalPaths[0]);
+            _videoFinalPath = Path.GetFullPath(finalPaths.Count == 1 ? finalPaths[0] : finalPaths[1]);
             _overwriteExisting = overwriteExisting;
             _testHook = testHook;
 
@@ -142,11 +205,50 @@ internal static class WindowsSplitOutputPublisher
             }
 
             _targetDirectory = imageDirectory;
-            _slots =
-            [
-                new OutputSlot(_imageFinalPath),
-                new OutputSlot(_videoFinalPath)
-            ];
+            _slots = finalPaths.Select(path => new OutputSlot(Path.GetFullPath(path))).ToList();
+        }
+
+        public async Task PrepareSingleAsync(
+            Func<Stream, CancellationToken, Task> writeStageAsync,
+            CancellationToken token)
+        {
+            if (_slots.Count != 1)
+                throw new InvalidOperationException("Single-output preparation requires exactly one final target.");
+
+            token.ThrowIfCancellationRequested();
+            OutputSlot slot = _slots[0];
+            TransactionFile stage = CreateTransactionFile(_targetDirectory, "stage", deleteOnClose: false);
+            slot.Stage = stage;
+
+            using (var borrowedHandle = new SafeFileHandle(stage.Handle.DangerousGetHandle(), ownsHandle: false))
+            using (var output = new FileStream(borrowedHandle, FileAccess.ReadWrite, BufferSize, isAsync: false))
+            {
+                output.SetLength(0);
+                output.Position = 0;
+                await writeStageAsync(output, token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                output.Flush(flushToDisk: true);
+            }
+
+            Flush(stage.Handle, stage.Path);
+            WindowsFileIdentity stageIdentity = CaptureAndValidateRegularFile(
+                stage.Handle,
+                stage.Path,
+                requiredLinkCount: 1);
+            if (!SameObjectAndAttributes(stage.Identity, stageIdentity))
+                throw new IOException($"Staged output object '{stage.Path}' changed identity or attributes while being written.");
+
+            stage.Length = GetLength(stage.Handle, stage.Path);
+            stage.Sha256 = ComputeSha256(stage.Handle, stage.Length, stage.Path, token);
+
+            if (!_overwriteExisting)
+            {
+                slot.Baseline = TargetBaseline.Missing;
+                return;
+            }
+
+            token.ThrowIfCancellationRequested();
+            slot.Baseline = CaptureBaseline(slot, token);
         }
 
         public async Task PrepareAsync(
@@ -183,8 +285,8 @@ internal static class WindowsSplitOutputPublisher
 
         public async Task CommitAsync(CancellationToken token)
         {
-            if (_slots.Count != 2 || _slots.Exists(slot => slot.Stage == null || slot.Baseline == null))
-                throw new InvalidOperationException("Both staged Split outputs and their baselines must be ready before commit.");
+            if (_slots.Count == 0 || _slots.Exists(slot => slot.Stage == null || slot.Baseline == null))
+                throw new InvalidOperationException("Every staged output and target baseline must be ready before commit.");
 
             foreach (OutputSlot slot in _slots)
             {
@@ -222,6 +324,19 @@ internal static class WindowsSplitOutputPublisher
             foreach (OutputSlot slot in _slots)
                 VerifyFinalAtCommitBarrier(slot, token);
 
+            // Allocate ownership evidence while rollback is still possible.
+            // A caller must never acquire a temporary file by reopening its
+            // pathname after the transaction releases the creating handle.
+            foreach (OutputSlot slot in _slots)
+            {
+                var receipt = new PublishedOwnedFile(slot.FinalPath,
+                    slot.FinalIdentity!, slot.FinalLength!.Value, slot.FinalSha256!);
+                WorkspaceOwnershipRegistry.RegisterPublishedFile(
+                    receipt, newlyCreatedObject: !slot.Baseline!.Exists);
+                if (_slots.Count == 1)
+                    SingleReceipt = receipt;
+            }
+
             // Linearization point. No later filesystem operation can require
             // rollback; only already-flushed handle release remains.
             _committed = true;
@@ -249,6 +364,11 @@ internal static class WindowsSplitOutputPublisher
             string mutationSha = ComputeSha256(mutationHandle, mutationLength, slot.FinalPath, token);
             if (mutationLength != baseline.Length || !string.Equals(mutationSha, baseline.Sha256, StringComparison.Ordinal))
                 throw new IOException($"Existing Split target '{slot.FinalPath}' content changed after its baseline was captured.");
+
+            // A workspace output name is not authority to overwrite an object
+            // installed there by someone else. Check the exact held target
+            // against its producer receipt before the first byte mutation.
+            WorkspaceOwnershipRegistry.ValidateExistingFileMutation(slot.FinalPath, mutationIdentity);
 
             slot.MutationIdentity = mutationIdentity;
             slot.Mutated = true; // Any subsequent write/flush failure may have changed bytes.

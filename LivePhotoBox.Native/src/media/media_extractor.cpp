@@ -507,6 +507,20 @@ lpb_result verify_recorded_artifact(
     return LPB_RESULT_OK;
 }
 
+void erase_extraction_output_receipts_locked(
+    lpb_context* context,
+    uint64_t owner_token) noexcept
+{
+    if (context == nullptr || owner_token == 0) return;
+
+    auto& outputs = context->cleaner_staged_outputs;
+    outputs.erase(
+        std::remove_if(outputs.begin(), outputs.end(), [owner_token](const auto& output) {
+            return output.output_receipt_owner_token == owner_token;
+        }),
+        outputs.end());
+}
+
 } // namespace
 
 lpb_result extract_source_internal(
@@ -1456,25 +1470,124 @@ lpb_result extract_source_with_plan(
             return extraction_result;
         }
 
+        const uint64_t owner_token = plan_token_from_handle(plan);
+        auto rollback_local_artifacts = [&]() noexcept {
+            lpb_published_artifact_record* failed_artifact = nullptr;
+            for (auto& artifact : published_artifacts)
+            {
+                if (delete_recorded_artifact(context, artifact) != LPB_RESULT_OK &&
+                    failed_artifact == nullptr)
+                {
+                    failed_artifact = &artifact;
+                }
+            }
+            return failed_artifact;
+        };
+
+        std::vector<lpb_published_artifact_record> receipt_projection;
+        try
+        {
+            receipt_projection.reserve(published_artifacts.size());
+            for (const auto& artifact : published_artifacts)
+            {
+                lpb_published_artifact_record receipt = artifact;
+                receipt.rollback_handle = nullptr;
+                receipt.output_receipt_owner_token = owner_token;
+                if (receipt.artifact_role != LPB_ARTIFACT_AUXILIARY_ITEM)
+                {
+                    receipt.auxiliary_index = UINT32_MAX;
+                }
+                receipt_projection.push_back(std::move(receipt));
+            }
+        }
+        catch (...)
+        {
+            lpb_published_artifact_record* failed_artifact = rollback_local_artifacts();
+            if (failed_artifact != nullptr)
+            {
+                try
+                {
+                    const std::string message =
+                        "[CleanupFailed] Native could not project extraction receipts and exact rollback failed for path '" +
+                        path_to_utf8(failed_artifact->final_path) + "' (volume=" +
+                        std::to_string(failed_artifact->identity.volume_serial) + ", fileIndex=" +
+                        std::to_string(failed_artifact->identity.file_index) + ").";
+                    set_error(context, message.c_str());
+                }
+                catch (...)
+                {
+                    set_error(context, "[CleanupFailed] Native could not project extraction receipts and exact rollback failed; the creating-handle identity remains in the active extraction plan.");
+                }
+                return LPB_RESULT_INTERNAL_ERROR;
+            }
+            set_error(context, "[InternalError] Native could not allocate extraction output receipt projections; exact rollback completed.");
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+
+        bool authority_lost = false;
+        bool receipt_projection_failed = false;
+        try
         {
             std::scoped_lock lock(context->plan_mutex);
-            lpb_extraction_plan_record* record = find_plan_locked(context, plan_token_from_handle(plan));
+            lpb_extraction_plan_record* record = find_plan_locked(context, owner_token);
             if (record == nullptr || record->owner_context != context ||
                 !record->native_call_active || record->state == lpb_plan_state::Released)
             {
-                set_error(context, "[AuthorityViolation] Extraction authority disappeared before published identities could be retained.");
-                // The plan registry is no longer trustworthy.  Roll back from
-                // the local handle-captured records before returning.
-                for (auto& artifact : published_artifacts)
-                {
-                    (void)delete_recorded_artifact(context, artifact);
-                }
-                return LPB_RESULT_AUTHORITY_VIOLATION;
+                authority_lost = true;
             }
-            record->published_artifacts = std::move(published_artifacts);
-            record->extraction_succeeded = true;
-            record->rollback_active = false;
-            record->rollback_completed = false;
+            else
+            {
+                // Stage a complete replacement before exposing any projected
+                // receipt.  A failed allocation cannot leave a partial list.
+                auto next_staged_outputs = context->cleaner_staged_outputs;
+                next_staged_outputs.erase(
+                    std::remove_if(next_staged_outputs.begin(), next_staged_outputs.end(),
+                        [owner_token](const auto& output) {
+                            return output.output_receipt_owner_token == owner_token;
+                        }),
+                    next_staged_outputs.end());
+                next_staged_outputs.reserve(next_staged_outputs.size() + receipt_projection.size());
+                for (auto& receipt : receipt_projection)
+                {
+                    next_staged_outputs.push_back(std::move(receipt));
+                }
+                context->cleaner_staged_outputs.swap(next_staged_outputs);
+
+                record->published_artifacts = std::move(published_artifacts);
+                record->extraction_succeeded = true;
+                record->rollback_active = false;
+                record->rollback_completed = false;
+            }
+        }
+        catch (...)
+        {
+            receipt_projection_failed = true;
+        }
+
+        if (authority_lost || receipt_projection_failed)
+        {
+            lpb_published_artifact_record* failed_artifact = rollback_local_artifacts();
+            if (failed_artifact != nullptr)
+            {
+                try
+                {
+                    const std::string message =
+                        "[CleanupFailed] Native could not retain extraction output receipts and exact rollback failed for path '" +
+                        path_to_utf8(failed_artifact->final_path) + "' (volume=" +
+                        std::to_string(failed_artifact->identity.volume_serial) + ", fileIndex=" +
+                        std::to_string(failed_artifact->identity.file_index) + ").";
+                    set_error(context, message.c_str());
+                }
+                catch (...)
+                {
+                    set_error(context, "[CleanupFailed] Native could not retain extraction output receipts and exact rollback failed; the creating-handle identity remains in the active extraction plan.");
+                }
+                return LPB_RESULT_INTERNAL_ERROR;
+            }
+            set_error(context, authority_lost
+                ? "[AuthorityViolation] Extraction authority disappeared before published identities could be retained; exact rollback completed."
+                : "[InternalError] Native could not atomically retain extraction output receipts; exact rollback completed.");
+            return authority_lost ? LPB_RESULT_AUTHORITY_VIOLATION : LPB_RESULT_INTERNAL_ERROR;
         }
         return LPB_RESULT_OK;
     }
@@ -1547,6 +1660,7 @@ lpb_result rollback_extraction_outputs_with_plan(
                 }
             }
             record->published_artifacts.clear();
+            erase_extraction_output_receipts_locked(context, token);
             record->extraction_succeeded = false;
             record->rollback_active = false;
             record->rollback_completed = true;
@@ -1672,6 +1786,7 @@ lpb_result commit_extraction_outputs_with_plan(
             }
         }
         record->published_artifacts.clear();
+        erase_extraction_output_receipts_locked(context, token);
         record->committed = true;
         return LPB_RESULT_OK;
     }

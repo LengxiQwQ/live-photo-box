@@ -196,7 +196,7 @@ public sealed class ImageConverter : IImageConverter
                     Success = false,
                     ErrorMessage = $"Fresh Native inspection of the claimed ordinary image failed: {ex.Message}",
                     ExecutionRecord = FailureRecord(request, requestedOperation, factsOrigin,
-                        ConversionFailureStage.SourceInspection,
+                        IsBackendUnavailable(ex) ? ConversionFailureStage.BackendUnavailable : ConversionFailureStage.SourceInspection,
                         IsBackendUnavailable(ex) ? ConversionFailureCategory.BackendUnavailable : ConversionFailureCategory.SourceInspection,
                         sw.Elapsed)
                 };
@@ -406,6 +406,7 @@ public sealed class ImageConverter : IImageConverter
         }
         string outPath = Path.Combine(request.TargetDirectory, $"img-conv-{Guid.NewGuid():N}{ext}");
         bool backendCompleted = false;
+        NativeMediaService.NativeRegisteredOutputEvidence? registeredOutputEvidence = null;
 
         try
         {
@@ -413,23 +414,37 @@ public sealed class ImageConverter : IImageConverter
             bool reencoded;
             if (losslessTransform)
             {
-                await NativeMediaService.TransformJpegLosslesslyAsync(
+                NativeMediaService.NativeImageConversionAttempt nativeAttempt =
+                    await NativeMediaService.TransformJpegLosslesslyWithOutputEvidenceAsync(
                     request.SourceArtifact.Path,
                     outPath,
                     ToNativeJpegTransform(request.Transform),
                     cancellationToken).ConfigureAwait(false);
+                registeredOutputEvidence = nativeAttempt.OutputEvidence;
+                backendCompleted = true;
+                if (registeredOutputEvidence == null)
+                    throw new InvalidDataException(
+                        "Native JPEG transform did not return exact creating-handle output evidence: " +
+                        (nativeAttempt.OutputEvidenceFailure?.Message ?? "unknown evidence failure"));
                 reencoded = false;
             }
             else
             {
-                reencoded = await NativeMediaService.ConvertImageAsync(
+                NativeMediaService.NativeImageConversionAttempt nativeAttempt =
+                    await NativeMediaService.ConvertImageWithOutputEvidenceAsync(
                     request.SourceArtifact.Path,
                     outPath,
                     request.TargetContainer,
                     request.Quality,
                     cancellationToken).ConfigureAwait(false);
+                registeredOutputEvidence = nativeAttempt.OutputEvidence;
+                backendCompleted = true;
+                if (registeredOutputEvidence == null)
+                    throw new InvalidDataException(
+                        "Native image conversion did not return exact creating-handle output evidence: " +
+                        (nativeAttempt.OutputEvidenceFailure?.Message ?? "unknown evidence failure"));
+                reencoded = nativeAttempt.Reencoded;
             }
-            backendCompleted = true;
 
             sw.Stop();
 
@@ -497,7 +512,9 @@ public sealed class ImageConverter : IImageConverter
                 MimeType = actualContainer == ImageContainer.Heic ? "image/heic" : "image/jpeg",
                 ImageContainer = actualContainer,
                 ImageCodec = actualContainer == ImageContainer.Heic ? ImageCodec.Hevc : ImageCodec.Jpeg,
-                ByteLength = new FileInfo(outPath).Length
+                ByteLength = registeredOutputEvidence!.ByteLength,
+                Sha256 = registeredOutputEvidence.Sha256,
+                FileIdentity = registeredOutputEvidence.FileIdentity
             };
 
             return new ImageConversionResult
@@ -539,7 +556,7 @@ public sealed class ImageConverter : IImageConverter
         catch (OperationCanceledException ex)
         {
             sw.Stop();
-            if (!TryDeleteOutput(outPath))
+            if (!TryDeleteOutput(outPath, registeredOutputEvidence))
             {
                 throw new IOException(
                     "Image conversion was cancelled, but its staged output could not be removed.",
@@ -550,7 +567,7 @@ public sealed class ImageConverter : IImageConverter
         catch (Exception ex)
         {
             sw.Stop();
-            bool cleanupSucceeded = TryDeleteOutput(outPath);
+            bool cleanupSucceeded = TryDeleteOutput(outPath, registeredOutputEvidence);
             ConversionFailureCategory category = !cleanupSucceeded
                 ? ConversionFailureCategory.CleanupFailure
                 : IsBackendUnavailable(ex)
@@ -586,12 +603,10 @@ public sealed class ImageConverter : IImageConverter
         }
     }
 
-    private static bool TryDeleteOutput(string path)
-    {
-        if (!File.Exists(path)) return true;
-        try { File.Delete(path); return !File.Exists(path); }
-        catch { return false; }
-    }
+    private static bool TryDeleteOutput(
+        string path,
+        NativeMediaService.NativeRegisteredOutputEvidence? expected) =>
+        NativeMediaService.TryDeleteRegisteredOutput(path, expected);
 
     private static async Task<ImageConversionSourceFacts> VerifyHdrGainMapBindingAsync(
         ImageConversionRequest request,
@@ -712,6 +727,8 @@ public sealed class ImageConverter : IImageConverter
                 throw new FileNotFoundException("Native HDR/GainMap stage disappeared before commit.", transaction.StagingPath);
             cancellationToken.ThrowIfCancellationRequested();
             transaction.Commit();
+            NativeMediaService.NativeRegisteredOutputEvidence outputEvidence =
+                transaction.CaptureCommittedOutputEvidence(outputPath);
             transaction.Dispose();
             transaction = null;
 
@@ -729,7 +746,9 @@ public sealed class ImageConverter : IImageConverter
                     MimeType = request.TargetContainer == ImageContainer.Jpeg ? "image/jpeg" : "image/heic",
                     ImageContainer = request.TargetContainer,
                     ImageCodec = request.TargetContainer == ImageContainer.Jpeg ? ImageCodec.Jpeg : ImageCodec.Hevc,
-                    ByteLength = stagedFile.Length
+                    ByteLength = outputEvidence.ByteLength,
+                    Sha256 = outputEvidence.Sha256,
+                    FileIdentity = outputEvidence.FileIdentity
                 },
                 ExecutionRecord = new ImageExecutionRecord
                 {
@@ -779,7 +798,8 @@ public sealed class ImageConverter : IImageConverter
             transaction = null;
             ConversionFailureStage stage = !cleanupSucceeded
                 ? ConversionFailureStage.Cleanup
-                : stageCreated ? ConversionFailureStage.OutputValidation : ConversionFailureStage.BackendExecution;
+                : stageCreated ? ConversionFailureStage.OutputValidation :
+                    IsBackendUnavailable(ex) ? ConversionFailureStage.BackendUnavailable : ConversionFailureStage.BackendExecution;
             ConversionFailureCategory category = !cleanupSucceeded
                 ? ConversionFailureCategory.CleanupFailure
                 : stageCreated ? ConversionFailureCategory.OutputValidation :

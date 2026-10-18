@@ -217,6 +217,7 @@ public sealed class NativePreservationObservationAdversarialTests
     }
 
     [Fact]
+    [Trait("P7", "R1-C")]
     public async Task Observation_UnsupportedMultiExtentHeic_SetsCodestreamError()
     {
         string samplePath = ResolveSample("三星.heic");
@@ -293,6 +294,7 @@ public sealed class NativePreservationObservationAdversarialTests
     }
 
     [Theory]
+    [Trait("P7", "R1-C")]
     [InlineData("version", 8, 3)]
     [InlineData("flags", 9, 1)]
     [InlineData("construction_method", 18, 2)]

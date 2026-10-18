@@ -1,4 +1,5 @@
 using LivePhotoBox.Media;
+using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Workspace;
 using LivePhotoBox.Models;
@@ -70,7 +71,8 @@ namespace LivePhotoBox.Services
                 throw new ArgumentOutOfRangeException(nameof(quality), "Image quality must be between 1 and 100.");
 
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(targetPath))!);
-            File.Copy(bundle.PrimaryImage.Path, targetPath, overwrite: true);
+            await WindowsOutputArtifactPublisher.PublishCopyAsync(
+                bundle.PrimaryImage, targetPath, overwriteExisting: true, token).ConfigureAwait(false);
         }
 
         /// <summary>

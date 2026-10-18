@@ -1,4 +1,5 @@
 #include "video_sidecar_abi.h"
+#include "media/video_sei_preservation.h"
 
 #ifndef LPB_VIDEO_SIDECAR_BUILD_VERSION
 #error LPB_VIDEO_SIDECAR_BUILD_VERSION must come from the pinned build profile.
@@ -7,9 +8,15 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <climits>
 #include <cstring>
 #include <limits>
+#include <iterator>
 #include <memory>
+#include <map>
+#include <thread>
+#include <string>
+#include <utility>
 #include <vector>
 
 extern "C" {
@@ -17,7 +24,9 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavutil/error.h>
 #include <libavutil/pixdesc.h>
+#include <libavutil/mastering_display_metadata.h>
 #include <libswscale/swscale.h>
+#include <x265.h>
 }
 
 namespace {
@@ -27,6 +36,57 @@ constexpr uint32_t kMebxCodecTag = static_cast<uint32_t>('m') |
     (static_cast<uint32_t>('e') << 8U) |
     (static_cast<uint32_t>('b') << 16U) |
     (static_cast<uint32_t>('x') << 24U);
+
+bool same_mastering(const AVMasteringDisplayMetadata& a, const AVMasteringDisplayMetadata& b) noexcept {
+    if (a.has_primaries != b.has_primaries || a.has_luminance != b.has_luminance) return false;
+    if (a.has_primaries) {
+        for (size_t i = 0U; i < 3U; ++i) for (size_t j = 0U; j < 2U; ++j)
+            if (av_cmp_q(a.display_primaries[i][j], b.display_primaries[i][j]) != 0) return false;
+        for (size_t i = 0U; i < 2U; ++i) if (av_cmp_q(a.white_point[i], b.white_point[i]) != 0) return false;
+    }
+    return !a.has_luminance || (av_cmp_q(a.min_luminance, b.min_luminance) == 0 &&
+        av_cmp_q(a.max_luminance, b.max_luminance) == 0);
+}
+
+bool frame_hdr_matches_container(const AVFrame* frame, const AVCodecParameters* source,
+    bool hevc_target, const std::array<bool, 145>& seen_sei,
+    std::span<const lpb::media::preserved_sei_message> current_metadata) noexcept {
+    if ((frame->flags & AV_FRAME_FLAG_INTERLACED) != 0 || frame->repeat_pict != 0) return false;
+    for (int i = 0; i < frame->nb_side_data; ++i) {
+        const auto* side = frame->side_data[i];
+        if (side->type == AV_FRAME_DATA_DOVI_METADATA || side->type == AV_FRAME_DATA_DOVI_RPU_BUFFER) return false;
+        if (side->type == AV_FRAME_DATA_DYNAMIC_HDR_PLUS || side->type == AV_FRAME_DATA_DYNAMIC_HDR_VIVID) {
+            // Retain exact registered T.35 payload on its original picture.
+            // H.264 is not an accepted dynamic-HDR delivery route here.
+            if (!hevc_target || !std::any_of(current_metadata.begin(), current_metadata.end(), [&](const auto& item) {
+                if (item.type != 4U || item.payload.empty()) return false;
+                return side->type == AV_FRAME_DATA_DYNAMIC_HDR_VIVID ? item.payload[0] == 0x26U :
+                    item.payload.size() >= 3U && item.payload[0] == 0xB5U && item.payload[1] == 0U && item.payload[2] == 0x3CU;
+            })) return false;
+            continue;
+        }
+        AVPacketSideDataType packet_type{};
+        if (side->type == AV_FRAME_DATA_MASTERING_DISPLAY_METADATA) packet_type = AV_PKT_DATA_MASTERING_DISPLAY_METADATA;
+        else if (side->type == AV_FRAME_DATA_CONTENT_LIGHT_LEVEL) packet_type = AV_PKT_DATA_CONTENT_LIGHT_LEVEL;
+        else continue;
+        const auto* declared = av_packet_side_data_get(source->coded_side_data, source->nb_coded_side_data, packet_type);
+        if (declared == nullptr) {
+            if (!seen_sei[packet_type == AV_PKT_DATA_MASTERING_DISPLAY_METADATA ? 137U : 144U]) return false;
+            continue;
+        }
+        if (packet_type == AV_PKT_DATA_MASTERING_DISPLAY_METADATA) {
+            if (side->size < sizeof(AVMasteringDisplayMetadata) || declared->size < sizeof(AVMasteringDisplayMetadata) ||
+                !same_mastering(*reinterpret_cast<const AVMasteringDisplayMetadata*>(side->data),
+                    *reinterpret_cast<const AVMasteringDisplayMetadata*>(declared->data))) return false;
+        } else {
+            if (side->size < sizeof(AVContentLightMetadata) || declared->size < sizeof(AVContentLightMetadata)) return false;
+            const auto& a = *reinterpret_cast<const AVContentLightMetadata*>(side->data);
+            const auto& b = *reinterpret_cast<const AVContentLightMetadata*>(declared->data);
+            if (a.MaxCLL != b.MaxCLL || a.MaxFALL != b.MaxFALL) return false;
+        }
+    }
+    return true;
+}
 
 template<size_t Capacity>
 void copy_fixed_string(char (&destination)[Capacity], const char* source) noexcept
@@ -59,6 +119,9 @@ void free_avio(AVIOContext* value) noexcept
 {
     if (value != nullptr)
     {
+        // avio_alloc_context takes a caller-owned buffer; libavformat may
+        // replace it, so free the current buffer, not the original pointer.
+        av_freep(&value->buffer);
         avio_context_free(&value);
     }
 }
@@ -439,8 +502,10 @@ bool check_cancelled(const lpb_video_sidecar_io_v1* io, lpb_video_sidecar_result
     return cancelled;
 }
 
+using PendingSei = std::map<int64_t, std::vector<lpb::media::preserved_sei_message>>;
+
 int write_encoded_packets(AVCodecContext* encoder, AVFormatContext* output, AVStream* output_stream,
-    uint64_t& packet_count)
+    uint64_t& packet_count, PendingSei& metadata)
 {
     Packet packet(av_packet_alloc(), free_packet);
     if (!packet)
@@ -451,6 +516,22 @@ int write_encoded_packets(AVCodecContext* encoder, AVFormatContext* output, AVSt
     int result = 0;
     while ((result = avcodec_receive_packet(encoder, packet.get())) >= 0)
     {
+        const auto found = metadata.find(packet->pts);
+        if (found != metadata.end()) {
+            std::vector<uint8_t> nal;
+            if (!lpb::media::make_preserved_sei_nal(found->second, encoder->codec_id == AV_CODEC_ID_HEVC, nal) ||
+                packet->size < 4 || packet->data[0] != 0U || packet->data[1] != 0U ||
+                !((packet->data[2] == 1U) || (packet->data[2] == 0U && packet->data[3] == 1U)) ||
+                packet->size > INT_MAX - 4 || nal.size() > static_cast<size_t>(INT_MAX - packet->size - 4)) return AVERROR_INVALIDDATA;
+            const int prefix_size = static_cast<int>(nal.size() + 4U);
+            const int old_size = packet->size;
+            const int grow = av_grow_packet(packet.get(), prefix_size);
+            if (grow < 0) return grow;
+            std::memmove(packet->data + prefix_size, packet->data, static_cast<size_t>(old_size));
+            packet->data[0] = 0U;packet->data[1] = 0U;packet->data[2] = 0U;packet->data[3] = 1U;
+            std::memcpy(packet->data + 4U, nal.data(), nal.size());
+            metadata.erase(found);
+        }
         av_packet_rescale_ts(packet.get(), encoder->time_base, output_stream->time_base);
         packet->stream_index = output_stream->index;
         const int write_result = av_interleaved_write_frame(output, packet.get());
@@ -465,12 +546,12 @@ int write_encoded_packets(AVCodecContext* encoder, AVFormatContext* output, AVSt
 }
 
 int encode_frame(AVCodecContext* encoder, AVFormatContext* output, AVStream* output_stream,
-    AVFrame* frame, uint64_t& packet_count)
+    AVFrame* frame, uint64_t& packet_count, PendingSei& metadata)
 {
     int result = avcodec_send_frame(encoder, frame);
     if (result == AVERROR(EAGAIN))
     {
-        result = write_encoded_packets(encoder, output, output_stream, packet_count);
+        result = write_encoded_packets(encoder, output, output_stream, packet_count, metadata);
         if (result < 0)
         {
             return result;
@@ -481,7 +562,7 @@ int encode_frame(AVCodecContext* encoder, AVFormatContext* output, AVStream* out
     {
         return result;
     }
-    return write_encoded_packets(encoder, output, output_stream, packet_count);
+    return write_encoded_packets(encoder, output, output_stream, packet_count, metadata);
 }
 
 int transcode_impl(
@@ -494,7 +575,8 @@ int transcode_impl(
         (request->target_container != LPB_VIDEO_SIDECAR_CONTAINER_MOV &&
             request->target_container != LPB_VIDEO_SIDECAR_CONTAINER_MP4) ||
         request->crf < 0 || request->crf > 51 ||
-        (request->flags & ~LPB_VIDEO_SIDECAR_REQUEST_NATIVE_TRANSPLANTS_MEBX) != 0U ||
+        (request->flags & ~(LPB_VIDEO_SIDECAR_REQUEST_NATIVE_TRANSPLANTS_MEBX |
+            LPB_VIDEO_SIDECAR_REQUEST_NATIVE_SOURCE_PROFILE)) != 0U ||
         request->reserved[0] != 0U || request->reserved[1] != 0U || request->reserved[2] != 0U)
     {
         return LPB_VIDEO_SIDECAR_INVALID_ARGUMENT;
@@ -555,6 +637,18 @@ int transcode_impl(
     {
         return LPB_VIDEO_SIDECAR_UNSUPPORTED;
     }
+    for (int i = 0; i < input_video->codecpar->nb_coded_side_data; ++i) {
+        const auto type = input_video->codecpar->coded_side_data[i].type;
+        switch (type) {
+        case AV_PKT_DATA_DISPLAYMATRIX: case AV_PKT_DATA_FRAME_CROPPING:
+        case AV_PKT_DATA_MASTERING_DISPLAY_METADATA: case AV_PKT_DATA_CONTENT_LIGHT_LEVEL:
+        case AV_PKT_DATA_ICC_PROFILE: case AV_PKT_DATA_STEREO3D: case AV_PKT_DATA_SPHERICAL:
+            break;
+        default: return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+        }
+        for (int j = 0; j < i; ++j)
+            if (input_video->codecpar->coded_side_data[j].type == type) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+    }
 
     const AVCodec* decoder = avcodec_find_decoder(input_video->codecpar->codec_id);
     const AVCodec* encoder = avcodec_find_encoder_by_name(selected_encoder_name);
@@ -586,10 +680,41 @@ int transcode_impl(
     {
         return LPB_VIDEO_SIDECAR_UNSUPPORTED;
     }
+    const bool native_profile = (request->flags & LPB_VIDEO_SIDECAR_REQUEST_NATIVE_SOURCE_PROFILE) != 0U;
+    if (native_profile)
+    {
+        const auto compatible_color = [](int actual, int expected) noexcept {
+            return expected > 0 && expected < 256 && expected != 2 && (actual == 2 || actual == expected);
+        };
+        if (request->source_pixel_depth != source_depth ||
+            (request->source_color_range != AVCOL_RANGE_MPEG && request->source_color_range != AVCOL_RANGE_JPEG) ||
+            (input_video->codecpar->color_range != AVCOL_RANGE_UNSPECIFIED &&
+                input_video->codecpar->color_range != request->source_color_range) ||
+            !compatible_color(input_video->codecpar->color_primaries, request->source_color_primaries) ||
+            !compatible_color(input_video->codecpar->color_trc, request->source_color_transfer) ||
+            !compatible_color(input_video->codecpar->color_space, request->source_color_matrix))
+            return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+    }
+    else if (request->source_color_range != 0 || request->source_color_primaries != 0 ||
+        request->source_color_transfer != 0 || request->source_color_matrix != 0 || request->source_pixel_depth != 0U)
+        return LPB_VIDEO_SIDECAR_INVALID_ARGUMENT;
+    if (request->target_codec == LPB_VIDEO_SIDECAR_CODEC_HEVC)
+    {
+        // FFmpeg's x265 wrapper may fall back to its default-depth API and
+        // silently promote 8-bit input when only Main10 is linked. Never allow
+        // that fallback to stand in for an exact-depth encoder capability.
+        if (source_depth != 8U && source_depth != 10U) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+        const x265_api* api = x265_api_get(static_cast<int>(source_depth));
+        if (api == nullptr || api->bit_depth != static_cast<int>(source_depth))
+            return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+    }
     AVPixelFormat target_format = source_format;
     if (!encoder_supports_pixel_format(encoder, target_format))
     {
-        if (source_depth > 8U)
+        const AVPixFmtDescriptor* source_descriptor = av_pix_fmt_desc_get(source_format);
+        if (source_depth > 8U || source_descriptor == nullptr || source_descriptor->nb_components != 3 ||
+            (source_descriptor->flags & AV_PIX_FMT_FLAG_RGB) != 0 ||
+            source_descriptor->log2_chroma_w != 1 || source_descriptor->log2_chroma_h != 1)
         {
             return LPB_VIDEO_SIDECAR_UNSUPPORTED;
         }
@@ -650,14 +775,56 @@ int transcode_impl(
     encoder_context->color_primaries = input_video->codecpar->color_primaries;
     encoder_context->color_trc = input_video->codecpar->color_trc;
     encoder_context->colorspace = input_video->codecpar->color_space;
+    // Pixel layout/depth is preserved, so chroma samples keep their source
+    // spatial position. Omitting this would turn a valid non-left HEVC VUI
+    // location into the encoder's implicit left default.
+    encoder_context->chroma_sample_location = input_video->codecpar->chroma_location;
+    if (encoder_context->chroma_sample_location < AVCHROMA_LOC_UNSPECIFIED ||
+        encoder_context->chroma_sample_location >= AVCHROMA_LOC_NB)
+        return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+    if (native_profile)
+    {
+        encoder_context->color_range = static_cast<AVColorRange>(request->source_color_range);
+        encoder_context->color_primaries = static_cast<AVColorPrimaries>(request->source_color_primaries);
+        encoder_context->color_trc = static_cast<AVColorTransferCharacteristic>(request->source_color_transfer);
+        encoder_context->colorspace = static_cast<AVColorSpace>(request->source_color_matrix);
+    }
     if ((output->oformat->flags & AVFMT_GLOBALHEADER) != 0)
     {
         encoder_context->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
     }
 
+    // Each encoder is nested inside an application operation. Auto CPU-wide
+    // pools multiply frame/lookahead storage for short clips and concurrent
+    // tasks. Bound these existing software encoders without changing codec,
+    // preset, CRF, pixel format, or stream timing.
+    const auto encoder_workers = std::clamp(std::thread::hardware_concurrency(), 1U, 4U);
+    const bool hevc_reencode = input_video->codecpar->codec_id == AV_CODEC_ID_HEVC ||
+        request->target_codec == LPB_VIDEO_SIDECAR_CODEC_HEVC;
+    if (hevc_reencode) encoder_context->thread_count = static_cast<int>(encoder_workers);
+    const std::string codec_parameters = request->target_codec == LPB_VIDEO_SIDECAR_CODEC_HEVC
+        ? "annexb=1:aud=0:pools=" + std::to_string(encoder_workers) +
+            ":frame-threads=1"
+        : "annexb=1:aud=0";
     AVDictionary* encoder_options_raw = nullptr;
     (void)av_dict_set(&encoder_options_raw, "preset", "medium", 0);
     (void)av_dict_set_int(&encoder_options_raw, "crf", request->crf, 0);
+    (void)av_dict_set(&encoder_options_raw,
+        request->target_codec == LPB_VIDEO_SIDECAR_CODEC_HEVC ? "x265-params" : "x264-params",
+        codec_parameters.c_str(), 0);
+    for (const auto types : {std::pair{AV_PKT_DATA_MASTERING_DISPLAY_METADATA, AV_FRAME_DATA_MASTERING_DISPLAY_METADATA},
+                            std::pair{AV_PKT_DATA_CONTENT_LIGHT_LEVEL, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL}}) {
+        const auto* side = av_packet_side_data_get(input_video->codecpar->coded_side_data,
+            input_video->codecpar->nb_coded_side_data, types.first);
+        if (side == nullptr) continue;
+        const size_t minimum = types.first == AV_PKT_DATA_MASTERING_DISPLAY_METADATA
+            ? sizeof(AVMasteringDisplayMetadata) : sizeof(AVContentLightMetadata);
+        if (side->size < minimum) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+        auto* copy = av_frame_side_data_new(&encoder_context->decoded_side_data,
+            &encoder_context->nb_decoded_side_data, types.second, side->size, 0U);
+        if (copy == nullptr) return LPB_VIDEO_SIDECAR_INTERNAL_ERROR;
+        std::memcpy(copy->data, side->data, side->size);
+    }
     operation_result = avcodec_open2(encoder_context.get(), encoder, &encoder_options_raw);
     av_dict_free(&encoder_options_raw);
     if (operation_result < 0)
@@ -679,24 +846,26 @@ int transcode_impl(
     output_video->avg_frame_rate = input_video->avg_frame_rate;
     output_video->sample_aspect_ratio = input_video->sample_aspect_ratio;
     output_video->codecpar->codec_tag = 0;
+    operation_result = av_dict_copy(&output_video->metadata, input_video->metadata, 0);
+    if (operation_result >= 0) operation_result = av_dict_set(&output_video->metadata, "encoder", selected_encoder_name, 0);
+    if (operation_result < 0) {
+        result_info->library_error = operation_result;
+        return LPB_VIDEO_SIDECAR_MUX_FAILURE;
+    }
 
-    const AVPacketSideData* display_matrix = av_packet_side_data_get(
-        input_video->codecpar->coded_side_data,
-        input_video->codecpar->nb_coded_side_data,
-        AV_PKT_DATA_DISPLAYMATRIX);
-    if (display_matrix != nullptr && display_matrix->size > 0U)
-    {
-        AVPacketSideData* target_matrix = av_packet_side_data_new(
+    for (int index = 0; index < input_video->codecpar->nb_coded_side_data; ++index) {
+        const auto* side = &input_video->codecpar->coded_side_data[index];
+        AVPacketSideData* target_side = av_packet_side_data_new(
             &output_video->codecpar->coded_side_data,
             &output_video->codecpar->nb_coded_side_data,
-            AV_PKT_DATA_DISPLAYMATRIX,
-            display_matrix->size,
+            side->type,
+            side->size,
             0);
-        if (target_matrix == nullptr)
+        if (target_side == nullptr)
         {
             return LPB_VIDEO_SIDECAR_INTERNAL_ERROR;
         }
-        std::memcpy(target_matrix->data, display_matrix->data, display_matrix->size);
+        std::memcpy(target_side->data, side->data, side->size);
     }
 
     std::vector<int> stream_map(input->nb_streams, -1);
@@ -748,7 +917,7 @@ int transcode_impl(
         stream_map[index] = output_stream->index;
     }
     if (((request->flags & LPB_VIDEO_SIDECAR_REQUEST_NATIVE_TRANSPLANTS_MEBX) != 0U &&
-            mebx_stream_count != 1U) ||
+            mebx_stream_count == 0U) ||
         ((request->flags & LPB_VIDEO_SIDECAR_REQUEST_NATIVE_TRANSPLANTS_MEBX) == 0U &&
             mebx_stream_count != 0U))
     {
@@ -771,6 +940,11 @@ int transcode_impl(
     converted->format = encoder_context->pix_fmt;
     converted->width = encoder_context->width;
     converted->height = encoder_context->height;
+    converted->color_range = encoder_context->color_range;
+    converted->color_primaries = encoder_context->color_primaries;
+    converted->color_trc = encoder_context->color_trc;
+    converted->colorspace = encoder_context->colorspace;
+    converted->chroma_location = encoder_context->chroma_sample_location;
     operation_result = av_frame_get_buffer(converted.get(), 32);
     if (operation_result < 0)
     {
@@ -824,6 +998,53 @@ int transcode_impl(
     }
 
     uint64_t encoded_packet_count = 0;
+    PendingSei pending_sei;
+    std::array<bool, 145> seen_sei{};
+    const bool source_hevc = input_video->codecpar->codec_id == AV_CODEC_ID_HEVC;
+    const unsigned length_offset = source_hevc ? 21U : 4U;
+    if ((input_video->codecpar->codec_id != AV_CODEC_ID_H264 && !source_hevc) ||
+        input_video->codecpar->extradata_size <= static_cast<int>(length_offset) ||
+        input_video->codecpar->extradata[0] != 1U) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+    const unsigned length_bytes = (input_video->codecpar->extradata[length_offset] & 3U) + 1U;
+    std::vector<lpb::media::preserved_sei_message> header_sei;
+    if (source_hevc && !lpb::media::collect_hevc_configuration_sei(
+            {input_video->codecpar->extradata, static_cast<size_t>(input_video->codecpar->extradata_size)}, header_sei))
+        return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+    for (const auto& item : header_sei) seen_sei[item.type] = true;
+    std::array<std::vector<uint8_t>, 145> static_sei;
+    const auto validate_static_sei = [&](std::span<const lpb::media::preserved_sei_message> entries) {
+        for (const auto& item : entries) {
+            if (item.type != 137U && item.type != 144U) continue;
+            auto& prior = static_sei[item.type];
+            if (!prior.empty() && prior != item.payload) return false;
+            prior = item.payload;
+        }
+        return true;
+    };
+    if (!validate_static_sei(header_sei) || !lpb::media::sei_metadata_supports_target(header_sei,
+            request->target_codec == LPB_VIDEO_SIDECAR_CODEC_HEVC)) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+    const auto pending_bytes_fit = [&](std::span<const lpb::media::preserved_sei_message> extra) {
+        size_t bytes = 0U, messages = 0U;
+        const auto add = [&](std::span<const lpb::media::preserved_sei_message> entries) {
+            for (const auto& item : entries) {
+                if (++messages > lpb::media::sei_pending_message_budget) return false;
+                if (item.payload.size() > lpb::media::sei_pending_byte_budget - bytes) return false;
+                bytes += item.payload.size();
+            }
+            return true;
+        };
+        if (!add(extra) || !add(header_sei)) return false;
+        for (const auto& entry : pending_sei) if (!add(entry.second)) return false;
+        return true;
+    };
+    const auto attach_header_sei = [&](int64_t pts) {
+        if (header_sei.empty()) return true;
+        if (pts == AV_NOPTS_VALUE) return false;
+        auto& destination = pending_sei[pts];
+        destination.insert(destination.begin(), std::make_move_iterator(header_sei.begin()), std::make_move_iterator(header_sei.end()));
+        header_sei.clear();
+        return true;
+    };
     while ((operation_result = av_read_frame(input.get(), input_packet.get())) >= 0)
     {
         if (check_cancelled(callbacks, result_info))
@@ -841,6 +1062,29 @@ int transcode_impl(
         }
         if (stream_index == video_index)
         {
+            std::vector<lpb::media::preserved_sei_message> metadata;
+            if (!lpb::media::collect_packet_sei(
+                    {input_packet->data, static_cast<size_t>(input_packet->size)}, length_bytes, source_hevc, metadata))
+                return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+            if (!lpb::media::sei_metadata_supports_target(metadata,
+                    request->target_codec == LPB_VIDEO_SIDECAR_CODEC_HEVC)) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+            if (!metadata.empty()) {
+                if (!pending_bytes_fit(metadata) || !validate_static_sei(metadata)) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+                for (const auto& item : metadata) seen_sei[item.type] = true;
+                if ((input_packet->flags & AV_PKT_FLAG_DISCARD) != 0) {
+                    // ISO edit-list preroll is decoded for references, not an
+                    // output picture. Keep persistent static HDR for the first
+                    // visible frame; picture-local metadata has no output owner.
+                    for (auto& item : metadata) {
+                        if ((item.type == 137U || item.type == 144U) &&
+                            std::none_of(header_sei.begin(), header_sei.end(), [&](const auto& prior) { return prior.type == item.type; }))
+                            header_sei.push_back(std::move(item));
+                    }
+                } else {
+                    if (input_packet->pts == AV_NOPTS_VALUE || pending_sei.size() >= 1024U ||
+                        !pending_sei.emplace(input_packet->pts, std::move(metadata)).second) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+                }
+            }
             operation_result = avcodec_send_packet(decoder_context.get(), input_packet.get());
             av_packet_unref(input_packet.get());
             if (operation_result < 0)
@@ -850,7 +1094,14 @@ int transcode_impl(
             }
             while ((operation_result = avcodec_receive_frame(decoder_context.get(), decoded.get())) >= 0)
             {
-                if (decoded->format != source_format)
+                const auto current = pending_sei.find(decoded->pts);
+                const std::span<const lpb::media::preserved_sei_message> frame_metadata = current == pending_sei.end()
+                    ? std::span<const lpb::media::preserved_sei_message>{} : current->second;
+                if (decoded->format != source_format ||
+                    (decoded->chroma_location != AVCHROMA_LOC_UNSPECIFIED &&
+                     decoded->chroma_location != encoder_context->chroma_sample_location) ||
+                    !frame_hdr_matches_container(decoded.get(), input_video->codecpar,
+                        request->target_codec == LPB_VIDEO_SIDECAR_CODEC_HEVC, seen_sei, frame_metadata))
                 {
                     return LPB_VIDEO_SIDECAR_UNSUPPORTED;
                 }
@@ -860,6 +1111,20 @@ int transcode_impl(
                     result_info->library_error = operation_result;
                     return LPB_VIDEO_SIDECAR_INTERNAL_ERROR;
                 }
+    if (native_profile)
+    {
+        int coefficient_space = SWS_CS_ITU601;
+        if (encoder_context->colorspace == AVCOL_SPC_BT709) coefficient_space = SWS_CS_ITU709;
+        else if (encoder_context->colorspace == AVCOL_SPC_BT2020_NCL ||
+            encoder_context->colorspace == AVCOL_SPC_BT2020_CL) coefficient_space = SWS_CS_BT2020;
+        else if (encoder_context->colorspace == AVCOL_SPC_SMPTE240M) coefficient_space = SWS_CS_SMPTE240M;
+        else if (encoder_context->colorspace == AVCOL_SPC_FCC) coefficient_space = SWS_CS_FCC;
+        const int* coefficients = sws_getCoefficients(coefficient_space);
+        const int full_range = encoder_context->color_range == AVCOL_RANGE_JPEG ? 1 : 0;
+        if (sws_setColorspaceDetails(scaler.get(), coefficients, full_range,
+                coefficients, full_range, 0, 1 << 16, 1 << 16) < 0)
+            return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+    }
                 const int rows = sws_scale(
                     scaler.get(), decoded->data, decoded->linesize, 0, decoder_context->height,
                     converted->data, converted->linesize);
@@ -867,14 +1132,13 @@ int transcode_impl(
                 {
                     return LPB_VIDEO_SIDECAR_ENCODE_FAILURE;
                 }
-                const int64_t frame_timestamp = decoded->best_effort_timestamp != AV_NOPTS_VALUE
-                    ? decoded->best_effort_timestamp
-                    : decoded->pts;
+                const int64_t frame_timestamp = decoded->pts != AV_NOPTS_VALUE ? decoded->pts : decoded->best_effort_timestamp;
                 converted->pts = frame_timestamp == AV_NOPTS_VALUE
                     ? AV_NOPTS_VALUE
                     : av_rescale_q(frame_timestamp, input_video->time_base, encoder_context->time_base);
+                if (!attach_header_sei(converted->pts)) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
                 operation_result = encode_frame(
-                    encoder_context.get(), output.get(), output_video, converted.get(), encoded_packet_count);
+                    encoder_context.get(), output.get(), output_video, converted.get(), encoded_packet_count, pending_sei);
                 av_frame_unref(decoded.get());
                 if (operation_result < 0)
                 {
@@ -938,7 +1202,14 @@ int transcode_impl(
     }
     while ((operation_result = avcodec_receive_frame(decoder_context.get(), decoded.get())) >= 0)
     {
-        if (decoded->format != source_format)
+        const auto current = pending_sei.find(decoded->pts);
+        const std::span<const lpb::media::preserved_sei_message> frame_metadata = current == pending_sei.end()
+            ? std::span<const lpb::media::preserved_sei_message>{} : current->second;
+        if (decoded->format != source_format ||
+            (decoded->chroma_location != AVCHROMA_LOC_UNSPECIFIED &&
+             decoded->chroma_location != encoder_context->chroma_sample_location) ||
+            !frame_hdr_matches_container(decoded.get(), input_video->codecpar,
+                request->target_codec == LPB_VIDEO_SIDECAR_CODEC_HEVC, seen_sei, frame_metadata))
         {
             return LPB_VIDEO_SIDECAR_UNSUPPORTED;
         }
@@ -955,14 +1226,13 @@ int transcode_impl(
         {
             return LPB_VIDEO_SIDECAR_ENCODE_FAILURE;
         }
-        const int64_t frame_timestamp = decoded->best_effort_timestamp != AV_NOPTS_VALUE
-            ? decoded->best_effort_timestamp
-            : decoded->pts;
+        const int64_t frame_timestamp = decoded->pts != AV_NOPTS_VALUE ? decoded->pts : decoded->best_effort_timestamp;
         converted->pts = frame_timestamp == AV_NOPTS_VALUE
             ? AV_NOPTS_VALUE
             : av_rescale_q(frame_timestamp, input_video->time_base, encoder_context->time_base);
+        if (!attach_header_sei(converted->pts)) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
         operation_result = encode_frame(
-            encoder_context.get(), output.get(), output_video, converted.get(), encoded_packet_count);
+            encoder_context.get(), output.get(), output_video, converted.get(), encoded_packet_count, pending_sei);
         av_frame_unref(decoded.get());
         if (operation_result < 0)
         {
@@ -984,12 +1254,14 @@ int transcode_impl(
         return LPB_VIDEO_SIDECAR_ENCODE_FAILURE;
     }
     operation_result = write_encoded_packets(
-        encoder_context.get(), output.get(), output_video, encoded_packet_count);
+        encoder_context.get(), output.get(), output_video, encoded_packet_count, pending_sei);
     if (operation_result < 0)
     {
         result_info->library_error = operation_result;
         return LPB_VIDEO_SIDECAR_ENCODE_FAILURE;
     }
+
+    if (!pending_sei.empty() || !header_sei.empty() || result_info->video_frames == 0U) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
 
     if (check_cancelled(callbacks, result_info))
     {

@@ -386,8 +386,13 @@ lpb_result encoded_primary_color_matches(lpb_context* context, windows_owned_out
 
     lpb_preservation_observation observation{};
     observation.struct_size = sizeof(observation);
-    if (lpb_media_capture_preservation_observation_bytes(context, staged_bytes,
-            LPB_SOURCE_PROTOCOL_UNKNOWN, LPB_IMAGE_CONTAINER_HEIC, &observation) != LPB_RESULT_OK) {
+    const lpb_result observation_result = lpb_media_capture_preservation_observation_bytes(context,
+        staged_bytes, LPB_SOURCE_PROTOCOL_UNKNOWN, LPB_IMAGE_CONTAINER_HEIC, &observation);
+    if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
+        set_error(context, "[Cancelled] Staged HEIF color validation was cancelled.");
+        return LPB_RESULT_CANCELLED;
+    }
+    if (observation_result != LPB_RESULT_OK) {
         set_error(context, "Owned staged HEIF bytes could not be structurally inspected.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
@@ -530,35 +535,38 @@ lpb_result encode_heic_images(lpb_context* context, const char* output_path, con
     windows_owned_output output;
     const fs::path destination_path = utf8_to_path(output_path);
     if (!output.create(destination_path, L"lpb-heic-encode")) {
-        set_error(context, "Failed to create an owned HEIC staging file.");
+        static_cast<void>(abort_owned_output_and_report(context, output,
+            "Failed to create an owned HEIC staging file."));
         return LPB_RESULT_INTERNAL_ERROR;
     }
     heif_writer writer{};
     writer.writer_api_version = 1;
     writer.write = write_owned_output;
     if (!okay(heif_context_write(file.value, &writer, &output)) || !output.flush() || !output.ready_to_consume()) {
-        const bool removed = output.abort_and_confirm();
-        if (!removed) {
-            set_error(context, "HEIC encode failed and its owned staging file could not be confirmed removed.");
-            return LPB_RESULT_INTERNAL_ERROR;
-        }
-        set_error(context, "libheif/x265 HEIC encode failed before publication.");
+        static_cast<void>(abort_owned_output_and_report(context, output,
+            "libheif/x265 HEIC encode failed before publication."));
         return LPB_RESULT_INTERNAL_ERROR;
     }
     const lpb_result color_validation = encoded_primary_color_matches(context, output, primary);
     if (color_validation != LPB_RESULT_OK) {
-        const bool removed = output.abort_and_confirm();
-        if (!removed) {
-            set_error(context, "HEIC color validation failed and its owned staging file could not be confirmed removed.");
-            return LPB_RESULT_INTERNAL_ERROR;
+        if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
+            set_error(context, "[Cancelled] HEIC color validation was cancelled before publication.");
+            return abort_owned_output_and_report(context, output, nullptr)
+                ? LPB_RESULT_CANCELLED : LPB_RESULT_INTERNAL_ERROR;
         }
+        if (!abort_owned_output_and_report(context, output, nullptr)) return LPB_RESULT_INTERNAL_ERROR;
         return color_validation;
     }
-    if (!output.publish_no_replace(destination_path)) {
-        const bool removed = output.abort_and_confirm();
-        set_error(context, removed
-            ? "Failed to publish the validated owned HEIC without replacing an existing artifact."
-            : "HEIC publication failed and its owned staging file could not be confirmed removed.");
+    const lpb_result cancellation = lpb_context_check_cancelled(context);
+    if (cancellation != LPB_RESULT_OK) {
+        return abort_owned_output_and_report(context, output,
+            "[Cancelled] HEIC encoding was cancelled before publication.")
+            ? cancellation : LPB_RESULT_INTERNAL_ERROR;
+    }
+    if (!output.publish_registered_no_replace(
+            context, LPB_ARTIFACT_PRIMARY_IMAGE, destination_path)) {
+        static_cast<void>(abort_owned_output_and_report(context, output,
+            "Failed to publish the validated owned HEIC without replacing an existing artifact."));
         return LPB_RESULT_INTERNAL_ERROR;
     }
     return LPB_RESULT_OK;

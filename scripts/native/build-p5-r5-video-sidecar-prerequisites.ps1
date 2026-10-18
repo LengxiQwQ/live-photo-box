@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [ValidatePattern('^[a-z0-9][a-z0-9-]{0,31}$')][string]$BuildId = 'r5-v3',
-    [ValidateRange(1, 64)][int]$Jobs = [Math]::Min([Environment]::ProcessorCount, 8)
+    [ValidateRange(1, 64)][int]$Jobs = [Math]::Min([Environment]::ProcessorCount, 8),
+    [string]$WorkspaceRootOverride = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -98,6 +99,7 @@ function Ensure-ExactVcpkgDownload {
 
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $workspaceRoot = Join-Path $projectRoot '.ai-tmp\workspace\P5-R5'
+if ($WorkspaceRootOverride) { $workspaceRoot = [System.IO.Path]::GetFullPath($WorkspaceRootOverride) }
 $buildInfoPath = Join-Path $projectRoot 'tools\p5-r5-video-validation\profiles\P5-R5-v1\backend-build.json'
 $dependencyManifest = Join-Path $projectRoot 'tools\p5-r5-video-validation\sidecar-dependencies\vcpkg.json'
 $sourceArchive = Join-Path $projectRoot 'tools\p5-r5-video-validation\sources\ffmpeg-n9.0.1.tar.gz'

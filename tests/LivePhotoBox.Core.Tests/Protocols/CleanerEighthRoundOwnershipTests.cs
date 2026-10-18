@@ -55,7 +55,7 @@ public sealed class CleanerEighthRoundOwnershipTests
         string? secondaryPath = null)
     {
         var workspace = new MediaWorkspace();
-        var inspected = await new SourceInspector().InspectWithPlanAsync(samplePath, secondaryPath);
+        using var inspected = await new SourceInspector().InspectWithPlanAsync(samplePath, secondaryPath);
         ExtractedMediaBundle bundle = await new SourceExtractor().ExtractAsync(
             inspected.ExtractionPlan, samplePath, secondaryPath, workspace);
         return (bundle, workspace);
@@ -222,6 +222,8 @@ public sealed class CleanerEighthRoundOwnershipTests
     {
         (ExtractedMediaBundle bundle, MediaWorkspace workspace) = await ExtractAsync(c.SamplePath, c.SecondaryPath);
         using var workspaceLease = workspace;
+        using var extractionCleanupPlan = bundle.CleanupPlan;
+        using var outputFixture = new TestFixtureWorkspace();
         using var context = TestNativeContext.Create();
         using var plan = await TestCleanerPlans.IssueFromBundleAsync(context, bundle);
 
@@ -237,10 +239,10 @@ public sealed class CleanerEighthRoundOwnershipTests
                 r => r.ArtifactRole == MediaArtifactKind.MotionVideo);
         }
 
-        string outPath = workspace.AllocateFilePath(c.OutputPrefix, c.OutputExt);
+        string outPath = outputFixture.AllocateFilePath(c.OutputPrefix, c.OutputExt);
         string? outVidPath = c.VideoOutputPrefix is null
             ? null
-            : workspace.AllocateFilePath(c.VideoOutputPrefix, ".mp4");
+            : outputFixture.AllocateFilePath(c.VideoOutputPrefix, ".mp4");
 
         // Arm the one-shot seam for exactly the targeted sink.
         NativeResult armed = TestHarnessNativeMethods.SetCleanerPublishFault(context.Handle, 1, (int)c.SeamTarget);
@@ -284,7 +286,7 @@ public sealed class CleanerEighthRoundOwnershipTests
         // The foreign object survives byte-for-byte at the stolen temp
         // pathname: exactly one marker file remains in the staging root, and
         // it is neither destination.
-        List<string> foreign = FindForeignMarkerFiles(workspace.RootDirectory);
+        List<string> foreign = FindForeignMarkerFiles(outputFixture.RootDirectory);
         Assert.Single(foreign);
         Assert.NotEqual(outPath, foreign[0]);
         if (outVidPath is not null)
@@ -294,7 +296,7 @@ public sealed class CleanerEighthRoundOwnershipTests
 
         // The owned object was renamed by handle from temp -> destination, so
         // the seam's side pathname must be empty afterwards.
-        Assert.Empty(FindRaceSideFiles(workspace.RootDirectory));
+        Assert.Empty(FindRaceSideFiles(outputFixture.RootDirectory));
     }
 
     // ------------------------------------------------------------------
@@ -353,6 +355,8 @@ public sealed class CleanerEighthRoundOwnershipTests
     {
         (ExtractedMediaBundle bundle, MediaWorkspace workspace) = await ExtractAsync(c.SamplePath, c.SecondaryPath);
         using var workspaceLease = workspace;
+        using var extractionCleanupPlan = bundle.CleanupPlan;
+        using var outputFixture = new TestFixtureWorkspace();
         using var context = TestNativeContext.Create();
         using var plan = await TestCleanerPlans.IssueFromBundleAsync(context, bundle);
 
@@ -363,10 +367,10 @@ public sealed class CleanerEighthRoundOwnershipTests
                 r => r.ArtifactRole == MediaArtifactKind.MotionVideo);
         }
 
-        string outPath = workspace.AllocateFilePath(c.OutputPrefix, c.OutputExt);
+        string outPath = outputFixture.AllocateFilePath(c.OutputPrefix, c.OutputExt);
         string? outVidPath = c.VideoOutputPrefix is null
             ? null
-            : workspace.AllocateFilePath(c.VideoOutputPrefix, ".mp4");
+            : outputFixture.AllocateFilePath(c.VideoOutputPrefix, ".mp4");
 
         // Foreign object occupies the TARGETED sink's destination so its
         // no-overwrite publish fails closed instead of replacing it.
@@ -427,12 +431,12 @@ public sealed class CleanerEighthRoundOwnershipTests
         AssertSeamConsumedOn(context.Handle, c.SeamTarget);
 
         // The temp-pathname foreign object (seam marker) survives byte-for-byte.
-        List<string> foreign = FindForeignMarkerFiles(workspace.RootDirectory);
+        List<string> foreign = FindForeignMarkerFiles(outputFixture.RootDirectory);
         Assert.Single(foreign);
 
         // No race-side leftover: the owned object's failure cleanup was
         // exact-handle (FileDispositionInfo), and the publish never moved a
         // foreign object.
-        Assert.Empty(FindRaceSideFiles(workspace.RootDirectory));
+        Assert.Empty(FindRaceSideFiles(outputFixture.RootDirectory));
     }
 }

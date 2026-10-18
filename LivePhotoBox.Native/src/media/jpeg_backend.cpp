@@ -316,11 +316,22 @@ lpb_result encode_rgb_jpeg_file(lpb_context* context, const char* output_path,
     if (encoded != LPB_RESULT_OK) return encoded;
     const fs::path output_path_native = utf8_to_path(output_path);
     windows_owned_output output;
-    const bool written = output.create(output_path_native, L"lpb-jpeg-encode") &&
-        output.write_all(jpeg) && output.publish_no_replace(output_path_native);
+    if (!output.create(output_path_native, L"lpb-jpeg-encode") || !output.write_all(jpeg)) {
+        static_cast<void>(abort_owned_output_and_report(context, output,
+            "Failed to stage the libjpeg-turbo encoded JPEG."));
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    const lpb_result cancellation = lpb_context_check_cancelled(context);
+    if (cancellation != LPB_RESULT_OK) {
+        return abort_owned_output_and_report(context, output,
+            "[Cancelled] JPEG encoding was cancelled before publication.")
+            ? cancellation : LPB_RESULT_INTERNAL_ERROR;
+    }
+    const bool written = output.publish_registered_no_replace(
+        context, LPB_ARTIFACT_PRIMARY_IMAGE, output_path_native);
     if (!written) {
-        output.abort();
-        set_error(context, "Failed to publish the libjpeg-turbo encoded JPEG.");
+        static_cast<void>(abort_owned_output_and_report(context, output,
+            "Failed to publish the libjpeg-turbo encoded JPEG."));
         return LPB_RESULT_INTERNAL_ERROR;
     }
     return LPB_RESULT_OK;
@@ -340,8 +351,13 @@ lpb_result transform_jpeg_losslessly(lpb_context* context, const char* input_pat
     // project-owned Exif rewrite can make that semantic update atomically.
     lpb_preservation_observation observation{};
     observation.struct_size = sizeof(observation);
-    if (lpb_capture_preservation_observation(context, input_path, LPB_SOURCE_PROTOCOL_UNKNOWN,
-            LPB_IMAGE_CONTAINER_JPEG, &observation) != LPB_RESULT_OK ||
+    const lpb_result observation_result = lpb_capture_preservation_observation(context, input_path,
+        LPB_SOURCE_PROTOCOL_UNKNOWN, LPB_IMAGE_CONTAINER_JPEG, &observation);
+    if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
+        set_error(context, "[Cancelled] JPEG orientation validation was cancelled.");
+        return LPB_RESULT_CANCELLED;
+    }
+    if (observation_result != LPB_RESULT_OK ||
         (observation.flags & LPB_POBS_EXIF_PARSE_ERROR) != 0 ||
         (observation.orientation != 0 && observation.orientation != 1)) {
         set_error(context, "JPEG lossless transform refuses non-default or unverifiable EXIF Orientation to prevent double rotation.");
@@ -377,13 +393,25 @@ lpb_result transform_jpeg_losslessly(lpb_context* context, const char* input_pat
     }
     windows_owned_output output;
     const fs::path destination = utf8_to_path(output_path);
-    const bool written = output.create(destination, L"lpb-jpeg-lossless") &&
-        output.write_all(std::span<const uint8_t>(transformed, static_cast<size_t>(transformed_size))) &&
-        output.publish_no_replace(destination);
+    const bool staged = output.create(destination, L"lpb-jpeg-lossless") &&
+        output.write_all(std::span<const uint8_t>(transformed, static_cast<size_t>(transformed_size)));
     tjFree(transformed);
+    if (!staged) {
+        static_cast<void>(abort_owned_output_and_report(context, output,
+            "Failed to stage the losslessly transformed JPEG."));
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    const lpb_result cancellation = lpb_context_check_cancelled(context);
+    if (cancellation != LPB_RESULT_OK) {
+        return abort_owned_output_and_report(context, output,
+            "[Cancelled] JPEG lossless transformation was cancelled before publication.")
+            ? cancellation : LPB_RESULT_INTERNAL_ERROR;
+    }
+    const bool written = output.publish_registered_no_replace(
+        context, LPB_ARTIFACT_PRIMARY_IMAGE, destination);
     if (!written) {
-        output.abort();
-        set_error(context, "Failed to publish the losslessly transformed JPEG.");
+        static_cast<void>(abort_owned_output_and_report(context, output,
+            "Failed to publish the losslessly transformed JPEG."));
         return LPB_RESULT_INTERNAL_ERROR;
     }
     return LPB_RESULT_OK;

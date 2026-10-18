@@ -12,12 +12,14 @@
  */
 
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using LivePhotoBox.Helpers;
+using LivePhotoBox.Interop;
 using LivePhotoBox.Media;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
@@ -65,6 +67,9 @@ public interface IEditExportProgressNotifier
 /// </summary>
 public sealed class EditExportService : IDisposable
 {
+    private static readonly ConcurrentDictionary<string, byte> s_batchExportCandidates =
+        new(StringComparer.OrdinalIgnoreCase);
+
     private CancellationTokenSource? _activeExportCts;
     private string? _exportTempVideoPath;
     private IMediaWorkspace? _exportMediaWorkspace;
@@ -95,7 +100,8 @@ public sealed class EditExportService : IDisposable
 
         if (frame == null) return;
 
-        string? tempFileToClean = null;
+        WindowsOwnedTemporaryArtifact? preparedSourceArtifact = null;
+        Exception? originalFailure = null;
         string sourcePath;
 
         try
@@ -110,10 +116,10 @@ public sealed class EditExportService : IDisposable
                         if (string.IsNullOrEmpty(primaryPhotoPath) || !File.Exists(primaryPhotoPath)) return;
                         byte[]? origBytes = EditTimingService.ReadOriginalPhotoBytes(primaryPhotoPath);
                         if (origBytes == null || origBytes.Length == 0) return;
-                        string tempPath = Path.Combine(Path.GetTempPath(), $"lpb_orig_export_{Guid.NewGuid():N}.jpg");
-                        await File.WriteAllBytesAsync(tempPath, origBytes, cancellationToken);
-                        sourcePath = tempPath;
-                        tempFileToClean = tempPath;
+                        preparedSourceArtifact = await ExportSourcePreparation.PrepareOriginalBytesAsync(
+                            origBytes,
+                            cancellationToken);
+                        sourcePath = preparedSourceArtifact.Path;
                     }
                     else
                     {
@@ -123,11 +129,8 @@ public sealed class EditExportService : IDisposable
                 else
                 {
                     if (string.IsNullOrEmpty(primaryPhotoPath) || !File.Exists(primaryPhotoPath)) return;
-                    sourcePath = await ResolveStillPhotoSourceAsync(primaryPhotoPath, cancellationToken);
-                    if (!string.Equals(sourcePath, primaryPhotoPath, StringComparison.OrdinalIgnoreCase))
-                    {
-                        tempFileToClean = sourcePath;
-                    }
+                    preparedSourceArtifact = await ResolveStillPhotoSourceAsync(primaryPhotoPath, cancellationToken);
+                    sourcePath = preparedSourceArtifact?.Path ?? primaryPhotoPath;
                 }
             }
             else
@@ -165,16 +168,16 @@ public sealed class EditExportService : IDisposable
                 }
                 else
                 {
-                    var sourceFile = await StorageFile.GetFileFromPathAsync(sourcePath);
-                    await sourceFile.CopyAndReplaceAsync(targetFile);
+                    await PublishExportCopyAsync(sourcePath, targetPath, MediaArtifactKind.PrimaryImage, true, cancellationToken);
                 }
 
                 LogService.FileOp(
                     $"ExportCurrentFrame: {Path.GetFileName(sourcePath)} -> {targetPath}",
                     LogLevel.Info);
 
-                // 6. 修改日期为当前时间
-                try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
+                // The transaction's final write already supplies the current write time.
+
+                ExportSourcePreparation.DisposePreparedSource(ref preparedSourceArtifact);
 
                 // 7. 完成状态
                 progress.NotifyComplete(
@@ -183,6 +186,7 @@ public sealed class EditExportService : IDisposable
             }
             catch (Exception ex)
             {
+                originalFailure = ex;
                 LogService.FileOp(
                     $"ExportCurrentFrame failed: {ex.Message}", LogLevel.Error, ex);
                 progress.NotifyFailure(
@@ -194,11 +198,43 @@ public sealed class EditExportService : IDisposable
                 progress.NotifyFinalize();
             }
         }
+        catch (Exception ex)
+        {
+            if (originalFailure == null)
+            {
+                originalFailure = ex;
+            }
+            else if (!ReferenceEquals(originalFailure, ex))
+            {
+                originalFailure = new AggregateException(
+                    "ExportCurrentFrame failed during export and failure notification/finalization.",
+                    originalFailure,
+                    ex);
+                throw originalFailure;
+            }
+
+            throw;
+        }
         finally
         {
-            if (tempFileToClean != null)
+            try
             {
-                try { if (File.Exists(tempFileToClean)) File.Delete(tempFileToClean); } catch { }
+                ExportSourcePreparation.DisposePreparedSource(ref preparedSourceArtifact, originalFailure);
+            }
+            catch (Exception cleanupFailure)
+            {
+                try
+                {
+                    LogService.FileOp(
+                        $"ExportCurrentFrame: prepared source cleanup failed: {cleanupFailure.Message}",
+                        LogLevel.Error,
+                        cleanupFailure);
+                }
+                catch
+                {
+                    // Preserve and propagate the cleanup failure even if logging is unavailable.
+                }
+                throw;
             }
         }
     }
@@ -230,10 +266,8 @@ public sealed class EditExportService : IDisposable
             }
             else
             {
-                var sourceFile = await StorageFile.GetFileFromPathAsync(photoPath);
-                await sourceFile.CopyAndReplaceAsync(targetFile);
+                await PublishExportCopyAsync(photoPath, targetPath, MediaArtifactKind.PrimaryImage, true, cancellationToken);
             }
-            try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
             LogService.FileOp($"ExportPhotoAsSingleFrame: {Path.GetFileName(photoPath)} -> {targetPath}", LogLevel.Info);
             progress.NotifyComplete(
                 ResourceService.GetString("EditPage_ExportCurrentFrameComplete"),
@@ -361,7 +395,9 @@ public sealed class EditExportService : IDisposable
         CancellationToken token, SemaphoreSlim semaphore, int totalFrames,
         ExportCounters counters, IEditExportProgressNotifier progress)
     {
-        string? tempFileToClean = null;
+        WindowsOwnedTemporaryArtifact? preparedSourceArtifact = null;
+        string? candidateReservationKey = null;
+        Exception? originalFailure = null;
         try
         {
             token.ThrowIfCancellationRequested();
@@ -382,11 +418,10 @@ public sealed class EditExportService : IDisposable
                                 LogLevel.Warning);
                             return;
                         }
-                        string tempPath = Path.Combine(Path.GetTempPath(),
-                            $"lpb_orig_export_{Guid.NewGuid():N}.jpg");
-                        await File.WriteAllBytesAsync(tempPath, origBytes, token);
-                        sourcePath = tempPath;
-                        tempFileToClean = tempPath;
+                        preparedSourceArtifact = await ExportSourcePreparation.PrepareOriginalBytesAsync(
+                            origBytes,
+                            token);
+                        sourcePath = preparedSourceArtifact.Path;
                     }
                     else
                     {
@@ -395,11 +430,8 @@ public sealed class EditExportService : IDisposable
                 }
                 else
                 {
-                    sourcePath = await ResolveStillPhotoSourceAsync(photoPath, token);
-                    if (!string.Equals(sourcePath, photoPath, StringComparison.OrdinalIgnoreCase))
-                    {
-                        tempFileToClean = sourcePath;
-                    }
+                    preparedSourceArtifact = await ResolveStillPhotoSourceAsync(photoPath, token);
+                    sourcePath = preparedSourceArtifact?.Path ?? photoPath;
                 }
             }
             else
@@ -421,7 +453,11 @@ public sealed class EditExportService : IDisposable
                     ? $"{photoBaseName}_原始帧{formatExtension}"
                     : $"{photoBaseName}_帧{frame.FrameIndex + 1}{formatExtension}";
 
-            var targetPath = PathHelper.GetUniqueFilePath(exportDir, fileName);
+            var finalTargetCandidate = AllocateUniqueBatchExportCandidate(exportDir, fileName);
+            string finalTargetPath = finalTargetCandidate.CandidatePath;
+            candidateReservationKey = finalTargetCandidate.ReservationKey;
+            using var preparedOutput = new MediaWorkspace();
+            string targetPath = preparedOutput.AllocateFilePath("prepared-export", formatExtension);
 
             if (ImageFormatService.NeedsConversion(sourcePath, formatExtension))
             {
@@ -429,7 +465,7 @@ public sealed class EditExportService : IDisposable
             }
             else
             {
-                File.Copy(sourcePath, targetPath, overwrite: true);
+                await PublishExportCopyAsync(sourcePath, targetPath, MediaArtifactKind.PrimaryImage, false, token);
             }
 
             if (copyExif && File.Exists(photoPath))
@@ -439,11 +475,20 @@ public sealed class EditExportService : IDisposable
 
             try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
 
+            await PublishExportCopyAsync(targetPath, finalTargetPath, MediaArtifactKind.PrimaryImage, false, token);
+
+            ExportSourcePreparation.DisposePreparedSource(ref preparedSourceArtifact);
+
             Interlocked.Increment(ref counters.Success);
         }
-        catch (OperationCanceledException) { throw; }
+        catch (OperationCanceledException ex)
+        {
+            originalFailure = ex;
+            throw;
+        }
         catch (Exception ex)
         {
+            originalFailure = ex;
             Interlocked.Increment(ref counters.Fail);
             LogService.FileOp(
                 $"ExportAllFrames: frame {(frame.IsOriginalPhoto ? "🖼" : frame.IsStillPhoto ? "⭐" : $"#{frame.FrameIndex + 1}")} FAILED: {ex.Message}",
@@ -451,15 +496,119 @@ public sealed class EditExportService : IDisposable
         }
         finally
         {
-            if (tempFileToClean != null)
+            Exception? finalizationFailure = null;
+            try
             {
-                try { if (File.Exists(tempFileToClean)) File.Delete(tempFileToClean); } catch { }
+                ExportSourcePreparation.DisposePreparedSource(ref preparedSourceArtifact, originalFailure);
+            }
+            catch (Exception cleanupFailure)
+            {
+                finalizationFailure = cleanupFailure;
+                try
+                {
+                    LogService.FileOp(
+                        $"ExportOneFrame: prepared source cleanup failed: {cleanupFailure.Message}",
+                        LogLevel.Error,
+                        cleanupFailure);
+                }
+                catch (Exception loggingFailure)
+                {
+                    finalizationFailure = new AggregateException(
+                        "Prepared source cleanup and cleanup logging both failed.",
+                        finalizationFailure,
+                        loggingFailure);
+                }
+            }
+            finally
+            {
+                try
+                {
+                    if (candidateReservationKey != null)
+                        s_batchExportCandidates.TryRemove(candidateReservationKey, out _);
+                }
+                catch (Exception reservationFailure)
+                {
+                    finalizationFailure = CombineFinalizationFailures(
+                        finalizationFailure, reservationFailure, originalFailure);
+                }
+                finally
+                {
+                    try
+                    {
+                        int done = Interlocked.Increment(ref counters.Completed);
+                        progress.NotifyProgress(done, totalFrames);
+                    }
+                    catch (Exception progressFailure)
+                    {
+                        finalizationFailure = CombineFinalizationFailures(
+                            finalizationFailure, progressFailure, originalFailure);
+                    }
+                    finally
+                    {
+                        try
+                        {
+                            semaphore.Release();
+                        }
+                        catch (Exception releaseFailure)
+                        {
+                            finalizationFailure = CombineFinalizationFailures(
+                                finalizationFailure, releaseFailure, originalFailure);
+                        }
+                    }
+                }
             }
 
-            int done = Interlocked.Increment(ref counters.Completed);
-            progress.NotifyProgress(done, totalFrames);
-            semaphore.Release();
+            if (finalizationFailure != null)
+                throw finalizationFailure;
         }
+    }
+
+    // Select a candidate without leaving an empty placeholder at the final path.
+    // PublishExportCopyAsync owns the no-replace operation; a file created by an
+    // external process after this check remains protected by that transaction.
+    private static (string CandidatePath, string ReservationKey) AllocateUniqueBatchExportCandidate(
+        string directory,
+        string fileName)
+    {
+        string nameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
+        string extension = Path.GetExtension(fileName);
+        for (int ordinal = 1; ordinal < 999; ordinal++)
+        {
+            string candidateName = ordinal == 1
+                ? fileName
+                : $"{nameWithoutExtension} ({ordinal}){extension}";
+            string candidate = Path.Combine(directory, candidateName);
+            if (TryReserveBatchExportCandidate(candidate, out string? reservationKey))
+                return (candidate, reservationKey!);
+        }
+
+        while (true)
+        {
+            string candidate = Path.Combine(
+                directory,
+                $"{nameWithoutExtension} ({Guid.NewGuid():N}){extension}");
+            if (TryReserveBatchExportCandidate(candidate, out string? reservationKey))
+                return (candidate, reservationKey!);
+        }
+    }
+
+    private static bool TryReserveBatchExportCandidate(string candidate, out string? reservationKey)
+    {
+        string fullPath = Path.GetFullPath(candidate);
+        reservationKey = null;
+        if (File.Exists(fullPath) || Directory.Exists(fullPath))
+            return false;
+        if (!s_batchExportCandidates.TryAdd(fullPath, 0))
+            return false;
+
+        if (File.Exists(fullPath) || Directory.Exists(fullPath))
+        {
+            s_batchExportCandidates.TryRemove(fullPath, out _);
+            return false;
+        }
+
+        reservationKey = fullPath;
+        return true;
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -550,6 +699,7 @@ public sealed class EditExportService : IDisposable
         VideoContainer targetContainer = isMp4 ? VideoContainer.Mp4 : VideoContainer.Mov;
         VideoCodec targetCodec = isMp4 ? VideoCodec.H264 : VideoCodec.Hevc;
 
+        using var conversionWorkspace = new MediaWorkspace();
         var converter = new VideoConverter();
         VideoFacts facts = await converter.ProbeAsync(inputPath, token).ConfigureAwait(false);
         var result = await converter.ConvertAsync(new VideoConversionRequest
@@ -565,15 +715,26 @@ public sealed class EditExportService : IDisposable
             },
             TargetContainer = targetContainer,
             TargetCodec = targetCodec,
-            TargetDirectory = Path.GetDirectoryName(outputPath)!,
+            TargetDirectory = conversionWorkspace.RootDirectory,
             Crf = 23
         }, token).ConfigureAwait(false);
 
         if (!result.Success || result.OutputArtifact == null)
             return (false, result.ErrorMessage ?? "Native video conversion failed.");
 
-        File.Copy(result.OutputArtifact.Path, outputPath, overwrite: true);
+        await WindowsOutputArtifactPublisher.PublishCopyAsync(result.OutputArtifact, outputPath, true, token).ConfigureAwait(false);
         return (true, null);
+    }
+
+    private static Task PublishExportCopyAsync(
+        string sourcePath, string targetPath, MediaArtifactKind kind, bool overwrite, CancellationToken token)
+    {
+        return WindowsOutputArtifactPublisher.PublishCopyAsync(new MediaArtifact
+        {
+            Path = sourcePath,
+            Kind = kind,
+            ByteLength = new FileInfo(sourcePath).Length
+        }, targetPath, overwrite, token);
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -599,13 +760,15 @@ public sealed class EditExportService : IDisposable
     /// 这里把容器开头的图片部分切片成干净临时文件返回。
     /// 双文件实况（Apple/vivo ≤X200 图、视频分离）photoPath 本身就是干净图片，原样返回。
     /// </summary>
-    private static async Task<string> ResolveStillPhotoSourceAsync(string photoPath, CancellationToken token)
+    private static async Task<WindowsOwnedTemporaryArtifact?> ResolveStillPhotoSourceAsync(
+        string photoPath,
+        CancellationToken token)
     {
         var facts = await new SourceInspector().InspectAsync(photoPath, null, token).ConfigureAwait(false);
         var video = facts.MotionVideo;
         if (facts.Protocol is SourceProtocol.NonLive or SourceProtocol.Unknown ||
             video is not { IsPresent: true } || video.SourceIndex != 0)
-            return photoPath;
+            return null;
 
         var primary = facts.PrimaryImage;
         if (!primary.IsPresent || primary.ByteOffset < 0 || primary.ByteLength <= 0 ||
@@ -625,36 +788,36 @@ public sealed class EditExportService : IDisposable
         if (primary.ByteOffset < videoEnd && video.ByteOffset < primaryEnd)
             throw new InvalidDataException("Native primary and motion-video ranges overlap; refusing to derive a still boundary.");
 
-        return await SliceContainerRangeAsync(photoPath, primary.ByteOffset, primaryLength, token).ConfigureAwait(false);
+        return await ExportSourcePreparation.PrepareStillRangeAsync(
+            photoPath,
+            primary.ByteOffset,
+            primaryLength,
+            token,
+            facts.PrimarySha256).ConfigureAwait(false);
     }
 
-    /// <summary>按 Native Inspector 给出的 primary range 切片成临时文件。</summary>
-    private static async Task<string> SliceContainerRangeAsync(
-        string sourcePath,
-        long offset,
-        long length,
-        CancellationToken token)
+    private static Exception CombineFinalizationFailures(
+        Exception? currentFailure,
+        Exception additionalFailure,
+        Exception? originalFailure)
     {
-        string ext = Path.GetExtension(sourcePath);
-        string tempPath = Path.Combine(Path.GetTempPath(), $"lpb_still_{Guid.NewGuid():N}{ext}");
-        using (var src = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read))
-        using (var dst = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        if (currentFailure != null)
         {
-            var buf = new byte[81920];
-            if (offset < 0 || length <= 0 || offset > src.Length || length > src.Length - offset)
-                throw new InvalidDataException("Requested primary image range is outside the source file.");
-            src.Seek(offset, SeekOrigin.Begin);
-            long remain = length;
-            while (remain > 0)
-            {
-                token.ThrowIfCancellationRequested();
-                int r = src.Read(buf, 0, (int)Math.Min(buf.Length, remain));
-                if (r == 0) throw new EndOfStreamException("Source changed while extracting the inspected primary range.");
-                dst.Write(buf, 0, r);
-                remain -= r;
-            }
+            return new AggregateException(
+                "Export cleanup/finalization encountered multiple failures.",
+                currentFailure,
+                additionalFailure);
         }
-        return tempPath;
+
+        if (originalFailure != null && !ReferenceEquals(originalFailure, additionalFailure))
+        {
+            return new AggregateException(
+                "The export and its finalization both failed.",
+                originalFailure,
+                additionalFailure);
+        }
+
+        return additionalFailure;
     }
 
     /// <summary>

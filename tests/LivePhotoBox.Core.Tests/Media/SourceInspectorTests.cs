@@ -1,3 +1,4 @@
+using LivePhotoBox.Core.Tests.Support;
 using System;
 using System.IO;
 using System.Security.Cryptography;
@@ -10,11 +11,16 @@ using LivePhotoBox.Services;
 using LivePhotoBox.Core.Tests.Protocols;
 using LivePhotoBox.Interop;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace LivePhotoBox.Core.Tests.Media;
 
 public sealed class SourceInspectorTests
 {
+    private readonly ITestOutputHelper _output;
+
+    public SourceInspectorTests(ITestOutputHelper output) => _output = output;
+
     private static string ResolveSample(string fileName) => TestSampleResolver.ResolveSample(fileName);
 
     [Fact]
@@ -165,7 +171,7 @@ public sealed class SourceInspectorTests
         Assert.True(auxcType >= 4 && auxcType + 8 <= bytes.Length);
         bytes[auxcType + 4] = 1; // unsupported auxC FullBox version
 
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = workspace.AllocateFilePath("samsung-malformed-auxc", ".heic");
         await File.WriteAllBytesAsync(path, bytes);
 
@@ -187,7 +193,7 @@ public sealed class SourceInspectorTests
         bytes[pitmType + 8] = 0xFF;
         bytes[pitmType + 9] = 0xFF;
 
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = workspace.AllocateFilePath("samsung-unknown-primary", ".heic");
         await File.WriteAllBytesAsync(path, bytes);
 
@@ -264,7 +270,7 @@ public sealed class SourceInspectorTests
         // Regression: Huawei/Honor firmware writes several non-Apple 0x927C
         // MakerNote entries in ExifIFD.  The Inspector must count only
         // Apple-shaped MakerNotes and must not report an Apple CID conflict.
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("huawei_multi_makernote", ".jpg");
         SyntheticProtocolFixtures.CreateHuaweiJpegWithMultipleVendorMakerNotes(inputPath);
 
@@ -277,6 +283,76 @@ public sealed class SourceInspectorTests
         Assert.Equal(ImageContainer.Jpeg, facts.PrimaryImage.Container);
         Assert.Equal(VideoContainer.Mp4, facts.MotionVideo.Container);
     }
+
+    [Fact]
+    public async Task Inspect_GoogleV2MotionRangeWithTrailingFreeBox_IdentifiesGoogleV2()
+    {
+        using var ws = new TestFixtureWorkspace();
+        string inputPath = ws.AllocateFilePath("google-v2-trailing-free", ".jpg");
+        await File.WriteAllBytesAsync(inputPath,
+            SyntheticProtocolFixtures.CreateGoogleV2JpegWithHuaweiFooter(includeHuaweiClaim: false));
+
+        var facts = await new SourceInspector().InspectAsync(inputPath);
+
+        Assert.Equal(SourceProtocol.GoogleMotionPhotoV2, facts.Protocol);
+        Assert.NotNull(facts.PrimaryImage);
+        Assert.NotNull(facts.MotionVideo);
+        Assert.Equal(ImageContainer.Jpeg, facts.PrimaryImage.Container);
+        Assert.Equal(VideoContainer.Mp4, facts.MotionVideo.Container);
+    }
+
+    [Fact]
+    [Trait("P7", "R1-B")]
+    public async Task Inspect_HuaweiGoogleV2DualOwnership_FailsClosed()
+    {
+        using var ws = new TestFixtureWorkspace();
+        string inputPath = ws.AllocateFilePath("huawei-google-v2-collision", ".jpg");
+        await File.WriteAllBytesAsync(inputPath,
+            SyntheticProtocolFixtures.CreateGoogleV2JpegWithHuaweiFooter(includeHuaweiClaim: true));
+
+        SourceInspectionException error = await Assert.ThrowsAsync<SourceInspectionException>(
+            () => new SourceInspector().InspectAsync(inputPath));
+
+        Assert.Equal(SourceInspectionFailureCategory.Ambiguous, error.Category);
+        Assert.Equal(SourceInspectionStage.Protocol, error.Stage);
+    }
+
+    [Fact]
+    [Trait("P7", "R1-B")]
+    public async Task Inspect_HuaweiWithIncompleteGoogleV2Metadata_StillIdentifiesHuawei()
+    {
+        using var ws = new TestFixtureWorkspace();
+        string inputPath = ws.AllocateFilePath("huawei-incomplete-google-v2", ".jpg");
+        await File.WriteAllBytesAsync(inputPath,
+            SyntheticProtocolFixtures.CreateHuaweiJpegWithIncompleteGoogleV2Claim());
+
+        var facts = await new SourceInspector().InspectAsync(inputPath);
+
+        Assert.Equal(SourceProtocol.HuaweiMovingPhoto, facts.Protocol);
+        Assert.NotNull(facts.PrimaryImage);
+        Assert.NotNull(facts.MotionVideo);
+        Assert.Equal(ImageContainer.Jpeg, facts.PrimaryImage.Container);
+        Assert.Equal(VideoContainer.Mp4, facts.MotionVideo.Container);
+    }
+
+    [Fact]
+    [Trait("P7", "R1-B")]
+    public async Task Inspect_HuaweiWithSplitIncompleteGoogleV2Metadata_StillIdentifiesHuawei()
+    {
+        using var ws = new TestFixtureWorkspace();
+        string inputPath = ws.AllocateFilePath("huawei-split-incomplete-google-v2", ".jpg");
+        await File.WriteAllBytesAsync(inputPath,
+            SyntheticProtocolFixtures.CreateHuaweiJpegWithSplitIncompleteGoogleV2Claim());
+
+        var facts = await new SourceInspector().InspectAsync(inputPath);
+
+        Assert.Equal(SourceProtocol.HuaweiMovingPhoto, facts.Protocol);
+        Assert.NotNull(facts.PrimaryImage);
+        Assert.NotNull(facts.MotionVideo);
+        Assert.Equal(ImageContainer.Jpeg, facts.PrimaryImage.Container);
+        Assert.Equal(VideoContainer.Mp4, facts.MotionVideo.Container);
+    }
+
 [Fact]
     [Trait("Category", "RealSamples")]
     public async Task Inspect_XiaomiRealSample_IdentifiesGoogleMotionPhotoV2()
@@ -314,9 +390,10 @@ public sealed class SourceInspectorTests
     }
 
     [Fact]
+    [Trait("P7", "R1-B")]
     public async Task Inspect_WrongNamespaceMotionPhotoWithUnclaimedTrailer_FailsClosed()
     {
-        using var ws = new LivePhotoBox.Media.Workspace.MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("wrong_namespace", ".jpg");
         SyntheticProtocolFixtures.CreateWrongNamespaceMotionPhotoJpeg(inputPath);
 
@@ -419,7 +496,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_MalformedXmp_UnclosedTag_ThrowsInvalidArgument()
     {
-        using var ws = new LivePhotoBox.Media.Workspace.MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("malformed_xmp", ".jpg");
         string badXmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\"><GCamera:MotionPhoto>1<unclosed></rdf:Description></rdf:RDF></x:xmpmeta>";
         byte[] jpeg = SyntheticProtocolFixtures.CreateJpegWithXmp(badXmp);
@@ -432,9 +509,10 @@ public sealed class SourceInspectorTests
     }
 
     [Fact]
+    [Trait("P7", "R1-B")]
     public async Task Inspect_ConflictingXmpAttributes_ThrowsInvalidArgument()
     {
-        using var ws = new LivePhotoBox.Media.Workspace.MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("conflicting_xmp", ".jpg");
         string confXmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" GCamera:MotionPhoto=\"1\"><GCamera:MotionPhoto>0</GCamera:MotionPhoto></rdf:Description></rdf:RDF></x:xmpmeta>";
         byte[] jpeg = SyntheticProtocolFixtures.CreateJpegWithXmp(confXmp);
@@ -459,7 +537,7 @@ public sealed class SourceInspectorTests
             bytes[i] = (byte)'X';
         }
 
-        using var ws = new LivePhotoBox.Media.Workspace.MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string corruptPath = ws.AllocateFilePath("huawei_corrupt", ".jpg");
         await File.WriteAllBytesAsync(corruptPath, bytes);
 
@@ -479,7 +557,7 @@ public sealed class SourceInspectorTests
         bytes[^6] = 0xFF;
         bytes[^5] = 0x7F;
 
-        using var ws = new LivePhotoBox.Media.Workspace.MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string corruptPath = ws.AllocateFilePath("samsung_corrupt", ".jpg");
         await File.WriteAllBytesAsync(corruptPath, bytes);
 
@@ -488,22 +566,38 @@ public sealed class SourceInspectorTests
     }
 
     [Fact]
+    [Trait("Category", "P7-R1-A")]
+    [Trait("EvidenceClass", "Synthetic")]
     public async Task Inspect_TruncatedJpeg_ThrowsInvalidArgument()
     {
-        using var ws = new LivePhotoBox.Media.Workspace.MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("truncated", ".jpg");
-        await File.WriteAllBytesAsync(inputPath, [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46]);
+        byte[] input = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46];
+        byte[] replay = [0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46];
+        Assert.Equal(input, replay);
+        string derivedHash = Convert.ToHexString(SHA256.HashData(input));
+        await File.WriteAllBytesAsync(inputPath, input);
+        string beforeHash = await ComputeSha256Async(inputPath);
 
         var inspector = new SourceInspector();
         var ex = await Assert.ThrowsAsync<SourceInspectionException>(() => inspector.InspectAsync(inputPath));
         Assert.Equal(SourceInspectionFailureCategory.Malformed, ex.Category);
         Assert.Equal(SourceInspectionStage.Container, ex.Stage);
+        string afterHash = await ComputeSha256Async(inputPath);
+        string[] workspaceFiles = Directory.GetFiles(ws.RootDirectory, "*", SearchOption.AllDirectories)
+            .Select(Path.GetFullPath)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        Assert.Equal(beforeHash, afterHash);
+        Assert.Equal(new[] { Path.GetFullPath(inputPath) }, workspaceFiles);
+        _output.WriteLine(
+            $"R1A_CASE|caseId=source-inspector-truncated-jpeg-8-byte|inputClass=SyntheticTruncatedLiteral|mutation=deterministic-8-byte-JPEG-segment-prefix|canonicalBytes={input.Length}|canonicalSha256={derivedHash}|derivedBytes={input.Length}|derivedSha256={derivedHash}|replayBytes={replay.Length}|replaySha256={Convert.ToHexString(SHA256.HashData(replay))}|sourceSha256Before={beforeHash}|sourceSha256After={afterHash}|expectedCategory={SourceInspectionFailureCategory.Malformed}|actualCategory={ex.Category}|expectedStage={SourceInspectionStage.Container}|actualStage={ex.Stage}|workspaceFiles={string.Join(",", workspaceFiles)}|outputExists=false");
     }
 
     [Fact]
     public async Task Inspect_FtypOnlyMp4_ReportsMalformedContainer()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("ftyp_only", ".mp4");
         await File.WriteAllBytesAsync(inputPath, [
             0, 0, 0, 20, (byte)'f', (byte)'t', (byte)'y', (byte)'p',
@@ -518,7 +612,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_TracklessMp4_ReportsMalformedContainer()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("trackless", ".mp4");
         static byte[] Box(string type, params byte[] payload) =>
             [.. BitConverter.GetBytes(System.Net.IPAddress.HostToNetworkOrder(8 + payload.Length)),
@@ -596,7 +690,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_GoogleV1_MissingMicroVideo_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("v1_missing_mv", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV1JpegMissingMicroVideo(inputPath);
 
@@ -608,7 +702,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_GoogleV1_DisabledMicroVideo_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("v1_disabled_mv", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV1JpegDisabledMicroVideo(inputPath);
 
@@ -620,7 +714,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_GoogleV1_UnsupportedVersion_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("v1_bad_version", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV1JpegUnsupportedVersion(inputPath);
 
@@ -630,9 +724,10 @@ public sealed class SourceInspectorTests
     }
 
     [Fact]
+    [Trait("P7", "R1-B")]
     public async Task Inspect_GoogleV1_ConflictingXmpDeclarations_FailClosed()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("v1_conflicting_offset", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV1JpegConflictingOffset(inputPath);
 
@@ -646,7 +741,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_GoogleV1_StaleInV2_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("v1_stale_in_v2", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV1JpegStaleInV2(inputPath);
 
@@ -658,7 +753,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_GoogleV2_MissingVersion_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("v2_missing_ver", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV2JpegMissingVersion(inputPath);
 
@@ -670,7 +765,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_GoogleV2_PrimaryNotFirst_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("v2_primary_not_first", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV2JpegPrimaryNotFirst(inputPath);
 
@@ -680,9 +775,10 @@ public sealed class SourceInspectorTests
     }
 
     [Fact]
+    [Trait("P7", "R1-B")]
     public async Task Inspect_GoogleV2_DuplicateMotionPhoto_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("v2_dup_motion", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV2JpegDuplicateMotionPhoto(inputPath);
 
@@ -694,7 +790,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_GoogleV2_CompatibleNamespaceUrisAndPrefixes_Succeeds()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("v2_namespace_compat", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV2JpegWithCompatibleNamespaces(inputPath);
 
@@ -705,9 +801,10 @@ public sealed class SourceInspectorTests
     }
 
     [Fact]
+    [Trait("P7", "R1-B")]
     public async Task Inspect_GoogleV2_CrossDescriptionPropertyAndDirectory_FailsClosed()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("v2_cross_description", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV2JpegWithCrossDescriptionOwner(inputPath);
 
@@ -719,9 +816,10 @@ public sealed class SourceInspectorTests
     }
 
     [Fact]
+    [Trait("P7", "R1-B")]
     public async Task Inspect_DuplicateStandardXmpPacket_FailsClosed()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("duplicate_standard_xmp", ".jpg");
         const string xmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\" /></rdf:RDF></x:xmpmeta>";
         byte[] one = SyntheticProtocolFixtures.CreateJpegWithXmp(xmp);
@@ -739,7 +837,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_MultipleContainerItemsUnderOneLi_FailsClosed()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("multiple_items_same_li", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV2JpegMultipleItemsInSameLi(inputPath);
 
@@ -751,7 +849,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_ExtendedXmpShadowDirectory_FailsClosed()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("extended_xmp_shadow", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV2JpegExtendedXmpShadow(inputPath);
 
@@ -764,7 +862,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_GoogleV2_WrongMotionMime_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("v2_wrong_motion_mime", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV2JpegWrongMotionMime(inputPath);
 
@@ -776,7 +874,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_GoogleV2_DuplicateGainMap_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("v2_dup_gainmap", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV2JpegDuplicateGainMap(inputPath);
 
@@ -788,7 +886,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_GoogleV2_WrongGainMapMime_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("v2_wrong_gainmap_mime", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV2JpegWrongGainMapMime(inputPath);
 
@@ -800,7 +898,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_Oppo_VideoLengthOnly_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("oppo_videolength_only", ".jpg");
         SyntheticProtocolFixtures.CreateOppoVideoLengthOnlyJpeg(inputPath);
 
@@ -812,7 +910,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_Oppo_WrongOwner_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("oppo_wrong_owner", ".jpg");
         SyntheticProtocolFixtures.CreateOppoWrongOwnerJpeg(inputPath);
 
@@ -824,7 +922,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_Oppo_ItemLengthSmallerThanVideoLength_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("oppo_bad_item_len", ".jpg");
         SyntheticProtocolFixtures.CreateOppoItemLengthSmallerThanVideoLength(inputPath);
 
@@ -836,7 +934,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_VivoX300_MissingVersion_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("vivo_missing_version", ".jpg");
         SyntheticProtocolFixtures.CreateVivoX300MissingVersionJpeg(inputPath);
 
@@ -848,7 +946,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_VivoX300_UnsupportedVersion_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("vivo_unsupported_version", ".jpg");
         SyntheticProtocolFixtures.CreateVivoX300UnsupportedVersionJpeg(inputPath);
 
@@ -860,7 +958,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_VivoX300_NonThreeItems_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("vivo_non_3_items", ".jpg");
         SyntheticProtocolFixtures.CreateVivoX300NonThreeItemsJpeg(inputPath);
 
@@ -872,7 +970,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_VivoX300_TwoItems_IdentifiesVideoWithoutGainMap()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("vivo_two_items", ".jpg");
         SyntheticProtocolFixtures.CreateVivoX300TwoItemJpeg(inputPath);
 
@@ -888,7 +986,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_VivoX300_WrongMime_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("vivo_wrong_mime", ".jpg");
         SyntheticProtocolFixtures.CreateVivoX300WrongMimeJpeg(inputPath);
 
@@ -900,7 +998,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_AppleDual_CorruptPrimaryJpeg_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string imgPath = ws.AllocateFilePath("corrupt_apple", ".jpg");
         string movPath = ws.AllocateFilePath("valid_apple", ".mov");
         SyntheticProtocolFixtures.CreateAppleCorruptDualJpeg(imgPath);
@@ -914,7 +1012,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_AppleDual_CorruptSecondaryMov_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string imgPath = ws.AllocateFilePath("valid_apple", ".jpg");
         string movPath = ws.AllocateFilePath("corrupt_apple", ".mov");
         SyntheticProtocolFixtures.CreateAppleJpeg(imgPath);
@@ -930,7 +1028,7 @@ public sealed class SourceInspectorTests
     [InlineData(0, 1)]
     public async Task Inspect_AppleDual_MovMetadataFullBoxVersionOrFlagsFailsClosed(byte version, byte flagByte)
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string imgPath = ws.AllocateFilePath("valid_apple", ".jpg");
         string movPath = ws.AllocateFilePath("malformed_apple_fullbox", ".mov");
         SyntheticProtocolFixtures.CreateAppleJpeg(imgPath);
@@ -949,7 +1047,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public void MatchVivo_SyntheticPairs_SuccessfullyMatchesAndConfirms()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string imgPath = ws.AllocateFilePath("vivo_match", ".jpg");
         string vidPath = ws.AllocateFilePath("vivo_match", ".mp4");
         string dummyImgPath = ws.AllocateFilePath("dummy_unmatched", ".jpg");
@@ -986,7 +1084,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_GoogleV2_MissingPrimaryMime_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("googlev2_no_mime", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV2JpegMissingPrimaryMime(inputPath);
 
@@ -999,7 +1097,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_GoogleV2_WrongPrimaryMime_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("googlev2_wrong_mime", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV2JpegWrongPrimaryMime(inputPath);
 
@@ -1011,7 +1109,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_GoogleV2_NonzeroPadding_ExcludesPaddingFromPrimaryImage()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("googlev2_padding", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV2JpegNonzeroPadding(inputPath);
 
@@ -1030,7 +1128,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_GoogleV2_MalformedPadding_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("googlev2_bad_pad", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV2JpegMalformedPadding(inputPath);
 
@@ -1042,7 +1140,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_GoogleV2_HeicCandidate_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("googlev2_heic", ".heic");
         SyntheticProtocolFixtures.CreateGoogleV2HeicCandidate(inputPath);
 
@@ -1054,7 +1152,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_GoogleV2_UndeclaredGapToMotionPhoto_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("googlev2_gap_mp", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV2JpegUndeclaredGapToMotionPhoto(inputPath);
 
@@ -1066,7 +1164,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_GoogleV2_UndeclaredGapToGainMap_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("googlev2_gap_gm", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV2JpegUndeclaredGapToGainMap(inputPath);
 
@@ -1078,7 +1176,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_Oppo_WrongMotionMime_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("oppo_bad_motion_mime", ".jpg");
         SyntheticProtocolFixtures.CreateOppoWrongMotionMimeJpeg(inputPath);
 
@@ -1090,7 +1188,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_Oppo_WrongPrimaryMime_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("oppo_bad_pri_mime", ".jpg");
         SyntheticProtocolFixtures.CreateOppoWrongPrimaryMimeJpeg(inputPath);
 
@@ -1102,7 +1200,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_Oppo_WrongGainMapMime_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("oppo_bad_gm_mime", ".jpg");
         SyntheticProtocolFixtures.CreateOppoWrongGainMapMimeJpeg(inputPath);
 
@@ -1114,7 +1212,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_Oppo_GainMapMissingLength_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("oppo_gm_missing_len", ".jpg");
         SyntheticProtocolFixtures.CreateOppoGainMapMissingLengthJpeg(inputPath);
 
@@ -1126,7 +1224,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_Oppo_GainMapZeroLength_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("oppo_gm_zero_len", ".jpg");
         SyntheticProtocolFixtures.CreateOppoGainMapZeroLengthJpeg(inputPath);
 
@@ -1138,7 +1236,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_Oppo_UnsupportedVersion_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("oppo_bad_ver", ".jpg");
         SyntheticProtocolFixtures.CreateOppoUnsupportedVersionJpeg(inputPath);
 
@@ -1153,7 +1251,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_Oppo_ConflictingVersion_ThrowsInvalidArgument()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string inputPath = ws.AllocateFilePath("oppo_conflict_ver", ".jpg");
         SyntheticProtocolFixtures.CreateOppoConflictingVersionJpeg(inputPath);
 
@@ -1259,7 +1357,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task MatchAsync_AppleCandidate_PairsSuccessfully()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string imgPath = ws.AllocateFilePath("apple_match", ".jpg");
         string movPath = ws.AllocateFilePath("apple_match", ".mov");
         SyntheticProtocolFixtures.CreateAppleJpeg(imgPath);
@@ -1277,7 +1375,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task Inspect_AppleDual_ShadowMakerNoteOwner_FailsClosed()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string imagePath = ws.AllocateFilePath("apple_shadow_makernote", ".jpg");
         string videoPath = ws.AllocateFilePath("apple_shadow_makernote", ".mov");
         SyntheticProtocolFixtures.CreateAppleJpegWithShadowMakerNote(imagePath);
@@ -1300,7 +1398,7 @@ public sealed class SourceInspectorTests
     {
         string imagePath = ResolveSample("苹果-双文件.JPG");
         string sourceVideoPath = ResolveSample("苹果-双文件.MOV");
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string videoPath = workspace.AllocateFilePath("apple-shadow-" + shadowType, ".mov");
 
         byte[] video = await File.ReadAllBytesAsync(sourceVideoPath);
@@ -1316,7 +1414,7 @@ public sealed class SourceInspectorTests
     [Fact]
     public async Task MatchAsync_VivoLegacyCandidate_DoesNotPairAsContentIdentifier()
     {
-        using var ws = new MediaWorkspace();
+        using var ws = new TestFixtureWorkspace();
         string imgPath = ws.AllocateFilePath("vivo_legacy_cid", ".jpg");
         string vidPath = ws.AllocateFilePath("vivo_legacy_cid", ".mp4");
         SyntheticProtocolFixtures.CreateVivoLegacyDualJpeg(imgPath);

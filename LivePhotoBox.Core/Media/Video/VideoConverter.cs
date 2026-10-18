@@ -133,6 +133,12 @@ public sealed class VideoConverter : IVideoConverter
                 }
                 throw new NativeVideoTranscodeAttemptException(backendAttempt);
             }
+            if (backendAttempt.OutputEvidence == null)
+            {
+                throw new InvalidDataException(
+                    "Native video conversion did not return exact creating-handle output evidence: " +
+                    (backendAttempt.OutputEvidenceFailure?.Message ?? "unknown evidence failure"));
+            }
             NativeMediaService.NativeVideoTranscodeResult backendDiagnostics = backendAttempt.Diagnostics;
             backendCompleted = true;
 
@@ -222,7 +228,9 @@ public sealed class VideoConverter : IVideoConverter
                 MimeType = probed.Container == VideoContainer.Mov ? "video/quicktime" : "video/mp4",
                 VideoContainer = probed.Container,
                 VideoCodec = probed.Codec,
-                ByteLength = new FileInfo(outPath).Length
+                ByteLength = backendAttempt.OutputEvidence.ByteLength,
+                Sha256 = backendAttempt.OutputEvidence.Sha256,
+                FileIdentity = backendAttempt.OutputEvidence.FileIdentity
             };
 
             return new VideoConversionResult
@@ -281,7 +289,7 @@ public sealed class VideoConverter : IVideoConverter
         catch (OperationCanceledException ex)
         {
             sw.Stop();
-            if (!TryDeleteOutput(outPath, backendAttempt?.Succeeded == true))
+            if (!TryDeleteOutput(outPath, backendAttempt?.OutputEvidence))
             {
                 throw new IOException(
                     "Video conversion was cancelled, but its staged output could not be removed.",
@@ -292,7 +300,7 @@ public sealed class VideoConverter : IVideoConverter
         catch (Exception ex)
         {
             sw.Stop();
-            bool cleanupSucceeded = TryDeleteOutput(outPath, backendAttempt?.Succeeded == true);
+            bool cleanupSucceeded = TryDeleteOutput(outPath, backendAttempt?.OutputEvidence);
             NativeMediaService.NativeVideoTranscodeAttempt? failedAttempt =
                 ex is NativeVideoTranscodeAttemptException attemptException
                     ? attemptException.Attempt
@@ -364,13 +372,10 @@ public sealed class VideoConverter : IVideoConverter
         }
     }
 
-    private static bool TryDeleteOutput(string path, bool converterOwnsArtifact)
-    {
-        if (!File.Exists(path)) return true;
-        if (!converterOwnsArtifact) return false;
-        try { File.Delete(path); return !File.Exists(path); }
-        catch { return false; }
-    }
+    private static bool TryDeleteOutput(
+        string path,
+        NativeMediaService.NativeRegisteredOutputEvidence? expected) =>
+        NativeMediaService.TryDeleteRegisteredOutput(path, expected);
 
     private static async Task<bool> AreFilesByteIdenticalAsync(
         string sourcePath,
@@ -451,7 +456,11 @@ public sealed class VideoConverter : IVideoConverter
         diagnostics.Backend == VideoBackend.ProjectIsoBmffRemux
             ? ConversionCapability.VideoRemux
             : IsMinimalLibav(diagnostics)
-                ? ConversionCapability.VideoTranscodeHdr10Bit
+                ? !diagnostics.IdentityValid || diagnostics.InputProfile == "Unknown"
+                    ? ConversionCapability.Unknown
+                    : diagnostics.InputRequiresHighPrecision
+                        ? ConversionCapability.VideoTranscodeHdr10Bit
+                        : ConversionCapability.VideoTranscodeSdr
                 : diagnostics.Backend == VideoBackend.WindowsMediaFoundation
                     ? ConversionCapability.VideoTranscodeSdr
                     : ConversionCapability.Unknown;

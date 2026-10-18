@@ -2,10 +2,12 @@ using System.Text.Json;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Video;
 
-if (args.Length != 3 || !string.Equals(args[0], "missing-sidecar", StringComparison.Ordinal))
+if ((args.Length != 3 && args.Length != 4) || !string.Equals(args[0], "missing-sidecar", StringComparison.Ordinal))
 {
     throw new ArgumentException("Usage: P5R5.ManagedSmoke missing-sidecar <canonical-huawei-motion.mp4> <output-directory>");
 }
+string profile = args.Length == 4 ? args[3] : "P5-R5-v1";
+if (profile is not ("P5-R5-v1" or "P7-R4-HEVC-v2")) throw new ArgumentException("Unknown validation profile.");
 
 string inputPath = Path.GetFullPath(args[1]);
 string outputDirectory = Path.GetFullPath(args[2]);
@@ -52,7 +54,7 @@ if (result.Success || result.OutputArtifact is not null || File.Exists(outputPat
     truth.FallbackOccurred || result.ExecutionRecord.HardwareFallbackOccurred ||
     result.ExecutionRecord.Backend != VideoBackend.Unknown ||
     result.ExecutionRecord.HardwareMode != VideoHardwareMode.SoftwareForced ||
-    !result.ExecutionRecord.SelectedEncoder.StartsWith("minimal-libav/P5-R5-v1", StringComparison.Ordinal) ||
+    !result.ExecutionRecord.SelectedEncoder.StartsWith("minimal-libav/" + profile, StringComparison.Ordinal) ||
     !result.ErrorMessage!.StartsWith("BackendUnavailable:", StringComparison.Ordinal))
 {
     throw new InvalidDataException("The managed missing-sidecar attempt did not report the selected HDR owner truthfully or leave the output directory clean.");

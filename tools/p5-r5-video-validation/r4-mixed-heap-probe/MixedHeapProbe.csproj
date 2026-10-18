@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../r4-sampler-probe/HeapStats.cs" Link="HeapStats.cs" />
+    <Compile Include="../r4-sampler-probe/VirtualStats.cs" Link="VirtualStats.cs" />
+  </ItemGroup>
+</Project>

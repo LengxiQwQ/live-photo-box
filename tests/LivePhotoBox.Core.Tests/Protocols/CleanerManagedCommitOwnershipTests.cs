@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Workspace;
+using MediaWorkspace = LivePhotoBox.Core.Tests.Support.TestFixtureWorkspace;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Protocols.Cleaning;
 using Xunit;

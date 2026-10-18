@@ -7,6 +7,7 @@ using LivePhotoBox.Services;
 using System;
 using System.CommandLine;
 using System.IO;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -152,7 +153,12 @@ internal static class ConvertCommand
                 return 1;
             }
 
-            File.Move(result.OutputArtifact.Path, outputPath, overwrite: true);
+            await PublishConvertedArtifactAsync(
+                outputPath,
+                overwrite,
+                result.OutputArtifact,
+                testHook: null,
+                cancellationToken).ConfigureAwait(false);
             CliConsole.WriteLine($"Converted image: {outputPath}", CliConsole.Success);
             return 0;
         }
@@ -209,7 +215,12 @@ internal static class ConvertCommand
                 return 1;
             }
 
-            File.Move(result.OutputArtifact.Path, outputPath, overwrite: true);
+            await PublishConvertedArtifactAsync(
+                outputPath,
+                overwrite,
+                result.OutputArtifact,
+                testHook: null,
+                cancellationToken).ConfigureAwait(false);
             CliConsole.WriteLine(
                 $"Converted video: {outputPath} ({result.ExecutionRecord.InputCodec} -> {result.ExecutionRecord.OutputCodec}, " +
                 $"{result.ExecutionRecord.Truth.ActualOperationKind})",
@@ -219,6 +230,127 @@ internal static class ConvertCommand
 
         CliConsole.WriteErrorLine("Error: Output extension must be .jpg, .jpeg, .heic, .heif, .mp4, or .mov.");
         return 1;
+    }
+
+    internal static async Task PublishConvertedArtifactAsync(
+        string finalPath,
+        bool overwriteExisting,
+        MediaArtifact artifact,
+        Func<SplitPublicationTraceEvent, CancellationToken, Task>? testHook,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(artifact);
+
+        if (artifact.FileIdentity == null ||
+            string.IsNullOrWhiteSpace(artifact.Sha256) || artifact.Sha256.Length != 64)
+        {
+            throw new InvalidDataException(
+                "Native converter artifact is missing creating-handle identity or SHA-256 evidence; refusing pathname-only ownership.");
+        }
+
+        string normalizedFinalPath = Path.GetFullPath(finalPath);
+        string artifactPath = Path.GetFullPath(artifact.Path);
+        ValidateConverterArtifactPath(normalizedFinalPath, artifactPath, artifact.Kind);
+
+        Exception? publicationFailure = null;
+        Exception? cleanupFailure = null;
+        WindowsOutputArtifactCopySource? ownedSource = null;
+        try
+        {
+            await WindowsOutputArtifactPublisher.PublishCopyAsync(
+                artifact,
+                normalizedFinalPath,
+                overwriteExisting,
+                cancellationToken,
+                testHook,
+                source => ownedSource = source).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            publicationFailure = ex;
+        }
+
+        if (ownedSource != null)
+        {
+            try
+            {
+                using var cleanupHandle = WindowsOwnedFilePublisher.OpenOwnedStagedFile(
+                    ownedSource.Path,
+                    ownedSource.Identity);
+                PublishedOwnedFile beforeDelete = WindowsOwnedFilePublisher.CaptureOwnedHandleEvidence(
+                    cleanupHandle,
+                    ownedSource.Path,
+                    ownedSource.Identity,
+                    CancellationToken.None);
+                if (!ownedSource.Identity.Matches(beforeDelete.FileIdentity) ||
+                    beforeDelete.ByteLength != ownedSource.ByteLength ||
+                    !string.Equals(
+                        beforeDelete.Sha256,
+                        ownedSource.Sha256,
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new IOException(
+                        $"Converter artifact '{ownedSource.Path}' no longer matches the exact object and bytes owned by this conversion; leaving it untouched.");
+                }
+
+                OwnedObjectCleanupProof cleanupProof = WindowsOwnedFilePublisher.DeleteOwnedObjectWithProof(
+                    cleanupHandle,
+                    ownedSource.Identity,
+                    ownedSource.Path,
+                    out _);
+                if (cleanupProof is not (OwnedObjectCleanupProof.Gone or OwnedObjectCleanupProof.Unlinked))
+                {
+                    throw new IOException(
+                        $"Exact-object cleanup of converter artifact '{ownedSource.Path}' was not proven ({cleanupProof}); leaving the result failed.");
+                }
+            }
+            catch (Exception ex)
+            {
+                cleanupFailure = ex;
+            }
+        }
+
+        if (publicationFailure != null && cleanupFailure != null)
+        {
+            throw new AggregateException(
+                "Convert publication failed and the exact converter-artifact cleanup did not complete.",
+                publicationFailure,
+                cleanupFailure);
+        }
+        if (publicationFailure != null)
+            ExceptionDispatchInfo.Capture(publicationFailure).Throw();
+        if (cleanupFailure != null)
+            ExceptionDispatchInfo.Capture(cleanupFailure).Throw();
+    }
+
+    private static void ValidateConverterArtifactPath(string finalPath, string artifactPath, MediaArtifactKind kind)
+    {
+        string? finalDirectory = Path.GetDirectoryName(finalPath);
+        string? artifactDirectory = Path.GetDirectoryName(artifactPath);
+        if (string.IsNullOrWhiteSpace(finalDirectory) ||
+            !string.Equals(finalDirectory, artifactDirectory, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new IOException("Converter output artifact must be in the requested output directory.");
+        }
+
+        string artifactName = Path.GetFileNameWithoutExtension(artifactPath);
+        string[] prefixes = kind switch
+        {
+            MediaArtifactKind.PrimaryImage => ["img-conv-", "img-hdr-conv-"],
+            MediaArtifactKind.MotionVideo => ["vid-conv-"],
+            _ => []
+        };
+        foreach (string prefix in prefixes)
+        {
+            if (artifactName.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) &&
+                Guid.TryParseExact(artifactName[prefix.Length..], "N", out _))
+            {
+                return;
+            }
+        }
+
+        throw new IOException(
+            $"Converter artifact '{artifactPath}' does not match the unique output-name shape for {kind}.");
     }
 
     private static VideoCodec ParseCodec(string value) => value.Trim().ToLowerInvariant() switch

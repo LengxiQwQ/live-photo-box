@@ -867,6 +867,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 journal.StagingDirectory = null;
 
                 if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Commit, "BeforeBundleCommit").ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
                 journal.SetState(CleanerTransactionState.Committed);
             }
             catch (OperationCanceledException)
@@ -1829,6 +1830,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             journal.StagingDirectory = null;
 
             if (faultHook != null) await faultHook(CleanerFailureStage.Commit, "BeforeBundleCommit").ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             journal.SetState(CleanerTransactionState.Committed);
         }
         catch (OperationCanceledException)

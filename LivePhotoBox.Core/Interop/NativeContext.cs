@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -155,25 +156,38 @@ internal sealed class NativeContext : IDisposable
         try
         {
             Span<byte> buf = stackalloc byte[512];
-            unsafe
+            for (int attempt = 0; attempt < 3; attempt++)
             {
-                fixed (byte* pBuf = buf)
+                NativeResult result;
+                nuint required;
+                unsafe
                 {
-                    NativeResult res = NativeMethods.GetLastError(lease.Handle, (nint)pBuf, (nuint)buf.Length, out nuint required);
-                    if (res == NativeResult.Ok && required > 0)
+                    fixed (byte* pBuf = buf)
                     {
-                        int len = 0;
-                        while (len < (int)required && buf[len] != 0) len++;
-                        return Encoding.UTF8.GetString(buf[..len]);
+                        result = NativeMethods.GetLastError(lease.Handle, (nint)pBuf, (nuint)buf.Length, out required);
                     }
                 }
+                if (result == NativeResult.Ok && required > 0 && required <= (nuint)buf.Length)
+                {
+                    int terminator = buf[..(int)required].IndexOf((byte)0);
+                    return Encoding.UTF8.GetString(buf[..(terminator >= 0 ? terminator : (int)required)]);
+                }
+                if (result != NativeResult.BufferTooSmall || required == 0)
+                    return null;
+                if (required > (nuint)Array.MaxLength)
+                    throw new InvalidDataException("Native error diagnostic exceeds the supported buffer size.");
+
+                // Cleanup diagnostics include exact owned paths and identities and
+                // can exceed the initial stack buffer. Losing the message here
+                // would mask CleanupFailed as cancellation when the token is set.
+                buf = new byte[(int)required];
             }
+            throw new InvalidOperationException("Native error diagnostic changed repeatedly while being read.");
         }
         finally
         {
             lease.Dispose();
         }
-        return null;
     }
 
     public void ThrowIfFailed(NativeResult res)

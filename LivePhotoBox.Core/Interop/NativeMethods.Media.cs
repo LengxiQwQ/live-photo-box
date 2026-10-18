@@ -613,6 +613,19 @@ internal sealed class NativeHdrGainMapConversionTransaction : IDisposable
         _completed = true;
     }
 
+    internal NativeMediaService.NativeRegisteredOutputEvidence CaptureCommittedOutputEvidence(
+        string outputPath)
+    {
+        NativeContext context = _context ?? throw new ObjectDisposedException(nameof(NativeHdrGainMapConversionTransaction));
+        if (!_completed) throw new InvalidOperationException("HDR/GainMap output evidence is unavailable before commit.");
+        NativeMediaService.NativeRegisteredOutputEvidence evidence =
+            NativeMediaService.CaptureRegisteredOutputEvidence(
+            context, outputPath, MediaArtifactKind.PrimaryImage);
+        if (!string.Equals(evidence.Sha256, Result.GetOutputSha256Hex(), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("Committed HDR/GainMap output bytes differ from the Native validated output hash.");
+        return evidence;
+    }
+
     internal void Abort()
     {
         NativeContext context = _context ?? throw new ObjectDisposedException(nameof(NativeHdrGainMapConversionTransaction));

@@ -10,7 +10,7 @@
 #endif
 
 #define LPB_VIDEO_SIDECAR_ABI_MAJOR 1U
-#define LPB_VIDEO_SIDECAR_ABI_MINOR 1U
+#define LPB_VIDEO_SIDECAR_ABI_MINOR 2U
 #define LPB_VIDEO_SIDECAR_VERSION_CAPACITY 32U
 #define LPB_VIDEO_SIDECAR_ENCODER_CAPACITY 32U
 
@@ -47,7 +47,9 @@ enum lpb_video_sidecar_request_flag_v1
 {
     // Native has independently validated the source track and will transplant
     // its exact MEBX bytes/timing into the separately staged final container.
-    LPB_VIDEO_SIDECAR_REQUEST_NATIVE_TRANSPLANTS_MEBX = 1U << 0U
+    LPB_VIDEO_SIDECAR_REQUEST_NATIVE_TRANSPLANTS_MEBX = 1U << 0U,
+    // Source facts came from Native's strict ISO-BMFF profile inspection.
+    LPB_VIDEO_SIDECAR_REQUEST_NATIVE_SOURCE_PROFILE = 1U << 1U
 };
 
 enum lpb_video_sidecar_container_v1
@@ -125,6 +127,11 @@ typedef struct lpb_video_sidecar_request_v1
     int32_t crf;
     uint32_t flags;
     uint32_t reserved[3];
+    int32_t source_color_range;
+    int32_t source_color_primaries;
+    int32_t source_color_transfer;
+    int32_t source_color_matrix;
+    uint32_t source_pixel_depth;
 } lpb_video_sidecar_request_v1;
 
 typedef struct lpb_video_sidecar_result_v1
@@ -162,6 +169,7 @@ typedef int32_t(LPB_VIDEO_SIDECAR_CALL* lpb_video_sidecar_transcode_fn_v1)(
 #ifdef __cplusplus
 static_assert(offsetof(lpb_video_sidecar_abi_info_v1, library_version) == 48U);
 static_assert(offsetof(lpb_video_sidecar_request_v1, crf) == 12U);
+static_assert(sizeof(lpb_video_sidecar_request_v1) == 52U);
 static_assert(offsetof(lpb_video_sidecar_result_v1, video_frames) == 32U);
 static_assert(offsetof(lpb_video_sidecar_io_v1, input_context) == 8U);
 #endif

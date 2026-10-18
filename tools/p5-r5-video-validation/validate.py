@@ -30,6 +30,7 @@ EXPECTED_TOOL_ERRATUM_RELATIVE = Path(
     "tools/p5-r5-video-validation/profiles/P5-R5-v1/errata/tool-identity-E1.json"
 )
 EXPECTED_PROFILE_MANIFEST_RELATIVE = "tools/p5-r5-video-validation/profiles/P5-R5-v1/manifest.json"
+HEVC_REOPEN_PROFILE_SHA256 = "C407267630864D773257EBA667725CBF7FC74F13454969A3BFDE2260783F1AD9"
 EXPECTED_FFMPEG_VERSION = "ffmpeg version 8.0.1-full_build-www.gyan.dev Copyright (c) 2000-2025 the FFmpeg developers"
 EXPECTED_FFMPEG_SHA256 = "74DB6C184A03DBA2BDFE23E1A1F41CF5A8385BC1DE6A7A1B26DB1DC541ABEF93"
 EXPECTED_FFPROBE_VERSION = "ffprobe version 8.0.1-full_build-www.gyan.dev Copyright (c) 2007-2025 the FFmpeg developers"
@@ -355,6 +356,29 @@ def verify_manifest(root: Path) -> tuple[dict[str, Any], Path, dict[str, Any], P
     return manifest, profile_path, erratum, erratum_path, erratum_sha256
 
 
+def verify_active_manifest(root: Path, profile: str):
+    old = verify_manifest(root)
+    if profile == 'P5-R5-v1':
+        return old
+    require(profile == 'P7-R4-HEVC-v2', 'Unknown validation profile.')
+    path = root / 'tools/p5-r5-video-validation/profiles/P7-R4-HEVC-v2/manifest.json'
+    require(sha256_file(path) == HEVC_REOPEN_PROFILE_SHA256, 'HEVC reopen profile identity changed.')
+    manifest = parse_json(path.read_bytes(), 'HEVC reopen profile')
+    require(manifest['profileId'] == profile, 'HEVC profile ID differs.')
+    for field in ('sources', 'sourceManifest', 'requiredFailureCases', 'independentValidation'):
+        require(manifest[field] == old[0][field], f'HEVC reopening changed frozen acceptance field {field}.')
+    expected_ids = EXPECTED_ROUTES | {'apple-hevc-to-hevc-sdr-mov', 'apple-hevc-to-hevc-sdr-mp4'}
+    rows = manifest['requiredRoutes']
+    require(len(rows) == 11 and {r['id'] for r in rows} == expected_ids, 'HEVC matrix route coverage differs.')
+    require(all(r['required'] and r['skipAllowed'] is False for r in rows), 'HEVC matrix cannot skip routes.')
+    for row in rows:
+        require(row['owner'] == ('project-owned-iso-bmff-remux' if row['targetCodec'] == 'copy' else 'minimal-libav-sidecar'), 'HEVC unique owner differs.')
+        if row['targetCodec'] != 'copy':
+            require(row['expectedOutputDepth'] == (10 if row['source'] == 'huawei-parent-jpeg' else 8), 'Exact depth expectation differs.')
+    # Reuse only the unchanged offline-tool identity erratum, not its old owner policy.
+    return manifest, path, old[2], old[3], old[4]
+
+
 def validate_tool(
     runner: Runner,
     name: str,
@@ -619,6 +643,21 @@ def frame_facts(probe: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, A
     return video, frames
 
 
+def compare_hdr_frame_metadata(source_probe, output_probe):
+    _, source_frames = frame_facts(source_probe)
+    _, output_frames = frame_facts(output_probe)
+    require(len(source_frames) == len(output_frames), 'HDR metadata comparison requires the exact same picture count.')
+    def metadata(frame):
+        return sorted([item for item in frame.get('side_data_list', []) if any(name in item.get('side_data_type', '')
+            for name in ('Mastering display', 'Content light level', 'HDR Dynamic Metadata', 'DOVI', 'Dolby Vision', 'ICC profile', 'Ambient viewing'))],
+            key=lambda value: json.dumps(value, sort_keys=True))
+    before = [metadata(frame) for frame in source_frames]
+    after = [metadata(frame) for frame in output_frames]
+    require(before == after, 'Decoded per-picture HDR/static/dynamic metadata differs; depth/CICP alone do not prove preservation.')
+    return {'picturesCompared': len(before), 'picturesWithHdrMetadata': sum(bool(row) for row in before),
+            'sourceMetadataSha256': sha256_bytes(json_bytes(before)), 'outputMetadataSha256': sha256_bytes(json_bytes(after)), 'equal': True}
+
+
 def compare_reencoded_frames(source_probe: dict[str, Any], output_probe: dict[str, Any]) -> dict[str, Any]:
     source_video, source_frames = frame_facts(source_probe)
     output_video, output_frames = frame_facts(output_probe)
@@ -726,6 +765,33 @@ def compare_audio(source_probe: dict[str, Any], output_probe: dict[str, Any]) ->
     return {"streams": result, "passed": True}
 
 
+def compare_copied_audio_payload(source_probe, output_probe, source_path, output_path):
+    source_audio = [s for s in source_probe['streams'] if s.get('codec_type') == 'audio']
+    output_audio = [s for s in output_probe['streams'] if s.get('codec_type') == 'audio']
+    require(len(source_audio) == len(output_audio), 'Copied audio inventory differs.')
+    def payload_hash(probe, stream, path):
+        digest = hashlib.sha256()
+        byte_count = 0
+        with path.open('rb') as file:
+            for packet in stream_packets(probe, stream):
+                file.seek(int(packet['pos']))
+                size = int(packet['size'])
+                data = file.read(size)
+                require(len(data) == size, 'Audio packet range truncated.')
+                digest.update(data)
+                byte_count += size
+        return {'bytes': byte_count, 'sha256': digest.hexdigest().upper()}
+    results = []
+    for source, output in zip(source_audio, output_audio, strict=True):
+        for field in ('codec_name', 'sample_rate', 'channels'):
+            require(source.get(field) == output.get(field), f'Copied audio field changed: {field}.')
+        before = payload_hash(source_probe, source, source_path)
+        after = payload_hash(output_probe, output, output_path)
+        require(before == after, 'Ordered concatenated audio payload changed.')
+        results.append(before)
+    return {'orderedPayloadsExact': True, 'streams': results, 'packetRechunkingMayDiffer': True}
+
+
 def check_remux_route(
     route_id: str,
     target: str,
@@ -798,6 +864,8 @@ def check_remux_route(
 
 
 def sdr_profile(source_video: dict[str, Any], output_video: dict[str, Any]) -> dict[str, Any]:
+    require(output_video.get("chroma_location") == source_video.get("chroma_location"),
+            "SDR output changed the source chroma sample location.")
     pix_fmt = output_video.get("pix_fmt") or ""
     profile = (output_video.get("profile") or "").lower()
     transfer = output_video.get("color_transfer")
@@ -842,7 +910,12 @@ def compare_quality(runner: Runner, source: Path, output: Path, output_video: di
     )
     argv = [
         str(runner.ffmpeg), "-hide_banner", "-nostats", "-v", "info", "-xerror",
-        "-noautorotate", "-i", str(source), "-noautorotate", "-i", str(output),
+        # Compare stored presentation pixels with the frozen metric formula.
+        # Keep codec SPS cropping (e.g. AVC 1088 coded -> 1080 stored), while
+        # ignoring container clap (validated independently). Disabling both
+        # would rescale coded padding and create a false luma-quality loss.
+        "-noautorotate", "-apply_cropping", "codec", "-i", str(source),
+        "-noautorotate", "-apply_cropping", "codec", "-i", str(output),
         "-filter_complex", graph, "-map", "[psnr]", "-map", "[ssim]", "-f", "null", "NUL",
     ]
     record, _, stderr = runner.require_command_success(label, argv, timeout=600)
@@ -874,15 +947,22 @@ def check_mf_route(
     record = driver_report["executionRecord"]
     truth = record["truth"]
     require(driver_report["success"] is True, f"{route_id} conversion failed: {driver_report.get('error')}.")
-    require(record.get("backend") == "WindowsMediaFoundation", f"{route_id} did not use Media Foundation.")
+    migrated = runner.manifest['profileId'] == 'P7-R4-HEVC-v2'
+    expected_backend = 'minimal-libav' if migrated else 'WindowsMediaFoundation'
+    require(record.get('backend') == ('Unknown' if migrated else 'WindowsMediaFoundation'), f'{route_id} legacy ABI backend projection differs.')
     require(record.get("hardwareMode") == "SoftwareForced", f"{route_id} was not software-forced.")
     require(record.get("hardwareFallbackOccurred") is False and truth.get("fallbackOccurred") is False, f"{route_id} reports a fallback.")
     require(truth.get("selectedCapability") == "VideoTranscodeSdr", f"{route_id} did not select VideoTranscodeSdr.")
-    require(truth.get("backendName") == "WindowsMediaFoundation", f"{route_id} canonical backend name is incorrect.")
+    require(truth.get("backendName") == expected_backend, f"{route_id} canonical backend name is incorrect.")
+    if migrated:
+        require(truth.get('backendVersion') == '9.0.1', 'Migrated route sidecar version differs.')
     require(truth.get("actualOperationKind") == "LossyReencode", f"{route_id} actual operation is not LossyReencode.")
     require(not any(stream.get("codec_type") not in {"video", "audio", "data"} for stream in output_probe["streams"]), f"{route_id} output contains an unexpected stream type.")
     output_video = one_stream(output_probe, "video")
     source_video = one_stream(source_probe, "video")
+    color_evidence = None
+    if migrated:
+        source_video, color_evidence = reconcile_independent_cicp(runner, route_id, source_path, output_path, source_video, output_video)
     expected_codec = target_codec
     require(output_video.get("codec_name") == expected_codec, f"{route_id} output codec differs from its frozen route.")
     container_facts = check_container(output_probe, target)
@@ -895,6 +975,8 @@ def check_mf_route(
     decoded_source = decode_all(runner, source_path, f"{route_id}-decode-source")
     decoded_output = decode_all(runner, output_path, f"{route_id}-decode-output")
     quality = compare_quality(runner, source_path, output_path, output_video, f"{route_id}-psnr-ssim")
+    metadata = compare_mebx(source_probe, output_probe) if migrated and mebx_streams(source_probe) else None
+    copied_audio = compare_copied_audio_payload(source_probe, output_probe, source_path, output_path) if migrated else None
     return {
         "routeId": route_id,
         "checksPassed": True,
@@ -905,17 +987,25 @@ def check_mf_route(
         "audio": audio,
         "independentDecode": {"source": decoded_source, "output": decoded_output},
         "referenceMetrics": quality,
+        "mebx": metadata,
+        "copiedAudioPayload": copied_audio,
+        "staticMetadata": compare_static_metadata(source_path, output_path, source_video, output_video) if migrated else None,
+        "independentCicp": color_evidence,
+        "perPictureHdrMetadata": compare_hdr_frame_metadata(source_probe, output_probe) if migrated else None,
         "sourceSha256": sha256_file(source_path),
         "outputSha256": sha256_file(output_path),
         "streamInventory": {"source": tool_fields(source_probe), "output": tool_fields(output_probe)},
     }
 
 
-def huawei_hdr_profile(source_video: dict[str, Any], output_video: dict[str, Any]) -> dict[str, Any]:
+def huawei_hdr_profile(source_video: dict[str, Any], output_video: dict[str, Any], expected_codec='hevc') -> dict[str, Any]:
+    require(output_video.get("chroma_location") == source_video.get("chroma_location"),
+            "HDR output changed the source chroma sample location.")
     profile = (output_video.get("profile") or "").lower()
     pix_fmt = output_video.get("pix_fmt") or ""
-    require(output_video.get("codec_name") == "hevc", "Huawei preservation output is not HEVC.")
-    require("main 10" in profile or "main10" in profile, f"Huawei output is not Main10-compatible: {profile!r}.")
+    require(output_video.get("codec_name") == expected_codec, "Huawei preservation output codec differs.")
+    require(('main 10' in profile or 'main10' in profile) if expected_codec == 'hevc' else 'high 10' in profile,
+            f'Huawei output does not have the requested 10-bit codec profile: {profile!r}.')
     require("10" in pix_fmt or "12" in pix_fmt or "16" in pix_fmt, f"Huawei output pixel format is not >8-bit: {pix_fmt!r}.")
     require(output_video.get("color_primaries") == "bt2020", "Huawei output primaries are not BT.2020.")
     require(output_video.get("color_transfer") == "arib-std-b67", "Huawei output transfer is not HLG.")
@@ -954,7 +1044,10 @@ def check_huawei_route(
     require(truth.get("fallbackOccurred") is False, "Huawei preservation route reports a fallback.")
     source_video = one_stream(source_probe, "video")
     output_video = one_stream(output_probe, "video")
-    profile = huawei_hdr_profile(source_video, output_video)
+    expected_codec = 'h264' if runner.manifest['profileId'] == 'P7-R4-HEVC-v2' and route_id == 'huawei-main10-hlg-to-h264-preservation-required' else 'hevc'
+    profile = huawei_hdr_profile(source_video, output_video, expected_codec)
+    if runner.manifest['profileId'] == 'P7-R4-HEVC-v2':
+        require(output_video.get('pix_fmt') == 'yuv420p10le', 'HEVC reopen must retain exact10bit, not promote or reduce depth.')
     frame_timing = compare_reencoded_frames(source_probe, output_probe)
     require(frame_timing["sourceDecodedFrameCount"] == 86, "Huawei source decode count differs from the frozen 86-frame profile.")
     audio = compare_audio(source_probe, output_probe)
@@ -969,6 +1062,7 @@ def check_huawei_route(
     decoded_source = decode_all(runner, source_path, f"{route_id}-decode-source")
     decoded_output = decode_all(runner, output_path, f"{route_id}-decode-output")
     mebx = compare_mebx(source_probe, output_probe)
+    copied_audio = compare_copied_audio_payload(source_probe, output_probe, source_path, output_path)
     return {
         "routeId": route_id,
         "checksPassed": True,
@@ -977,18 +1071,24 @@ def check_huawei_route(
         "frameTiming": frame_timing,
         "audio": audio,
         "mebx": mebx,
+        "copiedAudioPayload": copied_audio,
+        "staticMetadata": compare_static_metadata(source_path, output_path, source_video, output_video) if runner.manifest['profileId'] == 'P7-R4-HEVC-v2' else None,
         "independentDecode": {"source": decoded_source, "output": decoded_output},
         "sourceSha256": sha256_file(source_path),
         "outputSha256": sha256_file(output_path),
         "streamInventory": {"source": tool_fields(source_probe), "output": tool_fields(output_probe)},
         "hdrReferenceMetrics": "not-used-by-frozen-policy",
+        "perPictureHdrMetadata": compare_hdr_frame_metadata(source_probe, output_probe) if runner.manifest['profileId'] == 'P7-R4-HEVC-v2' else None,
     }
 
 
-def box_children(data: bytes | bytearray, start: int, end: int, description: str) -> list[dict[str, Any]]:
+def box_children(data: bytes | bytearray, start: int, end: int, description: str, allow_qt_terminator: bool = False) -> list[dict[str, Any]]:
     boxes: list[dict[str, Any]] = []
     position = start
     while position < end:
+        if allow_qt_terminator and end - position == 4 and data[position:end] == b'\0' * 4:
+            position = end
+            break
         require(end - position >= 8, f"{description} has a truncated box header at {position}.")
         size32 = int.from_bytes(data[position:position + 4], "big")
         kind = bytes(data[position + 4:position + 8]).decode("latin-1")
@@ -1012,6 +1112,100 @@ def exactly_one(boxes: Iterable[dict[str, Any]], kind: str, description: str) ->
     matches = [box for box in boxes if box["type"] == kind]
     require(len(matches) == 1, f"{description} must contain exactly one {kind}; found {len(matches)}.")
     return matches[0]
+
+
+def reconcile_independent_cicp(runner, label, source, output, source_video, output_video):
+    def inspect(path, suffix):
+        data = path.read_bytes()
+        movie = exactly_one(box_children(data, 0, len(data), 'file'), 'moov', 'file')
+        colors = []
+        for track in [b for b in box_children(data, movie['payload'], movie['end'], 'moov') if b['type'] == 'trak']:
+            mdia = exactly_one(box_children(data, track['payload'], track['end'], 'trak'), 'mdia', 'trak')
+            mc = box_children(data, mdia['payload'], mdia['end'], 'mdia')
+            handler = exactly_one(mc, 'hdlr', 'mdia')
+            if data[handler['payload'] + 8:handler['payload'] + 12] != b'vide':
+                continue
+            minf = exactly_one(mc, 'minf', 'mdia')
+            stbl = exactly_one(box_children(data, minf['payload'], minf['end'], 'minf'), 'stbl', 'minf')
+            stsd = exactly_one(box_children(data, stbl['payload'], stbl['end'], 'stbl'), 'stsd', 'stbl')
+            entries = box_children(data, stsd['payload'] + 8, stsd['end'], 'stsd entries')
+            require(len(entries) == 1 and int.from_bytes(data[stsd['payload'] + 4:stsd['payload'] + 8], 'big') == 1, 'Unambiguous video entry required.')
+            entry = entries[0]
+            require(entry['type'] in {'avc1', 'avc3', 'hvc1', 'hev1'}, 'Unsupported independent CICP sample entry.')
+            # A QuickTime terminator is legal only at a child boundary;
+            # a valid btrt payload can itself end with four zero bytes.
+            for box in box_children(data, entry['payload'] + 78, entry['end'], 'visual extensions', True):
+                if box['type'] == 'colr':
+                    body = data[box['payload']:box['end']]
+                    require((len(body) == 11 and body[:4] == b'nclx' and body[10] & 127 == 0) or
+                            (len(body) == 10 and body[:4] == b'nclc'), 'Exact NCLX or QuickTime NCLC required.')
+                    colors.append(tuple(int.from_bytes(body[p:p + 2], 'big') for p in (4, 6, 8)) +
+                                  (int(bool(body[10] & 128)) if body[:4] == b'nclx' else None,))
+        require(len(colors) <= 1, 'Duplicate independent NCLX declaration.')
+        _, _, stderr = runner.require_command_success(label + '-cicp-' + suffix,
+            [str(runner.ffmpeg), '-v', 'info', '-i', str(path), '-map', '0:v:0', '-frames:v', '1', '-c', 'copy', '-bsf:v', 'trace_headers', '-f', 'null', '-'])
+        text = stderr.decode('utf-8', 'strict')
+        encoded = []
+        for field in ('colour_primaries', 'transfer_characteristics', 'matrix_coefficients', 'video_full_range_flag'):
+            values = {int(x) for x in re.findall(r'\b' + field + r'\s+[01]+\s+=\s+(\d+)', text)}
+            require(len(values) <= 1, 'Conflicting independently traced VUI: ' + field)
+            encoded.append(next(iter(values)) if values else None)
+        effective = []
+        for i, value in enumerate(encoded):
+            declared = colors[0][i] if colors else None
+            if i < 3:
+                value = None if value == 2 else value
+                declared = None if declared == 2 else declared
+            require(value is None or declared is None or value == declared, 'NCLX/VUI conflict in independent evidence.')
+            effective.append(value if value is not None else declared)
+        require(all(v is not None for v in effective), 'Missing independent CICP evidence.')
+        return {'nclx': colors[0] if colors else None, 'vui': encoded, 'effective': effective}
+    before, after = inspect(source, 'source'), inspect(output, 'output')
+    require(before['effective'] == after['effective'], 'Source/output independent CICP differs.')
+    supplemented = dict(source_video)
+    fields = ('color_primaries', 'color_transfer', 'color_space', 'color_range')
+    # ffprobe 8 omits Vivo's transfer despite explicit source NCLX transfer6.
+    # Supplement only omitted source fields from independent container/VUI proof;
+    # retain the original strict known-output and equality assertions.
+    names = ({1:'bt709', 5:'bt470bg', 6:'smpte170m', 9:'bt2020'},
+             {1:'bt709', 4:'gamma22', 5:'gamma28', 6:'smpte170m', 7:'smpte240m', 18:'arib-std-b67', 16:'smpte2084'},
+             {1:'bt709', 5:'bt470bg', 6:'smpte170m', 9:'bt2020nc'}, {0:'tv', 1:'pc'})
+    for i, field in enumerate(fields):
+        if supplemented.get(field) is None:
+            require(before['effective'][i] in names[i], 'Unmapped independent source CICP.')
+            supplemented[field] = names[i][before['effective'][i]]
+    return supplemented, {'source': before, 'output': after, 'sourceFfprobe': source_video, 'sourceResolved': supplemented}
+
+
+def compare_static_metadata(source: Path, output: Path, source_video: dict, output_video: dict) -> dict:
+    def inventory(path):
+        data = path.read_bytes()
+        movie = exactly_one(box_children(data, 0, len(data), 'file'), 'moov', 'file')
+        children = box_children(data, movie['payload'], movie['end'], 'moov')
+        tracks = []
+        for track in [b for b in children if b['type'] == 'trak']:
+            tc = box_children(data, track['payload'], track['end'], 'trak')
+            mdia = exactly_one(tc, 'mdia', 'trak')
+            handler = exactly_one(box_children(data, mdia['payload'], mdia['end'], 'mdia'), 'hdlr', 'mdia')
+            if data[handler['payload'] + 8:handler['payload'] + 12] == b'vide':
+                tracks.append(tc)
+        require(len(tracks) == 1, 'Static preservation requires one video track.')
+        found = {}
+        for scope, boxes, types in [('movie', children, {'meta', 'udta'}), ('video', tracks[0], {'meta', 'udta', 'tapt'})]:
+            for box in boxes:
+                if box['type'] not in types:
+                    continue
+                key = scope + '/' + box['type']
+                require(key not in found, 'Duplicate static metadata scope: ' + key)
+                found[key] = {'bytes': box['size'], 'sha256': hashlib.sha256(data[box['start']:box['end']]).hexdigest().upper()}
+        return found
+    before, after = inventory(source), inventory(output)
+    require(all(after.get(k) == value for k, value in before.items()), 'Movie/video static metadata or aperture bytes changed.')
+    def cropping(video):
+        return [{k: v for k, v in item.items() if k.startswith('crop_')} for item in video.get('side_data_list', []) if item.get('side_data_type') == 'Frame Cropping']
+    source_crop, output_crop = cropping(source_video), cropping(output_video)
+    require(source_crop == output_crop, 'Source/output clean aperture cropping differs.')
+    return {'source': before, 'output': after, 'sourceCropping': source_crop, 'outputCropping': output_crop, 'exactSourceStaticBoxesPreserved': True}
 
 
 def mutate_huawei_cicp_conflict(source: Path, target: Path) -> dict[str, Any]:
@@ -1164,7 +1358,7 @@ def validate_record_id(record_id: str) -> None:
 
 def run_identity_preflight(args: argparse.Namespace) -> int:
     root = Path(__file__).resolve().parents[2]
-    manifest, profile_path, erratum, erratum_path, erratum_sha256 = verify_manifest(root)
+    manifest, profile_path, erratum, erratum_path, erratum_sha256 = verify_active_manifest(root, args.profile)
     record_id = args.record_id
     validate_record_id(record_id)
     run_root = root / ".ai-tmp/workspace/P5-R5" / record_id
@@ -1288,7 +1482,7 @@ def run_identity_preflight(args: argparse.Namespace) -> int:
 
 def run_matrix(args: argparse.Namespace) -> int:
     root = Path(__file__).resolve().parents[2]
-    manifest, profile_path, erratum, erratum_path, erratum_sha256 = verify_manifest(root)
+    manifest, profile_path, erratum, erratum_path, erratum_sha256 = verify_active_manifest(root, args.profile)
     record_id = args.record_id
     validate_record_id(record_id)
     run_root = root / ".ai-tmp/workspace/P5-R5" / record_id
@@ -1302,6 +1496,8 @@ def run_matrix(args: argparse.Namespace) -> int:
     dotnet = shutil.which("dotnet")
     require(dotnet is not None, "dotnet was not found on PATH.")
     driver_dll = root / "tools/p5-r5-video-validation/route-driver/bin/x64/Release/net9.0-windows10.0.19041.0/P5R5.RouteDriver.dll"
+    if args.driver_dll:
+        driver_dll = Path(args.driver_dll).resolve()
     require(driver_dll.is_file(), "Route driver Release DLL is missing; build it before running the matrix.")
     orphan_before = source_orphan_snapshot(root)
     runner = Runner(
@@ -1320,7 +1516,7 @@ def run_matrix(args: argparse.Namespace) -> int:
     partial: dict[str, Any] = {
         "schemaVersion": 1,
         "runnerVersion": RUNNER_VERSION,
-        "profileId": "P5-R5-v1",
+        "profileId": manifest['profileId'],
         "recordId": record_id,
         "state": "running",
         "workspace": str(run_root),
@@ -1428,12 +1624,14 @@ def run_matrix(args: argparse.Namespace) -> int:
             )
             require(driver.get("id") == route_id, f"{route_id} driver report does not match its requested route.")
             artifact = driver.get("outputArtifact")
-            if route_id == "huawei-main10-hlg-to-h264-preservation-required":
+            if route_id == "huawei-main10-hlg-to-h264-preservation-required" and (
+                    manifest['profileId'] == 'P5-R5-v1' or driver.get('success') is not True):
                 require(driver.get("success") is False and artifact is None, "Huawei H.264 preservation route should fail closed without output.")
                 truth = driver["executionRecord"]["truth"]
                 record = driver["executionRecord"]
                 require(truth.get("failureCategory") == "Unsupported", "Huawei H.264 failure was not Unsupported.")
-                require(truth.get("failureStage") == "OutputValidation", "Huawei H.264 failure stage is not OutputValidation.")
+                expected_stage = 'PolicyRejection' if manifest['profileId'] == 'P7-R4-HEVC-v2' else 'OutputValidation'
+                require(truth.get("failureStage") == expected_stage, 'Huawei H.264 rejection did not occur at the expected capability/validation stage.')
                 require(truth.get("preservationOutcome") == "Unsupported", "Huawei H.264 preservation result is not Unsupported.")
                 require(truth.get("selectedCapability") == "VideoTranscodeHdr10Bit", "Huawei H.264 did not select the HDR capability.")
                 require(truth.get("backendName") == "minimal-libav" and truth.get("backendVersion") == "9.0.1", "Huawei H.264 did not record the selected minimal-libav version.")
@@ -1450,7 +1648,7 @@ def run_matrix(args: argparse.Namespace) -> int:
                         "version": truth.get("backendVersion"),
                         "selectedCapability": truth.get("selectedCapability"),
                         "hardwareMode": record.get("hardwareMode"),
-                        "outputCandidateObserved": True,
+                        "outputCandidateObserved": manifest['profileId'] == 'P5-R5-v1',
                         "noMfRetry": True,
                     },
                     "noOutputOrResidue": True,
@@ -1465,7 +1663,7 @@ def run_matrix(args: argparse.Namespace) -> int:
                     "event": "route-passed",
                     "routeId": route_id,
                     "passedRouteCount": sum(1 for item in route_results if item["checksPassed"]),
-                    "requiredRouteCount": 9,
+                    "requiredRouteCount": len(manifest['requiredRoutes']),
                 }, ensure_ascii=False), flush=True)
                 continue
 
@@ -1500,7 +1698,7 @@ def run_matrix(args: argparse.Namespace) -> int:
                 "event": "route-passed",
                 "routeId": route_id,
                 "passedRouteCount": sum(1 for item in route_results if item["checksPassed"]),
-                "requiredRouteCount": 9,
+                "requiredRouteCount": len(manifest['requiredRoutes']),
             }, ensure_ascii=False), flush=True)
 
         failure_results: list[dict[str, Any]] = []
@@ -1557,7 +1755,7 @@ def run_matrix(args: argparse.Namespace) -> int:
         output_dir = run_root / "failures" / "real-sidecar-missing" / "output"
         output_dir.parent.mkdir(parents=True, exist_ok=False)
         smoke_argv = [
-            dotnet, str(managed_dll), "missing-sidecar", str(huawei_path), str(output_dir),
+            dotnet, str(managed_dll), "missing-sidecar", str(huawei_path), str(output_dir), manifest['profileId'],
         ]
         _, smoke_stdout, smoke_stderr = runner.require_command_success("real-missing-sidecar-runtime", smoke_argv, timeout=300)
         missing_report = parse_json(smoke_stdout, "managed missing-sidecar smoke")
@@ -1574,8 +1772,10 @@ def run_matrix(args: argparse.Namespace) -> int:
             "runtimeStderrSha256": sha256_bytes(smoke_stderr),
         }
 
-        require({item["routeId"] for item in route_results} == EXPECTED_ROUTES, "Route execution set is incomplete.")
-        require(len(route_results) == 9 and all(item["checksPassed"] for item in route_results), "At least one required route did not pass.")
+        expected_route_ids = EXPECTED_ROUTES | ({'apple-hevc-to-hevc-sdr-mov', 'apple-hevc-to-hevc-sdr-mp4'}
+            if manifest['profileId'] == 'P7-R4-HEVC-v2' else set())
+        require({item["routeId"] for item in route_results} == expected_route_ids, "Route execution set is incomplete.")
+        require(len(route_results) == len(manifest['requiredRoutes']) and all(item["checksPassed"] for item in route_results), "At least one required route did not pass.")
         require({item["caseId"] for item in failure_results} == EXPECTED_FAILURES, "Required failure-case execution set is incomplete.")
         require(len(failure_results) == 5 and all(item["checksPassed"] for item in failure_results), "At least one required failure case did not pass.")
         require(sha256_file(sources["huawei-parent-jpeg"]) == EXPECTED_PARENT_SHA256, "Huawei parent changed during the matrix.")
@@ -1624,7 +1824,7 @@ def run_matrix(args: argparse.Namespace) -> int:
                 "independentProbeCommand": extraction_probe_command,
             },
             "malformedFactsFixture": malformed_fixture,
-            "requiredRouteCount": 9,
+            "requiredRouteCount": len(manifest['requiredRoutes']),
             "passedRouteCount": len(route_results),
             "requiredFailureCount": 5,
             "passedFailureCount": len(failure_results),
@@ -1680,6 +1880,8 @@ def main() -> int:
     parser.add_argument("--record-id", required=True, help="Unique create-only run ID; use a stable, explicit ID.")
     parser.add_argument("--ffmpeg", help="Optional exact path to the frozen ffmpeg.exe.")
     parser.add_argument("--ffprobe", help="Optional exact path to the frozen ffprobe.exe.")
+    parser.add_argument('--profile', choices=['P5-R5-v1','P7-R4-HEVC-v2'], default='P5-R5-v1')
+    parser.add_argument('--driver-dll', help='Exact candidate route driver DLL, with bound sibling runtime.')
     parser.add_argument(
         "--preflight-only",
         action="store_true",

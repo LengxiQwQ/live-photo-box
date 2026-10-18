@@ -60,6 +60,7 @@ enum class media_foundation_cicp_patch_mode : uint8_t {
 
 struct isobmff_video_profile {
     uint32_t codec_fourcc{};
+    uint8_t avc_profile_idc{}; // private Native fact, validated against every SPS
     uint16_t color_primaries{};
     uint16_t transfer_characteristics{};
     uint16_t matrix_coefficients{};

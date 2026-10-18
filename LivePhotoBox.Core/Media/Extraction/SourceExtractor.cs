@@ -20,6 +20,7 @@ namespace LivePhotoBox.Media.Extraction;
 public sealed class SourceExtractor : ISourceExtractor
 {
     private static readonly AsyncLocal<CleanupSourceCopyTestHooks?> s_cleanupSourceCopyTestHooks = new();
+    internal static AsyncLocal<Action?> BeforeCleanupPlanIssueTestHook { get; } = new();
 
     internal static IDisposable PushCleanupSourceCopyTestHooks(
         Action<string, long>? afterChunk,
@@ -467,6 +468,8 @@ public sealed class SourceExtractor : ISourceExtractor
         // it is still looking at that transaction's object.
         bool nativeExtractionSucceeded = false;
         bool cleanupAuthorityIssued = false;
+        CleanupPlan? unhandedCleanupPlan = null;
+        IReadOnlyList<NativeMediaService.NativeExtractionOutputEvidence>? extractionOutputReceipts = null;
         try
         {
             await NativeMediaService.ExtractMediaAsync(
@@ -483,44 +486,50 @@ public sealed class SourceExtractor : ISourceExtractor
 
             nativeExtractionSucceeded = true;
 
-            // Freeze the object identities at the extraction handoff. Native
-            // has already recorded and owns these outputs; the immediate
-            // Native verification below closes the capture/verification race
-            // before the bundle exposes the managed evidence to the cleaner.
-            var publishedArtifactIdentities = new Dictionary<string, WindowsFileIdentity>(StringComparer.OrdinalIgnoreCase);
-            WindowsFileIdentity CapturePublishedIdentity(string path, MediaArtifactKind kind)
-            {
-                try
-                {
-                    WindowsFileIdentity identity = WindowsFileIdentity.Capture(path);
-                    publishedArtifactIdentities[path] = identity;
-                    return identity;
-                }
-                catch (Exception ex)
-                {
-                    throw new ExtractionException(
-                        ExtractionFailureCategory.OutputPublishFailed,
-                        $"Unable to capture the Windows file identity for published {kind} artifact '{path}'.",
-                        artifactKind: kind,
-                        innerException: ex);
-                }
-            }
-
-            CapturePublishedIdentity(outputImagePath, MediaArtifactKind.PrimaryImage);
-            if (outputVideoPath != null)
-                CapturePublishedIdentity(outputVideoPath, MediaArtifactKind.MotionVideo);
-            if (outputGainmapPath != null)
-                CapturePublishedIdentity(outputGainmapPath, MediaArtifactKind.GainMap);
-            if (cleanupSourcePath != null)
-                CapturePublishedIdentity(cleanupSourcePath, MediaArtifactKind.SourceContainer);
-            foreach (string auxiliaryOutputPath in auxiliaryOutputPaths)
-                CapturePublishedIdentity(auxiliaryOutputPath, MediaArtifactKind.AuxiliaryItem);
-
             NativeResult nativeOutputVerification = NativeMethods.VerifyExtractionOutputs(
                 attempt.ContextLease.Handle,
                 attempt.NativeHandle,
                 attempt.Generation);
             attempt.Context.ThrowIfFailed(nativeOutputVerification);
+
+            // Ownership comes from Native's creating-handle extraction record,
+            // queried before CommitExtractionOutputs releases its authority.
+            // A pathname capture paired with a later verification cannot issue
+            // a cleanup receipt for a file that took over the pathname.
+            var expectedOutputs = new List<NativeMediaService.NativeExtractionOutputBinding>
+            {
+                new(MediaArtifactKind.PrimaryImage, uint.MaxValue, outputImagePath)
+            };
+            if (outputVideoPath != null)
+                expectedOutputs.Add(new(MediaArtifactKind.MotionVideo, uint.MaxValue, outputVideoPath));
+            if (outputGainmapPath != null)
+                expectedOutputs.Add(new(MediaArtifactKind.GainMap, uint.MaxValue, outputGainmapPath));
+            if (cleanupSourcePath != null)
+                expectedOutputs.Add(new(MediaArtifactKind.SourceContainer, uint.MaxValue, cleanupSourcePath));
+            foreach (NativeMediaService.NativeAuxiliaryOutputBinding auxiliary in auxiliaryOutputBindings)
+                expectedOutputs.Add(new(MediaArtifactKind.AuxiliaryItem, auxiliary.AuxiliaryIndex, auxiliary.Path));
+            IReadOnlyList<NativeMediaService.NativeExtractionOutputEvidence> ownedOutputs;
+            try
+            {
+                ownedOutputs = NativeMediaService.CaptureExtractionOutputEvidence(attempt, expectedOutputs);
+                extractionOutputReceipts = ownedOutputs;
+                foreach (var output in ownedOutputs)
+                    WorkspaceOwnershipRegistry.RegisterCreatedFile(output.FinalPath, output.FileIdentity,
+                        output.ByteLength, output.Sha256, output.ArtifactRole.ToString());
+            }
+            catch (Exception ownershipFailure)
+            {
+                throw new ExtractionException(
+                    ExtractionFailureCategory.OutputPublishFailed,
+                    "Native extraction ownership could not be handed off to the workspace.",
+                    innerException: ownershipFailure);
+            }
+            var publishedArtifactIdentities = expectedOutputs.ToDictionary(
+                binding => binding.Path,
+                binding => ownedOutputs.Single(output =>
+                    output.ArtifactRole == binding.ArtifactRole &&
+                    output.AuxiliaryIndex == binding.AuxiliaryIndex).FileIdentity,
+                StringComparer.OrdinalIgnoreCase);
 
             if (!File.Exists(outputImagePath))
                 throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, "Native extraction did not produce a primary image artifact.", MediaArtifactKind.PrimaryImage);
@@ -715,7 +724,27 @@ public sealed class SourceExtractor : ISourceExtractor
             // the handles), so the Cleaner never has to re-guess ownership
             // from pathnames.  Issuing blocks the extractor rollback path
             // (cleanup_authority_issued) - the exact P2 -> P3 hand-off point.
-            CleanupPlan? cleanupPlanAuthority = CleanupPlan.IssueFrom(attempt, cancellationToken);
+            // Allocate the caller's bundle before Native transfers authority,
+            // using the preallocated private cleanup-plan owner. Failure here
+            // therefore leaves the extraction rollback authority intact.
+            ExtractedMediaBundle? bundle = null;
+            CleanupPlan cleanupPlanAuthority = CleanupPlan.IssueFrom(attempt, cancellationToken, owner =>
+            {
+                bundle = new ExtractedMediaBundle
+                {
+                    PrimaryImage = primaryArtifact,
+                    MotionVideo = videoArtifact,
+                    GainMap = gainmapArtifact,
+                    CleanupSource = cleanupSourceArtifact,
+                    SourceFacts = facts,
+                    ExtractedProtocolFacts = extractedFacts,
+                    AuxiliaryMedia = finalizedAuxiliaryDescriptors,
+                    PreservationCarriers = facts.PreservationCarriers,
+                    CleanupPlan = owner
+                };
+                BeforeCleanupPlanIssueTestHook.Value?.Invoke();
+            });
+            unhandedCleanupPlan = cleanupPlanAuthority;
             cleanupAuthorityIssued = true;
 
             // Commit the Native transaction: this closes the rollback handles
@@ -733,18 +762,8 @@ public sealed class SourceExtractor : ISourceExtractor
             }
             nativeExtractionSucceeded = false;
 
-            return new ExtractedMediaBundle
-            {
-                PrimaryImage = primaryArtifact,
-                MotionVideo = videoArtifact,
-                GainMap = gainmapArtifact,
-                CleanupSource = cleanupSourceArtifact,
-                SourceFacts = facts,
-                ExtractedProtocolFacts = extractedFacts,
-                AuxiliaryMedia = finalizedAuxiliaryDescriptors,
-                PreservationCarriers = facts.PreservationCarriers,
-                CleanupPlan = cleanupPlanAuthority
-            };
+            unhandedCleanupPlan = null;
+            return bundle!; // Constructed synchronously before Native issuance.
         }
         catch (Exception ex)
         {
@@ -754,6 +773,13 @@ public sealed class SourceExtractor : ISourceExtractor
             // Only if Native succeeded and subsequent managed validation failed should C# delete published outputs.
             string? cleanupFailedFile = null;
             Exception? cleanupError = null;
+
+            try { unhandedCleanupPlan?.Dispose(); }
+            catch (Exception releaseFailure)
+            {
+                cleanupFailedFile = cleanupSourcePath ?? outputImagePath;
+                cleanupError = releaseFailure;
+            }
 
             if (nativeExtractionSucceeded && !cleanupAuthorityIssued)
             {
@@ -767,6 +793,16 @@ public sealed class SourceExtractor : ISourceExtractor
                     cleanupError ??= new IOException(
                         attempt.Context.GetLastError() ??
                         $"Native exact-object rollback returned {rollback}.");
+                }
+                else if (extractionOutputReceipts is not null)
+                {
+                    // Native returns Ok only after exact creating-handle
+                    // rollback proves every registered extraction object
+                    // unlinked. Retire even a partially registered handoff;
+                    // pathname absence alone never issues this proof.
+                    foreach (var output in extractionOutputReceipts)
+                        WorkspaceOwnershipRegistry.RetireFile(output.FinalPath, output.FileIdentity,
+                            OwnedObjectCleanupProof.Unlinked);
                 }
             }
 

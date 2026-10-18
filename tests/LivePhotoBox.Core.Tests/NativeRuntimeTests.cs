@@ -1,6 +1,7 @@
 using System.Runtime.InteropServices;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Media.Models;
 using Xunit;
 
 namespace LivePhotoBox.Core.Tests;
@@ -72,6 +73,29 @@ public sealed class NativeRuntimeTests
         NativeRuntimeInfo info = NativeRuntime.Probe();
         Assert.True(info.IsAvailable, info.Diagnostic);
         Assert.Equal(6, info.CapabilityIdentities.Count);
+        Assert.Equal(6, info.CapabilityIdentities.Select(item => item.Operation).Distinct().Count());
+        foreach (var expected in new[]
+        {
+            (NativeRuntimeOperationClass.JpegCodec, NativeRuntimeBackend.LibJpegTurbo, NativeRuntimeCodec.Jpeg),
+            (NativeRuntimeOperationClass.HeicCodec, NativeRuntimeBackend.LibHeif, NativeRuntimeCodec.HeicHevc),
+            (NativeRuntimeOperationClass.VideoRemux, NativeRuntimeBackend.ProjectIsoBmff, NativeRuntimeCodec.Unknown),
+            (NativeRuntimeOperationClass.VideoTranscodeSdrH264, NativeRuntimeBackend.Unknown, NativeRuntimeCodec.H264),
+            (NativeRuntimeOperationClass.VideoTranscodeSdrHevc, NativeRuntimeBackend.MinimalLibav, NativeRuntimeCodec.Hevc),
+            (NativeRuntimeOperationClass.VideoTranscodeHdr10Bit, NativeRuntimeBackend.MinimalLibav, NativeRuntimeCodec.Unknown)
+        })
+        {
+            var identity = Assert.Single(info.CapabilityIdentities, item => item.Operation == expected.Item1);
+            Assert.True(identity.IsAvailable, identity.FallbackReason);
+            Assert.Equal(expected.Item2, identity.Backend);
+            Assert.Equal(expected.Item3, identity.Codec);
+            Assert.False(identity.FallbackOccurred);
+            Assert.False(string.IsNullOrWhiteSpace(identity.BackendVersion));
+            if (identity.Backend == NativeRuntimeBackend.WindowsMediaFoundation)
+            {
+                Assert.Equal((int)VideoHardwareMode.SoftwareForced, identity.HardwareMode);
+                Assert.Contains("encoder activated", identity.FallbackReason, StringComparison.Ordinal);
+            }
+        }
 
         NativeRuntimeCapabilityIdentity jpeg = Assert.Single(info.CapabilityIdentities,
             item => item.Operation == NativeRuntimeOperationClass.JpegCodec);
@@ -82,11 +106,13 @@ public sealed class NativeRuntimeTests
 
         NativeRuntimeCapabilityIdentity hdr = Assert.Single(info.CapabilityIdentities,
             item => item.Operation == NativeRuntimeOperationClass.VideoTranscodeHdr10Bit);
-        Assert.False(hdr.IsAvailable);
+        Assert.True(hdr.IsAvailable);
         Assert.Equal(NativeRuntimeBackend.MinimalLibav, hdr.Backend);
         Assert.Equal(NativeRuntimeCodec.Unknown, hdr.Codec);
-        Assert.Equal("not packaged", hdr.BackendVersion);
-        Assert.Contains("exact LivePhotoBox.Video.Libav.dll sibling", hdr.FallbackReason);
+        Assert.Equal((int)VideoHardwareMode.SoftwareForced, hdr.HardwareMode);
+        Assert.False(hdr.FallbackOccurred);
+        Assert.Equal("FFmpeg 9.0.1 (minimal static sidecar)", hdr.BackendVersion);
+        Assert.Equal("The exact versioned video sidecar was loaded and validated.", hdr.FallbackReason);
     }
 
     [Fact]

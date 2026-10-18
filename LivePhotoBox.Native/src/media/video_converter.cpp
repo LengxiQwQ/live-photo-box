@@ -7,6 +7,7 @@
 #include "containers/isobmff_video_profile.h"
 #include "media/video_sidecar_bridge.h"
 #include "media/video_presentation_timing.h"
+#include "media/h264_order_proof.h"
 #include "platform/windows_filesystem.h"
 #include <fstream>
 #include <filesystem>
@@ -30,6 +31,7 @@
 #include <mftransform.h>
 #include <mfreadwrite.h>
 #include <mferror.h>
+#include <codecapi.h>
 
 #pragma comment(lib, "mfplat.lib")
 #pragma comment(lib, "mfreadwrite.lib")
@@ -38,6 +40,50 @@
 namespace fs = std::filesystem;
 
 namespace lpb::media {
+
+// MF opens the same source URL separately for video/audio. Keep both the
+// source object and its named ancestor chain stable until every backend and
+// preservation read completes. No source bytes are copied or modified.
+class video_source_read_lease {
+    HANDLE file_{INVALID_HANDLE_VALUE};
+    std::vector<HANDLE> directories_;
+public:
+    video_source_read_lease() = default;
+    video_source_read_lease(const video_source_read_lease&) = delete;
+    video_source_read_lease& operator=(const video_source_read_lease&) = delete;
+    ~video_source_read_lease() noexcept {
+        if (file_ != INVALID_HANDLE_VALUE) CloseHandle(file_);
+        for (auto it = directories_.rbegin(); it != directories_.rend(); ++it) CloseHandle(*it);
+    }
+    bool open(const fs::path& source) noexcept {
+        try {
+            const auto absolute = fs::absolute(source).lexically_normal();
+            std::vector<fs::path> parents;
+            for (auto p = absolute.parent_path(); !p.empty() && p != p.root_path(); p = p.parent_path())
+                parents.push_back(p);
+            directories_.reserve(parents.size());
+            for (auto it = parents.rbegin(); it != parents.rend(); ++it) {
+                // Source pinning needs attributes, not directory enumeration.
+                // Inspect the object actually opened, without a path precheck
+                // or DOS/extended-UNC string comparison race.
+                HANDLE handle = CreateFileW(it->c_str(), FILE_READ_ATTRIBUTES,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+                if (handle == INVALID_HANDLE_VALUE) return false;
+                directories_.push_back(handle);
+                FILE_ATTRIBUTE_TAG_INFO directory_tag{};
+                if (!GetFileInformationByHandleEx(handle, FileAttributeTagInfo, &directory_tag, sizeof(directory_tag)) ||
+                    (directory_tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+                    (directory_tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) return false;
+            }
+            file_ = CreateFileW(absolute.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+                OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+            FILE_ATTRIBUTE_TAG_INFO tag{};
+            return file_ != INVALID_HANDLE_VALUE && GetFileInformationByHandleEx(file_, FileAttributeTagInfo,
+                &tag, sizeof(tag)) != FALSE && (tag.FileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) == 0;
+        } catch (...) { return false; }
+    }
+};
 
 static bool file_read_at(void* user, uint64_t offset, std::span<uint8_t> bytes) noexcept {
     auto& file = *static_cast<std::ifstream*>(user);
@@ -570,7 +616,11 @@ static lpb_result remux_video_reader(
     lpb_context* context,
     const lpb::random_access_reader& source,
     const char* output_video_path,
-    lpb_video_container target_container) noexcept
+    lpb_video_container target_container,
+    windows_owned_output* consumed_stage = nullptr,
+    std::span<const uint8_t> preservation_source = {},
+    const std::vector<isobmff_mebx_track_facts>* preserved_mebx = nullptr,
+    const isobmff_video_presentation_timeline* expected_timeline = nullptr) noexcept
 {
     auto boxes = ::scan_top_level_boxes(source);
     if (boxes.empty()) {
@@ -638,16 +688,15 @@ static lpb_result remux_video_reader(
 
     auto p_out = utf8_to_path(output_video_path);
     windows_owned_output output;
-    if (!output.create(p_out, L"lpb-remux")) {
-        set_error(context, "Cannot create an owned output video staging file for remux.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-
     auto fail_remux = [&](lpb_result result, const char* message) noexcept {
-        output.abort();
-        set_error(context, message);
-        return result;
+        return abort_owned_output_and_report(context, output, message)
+            ? result : LPB_RESULT_INTERNAL_ERROR;
     };
+
+    if (!output.create(p_out, L"lpb-remux", L".tmp", true)) {
+        return fail_remux(LPB_RESULT_INVALID_ARGUMENT,
+            "Cannot create an owned output video staging file for remux.");
+    }
 
     // 1. Write new ftyp box
     if (!output.write_all(new_ftyp))
@@ -712,9 +761,34 @@ static lpb_result remux_video_reader(
         return fail_remux(LPB_RESULT_INTERNAL_ERROR,
             "Remuxed video failed structural validation before publication.");
     }
-    if (!output.publish_no_replace(p_out)) {
-        set_error(context, "Failed to publish the owned remuxed video without replacing an existing artifact.");
-        return LPB_RESULT_INTERNAL_ERROR;
+    const lpb_result cancellation = lpb_context_check_cancelled(context);
+    if (cancellation != LPB_RESULT_OK) return fail_remux(cancellation,
+        "Video remux was cancelled before publication.");
+    if (consumed_stage != nullptr) {
+        std::vector<uint8_t> remuxed_bytes;
+        isobmff_video_presentation_timeline remuxed_timeline{};
+        uint32_t failed_frame = 0U;
+        if (preservation_source.empty() || preserved_mebx == nullptr || expected_timeline == nullptr ||
+            !read_all_bytes(output.reader(), remuxed_bytes) ||
+            !validate_isobmff_static_metadata(preservation_source, remuxed_bytes) ||
+            (!preserved_mebx->empty() && !validate_isobmff_mebx_transplants(
+                preservation_source, remuxed_bytes, *preserved_mebx)) ||
+            !inspect_isobmff_video_presentation_timeline(remuxed_bytes, remuxed_timeline) ||
+            !presentation_timing_within_source_frame_intervals(*expected_timeline, remuxed_timeline, failed_frame)) {
+            return fail_remux(LPB_RESULT_INTERNAL_ERROR,
+                "OutputValidation: final MOV staging did not retain exact metadata/MEBX and source timing.");
+        }
+        // Dispose the consumed MF staging before final MOV publication. A
+        // cleanup failure must never become a reported failure after publish.
+        if (!abort_owned_output_and_report(context, *consumed_stage, nullptr))
+            return fail_remux(LPB_RESULT_INTERNAL_ERROR, nullptr);
+        const lpb_result final_cancel = lpb_context_check_cancelled(context);
+        if (final_cancel != LPB_RESULT_OK) return fail_remux(final_cancel,
+            "Video remux was cancelled after staging cleanup and before publication.");
+    }
+    if (!output.publish_registered_no_replace(context, LPB_ARTIFACT_MOTION_VIDEO, p_out)) {
+        return fail_remux(LPB_RESULT_INTERNAL_ERROR,
+            "Failed to publish the owned remuxed video without replacing an existing artifact.");
     }
     return LPB_RESULT_OK;
 }
@@ -792,7 +866,14 @@ struct mf_activation_list final {
     ~mf_activation_list() {
         if (values != nullptr) {
             for (UINT32 index = 0U; index < count; ++index) {
-                if (values[index] != nullptr) values[index]->Release();
+                if (values[index] != nullptr) {
+                    // ActivateObject retains the created encoder. Release of
+                    // IMFActivate alone does not complete its shutdown protocol.
+                    // Retire every activation before releasing the list, also
+                    // on capability probes and failed negotiation exits.
+                    static_cast<void>(values[index]->ShutdownObject());
+                    values[index]->Release();
+                }
             }
             CoTaskMemFree(values);
         }
@@ -813,12 +894,12 @@ public:
         const HRESULT com_hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         com_initialized_ = SUCCEEDED(com_hr);
         if (FAILED(com_hr) && com_hr != RPC_E_CHANGED_MODE) {
-            set_error(context, "Failed to initialize COM for software Media Foundation conversion.");
+            set_error(context, "BackendUnavailable: failed to initialize COM for software Media Foundation conversion; no fallback.");
             return false;
         }
         const HRESULT mf_hr = MFStartup(MF_VERSION, MFSTARTUP_FULL);
         if (FAILED(mf_hr)) {
-            set_error(context, "Failed to initialize Windows Media Foundation.");
+            set_error(context, "BackendUnavailable: failed to initialize Windows Media Foundation; no fallback.");
             return false;
         }
         mf_started_ = true;
@@ -829,6 +910,34 @@ private:
     bool com_initialized_{};
     bool mf_started_{};
 };
+
+bool software_video_encoder_available(lpb_context* context, lpb_video_codec codec) noexcept {
+    if (codec != LPB_VIDEO_CODEC_H264 && codec != LPB_VIDEO_CODEC_HEVC) return false;
+    mf_runtime_guard runtime;
+    if (!runtime.start(context)) return false;
+    MFT_REGISTER_TYPE_INFO input_filter{MFMediaType_Video, MFVideoFormat_NV12};
+    MFT_REGISTER_TYPE_INFO output_filter{MFMediaType_Video,
+        codec == LPB_VIDEO_CODEC_HEVC ? MFVideoFormat_HEVC : MFVideoFormat_H264};
+    mf_activation_list activations{};
+    const HRESULT hr = MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG_SYNCMFT,
+        &input_filter, &output_filter, &activations.values, &activations.count);
+    if (SUCCEEDED(hr) && activations.values != nullptr) {
+        for (UINT32 index = 0U; index < activations.count; ++index) {
+            mf_owned_ptr<IMFTransform> candidate;
+            if (activations.values[index] == nullptr ||
+                FAILED(activations.values[index]->ActivateObject(IID_PPV_ARGS(candidate.put()))) ||
+                !candidate) continue;
+            mf_owned_ptr<IMFAttributes> attributes;
+            if (FAILED(candidate->GetAttributes(attributes.put())) || !attributes) continue;
+            UINT32 asynchronous = FALSE;
+            const HRESULT async_hr = attributes->GetUINT32(MF_TRANSFORM_ASYNC, &asynchronous);
+            if ((SUCCEEDED(async_hr) && asynchronous == FALSE) || async_hr == MF_E_ATTRIBUTENOTFOUND)
+                return true;
+        }
+    }
+    set_error(context, "BackendUnavailable: no activatable synchronous software Media Foundation encoder for the requested NV12/output codec; no fallback.");
+    return false;
+}
 
 struct mf_retained_video_sample {
     mf_owned_ptr<IMFSample> sample;
@@ -1021,13 +1130,11 @@ static bool set_mf_transform_type_with_source_rate_fallback(
     bool& used_source_rate) noexcept
 {
     used_source_rate = false;
-    if (try_set_mf_transform_type(transform, input, stream, base_type, false, fps_num, fps_den)) {
-        return true;
-    }
-    if (!source_rate_valid ||
-        !try_set_mf_transform_type(transform, input, stream, base_type, true, fps_num, fps_den)) {
-        return false;
-    }
+    // The encoder's documented nominal rate is the source cadence hint,
+    // never a requested FPS conversion. Native per-picture timing remains
+    // authoritative and is validated again after muxing.
+    if (!source_rate_valid || !try_set_mf_transform_type(
+            transform, input, stream, base_type, true, fps_num, fps_den)) return false;
     used_source_rate = true;
     return true;
 }
@@ -1051,6 +1158,8 @@ static bool create_mf_video_output_type(
     if (SUCCEEDED(hr)) hr = MFSetAttributeSize(output.get(), MF_MT_FRAME_SIZE, width, height);
     if (SUCCEEDED(hr)) hr = MFSetAttributeRatio(output.get(), MF_MT_PIXEL_ASPECT_RATIO, 1U, 1U);
     if (SUCCEEDED(hr)) hr = output->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
+    if (SUCCEEDED(hr) && target_codec == LPB_VIDEO_CODEC_H264)
+        hr = output->SetUINT32(MF_MT_MPEG2_PROFILE, eAVEncH264VProfile_Base);
     if (SUCCEEDED(hr) && !set_mf_video_color_attributes(
             output.get(), primaries, transfer, matrix, nominal_range)) hr = E_INVALIDARG;
     return SUCCEEDED(hr);
@@ -1111,6 +1220,75 @@ enum class mf_encoder_drain_status {
     failed,
     cancelled
 };
+
+static bool normalize_baseline_end_timestamps(lpb_context* context,
+    IMFMediaType* output_type, const isobmff_video_presentation_timeline& source,
+    std::vector<mf_retained_video_sample>& encoded) noexcept {
+    UINT32 profile = 0U;
+    if (FAILED(output_type->GetUINT32(MF_MT_MPEG2_PROFILE, &profile)) ||
+        profile != eAVEncH264VProfile_Base || encoded.size() != source.visible_sample_count) return true;
+    // Baseline forbids B pictures. All visible inputs were accepted exactly
+    // once, all outputs were retained, and their count must match. Only the
+    // exact per-picture end-stamp convention is normalized; arbitrary shifts,
+    // missing pictures, reordering and changed durations are never repaired.
+    size_t index = 0U;
+    unsigned dts_convention = 0U;
+    for (const auto& input : source.presentation_order) {
+        if (!input.visible) continue;
+        if (index >= encoded.size() || input.normalized_time_100ns < 0 || input.duration_100ns <= 0 ||
+            input.normalized_time_100ns > (std::numeric_limits<int64_t>::max)() - input.duration_100ns) return true;
+        const auto& output = encoded[index++];
+        const int64_t end = input.normalized_time_100ns + input.duration_100ns;
+        const unsigned current_dts_convention = !output.decode_timestamp_present ? 1U :
+            output.decode_timestamp == static_cast<UINT64>(input.normalized_time_100ns) ? 2U :
+            output.decode_timestamp == static_cast<UINT64>(end) ? 3U : 0U;
+        if (current_dts_convention == 0U ||
+            (dts_convention != 0U && current_dts_convention != dts_convention)) return true;
+        dts_convention = current_dts_convention;
+        if (output.time_100ns != end || output.duration_100ns != input.duration_100ns ||
+            (output.decode_timestamp_present && output.decode_timestamp != static_cast<UINT64>(end) &&
+                output.decode_timestamp != static_cast<UINT64>(input.normalized_time_100ns))) return true;
+    }
+    if (index != encoded.size() || index == 0U) return true;
+    // Media-type declarations alone do not prove actual coded picture order.
+    // Read the actual SPS/PPS and every retained access unit before changing
+    // any timestamp. Unsupported syntax leaves timing unchanged and fails the
+    // original strict gate, rather than assuming the encoder honored Base.
+    try {
+        UINT32 header_size = 0U;
+        if (FAILED(output_type->GetBlobSize(MF_MT_MPEG_SEQUENCE_HEADER, &header_size)) ||
+            header_size == 0U || header_size > 65536U) return true;
+        std::vector<uint8_t> header(header_size);
+        UINT32 actual_size = 0U;
+        h264_order_proof order;
+        if (FAILED(output_type->GetBlob(MF_MT_MPEG_SEQUENCE_HEADER, header.data(), header_size, &actual_size)) ||
+            actual_size != header_size || !order.configure(header)) return true;
+        for (const auto& output : encoded) {
+            mf_owned_ptr<IMFMediaBuffer> buffer;
+            if (FAILED(output.sample->ConvertToContiguousBuffer(buffer.put()))) return true;
+            BYTE* data = nullptr; DWORD length = 0U;
+            if (FAILED(buffer->Lock(&data, nullptr, &length))) return true;
+            bool valid = false;
+            try { valid = data != nullptr && order.access_unit(std::span<const uint8_t>(data, length)); }
+            catch (...) { static_cast<void>(buffer->Unlock()); throw; }
+            const HRESULT unlock_hr = buffer->Unlock();
+            if (!valid || FAILED(unlock_hr)) return true;
+        }
+    } catch (...) { return true; }
+    index = 0U;
+    for (const auto& input : source.presentation_order) {
+        if (!input.visible) continue;
+        auto& output = encoded[index++];
+        HRESULT hr = output.sample->SetSampleTime(input.normalized_time_100ns);
+        if (SUCCEEDED(hr)) hr = output.sample->SetUINT64(MFSampleExtension_DecodeTimestamp,
+            static_cast<UINT64>(input.normalized_time_100ns));
+        if (FAILED(hr) || !snapshot_mf_video_sample(output.sample.get(), output)) {
+            set_error(context, "OutputValidation: could not apply the proven Baseline picture-to-input timing map.");
+            return false;
+        }
+    }
+    return true;
+}
 
 static mf_encoder_drain_status drain_software_video_mft(
     lpb_context* context,
@@ -1242,7 +1420,24 @@ static bool validate_software_video_mft_timing(
         }
         uint32_t failing_frame = 0U;
         if (!presentation_timing_within_source_frame_intervals(source, output, failing_frame)) {
-            set_error(context, "OutputValidation: software video encoder timing failed the Native source-frame interval rule.");
+            const auto visible_at = [](const isobmff_video_presentation_timeline& timeline, uint32_t frame) noexcept {
+                uint32_t visible = 0U;
+                for (const auto& entry : timeline.presentation_order) {
+                    if (entry.visible && visible++ == frame) return entry.normalized_time_100ns;
+                }
+                return int64_t{-1};
+            };
+            char timing_message[512]{};
+            static_cast<void>(_snprintf_s(timing_message, sizeof(timing_message), _TRUNCATE,
+                "OutputValidation: software video encoder timing failed the Native source-frame interval rule (frame=%u, sourceCount=%u, outputCount=%u, sourceTime=%lld, outputTime=%lld, outputFirst=%lld/%lld/%lld, outputLast=%lld).",
+                failing_frame, source.visible_sample_count, output.visible_sample_count,
+                static_cast<long long>(visible_at(source, failing_frame)),
+                static_cast<long long>(visible_at(output, failing_frame)),
+                static_cast<long long>(visible_at(output, 0U)),
+                static_cast<long long>(visible_at(output, 1U)),
+                static_cast<long long>(visible_at(output, 2U)),
+                static_cast<long long>(visible_at(output, output.visible_sample_count - 1U))));
+            set_error(context, timing_message);
             return false;
         }
         return true;
@@ -1285,7 +1480,7 @@ static lpb_result run_software_video_mft(
     HRESULT hr = MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG_SYNCMFT,
         &input_filter, &output_filter, &activations.values, &activations.count);
     if (FAILED(hr) || activations.values == nullptr || activations.count == 0U) {
-        set_error(context, "Unsupported: no synchronous software Media Foundation encoder was enumerated for the requested NV12/output codec; no fallback.");
+        set_error(context, "BackendUnavailable: no synchronous software Media Foundation encoder was enumerated for the requested NV12/output codec; no fallback.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
 
@@ -1295,6 +1490,7 @@ static lpb_result run_software_video_mft(
     bool input_uses_source_rate = false;
     bool output_uses_source_rate = false;
     MFT_OUTPUT_STREAM_INFO output_info{};
+    bool synchronous_encoder_activated = false;
     for (UINT32 index = 0U; index < activations.count && !encoder; ++index) {
         mf_owned_ptr<IMFTransform> candidate;
         hr = activations.values[index]->ActivateObject(IID_PPV_ARGS(candidate.put()));
@@ -1306,6 +1502,8 @@ static lpb_result run_software_video_mft(
         const HRESULT async_hr = attributes->GetUINT32(MF_TRANSFORM_ASYNC, &asynchronous);
         if ((SUCCEEDED(async_hr) && asynchronous != FALSE) ||
             (FAILED(async_hr) && async_hr != MF_E_ATTRIBUTENOTFOUND)) continue;
+
+        synchronous_encoder_activated = true;
 
         DWORD candidate_input_stream = 0U;
         DWORD candidate_output_stream = 0U;
@@ -1325,7 +1523,9 @@ static lpb_result run_software_video_mft(
         output_info = candidate_output_info;
     }
     if (!encoder) {
-        set_error(context, "Unsupported: no enumerated synchronous software encoder accepted the negotiated NV12 and requested codec types; no fallback.");
+        set_error(context, synchronous_encoder_activated
+            ? "Unsupported: no enumerated synchronous software encoder accepted the negotiated NV12 and requested codec types; no fallback."
+            : "BackendUnavailable: no enumerated synchronous software encoder could be activated; no fallback.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
     static_cast<void>(input_uses_source_rate);
@@ -1516,6 +1716,8 @@ static lpb_result run_software_video_mft(
         set_error(context, "Software video encoder output type could not retain the source SDR color attributes.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
+    if (target_codec == LPB_VIDEO_CODEC_H264 && !normalize_baseline_end_timestamps(
+            context, final_video_type.get(), source_timeline, encoded)) return LPB_RESULT_INTERNAL_ERROR;
     return validate_software_video_mft_timing(context, source_timeline, encoded)
         ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
 }
@@ -1713,6 +1915,22 @@ static bool prove_sink_writer_has_audio_transform(
     return true;
 }
 
+struct mf_media_sink_owner final {
+    IMFMediaSink* value{};
+    mf_media_sink_owner() noexcept = default;
+    mf_media_sink_owner(const mf_media_sink_owner&) = delete;
+    mf_media_sink_owner& operator=(const mf_media_sink_owner&) = delete;
+    ~mf_media_sink_owner() { static_cast<void>(close()); }
+    HRESULT close() noexcept {
+        IMFMediaSink* sink = value;
+        value = nullptr;
+        if (sink == nullptr) return S_OK;
+        const HRESULT hr = sink->Shutdown();
+        sink->Release();
+        return hr;
+    }
+};
+
 static lpb_result mux_retained_software_samples(
     lpb_context* context,
     const fs::path& output_path,
@@ -1747,6 +1965,10 @@ static lpb_result mux_retained_software_samples(
         set_error(context, "Failed to configure a software-only Media Foundation SinkWriter.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
+    // Finalize writes the MP4 indexes; Shutdown breaks the media sink's
+    // circular references/event queue. Keep this owner alive past all writer
+    // interfaces, and retire it on every early-return path as well.
+    mf_media_sink_owner sink;
     mf_owned_ptr<IMFSinkWriter> writer;
     hr = MFCreateSinkWriterFromURL(output_path.c_str(), owned_stream.get(),
         writer_attributes.get(), writer.put());
@@ -1780,6 +2002,14 @@ static lpb_result mux_retained_software_samples(
     hr = writer->BeginWriting();
     if (FAILED(hr)) {
         set_error(context, "Media Foundation SinkWriter could not begin compressed sample muxing.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    hr = writer->GetServiceForStream(static_cast<DWORD>(MF_SINK_WRITER_MEDIASINK), GUID_NULL,
+        IID_PPV_ARGS(&sink.value));
+    if (FAILED(hr) || sink.value == nullptr) {
+        const std::string reason = "Media Foundation MP4 media sink lifetime ownership could not be queried after BeginWriting; HRESULT=" +
+            std::to_string(static_cast<uint32_t>(hr)) + ".";
+        set_error(context, reason.c_str());
         return LPB_RESULT_INTERNAL_ERROR;
     }
     mf_owned_ptr<IMFSinkWriterEx> writer_ex;
@@ -1847,6 +2077,13 @@ static lpb_result mux_retained_software_samples(
     hr = writer->Finalize();
     if (FAILED(hr)) {
         set_error(context, "Media Foundation SinkWriter failed to finalize the completed compressed-sample mux.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    writer_ex.reset();
+    writer.reset();
+    hr = sink.close();
+    if (FAILED(hr) && hr != MF_E_SHUTDOWN) {
+        set_error(context, "Media Foundation MP4 media sink shutdown failed after finalization.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
     return LPB_RESULT_OK;
@@ -2055,7 +2292,14 @@ lpb_result transcode_video_file(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    // Probe input facts
+    const auto p_in = utf8_to_path(input_video_path);
+    const auto p_out = utf8_to_path(output_video_path);
+    video_source_read_lease source_lease;
+    if (!source_lease.open(p_in)) {
+        set_error(context, "SourceInspection: video source could not be pinned read-only against concurrent write/replacement; no output was created.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    // Probe input facts from the source pinned above.
     lpb_video_item_facts src_facts = {0};
     src_facts.struct_size = sizeof(lpb_video_item_facts);
     lpb_result probe_res = probe_video_file(context, input_video_path, &src_facts);
@@ -2063,8 +2307,6 @@ lpb_result transcode_video_file(
         return probe_res;
     }
 
-    const auto p_in = utf8_to_path(input_video_path);
-    const auto p_out = utf8_to_path(output_video_path);
     std::ifstream semantic_input(p_in, std::ios::binary | std::ios::ate);
     if (!semantic_input.is_open()) {
         set_error(context, "Cannot reopen video source for strict pre-dispatch profile inspection.");
@@ -2137,6 +2379,11 @@ lpb_result transcode_video_file(
     }
 
     if (owner == video_conversion_owner::minimal_libav_sidecar) {
+        if (semantic_profile.bit_depth_luma != semantic_profile.bit_depth_chroma ||
+            (semantic_profile.bit_depth_luma != 8U && semantic_profile.bit_depth_luma != 10U)) {
+            set_error(context, "Unsupported: minimal-libav requires an exact supported 8-bit or 10-bit source depth; no output was created.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         char selected_identity[64]{};
         if (!sidecar_identity('s', "?", "?", semantic_profile, nullptr,
                 selected_identity, sizeof(selected_identity))) {
@@ -2147,35 +2394,95 @@ lpb_result transcode_video_file(
             LPB_VIDEO_HARDWARE_SOFTWARE_FORCED, false, selected_identity,
             "minimal-libav selected from the Native preservation profile; no fallback.");
         if (out_encoder_used && encoder_buf_len > 0U) {
-            strncpy_s(out_encoder_used, encoder_buf_len, "minimal-libav/P5-R5-v1", _TRUNCATE);
+            strncpy_s(out_encoder_used, encoder_buf_len, "minimal-libav/P7-R4-HEVC-v2", _TRUNCATE);
         }
 
         std::vector<uint8_t> source_bytes;
         bool has_mebx = false;
-        isobmff_mebx_track_facts source_mebx_facts{};
+        std::vector<isobmff_mebx_track_facts> source_mebx_facts;
         if (!read_all_bytes(semantic_reader, source_bytes) ||
-            !inspect_isobmff_mebx_track(source_bytes, has_mebx, source_mebx_facts)) {
+            !inspect_isobmff_mebx_tracks(source_bytes, source_mebx_facts)) {
             set_error(context, "Preservation-critical source contains malformed, ambiguous, or unsupported MEBX track facts; no output was created.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
+        has_mebx = !source_mebx_facts.empty();
 
         windows_owned_output stage_a;
         windows_owned_output stage_b;
-        if (!stage_a.create(p_out, L"lpb-video-sidecar-stage-a", L".tmp", true)) {
-            set_error(context, "Cannot create an owned staging object for the preservation-critical sidecar conversion.");
-            return LPB_RESULT_INTERNAL_ERROR;
-        }
+        bool stage_a_cleanup_attempted = false;
+        bool stage_a_cleanup_confirmed = false;
+        DWORD stage_a_cleanup_error = ERROR_SUCCESS;
+        bool stage_a_identity_captured = false;
+        lpb_file_identity stage_a_identity{};
+        std::string stage_a_staging_path;
+        std::string stage_a_owned_handle_path;
+        auto abort_stage_a = [&]() noexcept {
+            if (!stage_a_cleanup_attempted) {
+                stage_a_identity_captured = stage_a.capture_cleanup_identity(
+                    stage_a_identity, stage_a_staging_path, stage_a_owned_handle_path);
+                stage_a_cleanup_attempted = true;
+                stage_a_cleanup_confirmed = stage_a.abort_and_confirm();
+                if (!stage_a_cleanup_confirmed) stage_a_cleanup_error = GetLastError();
+            }
+            return stage_a_cleanup_confirmed;
+        };
         auto fail_sidecar = [&](lpb_result result, const char* message) noexcept {
-            const bool stage_a_cleaned = stage_a.abort_and_confirm();
+            const bool stage_a_cleaned = abort_stage_a();
+            lpb_file_identity stage_b_identity{};
+            std::string stage_b_staging_path;
+            std::string stage_b_owned_handle_path;
+            const bool stage_b_identity_captured = stage_b.capture_cleanup_identity(
+                stage_b_identity, stage_b_staging_path, stage_b_owned_handle_path);
             const bool stage_b_cleaned = stage_b.abort_and_confirm();
-            const bool cleaned = stage_a_cleaned && stage_b_cleaned;
-            set_error(context, cleaned ? message :
-                "Video sidecar conversion failed and Native could not confirm disposal of every owned staging object.");
-            return result;
+            const DWORD stage_b_cleanup_error = stage_b_cleaned ? ERROR_SUCCESS : GetLastError();
+            if (stage_a_cleaned && stage_b_cleaned) {
+                set_error(context, message);
+                return result;
+            }
+            try {
+                std::string cleanup_error = "[CleanupFailed] Original failure: ";
+                cleanup_error += message != nullptr ? message : "Native operation failed.";
+                auto append_identity = [&](const char* label, bool captured,
+                    const lpb_file_identity& identity, const std::string& staging_path,
+                    const std::string& owned_handle_path, DWORD cleanup_error_code) {
+                    cleanup_error += "; ";
+                    cleanup_error += label;
+                    cleanup_error += " Win32 error=";
+                    cleanup_error += std::to_string(cleanup_error_code);
+                    cleanup_error += ", originalStagingPath=";
+                    cleanup_error += staging_path.empty() ? "<unavailable>" : staging_path;
+                    if (captured) {
+                        cleanup_error += ", ownedHandleIdentity.volumeSerial=";
+                        cleanup_error += std::to_string(identity.volume_serial);
+                        cleanup_error += ", ownedHandleIdentity.fileIndex=";
+                        cleanup_error += std::to_string(identity.file_index);
+                        cleanup_error += ", actualFinalPathFromOwnedHandle=";
+                        cleanup_error += owned_handle_path.empty() ? "<unavailable>" : owned_handle_path;
+                    } else {
+                        cleanup_error += ", ownedHandleIdentity=<unavailable>";
+                    }
+                };
+                append_identity("Stage A", stage_a_identity_captured, stage_a_identity,
+                    stage_a_staging_path, stage_a_owned_handle_path,
+                    stage_a_cleanup_confirmed ? ERROR_SUCCESS : stage_a_cleanup_error);
+                append_identity("Stage B", stage_b_identity_captured, stage_b_identity,
+                    stage_b_staging_path, stage_b_owned_handle_path, stage_b_cleanup_error);
+                cleanup_error += "; identity and actual paths came from retained owned handles; staging pathnames were not re-resolved.";
+                set_error(context, cleanup_error.c_str());
+            } catch (...) {
+                set_error(context, "[CleanupFailed] Native could not dispose of every exact owned staging object; held-handle identity capture was attempted.");
+            }
+            return LPB_RESULT_INTERNAL_ERROR;
         };
 
+        if (!stage_a.create(p_out, L"lpb-video-sidecar-stage-a", L".tmp", true)) {
+            return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
+                "Cannot create an owned staging object for the preservation-critical sidecar conversion.");
+        }
+
         const auto bridge = run_video_sidecar_transcode(
-            context, semantic_reader, stage_a, target_container, target_codec, crf, has_mebx);
+            context, semantic_reader, stage_a, target_container, target_codec, crf, has_mebx,
+            semantic_profile);
         if (bridge.native_result != LPB_RESULT_OK) {
             const auto& failed_sidecar = bridge.sidecar_result;
             const bool sidecar_missing = std::strncmp(bridge.reason.data(), "BackendUnavailable:",
@@ -2211,6 +2518,7 @@ lpb_result transcode_video_file(
         const lpb::random_access_reader stage_a_reader = stage_a.reader();
         isobmff_video_profile stage_a_profile{};
         video_profile_failure stage_a_profile_failure{};
+        video_profile_diagnostic stage_a_profile_diagnostic{};
         uint64_t stage_a_size = 0U;
         const bool stage_a_ready = stage_a.ready_to_consume() &&
             stage_a.size(stage_a_size) && stage_a_size > 0U;
@@ -2219,18 +2527,23 @@ lpb_result transcode_video_file(
             : LPB_RESULT_INTERNAL_ERROR;
         const bool stage_a_profile_inspected = stage_a_ready &&
             stage_a_probe_result == LPB_RESULT_OK &&
-            inspect_isobmff_video_profile(stage_a_reader, stage_a_profile, stage_a_profile_failure);
+            inspect_isobmff_video_profile(stage_a_reader, stage_a_profile, stage_a_profile_failure,
+                &stage_a_profile_diagnostic);
         if (!stage_a_ready || stage_a_probe_result != LPB_RESULT_OK) {
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                 "Minimal-libav Stage A failed Native pre-publication container/profile validation.");
         }
         if (!stage_a_profile_inspected) {
-            if (target_codec == LPB_VIDEO_CODEC_H264) {
+            if (target_codec == LPB_VIDEO_CODEC_H264 &&
+                semantic_profile.classification == video_profile_class::preservation_critical) {
                 return fail_sidecar(LPB_RESULT_INVALID_ARGUMENT,
                     "Unsupported: Native cannot verify that minimal-libav H.264 output preserves the required HDR profile; no Media Foundation retry.");
             }
-            return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
-                "Minimal-libav Stage A failed Native pre-publication container/profile validation.");
+            char message[256]{};
+            std::snprintf(message, sizeof(message),
+                "OutputValidation: minimal-libav Stage A profile rejected (failure=%u, diagnostic=%u); no fallback.",
+                static_cast<unsigned>(stage_a_profile_failure), static_cast<unsigned>(stage_a_profile_diagnostic));
+            return fail_sidecar(LPB_RESULT_INTERNAL_ERROR, message);
         }
 
         if (!sidecar_identity('c', sidecar_facts.library_version, sidecar_facts.encoder_name,
@@ -2245,11 +2558,10 @@ lpb_result transcode_video_file(
         const uint32_t stage_a_profile_depth = std::min<uint32_t>(
             stage_a_profile.bit_depth_luma, stage_a_profile.bit_depth_chroma);
         const int32_t stage_a_expected_range = stage_a_profile.full_range != 0U ? 2 : 1;
-        bool stage_a_has_mebx = false;
-        isobmff_mebx_track_facts unexpected_stage_a_mebx{};
+        std::vector<isobmff_mebx_track_facts> unexpected_stage_a_mebx;
         std::vector<uint8_t> stage_a_bytes;
-        if (has_mebx && (!read_all_bytes(stage_a_reader, stage_a_bytes) ||
-                !inspect_isobmff_mebx_track(stage_a_bytes, stage_a_has_mebx, unexpected_stage_a_mebx))) {
+        if (!read_all_bytes(stage_a_reader, stage_a_bytes) ||
+                !inspect_isobmff_mebx_tracks(stage_a_bytes, unexpected_stage_a_mebx)) {
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                 "Minimal-libav Stage A could not be re-read to verify its deferred MEBX track inventory.");
         }
@@ -2259,8 +2571,10 @@ lpb_result transcode_video_file(
             stage_a_facts.width == src_facts.width && stage_a_facts.height == src_facts.height &&
             stage_a_facts.rotation_degrees == src_facts.rotation_degrees &&
             stage_a_facts.has_audio == src_facts.has_audio &&
-            stage_a_profile.classification == video_profile_class::preservation_critical &&
-            stage_a_profile.bit_depth_luma > 8U && stage_a_profile.bit_depth_chroma > 8U &&
+            stage_a_profile.classification == semantic_profile.classification &&
+            stage_a_profile.bit_depth_luma == semantic_profile.bit_depth_luma &&
+            stage_a_profile.bit_depth_chroma == semantic_profile.bit_depth_chroma &&
+            stage_a_profile.chroma_format == semantic_profile.chroma_format &&
             sidecar_facts.output_pixel_depth == stage_a_profile_depth &&
             stage_a_profile.color_primaries == semantic_profile.color_primaries &&
             stage_a_profile.transfer_characteristics == semantic_profile.transfer_characteristics &&
@@ -2273,7 +2587,7 @@ lpb_result transcode_video_file(
             sidecar_facts.color_matrix == stage_a_profile.matrix_coefficients &&
             sidecar_facts.output_bytes == stage_a_size && sidecar_facts.video_frames > 0U &&
             (src_facts.has_audio == 0 || sidecar_facts.audio_packets > 0U) &&
-            (!has_mebx || !stage_a_has_mebx);
+            unexpected_stage_a_mebx.empty();
         if (!stage_a_profile_valid) {
             if (target_codec == LPB_VIDEO_CODEC_H264) {
                 return fail_sidecar(LPB_RESULT_INVALID_ARGUMENT,
@@ -2285,28 +2599,34 @@ lpb_result transcode_video_file(
 
         windows_owned_output* publish_stage = &stage_a;
         lpb::random_access_reader final_staged_reader = stage_a_reader;
-        isobmff_mebx_track_facts transplanted_facts{};
+        std::vector<isobmff_mebx_track_facts> transplanted_facts;
+        std::vector<uint8_t> metadata_seed;
         if (has_mebx) {
-            std::vector<uint8_t> stage_b_bytes;
-            if (!transplant_isobmff_mebx_track(source_bytes, stage_a_bytes, stage_b_bytes, transplanted_facts) ||
-                transplanted_facts.track_id != source_mebx_facts.track_id ||
-                transplanted_facts.time_scale != source_mebx_facts.time_scale ||
-                transplanted_facts.media_duration != source_mebx_facts.media_duration ||
-                transplanted_facts.sample_count != source_mebx_facts.sample_count ||
-                transplanted_facts.chunk_count != source_mebx_facts.chunk_count ||
-                transplanted_facts.payload_bytes != source_mebx_facts.payload_bytes) {
+            if (!transplant_isobmff_mebx_tracks(source_bytes, stage_a_bytes, metadata_seed, transplanted_facts) ||
+                transplanted_facts.size() != source_mebx_facts.size()) {
                 return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                     "Native could not safely transplant and validate the source MEBX track into Stage B.");
             }
+        }
+        std::vector<uint8_t> stage_b_bytes;
+        bool static_metadata_changed = false;
+        if (!preserve_isobmff_static_metadata(source_bytes,
+                has_mebx ? std::span<const uint8_t>(metadata_seed) : std::span<const uint8_t>(stage_a_bytes),
+                stage_b_bytes, static_metadata_changed)) {
+            return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
+                "Native could not safely preserve the source movie/video static metadata and aperture boxes.");
+        }
+        if (has_mebx || static_metadata_changed) {
             if (!stage_b.create(p_out, L"lpb-video-sidecar-stage-b", L".tmp", true) ||
                 !stage_b.write_all(stage_b_bytes) || !stage_b.ready_to_consume()) {
                 return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
-                    "Native could not materialize its MEBX-preserving Stage B output.");
+                    "Native could not materialize its metadata-preserving Stage B output.");
             }
             final_staged_reader = stage_b.reader();
             std::vector<uint8_t> stage_b_readback;
             if (!read_all_bytes(final_staged_reader, stage_b_readback) ||
-                !validate_isobmff_mebx_transplant(source_bytes, stage_b_readback, transplanted_facts)) {
+                !validate_isobmff_static_metadata(source_bytes, stage_b_readback) ||
+                (has_mebx && !validate_isobmff_mebx_transplants(source_bytes, stage_b_readback, transplanted_facts))) {
                 return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                     "Native Stage B readback did not match the exact source MEBX track and payload bytes.");
             }
@@ -2351,8 +2671,10 @@ lpb_result transcode_video_file(
             output_facts.rotation_degrees == src_facts.rotation_degrees &&
             output_facts.has_audio == src_facts.has_audio &&
             expected_sample_entry &&
-            output_profile.classification == video_profile_class::preservation_critical &&
-            output_profile.bit_depth_luma > 8U && output_profile.bit_depth_chroma > 8U &&
+            output_profile.classification == semantic_profile.classification &&
+            output_profile.bit_depth_luma == semantic_profile.bit_depth_luma &&
+            output_profile.bit_depth_chroma == semantic_profile.bit_depth_chroma &&
+            output_profile.chroma_format == semantic_profile.chroma_format &&
             sidecar_facts.output_pixel_depth == output_profile_depth &&
             output_profile.color_primaries == semantic_profile.color_primaries &&
             output_profile.transfer_characteristics == semantic_profile.transfer_characteristics &&
@@ -2378,17 +2700,21 @@ lpb_result transcode_video_file(
         }
         char backend_encoder[64]{};
         const int encoder_written = std::snprintf(backend_encoder, sizeof(backend_encoder),
-            "minimal-libav/P5-R5-v1/%s", sidecar_facts.encoder_name);
+            "minimal-libav/P7-R4-HEVC-v2/%s", sidecar_facts.encoder_name);
         if (encoder_written < 0 || static_cast<size_t>(encoder_written) >= sizeof(backend_encoder)) {
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                 "Native could not encode the minimal-libav encoder identity.");
         }
 
-        if (has_mebx && !stage_a.abort_and_confirm()) {
+        if (publish_stage == &stage_b && !abort_stage_a()) {
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                 "Native could not confirm disposal of Stage A before Stage B publication.");
         }
-        if (!publish_stage->publish_no_replace(p_out)) {
+        const lpb_result cancellation = lpb_context_check_cancelled(context);
+        if (cancellation != LPB_RESULT_OK) return fail_sidecar(cancellation,
+            "[Cancelled] Video transcode was cancelled before publication.");
+        if (!publish_stage->publish_registered_no_replace(
+                context, LPB_ARTIFACT_MOTION_VIDEO, p_out)) {
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                 "Validated minimal-libav output could not be published without replacement.");
         }
@@ -2399,9 +2725,8 @@ lpb_result transcode_video_file(
         std::array<char, 256> success_reason{};
         if (has_mebx) {
             static_cast<void>(_snprintf_s(success_reason.data(), success_reason.size(), _TRUNCATE,
-                "Native MEBX preserved %u samples/%llu bytes; FFmpeg %s; no fallback.",
-                transplanted_facts.sample_count,
-                static_cast<unsigned long long>(transplanted_facts.payload_bytes), sidecar_facts.library_version));
+                "Native preserved %zu MEBX tracks; FFmpeg %s; no fallback.",
+                transplanted_facts.size(), sidecar_facts.library_version));
         }
         set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_UNKNOWN,
             LPB_VIDEO_HARDWARE_SOFTWARE_FORCED, false, validated_identity,
@@ -2414,10 +2739,10 @@ lpb_result transcode_video_file(
     }
 
     isobmff_video_presentation_timeline source_timeline{};
+    std::vector<uint8_t> mf_source_bytes;
     {
-        std::vector<uint8_t> source_timeline_bytes;
-        if (!read_all_bytes(semantic_reader, source_timeline_bytes) ||
-            !inspect_isobmff_video_presentation_timeline(source_timeline_bytes, source_timeline) ||
+        if (!read_all_bytes(semantic_reader, mf_source_bytes) ||
+            !inspect_isobmff_video_presentation_timeline(mf_source_bytes, source_timeline) ||
             source_timeline.sample_count == 0U ||
             source_timeline.presentation_order.size() != source_timeline.sample_count) {
             set_error(context, "Video conversion failed closed: Native could not validate one complete, unambiguous source presentation timeline; no output was created.");
@@ -2440,8 +2765,10 @@ lpb_result transcode_video_file(
     // removes or publishes the owned output.
     const bool needs_mov_remux = (target_container == LPB_VIDEO_CONTAINER_MOV);
     windows_owned_output output;
+    windows_owned_output metadata_output;
     if (!output.create(p_out, L"lpb-transcode", L".mp4")) {
-        set_error(context, "Failed to create an owned transcoding staging file.");
+        static_cast<void>(abort_owned_output_and_report(context, output,
+            "Failed to create an owned transcoding staging file."));
         return LPB_RESULT_INTERNAL_ERROR;
     }
     const fs::path temp_mp4_path = output.path();
@@ -2450,11 +2777,8 @@ lpb_result transcode_video_file(
         context, p_in, temp_mp4_path, src_facts, semantic_profile,
         target_codec, crf, source_timeline);
     if (transcode_res != LPB_RESULT_OK) {
-        const bool cleanup_confirmed = output.abort_and_confirm();
-        if (!cleanup_confirmed) {
-            set_error(context, "CleanupFailure: Media Foundation conversion failed and Native could not confirm staging cleanup.");
-        }
-        return transcode_res;
+        return abort_owned_output_and_report(context, output, nullptr)
+            ? transcode_res : LPB_RESULT_INTERNAL_ERROR;
     }
     // Strictly re-read the software-forced output profile while it remains in
     // Native-owned staging. Do not publish an output whose actual sample
@@ -2472,13 +2796,13 @@ lpb_result transcode_video_file(
         inspect_isobmff_video_profile(transcoded_reader, transcoded_profile, transcoded_profile_failure,
             &transcoded_profile_diagnostic);
     const auto report_output_validation_failure = [&](const char* detail) noexcept {
-        const bool cleanup_confirmed = output.abort_and_confirm();
-        set_error(context, cleanup_confirmed ? detail
-            : "CleanupFailure: Media Foundation output validation failed and Native could not confirm staging cleanup.");
+        static_cast<void>(abort_owned_output_and_report(context, metadata_output, detail));
+        static_cast<void>(abort_owned_output_and_report(context, output, detail));
         return LPB_RESULT_INTERNAL_ERROR;
     };
     if (!transcoded_profile_valid ||
         transcoded_facts.codec != target_codec ||
+        (target_codec == LPB_VIDEO_CODEC_H264 && transcoded_profile.avc_profile_idc != 66U) ||
         transcoded_profile.classification != video_profile_class::ordinary_sdr ||
         transcoded_profile.bit_depth_luma != 8U || transcoded_profile.bit_depth_chroma != 8U) {
         char validation_error[320]{};
@@ -2549,20 +2873,61 @@ lpb_result transcode_video_file(
             "OutputValidation: Native could not apply the size-preserving CICP correction to MF staging.");
     }
 
+    // Reuse the same Native-owned metadata preservation stage as libav. MF
+    // supplies coded A/V; it is not authoritative for discarding source metadata.
+    windows_owned_output* final_output = &output;
+    std::vector<uint8_t> mf_stage_bytes, mf_metadata_seed, mf_preserved_bytes;
+    std::vector<isobmff_mebx_track_facts> mf_source_mebx, mf_moved_mebx;
+    bool mf_static_changed = false;
+    if (!read_all_bytes(output.reader(), mf_stage_bytes) ||
+        !inspect_isobmff_mebx_tracks(mf_source_bytes, mf_source_mebx) ||
+        (!mf_source_mebx.empty() && !transplant_isobmff_mebx_tracks(
+            mf_source_bytes, mf_stage_bytes, mf_metadata_seed, mf_moved_mebx)) ||
+        !preserve_isobmff_static_metadata(mf_source_bytes,
+            mf_source_mebx.empty() ? std::span<const uint8_t>(mf_stage_bytes) : std::span<const uint8_t>(mf_metadata_seed),
+            mf_preserved_bytes, mf_static_changed)) {
+        return report_output_validation_failure("OutputValidation: MF staging could not preserve exact source static metadata/MEBX.");
+    }
+    {
+        std::vector<uint8_t> readback;
+        if (!metadata_output.create(p_out, L"lpb-mf-metadata", L".mp4", true) ||
+            !metadata_output.write_all(mf_preserved_bytes) || !metadata_output.ready_to_consume() ||
+            !read_all_bytes(metadata_output.reader(), readback) ||
+            !validate_isobmff_static_metadata(mf_source_bytes, readback) ||
+            (!mf_source_mebx.empty() && !validate_isobmff_mebx_transplants(mf_source_bytes, readback, mf_moved_mebx))) {
+            return report_output_validation_failure("OutputValidation: MF metadata staging/readback failed exact preservation.");
+        }
+        if (!abort_owned_output_and_report(context, output, nullptr)) {
+            static_cast<void>(abort_owned_output_and_report(context, metadata_output, nullptr));
+            return LPB_RESULT_INTERNAL_ERROR;
+        }
+        final_output = &metadata_output;
+    }
+
     lpb_video_item_facts final_transcoded_facts{};
     final_transcoded_facts.struct_size = sizeof(lpb_video_item_facts);
     isobmff_video_profile final_transcoded_profile{};
     video_profile_failure final_profile_failure{};
     video_profile_diagnostic final_profile_diagnostic{};
-    const lpb::random_access_reader final_transcoded_reader = output.ready_to_consume()
-        ? output.reader() : lpb::random_access_reader{};
+    const lpb::random_access_reader final_transcoded_reader = final_output->ready_to_consume()
+        ? final_output->reader() : lpb::random_access_reader{};
     const lpb_result final_probe_result = final_transcoded_reader.read_at != nullptr
         ? probe_video_reader(context, final_transcoded_reader, &final_transcoded_facts)
         : LPB_RESULT_INTERNAL_ERROR;
     const bool final_profile_valid = final_probe_result == LPB_RESULT_OK &&
         inspect_isobmff_video_profile(final_transcoded_reader, final_transcoded_profile,
             final_profile_failure, &final_profile_diagnostic);
+    // The MF-writable Stage A was checked earlier; the immutable final stage
+    // must independently pass the same source timing rule after its copy.
+    std::vector<uint8_t> final_timeline_bytes;
+    isobmff_video_presentation_timeline final_timeline{};
+    uint32_t final_failed_frame = 0U;
+    if (!read_all_bytes(final_transcoded_reader, final_timeline_bytes) ||
+        !inspect_isobmff_video_presentation_timeline(final_timeline_bytes, final_timeline) ||
+        !presentation_timing_within_source_frame_intervals(source_timeline, final_timeline, final_failed_frame))
+        return report_output_validation_failure("OutputValidation: protected MF final staging failed source timing validation.");
     if (!final_profile_valid || final_transcoded_facts.codec != target_codec ||
+        (target_codec == LPB_VIDEO_CODEC_H264 && final_transcoded_profile.avc_profile_idc != 66U) ||
         final_transcoded_profile.classification != video_profile_class::ordinary_sdr ||
         final_transcoded_profile.bit_depth_luma != 8U || final_transcoded_profile.bit_depth_chroma != 8U ||
         final_transcoded_profile.color_primaries != semantic_profile.color_primaries ||
@@ -2597,10 +2962,8 @@ lpb_result transcode_video_file(
     char validated_mf_identity[64]{};
     if (!media_foundation_identity(semantic_profile, &final_transcoded_profile, target_codec,
             validated_mf_identity, sizeof(validated_mf_identity))) {
-        const bool cleanup_confirmed = output.abort_and_confirm();
-        set_error(context, cleanup_confirmed
-            ? "OutputValidation: Native could not encode bounded Media Foundation profile diagnostics."
-            : "CleanupFailure: Native could not encode Media Foundation profile diagnostics or confirm staging cleanup.");
+        static_cast<void>(abort_owned_output_and_report(context, *final_output,
+            "OutputValidation: Native could not encode bounded Media Foundation profile diagnostics."));
         return LPB_RESULT_INTERNAL_ERROR;
     }
     set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_WINDOWS_MEDIA_FOUNDATION,
@@ -2609,28 +2972,35 @@ lpb_result transcode_video_file(
 
     // 7. If MOV container was requested, remux temp MP4 to MOV
     if (needs_mov_remux) {
-        if (!output.ready_to_consume()) {
-            set_error(context, "Transcoded staging MP4 no longer matches its creating handle.");
-            return LPB_RESULT_INTERNAL_ERROR;
+        if (!final_output->ready_to_consume()) {
+            return report_output_validation_failure(
+                "Transcoded staging MP4 no longer matches its creating handle.");
         }
-        lpb_result remux_res = remux_video_reader(context, output.reader(),
-            output_video_path, LPB_VIDEO_CONTAINER_MOV);
-        output.abort();
+        lpb_result remux_res = remux_video_reader(context, final_output->reader(),
+            output_video_path, LPB_VIDEO_CONTAINER_MOV, final_output,
+            mf_source_bytes, &mf_moved_mebx, &source_timeline);
         if (remux_res != LPB_RESULT_OK) {
-            return remux_res;
+            return abort_owned_output_and_report(context, *final_output, nullptr)
+                ? remux_res : LPB_RESULT_INTERNAL_ERROR;
         }
     } else {
         lpb_video_item_facts output_mp4_facts{};
         output_mp4_facts.struct_size = sizeof(lpb_video_item_facts);
-        if (!output.ready_to_consume() ||
-            probe_video_reader(context, output.reader(), &output_mp4_facts) != LPB_RESULT_OK) {
-            const std::string probe_reason = context != nullptr ? context->last_error : "unknown";
-            output.abort();
-            set_error(context, ("Transcoded MP4 failed Native structural validation: " + probe_reason).c_str());
+        if (!final_output->ready_to_consume() ||
+            probe_video_reader(context, final_output->reader(), &output_mp4_facts) != LPB_RESULT_OK) {
+            static_cast<void>(abort_owned_output_and_report(context, *final_output,
+                "Transcoded MP4 failed Native structural validation."));
             return LPB_RESULT_INTERNAL_ERROR;
         }
-        if (!output.publish_no_replace(p_out)) {
-            set_error(context, "Failed to publish the owned transcoded MP4 without replacing an existing artifact.");
+        const lpb_result cancellation = lpb_context_check_cancelled(context);
+        if (cancellation != LPB_RESULT_OK) {
+            return abort_owned_output_and_report(context, *final_output,
+                "[Cancelled] Transcoded MP4 was cancelled before publication.")
+                ? cancellation : LPB_RESULT_INTERNAL_ERROR;
+        }
+        if (!final_output->publish_registered_no_replace(context, LPB_ARTIFACT_MOTION_VIDEO, p_out)) {
+            static_cast<void>(abort_owned_output_and_report(context, *final_output,
+                "Failed to publish the owned transcoded MP4 without replacing an existing artifact."));
             return LPB_RESULT_INTERNAL_ERROR;
         }
     }

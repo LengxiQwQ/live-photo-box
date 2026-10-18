@@ -1,0 +1,8 @@
+cmake_minimum_required(VERSION 3.24)
+project(ExistingVideoBackendComparison LANGUAGES CXX)
+add_executable(BackendProbe probe.cpp)
+target_compile_features(BackendProbe PRIVATE cxx_std_20)
+target_compile_definitions(BackendProbe PRIVATE UNICODE _UNICODE NOMINMAX)
+target_compile_options(BackendProbe PRIVATE /W4 /WX /EHsc /utf-8)
+target_include_directories(BackendProbe PRIVATE "${LPB_SOURCE_ROOT}/LivePhotoBox.Native/include" "${LPB_SOURCE_ROOT}/LivePhotoBox.Native/src/media")
+target_link_libraries(BackendProbe PRIVATE psapi)

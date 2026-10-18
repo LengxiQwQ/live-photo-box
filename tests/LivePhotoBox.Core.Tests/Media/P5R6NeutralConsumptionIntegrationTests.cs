@@ -219,7 +219,9 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
             Assert.Equal(GainMapRepresentation.None, bundle.GainMapRepresentation);
             await AssertNeutralManifestAsync(bundle, bundle.PrimaryImage, "PrimaryImage");
             await AssertNeutralManifestAsync(bundle, bundle.MotionVideo!, "MotionVideo");
-            Assert.Equal(2, bundle.Manifest.Count);
+            bool preservesMiCamera = sampleName == "红米老款-GV1.JPG" &&
+                (formatIndex == ProtocolFormatMatrix.SplitFormatKeep || formatIndex == ProtocolFormatMatrix.SplitFormatJpgMp4);
+            Assert.Equal(preservesMiCamera ? 4 : 2, bundle.Manifest.Count);
 
             SourceMediaFacts neutralFacts = await new SourceInspector().InspectAsync(
                 bundle.PrimaryImage.Path,
@@ -228,6 +230,12 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
             Assert.Null(neutralFacts.MotionVideo);
             Assert.Equal(0, neutralFacts.ProtocolTailLength);
             Assert.Null(neutralFacts.PairingIdentifier);
+
+            if (preservesMiCamera)
+            {
+                Assert.Equal(2, bundle.AuxiliaryMedia.Count);
+                await AssertRedmiMiCameraPreservedAsync(sourcePath, bundle.PrimaryImage.Path, neutralFacts, bundle.Manifest);
+            }
 
             AssertSplitImageDispatch(imageConverter, expectedImageContainer);
             AssertSplitVideoDispatch(videoConverter, expectedVideoContainer, expectedVideoCodec);
@@ -274,6 +282,10 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
             Assert.Null(outputImageFacts.MotionVideo);
             Assert.Equal(0, outputImageFacts.ProtocolTailLength);
             Assert.Null(outputImageFacts.PairingIdentifier);
+
+            if (sampleName == "红米老款-GV1.JPG")
+                await AssertRedmiMiCameraPreservedAsync(sourcePath, result.ImageOutputPath, outputImageFacts);
+            Assert.Equal(2, Directory.EnumerateFiles(outputDirectory).Count());
 
             VideoFacts outputVideoFacts = await new VideoConverter().ProbeAsync(
                 result.VideoOutputPath,
@@ -1106,8 +1118,13 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
     {
         string scenarioRoot = FindRepositoryRootAndJoin(
             ".ai-tmp/workspace/P5-R6/neutral-split-exact-object-content-transaction/scenarios");
+        string? isolatedRoot = Environment.GetEnvironmentVariable("LPB_R2_LEGACY_WORKSPACE");
+        if (!string.IsNullOrWhiteSpace(isolatedRoot))
+            scenarioRoot = Path.Combine(isolatedRoot, "split-publication");
         Directory.CreateDirectory(scenarioRoot);
         string scenarioDirectory = Path.Combine(scenarioRoot, scenarioName);
+        if (!string.IsNullOrWhiteSpace(isolatedRoot) && Directory.Exists(scenarioDirectory))
+            throw new IOException("Isolated R2 split scenario already exists: " + scenarioDirectory);
         if (Directory.Exists(scenarioDirectory))
             RemoveOnlyKnownInterruptedSeeds(scenarioDirectory, scenarioName);
 
@@ -1489,9 +1506,11 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
             Assert.Equal(ConversionOperationKind.LossyReencode, call.Result.ExecutionRecord.Truth.ActualOperationKind);
             Assert.Equal(ConversionCapability.VideoTranscodeSdr, call.Result.ExecutionRecord.Truth.SelectedCapability);
             Assert.Equal(ConversionCapability.VideoTranscodeSdr, call.Result.ExecutionRecord.Truth.ActualCapability);
-            Assert.Equal(VideoBackend.WindowsMediaFoundation, call.Result.ExecutionRecord.Backend);
+            Assert.Equal(VideoBackend.Unknown, call.Result.ExecutionRecord.Backend);
             Assert.Equal(VideoHardwareMode.SoftwareForced, call.Result.ExecutionRecord.HardwareMode);
-            Assert.Equal("WindowsMediaFoundation", call.Result.ExecutionRecord.Truth.BackendName);
+            Assert.Equal("minimal-libav", call.Result.ExecutionRecord.Truth.BackendName);
+            Assert.Equal("9.0.1", call.Result.ExecutionRecord.Truth.BackendVersion);
+            Assert.StartsWith("minimal-libav/P7-R4-HEVC-v2/", call.Result.ExecutionRecord.SelectedEncoder, StringComparison.Ordinal);
             Assert.Equal("SoftwareForced", call.Result.ExecutionRecord.Truth.HardwareMode);
             Assert.Contains("H.264;", call.Result.ExecutionRecord.Truth.InputProfile, StringComparison.Ordinal);
             Assert.Contains("HEVC;", call.Result.ExecutionRecord.Truth.OutputProfile, StringComparison.Ordinal);
@@ -1557,6 +1576,61 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
         Assert.Equal("ProjectIsoBmffRemux", call.Result.ExecutionRecord.Truth.BackendName);
         Assert.Equal("ProjectIsoBmffStreamRemux", call.Result.ExecutionRecord.SelectedEncoder);
         Assert.False(call.Result.ExecutionRecord.Truth.FallbackOccurred);
+    }
+
+    private static async Task AssertRedmiMiCameraPreservedAsync(string source, string output,
+        SourceMediaFacts facts, IEnumerable<NeutralArtifactManifest>? manifest = null)
+    {
+        // R1 BX-007 fixed real-source facts, not a relaxed auxiliary count.
+        var expected = new[]
+        {
+            (Semantic: "MiCameraSubimage", Identity: "micamera:xmpmeta:subimage", Relationship: "micamera-xmpmeta-subimage",
+                Codec: AuxiliaryCodec.Jpeg, Offset: 5_066_313L, Length: 49_371L, Sha: "9DE80EB9B34CC515E64D86D0F48FDB47A95B73C0FFAE5013A33AFAE5BA30C85F"),
+            (Semantic: "MiCameraLensWatermark", Identity: "micamera:xmpmeta:lenswatermark", Relationship: "micamera-xmpmeta-lenswatermark",
+                Codec: AuxiliaryCodec.Copy, Offset: 5_115_684L, Length: 38_037L, Sha: "FC6119FBE2E912E829347597022FF0CAC9B889BE638A4E059A6313D4CEFC26FC")
+        };
+        byte[] original = await File.ReadAllBytesAsync(source);
+        byte[] final = await File.ReadAllBytesAsync(output);
+        Assert.Equal(2, facts.AuxiliaryItems.Count);
+        var auxiliaryRows = manifest?.Where(row => row.Role == "Auxiliary").ToArray();
+        if (auxiliaryRows != null) Assert.Equal(2, auxiliaryRows.Length);
+        long previousEnd = -1L;
+        foreach (var e in expected)
+        {
+            var item = Assert.Single(facts.AuxiliaryItems, item => item.Semantic == e.Semantic);
+            Assert.True(item.IsPresent);
+            Assert.Equal(e.Identity, item.StableIdentity);
+            Assert.Equal(e.Relationship, item.Relationship);
+            Assert.Equal("primary:0", item.OwnerIdentity);
+            Assert.Equal(AuxiliaryOwnership.Primary, item.Ownership);
+            Assert.Equal(AuxiliaryRepresentation.Embedded, item.Representation);
+            Assert.Equal(e.Codec, item.Codec);
+            Assert.Equal(e.Length, item.ByteLength);
+            Assert.Equal(e.Sha, NormalizeHash(item.Sha256));
+            Assert.InRange(item.ByteOffset, 0L, final.LongLength - e.Length);
+            Assert.Equal(e.Sha, Convert.ToHexString(SHA256.HashData(original.AsSpan(checked((int)e.Offset), checked((int)e.Length)))));
+            Assert.Equal(e.Sha, Convert.ToHexString(SHA256.HashData(final.AsSpan(checked((int)item.ByteOffset), checked((int)e.Length)))));
+            if (previousEnd >= 0) Assert.Equal(previousEnd, item.ByteOffset);
+            previousEnd = item.ByteOffset + item.ByteLength;
+            if (auxiliaryRows != null)
+            {
+                var row = Assert.Single(auxiliaryRows, row => row.Semantic == e.Semantic);
+                Assert.Equal(Path.GetFullPath(output), Path.GetFullPath(row.Path));
+                Assert.Equal(e.Identity, row.StableIdentity);
+                Assert.Equal(e.Relationship, row.Relationship);
+                Assert.Equal("primary:0", row.OwnerIdentity);
+                Assert.Equal(AuxiliaryOwnership.Primary, row.Ownership);
+                Assert.Equal(AuxiliaryRepresentation.Embedded, row.Representation);
+                Assert.Equal(e.Codec, row.AuxiliaryCodec);
+                Assert.Equal(e.Offset, row.SourceOffset);
+                Assert.Equal(e.Length, row.SourceLength);
+                Assert.Equal(e.Length, row.ByteLength);
+                Assert.Equal(e.Sha, NormalizeHash(row.Sha256));
+                Assert.Equal(e.Sha, NormalizeHash(row.SourceSha256));
+                Assert.Equal(item.ByteOffset, row.OwnerByteOffset);
+            }
+        }
+        Assert.Equal(final.LongLength, previousEnd);
     }
 
     private static async Task AssertNeutralManifestAsync(

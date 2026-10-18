@@ -9,6 +9,7 @@ using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Extraction;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Workspace;
+using MediaWorkspace = LivePhotoBox.Core.Tests.Support.TestFixtureWorkspace;
 using Xunit;
 
 namespace LivePhotoBox.Core.Tests.Media;

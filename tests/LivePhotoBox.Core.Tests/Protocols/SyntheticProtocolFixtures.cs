@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.IO;
 using System.Text;
 
@@ -112,6 +113,61 @@ internal static class SyntheticProtocolFixtures
         result.Write(ftyp);
         result.Write(mdat);
         result.Write(moov);
+        return result.ToArray();
+    }
+
+    public static byte[] CreateGoogleV2JpegWithHuaweiFooter(bool includeHuaweiClaim)
+    {
+        byte[] dummyMp4 = CreateMinimalMp4();
+        const int footerLength = 60;
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" GCamera:MotionPhoto=\"1\" GCamera:MotionPhotoVersion=\"1\"><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"Primary\" Item:Length=\"0\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length + footerLength}\" Item:Padding=\"0\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = CreateJpegWithXmp(xmp);
+
+        byte[] footer = new byte[footerLength];
+        footer[3] = footerLength;
+        Encoding.ASCII.GetBytes("free").CopyTo(footer, 4);
+        if (includeHuaweiClaim)
+        {
+            Encoding.ASCII.GetBytes("LIVE_").CopyTo(footer, 40);
+            Encoding.ASCII.GetBytes((dummyMp4.Length + 20).ToString()).CopyTo(footer, 45);
+        }
+
+        using var result = new MemoryStream();
+        result.Write(jpeg);
+        result.Write(dummyMp4);
+        result.Write(footer);
+        return result.ToArray();
+    }
+
+    public static byte[] CreateHuaweiJpegWithIncompleteGoogleV2Claim()
+    {
+        byte[] dummyMp4 = CreateMinimalMp4();
+        string xmp = "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" GCamera:MotionPhoto=\"1\" /></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = CreateJpegWithXmp(xmp);
+        byte[] footer = new byte[60];
+        Encoding.ASCII.GetBytes("LIVE_").CopyTo(footer, 40);
+        Encoding.ASCII.GetBytes((dummyMp4.Length + 20).ToString()).CopyTo(footer, 45);
+
+        using var result = new MemoryStream();
+        result.Write(jpeg);
+        result.Write(dummyMp4);
+        result.Write(footer);
+        return result.ToArray();
+    }
+
+    public static byte[] CreateHuaweiJpegWithSplitIncompleteGoogleV2Claim()
+    {
+        byte[] dummyMp4 = CreateMinimalMp4();
+        string xmp = $"<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\" xmlns:GCamera=\"http://ns.google.com/photos/1.0/camera/\" GCamera:MotionPhoto=\"1\" /><rdf:Description rdf:about=\"\" xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\"><Container:Directory><rdf:Seq><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"image/jpeg\" Item:Semantic=\"Primary\" Item:Length=\"0\" Item:Padding=\"0\" /></rdf:li><rdf:li rdf:parseType=\"Resource\"><Container:Item Item:Mime=\"video/mp4\" Item:Semantic=\"MotionPhoto\" Item:Length=\"{dummyMp4.Length}\" Item:Padding=\"0\" /></rdf:li></rdf:Seq></Container:Directory></rdf:Description></rdf:RDF></x:xmpmeta>";
+        byte[] jpeg = CreateJpegWithXmp(xmp);
+        byte[] footer = new byte[60];
+        Encoding.ASCII.GetBytes("LIVE_").CopyTo(footer, 40);
+        Encoding.ASCII.GetBytes((dummyMp4.Length + 20).ToString()).CopyTo(footer, 45);
+
+        using var result = new MemoryStream();
+        result.Write(jpeg);
+        result.Write(dummyMp4);
+        result.Write(footer);
         return result.ToArray();
     }
 
@@ -1023,34 +1079,166 @@ internal static class SyntheticProtocolFixtures
     {
         CreateAppleJpeg(outputPath);
         byte[] original = File.ReadAllBytes(outputPath);
-        int makerTag = original.AsSpan().IndexOf(new byte[] { 0x00, 0x01, 0x92, 0x7C });
-        int app1Marker = original.AsSpan().IndexOf(new byte[] { 0xFF, 0xE1 });
-        if (makerTag < 2 || app1Marker < 0) throw new InvalidDataException("Synthetic Apple JPEG did not contain the expected Exif MakerNote.");
+        AppleJpegMakerNoteLayout layout = ReadAppleJpegMakerNoteLayout(original);
+        int insertAt = checked(layout.MakerNoteEntryOffset + 12);
+        if (insertAt > layout.MakerNotePayloadOffset)
+            throw new InvalidDataException("Synthetic Apple ExifIFD entry overlaps its MakerNote payload.");
 
-        int insertAt = makerTag + 12;
-        byte[] shadowed = new byte[original.Length + 12];
+        byte[] shadowed = new byte[checked(original.Length + 12)];
         Buffer.BlockCopy(original, 0, shadowed, 0, insertAt);
         Buffer.BlockCopy(original, insertAt, shadowed, insertAt + 12, original.Length - insertAt);
 
-        // ExifIFD entry count: one formal MakerNote becomes two duplicate
-        // 0x927C owners. Both entries point to the same Apple bytes.
-        shadowed[makerTag - 2] = 0;
-        shadowed[makerTag - 1] = 2;
-        Buffer.BlockCopy(original, makerTag, shadowed, insertAt, 12);
-        uint shadowedMakerOffset = (uint)((original[makerTag + 8] << 24) |
-            (original[makerTag + 9] << 16) | (original[makerTag + 10] << 8) | original[makerTag + 11]) + 12;
-        for (int i = 0; i < 4; i++) {
-            shadowed[makerTag + 8 + i] = (byte)(shadowedMakerOffset >> (24 - i * 8));
-            shadowed[insertAt + 8 + i] = (byte)(shadowedMakerOffset >> (24 - i * 8));
-        }
-
-        int segmentLengthOffset = app1Marker + 2;
-        ushort segmentLength = (ushort)((original[segmentLengthOffset] << 8) | original[segmentLengthOffset + 1]);
-        segmentLength = checked((ushort)(segmentLength + 12));
-        shadowed[segmentLengthOffset] = (byte)(segmentLength >> 8);
-        shadowed[segmentLengthOffset + 1] = (byte)segmentLength;
+        // Duplicate the actual 12-byte 0x927C entry, then point both owners
+        // at the MakerNote payload shifted by the inserted directory entry.
+        Buffer.BlockCopy(original, layout.MakerNoteEntryOffset, shadowed, insertAt, 12);
+        BinaryPrimitives.WriteUInt16BigEndian(shadowed.AsSpan(layout.ExifEntryCountOffset, 2), 2);
+        uint shiftedMakerNoteOffset = checked(layout.MakerNoteValueOffset + 12);
+        BinaryPrimitives.WriteUInt32BigEndian(shadowed.AsSpan(layout.MakerNoteEntryOffset + 8, 4), shiftedMakerNoteOffset);
+        BinaryPrimitives.WriteUInt32BigEndian(shadowed.AsSpan(insertAt + 8, 4), shiftedMakerNoteOffset);
+        BinaryPrimitives.WriteUInt16BigEndian(
+            shadowed.AsSpan(layout.App1SegmentLengthOffset, 2),
+            checked((ushort)(layout.App1SegmentLength + 12)));
         File.WriteAllBytes(outputPath, shadowed);
     }
+
+    private static AppleJpegMakerNoteLayout ReadAppleJpegMakerNoteLayout(byte[] jpeg)
+    {
+        int app1MarkerOffset = FindExifApp1Marker(jpeg);
+        int app1SegmentLengthOffset = checked(app1MarkerOffset + 2);
+        ushort app1SegmentLength = ReadFixtureBe16(jpeg, app1SegmentLengthOffset, jpeg.Length);
+        int app1SegmentEnd = checked(app1SegmentLengthOffset + app1SegmentLength);
+        if (app1SegmentLength < 2 || app1SegmentEnd > jpeg.Length)
+            throw new InvalidDataException("Synthetic Apple APP1 segment length is invalid.");
+
+        // APP1 marker + two-byte segment length + six-byte Exif identifier.
+        int tiffStartOffset = checked(app1MarkerOffset + 10);
+        EnsureFixtureRange(tiffStartOffset, 8, app1SegmentEnd, "TIFF header");
+        if (jpeg[tiffStartOffset] != (byte)'M' ||
+            jpeg[tiffStartOffset + 1] != (byte)'M' ||
+            ReadFixtureBe16(jpeg, tiffStartOffset + 2, app1SegmentEnd) != 42)
+            throw new InvalidDataException("Synthetic Apple TIFF header is not big-endian TIFF.");
+
+        uint ifd0RelativeOffset = ReadFixtureBe32(jpeg, tiffStartOffset + 4, app1SegmentEnd);
+        int ifd0EntryCountOffset = AddFixtureRelativeOffset(tiffStartOffset, ifd0RelativeOffset, app1SegmentEnd, "IFD0");
+        ushort ifd0EntryCount = ReadFixtureBe16(jpeg, ifd0EntryCountOffset, app1SegmentEnd);
+        if (ifd0EntryCount != 1)
+            throw new InvalidDataException("Synthetic Apple IFD0 must contain exactly one ExifIFD pointer.");
+
+        int ifd0EntryOffset = checked(ifd0EntryCountOffset + 2);
+        EnsureFixtureRange(ifd0EntryOffset, 16, app1SegmentEnd, "IFD0 entry and next-IFD pointer");
+        if (ReadFixtureBe16(jpeg, ifd0EntryOffset, app1SegmentEnd) != 0x8769 ||
+            ReadFixtureBe16(jpeg, ifd0EntryOffset + 2, app1SegmentEnd) != 4 ||
+            ReadFixtureBe32(jpeg, ifd0EntryOffset + 4, app1SegmentEnd) != 1)
+            throw new InvalidDataException("Synthetic Apple IFD0 does not contain the expected ExifIFD pointer.");
+
+        uint exifIfdRelativeOffset = ReadFixtureBe32(jpeg, ifd0EntryOffset + 8, app1SegmentEnd);
+        int exifEntryCountOffset = AddFixtureRelativeOffset(tiffStartOffset, exifIfdRelativeOffset, app1SegmentEnd, "ExifIFD");
+        ushort exifEntryCount = ReadFixtureBe16(jpeg, exifEntryCountOffset, app1SegmentEnd);
+        if (exifEntryCount != 1)
+            throw new InvalidDataException("Synthetic Apple ExifIFD must contain exactly one original MakerNote entry.");
+
+        int makerNoteEntryOffset = checked(exifEntryCountOffset + 2);
+        EnsureFixtureRange(makerNoteEntryOffset, 16, app1SegmentEnd, "MakerNote entry and next-IFD pointer");
+        if (ReadFixtureBe16(jpeg, makerNoteEntryOffset, app1SegmentEnd) != 0x927C ||
+            ReadFixtureBe16(jpeg, makerNoteEntryOffset + 2, app1SegmentEnd) != 7)
+            throw new InvalidDataException("Synthetic Apple ExifIFD does not contain the expected 0x927C UNDEFINED entry.");
+
+        uint makerNoteByteCount = ReadFixtureBe32(jpeg, makerNoteEntryOffset + 4, app1SegmentEnd);
+        uint makerNoteValueOffset = ReadFixtureBe32(jpeg, makerNoteEntryOffset + 8, app1SegmentEnd);
+        int makerNotePayloadOffset = AddFixtureRelativeOffset(tiffStartOffset, makerNoteValueOffset, app1SegmentEnd, "MakerNote payload");
+        if (makerNoteByteCount < 14 || makerNoteByteCount > int.MaxValue)
+            throw new InvalidDataException("Synthetic Apple MakerNote payload length is invalid.");
+        EnsureFixtureRange(makerNotePayloadOffset, checked((int)makerNoteByteCount), app1SegmentEnd, "MakerNote payload");
+        if (!jpeg.AsSpan(makerNotePayloadOffset, 14).SequenceEqual(Encoding.ASCII.GetBytes("Apple iOS\0\0\x01MM")))
+            throw new InvalidDataException("Synthetic Apple MakerNote signature is missing.");
+
+        return new AppleJpegMakerNoteLayout(
+            app1SegmentLengthOffset,
+            app1SegmentLength,
+            exifEntryCountOffset,
+            makerNoteEntryOffset,
+            makerNoteValueOffset,
+            makerNotePayloadOffset);
+    }
+
+    private static int FindExifApp1Marker(byte[] jpeg)
+    {
+        if (jpeg.Length < 4 || jpeg[0] != 0xFF || jpeg[1] != 0xD8)
+            throw new InvalidDataException("Synthetic Apple JPEG has no SOI marker.");
+
+        int cursor = 2;
+        while (cursor < jpeg.Length)
+        {
+            int markerStart = cursor;
+            if (jpeg[cursor] != 0xFF)
+                throw new InvalidDataException("Synthetic Apple JPEG marker sequence is malformed.");
+
+            while (cursor < jpeg.Length && jpeg[cursor] == 0xFF)
+                cursor++;
+            if (cursor >= jpeg.Length)
+                break;
+
+            byte marker = jpeg[cursor++];
+            if (marker is 0xDA or 0xD9)
+                break;
+            if (marker == 0x01 || marker is >= 0xD0 and <= 0xD7)
+                continue;
+
+            ushort segmentLength = ReadFixtureBe16(jpeg, cursor, jpeg.Length);
+            if (segmentLength < 2)
+                throw new InvalidDataException("Synthetic Apple JPEG segment length is invalid.");
+            int segmentEnd = checked(cursor + segmentLength);
+            if (segmentEnd > jpeg.Length)
+                throw new InvalidDataException("Synthetic Apple JPEG segment extends past the file.");
+
+            int payloadOffset = checked(cursor + 2);
+            if (marker == 0xE1 &&
+                segmentLength >= 8 &&
+                jpeg.AsSpan(payloadOffset, 6).SequenceEqual(Encoding.ASCII.GetBytes("Exif\0\0")))
+                return markerStart;
+
+            cursor = segmentEnd;
+        }
+
+        throw new InvalidDataException("Synthetic Apple JPEG has no Exif APP1 segment.");
+    }
+
+    private static ushort ReadFixtureBe16(byte[] bytes, int offset, int limit)
+    {
+        EnsureFixtureRange(offset, 2, limit, "16-bit value");
+        return BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(offset, 2));
+    }
+
+    private static uint ReadFixtureBe32(byte[] bytes, int offset, int limit)
+    {
+        EnsureFixtureRange(offset, 4, limit, "32-bit value");
+        return BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(offset, 4));
+    }
+
+    private static int AddFixtureRelativeOffset(int baseOffset, uint relativeOffset, int limit, string field)
+    {
+        if (relativeOffset > int.MaxValue)
+            throw new InvalidDataException($"Synthetic Apple {field} offset is not representable.");
+        long absoluteOffset = (long)baseOffset + relativeOffset;
+        if (absoluteOffset < 0 || absoluteOffset > limit)
+            throw new InvalidDataException($"Synthetic Apple {field} offset is outside APP1.");
+        return (int)absoluteOffset;
+    }
+
+    private static void EnsureFixtureRange(int offset, int length, int limit, string field)
+    {
+        if (offset < 0 || length < 0 || limit < 0 || limit > int.MaxValue ||
+            offset > limit - length)
+            throw new InvalidDataException($"Synthetic Apple {field} is outside APP1.");
+    }
+
+    private sealed record AppleJpegMakerNoteLayout(
+        int App1SegmentLengthOffset,
+        ushort App1SegmentLength,
+        int ExifEntryCountOffset,
+        int MakerNoteEntryOffset,
+        uint MakerNoteValueOffset,
+        int MakerNotePayloadOffset);
 
     public static void CreateAppleMov(string outputPath)
     {

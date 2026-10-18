@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.24)
+project(MfSdkLifecycleRepro LANGUAGES CXX)
+add_executable(MfSdkLifecycleRepro main.cpp)
+target_compile_features(MfSdkLifecycleRepro PRIVATE cxx_std_20)
+target_compile_definitions(MfSdkLifecycleRepro PRIVATE UNICODE _UNICODE NOMINMAX)
+target_compile_options(MfSdkLifecycleRepro PRIVATE /W4 /WX /EHsc)
+target_link_libraries(MfSdkLifecycleRepro PRIVATE mfplat mfreadwrite mfuuid ole32 psapi)

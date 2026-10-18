@@ -33,6 +33,14 @@ bool canonicalize_neutral_gainmap_directory(
     std::string& output_xmp,
     neutral_gainmap_directory& out_directory);
 
+// Rebase only the two Inspector-bound Xiaomi MiCamera XMPMeta EOF offsets
+// after Google MicroVideo V1 same-container Clean removes its live binding.
+bool rebase_micamera_xmpmeta_offsets_for_google_v1_clean(
+    const std::string& input_xmp,
+    const lpb_source_media_facts& source_facts,
+    uint64_t extracted_primary_length,
+    std::string& output_xmp);
+
 bool clean_xmp_metadata_with_plan(
     const std::string& input_xmp,
     lpb_source_protocol protocol,

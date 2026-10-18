@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Extraction;
 using LivePhotoBox.Media.Inspection;
@@ -39,16 +40,118 @@ public sealed class CleanerFourthRoundOwnershipTests
     /// READ|DELETE (no WRITE) lease: an overwrite-in-place would be blocked,
     /// while a rename is the adversarial pathname takeover we must resist.
     /// </summary>
-    private static string MoveOwnedAwayAndPlaceSameContentForeign(
+    private sealed record SameContentReplacement(
+        string MovedOwnedPath,
+        string ForeignPath,
+        WindowsFileIdentity OwnedIdentity,
+        WindowsFileIdentity ForeignIdentity);
+
+    private static SameContentReplacement MoveOwnedAwayAndPlaceSameContentForeign(
         string path,
         string workspaceRoot,
         string ownedName)
     {
-        byte[] bytes = File.ReadAllBytes(path);
+        using var originalHandle = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        WindowsFileIdentity ownedIdentity = WindowsFileIdentity.Capture(originalHandle.SafeFileHandle);
+        using var copy = new MemoryStream();
+        originalHandle.CopyTo(copy);
+        byte[] bytes = copy.ToArray();
+
         string movedOwnedPath = Path.Combine(workspaceRoot, ownedName);
         File.Move(path, movedOwnedPath);
-        File.WriteAllBytes(path, bytes);
-        return movedOwnedPath;
+        using var foreignCreate = new FileStream(
+            path,
+            FileMode.CreateNew,
+            FileAccess.ReadWrite,
+            FileShare.ReadWrite | FileShare.Delete);
+        foreignCreate.Write(bytes);
+        foreignCreate.Flush(flushToDisk: true);
+        WindowsFileIdentity foreignIdentity = WindowsFileIdentity.Capture(foreignCreate.SafeFileHandle);
+        return new SameContentReplacement(movedOwnedPath, path, ownedIdentity, foreignIdentity);
+    }
+
+    private static WindowsFileIdentity CaptureDirectoryIdentity(string path)
+    {
+        using SafeFileHandle handle = WindowsOwnedFilePublisher.OpenOwnedDirectory(path);
+        return WindowsFileIdentity.Capture(handle);
+    }
+
+    private static WindowsFileIdentity CreateNewTestFile(string path, byte[] bytes)
+    {
+        using var stream = new FileStream(
+            path,
+            FileMode.CreateNew,
+            FileAccess.ReadWrite,
+            FileShare.ReadWrite | FileShare.Delete);
+        stream.Write(bytes);
+        stream.Flush(flushToDisk: true);
+        return WindowsFileIdentity.Capture(stream.SafeFileHandle);
+    }
+
+    private static WindowsFileIdentity CaptureFileIdentityFromHeldHandle(string path)
+    {
+        using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.ReadWrite | FileShare.Delete);
+        return WindowsFileIdentity.Capture(stream.SafeFileHandle);
+    }
+
+    private static void DeleteKnownTestFileIfPresent(
+        string? path,
+        WindowsFileIdentity? expectedIdentity,
+        string volumeProbePath)
+    {
+        if (path is null || expectedIdentity is null || !File.Exists(path))
+            return;
+
+        using SafeFileHandle handle = WindowsOwnedFilePublisher.OpenOwnedStagedFile(path, expectedIdentity);
+        OwnedObjectCleanupProof proof = WindowsOwnedFilePublisher.DeleteOwnedObjectWithProof(
+            handle,
+            expectedIdentity,
+            volumeProbePath,
+            out bool dispositionArmed);
+        Assert.True(dispositionArmed, $"Test-only cleanup of '{path}' must use a real exact-object delete disposition.");
+        Assert.True(proof is OwnedObjectCleanupProof.Gone or OwnedObjectCleanupProof.Unlinked,
+            $"Test-only cleanup of '{path}' was not proven: {proof}.");
+        Assert.False(File.Exists(path), $"Exact test-only cleanup left '{path}' visible.");
+    }
+
+    private static void DeleteKnownEmptyDirectoryIfPresent(
+        string? path,
+        WindowsFileIdentity? expectedIdentity,
+        string volumeProbePath)
+    {
+        if (path is null || expectedIdentity is null || !Directory.Exists(path))
+            return;
+
+        using SafeFileHandle handle = WindowsOwnedFilePublisher.OpenOwnedDirectory(path);
+        Assert.Equal(expectedIdentity, WindowsFileIdentity.Capture(handle));
+        OwnedObjectCleanupProof proof = WindowsOwnedFilePublisher.DeleteOwnedObjectWithProof(
+            handle,
+            expectedIdentity,
+            volumeProbePath,
+            out bool dispositionArmed);
+        Assert.True(dispositionArmed, $"Test-only cleanup of '{path}' must use a real exact-directory delete disposition.");
+        Assert.True(proof is OwnedObjectCleanupProof.Gone or OwnedObjectCleanupProof.Unlinked,
+            $"Test-only cleanup of '{path}' was not proven: {proof}.");
+        Assert.False(Directory.Exists(path), $"Exact test-only cleanup left '{path}' visible.");
+    }
+
+    private static void CleanupSameContentAttack(
+        SameContentReplacement replacement,
+        string stagingDirectory,
+        WindowsFileIdentity stagingDirectoryIdentity,
+        string volumeProbePath)
+    {
+        DeleteKnownTestFileIfPresent(replacement.MovedOwnedPath, replacement.OwnedIdentity, volumeProbePath);
+        DeleteKnownTestFileIfPresent(replacement.ForeignPath, replacement.ForeignIdentity, volumeProbePath);
+        DeleteKnownEmptyDirectoryIfPresent(stagingDirectory, stagingDirectoryIdentity, volumeProbePath);
     }
 
     // ------------------------------------------------------------------
@@ -72,6 +175,9 @@ public sealed class CleanerFourthRoundOwnershipTests
         var cleaner = new SourceProtocolCleaner();
         string? stagedReplacement = null;
         string? movedOwnedPath = null;
+        string? stagingDirectory = null;
+        WindowsFileIdentity? stagingDirectoryIdentity = null;
+        SameContentReplacement? replacement = null;
 
         cleaner.FaultInjectionHook = (stage, detail) =>
         {
@@ -80,10 +186,12 @@ public sealed class CleanerFourthRoundOwnershipTests
                 // Same-content replacement of the staged output AFTER the
                 // Native cleaner created and registered it.  The replacement
                 // has a different File ID; rollback must refuse to delete it.
-                stagedReplacement = Directory.GetFiles(
-                    Directory.GetDirectories(workspace.RootDirectory, "staging_*").Single(), "stage-img*").Single();
-                movedOwnedPath = MoveOwnedAwayAndPlaceSameContentForeign(
+                stagingDirectory = Directory.GetDirectories(workspace.RootDirectory, "staging_*").Single();
+                stagedReplacement = Directory.GetFiles(stagingDirectory, "stage-img*").Single();
+                stagingDirectoryIdentity = CaptureDirectoryIdentity(stagingDirectory);
+                replacement = MoveOwnedAwayAndPlaceSameContentForeign(
                     stagedReplacement, workspace.RootDirectory, "owned-image-before-acquisition.jpg");
+                movedOwnedPath = replacement.MovedOwnedPath;
                 cts.Cancel();
                 cts.Token.ThrowIfCancellationRequested();
             }
@@ -105,6 +213,11 @@ public sealed class CleanerFourthRoundOwnershipTests
         Assert.True(File.Exists(stagedReplacement), "The same-content foreign staged object must survive rollback.");
         Assert.NotNull(movedOwnedPath);
         Assert.True(File.Exists(movedOwnedPath), "Path absence before exact-handle acquisition cannot prove A is gone.");
+        CleanupSameContentAttack(
+            Assert.IsType<SameContentReplacement>(replacement),
+            Assert.IsType<string>(stagingDirectory),
+            Assert.IsType<WindowsFileIdentity>(stagingDirectoryIdentity),
+            workspace.RootDirectory);
     }
 
     // ------------------------------------------------------------------
@@ -128,18 +241,25 @@ public sealed class CleanerFourthRoundOwnershipTests
         var cleaner = new SourceProtocolCleaner();
         string? foreignChildPath = null;
         string? stagingDir = null;
+        string? stageAPath = null;
+        WindowsFileIdentity? stageAIdentity = null;
+        WindowsFileIdentity? foreignChildIdentity = null;
+        WindowsFileIdentity? stagingDirectoryIdentity = null;
 
         cleaner.FaultInjectionHook = (stage, detail) =>
         {
             if (stage == CleanerFailureStage.Staging && detail == "ImageStaged")
             {
                 stagingDir = Directory.GetDirectories(workspace.RootDirectory, "staging_*").Single();
+                stageAPath = Directory.GetFiles(stagingDir, "stage-img*").Single();
+                stageAIdentity = CaptureFileIdentityFromHeldHandle(stageAPath);
+                stagingDirectoryIdentity = CaptureDirectoryIdentity(stagingDir);
                 // A foreign file appears in the staging directory while the
                 // Native cleaner is (about to be) interrupted.  The Native
                 // registry never reported it; CaptureNativeStagedOutputs must
                 // NOT claim it as transaction-owned.
                 foreignChildPath = Path.Combine(stagingDir, "foreign-injected.bin");
-                File.WriteAllBytes(foreignChildPath, [0xAB, 0xCD, 0xEF]);
+                foreignChildIdentity = CreateNewTestFile(foreignChildPath, [0xAB, 0xCD, 0xEF]);
                 cts.Cancel();
                 cts.Token.ThrowIfCancellationRequested();
             }
@@ -163,6 +283,12 @@ public sealed class CleanerFourthRoundOwnershipTests
         Assert.Equal(new byte[] { 0xAB, 0xCD, 0xEF }, File.ReadAllBytes(foreignChildPath));
         Assert.NotNull(stagingDir);
         Assert.True(Directory.Exists(stagingDir), "The staging directory must be left in place when it contains a foreign child.");
+        DeleteKnownTestFileIfPresent(stageAPath, stageAIdentity, workspace.RootDirectory);
+        DeleteKnownTestFileIfPresent(foreignChildPath, foreignChildIdentity, workspace.RootDirectory);
+        DeleteKnownEmptyDirectoryIfPresent(
+            stagingDir,
+            stagingDirectoryIdentity,
+            workspace.RootDirectory);
     }
 
     // ------------------------------------------------------------------
@@ -186,6 +312,9 @@ public sealed class CleanerFourthRoundOwnershipTests
         var cleaner = new SourceProtocolCleaner();
         string? stagedReplacement = null;
         string? movedOwnedPath = null;
+        string? stagingDirectory = null;
+        WindowsFileIdentity? stagingDirectoryIdentity = null;
+        SameContentReplacement? replacement = null;
 
         cleaner.FaultInjectionHook = (stage, detail) =>
         {
@@ -193,10 +322,12 @@ public sealed class CleanerFourthRoundOwnershipTests
             {
                 // The Native cleaner returned and registered ownership of its
                 // staged object; a same-content object now takes over the path.
-                stagedReplacement = Directory.GetFiles(
-                    Directory.GetDirectories(workspace.RootDirectory, "staging_*").Single(), "stage-img*").Single();
-                movedOwnedPath = MoveOwnedAwayAndPlaceSameContentForeign(
+                stagingDirectory = Directory.GetDirectories(workspace.RootDirectory, "staging_*").Single();
+                stagedReplacement = Directory.GetFiles(stagingDirectory, "stage-img*").Single();
+                stagingDirectoryIdentity = CaptureDirectoryIdentity(stagingDirectory);
+                replacement = MoveOwnedAwayAndPlaceSameContentForeign(
                     stagedReplacement, workspace.RootDirectory, "owned-image-before-commit.jpg");
+                movedOwnedPath = replacement.MovedOwnedPath;
             }
             return Task.CompletedTask;
         };
@@ -225,6 +356,11 @@ public sealed class CleanerFourthRoundOwnershipTests
         Assert.False(
             Directory.GetFiles(workspace.RootDirectory, "clean-img*").Any(),
             "No destination may be published when the staged object was replaced.");
+        CleanupSameContentAttack(
+            Assert.IsType<SameContentReplacement>(replacement),
+            Assert.IsType<string>(stagingDirectory),
+            Assert.IsType<WindowsFileIdentity>(stagingDirectoryIdentity),
+            workspace.RootDirectory);
     }
 
     // ------------------------------------------------------------------
@@ -240,6 +376,7 @@ public sealed class CleanerFourthRoundOwnershipTests
     {
         string samplePath = ResolveSample("oppo.jpg");
         using var workspace = new MediaWorkspace();
+        using var outputFixture = new TestFixtureWorkspace();
         using var inspected = await new SourceInspector().InspectWithPlanAsync(samplePath);
         ExtractedMediaBundle bundle = await new SourceExtractor().ExtractAsync(
             inspected.ExtractionPlan, samplePath, null, workspace);
@@ -258,7 +395,7 @@ public sealed class CleanerFourthRoundOwnershipTests
                 Assert.Equal(NativeResult.Ok, setResult);
             }
 
-            string cleanedPath = workspace.AllocateFilePath("clean-img", ".jpg");
+            string cleanedPath = outputFixture.AllocateFilePath("clean-img", ".jpg");
             IReadOnlyList<RemovedProtocolFact> removed = await NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
                 attempt, bundle.PrimaryImage.Path, bundle.MotionVideo?.Path, null, cleanedPath, null);
 

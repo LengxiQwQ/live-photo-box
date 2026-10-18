@@ -151,6 +151,7 @@ public sealed class HeifBoxParserDifferentialTests
     }
 
     [Fact]
+    [Trait("P7", "R1-C")]
     public void LocateExifItem_RejectsUnsupportedOrOutOfRangeIloc()
     {
         byte[] file = CreateValidExifFile();
@@ -187,6 +188,7 @@ public sealed class HeifBoxParserDifferentialTests
     }
 
     [Fact]
+    [Trait("P7", "R1-C")]
     public void LocateItems_MalformedAuthoritativeGraphNeverReportsAbsence()
     {
         byte[] malformedIinf = CreateValidExifFile();

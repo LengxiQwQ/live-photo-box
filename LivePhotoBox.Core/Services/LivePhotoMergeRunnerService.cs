@@ -5,6 +5,7 @@ using LivePhotoBox.Media.Workspace;
 using LivePhotoBox.Services.Protocols;
 using NeutralMediaBundle = LivePhotoBox.Protocols.Cleaning.NeutralMediaBundle;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -49,9 +50,12 @@ namespace LivePhotoBox.Services
 
     // 实况照片合并运行器。
     // 将一组 MergeTask 分批并行执行合并操作，
-    // 支持暂停/取消/进度回调，以及临时文件自动清理。
+    // 支持暂停/取消/进度回调；每个任务通过 MediaWorkspace 管理自己的临时文件。
     public static class LivePhotoMergeRunnerService
     {
+        private static readonly ConcurrentDictionary<string, byte> s_outputPathCandidates =
+            new(StringComparer.OrdinalIgnoreCase);
+
         // 批量运行合并任务。
         // 按 <see cref="LivePhotoMergeRunOptions.MaxDegreeOfParallelism"/> 分块并行处理，
         // 每个任务内部自动处理 HEIC 转换、视频转码、协议预处理与最终写入。
@@ -82,38 +86,27 @@ namespace LivePhotoBox.Services
             Action<IMergeTaskInfo, bool, string, int>? onTaskCompleted)
         {
             Directory.CreateDirectory(options.OutputDirectory);
-            string tempDir = Path.Combine(options.OutputDirectory, "Temp");
-            Directory.CreateDirectory(tempDir);
-
-            try
+            int completedCount = 0;
+            int batchSize = Math.Max(1, options.MaxDegreeOfParallelism);
+            foreach (var batch in tasks.Where(task => task.Status != ProcessStatus.Success).Chunk(batchSize))
             {
-                int completedCount = 0;
-                int batchSize = Math.Max(1, options.MaxDegreeOfParallelism);
-                foreach (var batch in tasks.Where(task => task.Status != ProcessStatus.Success).Chunk(batchSize))
+                await WaitPauseAsync(pauseEvent, cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var runningTasks = batch.Select(async task =>
                 {
                     await WaitPauseAsync(pauseEvent, cancellationToken).ConfigureAwait(false);
                     cancellationToken.ThrowIfCancellationRequested();
+                    onTaskStarted?.Invoke(task);
 
-                    var runningTasks = batch.Select(async task =>
-                    {
-                        await WaitPauseAsync(pauseEvent, cancellationToken).ConfigureAwait(false);
-                        cancellationToken.ThrowIfCancellationRequested();
-                        onTaskStarted?.Invoke(task);
+                    var result = await ProcessSinglePairRebuiltAsync(
+                        task.ImagePath, task.VideoPath, task.BaseName, task.Index, options,
+                        cancellationToken).ConfigureAwait(false);
+                    int currentCompleted = Interlocked.Increment(ref completedCount);
+                    onTaskCompleted?.Invoke(task, result.IsSuccess, result.Details, currentCompleted);
+                });
 
-                        var result = await ProcessSinglePairRebuiltAsync(
-                            task.ImagePath, task.VideoPath, task.BaseName, task.Index, options, tempDir,
-                            cancellationToken).ConfigureAwait(false);
-                        int currentCompleted = Interlocked.Increment(ref completedCount);
-                        onTaskCompleted?.Invoke(task, result.IsSuccess, result.Details, currentCompleted);
-                    });
-
-                    await Task.WhenAll(runningTasks).ConfigureAwait(false);
-                }
-            }
-            finally
-            {
-                try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); }
-                catch (Exception ex) { LogService.Merge($"Failed to clean rebuilt temp dir: {ex.Message}", LogLevel.Warning); }
+                await Task.WhenAll(runningTasks).ConfigureAwait(false);
             }
         }
 
@@ -123,11 +116,13 @@ namespace LivePhotoBox.Services
             string baseName,
             int taskIndex,
             LivePhotoMergeRunOptions options,
-            string tempDir,
             CancellationToken token)
         {
             var stopwatch = Stopwatch.StartNew();
-            string? finalOutputPath = null;
+            // An explicit path is known before preprocessing starts. Keep it
+            // for diagnostics only; a failed merge must never delete it by path.
+            string? finalOutputPath = options.OutputFilePath;
+            string? candidateReservationKey = null;
             try
             {
                 token.ThrowIfCancellationRequested();
@@ -173,9 +168,11 @@ namespace LivePhotoBox.Services
                     Directory.CreateDirectory(outputDirectory);
                     finalOutputPath = Path.Combine(outputDirectory, outputName);
                     if (!options.OverwriteExisting)
-                        finalOutputPath = PathHelper.GetUniqueFilePath(outputDirectory, outputName);
-                    else if (File.Exists(finalOutputPath))
-                        File.Delete(finalOutputPath);
+                    {
+                        (finalOutputPath, candidateReservationKey) = AllocateUniqueOutputPathCandidate(
+                            outputDirectory,
+                            outputName);
+                    }
                 }
 
                 await LivePhotoMergeService.WriteLivePhotoRebuiltAsync(
@@ -185,10 +182,9 @@ namespace LivePhotoBox.Services
                     options.SelectedModeIndex,
                     token,
                     bundle.Timing.CoverTimestampUs,
-                    options.OutputFormatIndex).ConfigureAwait(false);
-
-                if (!File.Exists(finalOutputPath))
-                    throw new IOException("Rebuilt merge did not produce an output file.");
+                    options.OutputFormatIndex,
+                    overwriteExisting: options.OutputFilePath != null || options.OverwriteExisting,
+                    testHook: null).ConfigureAwait(false);
 
                 stopwatch.Stop();
                 LogService.Merge($"Rebuilt merge completed for {baseName}: {finalOutputPath} ({stopwatch.Elapsed.TotalSeconds:F2}s)");
@@ -201,13 +197,63 @@ namespace LivePhotoBox.Services
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                if (finalOutputPath != null && File.Exists(finalOutputPath))
-                {
-                    try { File.Delete(finalOutputPath); } catch { }
-                }
                 LogService.Merge($"Rebuilt merge failed for {baseName}: {ex.Message} ({stopwatch.Elapsed.TotalSeconds:F2}s)", LogLevel.Error, ex);
                 return (false, ResourceService.Format("Task_Error", ex.Message));
             }
+            finally
+            {
+                if (candidateReservationKey != null)
+                    s_outputPathCandidates.TryRemove(candidateReservationKey, out _);
+            }
+        }
+
+        // Choose a free-looking name without creating a placeholder file. The
+        // publication transaction owns the final no-replace operation; if an
+        // external writer wins after this candidate check, publication fails
+        // closed and preserves that writer's object.
+        private static (string CandidatePath, string ReservationKey) AllocateUniqueOutputPathCandidate(
+            string directory,
+            string fileName)
+        {
+            string nameWithoutExtension = Path.GetFileNameWithoutExtension(fileName);
+            string extension = Path.GetExtension(fileName);
+            for (int ordinal = 1; ordinal < 999; ordinal++)
+            {
+                string candidateName = ordinal == 1
+                    ? fileName
+                    : $"{nameWithoutExtension} ({ordinal}){extension}";
+                string candidate = Path.Combine(directory, candidateName);
+                if (TryReserveCandidate(candidate, out string? reservationKey))
+                    return (candidate, reservationKey!);
+            }
+
+            while (true)
+            {
+                string candidate = Path.Combine(
+                    directory,
+                    $"{nameWithoutExtension} ({Guid.NewGuid():N}){extension}");
+                if (TryReserveCandidate(candidate, out string? reservationKey))
+                    return (candidate, reservationKey!);
+            }
+        }
+
+        private static bool TryReserveCandidate(string candidate, out string? reservationKey)
+        {
+            string fullPath = Path.GetFullPath(candidate);
+            reservationKey = null;
+            if (File.Exists(fullPath) || Directory.Exists(fullPath))
+                return false;
+            if (!s_outputPathCandidates.TryAdd(fullPath, 0))
+                return false;
+
+            if (File.Exists(fullPath) || Directory.Exists(fullPath))
+            {
+                s_outputPathCandidates.TryRemove(fullPath, out _);
+                return false;
+            }
+
+            reservationKey = fullPath;
+            return true;
         }
 
         // Async pause-wait that does NOT block a thread-pool thread.
@@ -215,16 +261,24 @@ namespace LivePhotoBox.Services
         // a parked OS thread, so cancellation and Set() both propagate cleanly.
         private static async Task WaitPauseAsync(ManualResetEventSlim pauseEvent, CancellationToken token)
         {
+            token.ThrowIfCancellationRequested();
+            if (pauseEvent.IsSet) return;
+
             var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var reg = token.Register(() => tcs.TrySetCanceled(token));
+            // Registered waits observe the signal without parking a worker.
+            // Cancellation must retire the actual wait, not merely its proxy task.
+            RegisteredWaitHandle wait = ThreadPool.RegisterWaitForSingleObject(
+                pauseEvent.WaitHandle,
+                static (state, _) => ((TaskCompletionSource<bool>)state!).TrySetResult(true),
+                tcs, Timeout.Infinite, executeOnlyOnce: true);
             try
             {
-                var waitTask = Task.Run(() => { pauseEvent.Wait(); tcs.TrySetResult(true); }, token);
+                using var reg = token.Register(() => tcs.TrySetCanceled(token));
                 await tcs.Task.ConfigureAwait(false);
             }
             finally
             {
-                reg.Dispose();
+                wait.Unregister(null);
             }
         }
 
@@ -233,7 +287,7 @@ namespace LivePhotoBox.Services
         // videoPath: 源视频路径。
         // baseName: 输出文件名基础部分。
         // options: 运行配置。
-        // tempDir: 临时文件目录。
+        // tempDir: 保留以兼容既有调用方；重建流程使用每次调用独占的 MediaWorkspace。
         // token: 取消令牌。
         // 返回: (是否成功, 结果描述)
         public static Task<(bool IsSuccess, string Details)> ProcessSinglePairAsync(
@@ -245,8 +299,9 @@ namespace LivePhotoBox.Services
             string tempDir,
             CancellationToken token)
         {
+            _ = tempDir;
             return ProcessingPipelineRouter.RunRebuiltAsync("merge", () => ProcessSinglePairRebuiltAsync(
-                imagePath, videoPath, baseName, taskIndex, options, tempDir, token));
+                imagePath, videoPath, baseName, taskIndex, options, token));
         }
     }
 }

@@ -31,7 +31,7 @@ public sealed class CleanupPlan : IDisposable
     private readonly bool _useHarnessLibrary;
     private NativeContextLease? _retainedContextLease;
     private nint _nativeHandle;
-    private readonly ulong _generation;
+    private ulong _generation;
     private bool _disposed;
 
     internal CleanupPlan(
@@ -158,26 +158,33 @@ public sealed class CleanupPlan : IDisposable
     /// context lease valid even when a caller concurrently disposes the
     /// wrapper after extraction has begun.
     /// </summary>
-    internal static CleanupPlan IssueFrom(ExtractionPlanAttempt attempt, CancellationToken cancellationToken = default)
+    internal static CleanupPlan IssueFrom(ExtractionPlanAttempt attempt, CancellationToken cancellationToken = default,
+        Action<CleanupPlan>? prepareBeforeIssue = null)
     {
         ArgumentNullException.ThrowIfNull(attempt);
         return IssueFromCore(
             attempt.Context,
             attempt.NativeHandle,
             attempt.Generation,
-            cancellationToken);
+            cancellationToken, prepareBeforeIssue);
     }
 
     private static CleanupPlan IssueFromCore(
         NativeContext context,
         nint extractionPlanHandle,
         ulong extractionPlanGeneration,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<CleanupPlan>? prepareBeforeIssue = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         NativeContextLease retainedLease = context.AcquireOperationLease(allowDisposeRequested: true);
         try
         {
+            // Allocate the managed owner before Native transfers authority.
+            // It is private to this scope until its token is initialized.
+            var owner = new CleanupPlan(context, retainedLease.Handle, nint.Zero, 0,
+                ownsContextLease: true, useHarnessLibrary: false, retainedContextLease: retainedLease);
+            prepareBeforeIssue?.Invoke(owner);
             NativeResult result = NativeMethods.IssueCleanupPlan(
                 retainedLease.Handle,
                 extractionPlanHandle,
@@ -196,8 +203,10 @@ public sealed class CleanupPlan : IDisposable
                     message ?? $"Native cleanup-plan issuance failed with {result}.");
             }
 
-            return new CleanupPlan(context, retainedLease.Handle, planHandle, planGeneration,
-                ownsContextLease: true, useHarnessLibrary: false, retainedContextLease: retainedLease);
+            // No allocations or fallible validation after a successful issue.
+            owner._nativeHandle = planHandle;
+            owner._generation = planGeneration;
+            return owner;
         }
         catch
         {

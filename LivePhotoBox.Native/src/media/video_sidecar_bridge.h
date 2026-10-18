@@ -3,6 +3,7 @@
 #include "binary/portable_io.h"
 #include "livephotobox_native.h"
 #include "media/video_sidecar_abi.h"
+#include "containers/isobmff_video_profile.h"
 #include "platform/windows_filesystem.h"
 
 #include <array>
@@ -26,6 +27,7 @@ video_sidecar_bridge_result run_video_sidecar_transcode(
     lpb_video_container target_container,
     lpb_video_codec target_codec,
     int32_t crf,
-    bool native_transplants_mebx) noexcept;
+    bool native_transplants_mebx,
+    const isobmff_video_profile& source_profile) noexcept;
 
 } // namespace lpb::media

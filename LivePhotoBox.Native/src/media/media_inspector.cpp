@@ -21,6 +21,8 @@
 #include <cstdlib>
 #include <charconv>
 #include <cmath>
+#include <new>
+#include <stdexcept>
 
 namespace fs = std::filesystem;
 
@@ -54,6 +56,7 @@ static constexpr std::string_view google_container_namespace = "http://ns.google
 static constexpr std::string_view google_item_namespace = "http://ns.google.com/photos/1.0/container/item/";
 static constexpr std::string_view oppo_camera_namespace = "http://ns.oplus.com/photos/1.0/camera/";
 static constexpr std::string_view vivo_camera_namespace = "http://ns.vivo.com/photos/1.0/camera/";
+static constexpr std::string_view micamera_namespace = "http://ns.xiaomi.com/photos/1.0/camera/";
 static constexpr std::string_view rdf_namespace = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 
 static bool is_xml_name_char(char c) noexcept {
@@ -780,7 +783,14 @@ static std::vector<uint8_t> read_file_bytes(const char* path, size_t max_bytes =
         ? max_bytes 
         : static_cast<size_t>(size);
 
-    std::vector<uint8_t> buffer(to_read);
+    std::vector<uint8_t> buffer;
+    try {
+        buffer.resize(to_read);
+    } catch (...) {
+        // The opened source handle must not leak if vector allocation fails.
+        CloseHandle(handle);
+        throw;
+    }
     size_t offset = 0;
     while (offset < to_read) {
         const DWORD requested = static_cast<DWORD>(std::min<size_t>(to_read - offset, 1024 * 1024));
@@ -1095,6 +1105,336 @@ static bool is_valid_jpeg_media_range(
         pos += len;
     }
     return false;
+}
+
+static bool is_valid_png_media_range(
+    const std::vector<uint8_t>& data,
+    uint64_t offset,
+    uint64_t length) noexcept {
+    static constexpr uint8_t signature[] = { 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A };
+    if (offset > data.size() || length > static_cast<uint64_t>(data.size()) - offset) return false;
+
+    const size_t start = static_cast<size_t>(offset);
+    const size_t end = start + static_cast<size_t>(length);
+    if (length < sizeof(signature) ||
+        std::memcmp(data.data() + start, signature, sizeof(signature)) != 0) return false;
+
+    size_t position = start + sizeof(signature);
+    bool first_chunk = true;
+    bool found_idat = false;
+    while (position < end) {
+        if (end - position < 12) return false;
+        const uint32_t chunk_length = read_be32u(data.data() + position);
+        const uint8_t* chunk_type = data.data() + position + 4;
+        if (static_cast<uint64_t>(chunk_length) > static_cast<uint64_t>(end - position - 12)) return false;
+        const size_t chunk_end = position + 12 + static_cast<size_t>(chunk_length);
+
+        if (first_chunk) {
+            if (std::memcmp(chunk_type, "IHDR", 4) != 0 || chunk_length != 13 ||
+                read_be32u(data.data() + position + 8) == 0 ||
+                read_be32u(data.data() + position + 12) == 0) return false;
+            first_chunk = false;
+        } else if (std::memcmp(chunk_type, "IHDR", 4) == 0) {
+            return false;
+        }
+
+        if (std::memcmp(chunk_type, "IDAT", 4) == 0) found_idat = true;
+        if (std::memcmp(chunk_type, "IEND", 4) == 0) {
+            return chunk_length == 0 && found_idat && chunk_end == end;
+        }
+        position = chunk_end;
+    }
+
+    return false;
+}
+
+struct micamera_embedded_item {
+    uint64_t offset{0};
+    uint64_t length{0};
+};
+
+struct micamera_embedded_pair {
+    size_t owner_description{k_no_parent};
+    micamera_embedded_item subimage;
+    micamera_embedded_item lenswatermark;
+};
+
+static bool append_xml_codepoint(uint32_t value, std::string& output) {
+    if (!(value == 0x9 || value == 0xA || value == 0xD ||
+            (value >= 0x20 && value <= 0xD7FF) ||
+            (value >= 0xE000 && value <= 0xFFFD) ||
+            (value >= 0x10000 && value <= 0x10FFFF))) {
+        return false;
+    }
+    if (value <= 0x7F) {
+        output.push_back(static_cast<char>(value));
+    } else if (value <= 0x7FF) {
+        output.push_back(static_cast<char>(0xC0 | (value >> 6)));
+        output.push_back(static_cast<char>(0x80 | (value & 0x3F)));
+    } else if (value <= 0xFFFF) {
+        output.push_back(static_cast<char>(0xE0 | (value >> 12)));
+        output.push_back(static_cast<char>(0x80 | ((value >> 6) & 0x3F)));
+        output.push_back(static_cast<char>(0x80 | (value & 0x3F)));
+    } else {
+        output.push_back(static_cast<char>(0xF0 | (value >> 18)));
+        output.push_back(static_cast<char>(0x80 | ((value >> 12) & 0x3F)));
+        output.push_back(static_cast<char>(0x80 | ((value >> 6) & 0x3F)));
+        output.push_back(static_cast<char>(0x80 | (value & 0x3F)));
+    }
+    return true;
+}
+
+static bool decode_micamera_xml_attribute(std::string_view encoded, std::string& decoded) {
+    if (encoded.size() > 64 * 1024) return false;
+    decoded.clear();
+    decoded.reserve(encoded.size());
+    for (size_t index = 0; index < encoded.size();) {
+        if (encoded[index] != '&') {
+            decoded.push_back(encoded[index++]);
+            continue;
+        }
+        const size_t semicolon = encoded.find(';', index + 1);
+        if (semicolon == std::string_view::npos || semicolon - index > 12) return false;
+        const std::string_view entity = encoded.substr(index + 1, semicolon - index - 1);
+        if (entity == "amp") decoded.push_back('&');
+        else if (entity == "lt") decoded.push_back('<');
+        else if (entity == "gt") decoded.push_back('>');
+        else if (entity == "quot") decoded.push_back('"');
+        else if (entity == "apos") decoded.push_back('\'');
+        else if (entity.size() > 1 && entity.front() == '#') {
+            uint32_t codepoint = 0;
+            const bool hexadecimal = entity.size() > 2 && (entity[1] == 'x' || entity[1] == 'X');
+            const std::string_view digits = entity.substr(hexadecimal ? 2 : 1);
+            if (digits.empty()) return false;
+            const auto parsed = std::from_chars(digits.data(), digits.data() + digits.size(),
+                codepoint, hexadecimal ? 16 : 10);
+            if (parsed.ec != std::errc{} || parsed.ptr != digits.data() + digits.size() ||
+                !append_xml_codepoint(codepoint, decoded)) return false;
+        } else {
+            return false;
+        }
+        index = semicolon + 1;
+    }
+    return true;
+}
+
+static bool parse_micamera_xmpmeta_fragment(std::string_view xml, micamera_embedded_pair& out_pair) {
+    if (xml.size() > 64 * 1024) return false;
+    size_t position = 0;
+    const auto skip_space = [&]() {
+        while (position < xml.size() && std::isspace(static_cast<unsigned char>(xml[position]))) ++position;
+    };
+    skip_space();
+    if (xml.substr(position, 5) == "<?xml") {
+        if (position + 5 >= xml.size() ||
+            !std::isspace(static_cast<unsigned char>(xml[position + 5]))) return false;
+        const size_t declaration_end = xml.find("?>", position + 5);
+        if (declaration_end == std::string_view::npos || declaration_end - position > 512) return false;
+        const std::string_view declaration = xml.substr(position + 5, declaration_end - (position + 5));
+        if (declaration.find('<') != std::string_view::npos ||
+            declaration.find('?') != std::string_view::npos) return false;
+        position = declaration_end + 2;
+    }
+
+    bool found_subimage = false;
+    bool found_lenswatermark = false;
+    while (true) {
+        skip_space();
+        if (position == xml.size()) break;
+        size_t tag_end = 0;
+        if (xml[position] != '<' || !find_tag_end(xml, position, tag_end) ||
+            tag_end < 3 || xml[tag_end - 2] != '/') return false;
+
+        std::string_view tag_name;
+        std::vector<xmp_attribute> attributes;
+        if (!parse_start_tag(xml, position, tag_end, tag_name, attributes) ||
+            tag_name.find(':') != std::string_view::npos) return false;
+        const bool is_subimage = tag_name == "subimage";
+        const bool is_lenswatermark = tag_name == "lenswatermark";
+        if ((!is_subimage && !is_lenswatermark) ||
+            (is_subimage && found_subimage) || (is_lenswatermark && found_lenswatermark)) return false;
+
+        micamera_embedded_item item;
+        bool has_offset = false;
+        bool has_length = false;
+        for (const auto& attribute : attributes) {
+            if (attribute.name.find(':') != std::string_view::npos) return false;
+            if (attribute.name == "offset") {
+                has_offset = parse_u64_exact(attribute.value, item.offset);
+                if (!has_offset) return false;
+            } else if (attribute.name == "length") {
+                has_length = parse_u64_exact(attribute.value, item.length);
+                if (!has_length) return false;
+            } else if (attribute.name == "width" || attribute.name == "height" ||
+                attribute.name == "paddingx" || attribute.name == "paddingy" ||
+                attribute.name == "rotation") {
+                uint64_t ignored = 0;
+                if (!parse_u64_exact(attribute.value, ignored) ||
+                    ((attribute.name == "width" || attribute.name == "height") && ignored == 0)) return false;
+            } else {
+                return false;
+            }
+        }
+        if (!has_offset || !has_length || item.offset == 0 || item.length == 0 || item.length > item.offset) return false;
+
+        if (is_subimage) {
+            out_pair.subimage = item;
+            found_subimage = true;
+        } else {
+            out_pair.lenswatermark = item;
+            found_lenswatermark = true;
+        }
+        position = tag_end;
+    }
+    return found_subimage && found_lenswatermark;
+}
+
+// Returns 0 when absent, 1 for a uniquely owned and structurally valid claim,
+// and -1 for any MiCamera:XMPMeta lookalike that cannot be proven exactly.
+static int parse_micamera_xmpmeta_claim(
+    const std::vector<xmp_node>& nodes,
+    const std::vector<uint8_t>& data,
+    micamera_embedded_pair& out_pair) {
+    size_t candidate_count = 0;
+    size_t exact_attribute_count = 0;
+    std::string_view encoded_value;
+    size_t owner_description = k_no_parent;
+    for (const auto& node : nodes) {
+        if (local_name(node.tag_name) == "XMPMeta") ++candidate_count;
+        for (const auto& attribute : node.attributes) {
+            if (local_name(attribute.name) != "XMPMeta") continue;
+            ++candidate_count;
+            if (attribute.resolved_uri == micamera_namespace) {
+                ++exact_attribute_count;
+                if (node_is(node, rdf_namespace, "Description")) {
+                    encoded_value = attribute.value;
+                    owner_description = node.node_index;
+                }
+            }
+        }
+    }
+    if (candidate_count == 0) return 0;
+    if (candidate_count != 1 || exact_attribute_count != 1 || owner_description == k_no_parent) return -1;
+
+    std::string inner_xml;
+    if (!decode_micamera_xml_attribute(encoded_value, inner_xml) ||
+        !parse_micamera_xmpmeta_fragment(inner_xml, out_pair)) return -1;
+
+    const auto bounded_jpeg_range = [&](const micamera_embedded_item& item, uint64_t& start) {
+        if (item.offset > data.size() || item.length > item.offset) return false;
+        start = data.size() - item.offset;
+        return item.length <= data.size() - static_cast<size_t>(start);
+    };
+    uint64_t subimage_start = 0;
+    uint64_t lenswatermark_start = 0;
+    if (!bounded_jpeg_range(out_pair.subimage, subimage_start) ||
+        !bounded_jpeg_range(out_pair.lenswatermark, lenswatermark_start) ||
+        subimage_start >= lenswatermark_start ||
+        subimage_start + out_pair.subimage.length != lenswatermark_start ||
+        !is_valid_jpeg_media_range(data.data(), data.size(), subimage_start, out_pair.subimage.length) ||
+        !is_valid_png_media_range(data, lenswatermark_start, out_pair.lenswatermark.length)) return -1;
+
+    out_pair.owner_description = owner_description;
+    out_pair.subimage.offset = subimage_start;
+    out_pair.lenswatermark.offset = lenswatermark_start;
+    return 1;
+}
+
+static bool google_v2_jpeg_ownership_is_structurally_valid(
+    const std::vector<xmp_node>& nodes,
+    size_t owner_description,
+    const std::vector<uint8_t>& data,
+    size_t jpeg_end,
+    bool has_jpeg_end) {
+    if (!has_attribute_name_in_nodes(nodes, google_camera_namespace, "MotionPhoto")) return false;
+
+    std::string_view motion_photo_value;
+    if (get_global_attribute_string(nodes, google_camera_namespace, "MotionPhoto", motion_photo_value) != 1 ||
+        motion_photo_value != "1") {
+        return false;
+    }
+
+    uint64_t version = 0;
+    if (get_global_attribute_u64(nodes, google_camera_namespace, "MotionPhotoVersion", version) != 1 ||
+        version != 1) {
+        return false;
+    }
+
+    container_directory_info directory;
+    if (!find_container_directory(nodes, directory, owner_description) || directory.items.empty() ||
+        directory.items.front().semantic != "Primary") {
+        return false;
+    }
+
+    const container_item_info* motion_item = nullptr;
+    const container_item_info* gainmap_item = nullptr;
+    size_t primary_count = 0;
+    size_t motion_count = 0;
+    size_t gainmap_count = 0;
+    for (const auto& item : directory.items) {
+        if (item.semantic == "Primary") {
+            ++primary_count;
+        } else if (item.semantic == "MotionPhoto") {
+            ++motion_count;
+            motion_item = &item;
+        } else if (item.semantic == "GainMap") {
+            ++gainmap_count;
+            gainmap_item = &item;
+        } else {
+            return false;
+        }
+    }
+    if (primary_count != 1 || motion_count != 1 || gainmap_count > 1 ||
+        directory.items.back().semantic != "MotionPhoto" || motion_item == nullptr) {
+        return false;
+    }
+
+    const container_item_info& primary_item = directory.items.front();
+    if (primary_item.mime != "image/jpeg" || primary_item.malformed_length || primary_item.malformed_padding ||
+        (motion_item->mime != "video/mp4" && motion_item->mime != "video/quicktime") ||
+        !motion_item->has_length || motion_item->length == 0 || motion_item->malformed_length) {
+        return false;
+    }
+
+    if (gainmap_item != nullptr &&
+        (gainmap_item->mime != "image/jpeg" || !gainmap_item->has_length ||
+         gainmap_item->length == 0 || gainmap_item->malformed_length)) {
+        return false;
+    }
+
+    const uint64_t primary_size = data.size();
+    const uint64_t motion_length = motion_item->length;
+    if (motion_length >= primary_size) return false;
+    const uint64_t video_offset = primary_size - motion_length;
+    if (!is_valid_isobmff_media_range(data.data(), data.size(), video_offset, motion_length)) return false;
+
+    uint64_t next_resource_offset = video_offset;
+    if (gainmap_item != nullptr) {
+        if (gainmap_item->length >= video_offset) return false;
+        const uint64_t gainmap_offset = video_offset - gainmap_item->length;
+        if (!is_valid_jpeg_media_range(data.data(), data.size(), gainmap_offset, gainmap_item->length)) return false;
+        next_resource_offset = gainmap_offset;
+    }
+
+    uint64_t primary_length = 0;
+    if (primary_item.has_length && primary_item.length > 0) {
+        primary_length = primary_item.length;
+        if (primary_length > next_resource_offset ||
+            (primary_item.has_padding && primary_item.padding != next_resource_offset - primary_length) ||
+            (!primary_item.has_padding && primary_length != next_resource_offset) ||
+            !is_valid_jpeg_media_range(data.data(), data.size(), 0, primary_length)) {
+            return false;
+        }
+    } else {
+        if (!has_jpeg_end || jpeg_end > next_resource_offset) return false;
+        primary_length = jpeg_end;
+        if ((primary_item.has_padding && primary_item.padding != next_resource_offset - primary_length) ||
+            (!primary_item.has_padding && primary_length != next_resource_offset)) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 static bool is_valid_jpeg_or_composite_media_range(
@@ -2445,6 +2785,24 @@ static bool publish_auxiliary_item(
     return true;
 }
 
+static bool publish_micamera_embedded_items(
+    lpb_source_media_facts* facts,
+    const std::vector<uint8_t>& source_data,
+    const micamera_embedded_pair& pair) noexcept {
+    return publish_auxiliary_item(
+            facts, source_data, LPB_IMAGE_CONTAINER_JPEG,
+            { pair.subimage.offset, pair.subimage.length },
+            LPB_AUX_REPRESENTATION_EMBEDDED, LPB_AUX_OWNER_PRIMARY, 0,
+            "micamera-xmpmeta-subimage", "MiCameraSubimage",
+            "micamera:xmpmeta:subimage", "primary:0", LPB_AUX_CODEC_JPEG) &&
+        publish_auxiliary_item(
+            facts, source_data, LPB_IMAGE_CONTAINER_JPEG,
+            { pair.lenswatermark.offset, pair.lenswatermark.length },
+            LPB_AUX_REPRESENTATION_EMBEDDED, LPB_AUX_OWNER_PRIMARY, 0,
+            "micamera-xmpmeta-lenswatermark", "MiCameraLensWatermark",
+            "micamera:xmpmeta:lenswatermark", "primary:0", LPB_AUX_CODEC_COPY);
+}
+
 static bool publish_gainmap_auxiliary(lpb_source_media_facts* facts,
     const std::vector<uint8_t>& source_data,
     lpb_image_container container, lpb_media_range range,
@@ -2893,7 +3251,18 @@ lpb_result inspect_source(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    auto primary_data = read_file_bytes(primary_path, 0, share_existing_writer);
+    std::vector<uint8_t> primary_data;
+    try {
+        primary_data = read_file_bytes(primary_path, 0, share_existing_writer);
+    } catch (const std::bad_alloc&) {
+        set_error(context, "Primary inspection snapshot allocation is unavailable; no extraction plan was issued.");
+        set_inspection_status(context, LPB_INSPECTION_FAILURE_UNSUPPORTED, LPB_INSPECTION_STAGE_READ);
+        return LPB_RESULT_INVALID_ARGUMENT;
+    } catch (const std::length_error&) {
+        set_error(context, "Primary inspection snapshot exceeds the allocator's supported length; no extraction plan was issued.");
+        set_inspection_status(context, LPB_INSPECTION_FAILURE_UNSUPPORTED, LPB_INSPECTION_STAGE_READ);
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     if (primary_data.empty()) {
         set_error(context, "Failed to read primary file.");
         set_inspection_status(context, LPB_INSPECTION_FAILURE_IO, LPB_INSPECTION_STAGE_READ);
@@ -2926,7 +3295,18 @@ lpb_result inspect_source(
 
     // Dual file check
     if (secondary_path && std::strlen(secondary_path) > 0) {
-        auto sec_data = read_file_bytes(secondary_path, 0, share_existing_writer);
+        std::vector<uint8_t> sec_data;
+        try {
+            sec_data = read_file_bytes(secondary_path, 0, share_existing_writer);
+        } catch (const std::bad_alloc&) {
+            set_error(context, "Secondary inspection snapshot allocation is unavailable; no extraction plan was issued.");
+            set_inspection_status(context, LPB_INSPECTION_FAILURE_UNSUPPORTED, LPB_INSPECTION_STAGE_READ);
+            return LPB_RESULT_INVALID_ARGUMENT;
+        } catch (const std::length_error&) {
+            set_error(context, "Secondary inspection snapshot exceeds the allocator's supported length; no extraction plan was issued.");
+            set_inspection_status(context, LPB_INSPECTION_FAILURE_UNSUPPORTED, LPB_INSPECTION_STAGE_READ);
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         uint64_t secondary_size = sec_data.size();
         if (secondary_size == 0) {
             set_error(context, "Secondary file is empty or does not exist.");
@@ -3228,6 +3608,17 @@ lpb_result inspect_source(
             return LPB_RESULT_INVALID_ARGUMENT;
         }
 
+        if (img_cont == LPB_IMAGE_CONTAINER_HEIC) {
+            size_t auxiliary_item_count = 0;
+            const lpb_result heif_graph_probe = lpb_heif_enumerate_auxiliary_items(
+                context, primary_data.data(), static_cast<size_t>(huawei_vid_off),
+                nullptr, 0, &auxiliary_item_count);
+            if (heif_graph_probe != LPB_RESULT_OK && heif_graph_probe != LPB_RESULT_BUFFER_TOO_SMALL) {
+                set_heif_graph_failure_status(context, LPB_CAPABILITY_HUAWEI_HONOR);
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+        }
+
         if (img_cont == LPB_IMAGE_CONTAINER_JPEG && !xmp_packets.empty()) {
             std::vector<xmp_node> huawei_xmp_nodes;
             bool huawei_xmp_valid = true;
@@ -3241,6 +3632,16 @@ lpb_result inspect_source(
                 set_error(context, "Huawei/Honor JPEG contains malformed XMP metadata.");
                 set_inspection_status(context, LPB_INSPECTION_FAILURE_MALFORMED,
                     LPB_INSPECTION_STAGE_METADATA, LPB_CAPABILITY_HUAWEI_HONOR);
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+
+            size_t huawei_xmp_owner_description = k_no_parent;
+            const bool has_unique_xmp_owner =
+                validate_xmp_protocol_ownership(huawei_xmp_nodes, huawei_xmp_owner_description);
+            if (has_unique_xmp_owner && google_v2_jpeg_ownership_is_structurally_valid(
+                    huawei_xmp_nodes, huawei_xmp_owner_description, primary_data, jpeg_end, has_jpeg_end)) {
+                set_error(context, "Huawei/Honor LIVE_ and Google Motion Photo V2 both claim valid ownership of this JPEG.");
+                set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS, LPB_INSPECTION_STAGE_PROTOCOL);
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
 
@@ -3616,6 +4017,18 @@ lpb_result inspect_source(
         set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS,
             LPB_INSPECTION_STAGE_METADATA);
         return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
+    micamera_embedded_pair micamera_pair{};
+    int micamera_claim = 0;
+    if (img_cont == LPB_IMAGE_CONTAINER_JPEG && xmp_parsed && !nodes.empty()) {
+        micamera_claim = parse_micamera_xmpmeta_claim(nodes, primary_data, micamera_pair);
+        if (micamera_claim < 0) {
+            set_error(context, "MiCamera:XMPMeta is ambiguous, malformed, or does not prove a bounded JPEG subimage and PNG lenswatermark.");
+            set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS,
+                LPB_INSPECTION_STAGE_METADATA);
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
     }
 
     if (xmp_parsed && !nodes.empty()) {
@@ -4471,14 +4884,29 @@ lpb_result inspect_source(
                 set_error(context, "Google MicroVideo V1 primary JPEG range is malformed or overlaps the video.");
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
+            if (micamera_claim > 0 &&
+                (micamera_pair.owner_description != xmp_owner_description ||
+                 micamera_pair.subimage.offset != jpeg_end ||
+                 micamera_pair.lenswatermark.offset + micamera_pair.lenswatermark.length != vid_offset)) {
+                set_error(context, "MiCamera:XMPMeta does not exactly own the complete ordered Google MicroVideo V1 inter-resource gap.");
+                set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS,
+                    LPB_INSPECTION_STAGE_PROTOCOL, LPB_CAPABILITY_GOOGLE_V1);
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (micamera_claim > 0 && !publish_micamera_embedded_items(out_facts, primary_data, micamera_pair)) {
+                set_error(context, "MiCamera embedded JPEG elements could not be bound to unique primary-owned auxiliary identities.");
+                set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS,
+                    LPB_INSPECTION_STAGE_CONTAINER, LPB_CAPABILITY_GOOGLE_V1);
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
             out_facts->protocol = LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1;
             out_facts->motion_video.is_present = 1;
             out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
             out_facts->motion_video.file_range.offset = vid_offset;
             out_facts->motion_video.file_range.length = mv_offset;
             out_facts->primary_image.file_range.offset = 0;
-            out_facts->primary_image.file_range.length = jpeg_end;
-            if (jpeg_end < vid_offset) {
+            out_facts->primary_image.file_range.length = micamera_claim > 0 ? vid_offset : jpeg_end;
+            if (micamera_claim == 0 && jpeg_end < vid_offset) {
                 out_facts->protocol_tail_range.offset = jpeg_end;
                 out_facts->protocol_tail_range.length = vid_offset - jpeg_end;
             }
@@ -4631,6 +5059,31 @@ lpb_result inspect_source(
             set_error(context, "Primary file is a malformed or truncated JPEG.");
             set_inspection_status(context, LPB_INSPECTION_FAILURE_MALFORMED, LPB_INSPECTION_STAGE_CONTAINER);
             return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if (micamera_claim > 0) {
+            const uint64_t lenswatermark_end =
+                micamera_pair.lenswatermark.offset + micamera_pair.lenswatermark.length;
+            if ((xmp_owner_description != k_no_parent &&
+                    xmp_owner_description != micamera_pair.owner_description) ||
+                micamera_pair.subimage.offset != jpeg_end || lenswatermark_end != primary_size) {
+                set_error(context, "Non-Live MiCamera:XMPMeta does not exactly own the complete ordered JPEG-tail auxiliary range.");
+                set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS,
+                    LPB_INSPECTION_STAGE_PROTOCOL);
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if (!publish_micamera_embedded_items(out_facts, primary_data, micamera_pair)) {
+                set_error(context, "Non-Live MiCamera elements could not be rebound to unique primary-owned auxiliary identities.");
+                set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS,
+                    LPB_INSPECTION_STAGE_CONTAINER);
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            out_facts->protocol = LPB_SOURCE_PROTOCOL_NON_LIVE;
+            out_facts->primary_image.is_present = 1;
+            out_facts->primary_image.file_range.offset = 0;
+            out_facts->primary_image.file_range.length = primary_size;
+            out_facts->protocol_tail_range.offset = 0;
+            out_facts->protocol_tail_range.length = 0;
+            return LPB_RESULT_OK;
         }
         // A JPEG followed by unexplained bytes is not an ordinary image. Do
         // not silently absorb an unrecognised payload into the primary range:
@@ -4808,7 +5261,7 @@ lpb_result inspect_gainmap_metadata(lpb_context* context, const char* primary_pa
     if (!context || !primary_path || primary_path[0] == '\0') return LPB_RESULT_INVALID_ARGUMENT;
     try {
         const auto load_bounded = [share_existing_writer](const char* path,
-            std::vector<uint8_t>& bytes) noexcept {
+            std::vector<uint8_t>& bytes) {
             if (!path || path[0] == '\0') return false;
             std::error_code ec;
             const uintmax_t size = fs::file_size(utf8_to_path(path), ec);
@@ -4977,6 +5430,9 @@ lpb_result inspect_gainmap_metadata(lpb_context* context, const char* primary_pa
         }
 
         if (saw_malformed_iso || iso_candidates.size() > 1) {
+            set_inspection_status(context,
+                saw_malformed_iso ? LPB_INSPECTION_FAILURE_MALFORMED : LPB_INSPECTION_FAILURE_AMBIGUOUS,
+                LPB_INSPECTION_STAGE_METADATA);
             set_error(context, "GainMap metadata is malformed, duplicated, shadowed, or ambiguous.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
@@ -5000,6 +5456,16 @@ lpb_result inspect_gainmap_metadata(lpb_context* context, const char* primary_pa
             }
         }
         set_error(context, "GainMap metadata lacks a complete supported ISO or Apple mapping.");
+        out_metadata = {};
+        return LPB_RESULT_INVALID_ARGUMENT;
+    } catch (const std::bad_alloc&) {
+        set_error(context, "GainMap inspection snapshot allocation is unavailable.");
+        set_inspection_status(context, LPB_INSPECTION_FAILURE_UNSUPPORTED, LPB_INSPECTION_STAGE_METADATA);
+        out_metadata = {};
+        return LPB_RESULT_INVALID_ARGUMENT;
+    } catch (const std::length_error&) {
+        set_error(context, "GainMap inspection snapshot exceeds the allocator's supported length.");
+        set_inspection_status(context, LPB_INSPECTION_FAILURE_UNSUPPORTED, LPB_INSPECTION_STAGE_METADATA);
         out_metadata = {};
         return LPB_RESULT_INVALID_ARGUMENT;
     } catch (const std::exception& ex) {

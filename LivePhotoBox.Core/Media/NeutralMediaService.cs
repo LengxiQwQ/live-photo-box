@@ -64,6 +64,10 @@ public sealed class NeutralMediaService : INeutralMediaService
         ExtractedMediaBundle extracted = await _extractor
             .ExtractAsync(inspected.ExtractionPlan, primaryPath, secondaryPath, workspace, cancellationToken)
             .ConfigureAwait(false);
+        // Extraction transfers this authority to the bundle owner; the cleaner
+        // borrows it. End its retained NativeContext lease on every exit, before
+        // disposing the inspected source that owns the context itself.
+        using CleanupPlan? cleanupAuthority = extracted.CleanupPlan;
 
         // 3. Clean source Live/Motion Photo protocol
         ProtocolCleanResult cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
@@ -1761,7 +1765,8 @@ public sealed class NeutralMediaService : INeutralMediaService
 
         string outputPath = workspace.AllocateFilePath("neutral-img-gainmap", ".jpg");
         
-        await Interop.NativeMediaService.ReassembleJpegGainMapAsync(
+        Interop.NativeMediaService.NativeRegisteredOutputEvidence outputEvidence =
+            await Interop.NativeMediaService.ReassembleJpegGainMapWithOutputEvidenceAsync(
             primaryImage.Path,
             gainMap.Path,
             outputPath,
@@ -1771,9 +1776,9 @@ public sealed class NeutralMediaService : INeutralMediaService
         return primaryImage with
         {
             Path = outputPath,
-            ByteLength = new FileInfo(outputPath).Length,
-            Sha256 = await workspace.ComputeFileSha256Async(outputPath, cancellationToken).ConfigureAwait(false),
-            FileIdentity = WindowsFileIdentity.Capture(outputPath)
+            ByteLength = outputEvidence.ByteLength,
+            Sha256 = outputEvidence.Sha256,
+            FileIdentity = outputEvidence.FileIdentity
         };
     }
 }

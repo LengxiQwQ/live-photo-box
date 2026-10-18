@@ -58,6 +58,12 @@ struct lpb_published_artifact_record
      * rollback.  It lets rollback delete the original object after its path
      * has been replaced, without ever resolving the replacement by name. */
     void* rollback_handle{};
+    /* Non-authoritative receipt projection marker.  Extraction identities
+     * may be mirrored into cleaner_staged_outputs so existing managed code
+     * can query the creating-handle identity through the existing ABI.  This
+     * token only scopes removal of that mirror; it grants no cleanup authority
+     * and is never exposed through the public ABI record. */
+    uint64_t output_receipt_owner_token{};
 };
 
 /*
@@ -266,6 +272,11 @@ bool generate_plan_token(lpb_context* context, uint64_t& token) noexcept;
 uint64_t cleanup_plan_token_from_handle(const lpb_cleanup_plan* handle) noexcept;
 void record_cleaner_staged_output(lpb_context* context, int32_t artifact_role,
     const std::string& path, const lpb_file_identity& identity) noexcept;
+// Internal conversion result binding using the existing staged-output record
+// shape. Require exactly one path record with the identity captured from the
+// still-open creating handle before a conversion can publish successfully.
+bool has_unique_staged_output_registration(lpb_context* context, int32_t artifact_role,
+    const std::filesystem::path& path, const lpb_file_identity& identity) noexcept;
 // Cleaner transaction registration surrounds the shared Windows handle-publish
 // primitive. The backend never resolves temp_source to re-establish ownership.
 bool lpb_publish_cleaner_output_handle(lpb_context* context,

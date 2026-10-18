@@ -26,6 +26,12 @@ internal sealed class W4EvidenceWorkspace : IMediaWorkspace
             "workspace",
             "p2-w1-w4-final-audit",
             safeCase);
+        string? isolatedRoot = Environment.GetEnvironmentVariable("LPB_R2_LEGACY_WORKSPACE");
+        if (!string.IsNullOrWhiteSpace(isolatedRoot))
+        {
+            RootDirectory = Path.Combine(isolatedRoot, safeCase);
+            if (Directory.Exists(RootDirectory)) throw new IOException("Isolated R2 case workspace already exists: " + RootDirectory);
+        }
         if (Directory.Exists(RootDirectory))
         {
             RemoveExistingRootSafely(RootDirectory);

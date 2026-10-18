@@ -1,9 +1,13 @@
 #pragma once
 
 #include <filesystem>
+#include <string>
 #include <span>
 #include <cstdint>
 #include "binary/portable_io.h"
+
+struct lpb_context;
+struct lpb_file_identity;
 
 enum class lpb_platform_error { other, disk_full, destination_exists, sharing_violation, access_denied };
 struct lpb_platform_capabilities {
@@ -47,7 +51,15 @@ public:
     bool flush() noexcept;
     bool ready_to_consume() noexcept;
     lpb::random_access_reader reader() noexcept;
-    bool publish_no_replace(const std::filesystem::path& destination) noexcept;
+    bool publish_no_replace(const std::filesystem::path& destination,
+        const lpb_file_identity* expected_identity = nullptr) noexcept;
+    // Private conversion binding: register the creating-handle identity in
+    // the existing context registry before publication, confirm the exact
+    // single record, then publish the same handle. This adds no C ABI surface.
+    bool publish_registered_no_replace(lpb_context* context, int32_t artifact_role,
+        const std::filesystem::path& destination) noexcept;
+    bool capture_cleanup_identity(lpb_file_identity& identity,
+        std::string& original_staging_path, std::string& actual_owned_handle_path) noexcept;
     bool abort_and_confirm() noexcept;
     void abort() noexcept;
 
@@ -56,3 +68,12 @@ private:
     void* handle_{};
     void* directory_handle_{};
 };
+
+// Cleans the exact owned staging object and preserves the operation failure
+// unless cleanup itself fails, in which case the NativeContext error is
+// classified as [CleanupFailed]. Pass nullptr to retain the current Native
+// error as the original failure. Returns true only when cleanup was confirmed.
+// report_original_on_success=false is for explicit abort operations whose
+// success should not overwrite the NativeContext error state.
+bool abort_owned_output_and_report(lpb_context* context, windows_owned_output& output,
+    const char* original_failure, bool report_original_on_success = true) noexcept;

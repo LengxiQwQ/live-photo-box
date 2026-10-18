@@ -49,12 +49,13 @@ public sealed class CleanerFifthRoundOwnershipTests
     {
         string samplePath = ResolveSample("oppo.jpg");
         using var workspace = new MediaWorkspace();
+        using var outputFixture = new TestFixtureWorkspace();
         using var inspected = await new SourceInspector().InspectWithPlanAsync(samplePath);
         ExtractedMediaBundle bundle = await new SourceExtractor().ExtractAsync(
             inspected.ExtractionPlan, samplePath, null, workspace);
         using CleanupPlan cleanupPlan = bundle.CleanupPlan!;
         using CleanupPlanAttempt attempt = cleanupPlan.BeginCleanupAttempt();
-        string outPath = workspace.AllocateFilePath("registry-identity", ".jpg");
+        string outPath = outputFixture.AllocateFilePath("registry-identity", ".jpg");
 
         IReadOnlyList<RemovedProtocolFact> removed = await NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
             attempt, bundle.PrimaryImage.Path, bundle.MotionVideo?.Path, null, outPath, null);
@@ -84,12 +85,13 @@ public sealed class CleanerFifthRoundOwnershipTests
     {
         string samplePath = ResolveSample("oppo.jpg");
         using var workspace = new MediaWorkspace();
+        using var outputFixture = new TestFixtureWorkspace();
         using var inspected = await new SourceInspector().InspectWithPlanAsync(samplePath);
         ExtractedMediaBundle bundle = await new SourceExtractor().ExtractAsync(
             inspected.ExtractionPlan, samplePath, null, workspace);
         using CleanupPlan cleanupPlan = bundle.CleanupPlan!;
         using CleanupPlanAttempt attempt = cleanupPlan.BeginCleanupAttempt();
-        string outPath = workspace.AllocateFilePath("buffer-too-small", ".jpg");
+        string outPath = outputFixture.AllocateFilePath("buffer-too-small", ".jpg");
 
         unsafe
         {
@@ -136,12 +138,13 @@ public sealed class CleanerFifthRoundOwnershipTests
     {
         string samplePath = ResolveSample("三星.heic");
         using var workspace = new MediaWorkspace();
+        using var outputFixture = new TestFixtureWorkspace();
         using var inspected = await new SourceInspector().InspectWithPlanAsync(samplePath);
         ExtractedMediaBundle bundle = await new SourceExtractor().ExtractAsync(
             inspected.ExtractionPlan, samplePath, null, workspace);
         using CleanupPlan cleanupPlan = bundle.CleanupPlan!;
         using CleanupPlanAttempt attempt = cleanupPlan.BeginCleanupAttempt();
-        string outPath = workspace.AllocateFilePath("clean-samsung", ".heic");
+        string outPath = outputFixture.AllocateFilePath("clean-samsung", ".heic");
         string injectedTemp = outPath + ".lpb-heif-cleaning-tmp";
         File.WriteAllBytes(injectedTemp, [0xDE, 0xAD, 0xBE, 0xEF]);
 
@@ -180,13 +183,14 @@ public sealed class CleanerFifthRoundOwnershipTests
     {
         string samplePath = ResolveSample("vivo.jpg");
         using var workspace = new MediaWorkspace();
+        using var outputFixture = new TestFixtureWorkspace();
         using var inspected = await new SourceInspector().InspectWithPlanAsync(samplePath);
         ExtractedMediaBundle bundle = await new SourceExtractor().ExtractAsync(
             inspected.ExtractionPlan, samplePath, null, workspace);
         using CleanupPlan cleanupPlan = bundle.CleanupPlan!;
         using CleanupPlanAttempt attempt = cleanupPlan.BeginCleanupAttempt();
-        string outPath = workspace.AllocateFilePath("clean-vivo", ".jpg");
-        string outVidPath = workspace.AllocateFilePath("clean-vivo-video", ".mp4");
+        string outPath = outputFixture.AllocateFilePath("clean-vivo", ".jpg");
+        string outVidPath = outputFixture.AllocateFilePath("clean-vivo-video", ".mp4");
 
         IReadOnlyList<RemovedProtocolFact> removed = await NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
             attempt, bundle.PrimaryImage.Path, bundle.MotionVideo?.Path, null, outPath, outVidPath);
@@ -224,12 +228,13 @@ public sealed class CleanerFifthRoundOwnershipTests
     {
         string samplePath = ResolveSample("三星.jpg");
         using var workspace = new MediaWorkspace();
+        using var outputFixture = new TestFixtureWorkspace();
         using var inspected = await new SourceInspector().InspectWithPlanAsync(samplePath);
         ExtractedMediaBundle bundle = await new SourceExtractor().ExtractAsync(
             inspected.ExtractionPlan, samplePath, null, workspace);
         using CleanupPlan cleanupPlan = bundle.CleanupPlan!;
         using CleanupPlanAttempt attempt = cleanupPlan.BeginCleanupAttempt();
-        string outPath = workspace.AllocateFilePath("clean-samsung-jpeg", ".jpg");
+        string outPath = outputFixture.AllocateFilePath("clean-samsung-jpeg", ".jpg");
 
         Assert.NotNull(bundle.CleanupSource);
         IReadOnlyList<RemovedProtocolFact> removed = await NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
@@ -254,12 +259,13 @@ public sealed class CleanerFifthRoundOwnershipTests
     {
         string samplePath = ResolveSample("三星.heic");
         using var workspace = new MediaWorkspace();
+        using var outputFixture = new TestFixtureWorkspace();
         using var inspected = await new SourceInspector().InspectWithPlanAsync(samplePath);
         ExtractedMediaBundle bundle = await new SourceExtractor().ExtractAsync(
             inspected.ExtractionPlan, samplePath, null, workspace);
         using CleanupPlan cleanupPlan = bundle.CleanupPlan!;
         using CleanupPlanAttempt attempt = cleanupPlan.BeginCleanupAttempt();
-        string outPath = workspace.AllocateFilePath("clean-samsung-heic", ".heic");
+        string outPath = outputFixture.AllocateFilePath("clean-samsung-heic", ".heic");
 
         IReadOnlyList<RemovedProtocolFact> removed = await NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
             attempt, bundle.PrimaryImage.Path, bundle.MotionVideo?.Path, null, outPath, null);

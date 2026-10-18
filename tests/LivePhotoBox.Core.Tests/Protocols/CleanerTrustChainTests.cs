@@ -1389,6 +1389,7 @@ public sealed class CleanerTrustChainTests
     }
 
     [Fact]
+    [Trait("P7", "R1-B")]
     public async Task Clean_Native_Xmp_CustomNamespaceSameLocalName_PreservedIntact()
     {
         using var workspace = new MediaWorkspace();

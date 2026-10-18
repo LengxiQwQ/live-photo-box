@@ -35,6 +35,7 @@ static constexpr std::string_view google_item_namespace = "http://ns.google.com/
 static constexpr std::string_view rdf_namespace = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
 static constexpr std::string_view oppo_camera_namespace = "http://ns.oplus.com/photos/1.0/camera/";
 static constexpr std::string_view vivo_camera_namespace = "http://ns.vivo.com/photos/1.0/camera/";
+static constexpr std::string_view xiaomi_camera_namespace = "http://ns.xiaomi.com/photos/1.0/camera/";
 
 struct parsed_element
 {
@@ -501,6 +502,320 @@ static bool find_motion_ranges(std::string_view xml,
     }
     return true;
 }
+
+struct micamera_nested_item_offset
+{
+    uint64_t offset{};
+    uint64_t length{};
+    size_t offset_value_start{};
+    size_t offset_value_end{};
+};
+
+static std::string_view fixed_utf8_string_view(const char* value, size_t capacity) noexcept
+{
+    if (!value || capacity == 0) return {};
+    const auto* const terminator = static_cast<const char*>(std::memchr(value, '\0', capacity));
+    if (!terminator) return {};
+    const auto distance = terminator - value;
+    if (distance < 0) return {};
+    const size_t checked_length = static_cast<size_t>(distance);
+    if (checked_length >= capacity) return {};
+    const auto length = static_cast<std::string_view::size_type>(checked_length);
+    return std::string_view(value, length);
+}
+
+static bool parse_unsigned_decimal(std::string_view value, uint64_t& out_value) noexcept
+{
+    if (value.empty()) return false;
+    uint64_t parsed = 0;
+    const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed, 10);
+    if (result.ec != std::errc{} || result.ptr != value.data() + value.size()) return false;
+    out_value = parsed;
+    return true;
+}
+
+static bool checked_media_range_end(const lpb_media_range& range, uint64_t& out_end) noexcept
+{
+    if (range.length > std::numeric_limits<uint64_t>::max() - range.offset) return false;
+    out_end = range.offset + range.length;
+    return true;
+}
+
+static bool is_micamera_fact_candidate(
+    const lpb_auxiliary_item_facts& item,
+    std::string_view stable_identity,
+    std::string_view semantic,
+    std::string_view relationship) noexcept
+{
+    return fixed_utf8_string_view(item.stable_identity, sizeof(item.stable_identity)) == stable_identity ||
+        fixed_utf8_string_view(item.semantic, sizeof(item.semantic)) == semantic ||
+        fixed_utf8_string_view(item.relationship, sizeof(item.relationship)) == relationship;
+}
+
+static bool micamera_fact_matches(
+    const lpb_auxiliary_item_facts& item,
+    std::string_view stable_identity,
+    std::string_view semantic,
+    std::string_view relationship,
+    lpb_auxiliary_codec codec) noexcept
+{
+    return item.struct_size >= sizeof(lpb_auxiliary_item_facts) &&
+        item.is_present == 1 &&
+        fixed_utf8_string_view(item.stable_identity, sizeof(item.stable_identity)) == stable_identity &&
+        fixed_utf8_string_view(item.semantic, sizeof(item.semantic)) == semantic &&
+        fixed_utf8_string_view(item.relationship, sizeof(item.relationship)) == relationship &&
+        fixed_utf8_string_view(item.owner_identity, sizeof(item.owner_identity)) == "primary:0" &&
+        item.source_index == 0 &&
+        item.container == LPB_IMAGE_CONTAINER_JPEG &&
+        item.representation == LPB_AUX_REPRESENTATION_EMBEDDED &&
+        item.ownership == LPB_AUX_OWNER_PRIMARY &&
+        item.codec == codec;
+}
+
+static bool parse_micamera_nested_target_tag(
+    std::string_view raw_tag,
+    size_t raw_tag_start,
+    std::string_view expected_name,
+    bool& out_is_target,
+    micamera_nested_item_offset& out_item) noexcept
+{
+    out_is_target = false;
+    size_t position = 0;
+    bool closing_tag = false;
+    if (position < raw_tag.size() && raw_tag[position] == '/') {
+        closing_tag = true;
+        ++position;
+    }
+
+    const size_t name_start = position;
+    while (position < raw_tag.size() && is_name_char(raw_tag[position])) ++position;
+    if (position == name_start) return closing_tag || raw_tag.empty();
+
+    const std::string_view name = raw_tag.substr(name_start, position - name_start);
+    if (!equals_icase(name, expected_name)) return true;
+    out_is_target = true;
+    if (name != expected_name || closing_tag) return false;
+
+    bool saw_offset = false;
+    bool saw_length = false;
+    bool self_closing = false;
+    micamera_nested_item_offset parsed{};
+    constexpr std::string_view encoded_quote = "&quot;";
+
+    while (position < raw_tag.size()) {
+        while (position < raw_tag.size() && std::isspace(static_cast<unsigned char>(raw_tag[position]))) ++position;
+        if (position == raw_tag.size()) break;
+        if (raw_tag[position] == '/') {
+            ++position;
+            while (position < raw_tag.size() && std::isspace(static_cast<unsigned char>(raw_tag[position]))) ++position;
+            if (position != raw_tag.size()) return false;
+            self_closing = true;
+            break;
+        }
+
+        const size_t attribute_name_start = position;
+        while (position < raw_tag.size() && is_name_char(raw_tag[position])) ++position;
+        if (position == attribute_name_start) return false;
+        const std::string_view attribute_name = raw_tag.substr(attribute_name_start, position - attribute_name_start);
+        while (position < raw_tag.size() && std::isspace(static_cast<unsigned char>(raw_tag[position]))) ++position;
+        if (position >= raw_tag.size() || raw_tag[position] != '=') return false;
+        ++position;
+        while (position < raw_tag.size() && std::isspace(static_cast<unsigned char>(raw_tag[position]))) ++position;
+        if (raw_tag.substr(position, encoded_quote.size()) != encoded_quote) return false;
+        position += encoded_quote.size();
+        const size_t value_start = position;
+        const size_t value_end = raw_tag.find(encoded_quote, value_start);
+        if (value_end == std::string_view::npos) return false;
+        const std::string_view value = raw_tag.substr(value_start, value_end - value_start);
+
+        if (attribute_name == "offset") {
+            if (saw_offset || !parse_unsigned_decimal(value, parsed.offset)) return false;
+            saw_offset = true;
+            parsed.offset_value_start = raw_tag_start + value_start;
+            parsed.offset_value_end = raw_tag_start + value_end;
+        } else if (attribute_name == "length") {
+            if (saw_length || !parse_unsigned_decimal(value, parsed.length)) return false;
+            saw_length = true;
+        }
+        position = value_end + encoded_quote.size();
+    }
+
+    if (!self_closing || !saw_offset || !saw_length) return false;
+    out_item = parsed;
+    return true;
+}
+
+static bool parse_micamera_xmpmeta_offsets(
+    std::string_view encoded_xmpmeta,
+    micamera_nested_item_offset& out_subimage,
+    micamera_nested_item_offset& out_lenswatermark,
+    size_t& out_subimage_count,
+    size_t& out_lenswatermark_count) noexcept
+{
+    size_t cursor = 0;
+    out_subimage_count = 0;
+    out_lenswatermark_count = 0;
+    bool saw_xml_declaration = false;
+    constexpr std::string_view encoded_open = "&lt;";
+    constexpr std::string_view encoded_close = "&gt;";
+
+    while ((cursor = encoded_xmpmeta.find(encoded_open, cursor)) != std::string_view::npos) {
+        const size_t tag_start = cursor + encoded_open.size();
+        const size_t tag_end = encoded_xmpmeta.find(encoded_close, tag_start);
+        if (tag_end == std::string_view::npos) return false;
+        const std::string_view raw_tag = encoded_xmpmeta.substr(tag_start, tag_end - tag_start);
+        if (!raw_tag.empty() && raw_tag.front() == '?') {
+            if (saw_xml_declaration || raw_tag.size() < 5 || raw_tag.substr(0, 4) != "?xml" || raw_tag.back() != '?') return false;
+            saw_xml_declaration = true;
+            cursor = tag_end + encoded_close.size();
+            continue;
+        }
+
+        bool is_target = false;
+        micamera_nested_item_offset parsed{};
+        if (!parse_micamera_nested_target_tag(raw_tag, tag_start, "subimage", is_target, parsed)) return false;
+        if (is_target) {
+            if (++out_subimage_count != 1) return false;
+            out_subimage = parsed;
+        }
+        if (!parse_micamera_nested_target_tag(raw_tag, tag_start, "lenswatermark", is_target, parsed)) return false;
+        if (is_target) {
+            if (++out_lenswatermark_count != 1) return false;
+            out_lenswatermark = parsed;
+        }
+        cursor = tag_end + encoded_close.size();
+    }
+
+    return true;
+}
+
+} // namespace
+
+bool rebase_micamera_xmpmeta_offsets_for_google_v1_clean(
+    const std::string& input_xmp,
+    const lpb_source_media_facts& source_facts,
+    uint64_t extracted_primary_length,
+    std::string& output_xmp)
+{
+    if (input_xmp.empty() || source_facts.struct_size < sizeof(lpb_source_media_facts) ||
+        source_facts.protocol != LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1 ||
+        source_facts.primary_image.is_present != 1 ||
+        source_facts.primary_image.container != LPB_IMAGE_CONTAINER_JPEG ||
+        source_facts.primary_image.file_range.offset != 0 ||
+        source_facts.primary_image.file_range.length != extracted_primary_length ||
+        extracted_primary_length == 0 ||
+        source_facts.auxiliary_count > (sizeof(source_facts.auxiliary_items) / sizeof(source_facts.auxiliary_items[0]))) {
+        return false;
+    }
+
+    const lpb_auxiliary_item_facts* subimage_fact = nullptr;
+    const lpb_auxiliary_item_facts* lenswatermark_fact = nullptr;
+    for (uint32_t i = 0; i < source_facts.auxiliary_count; ++i) {
+        const auto& item = source_facts.auxiliary_items[i];
+        const bool is_subimage = is_micamera_fact_candidate(
+            item, "micamera:xmpmeta:subimage", "MiCameraSubimage", "micamera-xmpmeta-subimage");
+        const bool is_lenswatermark = is_micamera_fact_candidate(
+            item, "micamera:xmpmeta:lenswatermark", "MiCameraLensWatermark", "micamera-xmpmeta-lenswatermark");
+        if (is_subimage && is_lenswatermark) return false;
+        if (is_subimage) {
+            if (subimage_fact) return false;
+            subimage_fact = &item;
+        }
+        if (is_lenswatermark) {
+            if (lenswatermark_fact) return false;
+            lenswatermark_fact = &item;
+        }
+    }
+
+    std::vector<parsed_element> elements;
+    if (!parse_xml_elements(input_xmp, elements)) return false;
+    std::string_view xmpmeta_value;
+    size_t xmpmeta_count = 0;
+    for (const auto& element : elements) {
+        for (const auto& attribute : element.attributes) {
+            if (namespace_uri_for_name(attribute.name, element.bindings, true) != xiaomi_camera_namespace ||
+                !equals_icase(local_name(attribute.name), "XMPMeta")) continue;
+            if (++xmpmeta_count != 1) return false;
+            xmpmeta_value = attribute.value;
+        }
+    }
+
+    micamera_nested_item_offset subimage_xmp{};
+    micamera_nested_item_offset lenswatermark_xmp{};
+    size_t nested_subimage_count = 0;
+    size_t nested_lenswatermark_count = 0;
+    if (xmpmeta_count == 1 && !parse_micamera_xmpmeta_offsets(
+            xmpmeta_value, subimage_xmp, lenswatermark_xmp, nested_subimage_count, nested_lenswatermark_count)) {
+        return false;
+    }
+
+    if (!subimage_fact && !lenswatermark_fact) {
+        if (nested_subimage_count != 0 || nested_lenswatermark_count != 0) return false;
+        output_xmp = input_xmp;
+        return true;
+    }
+    if (!subimage_fact || !lenswatermark_fact || xmpmeta_count != 1) return false;
+    if (nested_subimage_count != 1 || nested_lenswatermark_count != 1) return false;
+
+    if (!micamera_fact_matches(*subimage_fact,
+            "micamera:xmpmeta:subimage", "MiCameraSubimage", "micamera-xmpmeta-subimage", LPB_AUX_CODEC_JPEG) ||
+        !micamera_fact_matches(*lenswatermark_fact,
+            "micamera:xmpmeta:lenswatermark", "MiCameraLensWatermark", "micamera-xmpmeta-lenswatermark", LPB_AUX_CODEC_COPY)) {
+        return false;
+    }
+
+    const auto& primary_range = source_facts.primary_image.file_range;
+    const auto& video = source_facts.motion_video;
+    uint64_t primary_end = 0;
+    uint64_t source_end = 0;
+    uint64_t subimage_end = 0;
+    uint64_t lenswatermark_end = 0;
+    if (!checked_media_range_end(primary_range, primary_end) ||
+        video.is_present != 1 || video.container != LPB_VIDEO_CONTAINER_MP4 || video.source_index != 0 ||
+        video.file_range.offset != primary_end || video.file_range.length == 0 ||
+        !checked_media_range_end(video.file_range, source_end) || source_end <= primary_end ||
+        source_facts.protocol_tail_range.length != 0 ||
+        subimage_fact->file_range.length == 0 || lenswatermark_fact->file_range.length == 0 ||
+        subimage_fact->file_range.offset < primary_range.offset ||
+        lenswatermark_fact->file_range.offset < primary_range.offset ||
+        !checked_media_range_end(subimage_fact->file_range, subimage_end) ||
+        !checked_media_range_end(lenswatermark_fact->file_range, lenswatermark_end) ||
+        subimage_end != lenswatermark_fact->file_range.offset ||
+        lenswatermark_end != primary_end ||
+        subimage_fact->file_range.offset >= lenswatermark_fact->file_range.offset) {
+        return false;
+    }
+
+    const uint64_t expected_subimage_old_offset = source_end - subimage_fact->file_range.offset;
+    const uint64_t expected_lenswatermark_old_offset = source_end - lenswatermark_fact->file_range.offset;
+    const uint64_t expected_subimage_new_offset = primary_end - subimage_fact->file_range.offset;
+    const uint64_t expected_lenswatermark_new_offset = primary_end - lenswatermark_fact->file_range.offset;
+    if (subimage_xmp.offset != expected_subimage_old_offset ||
+        lenswatermark_xmp.offset != expected_lenswatermark_old_offset ||
+        subimage_xmp.length != subimage_fact->file_range.length ||
+        lenswatermark_xmp.length != lenswatermark_fact->file_range.length ||
+        expected_subimage_new_offset == 0 || expected_lenswatermark_new_offset == 0) {
+        return false;
+    }
+
+    const size_t value_base = static_cast<size_t>(xmpmeta_value.data() - input_xmp.data());
+    struct offset_patch { size_t start; size_t end; std::string replacement; };
+    std::vector<offset_patch> patches;
+    patches.push_back({ value_base + subimage_xmp.offset_value_start, value_base + subimage_xmp.offset_value_end,
+        std::to_string(expected_subimage_new_offset) });
+    patches.push_back({ value_base + lenswatermark_xmp.offset_value_start, value_base + lenswatermark_xmp.offset_value_end,
+        std::to_string(expected_lenswatermark_new_offset) });
+    std::sort(patches.begin(), patches.end(), [](const auto& left, const auto& right) { return left.start > right.start; });
+
+    output_xmp = input_xmp;
+    for (const auto& patch : patches) {
+        if (patch.start > patch.end || patch.end > output_xmp.size()) return false;
+        output_xmp.replace(patch.start, patch.end - patch.start, patch.replacement);
+    }
+    return true;
+}
+
+namespace {
 
 struct neutral_directory_item_span
 {

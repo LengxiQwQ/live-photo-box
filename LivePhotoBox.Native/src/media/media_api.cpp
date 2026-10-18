@@ -1215,8 +1215,10 @@ LPB_API lpb_result LPB_CALL lpb_issue_cleanup_plan(
         }
         // Hand the artifacts over to the cleanup chain: the extraction record
         // can no longer roll them back.
-        extraction->cleanup_authority_issued = true;
         context->cleanup_plans.push_back(std::move(record));
+        // Transfer authority only after the potentially throwing insertion.
+        // On allocation failure the extraction record must retain rollback.
+        extraction->cleanup_authority_issued = true;
 #if defined(LPB_NATIVE_TEST_HARNESS)
         ++context->test_cleanup_issued;
 #endif
@@ -1803,43 +1805,43 @@ LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
         windows_owned_output output;
         if (!output.create(p_output, L"lpb-gainmap") ||
             !output.write_all(validated_output) || !output.flush()) {
-            set_error(context, "Failed to write and flush an owned staging file for GainMap reassembly.");
-            output.abort();
+            static_cast<void>(abort_owned_output_and_report(context, output,
+                "Failed to write and flush an owned staging file for GainMap reassembly."));
             return LPB_RESULT_INTERNAL_ERROR;
         }
         uint64_t staged_size = 0;
         const lpb::random_access_reader staged_reader = output.reader();
         if (!output.size(staged_size) || staged_size != output_bytes.size() ||
             staged_reader.length != output_bytes.size() || staged_reader.read_at == nullptr) {
-            set_error(context, "Owned staging file size or identity could not be verified.");
-            output.abort();
+            static_cast<void>(abort_owned_output_and_report(context, output,
+                "Owned staging file size or identity could not be verified."));
             return LPB_RESULT_INTERNAL_ERROR;
         }
         std::array<uint8_t, 64 * 1024> verify_buffer{};
         for (size_t offset = 0; offset < output_bytes.size();) {
             if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
-                set_error(context, "GainMap reassembly cancelled.");
-                output.abort();
-                return LPB_RESULT_CANCELLED;
+                return abort_owned_output_and_report(context, output,
+                    "[Cancelled] GainMap reassembly cancelled.")
+                    ? LPB_RESULT_CANCELLED : LPB_RESULT_INTERNAL_ERROR;
             }
             const size_t count = std::min(verify_buffer.size(), output_bytes.size() - offset);
             std::span<uint8_t> block(verify_buffer.data(), count);
             if (!staged_reader.read_exact(offset, block) ||
                 std::memcmp(block.data(), output_bytes.data() + offset, count) != 0) {
-                set_error(context, "Owned staging file does not match the structurally validated JPEG bytes.");
-                output.abort();
+                static_cast<void>(abort_owned_output_and_report(context, output,
+                    "Owned staging file does not match the structurally validated JPEG bytes."));
                 return LPB_RESULT_INTERNAL_ERROR;
             }
             offset += count;
         }
         if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
-            set_error(context, "GainMap reassembly cancelled.");
-            output.abort();
-            return LPB_RESULT_CANCELLED;
+            return abort_owned_output_and_report(context, output,
+                "[Cancelled] GainMap reassembly cancelled.")
+                ? LPB_RESULT_CANCELLED : LPB_RESULT_INTERNAL_ERROR;
         }
-        if (!output.publish_no_replace(p_output)) {
-            set_error(context, "Failed to publish the verified GainMap JPEG without replacement.");
-            output.abort();
+        if (!output.publish_registered_no_replace(context, LPB_ARTIFACT_PRIMARY_IMAGE, p_output)) {
+            static_cast<void>(abort_owned_output_and_report(context, output,
+                "Failed to publish the verified GainMap JPEG without replacement."));
             return LPB_RESULT_INTERNAL_ERROR;
         }
         return LPB_RESULT_OK;

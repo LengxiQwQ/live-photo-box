@@ -368,7 +368,8 @@ bool parse_track(std::span<const uint8_t> data, size_t trak_start, size_t trak_e
     isobmff_box_header cdsc{};
     size_t cdsc_start = 0;
     if (!unique_child(data, tref_start + tref.header_size, tref_end, "cdsc", cdsc, cdsc_start) ||
-        cdsc.size != cdsc.header_size + 4U) return false;
+        cdsc.size != cdsc.header_size + 4U ||
+        tref.size != tref.header_size + cdsc.size) return false;
     output.reference_id_offset = cdsc_start + cdsc.header_size;
     return true;
 }
@@ -421,31 +422,41 @@ bool parse_file(std::span<const uint8_t> data, file_record& output) noexcept {
     }
 }
 
-bool inspect_mebx(std::span<const uint8_t> data, file_record& file,
-    track_record*& mebx_track, track_record*& video_track) noexcept {
-    mebx_track = nullptr;
+bool inspect_mebx_tracks(std::span<const uint8_t> data, file_record& file,
+    std::vector<track_record*>& metadata, track_record*& video_track) {
+    metadata.clear();
     video_track = nullptr;
-    size_t mebx_count = 0;
     size_t video_count = 0;
     for (auto& track : file.tracks) {
         if (track.is_mebx) {
-            mebx_track = &track;
-            ++mebx_count;
+            metadata.push_back(&track);
         }
         if (std::memcmp(track.handler, "vide", 4U) == 0) {
             video_track = &track;
             ++video_count;
         }
     }
-    if (mebx_count == 0U) return true;
-    if (mebx_count != 1U || video_count != 1U || mebx_track == nullptr || video_track == nullptr ||
-        read_u32(data.data() + mebx_track->reference_id_offset) != video_track->track_id) return false;
-    uint64_t payload_bytes = 0;
-    for (const auto& chunk : mebx_track->sample_table.chunks) {
-        if (payload_bytes > (std::numeric_limits<uint64_t>::max)() - chunk.size) return false;
-        payload_bytes += chunk.size;
+    if (metadata.empty()) return true;
+    if (video_count != 1U || video_track == nullptr) return false;
+    for (const auto* track : metadata) {
+        if (read_u32(data.data() + track->reference_id_offset) != video_track->track_id) return false;
+        uint64_t payload_bytes = 0;
+        for (const auto& chunk : track->sample_table.chunks) {
+            if (payload_bytes > (std::numeric_limits<uint64_t>::max)() - chunk.size) return false;
+            payload_bytes += chunk.size;
+        }
+        if (payload_bytes == 0U || track->sample_table.sample_count == 0U) return false;
     }
-    return payload_bytes != 0U && mebx_track->sample_table.sample_count != 0U;
+    return true;
+}
+
+bool inspect_mebx(std::span<const uint8_t> data, file_record& file,
+    track_record*& mebx_track, track_record*& video_track) {
+    std::vector<track_record*> metadata;
+    mebx_track = nullptr;
+    if (!inspect_mebx_tracks(data, file, metadata, video_track) || metadata.size() > 1U) return false;
+    if (!metadata.empty()) mebx_track = metadata.front();
+    return true;
 }
 
 isobmff_mebx_track_facts facts_for(const track_record& track, uint32_t video_id) noexcept {
@@ -493,6 +504,7 @@ bool inspect_isobmff_mebx_track(std::span<const uint8_t> data, bool& present,
     isobmff_mebx_track_facts& facts) noexcept {
     present = false;
     facts = {};
+    try {
     file_record file{};
     if (!parse_file(data, file)) return false;
     track_record* mebx = nullptr;
@@ -502,11 +514,15 @@ bool inspect_isobmff_mebx_track(std::span<const uint8_t> data, bool& present,
     present = true;
     facts = facts_for(*mebx, video->track_id);
     return true;
+    } catch (...) { present = false; facts = {}; return false; }
 }
 
-bool transplant_isobmff_mebx_track(std::span<const uint8_t> source,
+static bool validate_mebx_selected(std::span<const uint8_t> source,
+    std::span<const uint8_t> output, const isobmff_mebx_track_facts& expected) noexcept;
+
+static bool transplant_mebx_selected(std::span<const uint8_t> source,
     std::span<const uint8_t> stage_a, std::vector<uint8_t>& stage_b,
-    isobmff_mebx_track_facts& facts) noexcept {
+    uint32_t track_id, isobmff_mebx_track_facts& facts) noexcept {
     stage_b.clear();
     facts = {};
     try {
@@ -514,11 +530,13 @@ bool transplant_isobmff_mebx_track(std::span<const uint8_t> source,
         if (!parse_file(source, source_file) || !parse_file(stage_a, target_file)) return false;
         track_record* source_mebx = nullptr;
         track_record* source_video = nullptr;
-        track_record* target_mebx = nullptr;
         track_record* target_video = nullptr;
-        if (!inspect_mebx(source, source_file, source_mebx, source_video) || source_mebx == nullptr ||
-            !inspect_mebx(stage_a, target_file, target_mebx, target_video) || target_mebx != nullptr ||
+        std::vector<track_record*> source_tracks, target_tracks;
+        if (!inspect_mebx_tracks(source, source_file, source_tracks, source_video) ||
+            !inspect_mebx_tracks(stage_a, target_file, target_tracks, target_video) ||
             source_video == nullptr || target_video == nullptr) return false;
+        for (auto* track : source_tracks) if (track->track_id == track_id) source_mebx = track;
+        if (source_mebx == nullptr) return false;
 
         const uint32_t inserted_track_id = source_mebx->track_id;
         uint32_t maximum_track_id = 0U;
@@ -656,12 +674,15 @@ bool transplant_isobmff_mebx_track(std::span<const uint8_t> source,
         }
         stage_b.insert(stage_b.end(), mdat.begin(), mdat.end());
         const isobmff_mebx_track_facts expected_facts = facts_for(*source_mebx, target_video->track_id);
-        if (!validate_isobmff_mebx_transplant(source, stage_b, expected_facts)) return false;
+        if (!validate_mebx_selected(source, stage_b, expected_facts)) return false;
         file_record verified_target{};
         if (!parse_file(stage_b, verified_target)) return false;
         track_record* verified_target_mebx = nullptr;
         track_record* verified_target_video = nullptr;
-        if (!inspect_mebx(stage_b, verified_target, verified_target_mebx, verified_target_video) ||
+        std::vector<track_record*> verified_tracks;
+        if (!inspect_mebx_tracks(stage_b, verified_target, verified_tracks, verified_target_video)) return false;
+        for (auto* track : verified_tracks) if (track->track_id == track_id) verified_target_mebx = track;
+        if (
             verified_target_mebx == nullptr || verified_target_video == nullptr ||
             verified_target_mebx->start - verified_target.moov_start != copied_track_start_in_moov ||
             verified_target_mebx->end - verified_target_mebx->start != copied_track.size()) return false;
@@ -674,7 +695,7 @@ bool transplant_isobmff_mebx_track(std::span<const uint8_t> source,
     }
 }
 
-bool validate_isobmff_mebx_transplant(std::span<const uint8_t> source,
+static bool validate_mebx_selected(std::span<const uint8_t> source,
     std::span<const uint8_t> output, const isobmff_mebx_track_facts& expected) noexcept {
     try {
         file_record source_file{}, output_file{};
@@ -683,8 +704,12 @@ bool validate_isobmff_mebx_transplant(std::span<const uint8_t> source,
         track_record* source_video = nullptr;
         track_record* output_mebx = nullptr;
         track_record* output_video = nullptr;
-        if (!inspect_mebx(source, source_file, source_mebx, source_video) ||
-            !inspect_mebx(output, output_file, output_mebx, output_video) ||
+        std::vector<track_record*> source_tracks, output_tracks;
+        if (!inspect_mebx_tracks(source, source_file, source_tracks, source_video) ||
+            !inspect_mebx_tracks(output, output_file, output_tracks, output_video)) return false;
+        for (auto* track : source_tracks) if (track->track_id == expected.track_id) source_mebx = track;
+        for (auto* track : output_tracks) if (track->track_id == expected.track_id) output_mebx = track;
+        if (
             source_mebx == nullptr || output_mebx == nullptr || source_video == nullptr || output_video == nullptr ||
             source_mebx->track_id != output_mebx->track_id ||
             source_mebx->time_scale != output_mebx->time_scale ||
@@ -737,6 +762,357 @@ bool validate_isobmff_mebx_transplant(std::span<const uint8_t> source,
     } catch (...) {
         return false;
     }
+}
+
+bool inspect_isobmff_mebx_tracks(std::span<const uint8_t> data,
+    std::vector<isobmff_mebx_track_facts>& facts) noexcept {
+    facts.clear();
+    try {
+        file_record file{};
+        std::vector<track_record*> tracks;
+        track_record* video = nullptr;
+        if (!parse_file(data, file) || !inspect_mebx_tracks(data, file, tracks, video)) return false;
+        for (const auto* track : tracks) facts.push_back(facts_for(*track, video->track_id));
+        return true;
+    } catch (...) { facts.clear(); return false; }
+}
+
+bool transplant_isobmff_mebx_track(std::span<const uint8_t> source,
+    std::span<const uint8_t> stage_a, std::vector<uint8_t>& stage_b,
+    isobmff_mebx_track_facts& facts) noexcept {
+    stage_b.clear(); facts = {};
+    bool source_present = false, target_present = false;
+    isobmff_mebx_track_facts input{}, target{};
+    if (!inspect_isobmff_mebx_track(source, source_present, input) || !source_present ||
+        !inspect_isobmff_mebx_track(stage_a, target_present, target) || target_present) return false;
+    return transplant_mebx_selected(source, stage_a, stage_b, input.track_id, facts);
+}
+
+bool validate_isobmff_mebx_transplant(std::span<const uint8_t> source,
+    std::span<const uint8_t> output, const isobmff_mebx_track_facts& expected) noexcept {
+    bool source_present = false, output_present = false;
+    isobmff_mebx_track_facts input{}, actual{};
+    return inspect_isobmff_mebx_track(source, source_present, input) && source_present &&
+        inspect_isobmff_mebx_track(output, output_present, actual) && output_present &&
+        validate_mebx_selected(source, output, expected);
+}
+
+bool validate_isobmff_mebx_transplants(std::span<const uint8_t> source,
+    std::span<const uint8_t> output, std::span<const isobmff_mebx_track_facts> expected) noexcept {
+    std::vector<isobmff_mebx_track_facts> original, actual;
+    if (!inspect_isobmff_mebx_tracks(source, original) || !inspect_isobmff_mebx_tracks(output, actual) ||
+        original.empty() || original.size() != actual.size() || original.size() != expected.size()) return false;
+    for (size_t index = 0U; index < original.size(); ++index) {
+        // Preserve ordered track identity as well as each complete track and payload.
+        if (original[index].track_id != actual[index].track_id ||
+            original[index].track_id != expected[index].track_id ||
+            !validate_mebx_selected(source, output, expected[index])) return false;
+    }
+    return true;
+}
+
+bool transplant_isobmff_mebx_tracks(std::span<const uint8_t> source,
+    std::span<const uint8_t> stage_a, std::vector<uint8_t>& stage_b,
+    std::vector<isobmff_mebx_track_facts>& facts) noexcept {
+    stage_b.clear(); facts.clear();
+    try {
+        std::vector<isobmff_mebx_track_facts> original, target;
+        if (!inspect_isobmff_mebx_tracks(source, original) || original.empty() ||
+            !inspect_isobmff_mebx_tracks(stage_a, target) || !target.empty()) return false;
+        std::vector<uint8_t> current(stage_a.begin(), stage_a.end()), next;
+        std::vector<isobmff_mebx_track_facts> moved_tracks;
+        for (const auto& track : original) {
+            isobmff_mebx_track_facts moved{};
+            if (!transplant_mebx_selected(source, current, next, track.track_id, moved)) return false;
+            moved_tracks.push_back(moved);
+            current.swap(next);
+        }
+        if (!validate_isobmff_mebx_transplants(source, current, moved_tracks)) return false;
+        facts.swap(moved_tracks);
+        stage_b.swap(current);
+        return true;
+    } catch (...) { stage_b.clear(); facts.clear(); return false; }
+}
+
+namespace {
+using static_boxes = std::vector<isobmff_box_header>;
+
+bool children_of(std::span<const uint8_t> data, size_t begin, size_t end, static_boxes& boxes) {
+    boxes.clear();
+    while (begin < end) {
+        isobmff_box_header box{};
+        if (!try_read_box_header(data.data(), begin, end, box)) return false;
+        boxes.push_back(box);
+        begin += box.size;
+    }
+    return begin == end;
+}
+
+bool offset_free_meta(std::span<const uint8_t> data, const isobmff_box_header& meta) {
+    size_t begin = meta.start + meta.header_size;
+    const size_t end = meta.start + meta.size;
+    if (end - begin < 8U) return false;
+    // ISO FullBox versus the documented QuickTime direct-child form.
+    if (read_u32(data.data() + begin) == 0U) begin += 4U;
+    static_boxes children;
+    if (!children_of(data, begin, end, children)) return false;
+    const isobmff_box_header *handler = nullptr, *keys = nullptr, *items = nullptr;
+    for (const auto& box : children) {
+        if (box_type(data, box.start, "hdlr") && handler == nullptr) handler = &box;
+        else if (box_type(data, box.start, "keys") && keys == nullptr) keys = &box;
+        else if (box_type(data, box.start, "ilst") && items == nullptr) items = &box;
+        else return false; // Includes iloc/iinf/external references and shadows.
+    }
+    if (handler == nullptr || items == nullptr || handler->size < handler->header_size + 24U) return false;
+    const size_t hb = handler->start + handler->header_size;
+    if (read_u32(data.data() + hb) != 0U) return false;
+    const bool mdta = std::memcmp(data.data() + hb + 8U, "mdta", 4U) == 0;
+    const bool mdir = std::memcmp(data.data() + hb + 8U, "mdir", 4U) == 0;
+    if (!mdta && !mdir) return false;
+    uint32_t key_count = 0U;
+    if (mdta) {
+        if (keys == nullptr || keys->size < keys->header_size + 8U) return false;
+        size_t kb = keys->start + keys->header_size;
+        if (read_u32(data.data() + kb) != 0U) return false;
+        key_count = read_u32(data.data() + kb + 4U);
+        kb += 8U;
+        const size_t ke = keys->start + keys->size;
+        if (key_count > (ke - kb) / 9U) return false;
+        std::vector<std::string_view> names;
+        for (uint32_t i = 0U; i < key_count; ++i) {
+            if (ke - kb < 9U) return false;
+            const size_t length = read_u32(data.data() + kb);
+            if (length < 9U || length > ke - kb || std::memcmp(data.data() + kb + 4U, "mdta", 4U) != 0) return false;
+            const std::string_view name(reinterpret_cast<const char*>(data.data() + kb + 8U), length - 8U);
+            if (std::find(names.begin(), names.end(), name) != names.end()) return false;
+            names.push_back(name);
+            kb += length;
+        }
+        if (kb != ke) return false;
+    } else if (keys != nullptr) return false;
+    static_boxes entries;
+    if (!children_of(data, items->start + items->header_size, items->start + items->size, entries)) return false;
+    std::vector<uint32_t> identifiers;
+    for (const auto& entry : entries) {
+        const uint32_t id = read_u32(data.data() + entry.start + 4U);
+        if (std::find(identifiers.begin(), identifiers.end(), id) != identifiers.end()) return false;
+        identifiers.push_back(id);
+        if (mdta && (id == 0U || id > key_count)) return false;
+        if (mdir && (id >> 24U) != 0xA9U) return false;
+        static_boxes values;
+        if (!children_of(data, entry.start + entry.header_size, entry.start + entry.size, values) || values.empty()) return false;
+        for (const auto& value : values) {
+            if (!box_type(data, value.start, "data") || value.size < value.header_size + 8U) return false;
+        }
+    }
+    return true;
+}
+
+bool offset_free_static(std::span<const uint8_t> data, const isobmff_box_header& box) {
+    if (box_type(data, box.start, "meta")) return offset_free_meta(data, box);
+    static_boxes children;
+    if (!children_of(data, box.start + box.header_size, box.start + box.size, children)) return false;
+    if (box_type(data, box.start, "tapt")) {
+        if (children.size() != 3U) return false;
+        const char* types[] = {"clef", "prof", "enof"};
+        for (size_t i = 0U; i < 3U; ++i) {
+            const auto& child = children[i];
+            if (!box_type(data, child.start, types[i]) || child.size != child.header_size + 12U ||
+                read_u32(data.data() + child.start + child.header_size) != 0U) return false;
+        }
+        return true;
+    }
+    if (!box_type(data, box.start, "udta")) return false;
+    std::vector<uint32_t> types;
+    for (const auto& child : children) {
+        const uint32_t type = read_u32(data.data() + child.start + 4U);
+        if (std::find(types.begin(), types.end(), type) != types.end()) return false;
+        types.push_back(type);
+        if (box_type(data, child.start, "meta")) {
+            if (!offset_free_meta(data, child)) return false;
+        } else if (box_type(data, child.start, "loci")) {
+            // ISO location information: inline strings and fixed-point values,
+            // without item/chunk/external references. MOV muxers can derive it
+            // from a source QuickTime location tag.
+            size_t p = child.start + child.header_size;
+            const size_t end = child.start + child.size;
+            if (end - p < 7U || read_u32(data.data() + p) != 0U) return false;
+            const uint16_t language = static_cast<uint16_t>((data[p + 4U] << 8U) | data[p + 5U]);
+            if ((language & 0x8000U) != 0U) return false;
+            for (const unsigned shift : {10U, 5U, 0U}) {
+                const unsigned letter = (language >> shift) & 31U;
+                if (letter < 1U || letter > 26U) return false;
+            }
+            p += 6U; // FullBox and packed language.
+            const auto string_end = [&]() {
+                while (p < end && data[p] != 0U) ++p;
+                if (p == end) return false;
+                ++p; return true;
+            };
+            if (!string_end() || end - p < 13U || data[p] > 2U) return false;
+            p += 13U; // Role, longitude, latitude, altitude.
+            if (!string_end() || !string_end() || p != end) return false;
+        } else if (box_type(data, child.start, "Xtra")) {
+            // MF emits an empty Windows Media Xtra placeholder in udta.
+            // A populated Xtra graph remains unsupported; do not infer that
+            // arbitrary vendor payloads are offset-free from their box type.
+            if (child.size != child.header_size) return false;
+        } else if ((type >> 24U) != 0xA9U) return false;
+    }
+    return true;
+}
+
+bool static_inventory(std::span<const uint8_t> data, size_t begin, size_t end,
+    bool video, static_boxes& inventory) {
+    static_boxes children;
+    inventory.clear();
+    if (!children_of(data, begin, end, children)) return false;
+    for (const auto& box : children) {
+        if (!box_type(data, box.start, "meta") && !box_type(data, box.start, "udta") &&
+            !(video && box_type(data, box.start, "tapt"))) continue;
+        if (!offset_free_static(data, box)) return false;
+        for (const auto& prior : inventory) {
+            if (std::memcmp(data.data() + prior.start + 4U, data.data() + box.start + 4U, 4U) == 0) return false;
+        }
+        inventory.push_back(box);
+    }
+    return true;
+}
+
+const track_record* unique_video(const file_record& file) {
+    const track_record* result = nullptr;
+    for (const auto& track : file.tracks) {
+        if (std::memcmp(track.handler, "vide", 4U) != 0) continue;
+        if (result != nullptr) return nullptr;
+        result = &track;
+    }
+    return result;
+}
+
+bool hdr_static_inventory(std::span<const uint8_t> data, const track_record& video, static_boxes& found) {
+    found.clear();
+    isobmff_box_header stsd{};size_t stsd_start = 0U;
+    if (!unique_child(data, video.stbl_start, video.stbl_end, "stsd", stsd, stsd_start) ||
+        stsd.size < stsd.header_size + 8U) return false;
+    const size_t body = stsd.start + stsd.header_size;
+    if (read_u32(data.data() + body + 4U) != 1U) return false;
+    isobmff_box_header entry{};
+    if (!try_read_box_header(data.data(), body + 8U, stsd.start + stsd.size, entry) ||
+        entry.start + entry.size != stsd.start + stsd.size || entry.size < entry.header_size + 78U) return false;
+    size_t p = entry.start + entry.header_size + 78U;
+    const size_t end = entry.start + entry.size;
+    while (p < end) {
+        if (end - p == 4U && read_u32(data.data() + p) == 0U) break;
+        isobmff_box_header child{};
+        if (!try_read_box_header(data.data(), p, end, child)) return false;
+        const bool mastering = box_type(data, p, "mdcv"), light = box_type(data, p, "clli");
+        if (mastering || light) {
+            if (child.size != child.header_size + (mastering ? 24U : 4U)) return false;
+            for (const auto& prior : found)
+                if (std::memcmp(data.data() + prior.start + 4U, data.data() + p + 4U, 4U) == 0) return false;
+            found.push_back(child);
+        }
+        p += child.size;
+    }
+    return true;
+}
+
+bool same_static(std::span<const uint8_t> source, const static_boxes& a,
+    std::span<const uint8_t> target, const static_boxes& b) {
+    for (const auto& box : a) {
+        const isobmff_box_header* found = nullptr;
+        for (const auto& candidate : b) {
+            if (std::memcmp(source.data() + box.start + 4U, target.data() + candidate.start + 4U, 4U) == 0) found = &candidate;
+        }
+        if (found == nullptr || found->size != box.size ||
+            std::memcmp(source.data() + box.start, target.data() + found->start, box.size) != 0) return false;
+    }
+    return true;
+}
+
+bool rewrite_static_parent(std::span<const uint8_t> source, const static_boxes& original,
+    std::span<const uint8_t> target, size_t start, size_t end,
+    const track_record* video, const std::vector<uint8_t>* rewritten_video,
+    std::vector<uint8_t>& result) {
+    if (end - start < 8U || read_u32(target.data() + start) != end - start) return false;
+    static_boxes children;
+    if (!children_of(target, start + 8U, end, children)) return false;
+    result.assign(target.begin() + start, target.begin() + start + 8U);
+    std::vector<bool> used(original.size(), false);
+    for (const auto& child : children) {
+        if (video != nullptr && child.start == video->start) {
+            result.insert(result.end(), rewritten_video->begin(), rewritten_video->end());
+            continue;
+        }
+        size_t match = original.size();
+        for (size_t i = 0U; i < original.size(); ++i) {
+            if (std::memcmp(source.data() + original[i].start + 4U, target.data() + child.start + 4U, 4U) == 0) match = i;
+        }
+        if (match != original.size()) {
+            if (used[match]) return false;
+            used[match] = true;
+            const auto& box = original[match];
+            result.insert(result.end(), source.begin() + box.start, source.begin() + box.start + box.size);
+        } else result.insert(result.end(), target.begin() + child.start, target.begin() + child.start + child.size);
+    }
+    for (size_t i = 0U; i < original.size(); ++i) {
+        if (!used[i]) {
+            const auto& box = original[i];
+            result.insert(result.end(), source.begin() + box.start, source.begin() + box.start + box.size);
+        }
+    }
+    if (result.size() > UINT32_MAX) return false;
+    write_u32(result.data(), static_cast<uint32_t>(result.size()));
+    return true;
+}
+} // namespace
+
+bool validate_isobmff_static_metadata(std::span<const uint8_t> source,
+    std::span<const uint8_t> output) noexcept {
+    try {
+        file_record input{}, target{};
+        if (!parse_file(source, input) || !parse_file(output, target)) return false;
+        const auto* a = unique_video(input); const auto* b = unique_video(target);
+        if (a == nullptr || b == nullptr) return false;
+        static_boxes sm, tm, sv, tv, sh, th;
+        return static_inventory(source, input.moov_start + input.moov_header_size, input.moov_end, false, sm) &&
+            static_inventory(output, target.moov_start + target.moov_header_size, target.moov_end, false, tm) &&
+            static_inventory(source, a->start + 8U, a->end, true, sv) &&
+            static_inventory(output, b->start + 8U, b->end, true, tv) &&
+            hdr_static_inventory(source, *a, sh) && hdr_static_inventory(output, *b, th) && sh.size() == th.size() &&
+            same_static(source, sh, output, th) &&
+            same_static(source, sm, output, tm) && same_static(source, sv, output, tv);
+    } catch (...) { return false; }
+}
+
+bool preserve_isobmff_static_metadata(std::span<const uint8_t> source,
+    std::span<const uint8_t> stage, std::vector<uint8_t>& output, bool& changed) noexcept {
+    output.clear(); changed = false;
+    try {
+        file_record input{}, target{};
+        if (!parse_file(source, input) || !parse_file(stage, target) || target.moov_header_size != 8U) return false;
+        const auto* a = unique_video(input); const auto* b = unique_video(target);
+        if (a == nullptr || b == nullptr || read_u32(source.data() + a->start) != a->end - a->start) return false;
+        static_boxes sm, sv, tm, tv;
+        if (!static_inventory(source, input.moov_start + input.moov_header_size, input.moov_end, false, sm) ||
+            !static_inventory(source, a->start + 8U, a->end, true, sv) ||
+            !static_inventory(stage, target.moov_start + target.moov_header_size, target.moov_end, false, tm) ||
+            !static_inventory(stage, b->start + 8U, b->end, true, tv)) return false;
+        std::vector<uint8_t> track, movie;
+        if (!rewrite_static_parent(source, sv, stage, b->start, b->end, nullptr, nullptr, track) ||
+            !rewrite_static_parent(source, sm, stage, target.moov_start, target.moov_end, b, &track, movie)) return false;
+        const auto previous = stage.subspan(target.moov_start, target.moov_end - target.moov_start);
+        const bool differs = movie.size() != previous.size() || !std::equal(movie.begin(), movie.end(), previous.begin());
+        const int64_t delta = static_cast<int64_t>(movie.size()) - static_cast<int64_t>(previous.size());
+        if (delta != 0 && !shift_chunk_offsets(movie, 0U, target.moov_end, delta)) return false;
+        std::vector<uint8_t> result;
+        result.insert(result.end(), stage.begin(), stage.begin() + target.moov_start);
+        result.insert(result.end(), movie.begin(), movie.end());
+        result.insert(result.end(), stage.begin() + target.moov_end, stage.end());
+        if (!validate_isobmff_static_metadata(source, result)) return false;
+        output.swap(result); changed = differs;
+        return true;
+    } catch (...) { output.clear(); changed = false; return false; }
 }
 
 } // namespace lpb::media

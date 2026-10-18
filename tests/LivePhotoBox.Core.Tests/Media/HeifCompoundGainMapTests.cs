@@ -106,6 +106,7 @@ public sealed class HeifCompoundGainMapTests
     }
 
     [Fact]
+    [Trait("P7", "R1-C")]
     [Trait("Category", "Extractor")]
     public void SyntheticOverlappingExtent_FailsClosed()
     {
@@ -142,6 +143,7 @@ public sealed class HeifCompoundGainMapTests
     }
 
     [Fact]
+    [Trait("P7", "R1-C")]
     [Trait("Category", "Extractor")]
     public void SyntheticUnknownDerivedType_FailsClosed()
     {

@@ -39,7 +39,7 @@ public sealed class CleanerObjectGoneProofTests
     [Fact]
     public void OpenFileById_LiveExactFile_IsAlive()
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = workspace.AllocateFilePath("r1-live", ".bin");
         File.WriteAllBytes(path, [0x4C, 0x50, 0x42]);
 
@@ -51,7 +51,7 @@ public sealed class CleanerObjectGoneProofTests
     [Fact]
     public void OpenFileById_GenuinelyDeletedExactFile_NeverClaimsAlive()
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = workspace.AllocateFilePath("r1-deleted", ".bin");
         File.WriteAllBytes(path, [0x52, 0x31]);
         WindowsFileIdentity identity = WindowsFileIdentity.Capture(path);
@@ -75,7 +75,7 @@ public sealed class CleanerObjectGoneProofTests
     [Fact]
     public void DeleteExactFile_UsesDeletePendingAndProvesCleanup()
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = workspace.AllocateFilePath("r1-file", ".bin");
         File.WriteAllBytes(path, [0x52, 0x31, 0x2D, 0x46]);
         WindowsFileIdentity identity = WindowsFileIdentity.Capture(path);
@@ -103,7 +103,7 @@ public sealed class CleanerObjectGoneProofTests
     [Fact]
     public void DeleteExactDirectory_UsesTheSameObjectProofContract()
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = Path.Combine(workspace.RootDirectory, "r1-directory");
         SafeFileHandle handle = WindowsOwnedFilePublisher.CreateOwnedDirectory(path);
         WindowsFileIdentity identity = WindowsFileIdentity.Capture(handle);
@@ -130,7 +130,7 @@ public sealed class CleanerObjectGoneProofTests
     [Fact]
     public void DeleteAccepted_DirectoryObjectCanStillBeAliveUntilLastHandleCloses()
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = Path.Combine(workspace.RootDirectory, "r1-delete-pending-directory");
         SafeFileHandle handle = WindowsOwnedFilePublisher.CreateOwnedDirectory(path);
         WindowsFileIdentity identity = WindowsFileIdentity.Capture(handle);
@@ -160,7 +160,7 @@ public sealed class CleanerObjectGoneProofTests
     [Fact]
     public void DeleteExactFileWithHardLinkAlias_IsNotGoneProof()
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = workspace.AllocateFilePath("r1-alias-source", ".bin");
         string alias = workspace.AllocateFilePath("r1-alias", ".bin");
         File.WriteAllBytes(path, [0x41, 0x4C, 0x49, 0x41, 0x53]);

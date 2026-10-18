@@ -7,6 +7,7 @@ using System.Text;
 using System.Threading;
 using Microsoft.Win32.SafeHandles;
 using LivePhotoBox.Media.Models;
+using LivePhotoBox.Media.Workspace;
 using LivePhotoBox.Protocols.Cleaning;
 
 namespace LivePhotoBox.Interop;
@@ -128,6 +129,13 @@ internal static class WindowsOwnedFilePublisher
             finalPath,
             expected,
             cancellationToken);
+
+        // A workspace receipt is recorded before the commit linearization
+        // point.  If registration rejects the identity/path, the caller still
+        // owns the staged object and can roll it back through its retained
+        // exact handle.  CaptureOwnedHandleEvidence remains side-effect-free:
+        // cleanup and validation probes must never claim ownership.
+        WorkspaceOwnershipRegistry.RegisterPublishedFile(evidence, newlyCreatedObject: true);
 
         // LAST filesystem-state-changing operation: kernel-atomic no-overwrite
         // rename through the verified handle.  Nothing fallible runs after it,
@@ -422,6 +430,280 @@ internal static class WindowsOwnedFilePublisher
     }
 
     /// <summary>
+    /// Atomically creates the private root used by <see cref="MediaWorkspace"/>
+    /// and returns a handle captured from that exact create operation.  This
+    /// root pin intentionally does not share FILE_SHARE_DELETE: it prevents a
+    /// workspace root from being renamed or replaced while the workspace is
+    /// active.  Unlike <see cref="CreateOwnedDirectory"/>, it grants no DELETE
+    /// access and therefore remains compatible with Native's read/list pin.
+    /// </summary>
+    internal static SafeFileHandle CreateOwnedWorkspaceRoot(string path)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        string normalizedPath = Path.GetFullPath(path);
+        byte[] nameBytes = Encoding.Unicode.GetBytes(@"\??\" + normalizedPath);
+        IntPtr nameBuffer = Marshal.AllocHGlobal(nameBytes.Length + 2);
+        Marshal.Copy(nameBytes, 0, nameBuffer, nameBytes.Length);
+        try
+        {
+            var objectName = new UnicodeString
+            {
+                Length = checked((ushort)nameBytes.Length),
+                MaximumLength = checked((ushort)(nameBytes.Length + 2)),
+                Buffer = nameBuffer
+            };
+            GCHandle namePinned = GCHandle.Alloc(objectName, GCHandleType.Pinned);
+            try
+            {
+                var attributes = new ObjectAttributes
+                {
+                    Length = checked((uint)Marshal.SizeOf<ObjectAttributes>()),
+                    RootDirectory = IntPtr.Zero,
+                    ObjectName = namePinned.AddrOfPinnedObject(),
+                    Attributes = ObjCaseInsensitive
+                };
+                int status = NtCreateFile(
+                    out SafeFileHandle handle,
+                    WorkspaceDirectoryReadAccess,
+                    ref attributes,
+                    out _,
+                    IntPtr.Zero,
+                    FileAttributeDirectory,
+                    FileShareRead | FileShareWrite,
+                    FileCreate,
+                    FileDirectoryFile,
+                    IntPtr.Zero,
+                    0);
+                if (status != 0)
+                {
+                    string detail = status == StatusObjectNameCollision
+                        ? $"Workspace root '{normalizedPath}' already exists; refusing to claim a directory this transaction did not create."
+                        : $"Unable to atomically create workspace root '{normalizedPath}' (NTSTATUS 0x{status:X8}).";
+                    throw new IOException(detail);
+                }
+
+                try
+                {
+                    ValidateWorkspaceDirectoryHandle(handle, normalizedPath, expected: null);
+                    return handle;
+                }
+                catch
+                {
+                    handle.Dispose();
+                    throw;
+                }
+            }
+            finally
+            {
+                namePinned.Free();
+            }
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(nameBuffer);
+        }
+    }
+
+    /// <summary>
+    /// Opens the second, recovery-only identity handle for a workspace root.
+    /// It shares all access so it does not interfere with Native's pin or the
+    /// later strict cleanup lease; the root pin itself supplies rename
+    /// protection during normal workspace use.
+    /// </summary>
+    internal static SafeFileHandle OpenWorkspaceRecoveryHandle(
+        string path,
+        WindowsFileIdentity expected)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(expected);
+        string normalizedPath = Path.GetFullPath(path);
+        SafeFileHandle handle = CreateFileForCommit(
+            normalizedPath,
+            WorkspaceDirectoryReadAccess,
+            FileShareRead | FileShareWrite | FileShareDelete,
+            IntPtr.Zero,
+            OpenExisting,
+            OpenReparsePoint | BackupSemantics,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            int error = Marshal.GetLastWin32Error();
+            handle.Dispose();
+            throw new IOException($"Unable to open workspace root '{normalizedPath}' for retained identity recovery (Win32 error {error}).");
+        }
+
+        try
+        {
+            ValidateWorkspaceDirectoryHandle(handle, normalizedPath, expected);
+            return handle;
+        }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Opens the fail-closed cleanup lease for a workspace root.  The handle
+    /// must be the exact creating object; omitting FILE_SHARE_WRITE and
+    /// FILE_SHARE_DELETE prevents new namespace mutations after this lease is
+    /// acquired.  Existing incompatible writers/deleters make the open fail.
+    /// </summary>
+    internal static SafeFileHandle OpenWorkspaceCleanupLease(
+        string path,
+        WindowsFileIdentity expected)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        ArgumentNullException.ThrowIfNull(expected);
+        string normalizedPath = Path.GetFullPath(path);
+        SafeFileHandle handle = CreateFileForCommit(
+            normalizedPath,
+            WorkspaceDirectoryCleanupAccess,
+            FileShareRead,
+            IntPtr.Zero,
+            OpenExisting,
+            OpenReparsePoint | BackupSemantics,
+            IntPtr.Zero);
+        if (handle.IsInvalid)
+        {
+            int error = Marshal.GetLastWin32Error();
+            handle.Dispose();
+            throw new IOException($"Unable to acquire the strict workspace cleanup lease for '{normalizedPath}' (Win32 error {error}).");
+        }
+
+        try
+        {
+            ValidateWorkspaceDirectoryHandle(handle, normalizedPath, expected);
+            return handle;
+        }
+        catch
+        {
+            handle.Dispose();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Revalidates a retained workspace-directory handle without reopening a
+    /// pathname as ownership authority.
+    /// </summary>
+    internal static WindowsFileIdentity ValidateWorkspaceDirectoryHandle(
+        SafeFileHandle handle,
+        string expectedPath,
+        WindowsFileIdentity? expected)
+    {
+        ArgumentNullException.ThrowIfNull(handle);
+        ArgumentException.ThrowIfNullOrWhiteSpace(expectedPath);
+
+        WindowsFileIdentity actual = WindowsFileIdentity.Capture(handle);
+        if (actual.IsReparsePoint ||
+            (actual.FileAttributes & FileAttributeDirectory) == 0 ||
+            (expected is not null &&
+                (actual.VolumeSerialNumber != expected.VolumeSerialNumber ||
+                 actual.FileIndex != expected.FileIndex ||
+                 actual.LinkCount != expected.LinkCount ||
+                 (actual.FileAttributes & FileAttributeDirectory) == 0)))
+        {
+            throw new IOException($"Workspace directory handle for '{expectedPath}' does not refer to its exact non-reparse directory identity.");
+        }
+
+        string finalPath = GetNormalizedFinalPath(handle);
+        string normalizedExpectedPath = Path.GetFullPath(expectedPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        if (!string.Equals(finalPath, normalizedExpectedPath, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new IOException($"Workspace directory handle resolved to '{finalPath}', not the expected path '{normalizedExpectedPath}'.");
+        }
+
+        return actual;
+    }
+
+    /// <summary>
+    /// Deletes an already-verified, empty workspace root through its retained
+    /// exact directory handle.  The strict cleanup lease pins the namespace
+    /// and guarantees no child can be added between enumeration and this call.
+    /// </summary>
+    internal static OwnedObjectCleanupProof DeleteEmptyWorkspaceRootWithProof(
+        SafeFileHandle cleanupLease,
+        WindowsFileIdentity expected,
+        string volumeProbePath)
+    {
+        ArgumentNullException.ThrowIfNull(cleanupLease);
+        ArgumentNullException.ThrowIfNull(expected);
+        try
+        {
+            WindowsFileIdentity actual;
+            try
+            {
+                actual = WindowsFileIdentity.Capture(cleanupLease);
+            }
+            catch
+            {
+                return OwnedObjectCleanupProof.Unknown;
+            }
+
+            if (actual.IsReparsePoint ||
+                (actual.FileAttributes & FileAttributeDirectory) == 0 ||
+                actual.VolumeSerialNumber != expected.VolumeSerialNumber ||
+                actual.FileIndex != expected.FileIndex)
+            {
+                return OwnedObjectCleanupProof.Unknown;
+            }
+
+            // Use the same exact-object proof as other owned directories.  In
+            // particular, inspect LinkCount through this retained handle after
+            // arming delete-pending; a definite zero-link result is stronger
+            // evidence than relying only on OpenFileById for a directory.
+            return DeleteOwnedObjectWithProof(
+                cleanupLease,
+                expected,
+                volumeProbePath,
+                out _);
+        }
+        finally
+        {
+            // DeleteOwnedObjectWithProof closes the handle after disposition
+            // when it can prove the result.  It leaves it open on early
+            // fail-closed returns, so close it here in every case.
+            cleanupLease.Dispose();
+        }
+    }
+
+    private static string GetNormalizedFinalPath(SafeFileHandle handle)
+    {
+        var buffer = new StringBuilder(512);
+        uint length = GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0);
+        if (length == 0)
+        {
+            throw new IOException($"Unable to read a retained filesystem handle's final path (Win32 error {Marshal.GetLastWin32Error()}).");
+        }
+
+        if (length >= buffer.Capacity)
+        {
+            buffer = new StringBuilder(checked((int)length + 1));
+            length = GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0);
+            if (length == 0 || length >= buffer.Capacity)
+            {
+                throw new IOException($"Unable to read a retained filesystem handle's complete final path (Win32 error {Marshal.GetLastWin32Error()}).");
+            }
+        }
+
+        string value = buffer.ToString();
+        if (value.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+            value = @"\\" + value[8..];
+        else if (value.StartsWith(@"\\?\", StringComparison.OrdinalIgnoreCase))
+            value = value[4..];
+        else if (value.StartsWith(@"\??\", StringComparison.OrdinalIgnoreCase))
+            value = value[4..];
+
+        string normalized = Path.GetFullPath(value);
+        string volumeRoot = Path.GetPathRoot(normalized) ?? string.Empty;
+        return string.Equals(normalized, volumeRoot, StringComparison.OrdinalIgnoreCase)
+            ? normalized
+            : normalized.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+    }
+
+    /// <summary>
     /// Kernel-backed "does THIS exact filesystem object still resolve by its
     /// 64-bit FileId on its volume?" query, using the public
     /// <see cref="OpenFileById"/> API + FILE_ID_DESCRIPTOR (the same
@@ -456,6 +738,14 @@ internal static class WindowsOwnedFilePublisher
                 return ObjectAliveCheck.Unknown;
             }
 
+            // A pathname may resolve to a different mounted volume since
+            // ownership was recorded. A missing file ID on that other volume
+            // says nothing about the original object.
+            if (!GetVolumeInformationByHandleW(volumeHandle, IntPtr.Zero, 0,
+                    out uint volumeSerial, out _, out _, IntPtr.Zero, 0) ||
+                volumeSerial != identity.VolumeSerialNumber)
+                return ObjectAliveCheck.Unknown;
+
             var descriptor = new FileIdDescriptor
             {
                 dwSize = FileIdDescriptorSize,
@@ -474,7 +764,10 @@ internal static class WindowsOwnedFilePublisher
                 byIdFlags);
             if (!objectHandle.IsInvalid)
             {
-                return ObjectAliveCheck.Alive;
+                WindowsFileIdentity actual = WindowsFileIdentity.Capture(objectHandle);
+                return actual.VolumeSerialNumber == identity.VolumeSerialNumber &&
+                    actual.FileIndex == identity.FileIndex
+                    ? ObjectAliveCheck.Alive : ObjectAliveCheck.Unknown;
             }
 
             // The query ran and the FileId did not resolve.  Only the definite
@@ -530,6 +823,24 @@ internal static class WindowsOwnedFilePublisher
     /// therefore yields Unknown/cleanup-unproven.
     /// </summary>
     public static OwnedObjectCleanupProof DeleteOwnedObjectWithProof(
+        SafeFileHandle handle,
+        WindowsFileIdentity identity,
+        string volumeProbePath,
+        out bool deletePendingArmed)
+    {
+        OwnedObjectCleanupProof proof = DeleteOwnedObjectWithProofCore(
+            handle,
+            identity,
+            volumeProbePath,
+            out deletePendingArmed);
+
+        if (proof is OwnedObjectCleanupProof.Gone or OwnedObjectCleanupProof.Unlinked)
+            WorkspaceOwnershipRegistry.NotifyExactObjectCleanup(identity, proof);
+
+        return proof;
+    }
+
+    private static OwnedObjectCleanupProof DeleteOwnedObjectWithProofCore(
         SafeFileHandle handle,
         WindowsFileIdentity identity,
         string volumeProbePath,
@@ -767,6 +1078,13 @@ internal static class WindowsOwnedFilePublisher
         uint flagsAndAttributes,
         IntPtr templateFile);
 
+    [DllImport("kernel32.dll", ExactSpelling = true, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetVolumeInformationByHandleW(
+        SafeFileHandle file, IntPtr volumeName, uint volumeNameSize,
+        out uint volumeSerialNumber, out uint maximumComponentLength,
+        out uint fileSystemFlags, IntPtr fileSystemName, uint fileSystemNameSize);
+
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetFileInformationByHandle(
@@ -787,6 +1105,13 @@ internal static class WindowsOwnedFilePublisher
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool GetFileSizeEx(SafeFileHandle hFile, out long lpFileSize);
 
+    [DllImport("kernel32.dll", EntryPoint = "GetFinalPathNameByHandleW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetFinalPathNameByHandleW(
+        SafeFileHandle hFile,
+        StringBuilder lpszFilePath,
+        uint cchFilePath,
+        uint dwFlags);
+
     // GENERIC_READ | DELETE | FILE_READ_ATTRIBUTES
     private const uint CommitDesiredAccess = 0x80000000 | 0x00010000 | 0x00000080;
     private const uint FileShareRead = 0x00000001;
@@ -804,6 +1129,9 @@ internal static class WindowsOwnedFilePublisher
     private const uint FileShareWrite = 0x00000002;
     private const uint BackupSemantics = 0x02000000;
     private const uint FileReadAttributes = 0x00000080;
+    private const uint FileListDirectory = 0x00000001;
+    private const uint WorkspaceDirectoryReadAccess = FileListDirectory | FileReadAttributes;
+    private const uint WorkspaceDirectoryCleanupAccess = WorkspaceDirectoryReadAccess | 0x00010000;
     private const uint ObjCaseInsensitive = 0x00000040;
 
     // NtCreateFile / OpenFileById constants (directory atomic create +

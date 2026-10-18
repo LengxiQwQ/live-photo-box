@@ -2,6 +2,7 @@
 #include "media/heic_backend.h"
 #include "media/jpeg_backend.h"
 #include "media/video_sidecar_loader.h"
+#include "media/video_converter.h"
 #include <windows.h>
 #include <bcrypt.h>
 
@@ -805,24 +806,27 @@ lpb_result LPB_CALL lpb_get_runtime_capability_identity(
         version = LPB_PRODUCT_VERSION;
         break;
     case LPB_RUNTIME_OPERATION_VIDEO_TRANSCODE_SDR_H264:
-        identity->backend = LPB_RUNTIME_BACKEND_WINDOWS_MEDIA_FOUNDATION;
+        // This coarse operation has two source-profile owners. Do not claim
+        // one global backend; each real request reports its selected owner.
+        identity->backend = LPB_RUNTIME_BACKEND_UNKNOWN;
         identity->codec = LPB_RUNTIME_CODEC_H264;
-        identity->is_available = 1;
         identity->hardware_mode = LPB_VIDEO_HARDWARE_SOFTWARE_FORCED;
-        version = "Windows Media Foundation";
-        fallback_reason = "Hardware transforms are disabled by the frozen P4 policy; no fallback occurred.";
+        version = "Native source-profile dispatch";
+        {
+            lpb::media::VideoSidecarModule sidecar;
+            const bool mf = lpb::media::software_video_encoder_available(context, LPB_VIDEO_CODEC_H264);
+            const bool libav = sidecar.load();
+            identity->is_available = mf && libav ? 1U : 0U;
+            fallback_reason = identity->is_available != 0U
+                ? "H.264 SDR input selects MF; HEVC input selects minimal-libav. Both route owners available; no fallback."
+                : "H.264 SDR input selects MF; HEVC input selects minimal-libav. A route owner is unavailable; no fallback.";
+        }
         break;
     case LPB_RUNTIME_OPERATION_VIDEO_TRANSCODE_SDR_HEVC:
-        identity->backend = LPB_RUNTIME_BACKEND_WINDOWS_MEDIA_FOUNDATION;
-        identity->codec = LPB_RUNTIME_CODEC_HEVC;
-        identity->is_available = 1;
-        identity->hardware_mode = LPB_VIDEO_HARDWARE_SOFTWARE_FORCED;
-        version = "Windows Media Foundation";
-        fallback_reason = "Hardware transforms are disabled by the frozen P4 policy; no fallback occurred.";
-        break;
     case LPB_RUNTIME_OPERATION_VIDEO_TRANSCODE_HDR_10BIT:
         identity->backend = LPB_RUNTIME_BACKEND_MINIMAL_LIBAV;
-        identity->codec = LPB_RUNTIME_CODEC_UNKNOWN;
+        identity->codec = operation == LPB_RUNTIME_OPERATION_VIDEO_TRANSCODE_SDR_HEVC
+            ? LPB_RUNTIME_CODEC_HEVC : LPB_RUNTIME_CODEC_UNKNOWN;
         identity->hardware_mode = LPB_VIDEO_HARDWARE_SOFTWARE_FORCED;
         {
             lpb::media::VideoSidecarModule sidecar;
@@ -948,6 +952,36 @@ void record_cleaner_staged_output(lpb_context* context, int32_t artifact_role,
         // Ownership registry is best-effort diagnostic data: a failed
         // registration must never break the clean itself.  Callers still
         // fail closed on any identity they cannot prove.
+    }
+}
+
+bool has_unique_staged_output_registration(lpb_context* context, int32_t artifact_role,
+    const std::filesystem::path& path, const lpb_file_identity& identity) noexcept
+{
+    if (context == nullptr || path.empty()) return false;
+    try
+    {
+        std::scoped_lock lock(context->plan_mutex);
+        size_t same_path_count = 0;
+        size_t exact_count = 0;
+        for (const auto& record : context->cleaner_staged_outputs)
+        {
+            if (record.final_path != path) continue;
+            ++same_path_count;
+            if (record.artifact_role == artifact_role &&
+                record.identity.volume_serial == identity.volume_serial &&
+                record.identity.file_index == identity.file_index &&
+                record.identity.file_size == identity.file_size &&
+                record.identity.link_count == identity.link_count)
+            {
+                ++exact_count;
+            }
+        }
+        return same_path_count == 1 && exact_count == 1;
+    }
+    catch (...)
+    {
+        return false;
     }
 }
 

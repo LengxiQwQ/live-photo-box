@@ -1,3 +1,4 @@
+using LivePhotoBox.Core.Tests.Support;
 using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
@@ -30,6 +31,87 @@ public sealed class P6NeutralPipelineTests
     private readonly ITestOutputHelper _output;
 
     public P6NeutralPipelineTests(ITestOutputHelper output) => _output = output;
+
+    [Theory]
+    [InlineData("success")]
+    [InlineData("failure-result")]
+    [InlineData("exception")]
+    [InlineData("cancellation")]
+    [Trait("Category", "RealSamples")]
+    public async Task P7R4_NeutralCleanupAuthority_ReleasesNativeContextOnEveryExit(string boundary)
+    {
+        // Real inspection/extraction and Native authority. The three failure
+        // boundaries are controlled lifecycle checks, not filesystem evidence.
+        using var workspace = new MediaWorkspace();
+        using var cancellation = new CancellationTokenSource();
+        var extractor = new CleanupLifetimeExtractor();
+        var cleaner = new CleanupLifetimeCleaner(boundary, cancellation);
+        var service = new NeutralMediaService(extractor: extractor, cleaner: cleaner);
+        try
+        {
+            Task<NeutralMediaBundle> operation = service.CreateNeutralBundleAsync(
+                ResolveSample("红米老款-GV1.JPG"), null, workspace,
+                cancellationToken: cancellation.Token);
+            if (boundary == "success")
+                Assert.NotNull((await operation).PrimaryImage);
+            else if (boundary == "cancellation")
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation);
+            else if (boundary == "exception")
+                await Assert.ThrowsAsync<IOException>(() => operation);
+            else
+                await Assert.ThrowsAsync<InvalidOperationException>(() => operation);
+
+            Assert.NotNull(extractor.Context);
+            Assert.NotNull(extractor.Authority);
+            Assert.Equal(nint.Zero, extractor.Authority.NativeHandle);
+            // NativeContext only detaches its handle when all retained
+            // operation leases have ended; this needs no GC/finalizer wait.
+            Assert.Equal(nint.Zero, extractor.Context.Handle);
+        }
+        finally
+        {
+            // Keep an intentionally red pre-fix run from leaking its own plan.
+            extractor.Authority?.Dispose();
+            extractor.Context?.Dispose();
+        }
+    }
+
+    private sealed class CleanupLifetimeExtractor : ISourceExtractor
+    {
+        internal NativeContext? Context { get; private set; }
+        internal CleanupPlan? Authority { get; private set; }
+
+        public async Task<ExtractedMediaBundle> ExtractAsync(ExtractionPlan plan, string primaryPath,
+            string? secondaryPath, IMediaWorkspace workspace, CancellationToken cancellationToken = default)
+        {
+            Context = plan.Context;
+            ExtractedMediaBundle bundle = await new SourceExtractor().ExtractAsync(
+                plan, primaryPath, secondaryPath, workspace, cancellationToken);
+            Authority = bundle.CleanupPlan;
+            Assert.NotNull(Authority);
+            Assert.NotEqual(nint.Zero, Authority.NativeHandle);
+            return bundle;
+        }
+    }
+
+    private sealed class CleanupLifetimeCleaner(string boundary, CancellationTokenSource cancellation)
+        : ISourceProtocolCleaner
+    {
+        public Task<ProtocolCleanResult> CleanAsync(ProtocolCleanRequest request,
+            IMediaWorkspace workspace, CancellationToken cancellationToken = default)
+        {
+            if (boundary == "cancellation")
+            {
+                cancellation.Cancel();
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            if (boundary == "exception") throw new IOException("Controlled cleaner lifecycle boundary.");
+            if (boundary == "failure-result")
+                return Task.FromResult(new ProtocolCleanResult { Success = false,
+                    ErrorMessage = "Controlled cleaner failure-result boundary." });
+            return new SourceProtocolCleaner().CleanAsync(request, workspace, cancellationToken);
+        }
+    }
 
     private static string ResolveSample(string filename) => TestSampleResolver.ResolveSample(filename);
 
@@ -339,7 +421,7 @@ public sealed class P6NeutralPipelineTests
     [InlineData(3, 90)]
     public async Task P6_HeifIrot_IsNormalizedToClockwiseNeutralRotation(byte irot, int expectedClockwiseDegrees)
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = await WriteOrientationFixtureAsync(
             workspace,
             "heif-irot",
@@ -358,7 +440,7 @@ public sealed class P6NeutralPipelineTests
     [Fact]
     public async Task P6_HeifWithoutPrimaryTransform_UsesVerifiedIdentityTransform()
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = await WriteOrientationFixtureAsync(
             workspace,
             "heif-no-primary-transform",
@@ -380,7 +462,7 @@ public sealed class P6NeutralPipelineTests
         bool mirrorBeforeRotation,
         int expectedClockwiseDegrees)
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         byte[] heif = BuildHeifOrientationFixture(
             [("irot", [3]), ("imir", [1])],
             mirrorBeforeRotation ? [2, 1] : [1, 2]);
@@ -407,7 +489,7 @@ public sealed class P6NeutralPipelineTests
         int expectedClockwiseDegrees,
         int expectedReflection)
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = await WriteOrientationFixtureAsync(
             workspace,
             "jpeg-exif-orientation",
@@ -426,7 +508,7 @@ public sealed class P6NeutralPipelineTests
     [Fact]
     public async Task P6_JpegWithoutExifOrientation_UsesVerifiedIdentityTransform()
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = await WriteOrientationFixtureAsync(
             workspace,
             "jpeg-no-exif-orientation",
@@ -451,7 +533,7 @@ public sealed class P6NeutralPipelineTests
     [InlineData(7)] // Duplicate ipma containers make property association ambiguous.
     public async Task P6_MalformedOrAmbiguousImageOrientation_FailsClosed(int fixtureKind)
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         ImageContainer container;
         string path;
         if (fixtureKind <= 4 || fixtureKind == 7)
