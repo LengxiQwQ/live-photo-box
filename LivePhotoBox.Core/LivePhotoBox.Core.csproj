@@ -23,7 +23,9 @@
     </Content>
   </ItemGroup>
 
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(Configuration)' == 'Release' and '$(SkipNativeBuild)' != 'true'">
+  <!-- SkipNativeBuild skips compilation only; consumers still need the built
+       sidecar and its license notices alongside the Native runtime. -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(Configuration)' == 'Release'">
     <Content Include="$(NativeArtifactsDir)\LivePhotoBox.Video.Libav.dll">
       <Link>LivePhotoBox.Video.Libav.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
@@ -31,7 +33,7 @@
     </Content>
   </ItemGroup>
 
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(Configuration)' == 'Release' and '$(SkipNativeBuild)' != 'true'">
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(Configuration)' == 'Release'">
     <Content Include="..\tools\p5-r5-video-validation\notices\*">
       <Link>licenses\LivePhotoBox.Video.Libav\%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

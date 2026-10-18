@@ -172,6 +172,22 @@ if (-not (Test-Path -LiteralPath $vcpkg -PathType Leaf)) { throw "vcpkg.exe was 
 if (-not (Test-Path -LiteralPath $vsDevCmd -PathType Leaf)) { throw "VsDevCmd.bat was not found: $vsDevCmd" }
 
 $vcpkgInstallRoot = Join-Path $workspaceRoot 'video-codecs-main10'
+# vcpkg otherwise nests its buildtrees below the installed prefix. HEVC's
+# prerequisite workspace makes MSVC/CMake try-compile paths exceed MAX_PATH
+# on hosted runners. Keep transient compilation paths short and separate from
+# the installed archives/receipts. Namespace by workspace to avoid collisions
+# between independent builds without changing any codec or profile pin.
+$workspaceHashAlgorithm = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $workspaceKey = ([System.BitConverter]::ToString($workspaceHashAlgorithm.ComputeHash(
+        [System.Text.Encoding]::UTF8.GetBytes($workspaceRoot.ToUpperInvariant())))).Replace('-', '').Substring(0, 12)
+}
+finally {
+    $workspaceHashAlgorithm.Dispose()
+}
+$vcpkgWorkRoot = Join-Path $projectRoot ".ai-tmp\cache\vcpkg\$workspaceKey"
+$vcpkgBuildtreesRoot = Join-Path $vcpkgWorkRoot 'b'
+$vcpkgPackagesRoot = Join-Path $vcpkgWorkRoot 'p'
 $codecIdentityPath = Join-Path $workspaceRoot "$BuildId-codec-identity.json"
 $codecPrefixCandidates = @(
     (Join-Path $vcpkgInstallRoot 'x64-windows-static'),
@@ -190,10 +206,11 @@ if (-not $codecPrefix -or -not (Test-Path -LiteralPath $codecIdentityPath -PathT
     while (Test-Path -LiteralPath "$installLogBase-$attempt.log") { $attempt++ }
     $installLog = "$installLogBase-$attempt.log"
     $manifestRoot = Split-Path -Parent $dependencyManifest
-    Write-Output "ARGV: $vcpkg install --triplet=x64-windows-static --host-triplet=x64-windows --x-install-root=$vcpkgInstallRoot --overlay-ports=$x265OverlayRoot; cwd=$manifestRoot"
+    Write-Output "ARGV: $vcpkg install --triplet=x64-windows-static --host-triplet=x64-windows --x-install-root=$vcpkgInstallRoot --x-buildtrees-root=$vcpkgBuildtreesRoot --x-packages-root=$vcpkgPackagesRoot --overlay-ports=$x265OverlayRoot; cwd=$manifestRoot"
     Push-Location -LiteralPath $manifestRoot
     try {
-        & $vcpkg install '--triplet=x64-windows-static' '--host-triplet=x64-windows' "--x-install-root=$vcpkgInstallRoot" "--overlay-ports=$x265OverlayRoot" 2>&1 |
+        & $vcpkg install '--triplet=x64-windows-static' '--host-triplet=x64-windows' "--x-install-root=$vcpkgInstallRoot" `
+            "--x-buildtrees-root=$vcpkgBuildtreesRoot" "--x-packages-root=$vcpkgPackagesRoot" "--overlay-ports=$x265OverlayRoot" 2>&1 |
             Tee-Object -LiteralPath $installLog
         $vcpkgExitCode = $LASTEXITCODE
     }
