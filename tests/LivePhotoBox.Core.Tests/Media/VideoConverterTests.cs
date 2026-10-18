@@ -664,7 +664,7 @@ public sealed class VideoConverterTests
             throw new DirectoryNotFoundException("Could not locate the Live Photo Box workspace for the frozen P5-R5 Huawei source.");
         }
 
-        string path = Path.Combine(directory.FullName, ".ai-tmp", "workspace", "P5-R5", "huawei-extraction-pass-c", "motion.mp4");
+        string path = Path.Combine(directory.FullName, ".ai-tmp", "workspace", "P5", "R5", "huawei-extraction-pass-c", "motion.mp4");
         if (!File.Exists(path))
         {
             throw new FileNotFoundException("The canonically extracted P5-R5 Huawei motion-video sample is required; this RealSamples test does not skip.", path);

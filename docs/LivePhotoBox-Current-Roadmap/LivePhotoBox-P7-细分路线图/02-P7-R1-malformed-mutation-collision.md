@@ -135,61 +135,9 @@ R0 矩阵中的代表性既有声明包括：`ExtractorFailureTests.Extract_Rang
 
 Roadmap revision、HEAD、state/active TASK、run-26 索引身份或冻结样本基线不符；输入/派生 hash 不稳定；必需测试 filter 发现为空、skip 或未执行；进程 crash；malformed/ambiguous 输入被静默接受或被猜测；源文件或原始样本意外变更；失败操作留下未解释输出/临时文件；生产调用路径未被证明；或有人试图弱化 Roadmap/Contract，任一发生即停止该攻击组并记录真实状态，不得用重跑或改断言掩盖。
 
-## 7. BX-007 中途 BuildId 决策与待办（非验收记录）
+## 7. 历史执行记录
 
-2026-10-09，用户针对 P7/R1 Unit 2 的 BX-007 验证明确授权：可为一次有界 P7 验证使用一个新的、固定且确定性的 `VideoSidecarBuildId`，以避免复用历史 `r5-main10-v1` BuildId 的陈旧 raw manifest identity。该授权只适用于 BX-007 当前验证任务，不构成项目默认值、长期构建策略或打包策略变更。
-
-已封存的 main R1 `run-7` 保持 `FAIL_STOP`：适用的 Core.Tests Release build 在 Native pre-build 阶段直接 exit 1，托管测试编译未完成；test discovery、targeted test、Inspector、Extract、Clean 均未执行，TRX 不存在。不得把 `run-7` 重新解释为产品路径通过，也不得覆盖或重用该 run。
-
-失败原因的当前身份事实为：历史 `r5-main10-v1-codec-identity.json` 绑定的 dependency-manifest raw SHA-256 为 `58F3523DBFD51D5219E44C6C08F4FEDE90C15F4F29561AFDEB8927FB40BA3C16`，而当前 pinned manifest 的后续有效 identity 绑定为 `347020781D151A6D4248334098BBBC7B7469E0F92FB13CBBADAD52A0088BB970`。与此同时，共享 codec prefix 中记录的 `libx264.lib` 与 `x265-static.lib` archive identities 仍分别为 `EC0D1948BB0B03E6AAB037BA361AA625269BC8B356A75EA2EDFDBA065E34CD5C` 和 `40FFBDD1B7C47FD0F5F67BD4A5C2A47FFF444BE4844F7C6601EFAF4ED1D513F1`，与既有记录一致。因此不得修改或覆盖历史 `r5-main10-v1` identity 来消除冲突。
-
-本授权保持以下内容全部不变：`LivePhotoBox.Core.csproj` 的项目默认 BuildId、当前 dependency manifest、P5-R5 profile/pins、Native prerequisite 的 fail-closed identity 检查，以及 P7/R1 的全部 Roadmap/Contract 验收语义。后续验证只能通过命令行 MSBuild property 为单次构建指定新 BuildId；不得把新值写成项目默认值，不得跳过或抑制 Native target。正常构建可以在既有构建语义下生成 BuildId 专属 prerequisite/identity/build-record，并生成或复制 Native sidecar 到正常 Release 输出。
-
-该记录本身不授权构建或测试。具体新 BuildId 必须由新的有限执行 PLAN 明确指定，并在执行前证明其所有 BuildId-owned identity、prerequisite 和 build-record 目标均不存在；任何冲突均 fail-stop。
-
-状态更新 — main R1 run-8 / run-9：
-
-run-8 已永久消费并保持其独立审查确认的 FAIL_STOP_BEFORE_DOTNET_BUILD。其失败发生在任何 dotnet 子进程启动之前；直接 build、test discovery、targeted test、Inspector、Extract、Clean、Convert 均未执行，TRX 不存在。不得覆盖、重用或重新解释 run-8。
-
-随后分配的 main R1 run-9 亦已永久消费。其经审查的正式证据位于 .ai-tmp/evidence/P7/P7-R1-malformed-mutation-collision/run-9/；最终 evidence-index.json 为 5,085 bytes、SHA-256 0063BCE959DDFB80E7C4D22788E724F133E48BB6D96AFDFD83A6E5DFDD65E70E，08-postflight.json 为 4,424 bytes、SHA-256 6D00ECB260D2CFD7BE2B55D6C6043D8B90258219D4D7D8FC28FEE061C26F084B。独立审查结果为 REVIEW / DONE。
-
-run-9 的真实停止边界为 FAIL_STOP_BEFORE_CONTROL_GENERATION：唯一 control-generation shell submission 在 PowerShell parse 阶段因脚本语法错误被拒绝，脚本 body execution count 为 0；没有创建 derived control 或 bx007-product-run-9 workspace。直接 dotnet build、test discovery、targeted test、Inspector、Extract、Clean、Convert 和 independent parser invocation 均为 0，托管编译未建立，TRX 不存在。后续五次 postflight/closeout collector 失败只属于证据采集工具失败，均没有执行或重试任何产品、build 或 test 路径。run-9 的 14 个 reached-only payload 已由最终 create-new index 封存，不得修改、覆盖或重试该 run。
-
-因此 BX-007 的 Inspector / Inspector-issued Extract / CleanupPlan-authorized Clean 产品路径仍未验证；BX-007 不得报告为 PASS，Unit 2/R1 亦未完成。
-
-用户曾批准一次性固定 deterministic VideoSidecarBuildId `p7-r1-bx007-run8`。run-8 与 run-9 当时均未启动使用该 ID 的 dotnet / Native build，run-9 postflight 也确认当时尚无该 ID 的 BuildId-owned 输出；这是历史时点事实，已被 run-11 的后续实际使用取代，不能再作为当前授权或再次使用该 ID 的依据。run-11 已使用该 ID 并生成 BuildId-owned 输出。
-
-2026-10-10，用户明确要求：对已授权工作范围内、可逆且仅供测试/开发、经判断不影响产品功能/逻辑、公开 Contract/ABI、用户数据、生产/打包配置、验收或安全边界的选择，Agent 可自行权衡并继续，事后说明决定和影响。按此当前用户指令，R1/BX-007 后续有界验证可由 Agent 自主选择一个与已消费 ID 不同的 fresh、deterministic、command-line-only `VideoSidecarBuildId`，无需逐值再请示；这只适用于本地 test/build 验证，不改变项目默认 BuildId、dependency manifest、P5-R5 profile/pins、Native fail-closed identity checks、生产/打包依赖或 P7/R1 Roadmap/Contract acceptance。
-
-每次使用前仍必须在新有限 PLAN 中指定该 ID，并 fresh-preflight 证明其全部 BuildId-owned identity、prerequisite、minimal-libav、build-log/build-record 目标及相关 wildcard 命中均不存在；任何冲突立即 fail-stop，不得删除、覆盖、改名或复用已有 outputs。PLAN/evidence 必须记录选值、理由及 absence proof，使用后向用户说明实际影响、产生的 outputs、build/test 结果和未完成项。若选择或使用要求改变项目默认、P5-R5 配置、生产/打包依赖、产品功能、Contract/acceptance 或安全边界，则此自主权不适用，须先向用户说明并取得决定。该规则不追溯改变 run-11：run-11 仍为 FAILED、永久消费且不得重试。
-
-run-10 已永久消费，正式证据位于 `.ai-tmp/evidence/P7/P7-R1-malformed-mutation-collision/run-10/`，独立审查结果为 `REVIEW / DONE`。最终 `evidence-index.json` 为 10,199 bytes、SHA-256 `6E04DFA9D4A1DA6210F9FD3ADF1E6F79604E5EC5280A3584A8A88126A4A85A50`；原始 `08-postflight.json` 为 161,874 bytes、SHA-256 `D97FDABE9F781F6FDCF86A31F5B2CC0EC04E8239909498F2F0A62F63E6498B8C`；追加的 `08-postflight-correction.json` 为 2,362 bytes、SHA-256 `5DD0C10FE4785B63141FEFF40321CC0C321AF471A871DD7FEA11DF52C526A926`。原始 postflight 保持不变；追加更正记录了 collector 输入的预期 Roadmap hash 有误，以及重新核对 live identity/reconcile 后的正确治理结果。
-
-run-10 的真实停止边界为 `FAIL_STOP_BEFORE_DOTNET_BUILD`：一次 control helper 调用直接 exit 0，生成两份与 canonical source byte-identical 的 Synthetic/Derived identity control 和 manifest；一次 build-wrapper submission 在 PowerShell parse 阶段因脚本语法错误被拒绝，wrapper body 未执行。直接 dotnet build、test discovery、tests、Inspector、Extract、Clean、Convert 均为 0；没有产品路径结果或 TRX。run-10 不得重试、覆盖或重新解释为 build/test/产品验证通过。
-
-### 历史状态更新 — main R1 run-11（2026-10-09；后续状态见 run-12）
-
-用户于 2026-10-09 明确批准：为一次有界 BX-007 命令行构建使用固定 ID `p7-r1-bx007-run8`。作出该决定的原因是历史项目默认 ID `r5-main10-v1` 绑定的 raw dependency-manifest identity 已过期；本次临时 ID 用来避免覆盖历史身份并验证当前 pinned manifest。该决定仅授权一次有界验证，不改变项目默认值或长期打包策略。
-
-该一次性授权已在 main R1 `run-11` 实际使用：经审查的 build wrapper 只启动了一次 Core.Tests Release/x64 build，命令行覆盖为 `VideoSidecarBuildId=p7-r1-bx007-run8`，direct exit code 为 1，状态为 `FAILED_BUILD_EXIT`。结果文件 `04-build-result.json` 为 2,320 bytes、SHA-256 `1773A6787ED2BD70930144973E35561C0A42BF0DD7D7B328B05D82AB07BF8568`；stdout 为 60,772 bytes、SHA-256 `029DB4975783D74C7529603C806721F74D31D428B59B4A58DEC253D7F3CC9A24`；stderr 为空，SHA-256 为 `E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855`。独立审查确认 Native prerequisite、minimal-libav 和 Native CMake/Release build 已成功到达；失败发生在 Core.Tests C# 编译，`P7R1Bx007ProductPathTests.cs` 中的 `AssertDeclaredWorkspaceFilesOnly` 引用无法解析。
-
-这次失败已经生成真实的 BuildId-owned 输出，以下是已独立确认并封存的结果；必须保留，不得删除、覆盖或继续声称目标不存在：`p7-r1-bx007-run8-codec-identity.json`（1,506 bytes，SHA-256 `409C042B60A6A7885E3A519E009E158EF5718DEBE939A4CB7CBD22E70173A7C3`）、`p7-r1-bx007-run8-libav-prerequisites.json`（844 bytes，SHA-256 `779E626EF8AE0C3DCEC216D49C7E62753701E909129DBB495F356A948EA007A5`）、`minimal-libav-p7-r1-bx007-run8/` build record（5,845 bytes，SHA-256 `698D9A12BC3D6169CD661F299CA2B300A988EEB6AFC15114FA4AFF702A2C8D38`）、`p7-r1-bx007-run8-minimal-libav-initial.log`（71,374 bytes，SHA-256 `FD9C9E58AFB1D493FB891593687F1DC5BC7F1C144582A2BF2A7FECAE4D3F48F1`）、`p7-r1-bx007-run8-vcpkg-codecs-install-1.log`（1,680 bytes，SHA-256 `1AA1A08589FBFCD08C7D3068938E88BC1C4A0348472940320980ED70E012A114`）及 `r5-native-main10-v90-native-Release-build.log`（4,583 bytes，SHA-256 `7778CCAF7EF49BD5FF6DA61CCC05B1E5A864C7172B31DB7A81E1311813D8188E`）。run-11 的最终 postflight/index 已封存完整目录、BuildId-owned outputs 与 P5-R5 的 123-row before/after 身份；minimal-libav tree 也有 deterministic digest 记录。
-
-`run-11` 已永久消费，不得重试；原先的一次性 ID 不能再次用于新 build。后续若在已授权的 P7/R1 BX-007 范围内继续本地 test/build 验证，可按上文 2026-10-10 用户决定自主选择不同的 fresh deterministic CLI-only BuildId，但必须先完成所有 owned destination/wildcard 的 absence preflight，并在新有限 PLAN/evidence 中记录与事后报告；不得复用或覆盖已有输出。项目默认 `r5-main10-v1`、dependency manifest、P5-R5 profile/pins、Native fail-closed identity gate、P7/R1 Roadmap/Contract 验收标准均保持不变。
-
-run-11 的 discovery、测试执行、Inspector、Inspector-issued Extract 和 CleanupPlan-authorized Clean 均未执行，TRX 不存在；Convert 对 BX-007 不适用。失败 closeout 已 create-only 封存：`08-postflight.json` 为 127,462 bytes、SHA-256 `FEE79922143BCD8D770BED1498125C3468756DFD7E37F0ECB3D856FAAF6605E2`；最终 `evidence-index.json` 为 19,586 bytes、SHA-256 `306EEB7FF42C03A2B4ACCA359730BCF41DB54BD968D8CB0FFBB90EDE99DBA099`。该 index 是 run-11 最终 filesystem write，绑定 12 个 pre-index payload；run-11 共 13 个文件。配对 ChatGPT task `c2c_2263` 对失败 closeout 独立审查为 `REVIEW / DONE`。run-11 仍为 `FAILED / INCOMPLETE`，不得重试；BX-007、Unit 2、R1 均未通过或完成。后续如继续新的 BX-007 build attempt，须遵守上文 2026-10-10 决定：fresh CLI-only BuildId、完整 absence preflight、新有限 PLAN/evidence 和事后报告。本文只记录决策和状态，不替代正式 run evidence、验收或执行授权。
-
-### 历史状态更新 — main R1 run-12（2026-10-10；失败构建已封存并独立审查；被 2026-10-12 checkpoint supersede）
-
-run-12 已永久消费，BuildId `p7-r1-bx007-run12` 仅通过一次命令行构建使用，不得重试。该单元仅按已审查 PLAN 对 `P7R1Bx007ProductPathTests.cs` 做一处 test-only assertion-helper 替换；该源码身份已记录，但编译验证没有到达。唯一 planned Release build 确实启动；异步 launcher 未采样到 dotnet 进程的直接退出码，正式结果如实记为 `null`。Native/MSBuild 输出报告 Native child exit 1、FFmpeg make exit 2；构建在 Native FFmpeg prerequisite 的 `libavutil/x86/tx_float.o` 处以 segmentation fault 停止，汇总为 54 warnings / 1 MSBuild error。
-
-Core.Tests 编译、discovery、tests 和 TRX 均未到达/产生；Inspector、Extract、Clean 调用均为 0，Convert 对 BX-007 仍为 N/A。run-12 的失败不得掩盖为 test compile success，也不得重试。BuildId-scoped 输出只到达 codec identity、partial minimal-libav tree 和 initial log；libav prerequisite record 未生成，预期 Native v91 Release build log 未创建。P5-R5 的 123-row before/after 均 unchanged，8 个既有 Release outputs 未变，项目默认仍为 `r5-main10-v1`；protected inputs/settings、Contract 与 acceptance 均未改变。
-
-run-12 失败 closeout 已 create-only 封存：`08-postflight.json` 为 73,614 bytes、SHA-256 `6F35905D50BE9D8E55031182034F844E30518221398E024C05614168C7929961`；最终 `evidence-index.json` 为 9,401 bytes、SHA-256 `C10A975DD46620330F1F9D24055BDCDE511390E3EAD3A9478152D9DA33AC05A0`。index 绑定 10 个 pre-index payload，run-12 共 11 个文件且 index 是最终 filesystem write。配对 ChatGPT task `c2c_2263` 对本次执行 closeout 独立审查为 `REVIEW / DONE`。run-11 的 sealed postflight/index 与 `FAILED / INCOMPLETE` 事实保持原样。
-
-run-12 封存时的历史待办是先取得新 PLAN 再考虑后续构建；后续 Run19 已独立完成结构验证并封存，2026-10-10 用户决定已解除其两项 Xiaomi 元素的 authority blocker。当前实现仍未完成：应先在 P7/R1 内实现精确 MiCamera classification 与同容器 preservation，再单独推进 conversion-only 例外。任何后续 build 仍须由有效有限 PLAN 指定 fresh BuildId 并完成所有目标及 wildcard 的 absence preflight；本状态记录不分配 Run 编号或 BuildId，不替代执行 PLAN。Inspector、Inspector-issued Extract 和 CleanupPlan-authorized Clean 产品路径仍 required-but-unexecuted；BX-007、Unit 2、R1 仍未通过或完成。
-
-本节不是 BX-007 PASS、Unit 2/R1 完成、P7 Audit/Verify 结果或最终 External Chief Gate ACCEPT。
+逐轮BuildId、失败运行、旧暂停/恢复点已归本地任务 `documentation/roadmap-execution-history.md`。当前R1为CLOSED；项目进度见[P7阶段进度](P7-阶段进度与后续边界.md)。以下用户确认的Xiaomi转换语义仍保留为正式决定，不能随测试记录移除或放宽。
 
 ## 8. 2026-10-10 Run19 用户授权决定：仅转换时省略两个 Xiaomi 元素
 

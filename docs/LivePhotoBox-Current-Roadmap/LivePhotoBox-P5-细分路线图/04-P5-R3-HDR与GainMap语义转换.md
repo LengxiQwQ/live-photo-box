@@ -64,7 +64,7 @@
 - GainMap identity、owner、relationship、representation、hash、metadata/headroom/gamma/offset 等与目标格式有关的必要数值均被验证；无法映射者明确 unsupported，不填假值。
 - JPEG Ultra HDR 输出由独立 JPEG/XMP/MPF/GainMap parser 验证合法关系与实际 bytes，并由独立 decoder/render/reference 证据确认可读；HEIC 输出由独立 HEIF graph/metadata/auxiliary reader 和 independent decode/render/reference 证据确认。
 - 独立 reference reconstruction 的样本集、色域/transfer 假设、有效 overlap、数值阈值（如 MAE/PSNR/headroom-relative error）必须在验收执行前固定记录，不得在观察失败后放宽阈值。
-- RealSample 来源 hash 始终一致；P4-v1 样本与 `designs/各个机型测试/` 原件保持只读；使用静态 `.ai-tmp/cache/samples/` 与 `.ai-tmp/workspace/` 路径，正式验收证据进入 `.ai-tmp/evidence/P5-R3/`。RealSample 缺失、filter 排除、skip 或只有 synthetic/unit evidence 均不通过。
+- RealSample 来源 hash 始终一致；P4-v1 样本与 `designs/各个机型测试/` 原件保持只读；使用静态 `.ai-tmp/cache/samples/` 与 `.ai-tmp/workspace/` 路径，正式验收证据进入 `.ai-tmp/evidence/P5/R3/`。RealSample 缺失、filter 排除、skip 或只有 synthetic/unit evidence 均不通过。
 - 覆盖 positive/negative/edge/adversarial case：GainMap identity/relationship/metadata 缺失或不一致、duplicate/ambiguous item、decode/encode/post-validation 失败、Strict 与 BestEffort、output 未发布和临时文件清理。
 - R3 targeted Core/CLI build/test、Native ABI/runtime test、独立样本验证与阶段 doctor 均有可复现结果；`git diff --check` 通过。不得运行覆盖 P0–P10 的全项目 suite。
 

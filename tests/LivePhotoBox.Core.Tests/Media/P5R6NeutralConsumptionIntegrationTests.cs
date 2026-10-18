@@ -1117,7 +1117,7 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
     private static string CreatePublicationScenarioDirectory(string scenarioName)
     {
         string scenarioRoot = FindRepositoryRootAndJoin(
-            ".ai-tmp/workspace/P5-R6/neutral-split-exact-object-content-transaction/scenarios");
+            ".ai-tmp/workspace/P5/R6/neutral-split-exact-object-content-transaction/scenarios");
         string? isolatedRoot = Environment.GetEnvironmentVariable("LPB_R2_LEGACY_WORKSPACE");
         if (!string.IsNullOrWhiteSpace(isolatedRoot))
             scenarioRoot = Path.Combine(isolatedRoot, "split-publication");
@@ -1357,7 +1357,7 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
         object? transactionEvidence = null)
     {
         string evidencePath = FindRepositoryRootAndJoin(
-            ".ai-tmp/workspace/P5-R6/neutral-split-exact-object-content-transaction/publication-test-evidence.jsonl");
+            ".ai-tmp/workspace/P5/R6/neutral-split-exact-object-content-transaction/publication-test-evidence.jsonl");
         Directory.CreateDirectory(Path.GetDirectoryName(evidencePath)!);
         string json = JsonSerializer.Serialize(new
         {

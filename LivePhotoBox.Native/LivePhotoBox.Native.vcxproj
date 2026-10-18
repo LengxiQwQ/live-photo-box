@@ -79,7 +79,7 @@
       <PreprocessorDefinitions>LPB_NATIVE_BUILD;$(LPB_NATIVE_EXTRA_DEFINITIONS);_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)src;$(IntDir);$(MSBuildThisFileDirectory)..\.ai-tmp\workspace\P4-R3\cmake-build\vcpkg_installed\x64-windows-static\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)src;$(IntDir);$(MSBuildThisFileDirectory)..\.ai-tmp\workspace\P4\R3\cmake-build\vcpkg_installed\x64-windows-static\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
       <ExceptionHandling>Sync</ExceptionHandling>
@@ -91,7 +91,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(OutDir)$(TargetName).pdb</ProgramDatabaseFile>
       <ControlFlowGuard>Guard</ControlFlowGuard>
-      <AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)..\.ai-tmp\workspace\P4-R3\cmake-build\vcpkg_installed\x64-windows-static\debug\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)..\.ai-tmp\workspace\P4\R3\cmake-build\vcpkg_installed\x64-windows-static\debug\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>bcrypt.lib;ole32.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;heif.lib;libde265.lib;x265-static.lib;turbojpeg.lib;jpeg.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
@@ -104,7 +104,7 @@
       <PreprocessorDefinitions>LPB_NATIVE_BUILD;$(LPB_NATIVE_EXTRA_DEFINITIONS);NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)src;$(IntDir);$(MSBuildThisFileDirectory)..\.ai-tmp\workspace\P4-R3\cmake-build\vcpkg_installed\x64-windows-static\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)src;$(IntDir);$(MSBuildThisFileDirectory)..\.ai-tmp\workspace\P4\R3\cmake-build\vcpkg_installed\x64-windows-static\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
       <ExceptionHandling>Sync</ExceptionHandling>
@@ -119,7 +119,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ProgramDatabaseFile>$(OutDir)$(TargetName).pdb</ProgramDatabaseFile>
       <ControlFlowGuard>Guard</ControlFlowGuard>
-      <AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)..\.ai-tmp\workspace\P4-R3\cmake-build\vcpkg_installed\x64-windows-static\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)..\.ai-tmp\workspace\P4\R3\cmake-build\vcpkg_installed\x64-windows-static\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>bcrypt.lib;ole32.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;heif.lib;libde265.lib;x265-static.lib;turbojpeg.lib;jpeg.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>

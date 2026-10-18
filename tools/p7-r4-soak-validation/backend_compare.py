@@ -10,7 +10,7 @@ SOURCES = {
     'hevc-av': ROOT / 'apple-av-only.mov',
     'hevc': v.ROOT / '.ai-tmp/cache/samples/苹果双文件.MOV',
     'h264': v.WORK / 'soak-v11/case/retained/codecs/sdr.mp4',
-    'hdr': v.ROOT / '.ai-tmp/workspace/P5-R5/huawei-extraction-pass-c/motion.mp4',
+    'hdr': v.ROOT / '.ai-tmp/workspace/P5/R5/huawei-extraction-pass-c/motion.mp4',
     'vivo': v.ROOT / '.ai-tmp/cache/samples/vivo双文件.mp4',
 }
 

@@ -215,7 +215,8 @@ internal sealed class P2RepairEvidenceWorkspace : IMediaWorkspace
             FindRepositoryRoot(),
             ".ai-tmp",
             "workspace",
-            "p2-w1-w4-final-audit",
+            "P2",
+            "W1-w4-final-audit",
             Sanitize(caseName));
         string? isolatedRoot = Environment.GetEnvironmentVariable("LPB_R2_LEGACY_WORKSPACE");
         if (!string.IsNullOrWhiteSpace(isolatedRoot))

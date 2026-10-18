@@ -9,7 +9,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path "$PSScriptRoot\..\..").Path
 $workspaceRoot = Join-Path $projectRoot '.ai-tmp\workspace'
-if ([string]::IsNullOrWhiteSpace($EvidenceRoot)) { $EvidenceRoot = Join-Path $workspaceRoot 'p2-real-device-validation' }
+if ([string]::IsNullOrWhiteSpace($EvidenceRoot)) { $EvidenceRoot = Join-Path (Join-Path $workspaceRoot 'P2') 'real-device-validation' }
 
 $resolvedWorkspaceRoot = [IO.Path]::GetFullPath($workspaceRoot).TrimEnd('\') + '\'
 $resolvedEvidenceRoot = [IO.Path]::GetFullPath($EvidenceRoot)

@@ -110,7 +110,7 @@ def seal(tag, revision='', dry='', failure=False):
         assert type(outer['directChildExitCode']) is int and outer['directChildExitCode'] != 0
         assert v.read(pipeline / 'qualified.json')['passed']
     assert v.read(W / ('targeted-' + tag) / 'summary.json')['passed']
-    matrix = ROOT / ('.ai-tmp/workspace/P5-R5/p7-r4-hevc-v2-matrix-' + tag)
+    matrix = ROOT / ('.ai-tmp/workspace/P5/R5/p7-r4-hevc-v2-matrix-' + tag)
     report = v.read(matrix / 'report.json')
     assert report['state'] == 'matrix-pass' and report['passedRouteCount'] == 11
     assert report['passedFailureCount'] == 5 and report['skipCount'] == 0
@@ -230,7 +230,7 @@ def seal(tag, revision='', dry='', failure=False):
     # Build recipes and configuration are collected independently of product
     # source selection. Large sparse media are represented by recipe+hash and
     # actual independent packet/decode checks, not duplicated as multi-GB blobs.
-    for path in (ROOT / '.ai-tmp/workspace/P5-R5/cmake-build/CMakeCache.txt',
+    for path in (ROOT / '.ai-tmp/workspace/P5/R5/cmake-build/CMakeCache.txt',
                  H / 'x265-8/CMakeCache.txt', H / 'x265-10/CMakeCache.txt',
                  H / 'base-prerequisites/r4-hevc-v2-base-libav-prerequisites.json',
                  H / 'base-prerequisites/minimal-libav-r4-hevc-v2-base/minimal-libav-build-record.json'):
@@ -288,7 +288,7 @@ def seal(tag, revision='', dry='', failure=False):
     copy(ROOT / chroma['original']['path'], 'fixtures/chroma-derived-ancestor.mp4')
     for name in ('summary.json', 'results/r4.trx', 'execute/process.json', 'execute/stdout.txt', 'execute/stderr.txt'):
         copy(W / 'targeted-v57' / name, pathlib.Path('engineering-failures/targeted-v57') / name)
-    context = ROOT / 'docs/LivePhotoBox-Current-Roadmap/LivePhotoBox-P7-细分路线图'
+    context = ROOT / '.ai-tmp/evidence/P7/P7-R4-large-batch-soak/documentation'
     for name in ('P7-R4-Local-Execution-Plan.md', 'P7-R4-coverage-matrix.md',
                  'P7-R4-HEVC-backend-reopen-plan.md', 'P7-R4-HEVC-implementation-status.md',
                  'P7-R4-resource-diagnosis-followup.md'):

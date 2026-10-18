@@ -14,14 +14,14 @@ $policyPath = Join-Path $toolRoot 'reference-policy-v1.json'
 $structuralPolicyPath = Join-Path $toolRoot 'source-structure-policy-v2.json'
 $validatorPath = Join-Path $toolRoot 'validate_p5_r3_v2.py'
 $sampleRoot = Join-Path $repo '.ai-tmp\cache\samples\P5-R3-v1'
-$evidenceRoot = Join-Path $repo '.ai-tmp\evidence\P5-R3'
+$evidenceRoot = Join-Path $repo '.ai-tmp\evidence\P5\R3'
 
 if ($Mode -eq 'Preflight') {
-    $runRoot = Join-Path $repo '.ai-tmp\workspace\P5-R3\iteration-5-preflight-v2'
+    $runRoot = Join-Path $repo '.ai-tmp\workspace\P5\R3\iteration-5-preflight-v2'
     $independentReports = Join-Path $runRoot 'independent-results'
 }
 else {
-    $runRoot = Join-Path $repo '.ai-tmp\workspace\P5-R3\iteration-5-formal-v2'
+    $runRoot = Join-Path $repo '.ai-tmp\workspace\P5\R3\iteration-5-formal-v2'
     $independentReports = $evidenceRoot
     if (Test-Path -LiteralPath $evidenceRoot) {
         throw "Refusing to overwrite existing formal R3 evidence: $evidenceRoot"

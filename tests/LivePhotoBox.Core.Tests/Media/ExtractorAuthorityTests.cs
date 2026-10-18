@@ -33,7 +33,7 @@ public sealed class ExtractorAuthorityTests
         while (!string.IsNullOrEmpty(dir))
         {
             if (Directory.Exists(Path.Combine(dir, ".ai-tmp")))
-                return Path.Combine(dir, ".ai-tmp", "workspace", "p2-w1");
+                return Path.Combine(dir, ".ai-tmp", "workspace", "P2", "W1");
 
             string? parent = Directory.GetParent(dir)?.FullName;
             if (parent == null || parent == dir) break;
@@ -65,7 +65,7 @@ public sealed class ExtractorAuthorityTests
         while (!string.IsNullOrEmpty(dir))
         {
             if (Directory.Exists(Path.Combine(dir, ".ai-tmp")))
-                return Path.Combine(dir, ".ai-tmp", "workspace", "p2-w1-repair");
+                return Path.Combine(dir, ".ai-tmp", "workspace", "P2", "W1-repair");
 
             string? parent = Directory.GetParent(dir)?.FullName;
             if (parent == null || parent == dir) break;

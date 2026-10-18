@@ -1,6 +1,6 @@
 # P4-R6 — Video Backend Differential / Windows Backend Freeze
 
-> **2026-10-17 用户批准的HEVC决策重开（当前优先）：** 所有受支持的HEVC解码或HEVC目标重编码迁至现有minimal-libav，Native在执行前选择唯一owner，无hidden fallback；COPY/remux保持Native，非HEVC普通SDR保留MF。本文原普通SDR→MF规则对涉及HEVC的重编码已被此授权取代，历史freeze/evidence保持原样。先修AVIO、8/10-bit真实输出和MEBX集成，再完成受影响P4/P5及R4完整验证；验收尚未完成。公开ABI/Contract、保留语义、拒绝/事务/清理/独立验证标准不降低。详见 [R4重开实施计划](../LivePhotoBox-P7-细分路线图/P7-R4-HEVC-backend-reopen-plan.md)。
+> **2026-10-17 用户批准的HEVC决策重开（当前优先）：** 所有受支持的HEVC解码或HEVC目标重编码迁至现有minimal-libav，Native在执行前选择唯一owner，无hidden fallback；COPY/remux保持Native，非HEVC普通SDR保留MF。本文原普通SDR→MF规则对涉及HEVC的重编码已被此授权取代，历史freeze/evidence保持原样。先修AVIO、8/10-bit真实输出和MEBX集成，再完成受影响P4/P5及R4完整验证；验收尚未完成。公开ABI/Contract、保留语义、拒绝/事务/清理/独立验证标准不降低。详见 [R4重开实施计划](../../../.ai-tmp/evidence/P7/P7-R4-large-batch-soak/documentation/P7-R4-HEVC-backend-reopen-plan.md)。
 
 
 > **性质：** 技术选型与实证轮。  

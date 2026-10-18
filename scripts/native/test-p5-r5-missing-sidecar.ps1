@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $artifactDir = Join-Path $projectRoot "artifacts\native\$Configuration\win-x64"
-$workspace = Join-Path $projectRoot '.ai-tmp\workspace\P5-R5'
+$workspace = Join-Path $projectRoot '.ai-tmp\workspace\P5\R5'
 $negativeDir = Join-Path $workspace "$RecordId-missing-sidecar-package"
 $nativeName = 'LivePhotoBox.Native.dll'
 $smokeName = 'lpb_video_sidecar_runtime_smoke.exe'

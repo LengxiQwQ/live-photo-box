@@ -92,7 +92,7 @@ def probes(tag,label):
     candidate=qualify(tag)
     base=WORK/('probe-'+tag);dest=WORK/label
     sample=ROOT/'.ai-tmp/cache/samples'
-    hdr=ROOT/'.ai-tmp/workspace/P5-R5/huawei-extraction-pass-c/motion.mp4'
+    hdr=ROOT/'.ai-tmp/workspace/P5/R5/huawei-extraction-pass-c/motion.mp4'
     assert hashfile(hdr)=='664EF6DBA25D7B04228C79B874A0EDA742B1211E17EE770D0E82E765BD454CE6'
     cases=[('remux','remux',sample/'苹果双文件.MOV','full',True),('hevc-to-h264','sdr',sample/'苹果双文件.MOV','full',True),('h264-to-hevc','sdr-hevc',sample/'vivo双文件.mp4','full',True),('hdr','hdr',hdr,'full',True),('jpeg-copy','image-copy',sample/'苹果-双文件.JPG','full',True),('jpeg-heic','image-heic',sample/'苹果-双文件.JPG','full',True)]
     for variant in ('absent-sidecar','invalid-sidecar','absent-native','invalid-native'):

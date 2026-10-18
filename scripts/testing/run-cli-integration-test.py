@@ -7,11 +7,11 @@ Runs merge / split / cover / repair with real device samples,
 verifies output metadata, byte structure, and cover positions.
 
 Usage:
-    python scripts/run-cli-integration-test.py
+    python scripts/testing/run-cli-integration-test.py
 
 Output:
-    cli-integration-test/output/       — test products (overwritten each run)
-    cli-integration-test/test-report.md — verification report (overwritten)
+    .ai-tmp/workspace/CLI/integration/output/       — test products (overwritten each run)
+    .ai-tmp/workspace/CLI/integration/test-report.md — verification report (overwritten)
 """
 
 import argparse
@@ -37,8 +37,8 @@ sys.stderr.reconfigure(encoding="utf-8")
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 LPB_CMD = str(PROJECT_ROOT / "lpb.cmd")
 SAMPLES_SRC = PROJECT_ROOT / "designs" / "各个机型测试"
-TEST_ROOT = PROJECT_ROOT / "cli-integration-test"
-SAMPLES_DIR = TEST_ROOT / "samples"
+TEST_ROOT = PROJECT_ROOT / ".ai-tmp" / "workspace" / "CLI" / "integration"
+SAMPLES_DIR = PROJECT_ROOT / ".ai-tmp" / "cache" / "samples" / "cli-integration"
 OUTPUT_DIR = TEST_ROOT / "output"
 REPORT_PATH = TEST_ROOT / "test-report.md"
 
@@ -1094,8 +1094,8 @@ def verify_real_source_sample(filepath: Path, label: str) -> list[Check]:
 def setup(phases: list[str]):
     """Copy samples (first run only) and clean output directory."""
     log("Setting up test environment …")
-    TEST_ROOT.mkdir(exist_ok=True)
-    SAMPLES_DIR.mkdir(exist_ok=True)
+    TEST_ROOT.mkdir(parents=True, exist_ok=True)
+    SAMPLES_DIR.mkdir(parents=True, exist_ok=True)
 
     # Collect all needed sample files
     needed: set[str] = set()

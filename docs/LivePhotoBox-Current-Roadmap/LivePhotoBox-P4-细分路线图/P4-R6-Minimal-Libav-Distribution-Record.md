@@ -1,5 +1,7 @@
 # P4-R6 — minimal libav* production-shaped candidate record
 
+Historical decision/closeout record. The current user-approved HEVC owner is documented in [HEVC backend decision](../LivePhotoBox-P7-细分路线图/P7-R4-HEVC-backend-decision.md); historical local-readiness wording below is not the current phase state.
+
 ## Scope and status
 
 This is an R6 research and decision record, not a production dependency
@@ -12,7 +14,7 @@ fallback.
 
 The build is reproducible through
 `tools/r6-video-differential/Invoke-MinimalLibavBuild.ps1`. Its completed
-local evidence root is `.ai-tmp/workspace/P4-R6/minimal-libav-build-v12`.
+local evidence root is `.ai-tmp/workspace/P4/R6/minimal-libav-build-v12`.
 
 | Item | Exact record |
 |---|---|

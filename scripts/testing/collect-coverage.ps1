@@ -10,9 +10,14 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-$outputDirectory = Join-Path $repositoryRoot "artifacts\coverage\$timestamp"
-New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
+$coverageRoot = Join-Path $repositoryRoot '.ai-tmp\workspace\coverage'
+New-Item -ItemType Directory -Path $coverageRoot -Force | Out-Null
+$coverageRunNumbers = @(Get-ChildItem -LiteralPath $coverageRoot -Directory |
+    Where-Object { $_.Name -match '^run-(\d+)$' } |
+    ForEach-Object { [int]$_.Name.Substring(4) })
+$coverageNextRun = if ($coverageRunNumbers.Count -eq 0) { 1 } else { ($coverageRunNumbers | Measure-Object -Maximum).Maximum + 1 }
+$outputDirectory = Join-Path $coverageRoot "run-$coverageNextRun"
+New-Item -ItemType Directory -Path $outputDirectory | Out-Null
 
 $projects = @()
 if ($Scope -in @('Core', 'All'))

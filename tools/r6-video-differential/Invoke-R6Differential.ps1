@@ -4,9 +4,9 @@ param(
     [ValidateScript({ Test-Path -LiteralPath $_ -PathType Leaf })]
     [string]$CandidateExe,
 
-    [string]$InputRoot = (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) '.ai-tmp\workspace\P4-R6\extracted-videos'),
+    [string]$InputRoot = (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) '.ai-tmp\workspace\P4\R6\extracted-videos'),
 
-    [string]$OutputDirectory = (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) '.ai-tmp\workspace\P4-R6\differential-evidence'),
+    [string]$OutputDirectory = (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) '.ai-tmp\workspace\P4\R6\differential-evidence'),
 
     [string]$MatrixPath = (Join-Path $PSScriptRoot 'matrix.json'),
 

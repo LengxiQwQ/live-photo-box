@@ -199,7 +199,7 @@
     "skipPolicy": "All required routes and required failure cases execute; any skip is a failure."
   },
   "preflightSourceFacts": {
-    "validatorRecord": ".ai-tmp/workspace/P5-R5/source-probes.json",
+    "validatorRecord": ".ai-tmp/workspace/P5/R5/source-probes.json",
     "apple": {
       "container": "mov,mp4,m4a,3gp,3g2,mj2",
       "durationSeconds": 1.9,
@@ -245,7 +245,7 @@
       "audio": { "streamIndex": 0, "codec": "aac", "profile": "HE-AAC", "sampleRate": 16000, "channels": 2, "channelLayout": "stereo" }
     },
     "huaweiDerivedVideo": {
-      "validatorRecord": ".ai-tmp/workspace/P5-R5/huawei-independent-source-facts.json",
+      "validatorRecord": ".ai-tmp/workspace/P5/R5/huawei-independent-source-facts.json",
       "container": "mov,mp4,m4a,3gp,3g2,mj2",
       "durationSeconds": 2.867433,
       "streamCount": 3,
@@ -270,47 +270,47 @@
   },
   "preflightEvidence": [
     {
-      "path": ".ai-tmp/workspace/P5-R5/iteration-2-governance-preflight.log",
+      "path": ".ai-tmp/workspace/P5/R5/iteration-2-governance-preflight.log",
       "sha256": "455CE0C3062472D1C280AB9BC39B24CE189B5456D0DD275691E1F76809D055C6"
     },
     {
-      "path": ".ai-tmp/workspace/P5-R5/iteration-2-sample-cache.log",
+      "path": ".ai-tmp/workspace/P5/R5/iteration-2-sample-cache.log",
       "sha256": "8E0383325C3D048A19CA305BEEC5D6CF68F11CB7EB54B212105662CAA448E834"
     },
     {
-      "path": ".ai-tmp/workspace/P5-R5/native-release-build.log",
+      "path": ".ai-tmp/workspace/P5/R5/native-release-build.log",
       "sha256": "4DDE2F4708774C8F6596B00C7DF1B43AE1F0287944821C02985E062CCFC307BE"
     },
     {
-      "path": ".ai-tmp/workspace/P5-R5/source-probes.json",
+      "path": ".ai-tmp/workspace/P5/R5/source-probes.json",
       "sha256": "F19DCA4821F6FF39500AF9153B7D79A932674C2CCA8856992D23FDC89E3DF997"
     },
     {
-      "path": ".ai-tmp/workspace/P5-R5/huawei-independent-source-facts.json",
+      "path": ".ai-tmp/workspace/P5/R5/huawei-independent-source-facts.json",
       "sha256": "464BB00C317A5A199F01A742AEA2B4741420B09084D1E76B19CC59DAF622D0ED"
     },
     {
-      "path": ".ai-tmp/workspace/P5-R5/huawei-independent-range-identity.json",
+      "path": ".ai-tmp/workspace/P5/R5/huawei-independent-range-identity.json",
       "sha256": "8235A8D96AA62C811F2B97805EF654C37332731438236BD0A20C46D4B95C3BB2"
     },
     {
-      "path": ".ai-tmp/workspace/P5-R5/huawei-independent-decode-pass-b.log",
+      "path": ".ai-tmp/workspace/P5/R5/huawei-independent-decode-pass-b.log",
       "sha256": "A0DB20EEE073CB1DA1013527C67020473847A611CF948E2A9FDBADC3A34D4487"
     },
     {
-      "path": ".ai-tmp/workspace/P5-R5/huawei-independent-decode-pass-c.log",
+      "path": ".ai-tmp/workspace/P5/R5/huawei-independent-decode-pass-c.log",
       "sha256": "E99778DD24CA6B34541F1011141273AA0ECBAEC87441E68D64874B8A610178CC"
     },
     {
-      "path": ".ai-tmp/workspace/P5-R5/huawei-extraction-pass-b.log",
+      "path": ".ai-tmp/workspace/P5/R5/huawei-extraction-pass-b.log",
       "sha256": "78BE4F79D6C6330311C77DD3B4FD0FFEB3C4E7D99550862401062474A65EE6F3"
     },
     {
-      "path": ".ai-tmp/workspace/P5-R5/huawei-extraction-pass-c.log",
+      "path": ".ai-tmp/workspace/P5/R5/huawei-extraction-pass-c.log",
       "sha256": "732F8029475DBF57E1924F9A28CC3544EFEC30BEB6AA5E410DE3E890060D3953"
     },
     {
-      "path": ".ai-tmp/workspace/P5-R5/huawei-extraction-pass-a.log",
+      "path": ".ai-tmp/workspace/P5/R5/huawei-extraction-pass-a.log",
       "sha256": "14262DCF8D3A6F949833B988899A796BC37EB33CF24941EE2C8535246F947ECA"
     },
     {

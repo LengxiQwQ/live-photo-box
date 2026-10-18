@@ -6,7 +6,7 @@
     <LangVersion>13.0</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
-    <OutputPath>$(MSBuildThisFileDirectory)..\..\..\.ai-tmp\workspace\P5-R5\preflight-build\</OutputPath>
+    <OutputPath>$(MSBuildThisFileDirectory)..\..\..\.ai-tmp\workspace\P5\R5\preflight-build\</OutputPath>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
   </PropertyGroup>
   <ItemGroup>

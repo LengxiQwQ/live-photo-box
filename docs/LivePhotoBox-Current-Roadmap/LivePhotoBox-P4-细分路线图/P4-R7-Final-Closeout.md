@@ -127,7 +127,7 @@ no unobserved codec/plugin binary was introduced by R7.
 
 The 285-test scoped result includes the existing `RealSamples` tests for JPEG,
 HEIC/HDR/GainMap and video. The original sample corpus was not written; test
-workspace and TRX evidence are under `.ai-tmp/workspace/P4-R7/`.
+workspace and TRX evidence are under `.ai-tmp/workspace/P4/R7/`.
 
 ## P4 exit-gate matrix
 

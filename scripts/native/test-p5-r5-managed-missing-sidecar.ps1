@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$workspace = Join-Path $projectRoot '.ai-tmp\workspace\P5-R5'
+$workspace = Join-Path $projectRoot '.ai-tmp\workspace\P5\R5'
 $buildDirectory = Join-Path $workspace 'managed-smoke-build'
 $packageDirectory = Join-Path $workspace "$RecordId-missing-sidecar-package"
 $outputDirectory = Join-Path $workspace "$RecordId-missing-sidecar-output"

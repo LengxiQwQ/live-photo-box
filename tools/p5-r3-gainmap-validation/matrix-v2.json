@@ -6,8 +6,8 @@
   "structuralPolicy": "source-structure-policy-v2.json",
   "validator": "validate_p5_r3_v2.py",
   "sampleCache": ".ai-tmp/cache/samples/P5-R3-v1",
-  "workingArtifacts": ".ai-tmp/workspace/P5-R3/iteration-5-preflight-v2",
-  "evidenceRoot": ".ai-tmp/evidence/P5-R3",
+  "workingArtifacts": ".ai-tmp/workspace/P5/R3/iteration-5-preflight-v2",
+  "evidenceRoot": ".ai-tmp/evidence/P5/R3",
   "preserveP4V1ManifestIdentity": true,
   "supportingInputs": [
     {

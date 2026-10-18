@@ -21,7 +21,7 @@ internal sealed class W2EvidenceWorkspace : IMediaWorkspace
     internal W2EvidenceWorkspace(string caseName)
     {
         string safeCase = Sanitize(caseName);
-        RootDirectory = Path.Combine(W2EvidencePaths.RepositoryRoot, ".ai-tmp", "workspace", "p2-w2", safeCase);
+        RootDirectory = Path.Combine(W2EvidencePaths.RepositoryRoot, ".ai-tmp", "workspace", "P2", "W2", safeCase);
         if (Directory.Exists(RootDirectory))
         {
             Directory.Delete(RootDirectory, recursive: true);

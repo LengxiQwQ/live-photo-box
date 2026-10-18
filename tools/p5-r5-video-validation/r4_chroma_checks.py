@@ -21,7 +21,7 @@ def run(tag, phase='fixed'):
     # Stream-copying the original Apple's preroll through the external BSF
     # changes packet timing, so that unsuitable first fixture is preserved as
     # a failed tool qualification and is not used for this regression.
-    originals = list((ROOT / '.ai-tmp/workspace/P5-R5/p7-r4-hevc-v2-matrix-v59/routes/apple-hevc-to-hevc-sdr-mp4').glob('*.mp4'))
+    originals = list((ROOT / '.ai-tmp/workspace/P5/R5/p7-r4-hevc-v2-matrix-v59/routes/apple-hevc-to-hevc-sdr-mp4').glob('*.mp4'))
     assert len(originals) == 1
     original = originals[0]
     before = v.identity(original)

@@ -65,7 +65,7 @@ The same production-like Native decode helper now covers Apple, Huawei, and Sams
 | Release `ImageConverterTests|NativeRuntimeTests|NeutralMediaServiceTests` | 56/56 passed, 0 skipped; includes Apple/Samsung fail-closed, Huawei ordinary codec success, real decode, and neutral manifest protection. |
 | Release CLI conversion tests | 6/6 passed, 0 skipped; includes actual Apple GainMap HEIC→JPEG CLI rejection. |
 | Release P1–P4 regression filter (Inspector, Extractor, Cleaner, PlatformFilesystem, converters, GainMap, Native runtime, Neutral pipeline) | 489/489 passed, 0 skipped |
-| Visual Studio bundled `ctest --test-dir .ai-tmp/workspace/P4-R3/cmake-build -C Release --output-on-failure` | `portable_io_smoke` 1/1 passed |
+| Visual Studio bundled `ctest --test-dir .ai-tmp/workspace/P4/R3/cmake-build -C Release --output-on-failure` | `portable_io_smoke` 1/1 passed |
 | `scripts/native/sync-native-project.ps1 -Check` | passed after regenerating the compatibility source ordering |
 | `.ai/verify.ps1` | passed |
 

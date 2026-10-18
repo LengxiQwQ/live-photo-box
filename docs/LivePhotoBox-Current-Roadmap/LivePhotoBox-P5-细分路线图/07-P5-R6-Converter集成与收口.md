@@ -142,7 +142,7 @@ P1–P4 回归按实际 diff 选择以下既有 test type；未触及的类别�
 
 ## 7. Evidence 与停止条件
 
-- 日常多轮证据放在确定性路径 .ai-tmp/workspace/P5-R6/；仅正式 R6 gate 归档到 .ai-tmp/evidence/P5-R6/。
+- 日常多轮证据放在确定性路径 .ai-tmp/workspace/P5/R6/；仅正式 R6 gate 归档到 .ai-tmp/evidence/P5/R6/。
 - 每次 evidence 绑定 exact HEAD、roadmap revision、active TASK、命令/退出码/可读输出、实际测试 filter 与零 skip 声明、sample SHA-256、profile/validator 版本、输入输出 artifact hash、manifest truth 和 failure cleanup 结果。
 - 缺样本、独立 validator、受影响回归证据或任何 required route 时 R6 = 未完成；不得以旧报告、mock、synthetic-only、skip、产品 self-read 或文字声明补足。
 - 任何必需实现会改变公开 MediaFormatRequirement、Converter result/enum、Native ABI、P4 backend owner、ProtocolFormatMatrix availability、P1–P5 semantics、Target Writer scope 或 R6 acceptance 时，停止并报告具体边界，不自行扩展。

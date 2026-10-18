@@ -111,7 +111,9 @@ def seal(tag):
         copy(v.ROOT/cache['path'],pathlib.Path('configuration')/('native-'+tag+'-CMakeCache.txt'))
     context=v.ROOT/'docs/LivePhotoBox-Current-Roadmap/LivePhotoBox-P7-细分路线图'
     for name in ('03-P7-剩余执行路线图与执行规则-v2.md','P7-R4-Local-Execution-Plan.md','P7-R4-coverage-matrix.md'):
-        copy(context/name,pathlib.Path('context')/name)
+        directory = (v.ROOT/'.ai-tmp/evidence/P7/P7-R4-large-batch-soak/documentation'
+                     if name.startswith('P7-R4-') else context)
+        copy(directory/name,pathlib.Path('context')/name)
     for relative in ['LivePhotoBox.Core/Services/LivePhotoMergeRunnerService.cs','LivePhotoBox.Native/src/media/media_inspector.cpp','LivePhotoBox.Native/src/media/video_converter.cpp']:
         source=v.ROOT/'.ai-tmp/evidence/P7/P7-R3-backend-truth/run-1/source'/relative
         copy(source,pathlib.Path('source-before-R4')/relative)

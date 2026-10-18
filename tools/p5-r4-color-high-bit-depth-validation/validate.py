@@ -1525,11 +1525,11 @@ def formal_validate(args: argparse.Namespace) -> dict[str, Any]:
     global _LAST_REPORT
     root = Path.cwd().resolve()
     workspace_path = _safe_child(root, args.workspace, "R4 formal workspace")
-    expected_workspace = (root / ".ai-tmp/workspace/P5-R4").resolve()
+    expected_workspace = (root / ".ai-tmp/workspace/P5/R4").resolve()
     if workspace_path != expected_workspace:
         raise ValidationError(f"Formal R4 validation requires the deterministic workspace {expected_workspace}.")
     evidence_path = _safe_child(root, args.evidence, "R4 formal evidence directory", must_exist=False)
-    expected_evidence = (root / ".ai-tmp/evidence/P5-R4").resolve()
+    expected_evidence = (root / ".ai-tmp/evidence/P5/R4").resolve()
     if evidence_path != expected_evidence:
         raise ValidationError(f"Formal R4 evidence must be written only to {expected_evidence}.")
 

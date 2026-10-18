@@ -98,7 +98,7 @@ function Ensure-ExactVcpkgDownload {
 }
 
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$workspaceRoot = Join-Path $projectRoot '.ai-tmp\workspace\P5-R5'
+$workspaceRoot = Join-Path $projectRoot '.ai-tmp\workspace\P5\R5'
 if ($WorkspaceRootOverride) { $workspaceRoot = [System.IO.Path]::GetFullPath($WorkspaceRootOverride) }
 $buildInfoPath = Join-Path $projectRoot 'tools\p5-r5-video-validation\profiles\P5-R5-v1\backend-build.json'
 $dependencyManifest = Join-Path $projectRoot 'tools\p5-r5-video-validation\sidecar-dependencies\vcpkg.json'

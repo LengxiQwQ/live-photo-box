@@ -18,7 +18,7 @@ def run(label, tag):
     destination = v.WORK / 'hevc-migration' / ('output-checks-' + label)
     destination.mkdir(parents=True, exist_ok=False)
     (destination / 'raw').mkdir()
-    matrix = v.read(ROOT / ('.ai-tmp/workspace/P5-R5/p7-r4-hevc-v2-matrix-' + tag) / 'report.json')
+    matrix = v.read(ROOT / ('.ai-tmp/workspace/P5/R5/p7-r4-hevc-v2-matrix-' + tag) / 'report.json')
     assert matrix['state'] == 'matrix-pass'
     tools = matrix['tools']
     for tool in tools.values():
@@ -28,7 +28,7 @@ def run(label, tag):
         pathlib.Path(tools['ffprobe']['path']), v.helper.DOTNET, pathlib.Path(), [], {}, {}, tools)
     source_files = {
         'sdr': ROOT / '.ai-tmp/cache/samples/苹果双文件.MOV',
-        'hdr': ROOT / '.ai-tmp/workspace/P5-R5/huawei-extraction-pass-c/motion.mp4',
+        'hdr': ROOT / '.ai-tmp/workspace/P5/R5/huawei-extraction-pass-c/motion.mp4',
         'hevc8': ROOT / '.ai-tmp/cache/samples/苹果双文件.MOV',
         'mf': ROOT / '.ai-tmp/cache/samples/vivo双文件.mp4'
     }

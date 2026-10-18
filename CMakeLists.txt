@@ -230,7 +230,7 @@ if(BUILD_TESTING)
   add_test(NAME P5R5_VideoProfileRealSamples COMMAND lpb_video_profile_smoke
     "${CMAKE_SOURCE_DIR}/.ai-tmp/cache/samples/P5-R5-v1/苹果双文件.MOV"
     "${CMAKE_SOURCE_DIR}/.ai-tmp/cache/samples/P5-R5-v1/vivo双文件.mp4"
-    "${CMAKE_SOURCE_DIR}/.ai-tmp/workspace/P5-R5/huawei-extraction-pass-b/motion.mp4")
+    "${CMAKE_SOURCE_DIR}/.ai-tmp/workspace/P5/R5/huawei-extraction-pass-b/motion.mp4")
   add_executable(lpb_mf_vfr_encoder_smoke tests/native/mf_vfr_encoder_smoke.cpp)
   target_include_directories(lpb_mf_vfr_encoder_smoke PRIVATE LivePhotoBox.Native/src)
   target_compile_options(lpb_mf_vfr_encoder_smoke PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)

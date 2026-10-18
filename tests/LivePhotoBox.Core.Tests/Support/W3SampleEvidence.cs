@@ -113,5 +113,5 @@ internal static class W3EvidencePaths
 {
     internal static string RepositoryRoot => W2EvidencePaths.RepositoryRoot;
     internal static string CacheRoot => Path.Combine(RepositoryRoot, ".ai-tmp", "cache", "samples");
-    internal static string WorkspaceRoot => Path.Combine(RepositoryRoot, ".ai-tmp", "workspace", "p2-w3");
+    internal static string WorkspaceRoot => Path.Combine(RepositoryRoot, ".ai-tmp", "workspace", "P2", "W3");
 }

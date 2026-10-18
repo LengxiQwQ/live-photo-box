@@ -9,7 +9,7 @@
     Release adds the real-sample CLI integration workflow after the Full gate.
 
     This script never calls build-release.ps1 and never deletes publish/. The CLI
-    integration test owns and cleans only its ignored cli-integration-test/ workspace.
+    integration test owns and cleans only its ignored .ai-tmp/workspace/CLI/integration/ workspace.
 #>
 [CmdletBinding()]
 param(
@@ -192,7 +192,7 @@ try {
     }
 
     if ($Scope -eq 'Release') {
-        Write-Host 'The CLI integration test uses only the ignored cli-integration-test/ workspace.' -ForegroundColor DarkGray
+        Write-Host 'The CLI integration test uses only the ignored .ai-tmp/workspace/CLI/integration/ workspace.' -ForegroundColor DarkGray
         $pythonCmd = if (Get-Command python -ErrorAction SilentlyContinue) {
             'python'
         }

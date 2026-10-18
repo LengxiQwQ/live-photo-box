@@ -39,7 +39,7 @@ def run():
         copy(b.SOURCES[name],pathlib.Path('inputs')/b.SOURCES[name].name)
     for source in sorted((v.WORK/'sdk-repro/backend-comparison-h264').rglob('*')):
         if source.is_file():copy(source,pathlib.Path('sdk-h264-control')/source.relative_to(v.WORK/'sdk-repro/backend-comparison-h264'))
-    report=v.ROOT/'docs/LivePhotoBox-Current-Roadmap/LivePhotoBox-P7-细分路线图/P7-R4-MF-libav-backend-comparison.md'
+    report=v.ROOT/'.ai-tmp/evidence/P7/P7-R4-large-batch-soak/documentation/P7-R4-MF-libav-backend-comparison.md'
     copy(report,pathlib.Path('context')/report.name)
     index=dict(phase='P7',task='P7-R4-large-batch-soak',run=3,
         status='BACKEND_COMPARISON_COMPLETE_CORRECTNESS_AND_RESOURCE_BLOCKERS_R4_OPEN',

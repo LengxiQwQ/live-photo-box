@@ -51,7 +51,7 @@ EXPECTED_HUAWEI_RANGE_OFFSET = 2_797_019
 EXPECTED_HUAWEI_RANGE_BYTES = 6_519_404
 EXPECTED_HUAWEI_VIDEO_SHA256 = "664EF6DBA25D7B04228C79B874A0EDA742B1211E17EE770D0E82E765BD454CE6"
 ORPHAN_RELATIVE = Path(
-    ".ai-tmp/workspace/P5-R5/iteration-5-bridge-1/"
+    ".ai-tmp/workspace/P5/R5/iteration-5-bridge-1/"
     "lpb-video-sidecar-44492-72569734-3941563989-322549303.tmp"
 )
 EXPECTED_ROUTES = {
@@ -1361,7 +1361,7 @@ def run_identity_preflight(args: argparse.Namespace) -> int:
     manifest, profile_path, erratum, erratum_path, erratum_sha256 = verify_active_manifest(root, args.profile)
     record_id = args.record_id
     validate_record_id(record_id)
-    run_root = root / ".ai-tmp/workspace/P5-R5" / record_id
+    run_root = root / ".ai-tmp/workspace/P5/R5" / record_id
     require(not run_root.exists(), f"Refusing to reuse preflight workspace {run_root}.")
     run_root.mkdir(parents=True, exist_ok=False)
     (run_root / "raw").mkdir()
@@ -1485,7 +1485,7 @@ def run_matrix(args: argparse.Namespace) -> int:
     manifest, profile_path, erratum, erratum_path, erratum_sha256 = verify_active_manifest(root, args.profile)
     record_id = args.record_id
     validate_record_id(record_id)
-    run_root = root / ".ai-tmp/workspace/P5-R5" / record_id
+    run_root = root / ".ai-tmp/workspace/P5/R5" / record_id
     require(not run_root.exists(), f"Refusing to reuse matrix workspace {run_root}.")
     run_root.mkdir(parents=True, exist_ok=False)
     (run_root / "raw").mkdir()

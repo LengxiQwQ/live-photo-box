@@ -53,7 +53,7 @@ def archive():
             assert v.hashfile(source) == item['sha256']
             copy(source, pathlib.Path('runtime') / category / source.relative_to(v.WORK))
     for name in ('P7-R4-resource-blocker.md', 'P7-R4-MF-isolation-proposal.md'):
-        copy(v.ROOT / 'docs/LivePhotoBox-Current-Roadmap/LivePhotoBox-P7-细分路线图' / name, pathlib.Path('context') / name)
+        copy(v.ROOT / '.ai-tmp/evidence/P7/P7-R4-large-batch-soak/documentation' / name, pathlib.Path('context') / name)
     index = dict(schema=1, phase='P7', task='P7-R4-large-batch-soak', run=number,
                  status='SDK_DIAGNOSTIC_CONFIRMED_RESOURCE_BLOCKER_R4_OPEN', r4Accepted=False,
                  createdUtc=datetime.datetime.now(datetime.timezone.utc).isoformat(),

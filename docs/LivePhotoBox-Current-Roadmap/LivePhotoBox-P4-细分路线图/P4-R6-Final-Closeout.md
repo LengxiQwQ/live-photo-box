@@ -1,5 +1,7 @@
 # P4-R6 Evidence Remediation — Video Backend Differential / Windows Backend Freeze
 
+Historical decision/closeout record. The current user-approved HEVC owner is documented in [HEVC backend decision](../LivePhotoBox-P7-细分路线图/P7-R4-HEVC-backend-decision.md); historical local-readiness wording below is not the current phase state.
+
 ## Status
 
 **Evidence remediation complete locally; external Chief Gate re-review is required.** This document does not mark P4 complete, does not start R7, and does not change the already implemented Media Foundation production path.
@@ -29,7 +31,7 @@ Release candidate probes passed directly, without ASCII staging, for:
 |---|---|
 | `dual/苹果-双文件_jpg/苹果-双文件_video.mov` | PASS |
 | `single/华为-Mate80_jpg/华为-Mate80_video.mp4` | PASS |
-| `.ai-tmp/workspace/P4-R6/unicode-inputs/📷-补充平面-苹果.mov` | PASS |
+| `.ai-tmp/workspace/P4/R6/unicode-inputs/📷-补充平面-苹果.mov` | PASS |
 
 The emoji input is a temporary copy of an already project-extracted video; the immutable samples in `designs/各个机型测试/` were not modified. The prior claim that the candidate could not open Chinese paths is withdrawn.
 
@@ -37,7 +39,7 @@ The emoji input is a temporary copy of an already project-extracted video; the i
 
 `tools/r6-video-differential/matrix.json` fixes four real, project-extracted inputs. `Invoke-R6Differential.ps1` refuses to overwrite evidence, then for each row invokes the production CLI conversion and candidate conversion on the same input and target codec/container. It saves both conversion logs, elapsed time, output byte count, independent `ffprobe` JSON, and decoded PSNR/SSIM logs. A conversion, probe, or metric failure terminates the run.
 
-The final minimal-build run is `.ai-tmp/workspace/P4-R6/differential-evidence-v4-minimal/r6-differential-summary.json`. `ffmpeg`/`ffprobe` are offline validators only; production never launches either executable.
+The final minimal-build run is `.ai-tmp/workspace/P4/R6/differential-evidence-v4-minimal/r6-differential-summary.json`. `ffmpeg`/`ffprobe` are offline validators only; production never launches either executable.
 
 | Fixed real case | Target | MF ms / bytes | libav* ms / bytes | MF PSNR / SSIM | libav* PSNR / SSIM |
 |---|---|---:|---:|---:|---:|

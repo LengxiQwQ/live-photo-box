@@ -8,7 +8,7 @@
     项目内 AI 配置（.ai/.agents/.claude/.codex、提示词、skills、agents）以及 tests/fixtures/realsamples 原始样本媒体。
 
     明确排除：.git、.ai-tmp、designs、bin/obj/.vs/AppPackages、构建缓存、测试结果、
-    cli-integration-test/output、artifacts 等生成物。designs 只在没有任何项目外样本时作为最后回退；
+    .ai-tmp/workspace/CLI/integration/output、artifacts 等生成物。designs 只在没有任何项目外样本时作为最后回退；
     当前项目已有项目外样本，因此默认不会读取或打包 designs。
 
 .PARAMETER OutputPath

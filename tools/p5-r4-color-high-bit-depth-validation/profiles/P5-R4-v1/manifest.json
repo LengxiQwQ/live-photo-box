@@ -198,8 +198,8 @@
     "coverageBlockers": [],
     "workingPaths": {
       "sampleCache": ".ai-tmp/cache/samples/P5-R4-v1/",
-      "workspace": ".ai-tmp/workspace/P5-R4/",
-      "formalEvidence": ".ai-tmp/evidence/P5-R4/"
+      "workspace": ".ai-tmp/workspace/P5/R4/",
+      "formalEvidence": ".ai-tmp/evidence/P5/R4/"
     }
   }
 }

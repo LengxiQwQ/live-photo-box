@@ -42,7 +42,7 @@ def run(tag='v63', revision=''):
         assert v.hashfile(target) == item['sha256']
     runtime = [v.identity(p) for p in sorted((h / 'runtime').rglob('*')) if p.is_file()]
     v.save(h / 'runtime.json', runtime)
-    matrix = v.read(v.ROOT / ('.ai-tmp/workspace/P5-R5/p7-r4-hevc-v2-matrix-' + tag + '/report.json'))
+    matrix = v.read(v.ROOT / ('.ai-tmp/workspace/P5/R5/p7-r4-hevc-v2-matrix-' + tag + '/report.json'))
     ffmpeg, ffprobe = (matrix['tools'][name]['path'] for name in ('ffmpeg', 'ffprobe'))
     for name in ('ffmpeg', 'ffprobe'):
         assert v.hashfile(matrix['tools'][name]['path']) == matrix['tools'][name]['sha256']

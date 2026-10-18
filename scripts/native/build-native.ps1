@@ -39,7 +39,7 @@ $vcpkgRoot = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } else { Join-Path $vsPath '
 $toolchain = Join-Path $vcpkgRoot 'scripts\buildsystems\vcpkg.cmake'
 if (-not (Test-Path -LiteralPath $toolchain)) { throw "vcpkg toolchain was not found: $toolchain" }
 
-$workspaceRoot = Join-Path $projectRoot '.ai-tmp\workspace\P5-R5'
+$workspaceRoot = Join-Path $projectRoot '.ai-tmp\workspace\P5\R5'
 $buildDir = Join-Path $workspaceRoot 'cmake-build'
 $artifactRoot = Join-Path $projectRoot 'artifacts\native'
 $defaultExecutionRecordLog = Join-Path $workspaceRoot "$ExecutionRecordId-native-$Configuration-build.log"

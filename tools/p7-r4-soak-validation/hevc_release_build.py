@@ -15,7 +15,7 @@ def run(tag):
         '-ExecutionRecordId','r4-hevc-'+tag],work/('release-'+tag),timeout=3600)
     assert result['directChildExitCode']==0
     cmake=pathlib.Path('C:/Program Files/Microsoft Visual Studio/18/Community/Common7/IDE/CommonExtensions/Microsoft/CMake/CMake/bin/cmake.exe')
-    v.checked([cmake,'--build',v.ROOT/'.ai-tmp/workspace/P5-R5/cmake-build','--config','Release',
+    v.checked([cmake,'--build',v.ROOT/'.ai-tmp/workspace/P5/R5/cmake-build','--config','Release',
         '--target','LivePhotoBoxNativeTestHarness','--','/m:1','/p:CL_MPCount=1','/p:UseMultiToolTask=false','/v:minimal'],work/('release-harness-'+tag))
     assert before==v.sources()
     for item in extra:assert item==v.identity(v.ROOT/item['path'])

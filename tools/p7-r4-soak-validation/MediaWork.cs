@@ -273,7 +273,7 @@ internal static partial class Program
             sdr.ExecutionRecord.Truth.ActualCapability == ConversionCapability.VideoTranscodeSdr &&
             sdr.ExecutionRecord.HardwareMode == VideoHardwareMode.SoftwareForced && !sdr.ExecutionRecord.Truth.FallbackOccurred,
             "Wrong SDR backend truth.");
-        string hdrSource = Path.Combine(FindRoot(), ".ai-tmp/workspace/P5-R5/huawei-extraction-pass-c/motion.mp4");
+        string hdrSource = Path.Combine(FindRoot(), ".ai-tmp/workspace/P5/R5/huawei-extraction-pass-c/motion.mp4");
         Require(Hash(hdrSource) == "664EF6DBA25D7B04228C79B874A0EDA742B1211E17EE770D0E82E765BD454CE6", "HDR derived input identity.");
         var hdr = await new VideoConverter().ConvertAsync(new VideoConversionRequest
         {

@@ -112,9 +112,9 @@ Neutral Media Contract V4.0 适用于 P1–P10。Auditor 应逐条判断 P5 conv
 
 R2–R6 RealSample/independent validation 要求以对应细分 Roadmap、TASK、profile 为准。真实样本缺失、filter 排除、skip、sample identity 不符、validator 假设/阈值事后变宽、source hash 改变或 evidence 无法绑定到最终 HEAD，都是未满足的 coverage/evidence blocker；不得用 synthetic、mock、产品 self-read 或旧总结替代。已有 ACCEPT 证据只表示该轮被接受，不自动证明后续 R6 修改未影响其适用性；必须做实际文件与调用链/commit 影响分析。
 
-`designs/各个机型测试/` 永远只读；任何所需复核只操作 `.ai-tmp/cache/samples/` 中的副本，工作/派生产物留在确定性的 `.ai-tmp/workspace/P5-Audit/` 路径。除项目规则允许的正式 Gate 归档或用户明确要求外，不创建、覆盖或清理 `.ai-tmp/evidence/` 快照；不得将关键长期结论只放在易失 `.ai-tmp/`。
+`designs/各个机型测试/` 永远只读；任何所需复核只操作 `.ai-tmp/cache/samples/` 中的副本，工作/派生产物留在确定性的 `.ai-tmp/workspace/P5/Audit/` 路径。除项目规则允许的正式 Gate 归档或用户明确要求外，不创建、覆盖或清理 `.ai-tmp/evidence/` 快照；不得将关键长期结论只放在易失 `.ai-tmp/`。
 
-R6 正式快照存在于 `.ai-tmp/evidence/P5-R6/`。应阅读它的 manifest/checksum 和可读 CI/审查输出，并核实最终提交、推送、Build & Release 与两项 CodeQL 的 identity。R6 的历史 ACCEPT、工作树/归档换行差异或 CI 通过本身不能替代本 Audit 对 P5 全部标准的判断。
+R6 正式快照存在于 `.ai-tmp/evidence/P5/R6/`。应阅读它的 manifest/checksum 和可读 CI/审查输出，并核实最终提交、推送、Build & Release 与两项 CodeQL 的 identity。R6 的历史 ACCEPT、工作树/归档换行差异或 CI 通过本身不能替代本 Audit 对 P5 全部标准的判断。
 
 ## 8. 执行步骤与有限验证
 
@@ -122,7 +122,7 @@ R6 正式快照存在于 `.ai-tmp/evidence/P5-R6/`。应阅读它的 manifest/ch
 2. 阅读 `06-P5-转换器可靠性.md`、Neutral Contract、P5 总览、INDEX、R0–R6 detail/TASK；协议/媒体审计还须读取 `docs/实况照片协议分析文档/` 的所有文档。
 3. 对 P5 八项 Exit Criteria、R0–R6 细分验收和 N1–N14 建立逐项矩阵；从真实公开入口沿调用链追踪到 backend、post-validation、manifest/result 与 artifact。
 4. 反查对应测试源码和真实 execution output，确认 scope/filter 真正覆盖宣称类别；从 R2–R6 versioned evidence 验证样本/profile/independent-validator 对当前 HEAD 的适用性。
-5. 仅当静态与既有证据不能判定一个高风险语义时，选择有限 targeted replay，写明问题、精确命令、scope、输出、exit code、样本 hash 和结果；复核产物写入固定 `.ai-tmp/workspace/P5-Audit/`。Replay 不能替代完整 Verifier campaign，也不允许修改代码来获得通过。
+5. 仅当静态与既有证据不能判定一个高风险语义时，选择有限 targeted replay，写明问题、精确命令、scope、输出、exit code、样本 hash 和结果；复核产物写入固定 `.ai-tmp/workspace/P5/Audit/`。Replay 不能替代完整 Verifier campaign，也不允许修改代码来获得通过。
 6. 形成只读审计报告及 blocker/返回 owner 计划。将实际读取的文件、调用点、证据位置和 HEAD 绑定到逐项结果；保留失败/矛盾证据，不删除或重分类。
 
 不要求 Audit 执行 clean/full build、所有 R0–R6 tests、全部 RealSample conversion matrix 或 P5 Verify package campaign。若 Audit 为判断具体缺陷执行了 targeted build/test/replay，必须记录真实命令、退出码、scope 和可读输出；其 PASS 仍不替代 Verify。

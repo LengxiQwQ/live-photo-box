@@ -24,7 +24,8 @@ internal sealed class W4EvidenceWorkspace : IMediaWorkspace
             W4EvidencePaths.RepositoryRoot,
             ".ai-tmp",
             "workspace",
-            "p2-w1-w4-final-audit",
+            "P2",
+            "W1-w4-final-audit",
             safeCase);
         string? isolatedRoot = Environment.GetEnvironmentVariable("LPB_R2_LEGACY_WORKSPACE");
         if (!string.IsNullOrWhiteSpace(isolatedRoot))

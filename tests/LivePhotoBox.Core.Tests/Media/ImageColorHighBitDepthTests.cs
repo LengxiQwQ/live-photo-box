@@ -23,7 +23,7 @@ public sealed class ImageColorHighBitDepthTests
 {
     private const string ManifestRelativePath = "tools/p5-r4-color-high-bit-depth-validation/profiles/P5-R4-v1/manifest.json";
     private static readonly string s_repoRoot = FindRepositoryRoot();
-    private static readonly string s_testWorkspaceRoot = Path.Combine(s_repoRoot, ".ai-tmp", "workspace", "P5-R4", "tests");
+    private static readonly string s_testWorkspaceRoot = Path.Combine(s_repoRoot, ".ai-tmp", "workspace", "P5", "R4", "tests");
 
     [Fact]
     [Trait("Category", "RealSamples")]

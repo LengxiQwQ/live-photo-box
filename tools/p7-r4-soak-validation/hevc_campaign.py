@@ -54,7 +54,7 @@ def run(tag, native_record='release-candidate-chroma-v16.json'):
         v.checked([sys.executable, '-X', 'utf8', v.ROOT / 'tools/p5-r5-video-validation/validate.py',
             '--record-id', 'p7-r4-hevc-v2-matrix-' + tag, '--profile', 'P7-R4-HEVC-v2',
             '--driver-dll', route / 'P5R5.RouteDriver.dll'], work / ('matrix-' + tag + '-process'))
-        report = v.read(v.ROOT / ('.ai-tmp/workspace/P5-R5/p7-r4-hevc-v2-matrix-' + tag) / 'report.json')
+        report = v.read(v.ROOT / ('.ai-tmp/workspace/P5/R5/p7-r4-hevc-v2-matrix-' + tag) / 'report.json')
         assert report['state'] == 'matrix-pass' and report['passedRouteCount'] == 11
         assert report['passedFailureCount'] == 5 and report['skipCount'] == 0
     stage('matrix', matrix)

@@ -65,7 +65,7 @@ $verifyHead = (git rev-parse HEAD).Trim()
 $shortSha = $verifyHead.Substring(0, 7)
 $nativeAttempt = 1
 $nativeRecordId = "p5-verify-$shortSha"
-while (Test-Path ".ai-tmp/workspace/P5-R5/$nativeRecordId-native-Release-build.log") {
+while (Test-Path ".ai-tmp/workspace/P5/R5/$nativeRecordId-native-Release-build.log") {
     $nativeAttempt++
     $nativeRecordId = "p5-verify-$shortSha-attempt$nativeAttempt"
 }
@@ -95,7 +95,7 @@ dotnet build LivePhotoBox.CLI/LivePhotoBox.CLI.csproj `
   --no-restore --nologo
 ```
 
-`build-native.ps1 -RunTests` builds the registered Native CTest tests, runs CTest, builds and runs the managed `NativeRuntimeTests` harness, and emits Native ABI/runtime evidence. The following commands build GUI/Core and CLI without rebuilding Native. This is the bounded Release/x64 Build gate; it does not invoke the full Core/CLI test suites. Record every command's real exit code/output, Native/Core/CLI artifact hashes, configuration/platform, Native ABI/version/capability identity, and the actual Native DLL/runtime paths loaded by tests. A stale DLL or a file merely present in an old output directory is not evidence of the current build. The Native script's create-only log is the file `.ai-tmp/workspace/P5-R5/<ExecutionRecordId>-native-Release-build.log`; the unused-ID selection above prevents overwriting prior records.
+`build-native.ps1 -RunTests` builds the registered Native CTest tests, runs CTest, builds and runs the managed `NativeRuntimeTests` harness, and emits Native ABI/runtime evidence. The following commands build GUI/Core and CLI without rebuilding Native. This is the bounded Release/x64 Build gate; it does not invoke the full Core/CLI test suites. Record every command's real exit code/output, Native/Core/CLI artifact hashes, configuration/platform, Native ABI/version/capability identity, and the actual Native DLL/runtime paths loaded by tests. A stale DLL or a file merely present in an old output directory is not evidence of the current build. The Native script's create-only log is the file `.ai-tmp/workspace/P5/R5/<ExecutionRecordId>-native-Release-build.log`; the unused-ID selection above prevents overwriting prior records.
 
 Run the fresh Core filters below with `-p:SkipNativeBuild=true` only after the canonical Native build, so test runs use the bound Release artifacts, except for the R5 Core filter: that command must build/copy the frozen minimal-libav sibling using the same `VideoSidecarBuildId=r5-main10-ci`. The R5 step may rebuild Native, but it uses the same frozen prerequisite identity as the initial canonical build. Its Native/sidecar outputs are the final artifacts that runtime/package identity checks must attest, so perform those checks after R5. Save TRX where a validator consumes it.
 
@@ -148,9 +148,9 @@ dotnet test tests/LivePhotoBox.Core.Tests/LivePhotoBox.Core.Tests.csproj `
   --nologo --verbosity minimal
 python tools/p5-r3-gainmap-validation/validate_p5_r3_v2.py `
   --sample-dir .ai-tmp/cache/samples/P5-R3-v1 `
-  --artifact-dir .ai-tmp/workspace/P5-Verify/R3/attempt-01/artifacts `
-  --work-dir .ai-tmp/workspace/P5-Verify/R3/attempt-01/validator-work `
-  --evidence-dir .ai-tmp/workspace/P5-Verify/R3/attempt-01/validator-evidence
+  --artifact-dir .ai-tmp/workspace/P5/Verify/R3/attempt-01/artifacts `
+  --work-dir .ai-tmp/workspace/P5/Verify/R3/attempt-01/validator-work `
+  --evidence-dir .ai-tmp/workspace/P5/Verify/R3/attempt-01/validator-evidence
 ```
 
 The validator must remain byte-identical to the frozen v2 validator and use the checked-in matrix, reference policy and source-structure policy. The paths above are create-only; if an attempt path already exists, preserve it and use the next fixed sequential attempt directory. Require the independent JPEG XMP/MPF/GainMap and HEIF graph/metadata/decode/render/reference results in the R3 profile; do not tune assumptions or thresholds.
@@ -162,7 +162,7 @@ Fresh-run all seven `P5R4_` tests. The five RealSample rows must all be present 
 ```powershell
 dotnet test tests/LivePhotoBox.Core.Tests/LivePhotoBox.Core.Tests.csproj `
   -c Release -p:Platform=x64 -p:SkipNativeBuild=true --no-restore `
-  --results-directory .ai-tmp/workspace/P5-R4/test-results `
+  --results-directory .ai-tmp/workspace/P5/R4/test-results `
   --logger "trx;LogFileName=P5-R4-Verify.trx" `
   --filter "FullyQualifiedName~ImageColorHighBitDepthTests.P5R4_" `
   --nologo --verbosity minimal
@@ -171,9 +171,9 @@ python tools/p5-r4-color-high-bit-depth-validation/source_lock.py `
 python tools/p5-r4-color-high-bit-depth-validation/validate.py `
   --mode formal `
   --manifest tools/p5-r4-color-high-bit-depth-validation/profiles/P5-R4-v1/manifest.json `
-  --workspace .ai-tmp/workspace/P5-R4 `
-  --evidence .ai-tmp/evidence/P5-R4 `
-  --test-results .ai-tmp/workspace/P5-R4/test-results/P5-R4-Verify.trx
+  --workspace .ai-tmp/workspace/P5/R4 `
+  --evidence .ai-tmp/evidence/P5/R4 `
+  --test-results .ai-tmp/workspace/P5/R4/test-results/P5-R4-Verify.trx
 ```
 
 The source lock is offline. Use P5-R4-v1, existing decoder/tool identities and frozen render thresholds. Do not refresh sources, edit the profile, or reuse an R4 validator report that does not bind the current test outputs.
@@ -197,7 +197,7 @@ dotnet build tools/p5-r5-video-validation/route-driver/P5R5.RouteDriver.csproj `
   --verbosity minimal
 $r5Attempt = 1
 $r5ValidationRecordId = "verify-final-$shortSha"
-while (Test-Path ".ai-tmp/workspace/P5-R5/$r5ValidationRecordId") {
+while (Test-Path ".ai-tmp/workspace/P5/R5/$r5ValidationRecordId") {
     $r5Attempt++
     $r5ValidationRecordId = "verify-final-$shortSha-attempt$r5Attempt"
 }
@@ -206,13 +206,13 @@ powershell -NoProfile -ExecutionPolicy Bypass `
   -RecordId $r5ValidationRecordId
 ```
 
-Resolve `<Release-Native-build-directory>` from the canonical build script's actual output; do not guess a stale build path. The frozen runner requires `tools/p5-r5-video-validation/route-driver/bin/x64/Release/net9.0-windows10.0.19041.0/P5R5.RouteDriver.dll`. Require the fresh Section 4 restore and the Release/x64 route-driver build above to succeed; record that exact DLL path and SHA-256 and verify the runner consumes this just-built artifact, never a prior/stale DLL. This managed driver build uses the already-built `r5-main10-ci` Native/sidecar artifacts and `SkipNativeBuild=true`, so it does not rebuild Native. The frozen R5 validator owns its output at `.ai-tmp/workspace/P5-R5/<RecordId>/` and does not expose an output-root override. Preserve that owner-defined path and prior attempts; do not edit the runner merely to relocate its output. Require independent stream, packet, timing, audio, rotation, color, HDR/bit-depth, backend, no-retry/no-output and package/import checks exactly as the R5 detail/profile requires.
+Resolve `<Release-Native-build-directory>` from the canonical build script's actual output; do not guess a stale build path. The frozen runner requires `tools/p5-r5-video-validation/route-driver/bin/x64/Release/net9.0-windows10.0.19041.0/P5R5.RouteDriver.dll`. Require the fresh Section 4 restore and the Release/x64 route-driver build above to succeed; record that exact DLL path and SHA-256 and verify the runner consumes this just-built artifact, never a prior/stale DLL. This managed driver build uses the already-built `r5-main10-ci` Native/sidecar artifacts and `SkipNativeBuild=true`, so it does not rebuild Native. The frozen R5 validator owns its output at `.ai-tmp/workspace/P5/R5/<RecordId>/` and does not expose an output-root override. Preserve that owner-defined path and prior attempts; do not edit the runner merely to relocate its output. Require independent stream, packet, timing, audio, rotation, color, HDR/bit-depth, backend, no-retry/no-output and package/import checks exactly as the R5 detail/profile requires.
 
 Use the `$shortSha` derived from the Verify entry HEAD in Section 4; do not hard-code a prior HEAD. The loop selects the first unused create-only validator path, preserving every prior attempt; never overwrite it.
 
 ### R6 — Neutral consumption and exact-object publication
 
-Set `LIVEPHOTOBOX_P5R6_PUBLIC_OUTPUT_ROOT` and `LIVEPHOTOBOX_P5R6_NEUTRAL_OUTPUT_ROOT` to fresh deterministic subdirectories of `.ai-tmp/workspace/P5-Verify/R6/`. Fresh-run every test selected by the current `P5R6_` filter with zero skips:
+Set `LIVEPHOTOBOX_P5R6_PUBLIC_OUTPUT_ROOT` and `LIVEPHOTOBOX_P5R6_NEUTRAL_OUTPUT_ROOT` to fresh deterministic subdirectories of `.ai-tmp/workspace/P5/Verify/R6/`. Fresh-run every test selected by the current `P5R6_` filter with zero skips:
 
 ```powershell
 dotnet test tests/LivePhotoBox.Core.Tests/LivePhotoBox.Core.Tests.csproj `
@@ -244,9 +244,9 @@ Any mandatory `FAIL`, `NOT RUN`, `BLOCKED`, missing sample, excluded filter, ski
 
 ## 8. Evidence and immutable samples
 
-Keep daily/fresh outputs under stable, deterministic `.ai-tmp/workspace/P5-Verify/` subdirectories (`build/`, `R1/`…`R6/`, `runtime/`, `closeout/`). Preserve prior attempts; use fixed sequential attempt names only when a create-only tool refuses an existing path. The Native build script's internal create-only file `.ai-tmp/workspace/P5-R5/<ExecutionRecordId>-native-Release-build.log`, R5 validator-owned directory `.ai-tmp/workspace/P5-R5/<RecordId>/`, and frozen R4 paths are documented tool-owned path exceptions. Keep the outer Verify command transcript and summary under `.ai-tmp/workspace/P5-Verify/build/`; do not edit scripts merely to relocate their output.
+Keep daily/fresh outputs under stable, deterministic `.ai-tmp/workspace/P5/Verify/` subdirectories (`build/`, `R1/`…`R6/`, `runtime/`, `closeout/`). Preserve prior attempts; use fixed sequential attempt names only when a create-only tool refuses an existing path. The Native build script's internal create-only file `.ai-tmp/workspace/P5/R5/<ExecutionRecordId>-native-Release-build.log`, R5 validator-owned directory `.ai-tmp/workspace/P5/R5/<RecordId>/`, and frozen R4 paths are documented tool-owned path exceptions. Keep the outer Verify command transcript and summary under `.ai-tmp/workspace/P5/Verify/build/`; do not edit scripts merely to relocate their output.
 
-At successful formal Verify closeout, create a formal snapshot under `.ai-tmp/evidence/P5-Verify/` without replacing existing evidence. Bind at minimum: HEAD/upstream/status and Roadmap revision; command/argv and exit code; exact test filter/scope/counts/skips; source/profile/sample/validator/tool hashes; before/after and output identities; actual build/runtime/package artifacts; CI run/attempt identities; reused-evidence applicability; doctor and diff-check results; final matrix and remaining coverage limits.
+At successful formal Verify closeout, create a formal snapshot under `.ai-tmp/evidence/P5/Verify/` without replacing existing evidence. Bind at minimum: HEAD/upstream/status and Roadmap revision; command/argv and exit code; exact test filter/scope/counts/skips; source/profile/sample/validator/tool hashes; before/after and output identities; actual build/runtime/package artifacts; CI run/attempt identities; reused-evidence applicability; doctor and diff-check results; final matrix and remaining coverage limits.
 
 `designs/各个机型测试/` is permanently read-only. Use only hash-locked copies in the existing deterministic sample cache. Do not create date/time/randomized directories, modify source samples, or force-add ignored `.ai` task files.
 

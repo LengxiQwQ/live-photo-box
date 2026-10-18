@@ -7,7 +7,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $projectRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-$workspace = Join-Path $projectRoot '.ai-tmp\workspace\P5-R5'
+$workspace = Join-Path $projectRoot '.ai-tmp\workspace\P5\R5'
 $buildDir = Join-Path $workspace 'cmake-build'
 $artifactDir = Join-Path $projectRoot "artifacts\native\$Configuration\win-x64"
 $logPath = Join-Path $workspace "$RecordId-smoke.log"

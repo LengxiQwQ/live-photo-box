@@ -4,8 +4,8 @@
   "roadmap": "docs/LivePhotoBox-Current-Roadmap/LivePhotoBox-P5-细分路线图/04-P5-R3-HDR与GainMap语义转换.md",
   "referencePolicy": "reference-policy-v1.json",
   "sampleCache": ".ai-tmp/cache/samples/P5-R3-v1",
-  "workingArtifacts": ".ai-tmp/workspace/P5-R3/independent-artifacts",
-  "evidenceRoot": ".ai-tmp/evidence/P5-R3",
+  "workingArtifacts": ".ai-tmp/workspace/P5/R3/independent-artifacts",
+  "evidenceRoot": ".ai-tmp/evidence/P5/R3",
   "preserveP4V1ManifestIdentity": true,
   "supportingInputs": [
     {

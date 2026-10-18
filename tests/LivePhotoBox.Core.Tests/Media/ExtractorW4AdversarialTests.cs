@@ -19,7 +19,7 @@ using Xunit;
 namespace LivePhotoBox.Core.Tests.Media;
 
 /// <summary>
-/// W4 tests use real Windows filesystem operations in the fixed p2-w4
+/// W4 tests use real Windows filesystem operations in the fixed .ai-tmp/workspace/P2/W4
 /// workspace.  Synthetic source bytes are used only where the attack is on
 /// transaction ownership rather than media parsing; the final test exercises
 /// the Inspector-issued production plan with a cached Apple sample.
