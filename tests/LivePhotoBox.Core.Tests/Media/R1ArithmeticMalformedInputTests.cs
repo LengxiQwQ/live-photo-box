@@ -397,8 +397,8 @@ public sealed class R1ArithmeticMalformedInputTests
         ImageContainer expectedImageContainer,
         bool expectsMotionVideo)
     {
-        using var workspace = new MediaWorkspace();
-        string path = workspace.AllocateFilePath(caseId, extension);
+        using var workspace = new TestFixtureWorkspace();
+        string path = workspace.AllocateFilePath("r1a-control", extension);
         await File.WriteAllBytesAsync(path, bytes);
         string beforeHash = Hash(await File.ReadAllBytesAsync(path));
 
@@ -464,8 +464,10 @@ public sealed class R1ArithmeticMalformedInputTests
         _output.WriteLine(
             $"R1A_CASE|caseId={caseId}|mutation={mutationParameters}|canonicalBytes={canonicalFirst.Length}|canonicalSha256={canonicalHash}|derivedBytes={derivedFirst.Length}|derivedSha256={derivedHash}|replayBytes={derivedReplay.Length}|replaySha256={replayHash}|expectedCategory={expectedCategory}|expectedStage={expectedStage}");
 
-        using var workspace = new MediaWorkspace();
-        string path = workspace.AllocateFilePath(caseId, extension);
+        using var workspace = new TestFixtureWorkspace();
+        // The full mutation id remains in evidence; keep the fixture filename
+        // bounded so this arithmetic test reaches the parser under deep roots.
+        string path = workspace.AllocateFilePath("r1a-malformed", extension);
         await File.WriteAllBytesAsync(path, derivedFirst);
         string beforeHash = Hash(await File.ReadAllBytesAsync(path));
         string[] filesBefore = Directory.GetFiles(workspace.RootDirectory, "*", SearchOption.AllDirectories)
@@ -1184,7 +1186,7 @@ public sealed class R1ArithmeticMalformedInputTests
 
     private static byte[] CreateSamsungHeic()
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = workspace.AllocateFilePath("canonical-heif", ".heic");
         SyntheticProtocolFixtures.CreateSamsungHeic(path);
         return File.ReadAllBytes(path);
@@ -1192,7 +1194,7 @@ public sealed class R1ArithmeticMalformedInputTests
 
     private static byte[] CreateSamsungSefJpeg()
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = workspace.AllocateFilePath("canonical-sef", ".jpg");
         SyntheticProtocolFixtures.CreateSamsungSefJpeg(path);
         return File.ReadAllBytes(path);

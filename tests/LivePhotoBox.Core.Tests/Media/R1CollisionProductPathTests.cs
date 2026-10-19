@@ -138,7 +138,10 @@ public sealed class R1CollisionProductPathTests
 
         using var workspace = new MediaWorkspace();
         string workspaceRoot = workspace.RootDirectory;
-        string inputPath = workspace.AllocateFilePath(caseId.ToLowerInvariant(), ".jpg");
+        // The test owns this raw fixture; production workspace owns only artifacts
+        // created through the registered extractor/cleaner publication path.
+        using var inputWorkspace = new TestFixtureWorkspace();
+        string inputPath = inputWorkspace.AllocateFilePath(caseId.ToLowerInvariant(), ".jpg");
         await File.WriteAllBytesAsync(inputPath, derived);
         string sourceShaBefore = await ComputeSha256Async(inputPath);
 
@@ -412,10 +415,12 @@ public sealed class R1CollisionProductPathTests
                 "The incomplete Google claim was not present in the preserved Huawei collision fixture.");
             string[] expectedWorkspaceFiles =
             [
-                Path.GetFullPath(inputPath),
                 Path.GetFullPath(bundle!.PrimaryImage.Path),
                 Path.GetFullPath(bundle.MotionVideo!.Path)
             ];
+            // Raw source belongs to inputWorkspace, whose identity/bytes were
+            // independently checked above; the product root contains only outputs.
+            Assert.True(File.Exists(inputPath));
             Assert.Equal(
                 expectedWorkspaceFiles.OrderBy(path => path, StringComparer.OrdinalIgnoreCase),
                 workspaceFiles.Select(file => Path.GetFullPath(file.Path)).OrderBy(path => path, StringComparer.OrdinalIgnoreCase));
@@ -434,7 +439,7 @@ public sealed class R1CollisionProductPathTests
 
     private static byte[] CreateFixtureBytes(Action<string> create, string name)
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = workspace.AllocateFilePath(name, ".jpg");
         create(path);
         return File.ReadAllBytes(path);

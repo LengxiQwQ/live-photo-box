@@ -140,7 +140,7 @@ public sealed class R1ProtocolTailPairingTests
         byte[] replay = CreateSamsungSefBytes();
         Assert.Equal(canonical, replay);
 
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string input = WriteInput(workspace, "sef-c1", ".jpg", canonical);
         FileSnapshot[] before = await CaptureAsync([input]);
         SourceMediaFacts? facts = null;
@@ -400,7 +400,7 @@ public sealed class R1ProtocolTailPairingTests
         Assert.Equal(image, CreateVivoLegacyImageBytes());
         Assert.Equal(video, CreateVivoLegacyVideoBytes());
 
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string imagePath = WriteInput(workspace, "xproto-c1-image", ".jpg", image);
         string videoPath = WriteInput(workspace, "xproto-c1-video", ".mp4", video);
         string[] paths = [imagePath, videoPath];
@@ -537,7 +537,7 @@ public sealed class R1ProtocolTailPairingTests
         Assert.All(inputs, input => Assert.Equal(input.Derived, input.Replay));
         Assert.All(inputs, input => Assert.Equal(Sha256(input.Derived), Sha256(input.Replay)));
 
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string[] paths = inputs.Select(input => WriteInput(workspace, matrixId + "-" + input.Role, input.Extension, input.Derived)).ToArray();
         FileSnapshot[] before = await CaptureAsync(paths);
         SourceInspectionException? error = null;
@@ -633,7 +633,7 @@ public sealed class R1ProtocolTailPairingTests
         Assert.All(inputs, input => Assert.Equal(input.Derived, input.Replay));
         Assert.All(inputs, input => Assert.Equal(Sha256(input.Derived), Sha256(input.Replay)));
 
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string[] paths = inputs.Select(input => WriteInput(workspace, matrixId + "-" + input.Role, input.Extension, input.Derived)).ToArray();
         FileSnapshot[] before = await CaptureAsync(paths);
         SourceInspectionException? error = null;
@@ -691,7 +691,7 @@ public sealed class R1ProtocolTailPairingTests
         SourceProtocol expectedProtocol)
     {
         Assert.All(inputs, input => Assert.Equal(input.Derived, input.Replay));
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string[] paths = inputs.Select(input => WriteInput(workspace, matrixId + "-" + input.Role, input.Extension, input.Derived)).ToArray();
         FileSnapshot[] before = await CaptureAsync(paths);
         SourceMediaFacts? facts = null;
@@ -743,7 +743,7 @@ public sealed class R1ProtocolTailPairingTests
         SourceProtocol expectedProtocol)
     {
         Assert.All(inputs, input => Assert.Equal(input.Derived, input.Replay));
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string[] paths = inputs.Select(input => WriteInput(workspace, matrixId + "-" + input.Role, input.Extension, input.Derived)).ToArray();
         FileSnapshot[] before = await CaptureAsync(paths);
         MetadataMatchOutput? output = null;
@@ -811,7 +811,7 @@ public sealed class R1ProtocolTailPairingTests
 
     private static byte[] CreateFixtureBytes(Action<string> create, string prefix, string extension)
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = workspace.AllocateFilePath(prefix, extension);
         create(path);
         return File.ReadAllBytes(path);
@@ -949,7 +949,7 @@ public sealed class R1ProtocolTailPairingTests
         throw new InvalidDataException($"Top-level {boxType} box was not found in the canonical MOV.");
     }
 
-    private static string WriteInput(MediaWorkspace workspace, string prefix, string extension, byte[] bytes)
+    private static string WriteInput(IMediaWorkspace workspace, string prefix, string extension, byte[] bytes)
     {
         string path = workspace.AllocateFilePath(prefix, extension);
         File.WriteAllBytes(path, bytes);
@@ -967,7 +967,7 @@ public sealed class R1ProtocolTailPairingTests
         return snapshots;
     }
 
-    private static string[] GetWorkspaceFileNames(MediaWorkspace workspace) =>
+    private static string[] GetWorkspaceFileNames(IMediaWorkspace workspace) =>
         Directory.GetFiles(workspace.RootDirectory, "*", SearchOption.AllDirectories)
             .Select(path => Path.GetRelativePath(workspace.RootDirectory, path))
             .OrderBy(path => path, StringComparer.Ordinal)

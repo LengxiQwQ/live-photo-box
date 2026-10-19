@@ -42,17 +42,18 @@ public sealed class SourceProtocolCleanerTests
         var cleaner = new SourceProtocolCleaner();
 
         // 1. Inspect
-        var facts = await inspector.InspectAsync(primaryPath, secondaryPath);
+        using var inspected = await inspector.InspectWithPlanAsync(primaryPath, secondaryPath);
+        var facts = inspected.Facts;
         Assert.Equal(expectedInitialProtocol, facts.Protocol);
 
         // 2. Extract
-        var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, secondaryPath, workspace);
+        var extracted = await extractor.ExtractAsync(inspected.ExtractionPlan, primaryPath, secondaryPath, workspace);
         Assert.NotNull(extracted.PrimaryImage);
         Assert.True(File.Exists(extracted.PrimaryImage.Path));
 
-        // 3. Clean (Native cleanup-plan authority, harness-issued for tests)
-        using var nativeContext = TestNativeContext.Create();
-        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
+        // 3. Clean with the authority returned by the production extractor.
+        using var cleanupPlan = extracted.CleanupPlan;
+        Assert.NotNull(cleanupPlan);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
@@ -93,9 +94,10 @@ public sealed class SourceProtocolCleanerTests
 
         // 6. Idempotency test: Cleaning already cleaned media produces NonLive output without error
         using var secondWorkspace = new MediaWorkspace();
-        var secondExtracted = await TestFactsExtractor.ExtractAsync(recheckFacts, cleanedImgPath, secondaryPath != null ? cleanedVidPath : null, secondWorkspace);
-        using var secondNativeContext = TestNativeContext.Create();
-        using var secondCleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(secondNativeContext, secondExtracted);
+        using var secondInspected = await inspector.InspectWithPlanAsync(cleanedImgPath, secondaryPath != null ? cleanedVidPath : null);
+        var secondExtracted = await extractor.ExtractAsync(secondInspected.ExtractionPlan, cleanedImgPath, secondaryPath != null ? cleanedVidPath : null, secondWorkspace);
+        using var secondCleanupPlan = secondExtracted.CleanupPlan;
+        Assert.NotNull(secondCleanupPlan);
         var secondCleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = secondExtracted,

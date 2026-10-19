@@ -175,7 +175,7 @@ public sealed class R1MetadataCollisionTests
         Assert.Equal(derivedSha, replaySha);
         string artifact = PersistDerivedEvidence(caseId, derived);
 
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string inputPath = workspace.AllocateFilePath(caseId, ".jpg");
         await File.WriteAllBytesAsync(inputPath, derived);
         string beforeSha = await ComputeSha256Async(inputPath);
@@ -225,7 +225,7 @@ public sealed class R1MetadataCollisionTests
         Assert.Equal(derivedSha, replaySha);
         string artifact = PersistDerivedEvidence(caseId, derived);
 
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string inputPath = workspace.AllocateFilePath(caseId, ".jpg");
         await File.WriteAllBytesAsync(inputPath, derived);
         string beforeSha = await ComputeSha256Async(inputPath);
@@ -327,7 +327,7 @@ public sealed class R1MetadataCollisionTests
 
     private static async Task<byte[]> BuildFixtureBytesAsync(Action<string> create, string name)
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = workspace.AllocateFilePath(name, ".jpg");
         create(path);
         return await File.ReadAllBytesAsync(path);
@@ -345,7 +345,7 @@ public sealed class R1MetadataCollisionTests
         return Path.GetRelativePath(root, path).Replace('\\', '/');
     }
 
-    private static string[] GetWorkspaceFileNames(MediaWorkspace workspace) =>
+    private static string[] GetWorkspaceFileNames(IMediaWorkspace workspace) =>
         Directory.GetFiles(workspace.RootDirectory, "*", SearchOption.AllDirectories)
             .Select(path => Path.GetFileName(path)!)
             .OrderBy(name => name, StringComparer.Ordinal)

@@ -59,7 +59,9 @@ public sealed class NativeAppleMakerNoteRealSampleTests
     {
         string workDirectory = Path.Combine(Path.GetTempPath(), "lpb_apple_makernote", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(workDirectory);
-        string copyPath = Path.Combine(workDirectory, "苹果双文件.HEIC");
+        // Keep the independent Perl-based validator's disposable path ASCII;
+        // source identity and the production Unicode-path test above are unchanged.
+        string copyPath = Path.Combine(workDirectory, "apple-pair.HEIC");
 
         try
         {

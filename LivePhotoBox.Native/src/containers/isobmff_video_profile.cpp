@@ -291,7 +291,7 @@ bool parse_avc_sps(
     facts.chroma_format = 1;
     facts.bit_depth_luma = 8;
     facts.bit_depth_chroma = 8;
-    bool high_profile = false;
+    [[maybe_unused]] bool high_profile = false;
     switch (profile_idc) {
     case 44: case 83: case 86: case 100: case 110: case 118: case 122:
     case 128: case 134: case 135: case 138: case 139: case 144: case 244: {

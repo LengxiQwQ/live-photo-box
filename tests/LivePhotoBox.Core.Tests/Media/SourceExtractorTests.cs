@@ -28,11 +28,13 @@ public sealed class SourceExtractorTests
         string beforeSha = await ComputeSha256Async(sample);
 
         var inspector = new SourceInspector();
-        var facts = await inspector.InspectAsync(sample);
+        using var inspected = await inspector.InspectWithPlanAsync(sample);
+        var facts = inspected.Facts;
 
         using var workspace = new MediaWorkspace();
         var extractor = new SourceExtractor();
-        var bundle = await TestFactsExtractor.ExtractAsync(facts, sample, null, workspace);
+        var bundle = await extractor.ExtractAsync(inspected.ExtractionPlan, sample, null, workspace);
+        using var cleanupAuthority = bundle.CleanupPlan;
 
         Assert.NotNull(bundle.PrimaryImage);
         Assert.True(File.Exists(bundle.PrimaryImage.Path));
@@ -90,11 +92,12 @@ public sealed class SourceExtractorTests
         string movBeforeSha = await ComputeSha256Async(mov);
 
         var inspector = new SourceInspector();
-        var facts = await inspector.InspectAsync(img, mov);
+        using var inspected = await inspector.InspectWithPlanAsync(img, mov);
 
         using var workspace = new MediaWorkspace();
         var extractor = new SourceExtractor();
-        var bundle = await TestFactsExtractor.ExtractAsync(facts, img, mov, workspace);
+        var bundle = await extractor.ExtractAsync(inspected.ExtractionPlan, img, mov, workspace);
+        using var cleanupAuthority = bundle.CleanupPlan;
 
         Assert.NotNull(bundle.PrimaryImage);
         Assert.NotNull(bundle.MotionVideo);

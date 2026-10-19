@@ -243,107 +243,37 @@ public sealed class HeifCompoundGainMapTests
 
     [Fact]
     [Trait("Category", "Extractor")]
+    [Trait("Category", "RealSamples")]
     public async Task AppleEmbeddedGainMap_IsRepresentedOnceInNeutralManifest()
     {
+        W3SampleSnapshot heic = await W3SampleEvidence.CacheAsync("苹果双文件.HEIC");
+        W3SampleSnapshot mov = await W3SampleEvidence.CacheAsync("苹果双文件.MOV");
         using var workspace = new W3EvidenceWorkspace("apple-neutral-manifest");
-        string primaryPath = workspace.AllocateFilePath("primary", ".jpg");
-        byte[] gainMapPayload = [0x31, 0x42, 0x53, 0x64, 0x75, 0x86, 0x97, 0xA8];
-        byte[] primaryBytes = Enumerable.Range(0, 24).Select(value => (byte)value).ToArray();
-        Array.Copy(gainMapPayload, 0, primaryBytes, 8, gainMapPayload.Length);
-        await File.WriteAllBytesAsync(primaryPath, primaryBytes);
-        string primarySha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(primaryBytes));
-        string auxiliarySha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(gainMapPayload));
-        HeifDependencyFacts[] dependencies =
-        [
-            new HeifDependencyFacts { ItemId = 51, ItemType = "hvc1", ByteOffset = 1, ByteLength = 1 }
-        ];
-        var auxiliaryFacts = new AuxiliaryMediaFacts
-        {
-            IsPresent = true,
-            Container = ImageContainer.Heic,
-            Representation = AuxiliaryRepresentation.Embedded,
-            Ownership = AuxiliaryOwnership.Primary,
-            ItemId = 55,
-            ByteOffset = 8,
-            ByteLength = gainMapPayload.Length,
-            Relationship = SamsungGainMapUrn,
-            StableIdentity = "heif:item:55",
-            Semantic = "GainMap",
-            OwnerIdentity = "primary:0",
-            Sha256 = auxiliarySha,
-            Codec = AuxiliaryCodec.Hevc,
-            SourceIndex = 0,
-            ItemType = "grid",
-            GraphComplete = true,
-            Dependencies = dependencies
-        };
-        var sourceFacts = new SourceMediaFacts
-        {
-            Protocol = SourceProtocol.NonLive,
-            PrimarySha256 = primarySha,
-            PrimaryImage = new ImageFacts
-            {
-                IsPresent = true,
-                Container = ImageContainer.Jpeg,
-                ByteLength = primaryBytes.Length
-            },
-            AuxiliaryItems = [auxiliaryFacts],
-            GainMap = new GainMapFacts
-            {
-                IsPresent = true,
-                Container = ImageContainer.Heic,
-                Representation = AuxiliaryRepresentation.Embedded,
-                Ownership = AuxiliaryOwnership.Primary,
-                OwnerArtifactRole = MediaArtifactKind.PrimaryImage,
-                AuxiliaryIndex = 0,
-                ItemId = 55,
-                ByteOffset = 8,
-                ByteLength = gainMapPayload.Length,
-                Relationship = SamsungGainMapUrn
-            }
-        };
-        var descriptor = new AuxiliaryMediaDescriptor
-        {
-            ArtifactRole = MediaArtifactKind.GainMap,
-            StableIdentity = "heif:item:55",
-            Semantic = "GainMap",
-            OwnerIdentity = "primary:0",
-            Relationship = SamsungGainMapUrn,
-            SourceOffset = 8,
-            SourceLength = 8,
-            SourceSha256 = auxiliarySha,
-            ImageContainer = ImageContainer.Heic,
-            Codec = AuxiliaryCodec.Hevc,
-            Representation = AuxiliaryRepresentation.Embedded,
-            Ownership = AuxiliaryOwnership.Primary,
-            ItemType = "grid",
-            GraphComplete = true,
-            Dependencies = dependencies
-        };
-        var extracted = new ExtractedMediaBundle
-        {
-            PrimaryImage = new MediaArtifact
-            {
-                Path = primaryPath,
-                Kind = MediaArtifactKind.PrimaryImage,
-                MimeType = "image/jpeg",
-                ImageContainer = ImageContainer.Jpeg,
-                ImageCodec = ImageCodec.Jpeg,
-                ByteLength = primaryBytes.Length,
-                Sha256 = primarySha
-            },
-            SourceFacts = sourceFacts,
-            AuxiliaryMedia = [descriptor]
-        };
+        byte[] sourceBytes = await File.ReadAllBytesAsync(heic.CachePath);
+        W3IndependentHeifGraph sourceGraph = W3IndependentHeifParser.Parse(sourceBytes);
+        W3IndependentHeifAuxiliary sourceAuxiliary = Assert.Single(sourceGraph.Auxiliaries,
+            item => item.Relationship == AppleGainMapUrn);
+        W3IndependentHeifRange sourceRange = Assert.Single(sourceAuxiliary.Ranges);
+        byte[] sourcePayload = sourceBytes.AsSpan(checked((int)sourceRange.Offset), checked((int)sourceRange.Length)).ToArray();
+        string sourcePayloadSha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(sourcePayload));
 
-        NeutralMediaBundle bundle = await new NeutralMediaService(
-            inspector: new FixedNonLiveInspector(sourceFacts),
-            extractor: new FixedBundleExtractor(extracted),
-            cleaner: new EmbeddedDescriptorCleaner())
-            .CreateNeutralBundleAsync(
-            primaryPath,
-            null,
-            workspace);
+        // Exercise current freshness/metadata checks with actual media and Native
+        // authority, rather than fake facts whose bytes cannot satisfy those checks.
+        NeutralMediaBundle bundle = await new NeutralMediaService().CreateNeutralBundleAsync(
+            heic.CachePath, mov.CachePath, workspace);
+        byte[] finalBytes = await File.ReadAllBytesAsync(bundle.PrimaryImage.Path);
+        W3IndependentHeifGraph finalGraph = W3IndependentHeifParser.Parse(finalBytes);
+        W3IndependentHeifAuxiliary auxiliary = Assert.Single(finalGraph.Auxiliaries,
+            item => item.Relationship == AppleGainMapUrn);
+        W3IndependentHeifRange range = Assert.Single(auxiliary.Ranges);
+        byte[] payload = finalBytes.AsSpan(checked((int)range.Offset), checked((int)range.Length)).ToArray();
+        string payloadSha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(payload));
+        Assert.Equal(sourcePayload, payload);
+        Assert.Equal(sourcePayloadSha, payloadSha);
+        Assert.Equal("grid", auxiliary.ItemType);
+        Assert.Equal(12, auxiliary.Dependencies.Count);
+        Assert.Equal(8, payload.Length);
+        Assert.Equal(finalGraph.PrimaryItemId, auxiliary.OwnerItemId);
 
         Assert.Equal(GainMapRepresentation.Embedded, bundle.GainMapRepresentation);
         NeutralArtifactManifest gainMap = Assert.Single(bundle.Manifest, item => item.Role == "GainMap");
@@ -351,20 +281,24 @@ public sealed class HeifCompoundGainMapTests
         Assert.Equal(GainMapRepresentation.Embedded, gainMap.GainMapRepresentation);
         Assert.Equal(NeutralAuxiliaryRepresentation.Embedded, gainMap.SemanticRepresentation);
         Assert.Equal(bundle.PrimaryImage.Path, gainMap.Path);
-        Assert.Equal("heif:item:55", gainMap.StableIdentity);
+        Assert.Equal($"heif:item:{auxiliary.ItemId}", gainMap.StableIdentity);
         Assert.Equal("primary:0", gainMap.OwnerIdentity);
-        Assert.Equal(SamsungGainMapUrn, gainMap.Relationship);
-        Assert.Equal(8, gainMap.SourceOffset);
-        Assert.Equal(8, gainMap.OwnerByteOffset);
-        Assert.Equal(gainMapPayload.Length, gainMap.SourceLength);
-        Assert.Equal(auxiliarySha, gainMap.SourceSha256);
-        Assert.Equal(auxiliarySha, gainMap.Sha256);
-        Assert.Equal(gainMapPayload.Length, gainMap.ByteLength);
+        Assert.Equal(AppleGainMapUrn, gainMap.Relationship);
+        Assert.Equal(checked((long)range.Offset), gainMap.SourceOffset);
+        Assert.Equal(checked((long)range.Offset), gainMap.OwnerByteOffset);
+        Assert.Equal(payload.Length, gainMap.SourceLength);
+        Assert.Equal(payloadSha, gainMap.SourceSha256);
+        Assert.Equal(payloadSha, gainMap.Sha256);
+        Assert.Equal(payload.Length, gainMap.ByteLength);
         Assert.NotEqual(bundle.PrimaryImage.Sha256, gainMap.Sha256);
         Assert.NotEqual(bundle.PrimaryImage.ByteLength, gainMap.ByteLength);
-        Assert.DoesNotContain(bundle.Manifest, item =>
-            item.Role == "GainMap" && item.Path != bundle.PrimaryImage.Path);
+        Assert.DoesNotContain(bundle.Manifest, item => item.Role == "GainMap" && item.Path != bundle.PrimaryImage.Path);
         Assert.Single(bundle.Manifest, item => item.StableIdentity == gainMap.StableIdentity);
+        Assert.Equal(heic.CacheSha256, await W3SampleEvidence.ComputeSha256Async(heic.CachePath));
+        Assert.Equal(mov.CacheSha256, await W3SampleEvidence.ComputeSha256Async(mov.CachePath));
+        await File.WriteAllTextAsync(Path.Combine(workspace.RootDirectory, "neutral-manifest.json"),
+            JsonSerializer.Serialize(new { sourceGraph, finalGraph, sourcePayloadSha, payloadSha, bundle.Manifest },
+                new JsonSerializerOptions { WriteIndented = true }));
     }
 
     private sealed class FixedNonLiveInspector(SourceMediaFacts facts) : ISourceInspector

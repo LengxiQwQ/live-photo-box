@@ -1,4 +1,4 @@
-﻿#include "livephotobox_native.h"
+#include "livephotobox_native.h"
 #include "foundation/portable_internal.h"
 #include "binary/endian.h"
 #include "apple_mebx_templates.h"
@@ -429,7 +429,7 @@ static lpb_result append_mebx_tracks_impl(
         set_error(context, "Input MOV has an unsupported or malformed top-level box layout.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
-    if (content_id != nullptr && strnlen_s(content_id, 256) >= 256) {
+    if (content_id != nullptr && safe_strnlen(content_id, 256) >= 256) {
         set_error(context, "Apple ContentIdentifier is too long or not terminated.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }

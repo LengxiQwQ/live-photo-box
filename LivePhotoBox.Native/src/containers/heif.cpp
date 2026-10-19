@@ -1068,15 +1068,14 @@ namespace {
                 static_cast<size_t>(location->contiguous.length), facts.sha256);
             const std::string item_type = item_type_string(item->type);
             const std::string stable_identity = "heif:item:" + std::to_string(auxiliary_id);
-            strncpy_s(facts.item_type, item_type.c_str(), _TRUNCATE);
-            strncpy_s(facts.stable_identity, stable_identity.c_str(), _TRUNCATE);
-            strncpy_s(facts.owner_identity, "primary:0", _TRUNCATE);
-            strncpy_s(facts.relationship, relationship.c_str(), _TRUNCATE);
-            strncpy_s(facts.semantic,
+            copy_fixed_string(facts.item_type, item_type);
+            copy_fixed_string(facts.stable_identity, stable_identity);
+            copy_fixed_string(facts.owner_identity, "primary:0");
+            copy_fixed_string(facts.relationship, relationship);
+            copy_fixed_string(facts.semantic,
                 relationship == "urn:com:apple:photo:2020:aux:hdrgainmap" ||
                 relationship == "urn:com:samsung:photo:2024:aux:hdrgainmap" ||
-                relationship == "urn:com:photo:aux:hdrgainmap" ? "GainMap" : "Auxiliary",
-                _TRUNCATE);
+                relationship == "urn:com:photo:aux:hdrgainmap" ? "GainMap" : "Auxiliary");
             facts.graph_flags = LPB_HEIF_GRAPH_COMPLETE;
             if (dependencies != nullptr) {
                 facts.graph_flags |= LPB_HEIF_GRAPH_DERIVED | LPB_HEIF_GRAPH_SUPPORTED_DERIVED;
@@ -1091,7 +1090,7 @@ namespace {
                     facts.dependency_item_ids[i] = (*dependencies)[i];
                     facts.dependency_offsets[i] = dependency_location->contiguous.offset;
                     facts.dependency_lengths[i] = dependency_location->contiguous.length;
-                    strncpy_s(facts.dependency_item_types[i], item_type_string(dependency_item->type).c_str(), _TRUNCATE);
+                    copy_fixed_string(facts.dependency_item_types[i], item_type_string(dependency_item->type));
                 }
             }
             output.push_back(facts);

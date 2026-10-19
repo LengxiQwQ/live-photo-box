@@ -21,3 +21,32 @@ lpb_result copy_output(
     uint8_t* output,
     size_t output_size,
     size_t* required_size) noexcept;
+
+template <size_t N>
+inline void copy_fixed_string(char (&dest)[N], const std::string& src) noexcept {
+    const size_t len = std::min(src.size(), N - 1);
+    std::memcpy(dest, src.data(), len);
+    dest[len] = '\0';
+}
+
+template <size_t N>
+inline void copy_fixed_string(char (&dest)[N], const char* src) noexcept {
+    if (!src) {
+        dest[0] = '\0';
+        return;
+    }
+    const size_t len = std::min(std::strlen(src), N - 1);
+    std::memcpy(dest, src, len);
+    dest[len] = '\0';
+}
+
+inline size_t safe_strnlen(const char* s, size_t max_len) noexcept {
+    if (!s) return 0;
+    size_t len = 0;
+    while (len < max_len && s[len] != '\0') {
+        ++len;
+    }
+    return len;
+}
+
+
