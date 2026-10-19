@@ -450,7 +450,7 @@ public sealed class VideoConverter : IVideoConverter
         ex is DllNotFoundException or EntryPointNotFoundException or BadImageFormatException;
 
     private static bool IsMinimalLibav(NativeMediaService.NativeVideoTranscodeResult diagnostics) =>
-        diagnostics.MinimalLibavSelected;
+        diagnostics.MinimalLibavSelected || diagnostics.Backend == VideoBackend.MinimalLibav;
 
     private static ConversionCapability CapabilityFor(NativeMediaService.NativeVideoTranscodeResult diagnostics) =>
         diagnostics.Backend == VideoBackend.ProjectIsoBmffRemux

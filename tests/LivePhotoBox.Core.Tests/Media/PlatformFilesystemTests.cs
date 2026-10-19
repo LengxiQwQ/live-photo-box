@@ -83,4 +83,39 @@ public sealed class PlatformFilesystemTests
         Assert.Equal(before, await File.ReadAllBytesAsync(source));
         Assert.Single(Directory.EnumerateFiles(workspace.RootDirectory));
     }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task NativeBackends_ConcurrentWriterWithReadShare_FailsClosed()
+    {
+        using var workspace = new TestFixtureWorkspace();
+        string jpegSource = Path.Combine(workspace.RootDirectory, "writer-shared.jpg");
+        string heicSource = Path.Combine(workspace.RootDirectory, "writer-shared.heic");
+        string videoSource = Path.Combine(workspace.RootDirectory, "writer-shared.mov");
+        string outJpeg = Path.Combine(workspace.RootDirectory, "out.jpg");
+        string outHeic = Path.Combine(workspace.RootDirectory, "out.heic");
+
+        File.Copy(Sample, jpegSource);
+        File.Copy(TestSampleResolver.ResolveSample("苹果双文件.HEIC"), heicSource);
+        File.Copy(TestSampleResolver.ResolveSample("苹果双文件.MOV"), videoSource);
+
+        using (var writerJpeg = new FileStream(jpegSource, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+        using (var writerHeic = new FileStream(heicSource, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+        using (var writerVideo = new FileStream(videoSource, FileMode.Open, FileAccess.ReadWrite, FileShare.ReadWrite))
+        {
+            await Assert.ThrowsAnyAsync<Exception>(() => NativeMediaService.DecodeHeicPrimaryAsync(heicSource));
+            await Assert.ThrowsAnyAsync<Exception>(() => NativeMediaService.ProbeVideoAsync(videoSource));
+            await Assert.ThrowsAnyAsync<Exception>(() =>
+                NativeMediaService.RemuxVideoAsync(videoSource, Path.Combine(workspace.RootDirectory, "remux.mov"), VideoContainer.Mov));
+            await Assert.ThrowsAnyAsync<Exception>(() =>
+                NativeMediaService.ConvertImageAsync(jpegSource, outHeic, ImageContainer.Heic, 85));
+            await Assert.ThrowsAnyAsync<Exception>(() =>
+                NativeMediaService.TransformJpegLosslesslyAsync(jpegSource, outJpeg, (int)ImageTransformKind.Rotate90));
+        }
+
+        Assert.False(File.Exists(outJpeg));
+        Assert.False(File.Exists(outHeic));
+    }
 }
+
+

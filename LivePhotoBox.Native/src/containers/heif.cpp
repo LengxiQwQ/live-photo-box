@@ -8,12 +8,15 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <new>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
 
 using namespace lpb;
+using lpb::containers::heif_graph_error;
 
 namespace {
     struct locator_box {
@@ -82,7 +85,7 @@ namespace {
 
     bool parse_heif_auxiliary_properties(const uint8_t* data, const locator_box& iprp,
         const std::vector<locator_item>& items, std::vector<auxiliary_property>& auxc_items,
-        std::string& error) {
+        std::string& error, heif_graph_error& failure) {
         auxc_items.clear();
         if (iprp.body_size < 8) { error = "HEIF iprp box is truncated."; return false; }
         std::vector<locator_box> children;
@@ -91,8 +94,8 @@ namespace {
         }
         const locator_box* ipco = nullptr; const locator_box* ipma = nullptr;
         for (const auto& child : children) {
-            if (is_type(child, "ipco")) { if (ipco) { error = "Duplicate HEIF ipco box."; return false; } ipco = &child; }
-            else if (is_type(child, "ipma")) { if (ipma) { error = "Duplicate HEIF ipma box."; return false; } ipma = &child; }
+            if (is_type(child, "ipco")) { if (ipco) { failure = heif_graph_error::duplicate_identity; error = "Duplicate HEIF ipco box."; return false; } ipco = &child; }
+            else if (is_type(child, "ipma")) { if (ipma) { failure = heif_graph_error::duplicate_identity; error = "Duplicate HEIF ipma box."; return false; } ipma = &child; }
         }
         if (!ipco || !ipma || ipco->body_size == 0) { error = "HEIF auxiliary properties are incomplete."; return false; }
         std::vector<std::string> auxiliary_types(1);
@@ -120,7 +123,7 @@ namespace {
         const uint8_t version = data[ipma->body_start];
         const uint32_t flags = (static_cast<uint32_t>(data[ipma->body_start + 1]) << 16) |
             (static_cast<uint32_t>(data[ipma->body_start + 2]) << 8) | data[ipma->body_start + 3];
-        if (version > 1 || (flags & ~1u) != 0) { error = "Unsupported HEIF ipma version or flags."; return false; }
+        if (version > 1 || (flags & ~1u) != 0) { failure = heif_graph_error::unsupported_layout; error = "Unsupported HEIF ipma version or flags."; return false; }
         size_t p = ipma->body_start + 4;
         uint32_t entry_count = 0;
         if (p + 4 > ipma->start + ipma->size) {
@@ -133,29 +136,35 @@ namespace {
         for (uint32_t i = 0; i < entry_count; ++i) {
             const size_t end = ipma->start + ipma->size;
             uint32_t item_id = 0;
-            if (version == 0) { if (p + 2 > end) return false; item_id = read_be16u(data + p); p += 2; }
-            else { if (p + 4 > end) return false; item_id = read_be32u(data + p); p += 4; }
-            if (item_id == 0 || std::find_if(items.begin(), items.end(), [&](const locator_item& item) { return item.id == item_id; }) == items.end() ||
-                std::find(seen_items.begin(), seen_items.end(), item_id) != seen_items.end() || p >= end) {
-                error = "HEIF ipma references a duplicate or unknown item."; return false;
+            if (version == 0) { if (p + 2 > end) { error = "Truncated HEIF ipma field."; return false; } item_id = read_be16u(data + p); p += 2; }
+            else { if (p + 4 > end) { error = "Truncated HEIF ipma field."; return false; } item_id = read_be32u(data + p); p += 4; }
+            if (item_id == 0 || std::find_if(items.begin(), items.end(), [&](const locator_item& item) { return item.id == item_id; }) == items.end()) {
+                failure = heif_graph_error::missing_reference;
+                error = "HEIF ipma references an unknown item."; return false;
             }
+            if (std::find(seen_items.begin(), seen_items.end(), item_id) != seen_items.end()) {
+                failure = heif_graph_error::duplicate_identity; error = "Duplicate HEIF ipma item."; return false;
+            }
+            if (p >= end) { error = "Truncated HEIF ipma association count."; return false; }
             seen_items.push_back(item_id);
             const uint8_t association_count = data[p++];
             std::vector<uint32_t> seen_properties;
             for (uint8_t a = 0; a < association_count; ++a) {
                 uint32_t association = 0;
-                if (flags & 1u) { if (p + 2 > end) return false; association = read_be16u(data + p) & 0x7FFFu; p += 2; }
-                else { if (p >= end) return false; association = data[p++] & 0x7Fu; }
-                if (association == 0 || association >= auxiliary_types.size() ||
-                    std::find(seen_properties.begin(), seen_properties.end(), association) != seen_properties.end()) {
-                    error = "HEIF ipma has an invalid or duplicate property association."; return false;
+                if (flags & 1u) { if (p + 2 > end) { error = "Truncated HEIF ipma field."; return false; } association = read_be16u(data + p) & 0x7FFFu; p += 2; }
+                else { if (p >= end) { error = "Truncated HEIF ipma association."; return false; } association = data[p++] & 0x7Fu; }
+                if (association == 0 || association >= auxiliary_types.size()) {
+                    error = "HEIF ipma has an invalid property association."; return false;
+                }
+                if (std::find(seen_properties.begin(), seen_properties.end(), association) != seen_properties.end()) {
+                    failure = heif_graph_error::duplicate_identity; error = "Duplicate HEIF ipma property association."; return false;
                 }
                 seen_properties.push_back(association);
                 if (!auxiliary_types[association].empty()) {
                     const auto prior = std::find_if(auxc_items.begin(), auxc_items.end(),
                         [&](const auxiliary_property& value) { return value.item_id == item_id; });
                     if (prior != auxc_items.end()) {
-                        error = "HEIF item has multiple auxiliary type properties.";
+                        failure = heif_graph_error::duplicate_identity; error = "HEIF item has multiple auxiliary type properties.";
                         return false;
                     }
                     auxc_items.push_back({ item_id, auxiliary_types[association] });
@@ -167,8 +176,10 @@ namespace {
     }
 
     bool parse_iinf(const uint8_t* data, const locator_box& iinf,
-        std::vector<locator_item>& out_items, std::string* failure = nullptr) {
-        const auto fail = [&](const char* reason) {
+        std::vector<locator_item>& out_items, std::string* failure = nullptr,
+        heif_graph_error* graph_failure = nullptr) {
+        const auto fail = [&](const char* reason, heif_graph_error code = heif_graph_error::malformed) {
+            if (graph_failure) *graph_failure = code;
             if (failure) *failure = reason;
             return false;
         };
@@ -177,7 +188,7 @@ namespace {
         size_t p = iinf.body_start;
         const size_t end = iinf.start + iinf.size;
         const uint8_t version = data[p++];
-        if (version > 1 || data[p] != 0 || data[p + 1] != 0 || data[p + 2] != 0) return fail("iinf version or flags");
+        if (version > 1 || data[p] != 0 || data[p + 1] != 0 || data[p + 2] != 0) return fail("iinf version or flags", heif_graph_error::unsupported_layout);
         p += 3;
         uint32_t count = 0;
         if (version == 0) {
@@ -189,7 +200,7 @@ namespace {
             count = read_be32u(data + p);
             p += 4;
         }
-        if (count > 1'000'000u) return fail("iinf count too large");
+        if (count > 1'000'000u) return fail("iinf count too large", heif_graph_error::capacity_exceeded);
 
         std::vector<locator_box> children;
         if (!parse_children_strict(data, p, end, children)) return fail("iinf child boxes malformed");
@@ -205,7 +216,7 @@ namespace {
                 (static_cast<uint32_t>(data[q + 1]) << 8) | data[q + 2];
             // The corpus uses the defined infe flag bit 0; other flags are
             // outside this locator's supported layout.
-            if (infe_version < 2 || infe_version > 3 || (infe_flags & ~1u) != 0) return fail("infe version or flags");
+            if (infe_version < 2 || infe_version > 3 || (infe_flags & ~1u) != 0) return fail("infe version or flags", heif_graph_error::unsupported_layout);
             q += 3;
             uint32_t item_id = 0;
             if (infe_version == 2) {
@@ -217,7 +228,9 @@ namespace {
                 item_id = read_be32u(data + q);
                 q += 4;
             }
-            if (item_id == 0 || std::find(seen_ids.begin(), seen_ids.end(), item_id) != seen_ids.end()) return fail("duplicate or zero infe item id");
+            if (item_id == 0) return fail("zero infe item id");
+            if (std::find(seen_ids.begin(), seen_ids.end(), item_id) != seen_ids.end())
+                return fail("duplicate infe item id", heif_graph_error::duplicate_identity);
             seen_ids.push_back(item_id);
             if (q + 2 + 4 > child_end) return fail("infe type truncated");
             q += 2; // item_protection_index
@@ -629,7 +642,8 @@ namespace {
     }
 
     bool parse_auxiliary_graph(const uint8_t* input, size_t input_size,
-        std::vector<lpb_auxiliary_item_facts>& output, std::string& error) {
+        std::vector<lpb_auxiliary_item_facts>& output, std::string& error, heif_graph_error& failure) {
+        failure = heif_graph_error::malformed;
         output.clear();
         std::vector<locator_box> top;
         if (!parse_children_strict(input, 0, input_size, top)) {
@@ -640,7 +654,7 @@ namespace {
         const locator_box* meta = nullptr;
         for (const auto& box : top) {
             if (!is_type(box, "meta")) continue;
-            if (meta != nullptr) { error = "Duplicate HEIF meta box."; return false; }
+            if (meta != nullptr) { failure = heif_graph_error::duplicate_identity; error = "Duplicate HEIF meta box."; return false; }
             meta = &box;
         }
         if (meta == nullptr || meta->body_size < 4) {
@@ -649,7 +663,7 @@ namespace {
         }
         if (input[meta->body_start] != 0 || input[meta->body_start + 1] != 0 ||
             input[meta->body_start + 2] != 0 || input[meta->body_start + 3] != 0) {
-            error = "Unsupported HEIF meta version or flags.";
+            failure = heif_graph_error::unsupported_layout; error = "Unsupported HEIF meta version or flags.";
             return false;
         }
 
@@ -669,7 +683,7 @@ namespace {
                 is_type(box, "idat") ? &idat :
                 is_type(box, "iprp") ? &iprp : nullptr;
             if (slot != nullptr) {
-                if (*slot != nullptr) { error = "Duplicate HEIF authoritative child box."; return false; }
+                if (*slot != nullptr) { failure = heif_graph_error::duplicate_identity; error = "Duplicate HEIF authoritative child box."; return false; }
                 *slot = &box;
             }
         }
@@ -694,7 +708,7 @@ namespace {
 
         std::vector<locator_item> items;
         std::string iinf_error;
-        if (!parse_iinf(input, *iinf, items, &iinf_error)) {
+        if (!parse_iinf(input, *iinf, items, &iinf_error, &failure)) {
             error = "Malformed HEIF iinf: " + iinf_error;
             return false;
         }
@@ -705,11 +719,11 @@ namespace {
 
         std::vector<auxiliary_property> auxiliary_properties;
         if (iprp != nullptr && !parse_heif_auxiliary_properties(
-            input, *iprp, items, auxiliary_properties, error)) {
+            input, *iprp, items, auxiliary_properties, error, failure)) {
             return false;
         }
 
-        binary_reader reader(input, input_size);
+        binary_reader reader(input, iloc->start + iloc->size);
         if (iloc->body_size < 8 || !reader.try_seek(iloc->body_start)) {
             error = "Malformed HEIF iloc header.";
             return false;
@@ -731,7 +745,7 @@ namespace {
         };
         if (!valid_field_size(offset_size) || !valid_field_size(length_size) ||
             !valid_field_size(base_size) || !valid_field_size(index_size)) {
-            error = "Unsupported HEIF iloc field size.";
+            failure = heif_graph_error::unsupported_layout; error = "Unsupported HEIF iloc field size.";
             return false;
         }
 
@@ -745,6 +759,14 @@ namespace {
             return false;
         }
 
+        // Bound allocation by entries that can physically fit in this iloc.
+        const size_t minimum_item_bytes = (version < 2 ? 2u : 4u) +
+            (version == 0 ? 0u : 2u) + 2u + base_size + 2u +
+            index_size + offset_size + length_size;
+        if (item_count > reader.remaining() / minimum_item_bytes) {
+            error = "Truncated HEIF iloc item table.";
+            return false;
+        }
         std::vector<heif_item_location> locations;
         locations.reserve(item_count);
         std::set<uint32_t> located_ids;
@@ -759,21 +781,32 @@ namespace {
                 error = "Truncated HEIF iloc item id.";
                 return false;
             }
-            if (item_id == 0 || find_item(items, item_id) == nullptr || !located_ids.insert(item_id).second) {
-                error = "HEIF iloc references a duplicate or unknown item.";
+            if (item_id == 0 || find_item(items, item_id) == nullptr) {
+                failure = heif_graph_error::missing_reference;
+                error = "HEIF iloc references an unknown item.";
+                return false;
+            }
+            if (!located_ids.insert(item_id).second) {
+                failure = heif_graph_error::duplicate_identity; error = "Duplicate HEIF iloc item.";
                 return false;
             }
 
             uint16_t construction_method = 0;
             if (version != 0) {
-                if (!reader.try_read_be16u(construction_method) || construction_method > 1) {
-                    error = "Unsupported HEIF iloc construction method.";
+                if (!reader.try_read_be16u(construction_method)) {
+                    error = "Truncated HEIF iloc construction method."; return false;
+                }
+                if (construction_method > 1) {
+                    failure = heif_graph_error::unsupported_layout; error = "Unsupported HEIF iloc construction method.";
                     return false;
                 }
             }
             uint16_t data_reference_index = 0;
-            if (!reader.try_read_be16u(data_reference_index) || data_reference_index != 0) {
-                error = "Unsupported HEIF iloc data reference.";
+            if (!reader.try_read_be16u(data_reference_index)) {
+                error = "Truncated HEIF iloc data reference."; return false;
+            }
+            if (data_reference_index != 0) {
+                failure = heif_graph_error::unsupported_layout; error = "Unsupported HEIF iloc data reference.";
                 return false;
             }
             uint64_t base_offset = 0;
@@ -883,7 +916,7 @@ namespace {
             const uint8_t reference_version = input[iref->body_start];
             if (reference_version > 1 || input[iref->body_start + 1] != 0 ||
                 input[iref->body_start + 2] != 0 || input[iref->body_start + 3] != 0) {
-                error = "Unsupported HEIF iref version or flags.";
+                failure = heif_graph_error::unsupported_layout; error = "Unsupported HEIF iref version or flags.";
                 return false;
             }
             std::vector<locator_box> reference_boxes;
@@ -894,7 +927,7 @@ namespace {
             for (const locator_box& reference_box : reference_boxes) {
                 if (!is_type(reference_box, "dimg") && !is_type(reference_box, "auxl") &&
                     !is_type(reference_box, "thmb") && !is_type(reference_box, "cdsc")) {
-                    error = "Unsupported HEIF relationship type.";
+                    failure = heif_graph_error::unsupported_layout; error = "Unsupported HEIF relationship type.";
                     return false;
                 }
                 size_t position = reference_box.body_start;
@@ -928,7 +961,7 @@ namespace {
                         return false;
                     }
                     if (!relation_targets.insert(target).second) {
-                        error = "Duplicate HEIF relationship dependency edge.";
+                        failure = heif_graph_error::duplicate_identity; error = "Duplicate HEIF relationship dependency edge.";
                         return false;
                     }
                     reference.targets.push_back(target);
@@ -949,11 +982,11 @@ namespace {
             const locator_item* source_item = find_item(items, reference.from);
             if (reference.type == "dimg") {
                 if (source_item == nullptr || !is_supported_derived_type(source_item->type)) {
-                    error = "Unsupported HEIF derived item type in dimg relationship.";
+                    failure = heif_graph_error::unsupported_layout; error = "Unsupported HEIF derived item type in dimg relationship.";
                     return false;
                 }
                 if (!dimg_dependencies.emplace(reference.from, reference.targets).second) {
-                    error = "Shadow HEIF dimg relationship for derived item.";
+                    failure = heif_graph_error::duplicate_identity; error = "Shadow HEIF dimg relationship for derived item.";
                     return false;
                 }
             } else if (reference.type == "auxl") {
@@ -964,12 +997,12 @@ namespace {
                     auxiliary_id = reference.from;
                 } else if (reference.from == primary_id ||
                     std::find(reference.targets.begin(), reference.targets.end(), primary_id) != reference.targets.end()) {
-                    error = "Shadow or ambiguous HEIF auxiliary relationship to primary.";
+                    failure = heif_graph_error::duplicate_identity; error = "Shadow or ambiguous HEIF auxiliary relationship to primary.";
                     return false;
                 }
                 if (auxiliary_id != 0) {
                     if (!primary_owned_auxiliary.insert(auxiliary_id).second) {
-                        error = "Shadow HEIF auxiliary relationship has multiple primary owners.";
+                        failure = heif_graph_error::duplicate_identity; error = "Shadow HEIF auxiliary relationship has multiple primary owners.";
                         return false;
                     }
                     const auto property = std::find_if(auxiliary_properties.begin(), auxiliary_properties.end(),
@@ -977,7 +1010,7 @@ namespace {
                     const std::string relationship = property == auxiliary_properties.end()
                         ? "auxl" : property->type;
                     if (!primary_relationships.insert(relationship).second) {
-                        error = "Shadow HEIF auxiliary relationship is not unique.";
+                        failure = heif_graph_error::duplicate_identity; error = "Shadow HEIF auxiliary relationship is not unique.";
                         return false;
                     }
                     primary_auxiliary_owners[auxiliary_id].push_back(primary_id);
@@ -987,10 +1020,15 @@ namespace {
 
         std::map<uint32_t, uint8_t> visit_state;
         std::map<uint32_t, std::vector<uint32_t>> transitive_dependencies;
-        std::function<bool(uint32_t)> visit = [&](uint32_t item_id) {
+        std::function<bool(uint32_t, size_t)> visit = [&](uint32_t item_id, size_t depth) {
             uint8_t& state = visit_state[item_id];
-            if (state == 1) { error = "HEIF dimg dependency cycle detected."; return false; }
+            if (state == 1) { failure = heif_graph_error::reference_cycle; error = "HEIF dimg dependency cycle detected."; return false; }
             if (state == 2) return true;
+            if (depth > LPB_HEIF_MAX_DEPENDENCIES) {
+                failure = heif_graph_error::capacity_exceeded;
+                error = "HEIF dependency depth exceeds the supported capacity.";
+                return false;
+            }
             state = 1;
             const locator_item* item = find_item(items, item_id);
             if (item == nullptr || find_location(locations, item_id) == nullptr) {
@@ -1000,22 +1038,22 @@ namespace {
             const auto dependency_it = dimg_dependencies.find(item_id);
             if (dependency_it != dimg_dependencies.end()) {
                 if (!is_supported_derived_type(item->type)) {
-                    error = "Unsupported HEIF derived item type.";
+                    failure = heif_graph_error::unsupported_layout; error = "Unsupported HEIF derived item type.";
                     return false;
                 }
                 auto& flattened = transitive_dependencies[item_id];
                 for (uint32_t dependency_id : dependency_it->second) {
                     if (std::find(flattened.begin(), flattened.end(), dependency_id) != flattened.end()) {
-                        error = "Duplicate HEIF dimg dependency edge.";
+                        failure = heif_graph_error::duplicate_identity; error = "Duplicate HEIF dimg dependency edge.";
                         return false;
                     }
-                    if (!visit(dependency_id)) return false;
+                    if (!visit(dependency_id, depth + 1)) return false;
                     flattened.push_back(dependency_id);
                     const auto child_it = transitive_dependencies.find(dependency_id);
                     if (child_it != transitive_dependencies.end()) {
                         for (uint32_t nested_id : child_it->second) {
                             if (std::find(flattened.begin(), flattened.end(), nested_id) != flattened.end()) {
-                                error = "Duplicate HEIF dimg dependency edge.";
+                                failure = heif_graph_error::duplicate_identity; error = "Duplicate HEIF dimg dependency edge.";
                                 return false;
                             }
                             flattened.push_back(nested_id);
@@ -1023,7 +1061,7 @@ namespace {
                     }
                 }
                 if (flattened.size() > LPB_HEIF_MAX_DEPENDENCIES) {
-                    error = "HEIF derived dependency graph exceeds the supported capacity.";
+                    failure = heif_graph_error::capacity_exceeded; error = "HEIF derived dependency graph exceeds the supported capacity.";
                     return false;
                 }
             }
@@ -1032,7 +1070,7 @@ namespace {
         };
 
         for (const auto& dependency : dimg_dependencies) {
-            if (!visit(dependency.first)) return false;
+            if (!visit(dependency.first, 0)) return false;
         }
 
         for (uint32_t auxiliary_id : primary_owned_auxiliary) {
@@ -1050,7 +1088,7 @@ namespace {
             const std::string relationship = property == auxiliary_properties.end()
                 ? "auxl" : property->type;
             if (relationship.size() >= sizeof(lpb_auxiliary_item_facts::relationship)) {
-                error = "HEIF auxiliary relationship exceeds the source-facts ABI capacity.";
+                failure = heif_graph_error::capacity_exceeded; error = "HEIF auxiliary relationship exceeds the source-facts ABI capacity.";
                 return false;
             }
             lpb_auxiliary_item_facts facts{};
@@ -1095,10 +1133,11 @@ namespace {
             }
             output.push_back(facts);
             if (output.size() > 8) {
-                error = "HEIF auxiliary item count exceeds the source-facts ABI capacity.";
+                failure = heif_graph_error::capacity_exceeded; error = "HEIF auxiliary item count exceeds the source-facts ABI capacity.";
                 return false;
             }
         }
+        failure = heif_graph_error::none;
         return true;
     }
 }
@@ -1436,6 +1475,42 @@ bool shift_iloc_file_extents(const std::vector<uint8_t>& input, const locator_bo
 
 namespace lpb::containers {
 
+lpb_inspection_failure_category inspection_category(heif_graph_error error) noexcept {
+    switch (error) {
+    case heif_graph_error::none: return LPB_INSPECTION_FAILURE_NONE;
+    case heif_graph_error::duplicate_identity:
+    case heif_graph_error::reference_cycle: return LPB_INSPECTION_FAILURE_AMBIGUOUS;
+    case heif_graph_error::unsupported_layout:
+    case heif_graph_error::capacity_exceeded: return LPB_INSPECTION_FAILURE_UNSUPPORTED;
+    default: return LPB_INSPECTION_FAILURE_MALFORMED;
+    }
+}
+
+bool enumerate_auxiliary_items(std::span<const uint8_t> input,
+    std::vector<lpb_auxiliary_item_facts>& items, heif_graph_diagnostic& diagnostic) noexcept {
+    diagnostic = {};
+    items.clear();
+    try {
+        if (parse_auxiliary_graph(input.data(), input.size(), items, diagnostic.message, diagnostic.code))
+            return true;
+    } catch (const std::bad_alloc&) {
+        diagnostic.code = heif_graph_error::capacity_exceeded;
+        diagnostic.message = "HEIF graph allocation is unavailable.";
+    } catch (const std::length_error&) {
+        diagnostic.code = heif_graph_error::capacity_exceeded;
+        diagnostic.message = "HEIF graph exceeds the allocator's supported capacity.";
+    } catch (const std::exception& ex) {
+        diagnostic.code = heif_graph_error::internal_failure;
+        diagnostic.message = ex.what();
+    } catch (...) {
+        diagnostic.code = heif_graph_error::internal_failure;
+        diagnostic.message = "HEIF graph inspection failed.";
+    }
+    // Never return a partially populated graph on failure.
+    items.clear();
+    return false;
+}
+
 bool enumerate_xmp_ranges_describing_item(std::span<const uint8_t> input,
     uint32_t described_item_id, std::vector<lpb_media_range>& ranges,
     std::string& error) noexcept {
@@ -1767,7 +1842,8 @@ bool attach_gainmap_auxiliary_graph(std::span<const uint8_t> input,
         output.insert(output.end(), new_meta.begin(), new_meta.end());
         output.insert(output.end(), raw.begin() + static_cast<std::ptrdiff_t>(meta_end), raw.end());
         std::vector<lpb_auxiliary_item_facts> parsed_auxiliaries;
-        if (!parse_auxiliary_graph(output.data(), output.size(), parsed_auxiliaries, error) ||
+        heif_graph_error graph_failure{};
+        if (!parse_auxiliary_graph(output.data(), output.size(), parsed_auxiliaries, error, graph_failure) ||
             parsed_auxiliaries.size() != 1 || parsed_auxiliaries[0].item_id != gainmap_item_id ||
             std::string_view(parsed_auxiliaries[0].semantic) != "GainMap" ||
             std::string_view(parsed_auxiliaries[0].relationship) != iso_gainmap_type) {
@@ -1795,8 +1871,14 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_heif_enumerate_auxiliary_items(
 {
     if (!context || !input || !output_count || (output_capacity > 0 && !output_items)) return LPB_RESULT_INVALID_ARGUMENT;
     try {
-        std::vector<lpb_auxiliary_item_facts> items; std::string error;
-        if (!parse_auxiliary_graph(input, input_size, items, error)) { set_error(context, error.c_str()); return LPB_RESULT_INVALID_ARGUMENT; }
+        *output_count = 0;
+        std::vector<lpb_auxiliary_item_facts> items;
+        lpb::containers::heif_graph_diagnostic diagnostic;
+        if (!lpb::containers::enumerate_auxiliary_items({input, input_size}, items, diagnostic)) {
+            set_error(context, diagnostic.message.c_str());
+            return diagnostic.code == heif_graph_error::internal_failure
+                ? LPB_RESULT_INTERNAL_ERROR : LPB_RESULT_INVALID_ARGUMENT;
+        }
         *output_count = items.size();
         if (output_capacity < items.size()) return LPB_RESULT_BUFFER_TOO_SMALL;
         if (!items.empty()) std::memcpy(output_items, items.data(), items.size() * sizeof(lpb_auxiliary_item_facts));

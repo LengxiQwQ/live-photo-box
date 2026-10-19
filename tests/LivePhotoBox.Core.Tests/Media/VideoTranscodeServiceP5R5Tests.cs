@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using LivePhotoBox.Core.Tests.Support;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Video;
 using LivePhotoBox.Media.Workspace;
@@ -133,7 +134,7 @@ public sealed class VideoTranscodeServiceP5R5Tests
     public async Task P5R5_PreexistingCallerDestinationIsNotOverwrittenOrPartiallyPublished(string operation)
     {
         string sample = ResolveAppleSample();
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string output = Path.Combine(workspace.RootDirectory, "caller-owned.mp4");
         byte[] originalBytes = [0x43, 0x41, 0x4C, 0x4C, 0x45, 0x52, 0x01, 0x02];
         await File.WriteAllBytesAsync(output, originalBytes);

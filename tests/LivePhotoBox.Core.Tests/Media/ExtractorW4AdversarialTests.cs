@@ -670,21 +670,8 @@ public sealed class ExtractorW4AdversarialTests
         return (process.ExitCode == 0 && Directory.Exists(link), process.ExitCode, output.Trim());
     }
 
-    private static (bool Created, int ExitCode, string Output) CreateSymbolicFileLink(string link, string target)
-    {
-        using Process process = Process.Start(new ProcessStartInfo
-        {
-            FileName = "cmd.exe",
-            Arguments = $"/c mklink \"{link}\" \"{target}\"",
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            CreateNoWindow = true
-        })!;
-        string output = process.StandardOutput.ReadToEnd() + process.StandardError.ReadToEnd();
-        process.WaitForExit();
-        return (process.ExitCode == 0 && File.Exists(link), process.ExitCode, output.Trim());
-    }
+    private static (bool Created, int ExitCode, string Output) CreateSymbolicFileLink(string link, string target) =>
+        NativeFileSystem.CreateFileReparseLink(link, target);
 
     private sealed class BarrierState(string root, byte[] sentinel)
     {
@@ -786,13 +773,54 @@ public sealed class ExtractorW4AdversarialTests
 
     private static class NativeFileSystem
     {
+        private const uint SymbolicLinkFlagDirectory = 0x1;
+        private const uint SymbolicLinkFlagAllowUnprivilegedCreate = 0x2;
+        private const uint FsctlSetReparsePoint = 0x000900A4;
+        private const uint FileFlagOpenReparsePoint = 0x00200000;
+        private const uint FileFlagBackupSemantics = 0x02000000;
+        private const uint GenericWrite = 0x40000000;
+        private const int ErrorPrivilegeNotHeld = 1314;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct ReparseGuidDataBuffer
+        {
+            public uint ReparseTag;
+            public ushort ReparseDataLength;
+            public ushort Reserved;
+            public Guid ReparseGuid;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)]
+            public byte[] DataBuffer;
+        }
+
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool CreateHardLinkW(string fileName, string existingFileName, nint securityAttributes);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
+        [return: MarshalAs(UnmanagedType.U1)]
         private static extern bool CreateSymbolicLinkW(string symlinkFileName, string targetFileName, uint flags);
+
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateFileW(
+            string lpFileName,
+            uint dwDesiredAccess,
+            FileShare dwShareMode,
+            nint lpSecurityAttributes,
+            FileMode dwCreationDisposition,
+            uint dwFlagsAndAttributes,
+            nint hTemplateFile);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool DeviceIoControl(
+            Microsoft.Win32.SafeHandles.SafeFileHandle hDevice,
+            uint dwIoControlCode,
+            ref ReparseGuidDataBuffer lpInBuffer,
+            int nInBufferSize,
+            nint lpOutBuffer,
+            int nOutBufferSize,
+            out uint lpBytesReturned,
+            nint lpOverlapped);
 
         internal static bool CreateHardLink(string link, string target, out int error)
         {
@@ -803,9 +831,66 @@ public sealed class ExtractorW4AdversarialTests
 
         internal static bool CreateSymbolicLink(string link, string target, bool isDirectory, out int error)
         {
-            bool result = CreateSymbolicLinkW(link, target, isDirectory ? 1u : 0u);
+            uint baseFlags = isDirectory ? SymbolicLinkFlagDirectory : 0u;
+            bool result = CreateSymbolicLinkW(link, target, baseFlags | SymbolicLinkFlagAllowUnprivilegedCreate);
+            if (!result)
+            {
+                result = CreateSymbolicLinkW(link, target, baseFlags);
+            }
             error = result ? 0 : Marshal.GetLastWin32Error();
             return result;
+        }
+
+        internal static (bool Created, int ExitCode, string Output) CreateFileReparseLink(string link, string target)
+        {
+            if (CreateSymbolicLink(link, target, isDirectory: false, out int symError) && File.Exists(link))
+            {
+                return (true, 0, "CreateSymbolicLinkW");
+            }
+
+            if (symError == ErrorPrivilegeNotHeld)
+            {
+                File.WriteAllBytes(link, []);
+                using Microsoft.Win32.SafeHandles.SafeFileHandle handle = CreateFileW(
+                    link,
+                    GenericWrite,
+                    FileShare.ReadWrite | FileShare.Delete,
+                    nint.Zero,
+                    FileMode.Open,
+                    FileFlagOpenReparsePoint | FileFlagBackupSemantics,
+                    nint.Zero);
+                if (handle.IsInvalid)
+                {
+                    int openErr = Marshal.GetLastWin32Error();
+                    return (false, openErr, $"CreateFileW for FSCTL_SET_REPARSE_POINT failed with Win32 error {openErr}");
+                }
+
+                var buffer = new ReparseGuidDataBuffer
+                {
+                    ReparseTag = 0x00000025u,
+                    ReparseDataLength = 16,
+                    Reserved = 0,
+                    ReparseGuid = new Guid("7B796859-8269-4A80-962E-309563E26A41"),
+                    DataBuffer = new byte[16]
+                };
+                if (DeviceIoControl(
+                        handle,
+                        FsctlSetReparsePoint,
+                        ref buffer,
+                        Marshal.SizeOf<ReparseGuidDataBuffer>(),
+                        nint.Zero,
+                        0,
+                        out _,
+                        nint.Zero))
+                {
+                    return (true, 0, "FSCTL_SET_REPARSE_POINT");
+                }
+
+                int ioctlErr = Marshal.GetLastWin32Error();
+                return (false, ioctlErr, $"DeviceIoControl(FSCTL_SET_REPARSE_POINT) failed with Win32 error {ioctlErr}");
+            }
+
+            return (false, symError, $"CreateSymbolicLinkW failed with Win32 error {symError}");
         }
     }
 }

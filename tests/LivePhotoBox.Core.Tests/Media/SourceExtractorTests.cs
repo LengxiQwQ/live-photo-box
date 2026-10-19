@@ -110,6 +110,41 @@ public sealed class SourceExtractorTests
         Assert.Equal(movBeforeSha, movAfterSha);
     }
 
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task LivePhotoVideoExtractor_ExtractsAndCommitsReadableMotionVideoWithoutLeakingRollbackHandle()
+    {
+        string sample = ResolveSample("oppo.jpg");
+        string beforeSha = await ComputeSha256Async(sample);
+
+        using var inspected = await new SourceInspector().InspectWithPlanAsync(sample);
+        Assert.NotNull(inspected.Facts.MotionVideo);
+
+        string? extractedPath = await LivePhotoBox.Services.LivePhotoVideoExtractor.ExtractVideoAutoAsync(sample, 0);
+        try
+        {
+            Assert.NotNull(extractedPath);
+            Assert.True(File.Exists(extractedPath));
+            Assert.Equal(inspected.Facts.MotionVideo!.ByteLength, new FileInfo(extractedPath!).Length);
+
+            // Prove that CommitExtractionOutputs closed the Native rollback handle
+            // so the caller can open the extracted preview video with exclusive access.
+            using (var exclusiveStream = new FileStream(extractedPath!, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                Assert.Equal(inspected.Facts.MotionVideo.ByteLength, exclusiveStream.Length);
+            }
+        }
+        finally
+        {
+            if (extractedPath is not null && File.Exists(extractedPath))
+            {
+                File.Delete(extractedPath);
+            }
+        }
+
+        Assert.Equal(beforeSha, await ComputeSha256Async(sample));
+    }
+
     private static async Task<string> ComputeSha256Async(string filePath)
     {
         using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 64 * 1024, useAsync: true);

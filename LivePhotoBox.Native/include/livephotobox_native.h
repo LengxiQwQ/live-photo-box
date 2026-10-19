@@ -774,7 +774,8 @@ typedef enum lpb_video_backend_kind
 {
     LPB_VIDEO_BACKEND_UNKNOWN = 0,
     LPB_VIDEO_BACKEND_PROJECT_ISOBMFF_REMUX = 1,
-    LPB_VIDEO_BACKEND_WINDOWS_MEDIA_FOUNDATION = 2
+    LPB_VIDEO_BACKEND_WINDOWS_MEDIA_FOUNDATION = 2,
+    LPB_VIDEO_BACKEND_MINIMAL_LIBAV = 3
 } lpb_video_backend_kind;
 
 typedef enum lpb_video_hardware_mode

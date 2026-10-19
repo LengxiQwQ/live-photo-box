@@ -43,63 +43,7 @@ namespace LivePhotoBox.Services
             return false;
         }
 
-        // ── 编码器参数 ──────────────────────────────────
 
-        // 获取硬件编码器的 FFmpeg 质量参数。
-        // fallbackCrf: (h264 CRF, hevc CRF)，用于不认识的编码器名兜底。
-        // 转码用 (19, 21)，修复用 (13, 14)。
-        public static string GetHardwareEncoderParams(string encoder, (int h264Crf, int hevcCrf) fallbackCrf)
-        {
-            string lower = encoder.ToLowerInvariant();
-
-            if (lower.StartsWith("h264"))
-            {
-                return lower switch
-                {
-                    "h264_nvenc" => "-preset p5 -rc:v vbr_hq -cq:v 19 -b:v 0 -maxrate:v 30M -bufsize:v 60M -profile:v high",
-                    "h264_qsv"   => "-global_quality 19 -look_ahead 1",
-                    "h264_amf"   => "-preset quality -rc cqp -qp 19",
-                    "h264_vaapi" => "-quality 85 -rc_mode 1",
-                    _            => $"-preset medium -crf {fallbackCrf.h264Crf}"
-                };
-            }
-
-            return lower switch
-            {
-                "hevc_nvenc" => "-preset p5 -rc:v vbr_hq -cq:v 21 -b:v 0 -maxrate:v 25M -bufsize:v 50M -tune hq",
-                "hevc_qsv"   => "-global_quality 21 -look_ahead 1",
-                "hevc_amf"   => "-preset quality -rc cqp -qp 21",
-                "hevc_vaapi" => "-quality 85 -rc_mode 1",
-                _            => $"-preset medium -crf {fallbackCrf.hevcCrf}"
-            };
-        }
-
-        // 获取软件编码器名 + 参数。
-        public static (string encoder, string encoderParams) GetSoftwareEncoder(string codec, int crf)
-        {
-            return codec == "hevc"
-                ? ("libx265", $"-preset medium -crf {crf}")
-                : ("libx264", $"-preset medium -crf {crf}");
-        }
-
-        // ── 编码器线程数 ────────────────────────────────
-
-        // 获取 FFmpeg -threads 参数值。
-        // 硬件编码：固定 1（编码在 GPU，CPU 线程无用）。
-        // 软件编码：用户设置值，受 maxSoftwareThreads 上限约束。
-        // VTS 传 null（不限制），Repair 传 6（x264/x265 超 6 线程收益递减 + 多任务并行）。
-        public static int GetThreadCount(string? encoder, int? maxSoftwareThreads = null)
-        {
-            int userThreads = AppSettingsService.GetValue("SplitThreadCount", Environment.ProcessorCount);
-
-            if (!string.IsNullOrEmpty(encoder) && IsHardwareEncoder(encoder))
-                return 1;
-
-            if (maxSoftwareThreads.HasValue)
-                return Math.Min(userThreads, maxSoftwareThreads.Value);
-
-            return userThreads;
-        }
 
         // ── 跨 Codec 推导 ──────────────────────────────
 

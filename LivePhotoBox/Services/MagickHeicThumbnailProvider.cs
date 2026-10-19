@@ -1,4 +1,7 @@
 using ImageMagick;
+using LivePhotoBox.Media.Extraction;
+using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Media.Workspace;
 using System;
 using System.IO;
 using System.Threading.Tasks;
@@ -48,7 +51,7 @@ namespace LivePhotoBox.Services
             catch { /* Ping 失败 → 回退到完整解码 */ }
 
             // ── 慢路径：完整解码 + Sample ──
-            var data = await Task.Run(() =>
+            var data = await Task.Run(async () =>
             {
                 try
                 {
@@ -61,51 +64,27 @@ namespace LivePhotoBox.Services
                 }
                 catch (Exception)
                 {
-                    // Magick.NET 标准解码失败 → 文件中有额外数据（嵌入 MP4 / mpvd box）
-                    // 华为: [HEIC] + [嵌入 MP4] + [LIVE_ 尾]
-                    // Google V2: [HEIC] + [mpvd box]
-                    // 切出纯 HEIC 图像部分再解码
-
-                    // 先试华为格式（LIVE_ 尾标 + 嵌入 MP4）
-                    var range = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(imagePath);
-                    long heicEnd = 0;
-
-                    if (range != null)
-                    {
-                        heicEnd = range.Value.videoStart;
-                    }
-                    else
-                    {
-                        // 不是华为 → 检查 Google V2 HEIC (mpvd box)
-                        long mpvdLen = LivePhotoMergeService.GetMpvdVideoLength(imagePath);
-                        if (mpvdLen > 0)
-                        {
-                            // mpvd box 起始位置 = 文件末尾 - mpvd box 大小
-                            // mpvd box size = 8 (header) + videoLength
-                            // 简化：用 GetMpvdVideoStart 定位 mpvd payload 起始，
-                            // HEIC end = mpvd box 起始 - 8 (box size + fourcc)
-                            long payloadStart = LivePhotoMergeService.GetMpvdVideoStart(imagePath);
-                            if (payloadStart > 8)
-                                heicEnd = payloadStart - 8; // mpvd box 从 box size 字段开始
-                        }
-                    }
-
-                    if (heicEnd <= 0 || heicEnd > new FileInfo(imagePath).Length)
-                        throw; // 无法定位纯 HEIC 部分，原样抛出
-
-                    byte[] heicBytes = new byte[heicEnd];
-                    using (var fs = new FileStream(imagePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
-                        fs.ReadExactly(heicBytes, 0, (int)heicEnd);
-
-                    using var image = new MagickImage(heicBytes);
-                    image.AutoOrient();
-                    image.Strip();
-                    image.Sample(targetSize, targetSize);
-                    image.Format = MagickFormat.Jpeg;
-                    return image.ToByteArray();
+                    return await LoadInspectedPrimaryThumbnailAsync(imagePath, targetSize).ConfigureAwait(false);
                 }
             });
             return (data, (int)targetSize, (int)targetSize);
+        }
+
+        internal static async Task<byte[]> LoadInspectedPrimaryThumbnailAsync(string imagePath, uint targetSize)
+        {
+            // Decode a transaction-owned primary image extracted under
+            // Inspector authority. Never guess/truncate a HEIF box range.
+            using var inspected = await new SourceInspector().InspectWithPlanAsync(imagePath).ConfigureAwait(false);
+            using var workspace = new MediaWorkspace();
+            var extracted = await new SourceExtractor().ExtractAsync(
+                inspected.ExtractionPlan, imagePath, null, workspace).ConfigureAwait(false);
+            using var cleanupPlan = extracted.CleanupPlan;
+            using var image = new MagickImage(extracted.PrimaryImage.Path);
+            image.AutoOrient();
+            image.Strip();
+            image.Sample(targetSize, targetSize);
+            image.Format = MagickFormat.Jpeg;
+            return image.ToByteArray();
         }
     }
 }

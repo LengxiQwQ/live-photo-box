@@ -1,25 +1,7 @@
 #pragma once
 
-#include "livephotobox_native.h"
-#include <string>
-#include <vector>
-
 namespace lpb::protocols::clean {
-
-lpb_result strip_jpeg_tail_data(
-    lpb_context* context,
-    const std::string& input_path,
-    const std::string& output_path,
-    const char* proto,
-    const char* comp,
-    const char* desc,
-    std::vector<lpb_removed_protocol_fact>& out_facts);
-
-lpb_result clean_huawei_image(
-    lpb_context* context,
-    const std::string& input_path,
-    const std::string& output_path,
-    lpb_image_container container,
-    std::vector<lpb_removed_protocol_fact>& out_facts);
-
+// Legacy path-based JPEG tail helpers (strip_jpeg_tail_data / clean_huawei_image)
+// were retired in P3; all JPEG/HEIC tail and structure cleaning is executed through
+// plan-authorized media_cleaner.cpp actions with full fingerprint and staged-output verification.
 } // namespace lpb::protocols::clean

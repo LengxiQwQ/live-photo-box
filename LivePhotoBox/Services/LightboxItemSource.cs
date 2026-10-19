@@ -6,8 +6,8 @@
  *
  * 两种来源模式：
  * - FromMergeTasks：配对文件，直接用 MergeTask.VideoPath
- * - FromSplitTasks：单文件实况，解析 XMP 获取追加视频段长度，以及支持同名配对视频
- * - FromPaths：通用回退，自动探测目录内配对视频 + 单文件 XMP
+ * - FromSplitTasks：复用扫描事实，同名配对候选仍需 Native Inspector 确认
+ * - FromPaths：通过 Native Inspector 读取单文件视频事实
  */
 
 using LivePhotoBox.Models;
@@ -103,7 +103,7 @@ namespace LivePhotoBox.Services
                 long videoLen = t.AppendedVideoLength;
                 string? videoPath = null;
 
-                // 兜底：苹果格式同名配对视频（仅当不是单文件实况时才查）
+                // A same-name file is only a candidate; Native must confirm it.
                 videoPath = videoLen > 0 ? null : FindPairedVideo(t.SourcePath);
 
                 items.Add(new LightboxItem
@@ -135,19 +135,13 @@ namespace LivePhotoBox.Services
                     string? videoPath = null;
                     long videoLen = 0;
 
-                    if (File.Exists(path))
+                    if (!File.Exists(path))
+                        throw new FileNotFoundException("Preview source was not found.", path);
+                    if (IsImagePath(path))
                     {
-                        if (IsImagePath(path))
-                        {
-                            try
-                            {
-                                var facts = await new SourceInspector().InspectAsync(path);
-                                videoLen = facts.MotionVideo is { IsPresent: true } video
-                                    ? video.ByteLength
-                                    : 0;
-                            }
-                            catch { videoLen = 0; }
-                        }
+                        var facts = await new SourceInspector().InspectAsync(path);
+                        videoLen = facts.MotionVideo is { IsPresent: true, SourceIndex: 0 } video
+                            ? video.ByteLength : 0;
                     }
 
                     items[index] = new LightboxItem
@@ -179,90 +173,28 @@ namespace LivePhotoBox.Services
             {
                 string candidate = Path.Combine(dir, baseName + ext);
                 if (File.Exists(candidate))
-                    return candidate;
+                {
+                    var facts = new SourceInspector().InspectAsync(imagePath, candidate).GetAwaiter().GetResult();
+                    if (facts.MotionVideo is { IsPresent: true, SourceIndex: 1 })
+                        return candidate;
+                }
             }
             return null;
         }
 
         private static bool IsImagePath(string path)
         {
-            string ext = Path.GetExtension(path);
+            string ext = Path.GetExtension(path).ToLowerInvariant();
             return ext is ".jpg" or ".jpeg" or ".heic" or ".heif";
         }
 
-        /// <summary>
-        /// 检查文件尾部 4KB 是否包含华为/荣耀 LIVE_ 尾标。
-        /// 轻量操作（仅读 4KB），不按扩展名筛选。
-        /// </summary>
-        private static bool HasLiveTailMarker(string filePath)
-        {
-            try
-            {
-                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                if (fs.Length < 60) return false;
-                int readSize = (int)Math.Min(fs.Length, 4096);
-                byte[] buf = new byte[readSize];
-                fs.Seek(-readSize, SeekOrigin.End);
-                fs.ReadExactly(buf, 0, readSize);
-                return buf.AsSpan().IndexOf("LIVE_"u8) >= 0;
-            }
-            catch
-            {
-                return false;
-            }
-        }
-
-        /// <summary>
-        /// 对单个图片文件执行实况视频探测：读 XMP 头获取 videoLen，无则查尾部 LIVE_ 标记。
-        /// 覆盖所有单文件协议：Google V1/V2（XMP Item:Length/MicroVideoOffset）、
-        /// OPPO/vivo/小米（XMP）、华为/荣耀（LIVE_ 尾标）。普通照片无任何标记 → videoLen=0。
-        /// 供灯箱后台探测调用（internal）。
-        /// </summary>
+        // Read-only preview detection uses the same Native authority as export.
+        // Inspection errors propagate to the caller; they are not "no video".
         internal static void DetectSingleFileVideo(string filePath, out long videoLen)
         {
-            videoLen = 0;
-            if (!File.Exists(filePath)) return;
-            string ext = Path.GetExtension(filePath)?.ToLowerInvariant() ?? "";
-            if (ext is not ".jpg" and not ".jpeg" and not ".heic" and not ".heif") return;
-
-            try
-            {
-                // 读头部 64KB 搜索 XMP 元数据（含 GetAppendedVideoLength 所需的所有标记）
-                using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                long fileSize = fs.Length;
-                int headRead = (int)Math.Min(fileSize, 64 * 1024);
-                byte[] headBuf = new byte[headRead];
-                fs.ReadExactly(headBuf, 0, headRead);
-                string meta = System.Text.Encoding.UTF8.GetString(headBuf);
-
-                // GetAppendedVideoLength 对无 XMP 标记的文件抛异常（不是返回 0），
-                // 单独 try/catch 确保异常不阻断后续尾标探测
-                try
-                {
-                    videoLen = LivePhotoSplitService.GetAppendedVideoLength(meta);
-                }
-                catch
-                {
-                    videoLen = 0;
-                }
-            }
-            catch { videoLen = 0; }
-
-            // XMP 解析不出 videoLen → 查尾部 LIVE_ 标记（华为/荣耀）
-            // 此检查放在外层 try/catch 之后，确保不会被 XMP 异常阻断
-            if (videoLen == 0 && HasLiveTailMarker(filePath))
-            {
-                try
-                {
-                    var hwRange = LivePhotoSplitService.GetHuaweiEmbeddedVideoRange(filePath);
-                    if (hwRange.HasValue)
-                    {
-                        videoLen = hwRange.Value.videoLength;
-                    }
-                }
-                catch { /* 非华为/荣耀文件静默跳过 */ }
-            }
+            var facts = new SourceInspector().InspectAsync(filePath).GetAwaiter().GetResult();
+            videoLen = facts.MotionVideo is { IsPresent: true, SourceIndex: 0 } video
+                ? video.ByteLength : 0;
         }
-
     }
 }

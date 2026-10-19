@@ -9,6 +9,29 @@
 
 namespace lpb::containers {
 
+// Internal parser result only; diagnostic text never determines inspection status.
+// Keep this out of the public C ABI and successful item-facts layout.
+enum class heif_graph_error {
+    none,
+    malformed,
+    duplicate_identity,
+    missing_reference,
+    reference_cycle,
+    unsupported_layout,
+    capacity_exceeded,
+    internal_failure
+};
+
+struct heif_graph_diagnostic {
+    heif_graph_error code{heif_graph_error::none};
+    std::string message;
+};
+
+lpb_inspection_failure_category inspection_category(heif_graph_error error) noexcept;
+
+bool enumerate_auxiliary_items(std::span<const uint8_t> input,
+    std::vector<lpb_auxiliary_item_facts>& items, heif_graph_diagnostic& diagnostic) noexcept;
+
 bool attach_gainmap_auxiliary_graph(std::span<const uint8_t> input,
     uint32_t primary_item_id, uint32_t gainmap_item_id,
     std::vector<uint8_t>& output, std::string& error) noexcept;

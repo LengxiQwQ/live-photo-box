@@ -7,21 +7,33 @@ namespace LivePhotoBox.Core.Tests;
 public sealed class EncoderHelperTests
 {
     [Theory]
-    [InlineData("h264_nvenc", 19)]
-    [InlineData("hevc_nvenc", 21)]
-    public void NvencParameters_MatchV221QualityMode(string encoder, int expectedQuality)
+    [InlineData("h264_nvenc", true)]
+    [InlineData("hevc_qsv", true)]
+    [InlineData("h264_amf", true)]
+    [InlineData("hevc_vaapi", true)]
+    [InlineData("libx264", false)]
+    [InlineData("libx265", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void IsHardwareEncoder_IdentifiesKnownHardwareEncoders(string? encoder, bool expected)
     {
-        string parameters = EncoderHelper.GetHardwareEncoderParams(encoder, (19, 21));
+        Assert.Equal(expected, EncoderHelper.IsHardwareEncoder(encoder!));
+    }
 
-        Assert.Contains("-rc:v vbr_hq", parameters);
-        Assert.Contains($"-cq:v {expectedQuality}", parameters);
+    [Theory]
+    [InlineData("h264_nvenc", "hevc_nvenc")]
+    [InlineData("hevc_qsv", "h264_qsv")]
+    [InlineData("h264_amf", "hevc_amf")]
+    [InlineData("unknown_codec", null)]
+    public void DeriveCrossCodecEncoder_MapsAccurately(string input, string? expected)
+    {
+        Assert.Equal(expected, EncoderHelper.DeriveCrossCodecEncoder(input));
     }
 
     [Fact]
-    public void RepairNvencParameters_MatchV221RcMode()
+    public void IsEncoderAvailable_RebuiltMode_ReturnsFalseForExternalFfmpeg()
     {
-        string parameters = EncoderHelper.GetHardwareEncoderParams("h264_nvenc", (13, 14));
-
-        Assert.Contains("-rc:v vbr_hq", parameters);
+        Assert.False(EncoderHelper.IsEncoderAvailable("h264_nvenc"));
+        Assert.False(EncoderHelper.IsEncoderAvailable("libx264"));
     }
 }

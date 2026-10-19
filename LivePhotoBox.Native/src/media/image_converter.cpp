@@ -7,10 +7,10 @@
 #include "platform/windows_filesystem.h"
 #include "foundation/sha256_core.h"
 
+#include <algorithm>
 #include <array>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 
 namespace fs = std::filesystem;
 
@@ -40,11 +40,10 @@ lpb_result fast_file_copy(lpb_context* context, const char* input_path, const ch
     return LPB_RESULT_OK;
 }
 
-bool read_header(const char* input_path, uint8_t (&header)[16]) noexcept {
-    std::ifstream input(utf8_to_path(input_path), std::ios::binary);
-    if (!input.is_open()) return false;
-    input.read(reinterpret_cast<char*>(header), sizeof(header));
-    return input.gcount() >= 8;
+bool read_header(const windows_readonly_source& input, uint8_t (&header)[16]) noexcept {
+    if (input.size() < 8) return false;
+    const size_t to_read = static_cast<size_t>(std::min<uint64_t>(input.size(), sizeof(header)));
+    return input.read_at(0, std::span<uint8_t>(header, to_read));
 }
 
 bool icc_profile_matches_observation(const lpb_preservation_observation& observation,
@@ -69,8 +68,10 @@ lpb_result convert_image_file(lpb_context* context, const char* input_image_path
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     if (out_reencoded) *out_reencoded = 0;
+    const fs::path source_path = utf8_to_path(input_image_path);
+    windows_readonly_source source_lease;
     uint8_t header[16]{};
-    if (!read_header(input_image_path, header)) {
+    if (!source_lease.open(source_path) || !read_header(source_lease, header)) {
         set_error(context, "Cannot read the input image header.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
@@ -87,6 +88,10 @@ lpb_result convert_image_file(lpb_context* context, const char* input_image_path
         jpeg_rgb_image jpeg;
         const lpb_result decoded = decode_jpeg_rgb_file(context, input_image_path, jpeg);
         if (decoded != LPB_RESULT_OK) return decoded;
+        if (!source_lease.verify_same_identity(source_path)) {
+            set_error(context, "Input JPEG identity changed during conversion.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         pixel_surface pixels{};
         pixels.width = jpeg.width;
         pixels.height = jpeg.height;
@@ -118,6 +123,10 @@ lpb_result convert_image_file(lpb_context* context, const char* input_image_path
         heic_image_facts facts{};
         const lpb_result decoded = decode_heic_primary_file(context, input_image_path, pixels, &facts);
         if (decoded != LPB_RESULT_OK) return decoded;
+        if (!source_lease.verify_same_identity(source_path)) {
+            set_error(context, "Input HEIC identity changed during conversion.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
         // JPEG is 8-bit SDR. P5 owns an explicit HDR/GainMap transform/degradation
         // policy; this generic converter must not silently quantize a 10-bit/HDR source.
         if (pixels.signal_bit_depth > 8 || pixels.storage_bit_depth > 8 || facts.hdr_relevant) {

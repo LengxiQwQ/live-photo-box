@@ -88,6 +88,7 @@ public sealed class CleanerProductionTrustChainTests
     {
         string samplePath = ResolveSample("oppo.jpg");
         using var workspace = new MediaWorkspace();
+        using var outputFixture = new LivePhotoBox.Core.Tests.Support.TestFixtureWorkspace();
         using var inspected = await new SourceInspector().InspectWithPlanAsync(samplePath);
         ExtractedMediaBundle bundle = await new SourceExtractor().ExtractAsync(
             inspected.ExtractionPlan, samplePath, null, workspace);
@@ -95,7 +96,7 @@ public sealed class CleanerProductionTrustChainTests
         using CleanupPlan cleanupPlan = bundle.CleanupPlan!;
         using CleanupPlanAttempt attempt = cleanupPlan.BeginCleanupAttempt();
 
-        string cleanedPath = workspace.AllocateFilePath("clean-img", ".jpg");
+        string cleanedPath = outputFixture.AllocateFilePath("clean-img", ".jpg");
         NativeResult? rawResult = null;
         using var borrowed = new ManualResetEventSlim(initialState: false);
         using var hookEntered = new ManualResetEventSlim(initialState: false);
@@ -209,7 +210,9 @@ public sealed class CleanerProductionTrustChainTests
         }
         finally
         {
-            // Clean the adversarial leftovers so MediaWorkspace can dispose.
+            // Remove the foreign object B and restore the owned object A to its
+            // registered pathname with normal attributes so MediaWorkspace.Dispose
+            // can verify and delete the exact registered object with proof.
             if (foreignPath != null && File.Exists(foreignPath))
             {
                 File.Delete(foreignPath);
@@ -217,7 +220,14 @@ public sealed class CleanerProductionTrustChainTests
             if (sidePath != null && File.Exists(sidePath))
             {
                 File.SetAttributes(sidePath, FileAttributes.Normal);
-                File.Delete(sidePath);
+                if (foreignPath != null)
+                {
+                    File.Move(sidePath, foreignPath);
+                }
+                else
+                {
+                    File.Delete(sidePath);
+                }
             }
         }
     }

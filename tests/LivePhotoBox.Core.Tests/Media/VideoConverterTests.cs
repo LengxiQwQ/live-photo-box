@@ -315,7 +315,7 @@ public sealed class VideoConverterTests
         Assert.NotNull(result.OutputArtifact);
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.False(result.ExecutionRecord.RemuxUsed);
-        Assert.Equal(VideoBackend.Unknown, result.ExecutionRecord.Backend);
+        Assert.Equal(VideoBackend.MinimalLibav, result.ExecutionRecord.Backend);
         Assert.Equal(VideoHardwareMode.SoftwareForced, result.ExecutionRecord.HardwareMode);
         Assert.False(result.ExecutionRecord.HardwareFallbackOccurred);
         Assert.Equal(ConversionOperationKind.LossyReencode, result.ExecutionRecord.Truth.ActualOperationKind);
@@ -549,7 +549,7 @@ public sealed class VideoConverterTests
         Assert.True(result.Success, result.ErrorMessage);
         Assert.NotNull(result.OutputArtifact);
         Assert.True(File.Exists(result.OutputArtifact.Path));
-        Assert.Equal(VideoBackend.Unknown, result.ExecutionRecord.Backend);
+        Assert.Equal(VideoBackend.MinimalLibav, result.ExecutionRecord.Backend);
         Assert.Equal(VideoHardwareMode.SoftwareForced, result.ExecutionRecord.HardwareMode);
         Assert.StartsWith("minimal-libav/P7-R4-HEVC-v2/", result.ExecutionRecord.SelectedEncoder, StringComparison.Ordinal);
         Assert.Equal(ConversionOperationKind.LossyReencode, result.ExecutionRecord.Truth.ActualOperationKind);
@@ -588,7 +588,7 @@ public sealed class VideoConverterTests
         Assert.False(result.Success);
         Assert.Null(result.OutputArtifact);
         Assert.Empty(Directory.GetFiles(workspace.RootDirectory, "vid-conv-*"));
-        Assert.Equal(VideoBackend.Unknown, result.ExecutionRecord.Backend);
+        Assert.Equal(VideoBackend.MinimalLibav, result.ExecutionRecord.Backend);
         Assert.Equal(VideoHardwareMode.SoftwareForced, result.ExecutionRecord.HardwareMode);
         Assert.Equal(ConversionOperationKind.Unsupported, result.ExecutionRecord.Truth.ActualOperationKind);
         Assert.Equal(ConversionFailureCategory.Unsupported, result.ExecutionRecord.Truth.FailureCategory);
@@ -623,7 +623,7 @@ public sealed class VideoConverterTests
         Assert.NotNull(attempt.FailureException);
         Assert.Null(attempt.OutputEvidence);
         Assert.False(string.IsNullOrWhiteSpace(attempt.LastError));
-        Assert.Equal(VideoBackend.Unknown, attempt.Diagnostics.Backend);
+        Assert.Equal(VideoBackend.MinimalLibav, attempt.Diagnostics.Backend);
         Assert.Equal(VideoHardwareMode.SoftwareForced, attempt.Diagnostics.HardwareMode);
         Assert.Equal("9.0.1", attempt.Diagnostics.BackendVersion);
         Assert.False(attempt.Diagnostics.OutputCandidateObserved);

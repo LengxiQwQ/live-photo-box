@@ -1436,12 +1436,23 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private async Task ExportCurrentFrame()
         {
-            await _exportService.ExportCurrentFrameAsync(
-                SelectedTimelineFrame,
-                IsSelectedLivePhoto,
-                IsSelectedFileVideo,
-                CurrentDocument?.PrimaryPath ?? SelectedFilePath,
-                this);
+            try
+            {
+                await _exportService.ExportCurrentFrameAsync(
+                    SelectedTimelineFrame,
+                    IsSelectedLivePhoto,
+                    IsSelectedFileVideo,
+                    CurrentDocument?.PrimaryPath ?? SelectedFilePath,
+                    this);
+            }
+            catch (Exception ex)
+            {
+                // Source preparation and cleanup can fail outside the service's
+                // inner publication try. Observe them at the UI command boundary.
+                LogService.Error("Current frame export failed before completion.", ex, LogSource.UI);
+                FailExportProgress(ResourceService.GetString("EditPage_ExportCurrentFrameFailed"), ex.Message);
+                FinalizeExportProgress();
+            }
         }
 
 
@@ -2123,6 +2134,31 @@ namespace LivePhotoBox.ViewModels
         /// </summary>
         private async Task UpdatePreviewForTimelineFrameAsync(TimelineFrame frame)
         {
+            try { await UpdatePreviewForTimelineFrameCoreAsync(frame); }
+            catch (Exception ex)
+            {
+                LogService.Error("Timeline frame inspection failed; preview was blocked.", ex, LogSource.UI);
+                if (!ReferenceEquals(SelectedTimelineFrame, frame)) return;
+                SetPreviewSafe(null);
+                IsPreviewLoading = false;
+                if (App.MainWindow?.Content?.XamlRoot is { } root)
+                {
+                    try
+                    {
+                        await DialogService.ShowSingleAsync(root,
+                            ResourceService.GetString("Preview_InspectionFailed"), ex.Message,
+                            ResourceService.GetString("Msg_GotIt"));
+                    }
+                    catch (Exception notificationError)
+                    {
+                        LogService.Error("Timeline preview failure notification could not be displayed.", notificationError, LogSource.UI);
+                    }
+                }
+            }
+        }
+
+        private async Task UpdatePreviewForTimelineFrameCoreAsync(TimelineFrame frame)
+        {
             string? imagePath = null;
 
             if (frame.IsStillPhoto)
@@ -2138,16 +2174,14 @@ namespace LivePhotoBox.ViewModels
                 else
                 {
                     var primaryPath = CurrentDocument?.PrimaryPath ?? SelectedFilePath;
-                    if (!string.IsNullOrEmpty(primaryPath) && File.Exists(primaryPath))
-                    {
-                        byte[]? origBytes = EditTimingService.ReadOriginalPhotoBytes(primaryPath);
-                        if (origBytes != null && origBytes.Length > 0)
-                        {
-                            string tempPath = Path.Combine(Path.GetTempPath(), $"lpb_preview_orig_{Guid.NewGuid():N}.jpg");
-                            await File.WriteAllBytesAsync(tempPath, origBytes);
-                            imagePath = tempPath;
-                        }
-                    }
+                    if (string.IsNullOrEmpty(primaryPath) || !File.Exists(primaryPath))
+                        throw new FileNotFoundException("Original photo source was not found.", primaryPath);
+                    byte[]? origBytes = EditTimingService.ReadOriginalPhotoBytes(primaryPath);
+                    if (origBytes == null || origBytes.Length == 0)
+                        throw new InvalidDataException("The requested Original image is absent from the inspected source.");
+                    using var prepared = await ExportSourcePreparation.PrepareOriginalBytesAsync(origBytes, CancellationToken.None);
+                    await LoadPreviewAsync(prepared.Path);
+                    return;
                 }
             }
             else if (!string.IsNullOrEmpty(frame.FullFramePath) && File.Exists(frame.FullFramePath))

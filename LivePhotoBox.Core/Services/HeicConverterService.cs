@@ -188,14 +188,6 @@ namespace LivePhotoBox.Services
             }
         }
 
-        public static Task<string> ConvertHeicToHeicPreservingAsync(
-            string heicPath, string outputDirectory, CancellationToken token,
-            string? exifSourcePath = null, string? metadataSourcePath = null)
-        {
-            // 外部工具已移除，直接返回原 HEIC 路径
-            return Task.FromResult(heicPath);
-        }
-
         // ── 调度 ──────────────────────────────────────────
 
         private static async Task<string> ConvertInternalAsync(string heicPath, string outputPath, int quality, CancellationToken token)

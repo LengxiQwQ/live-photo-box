@@ -9,7 +9,6 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
-#include <fstream>
 #include <limits>
 
 namespace fs = std::filesystem;
@@ -21,15 +20,8 @@ constexpr uint64_t kMaxPixels = 100ull * 1024ull * 1024ull;
 bool okay(heif_error error) noexcept { return error.code == heif_error_Ok; }
 
 bool read_file_bounded(const fs::path& path, std::vector<uint8_t>& bytes) noexcept {
-    std::error_code ec;
-    const auto size = fs::file_size(path, ec);
-    if (ec || size == 0 || size > kMaxCompressedBytes || size > std::numeric_limits<size_t>::max()) return false;
-    try { bytes.resize(static_cast<size_t>(size)); }
-    catch (...) { return false; }
-    std::ifstream input(path, std::ios::binary);
-    if (!input.is_open()) return false;
-    input.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-    return input.good() || input.gcount() == static_cast<std::streamsize>(bytes.size());
+    windows_readonly_source input;
+    return input.open(path) && input.read_all_bounded(1, kMaxCompressedBytes, bytes);
 }
 
 bool safe_dimensions(uint32_t width, uint32_t height, uint32_t channels, uint32_t bytes_per_sample,

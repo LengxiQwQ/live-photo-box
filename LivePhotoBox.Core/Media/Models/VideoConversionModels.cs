@@ -6,7 +6,8 @@ public enum VideoBackend
 {
     Unknown = 0,
     ProjectIsoBmffRemux = 1,
-    WindowsMediaFoundation = 2
+    WindowsMediaFoundation = 2,
+    MinimalLibav = 3
 }
 
 public enum VideoHardwareMode

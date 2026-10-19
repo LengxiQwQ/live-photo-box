@@ -277,8 +277,8 @@ namespace LivePhotoBox.Views
             var previewTasks = ViewModel.FilteredTasks.Where(t => !t.IsGroupHeader).ToList();
             int idx = previewTasks.IndexOf(task);
             if (idx < 0) return;
-            var items = LightboxItemSource.FromRepairTasks(previewTasks);
-            _ = ((MainWindow)App.MainWindow!).Lightbox.ShowAsync(items, idx);
+            _ = ((MainWindow)App.MainWindow!).Lightbox.ShowInspectedAsync(
+                () => LightboxItemSource.FromRepairTasks(previewTasks), idx);
         }
 
         private void AttachRepairShortcuts()

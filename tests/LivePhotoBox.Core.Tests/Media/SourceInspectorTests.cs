@@ -1312,6 +1312,8 @@ public sealed class SourceInspectorTests
         Assert.NotNull(facts.PrimaryImage);
         Assert.NotNull(facts.MotionVideo);
         Assert.True(facts.Timing.CoverTimestampUs != 0);
+        Assert.Equal(2762000, facts.Timing.CoverTimestampUs);
+        Assert.Equal(1280253, facts.Timing.PrimaryTimestampUs);
         AuxiliaryMediaFacts original = Assert.Single(facts.AuxiliaryItems,
             item => item.Semantic == "Original");
         Assert.Equal(3176955, original.ByteOffset);

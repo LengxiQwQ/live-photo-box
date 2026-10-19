@@ -6,7 +6,6 @@
 #include <turbojpeg.h>
 #include <algorithm>
 #include <filesystem>
-#include <fstream>
 #include <limits>
 #include <vector>
 
@@ -22,15 +21,8 @@ constexpr uint64_t kMaxPixels = 100ull * 1024ull * 1024ull;
 constexpr const char kJpegBackendVersion[] = "libjpeg-turbo " LPB_STRINGIFY(TURBOJPEG_VERSION_NUMBER);
 
 bool read_file_bounded(const fs::path& path, std::vector<unsigned char>& bytes) noexcept {
-    std::error_code ec;
-    const uintmax_t size = fs::file_size(path, ec);
-    if (ec || size < 2 || size > kMaxCompressedBytes || size > std::numeric_limits<size_t>::max()) return false;
-    try { bytes.resize(static_cast<size_t>(size)); }
-    catch (...) { return false; }
-    std::ifstream input(path, std::ios::binary);
-    if (!input.is_open()) return false;
-    input.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-    return input.good() || input.gcount() == static_cast<std::streamsize>(bytes.size());
+    windows_readonly_source input;
+    return input.open(path) && input.read_all_bounded(2, kMaxCompressedBytes, bytes);
 }
 
 // Returns the byte immediately after the codestream EOI. It deliberately

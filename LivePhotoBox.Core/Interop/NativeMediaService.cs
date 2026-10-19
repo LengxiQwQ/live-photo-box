@@ -619,6 +619,35 @@ public static class NativeMediaService
             cleanupSourcePath: null,
             configureContext: configureContext,
             cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            NativeResult verifyResult = NativeMethods.VerifyExtractionOutputs(
+                attempt.ContextLease.Handle,
+                attempt.NativeHandle,
+                attempt.Generation);
+            if (verifyResult != NativeResult.Ok)
+            {
+                attempt.Context.ThrowIfFailed(verifyResult);
+            }
+
+            NativeResult commitResult = NativeMethods.CommitExtractionOutputs(
+                attempt.ContextLease.Handle,
+                attempt.NativeHandle,
+                attempt.Generation);
+            if (commitResult != NativeResult.Ok)
+            {
+                attempt.Context.ThrowIfFailed(commitResult);
+            }
+        }
+        catch
+        {
+            NativeMethods.RollbackExtractionOutputs(
+                attempt.ContextLease.Handle,
+                attempt.NativeHandle,
+                attempt.Generation);
+            throw;
+        }
     }
 
     internal static unsafe Task ExtractMediaAsync(
@@ -1025,21 +1054,87 @@ public static class NativeMediaService
         }
     }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NativeStagedOutputFileIdentity
+    {
+        public uint VolumeSerial;
+        public ulong FileIndex;
+        public ulong FileSize;
+        public uint LinkCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private unsafe struct NativeStagedOutputRecord
+    {
+        public uint StructSize;
+        public int ArtifactRole;
+        public uint AuxiliaryIndex;
+        public NativeStagedOutputFileIdentity Identity;
+        public fixed byte FinalPath[1024];
+    }
+
+    private readonly record struct StagedOutputReceipt(
+        MediaArtifactKind ArtifactRole,
+        uint AuxiliaryIndex,
+        uint VolumeSerial,
+        ulong FileIndex,
+        ulong FileSize,
+        uint LinkCount,
+        string FinalPath);
+
+    private static IReadOnlyList<StagedOutputReceipt> QueryContextStagedOutputs(nint contextHandle)
+    {
+        var result = new List<StagedOutputReceipt>();
+        if (contextHandle == nint.Zero)
+        {
+            return result;
+        }
+
+        unsafe
+        {
+            nuint count = NativeMethods.CleanGetStagedOutputs(contextHandle, nint.Zero, 0);
+            if (count == 0)
+            {
+                return result;
+            }
+
+            var buf = new NativeStagedOutputRecord[count];
+            fixed (NativeStagedOutputRecord* p = buf)
+            {
+                nuint written = NativeMethods.CleanGetStagedOutputs(contextHandle, (nint)p, count);
+                for (nuint i = 0; i < written && i < count; i++)
+                {
+                    NativeStagedOutputRecord* pRec = &p[i];
+                    string path = ReadFixedUtf8String(pRec->FinalPath, 1024);
+                    result.Add(new StagedOutputReceipt(
+                        (MediaArtifactKind)pRec->ArtifactRole,
+                        pRec->AuxiliaryIndex,
+                        pRec->Identity.VolumeSerial,
+                        pRec->Identity.FileIndex,
+                        pRec->Identity.FileSize,
+                        pRec->Identity.LinkCount,
+                        path));
+                }
+            }
+        }
+
+        return result;
+    }
+
     internal static NativeRegisteredOutputEvidence CaptureRegisteredOutputEvidence(
         NativeContext context,
         string outputPath,
         MediaArtifactKind expectedRole)
     {
         string fullOutputPath = Path.GetFullPath(outputPath);
-        IReadOnlyList<NativeCleanService.CleanStagedOutputRecord> records =
-            NativeCleanService.QueryStagedOutputs(context.Handle, useHarnessLibrary: false);
+        IReadOnlyList<StagedOutputReceipt> records = QueryContextStagedOutputs(context.Handle);
         if (records.Count != 1)
         {
             throw new InvalidDataException(
                 $"Native conversion registered {records.Count} staged outputs; expected exactly one output for {expectedRole}.");
         }
 
-        NativeCleanService.CleanStagedOutputRecord record = records[0];
+        StagedOutputReceipt record = records[0];
         if (record.ArtifactRole != expectedRole || record.LinkCount != 1 || record.FileSize == 0 ||
             string.IsNullOrWhiteSpace(record.FinalPath) ||
             !string.Equals(Path.GetFullPath(record.FinalPath), fullOutputPath, StringComparison.OrdinalIgnoreCase))
@@ -1104,16 +1199,15 @@ public static class NativeMediaService
                 throw new InvalidDataException("Native extraction output bindings contain a duplicate role/index pair.");
         }
 
-        IReadOnlyList<NativeCleanService.CleanStagedOutputRecord> records =
-            NativeCleanService.QueryStagedOutputs(attempt.ContextLease.Handle, useHarnessLibrary: false);
+        IReadOnlyList<StagedOutputReceipt> records = QueryContextStagedOutputs(attempt.ContextLease.Handle);
         if (records.Count != expectedByPath.Count)
         {
             throw new InvalidDataException(
                 $"Native extraction registered {records.Count} staged outputs; expected {expectedByPath.Count} output receipts.");
         }
 
-        var recordsByPath = new Dictionary<string, NativeCleanService.CleanStagedOutputRecord>(StringComparer.OrdinalIgnoreCase);
-        foreach (NativeCleanService.CleanStagedOutputRecord record in records)
+        var recordsByPath = new Dictionary<string, StagedOutputReceipt>(StringComparer.OrdinalIgnoreCase);
+        foreach (StagedOutputReceipt record in records)
         {
             if (string.IsNullOrWhiteSpace(record.FinalPath))
                 throw new InvalidDataException("Native extraction returned an empty staged-output path.");
@@ -1125,7 +1219,7 @@ public static class NativeMediaService
         var captured = new List<NativeExtractionOutputEvidence>(expectedByPath.Count);
         foreach ((string expectedFullPath, NativeExtractionOutputBinding binding) in expectedByPath)
         {
-            if (!recordsByPath.TryGetValue(expectedFullPath, out NativeCleanService.CleanStagedOutputRecord record))
+            if (!recordsByPath.TryGetValue(expectedFullPath, out StagedOutputReceipt record))
             {
                 throw new InvalidDataException(
                     $"Native extraction did not return the creating-handle receipt for '{binding.Path}'.");

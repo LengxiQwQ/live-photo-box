@@ -9,7 +9,6 @@
 #include "media/video_presentation_timing.h"
 #include "media/h264_order_proof.h"
 #include "platform/windows_filesystem.h"
-#include <fstream>
 #include <filesystem>
 #include <array>
 #include <vector>
@@ -40,61 +39,6 @@
 namespace fs = std::filesystem;
 
 namespace lpb::media {
-
-// MF opens the same source URL separately for video/audio. Keep both the
-// source object and its named ancestor chain stable until every backend and
-// preservation read completes. No source bytes are copied or modified.
-class video_source_read_lease {
-    HANDLE file_{INVALID_HANDLE_VALUE};
-    std::vector<HANDLE> directories_;
-public:
-    video_source_read_lease() = default;
-    video_source_read_lease(const video_source_read_lease&) = delete;
-    video_source_read_lease& operator=(const video_source_read_lease&) = delete;
-    ~video_source_read_lease() noexcept {
-        if (file_ != INVALID_HANDLE_VALUE) CloseHandle(file_);
-        for (auto it = directories_.rbegin(); it != directories_.rend(); ++it) CloseHandle(*it);
-    }
-    bool open(const fs::path& source) noexcept {
-        try {
-            const auto absolute = fs::absolute(source).lexically_normal();
-            std::vector<fs::path> parents;
-            for (auto p = absolute.parent_path(); !p.empty() && p != p.root_path(); p = p.parent_path())
-                parents.push_back(p);
-            directories_.reserve(parents.size());
-            for (auto it = parents.rbegin(); it != parents.rend(); ++it) {
-                // Source pinning needs attributes, not directory enumeration.
-                // Inspect the object actually opened, without a path precheck
-                // or DOS/extended-UNC string comparison race.
-                HANDLE handle = CreateFileW(it->c_str(), FILE_READ_ATTRIBUTES,
-                    FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
-                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-                if (handle == INVALID_HANDLE_VALUE) return false;
-                directories_.push_back(handle);
-                FILE_ATTRIBUTE_TAG_INFO directory_tag{};
-                if (!GetFileInformationByHandleEx(handle, FileAttributeTagInfo, &directory_tag, sizeof(directory_tag)) ||
-                    (directory_tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
-                    (directory_tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) return false;
-            }
-            file_ = CreateFileW(absolute.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-                OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-            FILE_ATTRIBUTE_TAG_INFO tag{};
-            return file_ != INVALID_HANDLE_VALUE && GetFileInformationByHandleEx(file_, FileAttributeTagInfo,
-                &tag, sizeof(tag)) != FALSE && (tag.FileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) == 0;
-        } catch (...) { return false; }
-    }
-};
-
-static bool file_read_at(void* user, uint64_t offset, std::span<uint8_t> bytes) noexcept {
-    auto& file = *static_cast<std::ifstream*>(user);
-    if (offset > static_cast<uint64_t>(std::numeric_limits<std::streamoff>::max()) ||
-        bytes.size() > static_cast<size_t>(std::numeric_limits<std::streamsize>::max())) return false;
-    file.clear();
-    file.seekg(static_cast<std::streamoff>(offset), std::ios::beg);
-    if (!file.good()) return false;
-    file.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-    return file.gcount() == static_cast<std::streamsize>(bytes.size());
-}
 
 struct mf_byte_stream_closer {
     void operator()(IMFByteStream* stream) const noexcept {
@@ -596,20 +540,18 @@ lpb_result probe_video_file(
     }
 
     auto p_vid = utf8_to_path(video_path);
-    std::ifstream file(p_vid, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
+    windows_readonly_source file;
+    if (!file.open(p_vid)) {
         set_error(context, "Cannot open video file for probing.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    std::streamsize file_size = file.tellg();
-    if (file_size < 16) {
+    if (file.size() < 16) {
         set_error(context, "Video file too small.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    const lpb::random_access_reader source{static_cast<uint64_t>(file_size), &file, file_read_at};
-    return probe_video_reader(context, source, out_video_facts);
+    return probe_video_reader(context, file.reader(), out_video_facts);
 }
 
 static lpb_result remux_video_reader(
@@ -809,20 +751,18 @@ lpb_result remux_video_file(
     }
 
     auto p_in = utf8_to_path(input_video_path);
-    std::ifstream in(p_in, std::ios::binary | std::ios::ate);
-    if (!in.is_open()) {
+    windows_readonly_source in;
+    if (!in.open(p_in)) {
         set_error(context, "Cannot open input video file for remux.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    std::streamsize file_size = in.tellg();
-    if (file_size < 16) {
+    if (in.size() < 16) {
         set_error(context, "Input video file too small.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    const lpb::random_access_reader source{static_cast<uint64_t>(file_size), &in, file_read_at};
-    return remux_video_reader(context, source, output_video_path, target_container);
+    return remux_video_reader(context, in.reader(), output_video_path, target_container);
 }
 
 template <typename T>
@@ -2294,31 +2234,24 @@ lpb_result transcode_video_file(
 
     const auto p_in = utf8_to_path(input_video_path);
     const auto p_out = utf8_to_path(output_video_path);
-    video_source_read_lease source_lease;
+    windows_readonly_source source_lease;
     if (!source_lease.open(p_in)) {
         set_error(context, "SourceInspection: video source could not be pinned read-only against concurrent write/replacement; no output was created.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
-    // Probe input facts from the source pinned above.
+    if (source_lease.size() < 16) {
+        set_error(context, "Video file too small.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    // Probe input facts directly from the handle pinned above.
+    lpb::random_access_reader semantic_reader = source_lease.reader();
     lpb_video_item_facts src_facts = {0};
     src_facts.struct_size = sizeof(lpb_video_item_facts);
-    lpb_result probe_res = probe_video_file(context, input_video_path, &src_facts);
+    lpb_result probe_res = probe_video_reader(context, semantic_reader, &src_facts);
     if (probe_res != LPB_RESULT_OK) {
         return probe_res;
     }
 
-    std::ifstream semantic_input(p_in, std::ios::binary | std::ios::ate);
-    if (!semantic_input.is_open()) {
-        set_error(context, "Cannot reopen video source for strict pre-dispatch profile inspection.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-    const std::streamoff source_length = semantic_input.tellg();
-    if (source_length < 16) {
-        set_error(context, "Video source is too short for strict pre-dispatch profile inspection.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-    lpb::random_access_reader semantic_reader{
-        static_cast<uint64_t>(source_length), &semantic_input, file_read_at};
     isobmff_video_profile semantic_profile{};
     video_profile_failure profile_failure{};
     if (!inspect_isobmff_video_profile(semantic_reader, semantic_profile, profile_failure)) {
@@ -2390,7 +2323,7 @@ lpb_result transcode_video_file(
             set_error(context, "Video conversion failed closed: Native could not encode selected minimal-libav diagnostics.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
-        set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_UNKNOWN,
+        set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_MINIMAL_LIBAV,
             LPB_VIDEO_HARDWARE_SOFTWARE_FORCED, false, selected_identity,
             "minimal-libav selected from the Native preservation profile; no fallback.");
         if (out_encoder_used && encoder_buf_len > 0U) {
@@ -2492,7 +2425,7 @@ lpb_result transcode_video_file(
                     (failed_sidecar.library_version[0] == '\0' ? "?" : failed_sidecar.library_version),
                     failed_sidecar.encoder_name[0] == '\0' ? "na" : failed_sidecar.encoder_name,
                     semantic_profile, nullptr, failure_identity, sizeof(failure_identity))) {
-                set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_UNKNOWN,
+                set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_MINIMAL_LIBAV,
                     LPB_VIDEO_HARDWARE_SOFTWARE_FORCED, false, failure_identity,
                     "minimal-libav selected from the Native preservation profile; no fallback.");
             }
@@ -2509,7 +2442,7 @@ lpb_result transcode_video_file(
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                 "Native could not encode bounded minimal-libav candidate diagnostics.");
         }
-        set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_UNKNOWN,
+        set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_MINIMAL_LIBAV,
             LPB_VIDEO_HARDWARE_SOFTWARE_FORCED, false, candidate_identity,
             "minimal-libav Stage A candidate; no fallback.");
 
@@ -2551,7 +2484,7 @@ lpb_result transcode_video_file(
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                 "Native could not encode bounded minimal-libav Stage A profile diagnostics.");
         }
-        set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_UNKNOWN,
+        set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_MINIMAL_LIBAV,
             LPB_VIDEO_HARDWARE_SOFTWARE_FORCED, false, candidate_identity,
             "minimal-libav Stage A profile inspected; no fallback.");
 
@@ -2652,7 +2585,7 @@ lpb_result transcode_video_file(
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                 "Native could not encode bounded final Stage B profile diagnostics.");
         }
-        set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_UNKNOWN,
+        set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_MINIMAL_LIBAV,
             LPB_VIDEO_HARDWARE_SOFTWARE_FORCED, false, candidate_identity,
             "minimal-libav Native Stage B profile inspected; no fallback.");
 
@@ -2728,7 +2661,7 @@ lpb_result transcode_video_file(
                 "Native preserved %zu MEBX tracks; FFmpeg %s; no fallback.",
                 transplanted_facts.size(), sidecar_facts.library_version));
         }
-        set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_UNKNOWN,
+        set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_MINIMAL_LIBAV,
             LPB_VIDEO_HARDWARE_SOFTWARE_FORCED, false, validated_identity,
             has_mebx ? success_reason.data() : bridge.reason.data());
         return LPB_RESULT_OK;

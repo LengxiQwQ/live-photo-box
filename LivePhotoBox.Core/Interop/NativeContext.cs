@@ -4,6 +4,8 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using LivePhotoBox.Models;
+using LivePhotoBox.Services;
 
 namespace LivePhotoBox.Interop;
 
@@ -28,6 +30,9 @@ internal sealed class NativeContext : IDisposable
     private nint _contextHandle;
     private int _activeOperations;
     private bool _disposeRequested;
+    private static long s_logCallbackFailures;
+
+    internal static long LogCallbackFailures => Interlocked.Read(ref s_logCallbackFailures);
 
     private NativeContext(CancellationToken cancellationToken)
     {
@@ -37,16 +42,26 @@ internal sealed class NativeContext : IDisposable
         unsafe
         {
             delegate* unmanaged[Cdecl]<nint, int> cancelFunc = &CheckCancelledCallback;
+            delegate* unmanaged[Cdecl]<nint, int, nint, nuint, void> logFunc = &LogCallback;
             var options = new NativeContextOptions
             {
                 StructSize = (uint)sizeof(NativeContextOptions),
                 AbiVersion = NativeRuntime.SupportedAbiVersion,
-                LogCallback = nint.Zero,
+                LogCallback = (nint)logFunc,
                 CancelCallback = (nint)cancelFunc,
                 UserData = GCHandle.ToIntPtr(_selfHandle)
             };
 
-            NativeResult res = NativeMethods.CreateContext((nint)(&options), out _contextHandle);
+            NativeResult res;
+            try
+            {
+                res = NativeMethods.CreateContext((nint)(&options), out _contextHandle);
+            }
+            catch
+            {
+                _selfHandle.Free();
+                throw;
+            }
             if (res != NativeResult.Ok || _contextHandle == nint.Zero)
             {
                 _selfHandle.Free();
@@ -324,9 +339,39 @@ internal sealed class NativeContext : IDisposable
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static int CheckCancelledCallback(nint userData)
+    internal static unsafe void LogCallback(nint userData, int level, nint message, nuint length)
     {
-        if (userData == nint.Zero) return 0;
+        // A static unmanaged entry point cannot be collected. Copy the borrowed
+        // UTF-8 bytes synchronously; never retain the native pointer or dispatch
+        // to the UI. LogService queues entries safely from any native thread.
+        // Logging is observational and must never throw across the C ABI.
+        try
+        {
+            if (message == nint.Zero || length > int.MaxValue)
+                throw new InvalidDataException("Invalid Native log message buffer.");
+            string text = Encoding.UTF8.GetString(new ReadOnlySpan<byte>((void*)message, (int)length));
+            LogService.Log(LogSource.System, level switch
+            {
+                0 => LogLevel.Trace,
+                1 => LogLevel.Debug,
+                2 => LogLevel.Info,
+                3 => LogLevel.Warning,
+                _ => LogLevel.Error
+            }, text, details: $"NativeContext={userData}; NativeLevel={level}",
+                filePath: "LivePhotoBox.Native", memberName: "lpb_log_callback");
+        }
+        catch
+        {
+            // A failed diagnostic is observable, but cannot change a media
+            // operation's result or overwrite its Native last-error state.
+            Interlocked.Increment(ref s_logCallbackFailures);
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    internal static int CheckCancelledCallback(nint userData)
+    {
+        if (userData == nint.Zero) return 1;
         try
         {
             var handle = GCHandle.FromIntPtr(userData);
@@ -337,9 +382,11 @@ internal sealed class NativeContext : IDisposable
         }
         catch
         {
-            return 0;
+            // An unavailable cancellation owner must stop, never authorize
+            // continued work after losing the managed operation state.
+            return 1;
         }
-        return 0;
+        return 1;
     }
 
     public void Dispose()

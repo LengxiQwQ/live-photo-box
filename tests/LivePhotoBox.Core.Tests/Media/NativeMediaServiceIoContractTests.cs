@@ -28,15 +28,20 @@ public sealed class NativeMediaServiceIoContractTests
     public async Task Inspect_MissingCompanionPath_MapsToTypedIoFailure()
     {
         using var workspace = new MediaWorkspace();
-        string primaryPath = workspace.AllocateFilePath("existing-primary", ".jpg");
+        // This fixture is caller-owned, not an output published by the workspace.
+        string primaryPath = Path.Combine(Path.GetTempPath(), $"lpb-io-primary-{Guid.NewGuid():N}.jpg");
         string missingCompanionPath = workspace.AllocateFilePath("missing-companion", ".mov");
         File.WriteAllBytes(primaryPath, [0xFF, 0xD8, 0xFF, 0xD9]);
 
-        SourceInspectionException error = await Assert.ThrowsAsync<SourceInspectionException>(
-            () => NativeMediaService.InspectMediaAsync(primaryPath, missingCompanionPath));
+        try
+        {
+            SourceInspectionException error = await Assert.ThrowsAsync<SourceInspectionException>(
+                () => NativeMediaService.InspectMediaAsync(primaryPath, missingCompanionPath));
 
-        AssertIoFailure(error, "Secondary");
-        Assert.IsType<FileNotFoundException>(error.InnerException);
+            AssertIoFailure(error, "Secondary");
+            Assert.IsType<FileNotFoundException>(error.InnerException);
+        }
+        finally { File.Delete(primaryPath); }
     }
 
     [Fact]

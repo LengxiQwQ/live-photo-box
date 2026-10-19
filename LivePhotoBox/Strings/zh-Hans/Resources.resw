@@ -4554,4 +4554,10 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="EditPage_InspectorModifyCardTitle.Text" xml:space="preserve">
     <value>更改属性</value>
   </data>
+  <data name="EditPage_ExportExifUnavailable" xml:space="preserve">
+    <value>当前 Native 导出管道尚不支持复制原图 EXIF 元数据，未导出任何文件。只有接受不复制这些元数据时，才请取消勾选“复制 EXIF”后重试。</value>
+  </data>
+  <data name="Preview_InspectionFailed" xml:space="preserve">
+    <value>媒体检查失败</value>
+  </data>
 </root>

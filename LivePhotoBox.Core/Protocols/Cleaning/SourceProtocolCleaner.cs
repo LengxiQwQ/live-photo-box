@@ -2795,27 +2795,12 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             uint flagsAndAttributes,
             IntPtr templateFile);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool SetFileInformationByHandle(
-            SafeFileHandle hFile,
-            int fileInformationClass,
-            ref FileDispositionInfo fileInformation,
-            uint bufferSize);
-
-        [StructLayout(LayoutKind.Sequential)]
-        private struct FileDispositionInfo
-        {
-            public byte DeleteFile;
-        }
-
         private const uint DeleteAccess = 0x00010000;
         private const uint FileShareRead = 0x00000001;
         private const uint FileShareWrite = 0x00000002;
         private const uint FileShareDelete = 0x00000004;
         private const uint OpenExisting = 3;
         private const uint OpenReparsePoint = 0x00200000;
-        private const int FileDispositionInfoClass = 4;
 
         /// <summary>
         /// Removes the staging directory during rollback.  A missing pathname

@@ -101,8 +101,43 @@ namespace LivePhotoBox.Controls
 
         public async Task ShowAsync(IReadOnlyList<string> paths, int startIndex)
         {
-            var items = await LightboxItemSource.FromPathsAsync(paths);
+            IReadOnlyList<LightboxItem> items;
+            try { items = await LightboxItemSource.FromPathsAsync(paths); }
+            catch (Exception ex)
+            {
+                await ShowInspectionErrorAsync(ex);
+                return;
+            }
             await ShowAsync(items, startIndex);
+        }
+
+        public async Task ShowInspectedAsync(Func<IReadOnlyList<LightboxItem>> itemFactory, int startIndex)
+        {
+            IReadOnlyList<LightboxItem> items;
+            try { items = itemFactory(); }
+            catch (Exception ex)
+            {
+                await ShowInspectionErrorAsync(ex);
+                return;
+            }
+            await ShowAsync(items, startIndex);
+        }
+
+        private async Task ShowInspectionErrorAsync(Exception error)
+        {
+            LogService.Error("Preview inspection failed; preview was blocked.", error, LogSource.UI);
+            try
+            {
+                await DialogService.ShowSingleAsync(XamlRoot,
+                    ResourceService.GetString("Preview_InspectionFailed"), error.Message,
+                    ResourceService.GetString("Msg_GotIt"));
+            }
+            catch (Exception notificationError)
+            {
+                // The operation remains blocked. A busy/unavailable dialog must
+                // not create a second unobserved task failure at the UI boundary.
+                LogService.Error("Preview failure notification could not be displayed.", notificationError, LogSource.UI);
+            }
         }
 
         public async Task ShowAsync(IReadOnlyList<LightboxItem> items, int startIndex)
@@ -222,8 +257,7 @@ namespace LivePhotoBox.Controls
         }
 
         /// <summary>
-        /// 后台探测单文件实况照片：复用 LightboxItemSource.DetectSingleFileVideo
-        /// （读 XMP 头 64KB + 尾部 LIVE_ 标记），探测到 videoLen&gt;0 就更新条目并显示 LIVE 按钮。
+        /// 后台探测单文件实况照片：仅使用 Native Inspector 事实；失败明确显示，禁止播放。
         /// </summary>
         private async Task DetectLivePhotoInBackgroundAsync(LightboxItem item)
         {
@@ -248,7 +282,20 @@ namespace LivePhotoBox.Controls
                     }
                 });
             }
-            catch { /* 探测失败静默——普通照片 */ }
+            catch (Exception ex)
+            {
+                LogService.Error("Background preview inspection failed; live playback was blocked.", ex, LogSource.UI);
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (_currentIndex < 0 || _currentIndex >= _items.Count || _items[_currentIndex] != item) return;
+                    item.AppendedVideoLength = 0;
+                    item.IsLivePhoto = false;
+                    LivePhotoButton.Visibility = Visibility.Collapsed;
+                    LivePulseSb.Stop();
+                    LightboxCounter.Text = ResourceService.GetString("Preview_InspectionFailed");
+                    ToolTipService.SetToolTip(LightboxCounter, ex.Message);
+                });
+            }
         }
 
         private async Task ShowVideoAsync(string path, CancellationToken token)

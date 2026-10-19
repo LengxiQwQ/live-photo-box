@@ -1154,11 +1154,11 @@ namespace LivePhotoBox.Views
         {
             string? path = task.SourcePath;
             if (string.IsNullOrWhiteSpace(path)) return;
-            var items = LightboxItemSource.FromSplitTasks(ViewModel.Tasks);
-            var paths = items.Select(i => i.ImagePath).ToList();
-            int idx = paths.IndexOf(path);
+            var tasks = ViewModel.Tasks.ToList();
+            int idx = tasks.FindIndex(item => item.SourcePath == path);
             if (idx < 0) return;
-            _ = ((MainWindow)App.MainWindow!).Lightbox.ShowAsync(items, idx);
+            _ = ((MainWindow)App.MainWindow!).Lightbox.ShowInspectedAsync(
+                () => LightboxItemSource.FromSplitTasks(tasks), idx);
         }
 
         // ── 全屏预览 ──────────────────────────────────

@@ -480,6 +480,143 @@ bool lpb_platform_pin_directory(const std::filesystem::path& directory,
     }
 }
 
+windows_readonly_source::~windows_readonly_source() noexcept { close(); }
+
+void windows_readonly_source::close() noexcept {
+    HANDLE file = static_cast<HANDLE>(file_);
+    if (file != nullptr && file != INVALID_HANDLE_VALUE) {
+        CloseHandle(file);
+    }
+    file_ = nullptr;
+    file_size_ = 0;
+    volume_serial_ = 0;
+    file_index_ = 0;
+    for (auto it = directories_.rbegin(); it != directories_.rend(); ++it) {
+        HANDLE dir = static_cast<HANDLE>(*it);
+        if (dir != nullptr && dir != INVALID_HANDLE_VALUE) {
+            CloseHandle(dir);
+        }
+    }
+    directories_.clear();
+}
+
+bool windows_readonly_source::open(const std::filesystem::path& source, bool pin_ancestors) noexcept {
+    close();
+    if (source.empty()) return false;
+    try {
+        const auto absolute = std::filesystem::absolute(source).lexically_normal();
+        if (pin_ancestors) {
+            std::vector<std::filesystem::path> parents;
+            for (auto p = absolute.parent_path(); !p.empty() && p != p.root_path(); p = p.parent_path()) {
+                parents.push_back(p);
+            }
+            directories_.reserve(parents.size());
+            for (auto it = parents.rbegin(); it != parents.rend(); ++it) {
+                HANDLE dir_handle = CreateFileW(it->c_str(), FILE_READ_ATTRIBUTES,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+                if (dir_handle == INVALID_HANDLE_VALUE) {
+                    close();
+                    return false;
+                }
+                directories_.push_back(dir_handle);
+                FILE_ATTRIBUTE_TAG_INFO directory_tag{};
+                if (!GetFileInformationByHandleEx(dir_handle, FileAttributeTagInfo, &directory_tag, sizeof(directory_tag)) ||
+                    (directory_tag.FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+                    directory_tag.ReparseTag != 0 ||
+                    (directory_tag.FileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) {
+                    close();
+                    return false;
+                }
+            }
+        }
+        HANDLE file_handle = CreateFileW(absolute.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
+            OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        if (file_handle == INVALID_HANDLE_VALUE) {
+            close();
+            return false;
+        }
+        file_ = file_handle;
+        FILE_ATTRIBUTE_TAG_INFO tag{};
+        lpb_file_identity identity{};
+        std::wstring final_path;
+        if (!GetFileInformationByHandleEx(file_handle, FileAttributeTagInfo, &tag, sizeof(tag)) ||
+            (tag.FileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) != 0 ||
+            tag.ReparseTag != 0 ||
+            !capture_file_identity_from_handle(file_handle, identity, final_path)) {
+            close();
+            return false;
+        }
+        file_size_ = identity.file_size;
+        volume_serial_ = identity.volume_serial;
+        file_index_ = identity.file_index;
+        return true;
+    } catch (...) {
+        close();
+        return false;
+    }
+}
+
+bool windows_readonly_source::read_at(uint64_t offset, std::span<uint8_t> bytes) const noexcept {
+    if (file_ == nullptr || file_ == INVALID_HANDLE_VALUE ||
+        offset > file_size_ || bytes.size() > file_size_ - offset) {
+        return false;
+    }
+    if (bytes.empty()) return true;
+    return owned_handle_read_at(file_, offset, bytes);
+}
+
+bool windows_readonly_source::read_all_bounded(uint64_t min_bytes, uint64_t max_bytes,
+    std::vector<uint8_t>& out_bytes) const noexcept {
+    out_bytes.clear();
+    if (file_ == nullptr || file_ == INVALID_HANDLE_VALUE ||
+        file_size_ < min_bytes || file_size_ > max_bytes ||
+        file_size_ > std::numeric_limits<size_t>::max()) {
+        return false;
+    }
+    try {
+        out_bytes.resize(static_cast<size_t>(file_size_));
+    } catch (...) {
+        out_bytes.clear();
+        return false;
+    }
+    if (out_bytes.empty()) return true;
+    if (!read_at(0, std::span<uint8_t>(out_bytes.data(), out_bytes.size()))) {
+        out_bytes.clear();
+        return false;
+    }
+    return true;
+}
+
+lpb::random_access_reader windows_readonly_source::reader() const noexcept {
+    if (file_ == nullptr || file_ == INVALID_HANDLE_VALUE) return {};
+    return {file_size_, file_, owned_handle_read_at};
+}
+
+bool windows_readonly_source::verify_same_identity(const std::filesystem::path& source) const noexcept {
+    if (file_ == nullptr || file_ == INVALID_HANDLE_VALUE || source.empty()) return false;
+    try {
+        HANDLE check_handle = CreateFileW(source.c_str(), FILE_READ_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+            OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+        if (check_handle == INVALID_HANDLE_VALUE) return false;
+        FILE_ATTRIBUTE_TAG_INFO tag{};
+        lpb_file_identity current{};
+        std::wstring current_path;
+        const bool ok = GetFileInformationByHandleEx(check_handle, FileAttributeTagInfo, &tag, sizeof(tag)) != FALSE &&
+            (tag.FileAttributes & (FILE_ATTRIBUTE_REPARSE_POINT | FILE_ATTRIBUTE_DIRECTORY)) == 0 &&
+            tag.ReparseTag == 0 &&
+            capture_file_identity_from_handle(check_handle, current, current_path) &&
+            current.volume_serial == volume_serial_ &&
+            current.file_index == file_index_ &&
+            current.file_size == file_size_;
+        CloseHandle(check_handle);
+        return ok;
+    } catch (...) {
+        return false;
+    }
+}
+
 windows_owned_output::~windows_owned_output() noexcept { abort(); }
 
 bool windows_owned_output::create(const std::filesystem::path& destination,
@@ -518,19 +655,21 @@ bool windows_owned_output::write_all(std::span<const uint8_t> bytes) noexcept {
 }
 
 bool windows_owned_output::copy_from_readonly(const std::filesystem::path& source) noexcept {
-    HANDLE input = CreateFileW(source.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr,
-        OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_SEQUENTIAL_SCAN, nullptr);
-    if (input == INVALID_HANDLE_VALUE) return false;
-    bool okay = true;
+    windows_readonly_source input;
+    if (!input.open(source)) return false;
+    uint64_t remaining = input.size();
+    uint64_t offset = 0;
     uint8_t buffer[64 * 1024];
-    for (;;) {
-        DWORD read = 0;
-        if (!ReadFile(input, buffer, sizeof(buffer), &read, nullptr)) { okay = false; break; }
-        if (read == 0) break;
-        if (!write_all(std::span<const uint8_t>(buffer, read))) { okay = false; break; }
+    while (remaining > 0) {
+        const size_t chunk = static_cast<size_t>(std::min<uint64_t>(remaining, sizeof(buffer)));
+        if (!input.read_at(offset, std::span<uint8_t>(buffer, chunk)) ||
+            !write_all(std::span<const uint8_t>(buffer, chunk))) {
+            return false;
+        }
+        offset += chunk;
+        remaining -= chunk;
     }
-    CloseHandle(input);
-    return okay;
+    return true;
 }
 
 bool windows_owned_output::compute_sha256(uint8_t out_hash[32]) noexcept {

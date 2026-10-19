@@ -15,6 +15,39 @@ namespace LivePhotoBox.Core.Tests.Media;
 public sealed class SourceInspectorRoutingRegressionTests
 {
     [Fact]
+    public void P0PreviewAndExport_HaveOneProtocolAuthority_AndGuardBeforePublication()
+    {
+        string lightbox = ReadProductionSource("LivePhotoBox", "Services", "LightboxItemSource.cs");
+        string thumbnail = ReadProductionSource("LivePhotoBox", "Services", "MagickHeicThumbnailProvider.cs");
+        string split = ReadProductionSource("LivePhotoBox.Core", "Services", "LivePhotoSplitService.cs");
+        foreach (string source in new[] { lightbox, thumbnail, split })
+        {
+            Assert.DoesNotContain("GetHuaweiEmbeddedVideoRange", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("GetAppendedVideoLength", source, StringComparison.Ordinal);
+            Assert.DoesNotContain("Regex", source, StringComparison.Ordinal);
+        }
+        Assert.Contains("InspectWithPlanAsync", thumbnail, StringComparison.Ordinal);
+        Assert.Contains("inspected.ExtractionPlan", thumbnail, StringComparison.Ordinal);
+        Assert.Contains("new SourceExtractor().ExtractAsync", thumbnail, StringComparison.Ordinal);
+        Assert.DoesNotContain("GetMpvdVideo", thumbnail, StringComparison.Ordinal);
+        Assert.DoesNotContain("catch { videoLen", lightbox, StringComparison.Ordinal);
+        string preview = ReadProductionSource("LivePhotoBox", "Controls", "LightboxPreview.xaml.cs");
+        Assert.Contains("ShowInspectionErrorAsync(ex)", preview, StringComparison.Ordinal);
+        Assert.Contains("LightboxCounter.Text = ResourceService.GetString(\"Preview_InspectionFailed\")", preview, StringComparison.Ordinal);
+        Assert.DoesNotContain("探测失败静默", preview, StringComparison.Ordinal);
+        foreach (string pageName in new[] { "RepairPage.xaml.cs", "SplitPage.xaml.cs" })
+            Assert.Contains(".Lightbox.ShowInspectedAsync(", ReadProductionSource("LivePhotoBox", "Views", pageName), StringComparison.Ordinal);
+        string export = ReadProductionSource("LivePhotoBox", "Services", "EditExportService.cs");
+        Assert.DoesNotContain("RunExifToolAsync", export, StringComparison.Ordinal);
+        Assert.DoesNotContain("CopyExifForExportAsync", export, StringComparison.Ordinal);
+        string batch = ExtractMethod(export, "public async Task ExportAllFramesAsync", "private async Task ExportOneFrameAsync");
+        Assert.True(batch.IndexOf("EditExportMetadataPolicy.ValidateRequest", StringComparison.Ordinal) <
+            batch.IndexOf("Directory.CreateDirectory", StringComparison.Ordinal));
+        Assert.True(batch.IndexOf("EditExportMetadataPolicy.EnsureAllFramesSucceeded", StringComparison.Ordinal) <
+            batch.IndexOf("progress.NotifyComplete", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void EditStillRouting_UsesNativeFacts_AndHasNoManagedRangeScanner()
     {
         string source = ReadProductionSource("LivePhotoBox", "ViewModels", "EditViewModel.cs");
@@ -40,6 +73,14 @@ public sealed class SourceInspectorRoutingRegressionTests
         Assert.DoesNotContain("FastMetadataReader", source, StringComparison.Ordinal);
         Assert.Contains("ReadRebuiltResolutionsAsync", source, StringComparison.Ordinal);
         Assert.Contains("facts.PrimaryImage", source, StringComparison.Ordinal);
+        string previewBoundary = ExtractMethod(source,
+            "private async Task UpdatePreviewForTimelineFrameAsync", "private async Task UpdatePreviewForTimelineFrameCoreAsync");
+        Assert.Contains("catch (Exception ex)", previewBoundary, StringComparison.Ordinal);
+        Assert.Contains("SetPreviewSafe(null)", previewBoundary, StringComparison.Ordinal);
+        Assert.Contains("Preview_InspectionFailed", previewBoundary, StringComparison.Ordinal);
+        string exportCommand = ExtractMethod(source, "private async Task ExportCurrentFrame()", "private static extern void SHChangeNotify");
+        Assert.Contains("catch (Exception ex)", exportCommand, StringComparison.Ordinal);
+        Assert.Contains("FailExportProgress", exportCommand, StringComparison.Ordinal);
     }
 
     [Fact]

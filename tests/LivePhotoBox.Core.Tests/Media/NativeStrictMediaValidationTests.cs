@@ -3,6 +3,7 @@ using System.Buffers.Binary;
 using System.IO;
 using System.Threading.Tasks;
 using LivePhotoBox.Core.Tests.Protocols;
+using LivePhotoBox.Core.Tests.Support;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Workspace;
 using Xunit;
@@ -15,7 +16,7 @@ public sealed class NativeStrictMediaValidationTests
     [Fact]
     public async Task VivoX300_CorruptedPrimaryWithValidTail_FailsClosed()
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string path = workspace.AllocateFilePath("vivo-corrupt-primary", ".jpg");
         SyntheticProtocolFixtures.CreateVivoX300CorruptedPrimaryJpeg(path);
 
@@ -32,7 +33,7 @@ public sealed class NativeStrictMediaValidationTests
     [InlineData("stco")]
     public async Task AppleMov_CrossTableMismatch_FailsClosed(string table)
     {
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         string imagePath = workspace.AllocateFilePath("apple-strict", ".jpg");
         string videoPath = workspace.AllocateFilePath("apple-strict", ".mov");
         SyntheticProtocolFixtures.CreateAppleJpeg(imagePath);

@@ -15,6 +15,11 @@ using System.Diagnostics;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
+using System.Linq;
+using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Media.Extraction;
+using LivePhotoBox.Media.Workspace;
 
 namespace LivePhotoBox.Services
 {
@@ -52,12 +57,6 @@ namespace LivePhotoBox.Services
 
         // OPPO 协议检测关键字（与 JpegProtocolMap 一致）
         private const string OppoMarker = "OpCamera:VideoLength";
-
-        // 容器中 GainMap / Original / MotionPhoto item 的长度解析
-        // 匹配 Item:Length="数字" 模式（按顺序）
-        private static readonly Regex ItemLengthRegex = new(
-            @"Item:Length=""(\d+)""",
-            RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
         /// <summary>
         /// 从 XMP 文本和标准 cover 时间，按协议计算分离后的 timing。
@@ -437,132 +436,29 @@ namespace LivePhotoBox.Services
         }
 
         /// <summary>
-        /// 从 OPPO 容器中提取 Original 原始高清照片的 JPEG 字节。
-        /// 仅在 HasOriginalPhoto=true 时调用。
-        /// 返回 null 表示提取失败，调用方应回退到 SelectedFileThumbnail。
+        /// Read only the Inspector-confirmed Original auxiliary. Absence returns
+        /// null; malformed/ambiguous/replaced sources and extraction errors fail.
         /// </summary>
-        public static byte[]? ReadOriginalPhotoBytes(string filePath)
+        public static byte[]? ReadOriginalPhotoBytes(string filePath) =>
+            ReadOriginalPhotoBytes(filePath, CancellationToken.None);
+
+        public static byte[]? ReadOriginalPhotoBytes(string filePath, CancellationToken cancellationToken) =>
+            ReadInspectedOriginalPhotoBytesAsync(filePath, cancellationToken).GetAwaiter().GetResult();
+
+        private static async Task<byte[]?> ReadInspectedOriginalPhotoBytesAsync(string filePath, CancellationToken token)
         {
-            try
-            {
-                // 读取 XMP 文本
-                string xmpText = LivePhotoSplitService.ReadMetadataTextSync(filePath);
-                if (string.IsNullOrWhiteSpace(xmpText))
-                    return null;
-
-                // 解析容器 item 长度列表（跳过 Primary 的 0）
-                var lengths = new List<long>();
-                foreach (Match m in ItemLengthRegex.Matches(xmpText))
-                {
-                    if (long.TryParse(m.Groups[1].Value, out long len))
-                        lengths.Add(len);
-                }
-
-                // 需要至少 [Primary=0, GainMap, Original, MotionPhoto]
-                // 找到 Original 的位置：检查 Semantic 列表
-                if (!xmpText.Contains("Item:Semantic=\"Original\""))
-                    return null;
-
-                // 找到 Primary JPEG 的结束位置
-                long primaryEnd = FindPrimaryJpegEnd(filePath);
-                if (primaryEnd <= 0) return null;
-
-                // 计算 GainMap 长度（lengths[1] 如果存在，否则为 0）
-                long gainMapLen = lengths.Count > 1 ? lengths[1] : 0;
-
-                // Original 起始偏移 = Primary结束 + GainMap长度
-                long originalOffset = primaryEnd + gainMapLen;
-
-                // Original 长度 = lengths[2]（如果存在）
-                long originalLen = lengths.Count > 2 ? lengths[2] : 0;
-                if (originalLen <= 0) return null;
-
-                // 读取 Original JPEG
-                using var fs = new FileStream(filePath, FileMode.Open,
-                    FileAccess.Read, FileShare.Read);
-                if (originalOffset + originalLen > fs.Length)
-                    return null;
-
-                fs.Seek(originalOffset, SeekOrigin.Begin);
-                byte[] data = new byte[originalLen];
-                int totalRead = 0;
-                while (totalRead < originalLen)
-                {
-                    int r = fs.Read(data, totalRead,
-                        (int)Math.Min(originalLen - totalRead, int.MaxValue));
-                    if (r == 0) break;
-                    totalRead += r;
-                }
-
-                LogService.FileOp(
-                    $"KeyPhotoTiming[OPPO] Original photo extracted: " +
-                    $"{totalRead} bytes from offset {originalOffset} " +
-                    $"(primaryEnd={primaryEnd}, gainMap={gainMapLen})",
-                    Models.LogLevel.Info);
-
-                return totalRead == originalLen ? data : null;
-            }
-            catch (Exception ex)
-            {
-                LogService.FileOp(
-                    $"KeyPhotoTiming[OPPO] Failed to extract Original photo: {ex.Message}",
-                    Models.LogLevel.Warning);
-                return null;
-            }
-        }
-
-        /// <summary>
-        /// 找到 JPEG 文件中主图结束位置（EOI 标记之后）。
-        /// 跳过所有 JPEG marker 段（APPn, DQT, SOF, DHT, SOS 等），
-        /// 遇到 EOI (0xFF 0xD9) 返回其后的文件位置。
-        /// 不处理 RST 标记之间的转义——对于 Motion Photo 容器中的 Primary JPEG，
-        /// 第一个 EOI 标记就是图像结尾（后面紧跟着 GainMap 或 video）。
-        /// </summary>
-        private static long FindPrimaryJpegEnd(string filePath)
-        {
-            using var fs = new FileStream(filePath, FileMode.Open,
-                FileAccess.Read, FileShare.Read);
-
-            // 检查 SOI
-            if (fs.ReadByte() != 0xFF || fs.ReadByte() != 0xD8)
-                return -1; // 不是 JPEG
-
-            var buf = new byte[2];
-            while (true)
-            {
-                // 找下一个 marker (0xFF)
-                int b;
-                while ((b = fs.ReadByte()) != 0xFF)
-                {
-                    if (b < 0) return fs.Length;
-                }
-
-                // 跳过填充的 0xFF
-                while ((b = fs.ReadByte()) == 0xFF) { }
-                if (b < 0) return fs.Length;
-
-                // EOI — 图像结束
-                if (b == 0xD9)
-                    return fs.Position;
-
-                // 转义的 0xFF (0xFF 0x00)
-                if (b == 0x00)
-                    continue;
-
-                // RST 标记 (0xFF 0xD0–0xD7)，无长度段
-                if (b >= 0xD0 && b <= 0xD7)
-                    continue;
-
-                // 所有其他 marker：读取 2 字节长度并跳过段体
-                int n = fs.Read(buf, 0, 2);
-                if (n < 2) return fs.Length;
-                int segLen = (buf[0] << 8) | buf[1];
-                if (segLen > 2)
-                {
-                    try { fs.Seek(segLen - 2, SeekOrigin.Current); }
-                    catch { return fs.Length; }
-                }
-            }
+            using var inspected = await new SourceInspector().InspectWithPlanAsync(filePath, cancellationToken: token).ConfigureAwait(false);
+            var original = inspected.Facts.AuxiliaryItems.SingleOrDefault(item =>
+                item.IsPresent && string.Equals(item.Semantic, "Original", StringComparison.Ordinal));
+            if (original == null) return null;
+            using var workspace = new MediaWorkspace();
+            var extracted = await new SourceExtractor().ExtractAsync(
+                inspected.ExtractionPlan, filePath, null, workspace, token).ConfigureAwait(false);
+            using var cleanupPlan = extracted.CleanupPlan;
+            var artifact = extracted.AuxiliaryMedia.Single(item =>
+                string.Equals(item.StableIdentity, original.StableIdentity, StringComparison.Ordinal)).MaterializedArtifact
+                ?? throw new NotSupportedException("Inspector-confirmed Original image cannot be materialized.");
+            return await File.ReadAllBytesAsync(artifact.Path, token).ConfigureAwait(false);
         }
     }
 }

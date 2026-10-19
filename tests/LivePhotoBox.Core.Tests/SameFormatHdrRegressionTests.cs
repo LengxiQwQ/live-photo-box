@@ -463,7 +463,9 @@ public sealed class SameFormatHdrRegressionTests
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
-            RedirectStandardError = true
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+            StandardInputEncoding = new UTF8Encoding(false)
         };
 
         foreach (string arg in args)
@@ -471,16 +473,25 @@ public sealed class SameFormatHdrRegressionTests
             psi.ArgumentList.Add(arg);
         }
 
-        psi.ArgumentList.Add(filePath);
+        // ExifTool's Windows launcher does not reliably carry Chinese filenames
+        // through argv. Supply UTF-8 filenames through its documented argfile
+        // input; this is an offline observer, never a product dependency.
+        psi.ArgumentList.Add("-charset");
+        psi.ArgumentList.Add("filename=UTF8");
+        psi.ArgumentList.Add("-@");
+        psi.ArgumentList.Add("-");
 
         using var process = Process.Start(psi)
             ?? throw new InvalidOperationException("Failed to start exiftool.");
+
+        await process.StandardInput.WriteLineAsync(filePath);
+        process.StandardInput.Close();
 
         string stdout = await process.StandardOutput.ReadToEndAsync();
         string stderr = await process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync();
 
-        if (process.ExitCode != 0 && stderr.Contains("Error", StringComparison.OrdinalIgnoreCase))
+        if (process.ExitCode != 0 || stderr.Contains("No matching files", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException($"exiftool failed: {stderr.Trim()}");
         }

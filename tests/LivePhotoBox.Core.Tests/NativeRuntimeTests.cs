@@ -3,11 +3,15 @@ using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
 using Xunit;
+using Xunit.Abstractions;
+using LivePhotoBox.Core.Tests.Support;
 
 namespace LivePhotoBox.Core.Tests;
 
 public sealed class NativeRuntimeTests
 {
+    private readonly ITestOutputHelper _output;
+    public NativeRuntimeTests(ITestOutputHelper output) => _output = output;
     [Fact]
     public void Probe_LoadsMatchingNativeRuntime()
     {
@@ -70,6 +74,8 @@ public sealed class NativeRuntimeTests
     [Fact]
     public void Probe_ReportsTruthfulCapabilityIdentity()
     {
+        WindowsH264CapabilityOracle.VerifySidecar();
+        bool osH264Available = WindowsH264CapabilityOracle.IsAvailable(_output.WriteLine);
         NativeRuntimeInfo info = NativeRuntime.Probe();
         Assert.True(info.IsAvailable, info.Diagnostic);
         Assert.Equal(6, info.CapabilityIdentities.Count);
@@ -85,7 +91,22 @@ public sealed class NativeRuntimeTests
         })
         {
             var identity = Assert.Single(info.CapabilityIdentities, item => item.Operation == expected.Item1);
-            Assert.True(identity.IsAvailable, identity.FallbackReason);
+            if (expected.Item1 == NativeRuntimeOperationClass.VideoTranscodeSdrH264)
+            {
+                Assert.Equal(osH264Available, identity.IsAvailable);
+                if (identity.IsAvailable)
+                {
+                    Assert.Contains("Both route owners available", identity.FallbackReason, StringComparison.Ordinal);
+                }
+                else
+                {
+                    Assert.Contains("A route owner is unavailable", identity.FallbackReason, StringComparison.Ordinal);
+                }
+            }
+            else
+            {
+                Assert.True(identity.IsAvailable, identity.FallbackReason);
+            }
             Assert.Equal(expected.Item2, identity.Backend);
             Assert.Equal(expected.Item3, identity.Codec);
             Assert.False(identity.FallbackOccurred);

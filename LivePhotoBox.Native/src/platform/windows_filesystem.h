@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <string>
 #include <span>
+#include <vector>
 #include <cstdint>
 #include "binary/portable_io.h"
 
@@ -28,6 +29,37 @@ bool lpb_platform_dispose_owned(void* owned_handle) noexcept;
 bool lpb_platform_path_is_reparse_point(const std::filesystem::path& path) noexcept;
 bool lpb_platform_pin_directory(const std::filesystem::path& directory,
     void*& owned_handle) noexcept;
+
+// Handle-pinned read-only source lease. Rejects reparse points and directories
+// on the source file and (when pin_ancestors=true) on every ancestor directory,
+// denies concurrent writers/deleters via FILE_SHARE_READ, and provides bounded
+// or random-access reads directly from the pinned Win32 handle.
+class windows_readonly_source {
+public:
+    windows_readonly_source() = default;
+    windows_readonly_source(const windows_readonly_source&) = delete;
+    windows_readonly_source& operator=(const windows_readonly_source&) = delete;
+    ~windows_readonly_source() noexcept;
+
+    bool open(const std::filesystem::path& source, bool pin_ancestors = true) noexcept;
+    void close() noexcept;
+    void* handle() const noexcept { return file_; }
+    uint64_t size() const noexcept { return file_size_; }
+    uint32_t volume_serial() const noexcept { return volume_serial_; }
+    uint64_t file_index() const noexcept { return file_index_; }
+    bool read_at(uint64_t offset, std::span<uint8_t> bytes) const noexcept;
+    bool read_all_bounded(uint64_t min_bytes, uint64_t max_bytes,
+        std::vector<uint8_t>& out_bytes) const noexcept;
+    lpb::random_access_reader reader() const noexcept;
+    bool verify_same_identity(const std::filesystem::path& source) const noexcept;
+
+private:
+    void* file_{};
+    uint64_t file_size_{};
+    uint32_t volume_serial_{};
+    uint64_t file_index_{};
+    std::vector<void*> directories_;
+};
 
 // Path-based Windows codecs may open this staging name, but the backend keeps
 // the CREATE_NEW handle and publishes only that exact object after verifying
@@ -77,3 +109,4 @@ private:
 // success should not overwrite the NativeContext error state.
 bool abort_owned_output_and_report(lpb_context* context, windows_owned_output& output,
     const char* original_failure, bool report_original_on_success = true) noexcept;
+

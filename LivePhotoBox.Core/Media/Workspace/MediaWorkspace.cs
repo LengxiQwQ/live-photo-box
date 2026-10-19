@@ -164,21 +164,34 @@ public sealed class MediaWorkspace : IMediaWorkspace
                 receipt.ByteLength,
                 receipt.Sha256,
                 "managed-published-file");
+
+            string? priorPath = null;
+            foreach (KeyValuePair<string, WorkspaceFileReceipt> entry in _ownedFiles)
+            {
+                if (SameFileId(entry.Value.Identity, receipt.FileIdentity) &&
+                    !string.Equals(entry.Key, normalizedPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    priorPath = entry.Key;
+                    break;
+                }
+            }
             if (_ownedFiles.TryGetValue(normalizedPath, out WorkspaceFileReceipt? existing))
             {
                 if (!SameFileId(existing.Identity, receipt.FileIdentity))
                     throw new IOException($"A different file object is already registered for workspace path '{normalizedPath}'.");
+                if (priorPath != null) _ownedFiles.Remove(priorPath);
                 _ownedFiles[normalizedPath] = updated;
                 return true;
             }
 
-            if (!newlyCreatedObject)
+            if (!newlyCreatedObject && priorPath == null)
             {
                 throw new IOException(
                     $"Refusing to claim existing workspace target '{normalizedPath}' without a previously registered exact object identity.");
             }
 
             _ownedFiles.Add(normalizedPath, updated);
+            if (priorPath != null) _ownedFiles.Remove(priorPath);
             return true;
         }
     }

@@ -1163,31 +1163,6 @@ lpb_result stream_clean_mp4_bytes(
     return LPB_RESULT_OK;
 }
 
-lpb_result stream_clean_mp4_file(
-    lpb_context* context,
-    const std::string& in_path,
-    const std::string& out_path,
-    const Mp4StripSpec& spec,
-    Mp4StripOutcome& outcome)
-{
-    auto p_in = utf8_to_path(in_path.c_str());
-    std::ifstream in(p_in, std::ios::binary | std::ios::ate);
-    if (!in.is_open()) {
-        set_error(context, "Failed to open input video for cleaning.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-    const auto file_size_signed = in.tellg();
-    if (file_size_signed < 16) {
-        set_error(context, "Input video file is too small.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-    std::vector<uint8_t> bytes(static_cast<size_t>(file_size_signed));
-    in.seekg(0, std::ios::beg);
-    in.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-    in.close();
-    return stream_clean_mp4_bytes(context, bytes, out_path, spec, outcome);
-}
-
 bool mp4_get_mdta_key_fingerprint(
     std::span<const uint8_t> data,
     std::string_view target_key,

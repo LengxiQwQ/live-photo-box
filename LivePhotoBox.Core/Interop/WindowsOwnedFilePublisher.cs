@@ -1,5 +1,6 @@
 using System;
 using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -34,6 +35,49 @@ namespace LivePhotoBox.Interop;
 /// </summary>
 internal static class WindowsOwnedFilePublisher
 {
+    // Pin from root to leaf without DELETE sharing. Each checked component
+    // remains named for the whole path-based publication, including callers
+    // outside a registered MediaWorkspace. Reparse directories fail closed.
+    internal static IDisposable PinDirectoryAncestors(string directory)
+    {
+        var paths = new Stack<string>();
+        for (DirectoryInfo? current = new(Path.GetFullPath(directory)); current != null; current = current.Parent)
+            paths.Push(current.FullName);
+
+        var lease = new DirectoryAncestorLease();
+        try
+        {
+            while (paths.TryPop(out string? path))
+            {
+                SafeFileHandle handle = CreateFileForCommit(path, FileReadAttributes,
+                    FileShareRead | FileShareWrite, IntPtr.Zero, OpenExisting,
+                    OpenReparsePoint | BackupSemantics, IntPtr.Zero);
+                lease.Handles.Add(handle);
+                if (handle.IsInvalid)
+                    throw new IOException($"Cannot pin publication directory '{path}' (Win32 error {Marshal.GetLastWin32Error()}).");
+                WindowsFileIdentity identity = WindowsFileIdentity.Capture(handle);
+                if (identity.IsReparsePoint || (identity.FileAttributes & FileAttributeDirectory) == 0)
+                    throw new IOException($"Publication directory '{path}' is not a regular, non-reparse directory.");
+            }
+            return lease;
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
+        }
+    }
+
+    private sealed class DirectoryAncestorLease : IDisposable
+    {
+        internal List<SafeFileHandle> Handles { get; } = new();
+        public void Dispose()
+        {
+            for (int i = Handles.Count - 1; i >= 0; i--) Handles[i].Dispose();
+            Handles.Clear();
+        }
+    }
+
     /// <summary>
     /// Opens the staged object, captures its identity from the OPEN HANDLE and
     /// verifies it is exactly the object this transaction registered (volume

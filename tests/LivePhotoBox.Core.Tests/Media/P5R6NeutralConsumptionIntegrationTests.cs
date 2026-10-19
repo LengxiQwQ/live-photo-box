@@ -1506,7 +1506,7 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
             Assert.Equal(ConversionOperationKind.LossyReencode, call.Result.ExecutionRecord.Truth.ActualOperationKind);
             Assert.Equal(ConversionCapability.VideoTranscodeSdr, call.Result.ExecutionRecord.Truth.SelectedCapability);
             Assert.Equal(ConversionCapability.VideoTranscodeSdr, call.Result.ExecutionRecord.Truth.ActualCapability);
-            Assert.Equal(VideoBackend.Unknown, call.Result.ExecutionRecord.Backend);
+            Assert.Equal(VideoBackend.MinimalLibav, call.Result.ExecutionRecord.Backend);
             Assert.Equal(VideoHardwareMode.SoftwareForced, call.Result.ExecutionRecord.HardwareMode);
             Assert.Equal("minimal-libav", call.Result.ExecutionRecord.Truth.BackendName);
             Assert.Equal("9.0.1", call.Result.ExecutionRecord.Truth.BackendVersion);

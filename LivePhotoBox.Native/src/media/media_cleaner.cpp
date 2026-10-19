@@ -2,7 +2,6 @@
 #include "protocols/clean/xmp_cleaner.h"
 #include "protocols/clean/samsung_sef_cleaner.h"
 #include "protocols/clean/heif_cleaner.h"
-#include "protocols/clean/jpeg_structure_cleaner.h"
 #include "protocols/apple.h"
 #include "foundation/residue_fingerprint.h"
 #include "foundation/sha256.h"
@@ -172,20 +171,6 @@ const lpb_cleanup_action* find_authorized_action(
     return nullptr;
 }
 
-static bool read_file_binary(const std::string& path, std::vector<uint8_t>& out_data) {
-    auto p = utf8_to_path(path.c_str());
-    std::ifstream ifs(p, std::ios::binary | std::ios::ate);
-    if (!ifs.is_open()) return false;
-    const auto position = ifs.tellg();
-    if (position < std::streampos(0)) return false;
-    const auto size = static_cast<std::streamsize>(position);
-    if (size < 0 || static_cast<uint64_t>(size) > std::numeric_limits<size_t>::max()) return false;
-    out_data.resize(static_cast<size_t>(size));
-    ifs.seekg(0, std::ios::beg);
-    ifs.read(reinterpret_cast<char*>(out_data.data()), size);
-    return ifs.gcount() == size;
-}
-
 static bool read_file_binary_handle(void* file_handle, std::vector<uint8_t>& out_data) {
     const HANDLE h = static_cast<HANDLE>(file_handle);
     if (h == nullptr || h == INVALID_HANDLE_VALUE) return false;
@@ -208,6 +193,11 @@ static bool read_file_binary_handle(void* file_handle, std::vector<uint8_t>& out
         total += chunk;
     }
     return true;
+}
+
+static bool read_file_binary(const std::string& path, std::vector<uint8_t>& out_data) {
+    windows_readonly_source input;
+    return input.open(utf8_to_path(path.c_str())) && read_file_binary_handle(input.handle(), out_data);
 }
 
 static void set_output_io_error(lpb_context* context, DWORD error, const char* operation)

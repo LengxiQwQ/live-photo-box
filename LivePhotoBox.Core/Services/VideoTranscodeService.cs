@@ -4,8 +4,10 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using LivePhotoBox.Models;
+using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Video;
+using Microsoft.Win32.SafeHandles;
 
 namespace LivePhotoBox.Services
 {
@@ -79,7 +81,7 @@ namespace LivePhotoBox.Services
                 sw.Stop();
                 if (result.Success && result.OutputArtifact != null)
                 {
-                    PublishConverterArtifactNoReplace(result.OutputArtifact.Path, outputPath);
+                    PublishConverterArtifactNoReplace(result.OutputArtifact, outputPath);
                     return new TranscodeResult
                     {
                         Success = true,
@@ -184,7 +186,7 @@ namespace LivePhotoBox.Services
                 sw.Stop();
                 if (result.Success && result.OutputArtifact != null)
                 {
-                    PublishConverterArtifactNoReplace(result.OutputArtifact.Path, outputPath);
+                    PublishConverterArtifactNoReplace(result.OutputArtifact, outputPath);
                     ConversionOperationKind operation = result.ExecutionRecord.Truth.ActualOperationKind;
                     return new TranscodeResult
                     {
@@ -294,10 +296,21 @@ namespace LivePhotoBox.Services
             return false;
         }
 
-        private static void PublishConverterArtifactNoReplace(string stagedPath, string callerOutputPath)
+        internal static AsyncLocal<Action?> PublicationLeaseTestHook { get; } = new();
+
+        internal static void PublishConverterArtifactNoReplace(MediaArtifact artifact, string callerOutputPath)
         {
-            string stagedFullPath = Path.GetFullPath(stagedPath);
+            ArgumentNullException.ThrowIfNull(artifact);
+            ArgumentException.ThrowIfNullOrWhiteSpace(artifact.Path);
+            ArgumentException.ThrowIfNullOrWhiteSpace(callerOutputPath);
+
+            string stagedFullPath = Path.GetFullPath(artifact.Path);
             string outputFullPath = Path.GetFullPath(callerOutputPath);
+            if (string.Equals(stagedFullPath, outputFullPath, StringComparison.OrdinalIgnoreCase))
+            {
+                throw new IOException("Converter staging and final publication paths must differ.");
+            }
+
             string stagedName = Path.GetFileName(stagedFullPath);
             if (!stagedName.StartsWith("vid-conv-", StringComparison.Ordinal) ||
                 !string.Equals(Path.GetDirectoryName(stagedFullPath), Path.GetDirectoryName(outputFullPath), StringComparison.OrdinalIgnoreCase))
@@ -305,19 +318,39 @@ namespace LivePhotoBox.Services
                 throw new IOException("Native video output was not a converter-owned sibling artifact; refusing caller-path publication.");
             }
 
+            WindowsFileIdentity expectedIdentity = artifact.FileIdentity
+                ?? throw new IOException("Converter output artifact does not carry a verified WindowsFileIdentity.");
+
+            using SafeFileHandle handle = WindowsOwnedFilePublisher.OpenOwnedStagedFile(stagedFullPath, expectedIdentity);
             try
             {
-                File.Move(stagedFullPath, outputFullPath, overwrite: false);
+                using IDisposable directoryLease = WindowsOwnedFilePublisher.PinDirectoryAncestors(
+                    Path.GetDirectoryName(outputFullPath)!);
+                // The directory may have moved before its pins were acquired.
+                // Revalidate the staged name inside the now-stable namespace.
+                using (WindowsOwnedFilePublisher.OpenOwnedStagedFile(stagedFullPath, expectedIdentity)) { }
+                PublicationLeaseTestHook.Value?.Invoke();
+                PublishedOwnedFile current = WindowsOwnedFilePublisher.CaptureOwnedHandleEvidence(
+                    handle, stagedFullPath, expectedIdentity, CancellationToken.None);
+                if (artifact.ByteLength != current.ByteLength ||
+                    string.IsNullOrWhiteSpace(artifact.Sha256) ||
+                    !string.Equals(artifact.Sha256, current.Sha256, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new IOException("Converter output no longer matches its validated length and SHA-256; refusing publication.");
+                }
+                WindowsOwnedFilePublisher.PublishOwnedHandle(
+                    handle, outputFullPath, expectedIdentity, CancellationToken.None);
             }
             catch (Exception publishException)
             {
                 Exception? cleanupException = null;
                 try
                 {
-                    if (File.Exists(stagedFullPath)) File.Delete(stagedFullPath);
-                    if (File.Exists(stagedFullPath))
+                    OwnedObjectCleanupProof proof = WindowsOwnedFilePublisher.DeleteOwnedObjectWithProof(
+                        handle, expectedIdentity, stagedFullPath, out _);
+                    if (proof is not (OwnedObjectCleanupProof.Gone or OwnedObjectCleanupProof.Unlinked))
                     {
-                        cleanupException = new IOException("Converter-owned staging artifact still exists after cleanup.");
+                        cleanupException = new IOException($"Converter-owned staging artifact could not be proven cleaned up ({proof}).");
                     }
                 }
                 catch (Exception ex)

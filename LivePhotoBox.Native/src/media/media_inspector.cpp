@@ -675,34 +675,30 @@ static bool xmp_node_is_descendant_of(const std::vector<xmp_node>& nodes,
     return false;
 }
 
-static bool xmp_node_is_protocol_marker(const xmp_node& node) noexcept {
-    const auto uri = node.resolved_uri;
-    const auto local = local_name(node.tag_name);
+static bool xmp_name_is_protocol_marker(std::string_view uri, std::string_view local) noexcept {
     if (uri == google_container_namespace && (local == "Directory" || local == "Item")) return true;
     if (uri == google_item_namespace && (local == "Semantic" || local == "Mime" ||
             local == "Length" || local == "Padding")) return true;
-    if ((uri == google_camera_namespace || uri == oppo_camera_namespace || uri == vivo_camera_namespace) &&
+    if (uri == google_camera_namespace &&
         (local == "MotionPhoto" || local == "MotionPhotoVersion" ||
          local == "MotionPhotoPresentationTimestampUs" || local == "MicroVideo" ||
          local == "MicroVideoVersion" || local == "MicroVideoOffset" ||
-         local == "MotionPhotoOwner" || local == "VideoLength" ||
-         local == "OLivePhotoVersion" || local == "VMotionPhotoVersion" ||
+         local == "MicroVideoPresentationTimestampUs")) return true;
+    if (uri == oppo_camera_namespace &&
+        (local == "MotionPhotoOwner" || local == "VideoLength" ||
+         local == "OLivePhotoVersion" || local == "MotionPhotoPrimaryPresentationTimestampUs" ||
+         local == "MotionPhotoEnable")) return true;
+    if (uri == vivo_camera_namespace &&
+        (local == "VMotionPhotoVersion" ||
          local == "VMotionPhotoSource" || local == "VMotionPhotoFlags" ||
          local == "VMediaKitVersion")) return true;
+    return false;
+}
+
+static bool xmp_node_is_protocol_marker(const xmp_node& node) noexcept {
+    if (xmp_name_is_protocol_marker(node.resolved_uri, local_name(node.tag_name))) return true;
     for (const auto& attribute : node.attributes) {
-        const auto attr_uri = attribute.resolved_uri;
-        const auto attr_local = local_name(attribute.name);
-        if (attr_uri == google_container_namespace && (attr_local == "Directory" || attr_local == "Item")) return true;
-        if (attr_uri == google_item_namespace && (attr_local == "Semantic" || attr_local == "Mime" ||
-                attr_local == "Length" || attr_local == "Padding")) return true;
-        if ((attr_uri == google_camera_namespace || attr_uri == oppo_camera_namespace || attr_uri == vivo_camera_namespace) &&
-            (attr_local == "MotionPhoto" || attr_local == "MotionPhotoVersion" ||
-             attr_local == "MotionPhotoPresentationTimestampUs" || attr_local == "MicroVideo" ||
-             attr_local == "MicroVideoVersion" || attr_local == "MicroVideoOffset" ||
-             attr_local == "MotionPhotoOwner" || attr_local == "VideoLength" ||
-             attr_local == "OLivePhotoVersion" || attr_local == "VMotionPhotoVersion" ||
-             attr_local == "VMotionPhotoSource" || attr_local == "VMotionPhotoFlags" ||
-             attr_local == "VMediaKitVersion")) return true;
+        if (xmp_name_is_protocol_marker(attribute.resolved_uri, local_name(attribute.name))) return true;
     }
     return false;
 }
@@ -955,33 +951,10 @@ static std::string extract_xmp_string(lpb_context* context, const std::vector<ui
             }
             const bool has_motion_attribute = has_attribute_name_in_nodes(
                 packet_nodes, google_camera_namespace, "MotionPhoto");
-            bool has_relevant_protocol_property = has_motion_attribute || has_motion_item;
-            for (const auto& node : packet_nodes) {
-                const auto is_relevant_local = [](std::string_view local) noexcept {
-                    return local == "MotionPhoto" || local == "MotionPhotoVersion" ||
-                        local == "MotionPhotoPresentationTimestampUs" ||
-                        local == "MicroVideo" || local == "MicroVideoVersion" ||
-                        local == "MicroVideoOffset" || local == "Directory" ||
-                        local == "Semantic" || local == "Mime" || local == "Length" ||
-                        local == "Padding";
-                };
-                if ((node.resolved_uri == google_camera_namespace ||
-                        node.resolved_uri == google_container_namespace ||
-                        node.resolved_uri == google_item_namespace ||
-                        node.resolved_uri == vivo_camera_namespace) &&
-                    is_relevant_local(local_name(node.tag_name))) {
-                    has_relevant_protocol_property = true;
-                }
-                for (const auto& attribute : node.attributes) {
-                    if ((attribute.resolved_uri == google_camera_namespace ||
-                            attribute.resolved_uri == google_container_namespace ||
-                            attribute.resolved_uri == google_item_namespace ||
-                            attribute.resolved_uri == vivo_camera_namespace) &&
-                        is_relevant_local(local_name(attribute.name))) {
-                        has_relevant_protocol_property = true;
-                    }
-                }
-            }
+            // Ownership and packet relevance must use the same namespace-aware
+            // vocabulary; a vendor-only declaration must not hide behind the first item.
+            const bool has_relevant_protocol_property = std::any_of(
+                packet_nodes.begin(), packet_nodes.end(), xmp_node_is_protocol_marker);
             if (has_relevant_protocol_property) {
                 ++relevant_packet_count;
                 relevant_packet = packet;
@@ -1876,7 +1849,9 @@ static bool extract_apple_cid_from_makernote(const uint8_t* data, size_t start, 
 }
 
 static bool jpeg_xmp_structure_invalid(const std::vector<uint8_t>& data,
-    std::vector<std::string>* out_packets = nullptr) {
+    std::vector<std::string>* out_packets = nullptr,
+    lpb_inspection_failure_category* out_failure = nullptr) {
+    if (out_failure) *out_failure = LPB_INSPECTION_FAILURE_AMBIGUOUS;
     if (out_packets) out_packets->clear();
     if (data.size() < 2 || data[0] != 0xFF || data[1] != 0xD8) return false;
     constexpr char header[] = "http://ns.adobe.com/xap/1.0/\0";
@@ -1901,7 +1876,9 @@ static bool jpeg_xmp_structure_invalid(const std::vector<uint8_t>& data,
             ++packet_count;
             const std::string xml = extract_xml_fragment(std::string_view(reinterpret_cast<const char*>(data.data() + payload + header_size), payload_size - header_size));
             std::vector<xmp_node> nodes;
-            if (xml.empty() || !scan_xmp_tree(xml, nodes)) return true;
+            if (xml.empty() || !scan_xmp_tree(xml, nodes)) {
+                return true;
+            }
             if (!standard_xml.empty()) return true;
             standard_xml = xml;
         } else if (marker == 0xE1 && payload_size >= extension_header_size + 32 + 8 &&
@@ -1937,6 +1914,14 @@ static bool jpeg_xmp_structure_invalid(const std::vector<uint8_t>& data,
     const std::string& guid = extensions.front().guid;
     const uint32_t total = extensions.front().total;
     for (const auto& chunk : extensions) if (chunk.guid != guid || chunk.total != total) return true;
+    // Complete non-overlapping coverage cannot contain more bytes than the
+    // actual APP1 payloads. Check this before allocating a declared-size buffer.
+    uint64_t supplied_bytes = 0;
+    for (const auto& chunk : extensions) supplied_bytes += chunk.bytes.size();
+    if (supplied_bytes != total) {
+        if (out_failure) *out_failure = LPB_INSPECTION_FAILURE_MALFORMED;
+        return true;
+    }
     std::vector<uint8_t> reconstructed(total, 0);
     std::vector<uint8_t> covered(total, 0);
     for (const auto& chunk : extensions) {
@@ -3165,48 +3150,26 @@ static bool bind_gainmap_from_heif_auxiliary(lpb_context* context,
 }
 
 static bool populate_heif_auxiliary(lpb_context* context, const std::vector<uint8_t>& data,
-    lpb_source_media_facts* facts) noexcept {
+    lpb_source_media_facts* facts, uint64_t capability) noexcept {
     if (!context || !facts) return false;
-    size_t count = 0;
-    const lpb_result probe = lpb_heif_enumerate_auxiliary_items(context, data.data(), data.size(), nullptr, 0, &count);
-    if (probe != LPB_RESULT_OK && probe != LPB_RESULT_BUFFER_TOO_SMALL) return false;
-    if (count > 8) {
+    std::vector<lpb_auxiliary_item_facts> items;
+    lpb::containers::heif_graph_diagnostic diagnostic;
+    facts->auxiliary_count = 0;
+    if (!lpb::containers::enumerate_auxiliary_items(data, items, diagnostic)) {
+        set_error(context, diagnostic.message.c_str());
+        set_inspection_status(context, lpb::containers::inspection_category(diagnostic.code),
+            LPB_INSPECTION_STAGE_CONTAINER, capability);
+        return false;
+    }
+    if (items.size() > std::size(facts->auxiliary_items)) {
         set_error(context, "HEIF auxiliary item count exceeds the source-facts ABI capacity.");
+        set_inspection_status(context, LPB_INSPECTION_FAILURE_UNSUPPORTED,
+            LPB_INSPECTION_STAGE_CONTAINER, capability);
         return false;
     }
-    if (count == 0) { facts->auxiliary_count = 0; return true; }
-    size_t written = 0;
-    if (lpb_heif_enumerate_auxiliary_items(context, data.data(), data.size(), facts->auxiliary_items, 8, &written) != LPB_RESULT_OK || written != count) {
-        set_error(context, "HEIF auxiliary item enumeration did not return the declared item count.");
-        return false;
-    }
-    facts->auxiliary_count = static_cast<uint32_t>(written);
+    std::copy(items.begin(), items.end(), facts->auxiliary_items);
+    facts->auxiliary_count = static_cast<uint32_t>(items.size());
     return true;
-}
-
-static void set_heif_graph_failure_status(lpb_context* context, uint64_t capability) noexcept
-{
-    if (!context) return;
-    std::string diagnostic;
-    {
-        std::scoped_lock lock(context->error_mutex);
-        diagnostic = context->last_error;
-    }
-    const bool unsupported = diagnostic.find("Unsupported") != std::string::npos ||
-        diagnostic.find("unsupported") != std::string::npos;
-    const bool ambiguous = diagnostic.find("duplicate") != std::string::npos ||
-        diagnostic.find("Duplicate") != std::string::npos ||
-        diagnostic.find("cycle") != std::string::npos ||
-        diagnostic.find("Shadow") != std::string::npos ||
-        diagnostic.find("shadow") != std::string::npos ||
-        diagnostic.find("ambiguous") != std::string::npos ||
-        diagnostic.find("Ambiguous") != std::string::npos;
-    set_inspection_status(
-        context,
-        unsupported ? LPB_INSPECTION_FAILURE_UNSUPPORTED :
-            ambiguous ? LPB_INSPECTION_FAILURE_AMBIGUOUS : LPB_INSPECTION_FAILURE_MALFORMED,
-        LPB_INSPECTION_STAGE_CONTAINER,
-        capability);
 }
 
 lpb_result inspect_source(
@@ -3282,9 +3245,10 @@ lpb_result inspect_source(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     std::vector<std::string> xmp_packets;
-    if (img_cont == LPB_IMAGE_CONTAINER_JPEG && jpeg_xmp_structure_invalid(primary_data, &xmp_packets)) {
+    lpb_inspection_failure_category jpeg_xmp_failure = LPB_INSPECTION_FAILURE_AMBIGUOUS;
+    if (img_cont == LPB_IMAGE_CONTAINER_JPEG && jpeg_xmp_structure_invalid(primary_data, &xmp_packets, &jpeg_xmp_failure)) {
         set_error(context, "JPEG contains duplicate or malformed XMP packet(s).");
-        set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS, LPB_INSPECTION_STAGE_METADATA);
+        set_inspection_status(context, jpeg_xmp_failure, LPB_INSPECTION_STAGE_METADATA);
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
@@ -3360,8 +3324,7 @@ lpb_result inspect_source(
                         set_inspection_status(context, LPB_INSPECTION_FAILURE_MALFORMED, LPB_INSPECTION_STAGE_CONTAINER, LPB_CAPABILITY_APPLE);
                         return LPB_RESULT_INVALID_ARGUMENT;
                     }
-                    if (!populate_heif_auxiliary(context, primary_data, out_facts)) {
-                        set_heif_graph_failure_status(context, LPB_CAPABILITY_APPLE);
+                    if (!populate_heif_auxiliary(context, primary_data, out_facts, LPB_CAPABILITY_APPLE)) {
                         return LPB_RESULT_INVALID_ARGUMENT;
                     }
                     if (!bind_gainmap_from_heif_auxiliary(context, out_facts)) {
@@ -3609,12 +3572,13 @@ lpb_result inspect_source(
         }
 
         if (img_cont == LPB_IMAGE_CONTAINER_HEIC) {
-            size_t auxiliary_item_count = 0;
-            const lpb_result heif_graph_probe = lpb_heif_enumerate_auxiliary_items(
-                context, primary_data.data(), static_cast<size_t>(huawei_vid_off),
-                nullptr, 0, &auxiliary_item_count);
-            if (heif_graph_probe != LPB_RESULT_OK && heif_graph_probe != LPB_RESULT_BUFFER_TOO_SMALL) {
-                set_heif_graph_failure_status(context, LPB_CAPABILITY_HUAWEI_HONOR);
+            std::vector<lpb_auxiliary_item_facts> auxiliary_items;
+            lpb::containers::heif_graph_diagnostic diagnostic;
+            if (!lpb::containers::enumerate_auxiliary_items(
+                    {primary_data.data(), static_cast<size_t>(huawei_vid_off)}, auxiliary_items, diagnostic)) {
+                set_error(context, diagnostic.message.c_str());
+                set_inspection_status(context, lpb::containers::inspection_category(diagnostic.code),
+                    LPB_INSPECTION_STAGE_CONTAINER, LPB_CAPABILITY_HUAWEI_HONOR);
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
         }
@@ -3901,8 +3865,7 @@ lpb_result inspect_source(
                     LPB_INSPECTION_STAGE_PROTOCOL, LPB_CAPABILITY_SAMSUNG_HEIC);
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
-            if (!populate_heif_auxiliary(context, primary_data, out_facts)) {
-                set_heif_graph_failure_status(context, LPB_CAPABILITY_SAMSUNG_HEIC);
+            if (!populate_heif_auxiliary(context, primary_data, out_facts, LPB_CAPABILITY_SAMSUNG_HEIC)) {
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
             if (!bind_gainmap_from_heif_auxiliary(context, out_facts)) {
@@ -3998,8 +3961,10 @@ lpb_result inspect_source(
             const bool contains_live_property = std::any_of(xmp_packets.begin(), xmp_packets.end(), [](const std::string& packet) {
                 return packet.find("MotionPhoto") != std::string::npos ||
                     packet.find("VideoLength") != std::string::npos ||
-                    packet.find("MicroVideoOffset") != std::string::npos ||
-                    packet.find("VMotionPhotoVersion") != std::string::npos;
+                    packet.find("MicroVideo") != std::string::npos ||
+                    packet.find("VMotionPhoto") != std::string::npos ||
+                    packet.find("OLivePhotoVersion") != std::string::npos ||
+                    packet.find("VMediaKitVersion") != std::string::npos;
             });
             if (contains_live_property) {
                 set_error(context, "Source image contains malformed or unparseable Live Photo XMP.");
@@ -4032,9 +3997,73 @@ lpb_result inspect_source(
     }
 
     if (xmp_parsed && !nodes.empty()) {
-        // Vivo X300+
+        const bool has_motion_item_claim = std::any_of(nodes.begin(), nodes.end(), [&](const xmp_node& node) {
+            const bool is_motion_semantic =
+                (node_is(node, google_item_namespace, "Semantic") && node.text_value == "MotionPhoto") ||
+                std::any_of(node.attributes.begin(), node.attributes.end(), [](const xmp_attribute& attribute) {
+                    return attribute.resolved_uri == google_item_namespace &&
+                        local_name(attribute.name) == "Semantic" && attribute.value == "MotionPhoto";
+                });
+            if (!is_motion_semantic) return false;
+            return std::any_of(nodes.begin(), nodes.end(), [&](const xmp_node& ancestor) {
+                return node_is(ancestor, google_container_namespace, "Directory") &&
+                    xmp_node_is_descendant_of(nodes, node.node_index, ancestor.node_index);
+            });
+        });
         const bool is_vivo_candidate = has_attribute_name_in_nodes(nodes, vivo_camera_namespace, "VMotionPhotoVersion") ||
-            has_attribute_name_in_nodes(nodes, vivo_camera_namespace, "VMotionPhotoFlags");
+            has_attribute_name_in_nodes(nodes, vivo_camera_namespace, "VMotionPhotoFlags") ||
+            has_attribute_name_in_nodes(nodes, vivo_camera_namespace, "VMotionPhotoSource") ||
+            has_attribute_name_in_nodes(nodes, vivo_camera_namespace, "VMediaKitVersion");
+        const bool is_oppo_candidate = has_attribute_name_in_nodes(nodes, oppo_camera_namespace, "VideoLength") ||
+            has_attribute_name_in_nodes(nodes, oppo_camera_namespace, "MotionPhotoOwner") ||
+            has_attribute_name_in_nodes(nodes, oppo_camera_namespace, "OLivePhotoVersion") ||
+            has_attribute_name_in_nodes(nodes, oppo_camera_namespace, "MotionPhotoPrimaryPresentationTimestampUs") ||
+            has_attribute_name_in_nodes(nodes, oppo_camera_namespace, "MotionPhotoEnable");
+        const bool is_google_v2_candidate = has_attribute_name_in_nodes(nodes, google_camera_namespace, "MotionPhoto") ||
+            has_attribute_name_in_nodes(nodes, google_camera_namespace, "MotionPhotoVersion") ||
+            has_attribute_name_in_nodes(nodes, google_camera_namespace, "MotionPhotoPresentationTimestampUs") || has_motion_item_claim;
+        const bool is_google_v1_candidate = has_attribute_name_in_nodes(nodes, google_camera_namespace, "MicroVideo") ||
+            has_attribute_name_in_nodes(nodes, google_camera_namespace, "MicroVideoOffset") ||
+            has_attribute_name_in_nodes(nodes, google_camera_namespace, "MicroVideoVersion") ||
+            has_attribute_name_in_nodes(nodes, google_camera_namespace, "MicroVideoPresentationTimestampUs");
+
+        // Optional timing is still protocol-owned input. Reject malformed or
+        // duplicate values rather than silently dropping them from confirmed facts.
+        const uint64_t timing_capability = is_vivo_candidate ? LPB_CAPABILITY_VIVO_X300 :
+            is_oppo_candidate ? LPB_CAPABILITY_OPPO : is_google_v2_candidate ? LPB_CAPABILITY_GOOGLE_V2 :
+            is_google_v1_candidate ? LPB_CAPABILITY_GOOGLE_V1 : 0;
+        const auto validate_timing = [&](std::string_view uri, std::string_view local) {
+            size_t count = 0;
+            for (const auto& node : nodes) {
+                if (node_is(node, uri, local)) ++count;
+                for (const auto& attribute : node.attributes)
+                    if (attribute.resolved_uri == uri && local_name(attribute.name) == local) ++count;
+            }
+            if (count > 1) {
+                set_error(context, "Duplicate protocol timing property in XMP.");
+                set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS,
+                    LPB_INSPECTION_STAGE_METADATA, timing_capability);
+                return false;
+            }
+            int64_t value{};
+            if (get_global_attribute_i64(nodes, uri, local, value) < 0) {
+                set_error(context, "Malformed protocol timing property in XMP.");
+                set_inspection_status(context, LPB_INSPECTION_FAILURE_MALFORMED,
+                    LPB_INSPECTION_STAGE_PROTOCOL, timing_capability);
+                return false;
+            }
+            return true;
+        };
+        if (is_vivo_candidate || is_oppo_candidate || is_google_v2_candidate) {
+            if (!validate_timing(google_camera_namespace, "MotionPhotoPresentationTimestampUs") ||
+                (is_oppo_candidate && !validate_timing(oppo_camera_namespace, "MotionPhotoPrimaryPresentationTimestampUs")))
+                return LPB_RESULT_INVALID_ARGUMENT;
+        } else if (is_google_v1_candidate &&
+            !validate_timing(google_camera_namespace, "MicroVideoPresentationTimestampUs")) {
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        // Valid V2 continues to ignore same-owner V1 compatibility values.
+        // Vivo X300+
         if (is_vivo_candidate) {
             set_inspection_status(context, LPB_INSPECTION_FAILURE_MALFORMED,
                 LPB_INSPECTION_STAGE_PROTOCOL, LPB_CAPABILITY_VIVO_X300);
@@ -4163,9 +4192,6 @@ lpb_result inspect_source(
         }
 
         // OPPO / OnePlus Live Photo
-        const bool is_oppo_candidate = has_attribute_name_in_nodes(nodes, oppo_camera_namespace, "VideoLength") ||
-            has_attribute_name_in_nodes(nodes, oppo_camera_namespace, "MotionPhotoOwner") ||
-            has_attribute_name_in_nodes(nodes, oppo_camera_namespace, "OLivePhotoVersion");
         if (is_oppo_candidate) {
             set_inspection_status(context, LPB_INSPECTION_FAILURE_MALFORMED,
                 LPB_INSPECTION_STAGE_PROTOCOL, LPB_CAPABILITY_OPPO);
@@ -4391,10 +4417,15 @@ lpb_result inspect_source(
             out_facts->primary_image.file_range.length = jpeg_end;
 
             int64_t cover_time = 0;
-            if (get_global_attribute_i64(nodes, oppo_camera_namespace, "MotionPhotoPrimaryPresentationTimestampUs", cover_time) > 0 ||
-                get_global_attribute_i64(nodes, google_camera_namespace, "MotionPhotoPresentationTimestampUs", cover_time) > 0) {
-                out_facts->timing.cover_timestamp_us = cover_time;
+            const bool has_current_cover = get_global_attribute_i64(nodes, google_camera_namespace,
+                "MotionPhotoPresentationTimestampUs", cover_time) > 0;
+            int64_t primary_time = 0;
+            if (get_global_attribute_i64(nodes, oppo_camera_namespace,
+                    "MotionPhotoPrimaryPresentationTimestampUs", primary_time) > 0) {
+                out_facts->timing.primary_timestamp_us = primary_time;
+                if (!has_current_cover) cover_time = primary_time;
             }
+            out_facts->timing.cover_timestamp_us = cover_time;
 
             if (out_residues) {
                 if (has_attribute_name_in_nodes(nodes, oppo_camera_namespace, "OLivePhotoVersion")) {
@@ -4462,7 +4493,8 @@ lpb_result inspect_source(
         }
 
         // Google Motion Photo V2 / Xiaomi
-        const bool is_google_v2_candidate = has_attribute_name_in_nodes(nodes, google_camera_namespace, "MotionPhoto");
+        // A surviving version/timestamp is incomplete protocol evidence, not
+        // positive proof of NonLive. Validate the complete declaration below.
         if (is_google_v2_candidate) {
             set_inspection_status(context, LPB_INSPECTION_FAILURE_MALFORMED,
                 LPB_INSPECTION_STAGE_PROTOCOL, LPB_CAPABILITY_GOOGLE_V2);
@@ -4554,8 +4586,7 @@ lpb_result inspect_source(
                     set_error(context, "Google Motion Photo V2 HEIC Primary padding does not match the mpvd framing header.");
                     return LPB_RESULT_INVALID_ARGUMENT;
                 }
-                if (!populate_heif_auxiliary(context, primary_data, out_facts)) {
-                    set_heif_graph_failure_status(context, LPB_CAPABILITY_GOOGLE_V2);
+                if (!populate_heif_auxiliary(context, primary_data, out_facts, LPB_CAPABILITY_GOOGLE_V2)) {
                     return LPB_RESULT_INVALID_ARGUMENT;
                 }
                 if (!bind_gainmap_from_heif_auxiliary(context, out_facts)) {
@@ -4821,8 +4852,6 @@ lpb_result inspect_source(
         }
 
         // Google MicroVideo V1
-        const bool is_google_v1_candidate = has_attribute_name_in_nodes(nodes, google_camera_namespace, "MicroVideo") ||
-            has_attribute_name_in_nodes(nodes, google_camera_namespace, "MicroVideoOffset");
         if (is_google_v1_candidate) {
             set_inspection_status(context, LPB_INSPECTION_FAILURE_MALFORMED,
                 LPB_INSPECTION_STAGE_PROTOCOL, LPB_CAPABILITY_GOOGLE_V1);
@@ -5112,8 +5141,7 @@ lpb_result inspect_source(
             set_inspection_status(context, LPB_INSPECTION_FAILURE_MALFORMED, LPB_INSPECTION_STAGE_CONTAINER);
             return LPB_RESULT_INVALID_ARGUMENT;
         }
-        if (!populate_heif_auxiliary(context, primary_data, out_facts)) {
-            set_heif_graph_failure_status(context, 0);
+        if (!populate_heif_auxiliary(context, primary_data, out_facts, 0)) {
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         if (!bind_gainmap_from_heif_auxiliary(context, out_facts)) {

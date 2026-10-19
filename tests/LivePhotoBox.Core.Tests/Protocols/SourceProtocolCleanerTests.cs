@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
+using LivePhotoBox.Core.Tests.Support;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Extraction;
 using LivePhotoBox.Media.Inspection;
@@ -178,11 +180,12 @@ public sealed class SourceProtocolCleanerTests
         var extractor = new SourceExtractor();
         var cleaner = new SourceProtocolCleaner();
 
-        var facts = await inspector.InspectAsync(primaryPath);
+        using var inspected = await inspector.InspectWithPlanAsync(primaryPath);
+        var facts = inspected.Facts;
         Assert.Equal(SourceProtocol.SamsungMotionPhotoHeic, facts.Protocol);
-        var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, null, workspace);
-        using var nativeContext = TestNativeContext.Create();
-        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
+        var extracted = await extractor.ExtractAsync(inspected.ExtractionPlan, primaryPath, null, workspace);
+        using var cleanupPlan = extracted.CleanupPlan;
+        Assert.NotNull(cleanupPlan);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
@@ -223,9 +226,8 @@ public sealed class SourceProtocolCleanerTests
     public async Task Clean_Adversarial_MissingAuthorization_FailsClosed()
     {
         string primaryPath = ResolveSample("小米.jpg");
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         var inspector = new SourceInspector();
-        var extractor = new SourceExtractor();
         var cleaner = new SourceProtocolCleaner();
 
         var facts = await inspector.InspectAsync(primaryPath);
@@ -249,7 +251,7 @@ public sealed class SourceProtocolCleanerTests
     public async Task Clean_Adversarial_DtoEntryPoint_FailsClosedWithoutAuthority()
     {
         string primaryPath = ResolveSample("小米.jpg");
-        using var workspace = new MediaWorkspace();
+        using var workspace = new TestFixtureWorkspace();
         var inspector = new SourceInspector();
         var facts = await inspector.InspectAsync(primaryPath);
 
@@ -293,18 +295,15 @@ public sealed class SourceProtocolCleanerTests
         var inspector = new SourceInspector();
         var extractor = new SourceExtractor();
 
-        var facts = await inspector.InspectAsync(primaryPath);
-        var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, null, workspace);
+        using var inspected = await inspector.InspectWithPlanAsync(primaryPath);
+        var extracted = await extractor.ExtractAsync(inspected.ExtractionPlan, primaryPath, null, workspace);
+        using var cleanerPlan = extracted.CleanupPlan;
+        Assert.NotNull(cleanerPlan);
 
         // Inject a simulated rogue cleaner that reports an unauthorized removal.
-        // The CleanAsync-level authority is a real harness plan (a forged DTO
-        // like CleanupPlan.CreateFake() is rejected at the Authorization gate
-        // before any invoker runs).  The plan-authorized invoker runs the real
-        // Native clean on the CleanAsync attempt, then lies by appending a
-        // rogue fact; the Cleaner's reconciliation gate must fail closed and
-        // the transaction rolls back its exact staged objects.
-        using var cleanerNativeContext = TestNativeContext.Create();
-        using var cleanerPlan = await TestCleanerPlans.IssueFromBundleAsync(cleanerNativeContext, extracted);
+        // The plan-authorized invoker runs the real Native clean on the CleanAsync
+        // attempt, then lies by appending a rogue fact; the Cleaner's reconciliation
+        // gate must fail closed and the transaction rolls back its exact staged objects.
         var rogueCleaner = new SourceProtocolCleaner(cleanPlanInvoker: async (attempt, inImg, inVid, cleanupSource, outImg, outVid, ct) =>
         {
             var realFacts = await LivePhotoBox.Interop.NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync(
@@ -343,13 +342,14 @@ public sealed class SourceProtocolCleanerTests
     public async Task Clean_Adversarial_NonProtocolXmp_NeverOverkilled()
     {
         string primaryPath = ResolveSample("小米.jpg");
+        using var inputFixture = new TestFixtureWorkspace();
         using var workspace = new MediaWorkspace();
         var inspector = new SourceInspector();
         var extractor = new SourceExtractor();
         var cleaner = new SourceProtocolCleaner();
 
         // Prepare an image with custom non-protocol XMP properties
-        string customImg = workspace.AllocateFilePath("adversarial-xmp", ".jpg");
+        string customImg = inputFixture.AllocateFilePath("adversarial-xmp", ".jpg");
         byte[] originalBytes = await File.ReadAllBytesAsync(primaryPath);
         string originalXmp = PreservationTestHelpers.ExtractXmp(originalBytes);
         Assert.NotEmpty(originalXmp);
@@ -366,10 +366,10 @@ public sealed class SourceProtocolCleanerTests
         Assert.True(injected, err);
         await File.WriteAllBytesAsync(customImg, outputBytes!);
 
-        var facts = await inspector.InspectAsync(customImg);
-        var extracted = await TestFactsExtractor.ExtractAsync(facts, customImg, null, workspace);
-        using var nativeContext = TestNativeContext.Create();
-        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
+        using var inspected = await inspector.InspectWithPlanAsync(customImg);
+        var extracted = await extractor.ExtractAsync(inspected.ExtractionPlan, customImg, null, workspace);
+        using var cleanupPlan = extracted.CleanupPlan;
+        Assert.NotNull(cleanupPlan);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
@@ -397,10 +397,10 @@ public sealed class SourceProtocolCleanerTests
         var extractor = new SourceExtractor();
         var cleaner = new SourceProtocolCleaner();
 
-        var facts = await inspector.InspectAsync(primaryPath);
-        var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, null, workspace);
-        using var nativeContext = TestNativeContext.Create();
-        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
+        using var inspected = await inspector.InspectWithPlanAsync(primaryPath);
+        var extracted = await extractor.ExtractAsync(inspected.ExtractionPlan, primaryPath, null, workspace);
+        using var cleanupPlan = extracted.CleanupPlan;
+        Assert.NotNull(cleanupPlan);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
@@ -430,10 +430,10 @@ public sealed class SourceProtocolCleanerTests
         var extractor = new SourceExtractor();
         var cleaner = new SourceProtocolCleaner();
 
-        var facts = await inspector.InspectAsync(primaryPath, secondaryPath);
-        var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, secondaryPath, workspace);
-        using var nativeContext = TestNativeContext.Create();
-        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
+        using var inspected = await inspector.InspectWithPlanAsync(primaryPath, secondaryPath);
+        var extracted = await extractor.ExtractAsync(inspected.ExtractionPlan, primaryPath, secondaryPath, workspace);
+        using var cleanupPlan = extracted.CleanupPlan;
+        Assert.NotNull(cleanupPlan);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
@@ -454,16 +454,18 @@ public sealed class SourceProtocolCleanerTests
     {
         string primaryPath = ResolveSample("小米.jpg");
         using var workspace = new MediaWorkspace();
+        using var tamperedFixture = new TestFixtureWorkspace();
         var inspector = new SourceInspector();
         var extractor = new SourceExtractor();
 
-        var facts = await inspector.InspectAsync(primaryPath);
-        var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, null, workspace);
+        using var inspected = await inspector.InspectWithPlanAsync(primaryPath);
+        var extracted = await extractor.ExtractAsync(inspected.ExtractionPlan, primaryPath, null, workspace);
+        using var extractedCleanupPlan = extracted.CleanupPlan;
 
         string originalImagePath = extracted.PrimaryImage.Path;
 
         // Case A: Tamper by removing ICC profile bytes
-        string noIccImagePath = workspace.AllocateFilePath("tampered-no-icc", ".jpg");
+        string noIccImagePath = tamperedFixture.AllocateFilePath("tampered-no-icc", ".jpg");
         byte[] imgBytes = await File.ReadAllBytesAsync(originalImagePath);
         // Zero-out ICC marker bytes (0xFF, 0xE2)
         for (int i = 0; i < imgBytes.Length - 4; i++)
@@ -485,11 +487,13 @@ public sealed class SourceProtocolCleanerTests
 
         // Case B: Tamper by stripping GainMap/HDR metadata on HDR source
         string hdrSourcePath = ResolveSample("三星.heic");
-        var hdrFacts = await inspector.InspectAsync(hdrSourcePath);
-        var hdrExtracted = await TestFactsExtractor.ExtractAsync(hdrFacts, hdrSourcePath, null, workspace);
+        using var hdrInspected = await inspector.InspectWithPlanAsync(hdrSourcePath);
+        var hdrExtracted = await extractor.ExtractAsync(hdrInspected.ExtractionPlan, hdrSourcePath, null, workspace);
+        using var strictCleanupPlan = hdrExtracted.CleanupPlan;
+        Assert.NotNull(strictCleanupPlan);
 
         // Create a copy of Samsung HEIC and wipe GainMap & hdrgm bytes to simulate HDR loss
-        string strippedHdrPath = workspace.AllocateFilePath("tampered-no-gainmap", ".heic");
+        string strippedHdrPath = tamperedFixture.AllocateFilePath("tampered-no-gainmap", ".heic");
         byte[] heicBytes = await File.ReadAllBytesAsync(hdrExtracted.PrimaryImage.Path);
         void WipeBytes(byte[] target, byte[] replacement)
         {
@@ -522,8 +526,6 @@ public sealed class SourceProtocolCleanerTests
 
         // Case C: Strict policy must immediately fail closed when preservation fails
         var cleaner = new SourceProtocolCleaner();
-        using var strictNativeContext = TestNativeContext.Create();
-        using var strictCleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(strictNativeContext, hdrExtracted);
         var strictCleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = hdrExtracted with { CleanupPlan = strictCleanupPlan },
@@ -554,12 +556,13 @@ public sealed class SourceProtocolCleanerTests
     public async Task Clean_Oppo_UnauthorizedGCameraXmpProperty_PreservedWithoutDeletion()
     {
         string primaryPath = ResolveSample("oppo.jpg");
+        using var inputFixture = new TestFixtureWorkspace();
         using var workspace = new MediaWorkspace();
         var inspector = new SourceInspector();
         var extractor = new SourceExtractor();
         var cleaner = new SourceProtocolCleaner();
 
-        string customImg = workspace.AllocateFilePath("oppo-audit-prop", ".jpg");
+        string customImg = inputFixture.AllocateFilePath("oppo-audit-prop", ".jpg");
         byte[] originalBytes = await File.ReadAllBytesAsync(primaryPath);
         string originalXmp = PreservationTestHelpers.ExtractXmp(originalBytes);
         Assert.NotEmpty(originalXmp);
@@ -576,15 +579,16 @@ public sealed class SourceProtocolCleanerTests
         Assert.True(injected, err);
         await File.WriteAllBytesAsync(customImg, outputBytes!);
 
-        var facts = await inspector.InspectAsync(customImg);
+        using var inspected = await inspector.InspectWithPlanAsync(customImg);
+        var facts = inspected.Facts;
         Assert.Equal(SourceProtocol.OppoLivePhoto, facts.Protocol);
 
         // Verify that SpecialAuditProp is NOT an authorized protocol residue
         Assert.DoesNotContain(facts.ConfirmedResidues, r => r.Selector.Contains("SpecialAuditProp"));
 
-        var extracted = await TestFactsExtractor.ExtractAsync(facts, customImg, null, workspace);
-        using var nativeContext = TestNativeContext.Create();
-        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
+        var extracted = await extractor.ExtractAsync(inspected.ExtractionPlan, customImg, null, workspace);
+        using var cleanupPlan = extracted.CleanupPlan;
+        Assert.NotNull(cleanupPlan);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },
@@ -625,12 +629,13 @@ public sealed class SourceProtocolCleanerTests
         Assert.True(originalPayloads.ContainsKey(0x0C61), "Camera_Capture_Mode_Info (0x0C61) expected in source");
         Assert.True(originalPayloads.ContainsKey(0x0A30), "MotionPhoto_Data (0x0A30) expected in source");
 
-        var facts = await inspector.InspectAsync(primaryPath);
+        using var inspected = await inspector.InspectWithPlanAsync(primaryPath);
+        var facts = inspected.Facts;
         Assert.Equal(SourceProtocol.SamsungMotionPhotoJpeg, facts.Protocol);
 
-        var extracted = await TestFactsExtractor.ExtractAsync(facts, primaryPath, null, workspace);
-        using var nativeContext = TestNativeContext.Create();
-        using var cleanupPlan = await TestCleanerPlans.IssueFromBundleAsync(nativeContext, extracted);
+        var extracted = await extractor.ExtractAsync(inspected.ExtractionPlan, primaryPath, null, workspace);
+        using var cleanupPlan = extracted.CleanupPlan;
+        Assert.NotNull(cleanupPlan);
         var cleanResult = await cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted with { CleanupPlan = cleanupPlan },

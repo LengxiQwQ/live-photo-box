@@ -114,7 +114,7 @@ public sealed class EditExportService : IDisposable
                     if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
                     {
                         if (string.IsNullOrEmpty(primaryPhotoPath) || !File.Exists(primaryPhotoPath)) return;
-                        byte[]? origBytes = EditTimingService.ReadOriginalPhotoBytes(primaryPhotoPath);
+                        byte[]? origBytes = EditTimingService.ReadOriginalPhotoBytes(primaryPhotoPath, cancellationToken);
                         if (origBytes == null || origBytes.Length == 0) return;
                         preparedSourceArtifact = await ExportSourcePreparation.PrepareOriginalBytesAsync(
                             origBytes,
@@ -322,6 +322,16 @@ public sealed class EditExportService : IDisposable
             return;
         }
 
+        try
+        {
+            EditExportMetadataPolicy.ValidateRequest(options.CopyExif, cancellationToken);
+        }
+        catch (Exception ex) when (ex is NotSupportedException or OperationCanceledException)
+        {
+            progress.NotifyFailure(ResourceService.GetString("EditPage_ExportAllFramesFailed"), ex.Message);
+            return;
+        }
+
         var exportDir = GetUniqueFolderPath(options.ExportPath, options.FolderName);
         Directory.CreateDirectory(exportDir);
 
@@ -355,6 +365,7 @@ public sealed class EditExportService : IDisposable
             }
 
             await Task.WhenAll(tasks);
+            EditExportMetadataPolicy.EnsureAllFramesSucceeded(frames.Count, counters.Success, counters.Fail);
 
             LogService.FileOp(
                 $"ExportAllFrames completed: {counters.Success} succeeded, {counters.Fail} failed -> '{exportDir}'",
@@ -400,7 +411,7 @@ public sealed class EditExportService : IDisposable
         Exception? originalFailure = null;
         try
         {
-            token.ThrowIfCancellationRequested();
+            EditExportMetadataPolicy.ValidateRequest(copyExif, token);
 
             string sourcePath;
             if (frame.IsStillPhoto || frame.IsOriginalPhoto)
@@ -409,7 +420,7 @@ public sealed class EditExportService : IDisposable
                 {
                     if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
                     {
-                        byte[]? origBytes = EditTimingService.ReadOriginalPhotoBytes(photoPath);
+                        byte[]? origBytes = EditTimingService.ReadOriginalPhotoBytes(photoPath, token);
                         if (origBytes == null || origBytes.Length == 0)
                         {
                             Interlocked.Increment(ref counters.Fail);
@@ -466,11 +477,6 @@ public sealed class EditExportService : IDisposable
             else
             {
                 await PublishExportCopyAsync(sourcePath, targetPath, MediaArtifactKind.PrimaryImage, false, token);
-            }
-
-            if (copyExif && File.Exists(photoPath))
-            {
-                await CopyExifForExportAsync(photoPath, targetPath, token);
             }
 
             try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
@@ -818,46 +824,6 @@ public sealed class EditExportService : IDisposable
         }
 
         return additionalFailure;
-    }
-
-    /// <summary>
-    /// 将原图的 EXIF 信息（相机、日期、GPS 等）复制到导出文件，
-    /// 但排除各家实况照片私有协议标签（GCamera、OpCamera、Container 等），
-    /// 确保导出的是干净的静态图片。
-    /// </summary>
-    private static async Task CopyExifForExportAsync(string sourcePath, string targetPath, CancellationToken token = default)
-    {
-        try
-        {
-            await LivePhotoRepairService.RunExifToolAsync(token,
-                "-TagsFromFile", sourcePath,
-                "-all:all",
-                "-Orientation=",
-                "-ExifImageWidth=",
-                "-ExifImageHeight=",
-                "-ThumbnailImage=",
-                "-overwrite_original",
-                "-quiet",
-                targetPath);
-
-            await LivePhotoRepairService.RunExifToolAsync(token,
-                "-xmp-GCamera:all=",
-                "-xmp-OpCamera:all=",
-                "-xmp-Container:all=",
-                "-ContentIdentifier=",
-                "-overwrite_original",
-                "-quiet",
-                targetPath);
-
-            LogService.FileOp(
-                $"CopyExifForExport: {Path.GetFileName(sourcePath)} -> {Path.GetFileName(targetPath)}",
-                LogLevel.Info);
-        }
-        catch (Exception ex)
-        {
-            LogService.FileOp(
-                $"CopyExifForExport failed: {ex.Message}", LogLevel.Warning);
-        }
     }
 
     /// <summary>

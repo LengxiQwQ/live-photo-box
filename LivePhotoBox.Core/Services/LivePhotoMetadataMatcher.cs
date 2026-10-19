@@ -327,19 +327,6 @@ namespace LivePhotoBox.Services
 
         // ── Helpers ─────────────────────────────────────────────────────
 
-        private static string GetJsonValueAsString(System.Text.Json.JsonElement element, string propertyName)
-        {
-            if (!element.TryGetProperty(propertyName, out var prop))
-                return "";
-
-            return prop.ValueKind switch
-            {
-                System.Text.Json.JsonValueKind.String => prop.GetString() ?? "",
-                System.Text.Json.JsonValueKind.Number => prop.GetRawText(),
-                _ => prop.ToString()
-            };
-        }
-
         // Apple live photo detection — used by Repair page for filtering.
         // An Apple Live Photo is identified by its ContentIdentifier UUID (present in both the
         // still image and the paired video), not the Make tag — Make can be stripped or rewritten,

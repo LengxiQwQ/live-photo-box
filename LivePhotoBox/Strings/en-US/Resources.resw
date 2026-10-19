@@ -4512,4 +4512,10 @@ Then click "Start Split".</value>
   <data name="EditPage_InspectorModifyCardTitle.Text" xml:space="preserve">
     <value>Modify Properties</value>
   </data>
+  <data name="EditPage_ExportExifUnavailable" xml:space="preserve">
+    <value>Copying original EXIF metadata is not supported by the current Native export pipeline. No files were exported. Clear Copy EXIF only if you explicitly accept exporting without copying this metadata.</value>
+  </data>
+  <data name="Preview_InspectionFailed" xml:space="preserve">
+    <value>Media inspection failed</value>
+  </data>
 </root>

@@ -32,6 +32,9 @@
     <Compile Include="..\..\LivePhotoBox\Services\EditPreviewCoordinator.cs" Link="Editor\EditPreviewCoordinator.cs" />
     <Compile Include="..\..\LivePhotoBox\Services\ImageFormatService.cs" Link="Editor\ImageFormatService.cs" />
     <Compile Include="..\..\LivePhotoBox\Services\ExportSourcePreparation.cs" Link="Editor\ExportSourcePreparation.cs" />
+    <Compile Include="..\..\LivePhotoBox\Services\EditExportMetadataPolicy.cs" Link="Editor\EditExportMetadataPolicy.cs" />
+    <Compile Include="..\..\LivePhotoBox\Services\MagickHeicThumbnailProvider.cs" Link="Editor\MagickHeicThumbnailProvider.cs" />
+    <Compile Include="..\..\LivePhotoBox\Services\IThumbnailProvider.cs" Link="Editor\IThumbnailProvider.cs" />
   </ItemGroup>
 
   <ItemGroup Condition="Exists('..\..\artifacts\native\TestHarness\$(Configuration)\win-x64\LivePhotoBox.Native.TestHarness.dll')">

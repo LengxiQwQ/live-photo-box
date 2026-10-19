@@ -62,11 +62,13 @@ public sealed class ExtractorRealSampleTests
         string beforeSha = await ComputeFileSha256Async(samplePath);
 
         var inspector = new SourceInspector();
-        var facts = await inspector.InspectAsync(samplePath);
+        using var inspected = await inspector.InspectWithPlanAsync(samplePath);
+        var facts = inspected.Facts;
 
         using var workspace = new MediaWorkspace();
         var extractor = new SourceExtractor();
-        var bundle = await TestFactsExtractor.ExtractAsync(facts, samplePath, null, workspace);
+        var bundle = await extractor.ExtractAsync(inspected.ExtractionPlan, samplePath, null, workspace);
+        using var cleanupAuthority = bundle.CleanupPlan;
 
         // 1. Source Immutability
         string afterSha = await ComputeFileSha256Async(samplePath);
@@ -211,11 +213,13 @@ public sealed class ExtractorRealSampleTests
         string secondaryBeforeSha = await ComputeFileSha256Async(secondaryPath);
 
         var inspector = new SourceInspector();
-        var facts = await inspector.InspectAsync(primaryPath, secondaryPath);
+        using var inspected = await inspector.InspectWithPlanAsync(primaryPath, secondaryPath);
+        var facts = inspected.Facts;
 
         using var workspace = new MediaWorkspace();
         var extractor = new SourceExtractor();
-        var bundle = await TestFactsExtractor.ExtractAsync(facts, primaryPath, secondaryPath, workspace);
+        var bundle = await extractor.ExtractAsync(inspected.ExtractionPlan, primaryPath, secondaryPath, workspace);
+        using var cleanupAuthority = bundle.CleanupPlan;
 
         // 1. Source Immutability
         string primaryAfterSha = await ComputeFileSha256Async(primaryPath);

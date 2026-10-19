@@ -2,14 +2,9 @@
  * LivePhotoVideoExtractor.cs
  *
  * 实况照片视频提取共享方法。
- * 按协议从实况照片文件中提取嵌入的视频数据到临时文件，
- * 供灯箱、Edit 页面等统一使用，避免三份重复代码。
- *
- * 覆盖协议：
- * - 华为/荣耀：GetHuaweiEmbeddedVideoRange（moov/ftyp 定位中间段）
- * - 三星/融合 JPEG：FindSamsungJpegVideoRange（MotionPhoto_Data 标签定位）
- * - 三星/融合/Google V2 HEIC：mpvd box 定位
- * - Google V1/V2/OPPO/vivo/小米：文件尾部切取（AppendedVideoLength）
+ * 通过 Rebuilt 单一权威链路（SourceInspector.InspectWithPlanAsync +
+ * NativeMediaService.ExtractMediaAsync）将内嵌实况视频提取到受验证的临时文件，
+ * 供灯箱、Edit 页面等 UI 预览统一使用。
  */
 
 using LivePhotoBox.Models;
@@ -26,10 +21,10 @@ namespace LivePhotoBox.Services
     public static class LivePhotoVideoExtractor
     {
         /// <summary>
-        /// 按视频存储位置顺序自动探测并提取嵌入的视频到临时文件。
+        /// 按 Rebuilt 单一权威计划自动探测并提取嵌入的视频到临时文件。
         /// </summary>
         /// <param name="filePath">实况照片文件路径</param>
-        /// <param name="appendedVideoLength">尾部视频长度（尾部追加协议的值，未知传 0）</param>
+        /// <param name="appendedVideoLength">保留兼容参数（Rebuilt 链路以 Inspector 权威范围为准）</param>
         /// <param name="ct">取消令牌</param>
         /// <returns>临时视频文件路径，失败返回 null</returns>
         public static async Task<string?> ExtractVideoAutoAsync(
@@ -65,11 +60,9 @@ namespace LivePhotoBox.Services
                     null,
                     ct).ConfigureAwait(false);
 
-                if (File.Exists(outputPath) && new FileInfo(outputPath).Length == videoFacts.ByteLength)
-                    return outputPath;
-
-                try { if (File.Exists(outputPath)) File.Delete(outputPath); } catch { }
-                return null;
+                return File.Exists(outputPath) && new FileInfo(outputPath).Length == videoFacts.ByteLength
+                    ? outputPath
+                    : null;
             }
             catch (OperationCanceledException)
             {

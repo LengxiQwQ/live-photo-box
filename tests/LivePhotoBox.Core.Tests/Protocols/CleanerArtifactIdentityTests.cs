@@ -7,6 +7,7 @@ using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Workspace;
 using LivePhotoBox.Protocols.Cleaning;
 using Xunit;
+using MediaWorkspace = LivePhotoBox.Core.Tests.Support.TestFixtureWorkspace;
 
 namespace LivePhotoBox.Core.Tests.Protocols;
 

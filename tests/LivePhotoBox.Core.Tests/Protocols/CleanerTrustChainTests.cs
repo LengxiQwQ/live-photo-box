@@ -14,6 +14,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using Xunit;
+using MediaWorkspace = LivePhotoBox.Core.Tests.Support.TestFixtureWorkspace;
 
 namespace LivePhotoBox.Core.Tests.Protocols;
 

@@ -52,11 +52,5 @@ lpb_result stream_clean_mp4_bytes(
     const Mp4StripSpec& spec,
     Mp4StripOutcome& outcome);
 
-lpb_result stream_clean_mp4_file(
-    lpb_context* context,
-    const std::string& in_path,
-    const std::string& out_path,
-    const Mp4StripSpec& spec,
-    Mp4StripOutcome& outcome);
-
 } // namespace lpb::containers
+

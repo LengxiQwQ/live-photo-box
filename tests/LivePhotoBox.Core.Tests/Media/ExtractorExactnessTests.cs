@@ -2,9 +2,9 @@ using System;
 using System.IO;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
+using LivePhotoBox.Core.Tests.Support;
 using LivePhotoBox.Media.Extraction;
 using LivePhotoBox.Media.Models;
-using LivePhotoBox.Media.Workspace;
 using Xunit;
 
 namespace LivePhotoBox.Core.Tests.Media;
@@ -91,8 +91,7 @@ public sealed class ExtractorExactnessTests
             PrimarySha256 = Convert.ToHexString(SHA256.HashData(sourceBytes))
         };
 
-        using var workspace = new MediaWorkspace();
-        var extractor = new SourceExtractor();
+        using var workspace = new TestFixtureWorkspace();
         var bundle = await TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace);
 
         // 1. Verify primary image output
@@ -184,8 +183,7 @@ public sealed class ExtractorExactnessTests
             PrimarySha256 = Convert.ToHexString(SHA256.HashData(sourceBytes))
         };
 
-        using var workspace = new MediaWorkspace();
-        var extractor = new SourceExtractor();
+        using var workspace = new TestFixtureWorkspace();
         var bundle = await TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace);
 
         Assert.NotNull(bundle.PrimaryImage);
@@ -248,8 +246,7 @@ public sealed class ExtractorExactnessTests
             PrimarySha256 = Convert.ToHexString(SHA256.HashData(data))
         };
 
-        using var workspace = new MediaWorkspace();
-        var extractor = new SourceExtractor();
+        using var workspace = new TestFixtureWorkspace();
         var bundle = await TestFactsExtractor.ExtractAsync(facts, dummySource, null, workspace);
 
         Assert.NotNull(bundle.MotionVideo);
