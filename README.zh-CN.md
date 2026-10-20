@@ -250,12 +250,12 @@ python scripts/testing/run-cli-integration-test.py
 <!-- INSIGHTS:START -->
 **📊 仓库流量**
 
-访问次数：**4,785** ｜ 不重复访客：**225**（近 14 天） ｜ 仓库克隆：**5,404** ｜ 不重复克隆：**168**（近 14 天）
+访问次数：**4,803** ｜ 不重复访客：**223**（近 14 天） ｜ 仓库克隆：**5,419** ｜ 不重复克隆：**168**（近 14 天）
 
-**热门来源（近 14 天）：** github.com · Google · Bing · chatgpt.com · noisedh.cn · noisedh.link  
-**热门内容（近 14 天）：** releases · README.zh-CN.md · issues · releases/tag/v2.2.1
+**热门来源（近 14 天）：** github.com · Google · Bing · chatgpt.com · noisedh.link · tg.noisework.cn  
+**热门内容（近 14 天）：** releases · README.zh-CN.md · releases/tag/v2.2.1 · issues
 
-> 数据开始：2026-08-02 · 最后更新：2026-10-19 (UTC+8)
+> 数据开始：2026-08-02 · 最后更新：2026-10-20 (UTC+8)
 <!-- INSIGHTS:END -->
 
 ---
