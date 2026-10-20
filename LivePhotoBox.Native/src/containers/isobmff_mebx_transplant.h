@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <span>
 #include <vector>
+#include "containers/isobmff.h"
 
 namespace lpb::media {
 
@@ -56,7 +57,8 @@ bool validate_isobmff_mebx_transplants(std::span<const uint8_t> source,
     std::span<const uint8_t> output,
     std::span<const isobmff_mebx_track_facts> expected) noexcept;
 
-// Preserve offset-free QuickTime/ISO metadata at movie and video-track scope.
+// Preserve scoped UUID assets and offset-free QuickTime/ISO metadata at
+// movie, video-track and unique audio-track scope.
 // Unknown metadata graphs, duplicate keys/boxes and malformed aperture boxes
 // fail closed. Encoded sample tables remain target-owned and are relocated.
 bool preserve_isobmff_static_metadata(std::span<const uint8_t> source,
@@ -64,5 +66,33 @@ bool preserve_isobmff_static_metadata(std::span<const uint8_t> source,
     bool& changed) noexcept;
 bool validate_isobmff_static_metadata(std::span<const uint8_t> source,
     std::span<const uint8_t> output) noexcept;
+// Same-size, ftyp-directed QuickTime Pascal <-> ISO NUL handler-name mapping.
+// Only owned metadata bytes are returned; no mdat is materialized or rewritten.
+bool map_isobmff_handler_names(std::span<const uint8_t> source, std::span<const uint8_t> target,
+    std::vector<uint8_t>& output, std::span<const isobmff_media_data_range> source_mdats = {},
+    std::span<const isobmff_media_data_range> target_mdats = {}) noexcept;
+
+struct isobmff_static_metadata_evidence {
+    uint32_t box_count{};
+    uint32_t opaque_count{};
+    uint32_t audio_count{};
+    uint8_t source_sha256[32]{};
+    uint8_t output_sha256[32]{};
+};
+// Exact scoped source inventory versus actual staged output, including top,
+// movie, unique video/audio metadata. Digests cover scope + complete box bytes.
+bool capture_isobmff_static_metadata_evidence(std::span<const uint8_t> source,
+    std::span<const uint8_t> output, isobmff_static_metadata_evidence& evidence,
+    std::span<const isobmff_media_data_range> source_mdats = {},
+    std::span<const isobmff_media_data_range> output_mdats = {},
+    const char** rejection_reason = nullptr) noexcept;
+
+// Streaming Copy proof: validate actual MEBX tables/references against original
+// file mdat ranges, normalize only relocated chunk offsets, compare complete
+// tracks and referenced payload with bounded buffers before publication.
+bool validate_isobmff_mebx_stream_remux(std::span<const uint8_t> source_metadata,
+    std::span<const isobmff_media_data_range> source_mdats, const lpb::random_access_reader& source,
+    std::span<const uint8_t> output_metadata, std::span<const isobmff_media_data_range> output_mdats,
+    const lpb::random_access_reader& output, bool (*cancelled)(void*), void* state) noexcept;
 
 } // namespace lpb::media

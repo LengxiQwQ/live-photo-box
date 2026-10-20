@@ -101,9 +101,9 @@ public enum PreservationCarrierKind
 /// </summary>
 public enum PreservationPolicy
 {
-    Strict,
-    BestEffort,
-    AllowDiscard
+    Strict = 0,
+    BestEffort = 1,
+    AllowDiscard = 2
 }
 
 /// <summary>

@@ -1605,6 +1605,34 @@ LPB_API lpb_result LPB_CALL lpb_transcode_video_v2(
         nullptr, 0, out_diagnostics);
 }
 
+LPB_API lpb_result LPB_CALL lpb_transcode_video_v3(
+    lpb_context* context, const char* input_video_path, const char* output_video_path,
+    lpb_video_container target_container, lpb_video_codec target_codec, int32_t crf,
+    const lpb_video_preservation_request_v1* request,
+    lpb_video_backend_diagnostics* diagnostics, lpb_video_preservation_result_v1* preservation)
+{
+    const bool result_size_valid = preservation && preservation->struct_size == sizeof(*preservation);
+    if (result_size_valid) {
+        *preservation = {};
+        preservation->struct_size = sizeof(*preservation);
+    }
+    if (!context || !request || request->struct_size != sizeof(*request) || request->api_version != 1U ||
+        request->policy > 2U || request->reserved != 0U || !diagnostics ||
+        diagnostics->struct_size != sizeof(*diagnostics) || !result_size_valid) {
+        if (context) set_error(context, "Video preservation request/result has an incompatible size, version, policy or reserved field.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    *preservation = {};
+    preservation->struct_size = sizeof(*preservation);
+    preservation->api_version = 1U;
+    preservation->policy = request->policy;
+    const auto result = transcode_video_file(context, input_video_path, output_video_path,
+        target_container, target_codec, crf, nullptr, 0U, diagnostics, preservation);
+    // A failed attempt must never expose a preservation-success receipt.
+    if (result != LPB_RESULT_OK) preservation->status = 0U;
+    return result;
+}
+
 LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
     lpb_context* context,
     const char* primary_jpeg_path,

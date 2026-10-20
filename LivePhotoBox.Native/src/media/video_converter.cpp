@@ -379,39 +379,35 @@ static lpb_result probe_video_reader(
                     if (std::memcmp(handler_type, "soun", 4) == 0) {
                         out_video_facts->has_audio = 1;
                     } else if (std::memcmp(handler_type, "vide", 4) == 0) {
-                        // Parse tkhd for rotation and dimensions
-                        size_t tkhd_pos = find_child_box(moov_data, trak_pos + 8, trak_end, "tkhd");
-                        if (tkhd_pos != SIZE_MAX && tkhd_pos + 84 <= trak_end) {
-                            uint8_t tkhd_ver = moov_data[tkhd_pos + 8];
-                            size_t matrix_offset = (tkhd_ver == 1) ? (tkhd_pos + 56) : (tkhd_pos + 48);
-                            size_t dim_offset = (tkhd_ver == 1) ? (tkhd_pos + 92) : (tkhd_pos + 84);
-
-                            if (matrix_offset + 36 <= trak_end) {
-                                int32_t a = (static_cast<int32_t>(moov_data[matrix_offset]) << 24) |
-                                            (static_cast<int32_t>(moov_data[matrix_offset + 1]) << 16) |
-                                            (static_cast<int32_t>(moov_data[matrix_offset + 2]) << 8)  |
-                                            (static_cast<int32_t>(moov_data[matrix_offset + 3]));
-                                int32_t b = (static_cast<int32_t>(moov_data[matrix_offset + 4]) << 24) |
-                                            (static_cast<int32_t>(moov_data[matrix_offset + 5]) << 16) |
-                                            (static_cast<int32_t>(moov_data[matrix_offset + 6]) << 8)  |
-                                            (static_cast<int32_t>(moov_data[matrix_offset + 7]));
-
-                                if (a == 0 && b == 0x00010000) out_video_facts->rotation_degrees = 90;
-                                else if (a == -0x00010000 && b == 0) out_video_facts->rotation_degrees = 180;
-                                else if (a == 0 && (b == -0x00010000 || static_cast<uint32_t>(b) == 0xFFFF0000)) out_video_facts->rotation_degrees = 270;
-                                else out_video_facts->rotation_degrees = 0;
-                            }
-
-                            if (dim_offset + 8 <= trak_end) {
-                                uint32_t w = (static_cast<uint32_t>(moov_data[dim_offset]) << 8) |
-                                             (static_cast<uint32_t>(moov_data[dim_offset + 1]));
-                                uint32_t h = (static_cast<uint32_t>(moov_data[dim_offset + 4]) << 8) |
-                                             (static_cast<uint32_t>(moov_data[dim_offset + 5]));
-                                if (w > 0 && h > 0) {
-                                    out_video_facts->width = w;
-                                    out_video_facts->height = h;
-                                }
-                            }
+                        // tkhd describes track/display geometry, not coded pixel
+                        // dimensions (e.g. non-square pasp scales its width).
+                        const size_t tkhd_pos = find_child_box(moov_data, trak_pos + 8, trak_end, "tkhd");
+                        isobmff_box_header tkhd{};
+                        if (tkhd_pos == SIZE_MAX || !try_read_box_header(moov_data.data(), tkhd_pos, trak_end, tkhd) ||
+                            tkhd.size < tkhd.header_size + 4U) {
+                            set_error(context, "Malformed video track header."); return LPB_RESULT_INVALID_ARGUMENT;
+                        }
+                        const size_t tkhd_body = tkhd.start + tkhd.header_size;
+                        const uint8_t tkhd_version = moov_data[tkhd_body];
+                        const size_t matrix_body = tkhd_version == 0U ? 40U : tkhd_version == 1U ? 52U : 0U;
+                        if (matrix_body == 0U || tkhd.size != tkhd.header_size + matrix_body + 44U) {
+                            set_error(context, "Unsupported: video track header version or matrix layout."); return LPB_RESULT_INVALID_ARGUMENT;
+                        }
+                        const size_t matrix = tkhd_body + matrix_body;
+                        const auto matrix_value = [&](size_t index) noexcept {
+                            const uint8_t* bytes = moov_data.data() + matrix + index * 4U;
+                            return (static_cast<uint32_t>(bytes[0]) << 24U) | (static_cast<uint32_t>(bytes[1]) << 16U) |
+                                (static_cast<uint32_t>(bytes[2]) << 8U) | static_cast<uint32_t>(bytes[3]);
+                        };
+                        const uint32_t matrix_a = matrix_value(0U), matrix_b = matrix_value(1U), matrix_c = matrix_value(3U), matrix_d = matrix_value(4U);
+                        const bool affine = matrix_value(2U) == 0U && matrix_value(5U) == 0U &&
+                            matrix_value(6U) == 0U && matrix_value(7U) == 0U && matrix_value(8U) == 0x40000000U;
+                        if (affine && matrix_a == 0x00010000U && matrix_b == 0U && matrix_c == 0U && matrix_d == 0x00010000U) out_video_facts->rotation_degrees = 0;
+                        else if (affine && matrix_a == 0U && matrix_b == 0x00010000U && matrix_c == 0xFFFF0000U && matrix_d == 0U) out_video_facts->rotation_degrees = 90;
+                        else if (affine && matrix_a == 0xFFFF0000U && matrix_b == 0U && matrix_c == 0U && matrix_d == 0xFFFF0000U) out_video_facts->rotation_degrees = 180;
+                        else if (affine && matrix_a == 0U && matrix_b == 0xFFFF0000U && matrix_c == 0x00010000U && matrix_d == 0U) out_video_facts->rotation_degrees = 270;
+                        else {
+                            set_error(context, "Unsupported: video track transform is not matrix_a supported cardinal rotation."); return LPB_RESULT_INVALID_ARGUMENT;
                         }
 
                         // Parse mdhd for timescale
@@ -449,21 +445,32 @@ static lpb_result probe_video_reader(
                                                      (static_cast<uint32_t>(moov_data[stbl_pos + 3]));
                                 size_t stbl_end = std::min(stbl_pos + stbl_size, minf_end);
 
-                                // stsd entry inspection
-                                size_t stsd_pos = find_child_box(moov_data, stbl_pos + 8, stbl_end, "stsd");
-                                if (stsd_pos != SIZE_MAX && stsd_pos + 24 <= stbl_end) {
-                                    uint32_t entry_count = (static_cast<uint32_t>(moov_data[stsd_pos + 12]) << 24) |
-                                                           (static_cast<uint32_t>(moov_data[stsd_pos + 13]) << 16) |
-                                                           (static_cast<uint32_t>(moov_data[stsd_pos + 14]) << 8)  |
-                                                           (static_cast<uint32_t>(moov_data[stsd_pos + 15]));
-                                    if (entry_count > 0) {
-                                        const char* format_4cc = reinterpret_cast<const char*>(moov_data.data() + stsd_pos + 20);
-                                        if (std::memcmp(format_4cc, "avc1", 4) == 0 || std::memcmp(format_4cc, "avc3", 4) == 0) {
-                                            out_video_facts->codec = LPB_VIDEO_CODEC_H264;
-                                        } else if (std::memcmp(format_4cc, "hvc1", 4) == 0 || std::memcmp(format_4cc, "hev1", 4) == 0) {
-                                            out_video_facts->codec = LPB_VIDEO_CODEC_HEVC;
-                                        }
-                                    }
+                                // Read coded dimensions from the unique visual
+                                // sample entry, independently of tkhd display size.
+                                const size_t stsd_pos = find_child_box(moov_data, stbl_pos + 8, stbl_end, "stsd");
+                                isobmff_box_header stsd{}, entry{};
+                                if (stsd_pos == SIZE_MAX || !try_read_box_header(moov_data.data(), stsd_pos, stbl_end, stsd) ||
+                                    stsd.size < stsd.header_size + 8U) {
+                                    set_error(context, "Malformed video sample description."); return LPB_RESULT_INVALID_ARGUMENT;
+                                }
+                                const size_t stsd_body = stsd.start + stsd.header_size;
+                                const uint8_t* description_count_bytes = moov_data.data() + stsd_body + 4U;
+                                const uint32_t description_count = (static_cast<uint32_t>(description_count_bytes[0]) << 24U) |
+                                    (static_cast<uint32_t>(description_count_bytes[1]) << 16U) | (static_cast<uint32_t>(description_count_bytes[2]) << 8U) | description_count_bytes[3];
+                                if (description_count != 1U || !try_read_box_header(moov_data.data(), stsd_body + 8U, stsd.start + stsd.size, entry) ||
+                                    entry.start + entry.size != stsd.start + stsd.size || entry.size < entry.header_size + 78U) {
+                                    set_error(context, "Unsupported: video sample description is malformed or ambiguous."); return LPB_RESULT_INVALID_ARGUMENT;
+                                }
+                                const char* format = reinterpret_cast<const char*>(moov_data.data() + entry.start + 4U);
+                                if (std::memcmp(format, "avc1", 4U) == 0 || std::memcmp(format, "avc3", 4U) == 0)
+                                    out_video_facts->codec = LPB_VIDEO_CODEC_H264;
+                                else if (std::memcmp(format, "hvc1", 4U) == 0 || std::memcmp(format, "hev1", 4U) == 0)
+                                    out_video_facts->codec = LPB_VIDEO_CODEC_HEVC;
+                                const size_t dimensions = entry.start + entry.header_size + 24U;
+                                out_video_facts->width = (static_cast<uint32_t>(moov_data[dimensions]) << 8U) | moov_data[dimensions + 1U];
+                                out_video_facts->height = (static_cast<uint32_t>(moov_data[dimensions + 2U]) << 8U) | moov_data[dimensions + 3U];
+                                if (out_video_facts->width == 0U || out_video_facts->height == 0U) {
+                                    set_error(context, "Malformed coded video dimensions."); return LPB_RESULT_INVALID_ARGUMENT;
                                 }
 
                                 // stts fps inspection
@@ -554,6 +561,53 @@ lpb_result probe_video_file(
     return probe_video_reader(context, file.reader(), out_video_facts);
 }
 
+// Metadata receipt capture for streaming remux must not materialize mdat.
+// Compact only authoritative movie/UUID boxes; tables are checked against the
+// actual file's separate mdat ranges, never against placeholder payload bytes.
+static bool read_metadata_bytes(const lpb::random_access_reader& reader,
+    std::vector<uint8_t>& bytes, std::vector<isobmff_media_data_range>& mdats) noexcept {
+    bytes.clear(); mdats.clear();
+    try {
+        const auto boxes = ::scan_top_level_boxes(reader);
+        uint64_t position = 0U;
+        for (const auto& box : boxes) {
+            if (box.offset != position || box.size < box.header_size || box.size > reader.length - position) return false;
+            position += box.size;
+            if (std::memcmp(box.type, "mdat", 4U) == 0) mdats.push_back({box.offset + box.header_size, position});
+            if (std::memcmp(box.type, "moov", 4U) == 0 || std::memcmp(box.type, "uuid", 4U) == 0 ||
+                std::memcmp(box.type, "ftyp", 4U) == 0) {
+                if (box.size > (std::numeric_limits<size_t>::max)() - bytes.size()) return false;
+                const size_t begin = bytes.size(); bytes.resize(begin + static_cast<size_t>(box.size));
+                if (!reader.read_exact(box.offset, std::span<uint8_t>(bytes).subspan(begin))) return false;
+            } else if (std::memcmp(box.type, "ftyp", 4U) != 0 && std::memcmp(box.type, "mdat", 4U) != 0 &&
+                std::memcmp(box.type, "free", 4U) != 0 && std::memcmp(box.type, "skip", 4U) != 0 &&
+                std::memcmp(box.type, "wide", 4U) != 0) return false;
+        }
+        if (position != reader.length || boxes.empty() || mdats.empty()) return false;
+        constexpr uint8_t placeholder[] = {0, 0, 0, 8, 'm', 'd', 'a', 't'};
+        bytes.insert(bytes.end(), std::begin(placeholder), std::end(placeholder));
+        return true;
+    } catch (...) { bytes.clear(); return false; }
+}
+
+static bool record_static_preservation(std::span<const uint8_t> source,
+    std::span<const uint8_t> output, lpb_video_preservation_result_v1* result,
+    std::span<const isobmff_media_data_range> source_mdats = {},
+    std::span<const isobmff_media_data_range> output_mdats = {}) noexcept {
+    isobmff_static_metadata_evidence evidence{};
+    if (!capture_isobmff_static_metadata_evidence(source, output, evidence, source_mdats, output_mdats)) return false;
+    if (result != nullptr) {
+        result->source_box_count = evidence.box_count;
+        result->verified_box_count = evidence.box_count;
+        result->opaque_box_count = evidence.opaque_count;
+        result->audio_box_count = evidence.audio_count;
+        std::memcpy(result->source_sha256, evidence.source_sha256, 32U);
+        std::memcpy(result->output_sha256, evidence.output_sha256, 32U);
+        result->status = 1U;
+    }
+    return true;
+}
+
 static lpb_result remux_video_reader(
     lpb_context* context,
     const lpb::random_access_reader& source,
@@ -562,7 +616,8 @@ static lpb_result remux_video_reader(
     windows_owned_output* consumed_stage = nullptr,
     std::span<const uint8_t> preservation_source = {},
     const std::vector<isobmff_mebx_track_facts>* preserved_mebx = nullptr,
-    const isobmff_video_presentation_timeline* expected_timeline = nullptr) noexcept
+    const isobmff_video_presentation_timeline* expected_timeline = nullptr,
+    lpb_video_preservation_result_v1* out_preservation = nullptr) noexcept
 {
     auto boxes = ::scan_top_level_boxes(source);
     if (boxes.empty()) {
@@ -706,6 +761,48 @@ static lpb_result remux_video_reader(
     const lpb_result cancellation = lpb_context_check_cancelled(context);
     if (cancellation != LPB_RESULT_OK) return fail_remux(cancellation,
         "Video remux was cancelled before publication.");
+    std::vector<uint8_t> metadata_source, metadata_output;
+    std::vector<isobmff_media_data_range> source_mdats, output_mdats;
+    std::vector<uint8_t> named_metadata;
+    if (!read_metadata_bytes(source, metadata_source, source_mdats) ||
+        !read_metadata_bytes(output.reader(), metadata_output, output_mdats) ||
+        !map_isobmff_handler_names(metadata_source, metadata_output, named_metadata, source_mdats, output_mdats) ||
+        named_metadata.size() != metadata_output.size())
+        return fail_remux(LPB_RESULT_INVALID_ARGUMENT, "Unsupported: remux handler-name mapping is ambiguous.");
+    // Names retain exactly their encoded byte count. Patch only the owned moov;
+    // packet payloads and chunk addresses stay untouched, including large mdat.
+    size_t named_position = 0U; bool patched_movie = false;
+    const auto actual_boxes = ::scan_top_level_boxes(output.reader());
+    while (named_position < named_metadata.size()) {
+        isobmff_box_header box{};
+        if (!try_read_box_header(named_metadata.data(), named_position, named_metadata.size(), box))
+            return fail_remux(LPB_RESULT_INVALID_ARGUMENT, "Unsupported: mapped remux metadata is malformed.");
+        if (std::memcmp(named_metadata.data() + named_position + 4U, "moov", 4U) == 0) {
+            for (const auto& actual : actual_boxes) if (std::memcmp(actual.type, "moov", 4U) == 0) {
+                if (patched_movie || actual.size != box.size ||
+                    !output.write_at(actual.offset, std::span<const uint8_t>(named_metadata).subspan(named_position, box.size)))
+                    return fail_remux(LPB_RESULT_INTERNAL_ERROR, "Remux could not map names in its exact owned movie.");
+                patched_movie = true;
+            }
+        }
+        named_position += box.size;
+    }
+    if (!patched_movie || !output.ready_to_consume())
+        return fail_remux(LPB_RESULT_INTERNAL_ERROR, "Remux handler-name staging could not be flushed.");
+    if (!read_metadata_bytes(source, metadata_source, source_mdats) ||
+        !read_metadata_bytes(output.reader(), metadata_output, output_mdats) ||
+        !record_static_preservation(preservation_source.empty() ? std::span<const uint8_t>(metadata_source) : preservation_source,
+            metadata_output, out_preservation,
+            preservation_source.empty() ? std::span<const isobmff_media_data_range>(source_mdats) : std::span<const isobmff_media_data_range>{},
+            output_mdats) ||
+        !validate_isobmff_mebx_stream_remux(metadata_source, source_mdats, source, metadata_output,
+            output_mdats, output.reader(), [](void* state) {
+                return lpb_context_check_cancelled(static_cast<lpb_context*>(state)) != LPB_RESULT_OK;
+            }, context)) {
+        const lpb_result cancelled = lpb_context_check_cancelled(context);
+        return fail_remux(cancelled == LPB_RESULT_OK ? LPB_RESULT_INVALID_ARGUMENT : cancelled,
+            "Unsupported: remux metadata graph/payload cannot be proven preserved before publication.");
+    }
     if (consumed_stage != nullptr) {
         std::vector<uint8_t> remuxed_bytes;
         isobmff_video_presentation_timeline remuxed_timeline{};
@@ -728,6 +825,9 @@ static lpb_result remux_video_reader(
         if (final_cancel != LPB_RESULT_OK) return fail_remux(final_cancel,
             "Video remux was cancelled after staging cleanup and before publication.");
     }
+    const lpb_result metadata_cancel = lpb_context_check_cancelled(context);
+    if (metadata_cancel != LPB_RESULT_OK) return fail_remux(metadata_cancel,
+        "Video remux was cancelled after metadata verification and before publication.");
     if (!output.publish_registered_no_replace(context, LPB_ARTIFACT_MOTION_VIDEO, p_out)) {
         return fail_remux(LPB_RESULT_INTERNAL_ERROR,
             "Failed to publish the owned remuxed video without replacing an existing artifact.");
@@ -739,7 +839,8 @@ lpb_result remux_video_file(
     lpb_context* context,
     const char* input_video_path,
     const char* output_video_path,
-    lpb_video_container target_container) noexcept
+    lpb_video_container target_container,
+    lpb_video_preservation_result_v1* out_preservation) noexcept
 {
     if (!input_video_path || !output_video_path) {
         set_error(context, "Invalid arguments for video remux.");
@@ -762,7 +863,7 @@ lpb_result remux_video_file(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    return remux_video_reader(context, in.reader(), output_video_path, target_container);
+    return remux_video_reader(context, in.reader(), output_video_path, target_container, nullptr, {}, nullptr, nullptr, out_preservation);
 }
 
 template <typename T>
@@ -1728,13 +1829,30 @@ static lpb_result read_software_pcm_audio(
         set_error(context, "Source declares audio, but Media Foundation cannot read its native audio type.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
-    UINT32 raw_sample_rate = 48000U;
-    UINT32 raw_channels = 2U;
-    static_cast<void>(native_audio_type->GetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, &raw_sample_rate));
-    static_cast<void>(native_audio_type->GetUINT32(MF_MT_AUDIO_NUM_CHANNELS, &raw_channels));
+    // Compressed AAC facts may describe the mono core of a parametric-stereo
+    // stream. Let the software decoder choose its natural PCM layout before
+    // applying the existing rate normalization; never downmix from core facts.
+    mf_owned_ptr<IMFMediaType> natural_pcm_request;
+    hr = MFCreateMediaType(natural_pcm_request.put());
+    if (SUCCEEDED(hr)) hr = natural_pcm_request->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Audio);
+    if (SUCCEEDED(hr)) hr = natural_pcm_request->SetGUID(MF_MT_SUBTYPE, MFAudioFormat_PCM);
+    if (SUCCEEDED(hr)) hr = natural_pcm_request->SetUINT32(MF_MT_AUDIO_BITS_PER_SAMPLE, 16U);
+    if (SUCCEEDED(hr)) hr = reader->SetCurrentMediaType(
+        static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM), nullptr, natural_pcm_request.get());
+    mf_owned_ptr<IMFMediaType> natural_pcm_type;
+    if (SUCCEEDED(hr)) hr = reader->GetCurrentMediaType(
+        static_cast<DWORD>(MF_SOURCE_READER_FIRST_AUDIO_STREAM), natural_pcm_type.put());
+    UINT32 raw_sample_rate = 0U;
+    UINT32 raw_channels = 0U;
+    if (FAILED(hr) || !natural_pcm_type ||
+        FAILED(natural_pcm_type->GetUINT32(MF_MT_AUDIO_SAMPLES_PER_SECOND, &raw_sample_rate)) ||
+        FAILED(natural_pcm_type->GetUINT32(MF_MT_AUDIO_NUM_CHANNELS, &raw_channels)) ||
+        raw_sample_rate == 0U || raw_channels == 0U || raw_channels > 2U) {
+        set_error(context, "Unsupported: software audio decoder cannot establish a supported natural mono/stereo PCM layout.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
 
-    // Preserve the existing normalization policy: mono stays mono, all other
-    // layouts become stereo; only a 44.1 kHz source remains 44.1 kHz.
+    // Mono/stereo is determined by decoded PCM; only 44.1 kHz stays 44.1 kHz.
     output_channels = raw_channels == 1U ? 1U : 2U;
     output_rate = raw_sample_rate == 44100U ? 44100U : 48000U;
     const UINT32 block_alignment = output_channels * 2U;
@@ -2219,7 +2337,8 @@ lpb_result transcode_video_file(
     int32_t crf,
     char* out_encoder_used,
     size_t encoder_buf_len,
-    lpb_video_backend_diagnostics* out_diagnostics) noexcept
+    lpb_video_backend_diagnostics* out_diagnostics,
+    lpb_video_preservation_result_v1* out_preservation) noexcept
 {
     set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_UNKNOWN, LPB_VIDEO_HARDWARE_UNKNOWN,
         false, "", "No backend selected.");
@@ -2286,6 +2405,21 @@ lpb_result transcode_video_file(
     set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_UNKNOWN, LPB_VIDEO_HARDWARE_UNKNOWN,
         false, source_profile_identity, "Native strict source profile parsed; conversion owner not selected.");
 
+    {
+        std::vector<uint8_t> metadata;
+        std::vector<isobmff_media_data_range> mdats;
+        isobmff_static_metadata_evidence evidence{};
+        const char* rejection_reason = "metadata read";
+        if (!read_metadata_bytes(semantic_reader, metadata, mdats) ||
+            !capture_isobmff_static_metadata_evidence(metadata, metadata, evidence, mdats, mdats, &rejection_reason)) {
+            char message[256]{};
+            std::snprintf(message, sizeof(message), "Unsupported: source metadata/track graph has no safe preservation mapping (%s); no output was created.",
+                rejection_reason != nullptr ? rejection_reason : "metadata validation");
+            set_error(context, message);
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+    }
+
     requested_video_codec requested = requested_video_codec::unknown;
     if (target_codec == LPB_VIDEO_CODEC_COPY) requested = requested_video_codec::copy;
     else if (target_codec == LPB_VIDEO_CODEC_H264) requested = requested_video_codec::h264;
@@ -2307,7 +2441,7 @@ lpb_result transcode_video_file(
         if (out_encoder_used && encoder_buf_len > 0) {
             strncpy_s(out_encoder_used, encoder_buf_len, "ProjectIsoBmffStreamRemux", _TRUNCATE);
         }
-        lpb_result remux_result = remux_video_file(context, input_video_path, output_video_path, target_container);
+        lpb_result remux_result = remux_video_file(context, input_video_path, output_video_path, target_container, out_preservation);
         return remux_result;
     }
 
@@ -2646,6 +2780,15 @@ lpb_result transcode_video_file(
         const lpb_result cancellation = lpb_context_check_cancelled(context);
         if (cancellation != LPB_RESULT_OK) return fail_sidecar(cancellation,
             "[Cancelled] Video transcode was cancelled before publication.");
+        std::vector<uint8_t> metadata_readback;
+        if (!read_all_bytes(publish_stage->reader(), metadata_readback) ||
+            !record_static_preservation(source_bytes, metadata_readback, out_preservation)) {
+            return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
+                "OutputValidation: protected sidecar metadata inventory differs from the source.");
+        }
+        const lpb_result metadata_cancel = lpb_context_check_cancelled(context);
+        if (metadata_cancel != LPB_RESULT_OK) return fail_sidecar(metadata_cancel,
+            "Video conversion was cancelled after metadata verification and before publication.");
         if (!publish_stage->publish_registered_no_replace(
                 context, LPB_ARTIFACT_MOTION_VIDEO, p_out)) {
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
@@ -2911,7 +3054,7 @@ lpb_result transcode_video_file(
         }
         lpb_result remux_res = remux_video_reader(context, final_output->reader(),
             output_video_path, LPB_VIDEO_CONTAINER_MOV, final_output,
-            mf_source_bytes, &mf_moved_mebx, &source_timeline);
+            mf_source_bytes, &mf_moved_mebx, &source_timeline, out_preservation);
         if (remux_res != LPB_RESULT_OK) {
             return abort_owned_output_and_report(context, *final_output, nullptr)
                 ? remux_res : LPB_RESULT_INTERNAL_ERROR;
@@ -2931,6 +3074,12 @@ lpb_result transcode_video_file(
                 "[Cancelled] Transcoded MP4 was cancelled before publication.")
                 ? cancellation : LPB_RESULT_INTERNAL_ERROR;
         }
+        if (!record_static_preservation(mf_source_bytes, final_timeline_bytes, out_preservation))
+            return report_output_validation_failure("OutputValidation: protected MF metadata inventory differs from the source.");
+        const lpb_result metadata_cancel = lpb_context_check_cancelled(context);
+        if (metadata_cancel != LPB_RESULT_OK) return abort_owned_output_and_report(context, *final_output,
+            "[Cancelled] MF conversion was cancelled after metadata verification and before publication.")
+            ? metadata_cancel : LPB_RESULT_INTERNAL_ERROR;
         if (!final_output->publish_registered_no_replace(context, LPB_ARTIFACT_MOTION_VIDEO, p_out)) {
             static_cast<void>(abort_owned_output_and_report(context, *final_output,
                 "Failed to publish the owned transcoded MP4 without replacing an existing artifact."));

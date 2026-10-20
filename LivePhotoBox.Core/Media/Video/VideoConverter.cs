@@ -124,7 +124,7 @@ public sealed class VideoConverter : IVideoConverter
                 request.TargetContainer,
                 request.TargetCodec,
                 request.Crf,
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken, request.PreservationPolicy).ConfigureAwait(false);
             if (!backendAttempt.Succeeded)
             {
                 if (backendAttempt.FailureException is OperationCanceledException cancelled)
@@ -139,6 +139,8 @@ public sealed class VideoConverter : IVideoConverter
                     "Native video conversion did not return exact creating-handle output evidence: " +
                     (backendAttempt.OutputEvidenceFailure?.Message ?? "unknown evidence failure"));
             }
+            if (backendAttempt.MetadataPreservation is null)
+                throw new InvalidDataException("Native video conversion did not return verified scoped metadata evidence.");
             NativeMediaService.NativeVideoTranscodeResult backendDiagnostics = backendAttempt.Diagnostics;
             backendCompleted = true;
 
@@ -251,6 +253,7 @@ public sealed class VideoConverter : IVideoConverter
                     SelectedEncoder = backendDiagnostics.SelectedEncoder,
                     HardwareFallbackOccurred = backendDiagnostics.HardwareFallbackOccurred,
                     HardwareFallbackReason = backendDiagnostics.HardwareFallbackReason,
+                    MetadataPreservation = backendAttempt.MetadataPreservation,
                     AudioPreserved = audioPreserved,
                     RotationPreserved = rotationPreserved,
                     Truth = new ConversionExecutionTruth
@@ -269,7 +272,7 @@ public sealed class VideoConverter : IVideoConverter
                         FallbackOccurred = backendDiagnostics.HardwareFallbackOccurred,
                         FallbackReason = backendDiagnostics.HardwareFallbackReason,
                         Pixel = ConversionComponentOutcome.NotApplicable,
-                        Metadata = ConversionComponentOutcome.NotEvaluated,
+                        Metadata = ConversionComponentOutcome.Preserved,
                         ColorIcc = ConversionComponentOutcome.NotEvaluated,
                         HdrGainMap = ConversionComponentOutcome.NotApplicable,
                         Auxiliary = ConversionComponentOutcome.NotApplicable,

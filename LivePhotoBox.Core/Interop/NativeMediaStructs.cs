@@ -89,6 +89,21 @@ internal unsafe struct NativeVideoBackendDiagnostics
     public fixed byte FallbackReason[128];
 }
 
+[StructLayout(LayoutKind.Sequential)]
+internal struct NativeVideoPreservationRequestV1
+{
+    public uint StructSize, ApiVersion, Policy, Reserved;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeVideoPreservationResultV1
+{
+    public uint StructSize, ApiVersion, Policy, Status;
+    public uint SourceBoxCount, VerifiedBoxCount, OpaqueBoxCount, AudioBoxCount;
+    public fixed byte SourceSha256[32];
+    public fixed byte OutputSha256[32];
+}
+
 [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
 internal unsafe struct NativePreservationCarrierFacts
 {

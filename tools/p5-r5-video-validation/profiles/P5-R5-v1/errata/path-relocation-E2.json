@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "erratumId": "P5-R5-path-relocation-E2",
+  "migrationCommit": "7658ccbff37d9bc9183364681e8e53f981a470dc",
+  "changeBoundary": "Only the documented workspace prefix relocation and recorded Git LF versus frozen CRLF representation; no sample, route, failure, owner, threshold, timing, quality, tool or skip-policy change.",
+  "oldPrefix": ".ai-tmp/workspace/P5-R5/",
+  "currentPrefix": ".ai-tmp/workspace/P5/R5/",
+  "files": [
+    {
+      "path": "tools/p5-r5-video-validation/profiles/P5-R5-v1/manifest.json",
+      "currentSha256": "312D0AC9777F67818E4FBF3F3DFE98CF537B10D4B7CAC5992A30EF4DD310043F",
+      "frozenSha256": "791EA58EB93CA40D8458146003121C1A65B79998DDE9B7785DCBC54E86E329DB",
+      "frozenNewlines": "LF"
+    },
+    {
+      "path": "tools/p5-r5-video-validation/profiles/P7-R4-HEVC-v2/manifest.json",
+      "currentSha256": "802365CAE262C5C2F9E16BD8815763DC21790B9A91DC57E963D1F8E75FB0360E",
+      "frozenSha256": "C407267630864D773257EBA667725CBF7FC74F13454969A3BFDE2260783F1AD9",
+      "frozenNewlines": "CRLF"
+    }
+  ]
+}

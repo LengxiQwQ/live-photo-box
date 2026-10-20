@@ -54,9 +54,9 @@ namespace LivePhotoBox.Interop
     internal static partial class NativeMethods
     {
         internal const string LibraryName = "LivePhotoBox.Native";
-        // ABI v9 adds a versioned Native HDR/GainMap metadata contract. Codec
-        // and platform implementation types remain entirely Native-private.
-        internal const uint RequiredAbiVersion = 10;
+        // ABI v11 adds versioned video preservation policy and scoped evidence.
+        // Codec and platform implementation types remain entirely Native-private.
+        internal const uint RequiredAbiVersion = 11;
 
         [LibraryImport(LibraryName, EntryPoint = "lpb_get_abi_version")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]

@@ -23,7 +23,9 @@ from pathlib import Path
 from typing import Any, Iterable
 
 
-RUNNER_VERSION = "P5-R5-v1-independent-runner-3"
+RUNNER_VERSION = "P5-R5-v1-independent-runner-6"
+PATH_RELOCATION_ERRATUM = "tools/p5-r5-video-validation/profiles/P5-R5-v1/errata/path-relocation-E2.json"
+PATH_RELOCATION_SHA256 = "DEDD74E5EB06C07672634673533A65FF57C3B752844E843081E88FF11517725B"
 EXPECTED_PROFILE_MANIFEST_SHA256 = "791EA58EB93CA40D8458146003121C1A65B79998DDE9B7785DCBC54E86E329DB"
 EXPECTED_TOOL_ERRATUM_SHA256 = "62AC93A5454A71BF6703C6F3D3AC6D0EC66C4982B2F10EE0980C3D685A2EFED1"
 EXPECTED_TOOL_ERRATUM_RELATIVE = Path(
@@ -130,6 +132,34 @@ def relative(path: Path, root: Path) -> str:
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise ValidationError(message)
+
+
+def reconstruct_frozen_profile(raw: bytes, row: dict[str, Any], relocation: dict[str, Any]) -> bytes:
+    require(sha256_bytes(raw) == row["currentSha256"], "Relocated profile raw identity changed.")
+    original = raw.replace(relocation["currentPrefix"].encode("ascii"), relocation["oldPrefix"].encode("ascii"))
+    if row["frozenNewlines"] == "CRLF":
+        original = original.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n")
+    else:
+        require(row["frozenNewlines"] == "LF", "Unknown frozen newline representation.")
+    require(sha256_bytes(original) == row["frozenSha256"], "Path relocation did not reconstruct the exact frozen bytes.")
+    return original
+
+
+def frozen_profile_identity(root: Path, path: Path, expected: str) -> dict[str, Any]:
+    raw = path.read_bytes()
+    actual = sha256_bytes(raw)
+    if actual == expected:
+        return {"path": relative(path, root), "actualSha256": actual, "frozenSha256": expected, "relocation": None}
+    erratum_path = root / PATH_RELOCATION_ERRATUM
+    erratum_bytes = erratum_path.read_bytes()
+    require(sha256_bytes(erratum_bytes) == PATH_RELOCATION_SHA256, "Path relocation erratum identity changed.")
+    relocation = parse_json(erratum_bytes, "Path relocation E2")
+    rows = [row for row in relocation["files"] if row["path"] == relative(path, root)]
+    require(len(rows) == 1 and rows[0]["frozenSha256"] == expected, "Path relocation is not bound to this frozen profile.")
+    original = reconstruct_frozen_profile(raw, rows[0], relocation)
+    return {"path": relative(path, root), "actualSha256": actual, "frozenSha256": sha256_bytes(original),
+            "relocation": {"path": PATH_RELOCATION_ERRATUM, "sha256": PATH_RELOCATION_SHA256,
+                           "migrationCommit": relocation["migrationCommit"], "frozenNewlines": rows[0]["frozenNewlines"]}}
 
 
 @dataclass
@@ -292,8 +322,8 @@ def verify_tool_erratum(
         ],
     }
     require(erratum == expected_erratum, "P5-R5 tool identity erratum content or scope changed.")
-    require(sha256_file(profile_path) == EXPECTED_PROFILE_MANIFEST_SHA256, "Erratum is not bound to the frozen P5-R5-v1 manifest.")
-    require(erratum["manifestSha256"] == sha256_file(profile_path), "Erratum manifest identity does not match the frozen file.")
+    identity = frozen_profile_identity(root, profile_path, EXPECTED_PROFILE_MANIFEST_SHA256)
+    require(identity["frozenSha256"] == erratum["manifestSha256"], "Erratum manifest identity does not match the frozen file.")
     require(manifest["independentValidation"]["ffmpeg"] == {
         "version": erratum["frozenValue"],
         "sha256": EXPECTED_FFMPEG_SHA256,
@@ -306,7 +336,7 @@ def verify_manifest(root: Path) -> tuple[dict[str, Any], Path, dict[str, Any], P
     manifest_bytes = profile_path.read_bytes()
     manifest_sha256 = sha256_bytes(manifest_bytes)
     require(
-        manifest_sha256 == EXPECTED_PROFILE_MANIFEST_SHA256,
+        frozen_profile_identity(root, profile_path, EXPECTED_PROFILE_MANIFEST_SHA256)["frozenSha256"] == EXPECTED_PROFILE_MANIFEST_SHA256,
         f"P5-R5-v1 frozen manifest SHA-256 mismatch: {manifest_sha256}.",
     )
     manifest = parse_json(manifest_bytes, "P5-R5-v1 manifest")
@@ -362,7 +392,7 @@ def verify_active_manifest(root: Path, profile: str):
         return old
     require(profile == 'P7-R4-HEVC-v2', 'Unknown validation profile.')
     path = root / 'tools/p5-r5-video-validation/profiles/P7-R4-HEVC-v2/manifest.json'
-    require(sha256_file(path) == HEVC_REOPEN_PROFILE_SHA256, 'HEVC reopen profile identity changed.')
+    require(frozen_profile_identity(root, path, HEVC_REOPEN_PROFILE_SHA256)["frozenSha256"] == HEVC_REOPEN_PROFILE_SHA256, 'HEVC reopen profile identity changed.')
     manifest = parse_json(path.read_bytes(), 'HEVC reopen profile')
     require(manifest['profileId'] == profile, 'HEVC profile ID differs.')
     for field in ('sources', 'sourceManifest', 'requiredFailureCases', 'independentValidation'):
@@ -933,6 +963,12 @@ def compare_quality(runner: Runner, source: Path, output: Path, output_video: di
     }
 
 
+def require_route_backend(record: dict[str, Any], migrated: bool, route_id: str) -> None:
+    # E3: the public enum now explicitly projects the already-required sidecar.
+    expected = "MinimalLibav" if migrated else "WindowsMediaFoundation"
+    require(record.get("backend") == expected, f"{route_id} legacy ABI backend projection differs.")
+
+
 def check_mf_route(
     runner: Runner,
     route_id: str,
@@ -949,7 +985,7 @@ def check_mf_route(
     require(driver_report["success"] is True, f"{route_id} conversion failed: {driver_report.get('error')}.")
     migrated = runner.manifest['profileId'] == 'P7-R4-HEVC-v2'
     expected_backend = 'minimal-libav' if migrated else 'WindowsMediaFoundation'
-    require(record.get('backend') == ('Unknown' if migrated else 'WindowsMediaFoundation'), f'{route_id} legacy ABI backend projection differs.')
+    require_route_backend(record, migrated, route_id)
     require(record.get("hardwareMode") == "SoftwareForced", f"{route_id} was not software-forced.")
     require(record.get("hardwareFallbackOccurred") is False and truth.get("fallbackOccurred") is False, f"{route_id} reports a fallback.")
     require(truth.get("selectedCapability") == "VideoTranscodeSdr", f"{route_id} did not select VideoTranscodeSdr.")
@@ -1319,6 +1355,25 @@ def check_publish_failure(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def create_missing_sidecar_package(build_dir: Path, package_dir: Path) -> list[dict[str, str]]:
+    """Existing managed-missing-sidecar procedure: copy without the sibling DLL."""
+    require((build_dir / "LivePhotoBox.Video.Libav.dll").is_file(), "Positive build lacks the sidecar prerequisite.")
+    package_dir.mkdir(parents=True, exist_ok=False)
+    files = []
+    for source in sorted(build_dir.rglob("*")):
+        if not source.is_file() or source.name == "LivePhotoBox.Video.Libav.dll":
+            continue
+        relative = source.relative_to(build_dir)
+        target = package_dir / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source, target)
+        digest = sha256_file(source)
+        require(sha256_file(target) == digest, "Missing-sidecar package copy changed bytes.")
+        files.append({"path": relative.as_posix(), "sha256": digest})
+    require(not any(p.name == "LivePhotoBox.Video.Libav.dll" for p in package_dir.rglob("*")), "Negative package includes sidecar.")
+    return files
+
+
 def check_sidecar_missing(report: dict[str, Any], build_dir: Path) -> dict[str, Any]:
     truth = report
     require(truth.get("success") is False and truth.get("outputExists") is False, "Missing-sidecar conversion produced output.")
@@ -1327,9 +1382,10 @@ def check_sidecar_missing(report: dict[str, Any], build_dir: Path) -> dict[str, 
     require(truth.get("selectedCapability") == "VideoTranscodeHdr10Bit", "Missing sidecar lost the selected HDR capability.")
     require(truth.get("preservationOutcome") == "Unsupported", "Missing-sidecar preservation outcome is not Unsupported.")
     require(truth.get("backend") == "minimal-libav" and truth.get("backendVersion") == "not-packaged", "Missing-sidecar backend identity is not truthful.")
+    require(truth.get("nativeBackendEnum") == "MinimalLibav", "Missing sidecar lost the explicit selected backend projection.")
     require(truth.get("fallbackOccurred") is False, "Missing sidecar reports a fallback.")
     require(truth.get("residualOwnedOutput") is False, "Missing-sidecar attempt left converter output.")
-    sidecar = build_dir / "x64" / "Release" / "net9.0-windows10.0.19041.0" / "win-x64" / "LivePhotoBox.Video.Libav.dll"
+    sidecar = build_dir / "LivePhotoBox.Video.Libav.dll"
     require(not sidecar.exists(), f"Missing-sidecar package unexpectedly contains {sidecar}.")
     return {
         "caseId": "real-sidecar-missing",
@@ -1388,6 +1444,8 @@ def run_identity_preflight(args: argparse.Namespace) -> int:
         "state": "running",
         "workspace": str(run_root),
         "manifestSha256": sha256_file(profile_path),
+        "frozenManifestIdentity": frozen_profile_identity(root, profile_path,
+            HEVC_REOPEN_PROFILE_SHA256 if args.profile == "P7-R4-HEVC-v2" else EXPECTED_PROFILE_MANIFEST_SHA256),
         "toolIdentityErratum": {
             "id": erratum["erratumId"],
             "path": relative(erratum_path, root),
@@ -1521,6 +1579,8 @@ def run_matrix(args: argparse.Namespace) -> int:
         "state": "running",
         "workspace": str(run_root),
         "manifestSha256": sha256_file(profile_path),
+        "frozenManifestIdentity": frozen_profile_identity(root, profile_path,
+            HEVC_REOPEN_PROFILE_SHA256 if args.profile == "P7-R4-HEVC-v2" else EXPECTED_PROFILE_MANIFEST_SHA256),
         "toolIdentityErratum": {
             "id": erratum["erratumId"],
             "path": relative(erratum_path, root),
@@ -1752,21 +1812,25 @@ def run_matrix(args: argparse.Namespace) -> int:
         _, build_stdout, build_stderr = runner.require_command_success("missing-sidecar-package-build", missing_sidecar_cmd, timeout=600)
         managed_dll = missing_sidecar_base_output / "x64" / "Release" / "net9.0-windows10.0.19041.0" / "win-x64" / "P5R5.ManagedSmoke.dll"
         require(managed_dll.is_file(), "Missing-sidecar smoke DLL was not created in its isolated package.")
+        negative_package = run_root / "missing-sidecar-package"
+        negative_package_files = create_missing_sidecar_package(managed_dll.parent, negative_package)
         output_dir = run_root / "failures" / "real-sidecar-missing" / "output"
         output_dir.parent.mkdir(parents=True, exist_ok=False)
         smoke_argv = [
-            dotnet, str(managed_dll), "missing-sidecar", str(huawei_path), str(output_dir), manifest['profileId'],
+            dotnet, str(negative_package / managed_dll.name), "missing-sidecar", str(huawei_path), str(output_dir), manifest['profileId'],
         ]
         _, smoke_stdout, smoke_stderr = runner.require_command_success("real-missing-sidecar-runtime", smoke_argv, timeout=300)
         missing_report = parse_json(smoke_stdout, "managed missing-sidecar smoke")
-        failure_results.append(check_sidecar_missing(missing_report, missing_sidecar_base_output))
+        failure_results.append(check_sidecar_missing(missing_report, negative_package))
         partial["failureResults"] = failure_results
         print(json.dumps({"event": "failure-case-passed", "caseId": "real-sidecar-missing", "passedFailureCount": len(failure_results), "requiredFailureCount": 5}), flush=True)
         partial["missingSidecarBuild"] = {
             "stdoutSha256": sha256_bytes(build_stdout),
             "stderrSha256": sha256_bytes(build_stderr),
             "packageOutput": str(missing_sidecar_base_output),
-            "sidecarDll": str(missing_sidecar_base_output / "x64" / "Release" / "net9.0-windows10.0.19041.0" / "win-x64" / "LivePhotoBox.Video.Libav.dll"),
+            "negativePackage": str(negative_package),
+            "negativePackageFiles": negative_package_files,
+            "sidecarDll": str(negative_package / "LivePhotoBox.Video.Libav.dll"),
             "runtimeSmoke": missing_report,
             "runtimeStdoutSha256": sha256_bytes(smoke_stdout),
             "runtimeStderrSha256": sha256_bytes(smoke_stderr),

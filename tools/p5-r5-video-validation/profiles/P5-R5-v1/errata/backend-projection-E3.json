@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "erratumId": "P5-R5-backend-projection-E3",
+  "runnerVersion": "P5-R5-v1-independent-runner-5",
+  "profileId": "P7-R4-HEVC-v2",
+  "reason": "The approved minimal-libav route has an explicit public VideoBackend.MinimalLibav enum projection. Unknown is stale and conceals the actual backend.",
+  "previousProjection": "Unknown",
+  "requiredProjection": "MinimalLibav",
+  "missingSidecarProjection": "The managed negative smoke and independent receipt also require exact MinimalLibav for the selected backend; actual operation remains Unknown and actual capability unavailable. BackendUnavailable/not-packaged/no-output/no-fallback assertions remain unchanged.",
+  "unchangedRequirements": ["canonical backendName minimal-libav", "backendVersion 9.0.1", "SoftwareForced", "no fallback", "all 11 mandatory routes", "all 5 mandatory failures", "frozen source identities", "owner and package proofs", "depth, color, timing, payload and quality checks", "zero skips"],
+  "originalProfileFilesModified": false
+}

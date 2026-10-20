@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "erratumId": "P5-R5-missing-sidecar-package-E4",
+  "runnerVersion": "P5-R5-v1-independent-runner-6",
+  "reason": "SkipNativeBuild skips compilation only; normal Core builds now correctly copy the sidecar. Executing that positive package does not test a missing sibling.",
+  "existingProcedure": "scripts/native/test-p5-r5-managed-missing-sidecar.ps1",
+  "procedure": "Build the complete positive package, then create a fresh isolated copy excluding only LivePhotoBox.Video.Libav.dll. Verify every copied hash and absence before the actual managed runtime attempt. Preserve the complete build and both inventories.",
+  "acceptanceChanged": false,
+  "requiredResult": "Actual BackendUnavailable, selected HDR capability, no fallback and no output or residue; original exact assertions remain."
+}

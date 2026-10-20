@@ -1,6 +1,7 @@
 #include "containers/isobmff_mebx_transplant.h"
 
 #include "containers/isobmff.h"
+#include "foundation/sha256_core.h"
 
 #include <algorithm>
 #include <array>
@@ -84,6 +85,72 @@ struct file_record {
     std::vector<isobmff_media_data_range> mdats;
     std::vector<track_record> tracks;
 };
+
+bool quicktime_file(std::span<const uint8_t> data, bool& quicktime) {
+    size_t position = 0U; bool found = false; quicktime = false;
+    while (position < data.size()) {
+        isobmff_box_header box{};
+        if (!try_read_box_header(data.data(), position, data.size(), box)) return false;
+        if (box_type(data, position, "ftyp")) {
+            if (found || box.size < box.header_size + 8U || (box.size - box.header_size) % 4U != 0U) return false;
+            found = true; quicktime = std::memcmp(data.data() + position + box.header_size, "qt  ", 4U) == 0;
+        }
+        position += box.size;
+    }
+    return found;
+}
+
+// The container's authoritative ftyp chooses Pascal (QuickTime) or NUL (ISO),
+// never a heuristic based on the first name byte. Only exact, same-size forms
+// are supported here; no padding, embedded terminator or ambiguous length.
+bool handler_name_bytes(std::span<const uint8_t> data, const isobmff_box_header& box,
+    bool source_quicktime, bool target_quicktime, std::vector<uint8_t>& result) {
+    if (box.size < box.header_size + 24U || read_u32(data.data() + box.start + box.header_size) != 0U) return false;
+    const size_t start = box.start + box.header_size + 24U, count = box.size - box.header_size - 24U;
+    size_t text_start = start, length = 0U;
+    if (count != 0U) {
+        if (count > 256U) return false;
+        if (source_quicktime) {
+            length = data[start]; text_start = start + 1U;
+            if (length + 1U != count) return false;
+        } else {
+            if (data[start + count - 1U] != 0U) return false;
+            length = count - 1U;
+        }
+        if (std::find(data.begin() + text_start, data.begin() + text_start + length, 0U) != data.begin() + text_start + length) return false;
+    }
+    result.assign(data.begin() + box.start, data.begin() + start);
+    if (count != 0U) {
+        if (target_quicktime) result.push_back(static_cast<uint8_t>(length));
+        result.insert(result.end(), data.begin() + text_start, data.begin() + text_start + length);
+        if (!target_quicktime) result.push_back(0U);
+    }
+    return result.size() == box.size;
+}
+
+bool track_handlers(std::span<const uint8_t> data, const track_record& track,
+    std::array<isobmff_box_header, 2>& handlers) {
+    isobmff_box_header mdia{}, minf{}; size_t p = 0U;
+    return unique_child(data, track.start + 8U, track.end, "mdia", mdia, p) &&
+        unique_child(data, mdia.start + mdia.header_size, mdia.start + mdia.size, "hdlr", handlers[0], p) &&
+        unique_child(data, mdia.start + mdia.header_size, mdia.start + mdia.size, "minf", minf, p) &&
+        unique_child(data, minf.start + minf.header_size, minf.start + minf.size, "hdlr", handlers[1], p, false);
+}
+
+bool normalize_track_handler_names(std::span<const uint8_t> data, const track_record& track,
+    bool actual_quicktime, bool expected_quicktime, std::vector<uint8_t>& normalized) {
+    std::array<isobmff_box_header, 2> handlers{};
+    if (!track_handlers(data, track, handlers)) return false;
+    for (const auto& handler : handlers) {
+        if (handler.size == 0U) continue;
+        std::vector<uint8_t> bytes;
+        if (!handler_name_bytes(data, handler, actual_quicktime, expected_quicktime, bytes) ||
+            handler.start < track.start || handler.start - track.start > normalized.size() ||
+            bytes.size() > normalized.size() - (handler.start - track.start)) return false;
+        std::memcpy(normalized.data() + handler.start - track.start, bytes.data(), bytes.size());
+    }
+    return true;
+}
 
 bool read_track_id(std::span<const uint8_t> data, const isobmff_box_header& tkhd,
     uint32_t& track_id) noexcept {
@@ -320,6 +387,27 @@ bool parse_sample_descriptions(std::span<const uint8_t> data, size_t stbl_start,
     return position == end;
 }
 
+bool self_contained_reference(std::span<const uint8_t> data, const isobmff_box_header& minf,
+    const isobmff_box_header& codec, bool allow_implicit_local_metadata = false) {
+    isobmff_box_header dinf{}, dref{};
+    size_t ds = 0U, rs = 0U;
+    if (codec.size < codec.header_size + 8U || data[codec.start + codec.header_size + 6U] != 0U ||
+        (data[codec.start + codec.header_size + 7U] != 1U &&
+            !(allow_implicit_local_metadata && box_type(data, codec.start, "mebx") &&
+                data[codec.start + codec.header_size + 7U] == 0U)) ||
+        !unique_child(data, minf.start + minf.header_size, minf.start + minf.size, "dinf", dinf, ds) ||
+        !unique_child(data, ds + dinf.header_size, ds + dinf.size, "dref", dref, rs) ||
+        dinf.size != dinf.header_size + dref.size || dref.size < dref.header_size + 8U) return false;
+    const size_t body = rs + dref.header_size;
+    if (read_u32(data.data() + body) != 0U || read_u32(data.data() + body + 4U) != 1U) return false;
+    const size_t start = body + 8U;
+    isobmff_box_header entry{};
+    return try_read_box_header(data.data(), start, rs + dref.size, entry) &&
+        (box_type(data, start, "url ") || box_type(data, start, "alis")) &&
+        entry.size == entry.header_size + 4U && start + entry.size == rs + dref.size &&
+        read_u32(data.data() + start + entry.header_size) == 1U;
+}
+
 bool parse_track(std::span<const uint8_t> data, size_t trak_start, size_t trak_end,
     std::span<const isobmff_media_data_range> mdats, track_record& output) noexcept {
     output = {};
@@ -355,6 +443,17 @@ bool parse_track(std::span<const uint8_t> data, size_t trak_start, size_t trak_e
     if (!parse_sample_descriptions(data, output.stbl_start, output.stbl_end,
             output.is_mebx, output.sample_entry_offset, description_count)) return false;
     if (!output.is_mebx) return true;
+    isobmff_box_header mebx_entry{};
+    if (std::memcmp(output.handler, "meta", 4U) != 0 || description_count != 1U ||
+        !try_read_box_header(data.data(), output.sample_entry_offset, output.stbl_end, mebx_entry) ||
+        mebx_entry.size < mebx_entry.header_size + 8U ||
+        !std::all_of(data.begin() + mebx_entry.start + mebx_entry.header_size,
+            data.begin() + mebx_entry.start + mebx_entry.header_size + 6U, [](uint8_t value) { return value == 0U; }) ||
+        !self_contained_reference(data, minf, mebx_entry, true)) return false;
+    // Huawei's observed MEBX entry uses zero as an implicit local reference.
+    // This exception is metadata-only: the singleton self-contained dref above
+    // and every actual local mdat chunk below are still mandatory. A/V entries
+    // and any explicit nonlocal/unknown reference never use this exception.
     if (std::memcmp(output.handler, "meta", 4U) != 0 || description_count != 1U ||
         !read_media_timing(data, mdhd, output.time_scale, output.media_duration) ||
         !inspect_isobmff_sample_table(data, output.stbl_start, output.stbl_end,
@@ -374,7 +473,8 @@ bool parse_track(std::span<const uint8_t> data, size_t trak_start, size_t trak_e
     return true;
 }
 
-bool parse_file(std::span<const uint8_t> data, file_record& output) noexcept {
+bool parse_file(std::span<const uint8_t> data, file_record& output,
+    std::span<const isobmff_media_data_range> real_mdats = {}) noexcept {
     output = {};
     if (data.size() < 16U) return false;
     try {
@@ -396,6 +496,7 @@ bool parse_file(std::span<const uint8_t> data, file_record& output) noexcept {
             position += box.size;
         }
         if (position != data.size() || moov_count != 1U || output.mdats.empty()) return false;
+        if (!real_mdats.empty()) output.mdats.assign(real_mdats.begin(), real_mdats.end());
         isobmff_box_header mvhd{};
         size_t mvhd_start = 0U;
         if (!unique_child(data, output.moov_start + output.moov_header_size,
@@ -422,6 +523,33 @@ bool parse_file(std::span<const uint8_t> data, file_record& output) noexcept {
     }
 }
 
+bool patch_handler_names(std::span<const uint8_t> source, const file_record& original,
+    std::vector<uint8_t>& output, const file_record& actual, bool metadata_only) {
+    bool source_qt = false, target_qt = false;
+    if (!quicktime_file(source, source_qt) || !quicktime_file(output, target_qt)) return false;
+    for (const auto& track : actual.tracks) {
+        if (metadata_only && !track.is_mebx) continue;
+        const track_record* before = nullptr;
+        for (const auto& candidate : original.tracks) {
+            if (std::memcmp(candidate.handler, track.handler, 4U) != 0 ||
+                (track.is_mebx && candidate.track_id != track.track_id)) continue;
+            if (before != nullptr) return false;
+            before = &candidate;
+        }
+        if (before == nullptr) return false;
+        std::array<isobmff_box_header, 2> source_handlers{}, output_handlers{};
+        if (!track_handlers(source, *before, source_handlers) || !track_handlers(output, track, output_handlers)) return false;
+        for (size_t index = 0U; index < source_handlers.size(); ++index) {
+            if (source_handlers[index].size == 0U) continue;
+            std::vector<uint8_t> mapped;
+            if (!handler_name_bytes(source, source_handlers[index], source_qt, target_qt, mapped) ||
+                mapped.size() != output_handlers[index].size) return false;
+            std::memcpy(output.data() + output_handlers[index].start, mapped.data(), mapped.size());
+        }
+    }
+    return true;
+}
+
 bool inspect_mebx_tracks(std::span<const uint8_t> data, file_record& file,
     std::vector<track_record*>& metadata, track_record*& video_track) {
     metadata.clear();
@@ -438,7 +566,15 @@ bool inspect_mebx_tracks(std::span<const uint8_t> data, file_record& file,
     }
     if (metadata.empty()) return true;
     if (video_count != 1U || video_track == nullptr) return false;
+    bool quicktime = false;
+    if (!quicktime_file(data, quicktime)) return false;
     for (const auto* track : metadata) {
+        std::array<isobmff_box_header, 2> handlers{};
+        if (!track_handlers(data, *track, handlers)) return false;
+        for (const auto& handler : handlers) if (handler.size != 0U) {
+            std::vector<uint8_t> canonical;
+            if (!handler_name_bytes(data, handler, quicktime, false, canonical)) return false;
+        }
         if (read_u32(data.data() + track->reference_id_offset) != video_track->track_id) return false;
         uint64_t payload_bytes = 0;
         for (const auto& chunk : track->sample_table.chunks) {
@@ -673,6 +809,8 @@ static bool transplant_mebx_selected(std::span<const uint8_t> source,
             position += box.size;
         }
         stage_b.insert(stage_b.end(), mdat.begin(), mdat.end());
+        file_record named_target{};
+        if (!parse_file(stage_b, named_target) || !patch_handler_names(source, source_file, stage_b, named_target, true)) return false;
         const isobmff_mebx_track_facts expected_facts = facts_for(*source_mebx, target_video->track_id);
         if (!validate_mebx_selected(source, stage_b, expected_facts)) return false;
         file_record verified_target{};
@@ -756,6 +894,9 @@ static bool validate_mebx_selected(std::span<const uint8_t> source,
                 source.subspan(source_mebx->start, source_track_size),
                 output.subspan(output_mebx->start, output_track_size),
                 normalized_output_track, source_file.movie_time_scale, output_file.movie_time_scale)) return false;
+        bool source_qt = false, output_qt = false;
+        if (!quicktime_file(source, source_qt) || !quicktime_file(output, output_qt) ||
+            !normalize_track_handler_names(output, *output_mebx, output_qt, source_qt, normalized_output_track)) return false;
         return normalized_output_track.size() == source_track_size &&
             std::memcmp(normalized_output_track.data(), source.data() + source_mebx->start,
                 source_track_size) == 0;
@@ -909,6 +1050,19 @@ bool offset_free_meta(std::span<const uint8_t> data, const isobmff_box_header& m
 }
 
 bool offset_free_static(std::span<const uint8_t> data, const isobmff_box_header& box) {
+    if (box_type(data, box.start, "lpex")) {
+        // Observed OPPO inline extension with no matrix/reference payload.
+        // Only this closed grammar is mapped, byte-for-byte; richer versions,
+        // duplicate fields, unknown JSON or transformation matrices fail closed.
+        const std::string_view text(reinterpret_cast<const char*>(data.data() + box.start + box.header_size),
+            box.size - box.header_size);
+        constexpr std::string_view prefix = "LivePhotoExtension{\"coverFramePts\":";
+        constexpr std::string_view suffix = ",\"desc\":\"OppoMotionVideoExt\",\"matrixCount\":0,\"version\":0,\"videoOrientation\":0}";
+        if (!text.starts_with(prefix) || !text.ends_with(suffix) || text.size() <= prefix.size() + suffix.size()) return false;
+        const auto number = text.substr(prefix.size(), text.size() - prefix.size() - suffix.size());
+        if (number.size() > 18U || (number.size() > 1U && number[0] == '0')) return false;
+        return std::all_of(number.begin(), number.end(), [](char c) { return c >= '0' && c <= '9'; });
+    }
     if (box_type(data, box.start, "meta")) return offset_free_meta(data, box);
     static_boxes children;
     if (!children_of(data, box.start + box.header_size, box.start + box.size, children)) return false;
@@ -962,17 +1116,45 @@ bool offset_free_static(std::span<const uint8_t> data, const isobmff_box_header&
     return true;
 }
 
+bool same_metadata_key(std::span<const uint8_t> a, const isobmff_box_header& x,
+    std::span<const uint8_t> b, const isobmff_box_header& y) {
+    if (std::memcmp(a.data() + x.start + 4U, b.data() + y.start + 4U, 4U) != 0) return false;
+    if (!box_type(a, x.start, "uuid")) return true;
+    return x.size >= x.header_size + 16U && y.size >= y.header_size + 16U &&
+        std::memcmp(a.data() + x.start + x.header_size, b.data() + y.start + y.header_size, 16U) == 0;
+}
+
 bool static_inventory(std::span<const uint8_t> data, size_t begin, size_t end,
-    bool video, static_boxes& inventory) {
+    bool video, static_boxes& inventory, bool top = false, bool movie = false) {
     static_boxes children;
     inventory.clear();
     if (!children_of(data, begin, end, children)) return false;
     for (const auto& box : children) {
-        if (!box_type(data, box.start, "meta") && !box_type(data, box.start, "udta") &&
-            !(video && box_type(data, box.start, "tapt"))) continue;
-        if (!offset_free_static(data, box)) return false;
+        const bool uuid = box_type(data, box.start, "uuid");
+        if (top && !uuid) {
+            // These are regenerated/copied container scaffolding. Reference
+            // indexes such as sidx/mfra cannot be silently omitted/rebased.
+            if (!box_type(data, box.start, "ftyp") && !box_type(data, box.start, "moov") &&
+                !box_type(data, box.start, "mdat") && !box_type(data, box.start, "free") &&
+                !box_type(data, box.start, "skip") && !box_type(data, box.start, "wide")) return false;
+            continue;
+        }
+        if (!uuid && !(movie && box_type(data, box.start, "lpex")) && !box_type(data, box.start, "meta") && !box_type(data, box.start, "udta") &&
+            !(video && box_type(data, box.start, "tapt"))) {
+            const bool scaffold = box_type(data, box.start, "free") || box_type(data, box.start, "skip") ||
+                (movie ? box_type(data, box.start, "mvhd") || box_type(data, box.start, "trak") :
+                    box_type(data, box.start, "tkhd") || box_type(data, box.start, "edts") ||
+                    box_type(data, box.start, "mdia"));
+            // A/V tref and unknown graph-bearing children require an explicit
+            // relocation contract. Do not silently ignore them as scaffolding.
+            if (!scaffold) return false;
+            continue;
+        }
+        if (uuid ? box.size < box.header_size + 16U : !offset_free_static(data, box)) return false;
+        // An implicit-to-EOF box cannot be safely relocated/appended.
+        if (read_u32(data.data() + box.start) == 0U) return false;
         for (const auto& prior : inventory) {
-            if (std::memcmp(data.data() + prior.start + 4U, data.data() + box.start + 4U, 4U) == 0) return false;
+            if (same_metadata_key(data, prior, data, box)) return false;
         }
         inventory.push_back(box);
     }
@@ -1006,8 +1188,27 @@ bool hdr_static_inventory(std::span<const uint8_t> data, const track_record& vid
         isobmff_box_header child{};
         if (!try_read_box_header(data.data(), p, end, child)) return false;
         const bool mastering = box_type(data, p, "mdcv"), light = box_type(data, p, "clli");
-        if (mastering || light) {
-            if (child.size != child.header_size + (mastering ? 24U : 4U)) return false;
+        const bool vivid = box_type(data, p, "cuvv");
+        const bool aperture = box_type(data, p, "clap"), aspect = box_type(data, p, "pasp"), field = box_type(data, p, "fiel");
+        if (mastering || light || vivid || aperture || aspect || field) {
+            const size_t payload = mastering ? 24U : light ? 4U : vivid ? 22U : aperture ? 32U : aspect ? 8U : 2U;
+            if (child.size != child.header_size + payload) return false;
+            const uint8_t* values = data.data() + child.start + child.header_size;
+            if (vivid) {
+                // Frozen Huawei configuration observed in the actual HEVC
+                // sample. It contains no location references. Unknown Vivid
+                // configurations are not inferred from the box type alone.
+                constexpr std::array<uint8_t, 22> configuration{0, 1, 0, 4, 0, 5};
+                if ((!box_type(data, entry.start, "hvc1") && !box_type(data, entry.start, "hev1")) ||
+                    std::memcmp(values, configuration.data(), configuration.size()) != 0) return false;
+            }
+            if (aperture && (read_u32(values) == 0U || read_u32(values + 4U) == 0U ||
+                read_u32(values + 8U) == 0U || read_u32(values + 12U) == 0U ||
+                read_u32(values + 20U) == 0U || read_u32(values + 28U) == 0U)) return false;
+            if (aspect && (read_u32(values) == 0U || read_u32(values + 4U) == 0U)) return false;
+            // Current codec paths encode progressive frames. Copying an
+            // interlaced declaration onto them would be a semantic lie.
+            if (field && (values[0] != 1U || values[1] != 0U)) return false;
             for (const auto& prior : found)
                 if (std::memcmp(data.data() + prior.start + 4U, data.data() + p + 4U, 4U) == 0) return false;
             found.push_back(child);
@@ -1022,7 +1223,7 @@ bool same_static(std::span<const uint8_t> source, const static_boxes& a,
     for (const auto& box : a) {
         const isobmff_box_header* found = nullptr;
         for (const auto& candidate : b) {
-            if (std::memcmp(source.data() + box.start + 4U, target.data() + candidate.start + 4U, 4U) == 0) found = &candidate;
+            if (same_metadata_key(source, box, target, candidate)) found = &candidate;
         }
         if (found == nullptr || found->size != box.size ||
             std::memcmp(source.data() + box.start, target.data() + found->start, box.size) != 0) return false;
@@ -1030,23 +1231,96 @@ bool same_static(std::span<const uint8_t> source, const static_boxes& a,
     return true;
 }
 
+bool geometry_box(std::span<const uint8_t> data, size_t start) {
+    return box_type(data, start, "clap") || box_type(data, start, "pasp") || box_type(data, start, "fiel") ||
+        box_type(data, start, "cuvv");
+}
+
+bool replace_child_bytes(std::span<const uint8_t> data, const isobmff_box_header& parent,
+    const isobmff_box_header& child, std::span<const uint8_t> replacement, std::vector<uint8_t>& result) {
+    if (child.start < parent.start + parent.header_size || child.start + child.size > parent.start + parent.size) return false;
+    result.assign(data.begin() + parent.start, data.begin() + child.start);
+    result.insert(result.end(), replacement.begin(), replacement.end());
+    result.insert(result.end(), data.begin() + child.start + child.size, data.begin() + parent.start + parent.size);
+    if (parent.header_size == 16U) write_u64(result.data() + 8U, result.size());
+    else {
+        if (result.size() > UINT32_MAX) return false;
+        write_u32(result.data(), static_cast<uint32_t>(result.size()));
+    }
+    return true;
+}
+
+bool preserve_visual_geometry(std::span<const uint8_t> source, const track_record& input,
+    std::span<const uint8_t> stage, const track_record& target, std::vector<uint8_t>& result) {
+    static_boxes metadata;
+    if (!hdr_static_inventory(source, input, metadata)) return false;
+    const auto visual_entry = [](std::span<const uint8_t> data, const track_record& track,
+        isobmff_box_header& description, isobmff_box_header& entry) {
+        size_t start = 0U;
+        return unique_child(data, track.stbl_start, track.stbl_end, "stsd", description, start) &&
+            description.size >= description.header_size + 8U &&
+            read_u32(data.data() + description.start + description.header_size + 4U) == 1U &&
+            try_read_box_header(data.data(), description.start + description.header_size + 8U,
+                description.start + description.size, entry) && entry.size >= entry.header_size + 78U;
+    };
+    isobmff_box_header sd{}, se{}, td{}, te{};
+    if (!visual_entry(source, input, sd, se) || !visual_entry(stage, target, td, te)) return false;
+    // Exact coded dimensions are a prerequisite for copying source geometry.
+    if (std::memcmp(source.data() + se.start + se.header_size + 24U,
+        stage.data() + te.start + te.header_size + 24U, 4U) != 0) return false;
+    std::vector<uint8_t> entry(stage.begin() + te.start, stage.begin() + te.start + te.header_size + 78U);
+    size_t p = te.start + te.header_size + 78U;
+    const size_t end = te.start + te.size;
+    while (p < end) {
+        if (end - p == 4U && read_u32(stage.data() + p) == 0U) break;
+        isobmff_box_header child{};
+        if (!try_read_box_header(stage.data(), p, end, child)) return false;
+        if (!geometry_box(stage, p)) entry.insert(entry.end(), stage.begin() + p, stage.begin() + p + child.size);
+        p += child.size;
+    }
+    for (const auto& box : metadata) if (geometry_box(source, box.start))
+        entry.insert(entry.end(), source.begin() + box.start, source.begin() + box.start + box.size);
+    if (te.header_size == 16U) write_u64(entry.data() + 8U, entry.size());
+    else { if (entry.size() > UINT32_MAX) return false; write_u32(entry.data(), static_cast<uint32_t>(entry.size())); }
+    std::vector<uint8_t> child, parent;
+    if (!replace_child_bytes(stage, td, te, entry, child)) return false;
+    isobmff_box_header stbl{}, minf{}, mdia{}, trak{};
+    size_t start = 0U;
+    if (!try_read_box_header(stage.data(), target.start, target.end, trak) ||
+        !unique_child(stage, target.start + trak.header_size, target.end, "mdia", mdia, start) ||
+        !unique_child(stage, mdia.start + mdia.header_size, mdia.start + mdia.size, "minf", minf, start) ||
+        !unique_child(stage, minf.start + minf.header_size, minf.start + minf.size, "stbl", stbl, start)) return false;
+    if (!replace_child_bytes(stage, stbl, td, child, parent)) return false;
+    child.swap(parent);
+    if (!replace_child_bytes(stage, minf, stbl, child, parent)) return false;
+    child.swap(parent);
+    if (!replace_child_bytes(stage, mdia, minf, child, parent)) return false;
+    child.swap(parent);
+    return replace_child_bytes(stage, trak, mdia, child, result);
+}
+
 bool rewrite_static_parent(std::span<const uint8_t> source, const static_boxes& original,
     std::span<const uint8_t> target, size_t start, size_t end,
     const track_record* video, const std::vector<uint8_t>* rewritten_video,
-    std::vector<uint8_t>& result) {
+    std::vector<uint8_t>& result, const track_record* audio = nullptr,
+    const std::vector<uint8_t>* rewritten_audio = nullptr) {
     if (end - start < 8U || read_u32(target.data() + start) != end - start) return false;
     static_boxes children;
     if (!children_of(target, start + 8U, end, children)) return false;
     result.assign(target.begin() + start, target.begin() + start + 8U);
     std::vector<bool> used(original.size(), false);
     for (const auto& child : children) {
+        if (audio != nullptr && child.start == audio->start) {
+            result.insert(result.end(), rewritten_audio->begin(), rewritten_audio->end());
+            continue;
+        }
         if (video != nullptr && child.start == video->start) {
             result.insert(result.end(), rewritten_video->begin(), rewritten_video->end());
             continue;
         }
         size_t match = original.size();
         for (size_t i = 0U; i < original.size(); ++i) {
-            if (std::memcmp(source.data() + original[i].start + 4U, target.data() + child.start + 4U, 4U) == 0) match = i;
+            if (same_metadata_key(source, original[i], target, child)) match = i;
         }
         if (match != original.size()) {
             if (used[match]) return false;
@@ -1067,22 +1341,464 @@ bool rewrite_static_parent(std::span<const uint8_t> source, const static_boxes& 
 }
 } // namespace
 
-bool validate_isobmff_static_metadata(std::span<const uint8_t> source,
-    std::span<const uint8_t> output) noexcept {
+namespace {
+const track_record* unique_audio(const file_record& file, bool& valid) {
+    const track_record* result = nullptr;
+    valid = true;
+    for (const auto& track : file.tracks) {
+        if (std::memcmp(track.handler, "soun", 4U) != 0) continue;
+        if (result != nullptr) { valid = false; return nullptr; }
+        result = &track;
+    }
+    return result;
+}
+
+bool classified_children(std::span<const uint8_t> data, size_t begin, size_t end,
+    std::initializer_list<std::string_view> allowed, bool padding = false) {
+    static_boxes children;
+    size_t position = begin;
+    while (position < end) {
+        if (padding && end - position == 4U && read_u32(data.data() + position) == 0U) break;
+        isobmff_box_header child{};
+        if (!try_read_box_header(data.data(), position, end, child)) return false;
+        children.push_back(child); position += child.size;
+    }
+    std::vector<uint32_t> seen;
+    for (const auto& box : children) {
+        const std::string_view type(reinterpret_cast<const char*>(data.data() + box.start + 4U), 4U);
+        if (std::find(allowed.begin(), allowed.end(), type) == allowed.end()) return false;
+        const uint32_t value = read_u32(data.data() + box.start + 4U);
+        if (std::find(seen.begin(), seen.end(), value) != seen.end()) return false;
+        seen.push_back(value);
+    }
+    return true;
+}
+
+bool classified_edit_list(std::span<const uint8_t> data, const track_record& track) {
+    isobmff_box_header edts{}, elst{};
+    size_t p = 0U;
+    if (!unique_child(data, track.start + 8U, track.end, "edts", edts, p, false)) return false;
+    if (edts.size == 0U) return true;
+    if (!classified_children(data, p + edts.header_size, p + edts.size, {"elst"}) ||
+        !unique_child(data, p + edts.header_size, p + edts.size, "elst", elst, p) ||
+        elst.size < elst.header_size + 8U) return false;
+    const size_t body = p + elst.header_size;
+    const uint32_t version_flags = read_u32(data.data() + body);
+    if (version_flags != 0U && version_flags != 0x01000000U) return false;
+    const size_t stride = version_flags == 0U ? 12U : 20U;
+    const size_t count = read_u32(data.data() + body + 4U);
+    if (count == 0U || count > (elst.size - elst.header_size - 8U) / stride ||
+        elst.size != elst.header_size + 8U + count * stride) return false;
+    for (size_t i = 0U; i < count; ++i) {
+        const size_t rate = body + 8U + i * stride + stride - 4U;
+        if (read_u32(data.data() + rate) != 0x00010000U) return false;
+    }
+    return true;
+}
+
+// Only understood codec-owned sync/AAC recovery groups may be regenerated.
+// Private grouping types are metadata/reference graphs without a mapping.
+bool classified_sample_groups(std::span<const uint8_t> data, const track_record& track) {
+    isobmff_box_header sgpd{}, sbgp{}, cslg{};
+    size_t gs = 0U, bs = 0U, cs = 0U;
+    if (!unique_child(data, track.stbl_start, track.stbl_end, "sgpd", sgpd, gs, false) ||
+        !unique_child(data, track.stbl_start, track.stbl_end, "sbgp", sbgp, bs, false) ||
+        !unique_child(data, track.stbl_start, track.stbl_end, "cslg", cslg, cs, false)) return false;
+    if ((sgpd.size == 0U) != (sbgp.size == 0U)) return false;
+    if (sgpd.size != 0U) {
+        isobmff_box_header stsd{}, codec{}, sizes{};
+        size_t ss = 0U, zs = 0U;
+        if (!unique_child(data, track.stbl_start, track.stbl_end, "stsd", stsd, ss) ||
+            stsd.size < stsd.header_size + 8U ||
+            !try_read_box_header(data.data(), ss + stsd.header_size + 8U, ss + stsd.size, codec)) return false;
+        if (!unique_child(data, track.stbl_start, track.stbl_end, "stsz", sizes, zs, false)) return false;
+        if (sizes.size == 0U && !unique_child(data, track.stbl_start, track.stbl_end, "stz2", sizes, zs)) return false;
+        if (sizes.size < sizes.header_size + 12U) return false;
+        const uint32_t sample_count = read_u32(data.data() + zs + sizes.header_size + 8U);
+        const size_t g = gs + sgpd.header_size, b = bs + sbgp.header_size;
+        if (sgpd.size < sgpd.header_size + 16U || sbgp.size < sbgp.header_size + 12U ||
+            read_u32(data.data() + g) != 0x01000000U || read_u32(data.data() + b) != 0U ||
+            std::memcmp(data.data() + g + 4U, data.data() + b + 4U, 4U) != 0) return false;
+        const bool sync = std::memcmp(data.data() + g + 4U, "sync", 4U) == 0;
+        const bool recovery = std::memcmp(data.data() + g + 4U, "roll", 4U) == 0 ||
+            std::memcmp(data.data() + g + 4U, "prol", 4U) == 0;
+        const size_t width = sync ? 1U : 2U;
+        if ((sync && (std::memcmp(track.handler, "vide", 4U) != 0 ||
+                (!box_type(data, codec.start, "hvc1") && !box_type(data, codec.start, "hev1")))) ||
+            (recovery && (std::memcmp(track.handler, "soun", 4U) != 0 || !box_type(data, codec.start, "mp4a"))) ||
+            (!sync && !recovery) || read_u32(data.data() + g + 8U) != width) return false;
+        const size_t descriptions = read_u32(data.data() + g + 12U), runs = read_u32(data.data() + b + 8U);
+        if (descriptions == 0U || descriptions > (sgpd.size - sgpd.header_size - 16U) / width ||
+            sgpd.size != sgpd.header_size + 16U + descriptions * width ||
+            runs > (sbgp.size - sbgp.header_size - 12U) / 8U || sbgp.size != sbgp.header_size + 12U + runs * 8U) return false;
+        for (size_t i = 0U; i < descriptions; ++i) {
+            const uint8_t* entry = data.data() + g + 16U + i * width;
+            if (sync && entry[0] > 63U) return false;
+            if (recovery && (entry[0] & 0x80U) == 0U && (entry[0] != 0U || entry[1] != 0U)) return false;
+        }
+        uint64_t samples = 0U;
+        for (size_t i = 0U; i < runs; ++i) {
+            const uint32_t count = read_u32(data.data() + b + 12U + i * 8U);
+            if (count == 0U || read_u32(data.data() + b + 16U + i * 8U) > descriptions) return false;
+            samples += count;
+        }
+        if (samples != sample_count) return false;
+    }
+    if (cslg.size != 0U) {
+        const size_t body = cs + cslg.header_size;
+        if (cslg.size < cslg.header_size + 4U) return false;
+        const uint32_t version = read_u32(data.data() + body);
+        if ((version != 0U || cslg.size != cslg.header_size + 24U) &&
+            (version != 0x01000000U || cslg.size != cslg.header_size + 44U)) return false;
+    }
+    return true;
+}
+
+bool classified_media_tree(std::span<const uint8_t> data, const track_record& track, bool video,
+    std::span<const isobmff_media_data_range> mdats) {
+    isobmff_sample_table_layout layout{};
+    if (!inspect_isobmff_sample_table(data, track.stbl_start, track.stbl_end, mdats, 0U, layout)) return false;
+    if (!classified_edit_list(data, track) || !classified_sample_groups(data, track)) return false;
+    isobmff_box_header mdia{}, minf{}, stsd{};
+    size_t ms = 0U, ns = 0U, ss = 0U;
+    if (!unique_child(data, track.start + 8U, track.end, "mdia", mdia, ms) || mdia.size == 0U ||
+        !classified_children(data, ms + mdia.header_size, ms + mdia.size, {"mdhd", "hdlr", "minf"}) ||
+        !unique_child(data, ms + mdia.header_size, ms + mdia.size, "minf", minf, ns) || minf.size == 0U ||
+        !classified_children(data, ns + minf.header_size, ns + minf.size, video ?
+            std::initializer_list<std::string_view>{"vmhd", "hdlr", "dinf", "stbl"} :
+            std::initializer_list<std::string_view>{"smhd", "hdlr", "dinf", "stbl"})) return false;
+    size_t entry = 0U;
+    if (!classified_children(data, track.stbl_start, track.stbl_end,
+            {"stsd", "stts", "ctts", "stsc", "stsz", "stz2", "stco", "co64", "stss", "sdtp",
+             "sbgp", "sgpd", "cslg"}) ||
+        !unique_child(data, track.stbl_start, track.stbl_end, "stsd", stsd, ss) ||
+        stsd.size < stsd.header_size + 8U) return false;
+    entry = ss + stsd.header_size;
+    if (read_u32(data.data() + entry) != 0U || read_u32(data.data() + entry + 4U) != 1U) return false;
+    entry += 8U;
+    isobmff_box_header codec{};
+    if (!try_read_box_header(data.data(), entry, ss + stsd.size, codec) || entry + codec.size != ss + stsd.size) return false;
+    const size_t body = entry + codec.header_size;
+    if (!self_contained_reference(data, minf, codec)) return false;
+    size_t prefix = 78U;
+    if (!video) {
+        if ((!box_type(data, entry, "mp4a") && !box_type(data, entry, "lpcm") &&
+            !box_type(data, entry, "ipcm") && !box_type(data, entry, "sowt") && !box_type(data, entry, "twos")) ||
+            codec.size < codec.header_size + 28U) return false;
+        const uint16_t version = static_cast<uint16_t>((data[body + 8U] << 8U) | data[body + 9U]);
+        prefix = version == 0U ? 28U : version == 1U ? 44U : version == 2U ? 64U : 0U;
+        if (prefix == 0U) return false;
+    }
+    if (codec.size < codec.header_size + prefix) return false;
+    const size_t end = entry + codec.size;
+    if (!video) {
+        const uint32_t channels = prefix == 64U ? read_u32(data.data() + body + 40U) :
+            static_cast<uint32_t>((data[body + 16U] << 8U) | data[body + 17U]);
+        if (channels == 0U) return false;
+        static_boxes extensions;
+        if (!children_of(data, body + prefix, end, extensions)) return false;
+        bool pcm_configuration = false;
+        for (const auto& extension : extensions) {
+            if (box_type(data, extension.start, "pcmC")) {
+                if (!box_type(data, entry, "ipcm") || extension.size != extension.header_size + 6U) return false;
+                const uint8_t* config = data.data() + extension.start + extension.header_size;
+                if (read_u32(config) != 0U || config[4] > 1U || config[5] < 8U ||
+                    config[5] > 32U || config[5] % 8U != 0U) return false;
+                pcm_configuration = true;
+            } else if (box_type(data, extension.start, "chan")) {
+                if (extension.size != extension.header_size + 16U) return false;
+                const uint8_t* channel_layout = data.data() + extension.start + extension.header_size;
+                const uint32_t tag = read_u32(channel_layout + 4U);
+                // Only the standard implicit mono/stereo layouts can be
+                // regenerated from current codec channel facts. Descriptions,
+                // bitmaps and richer/private layouts need explicit mapping.
+                if (read_u32(channel_layout) != 0U || read_u32(channel_layout + 8U) != 0U || read_u32(channel_layout + 12U) != 0U ||
+                    !((channels == 1U && tag == 0x00640001U) || (channels == 2U && tag == 0x00650002U))) return false;
+            } else if (box_type(data, extension.start, "esds") && !box_type(data, entry, "mp4a")) return false;
+        }
+        if (box_type(data, entry, "ipcm") != pcm_configuration) return false;
+    }
+    return classified_children(data, body + prefix, end, video ?
+        std::initializer_list<std::string_view>{"avcC", "hvcC", "colr", "clap", "pasp", "btrt", "fiel", "mdcv", "clli", "cuvv"} :
+        std::initializer_list<std::string_view>{"esds", "btrt", "pcmC", "chan"}, video);
+}
+
+// Metadata projection for timed headers. Canonical v1 layout keeps every
+// source field except the explicitly target-owned IDs/timebase/duration.
+// The projection zeros only those mutable fields (and mvhd next-track-ID).
+bool timed_header(std::span<const uint8_t> data, const isobmff_box_header& box,
+    std::vector<uint8_t>& result, bool projection) {
+    const bool movie = box_type(data, box.start, "mvhd"), track = box_type(data, box.start, "tkhd");
+    if (!movie && !track && !box_type(data, box.start, "mdhd")) return false;
+    const size_t body = box.start + box.header_size;
+    if (box.size < box.header_size + 4U || data[body] > 1U) return false;
+    const bool v1 = data[body] == 1U;
+    const size_t prefix = track ? (v1 ? 36U : 24U) : (v1 ? 32U : 20U);
+    const size_t tail = movie ? 80U : track ? 60U : 4U;
+    if (box.size != box.header_size + prefix + tail) return false;
+    // QuickTime uses these six ISO pre_defined words for movie-timescale
+    // preview/poster/selection/current times. They cannot be copied across a
+    // changed timebase. Until a time-field mapping exists, require all zero.
+    if (movie && !std::all_of(data.begin() + body + prefix + 52U,
+            data.begin() + body + prefix + 76U, [](uint8_t value) { return value == 0U; })) return false;
+    if (!track && (read_u32(data.data() + body) & 0x00FFFFFFU) != 0U) return false;
+    const uint64_t created = v1 ? read_u64(data.data() + body + 4U) : read_u32(data.data() + body + 4U);
+    const uint64_t modified = v1 ? read_u64(data.data() + body + 12U) : read_u32(data.data() + body + 8U);
+    const size_t dynamic = body + (v1 ? 20U : 12U);
+    const uint32_t scale_or_id = read_u32(data.data() + dynamic);
+    const size_t duration = dynamic + (track ? 8U : 4U);
+    const uint64_t ticks = v1 ? read_u64(data.data() + duration) : read_u32(data.data() + duration);
+    const size_t new_prefix = track ? 36U : 32U;
+    result.assign(8U + new_prefix + tail, 0U);
+    write_u32(result.data(), static_cast<uint32_t>(result.size()));
+    std::memcpy(result.data() + 4U, data.data() + box.start + 4U, 4U);
+    write_u32(result.data() + 8U, read_u32(data.data() + body) | 0x01000000U);
+    write_u64(result.data() + 12U, created); write_u64(result.data() + 20U, modified);
+    write_u32(result.data() + 28U, projection ? 0U : scale_or_id);
+    if (track) std::memcpy(result.data() + 32U, data.data() + dynamic + 4U, 4U);
+    write_u64(result.data() + (track ? 36U : 32U), projection ? 0U : ticks);
+    std::memcpy(result.data() + 8U + new_prefix, data.data() + body + prefix, tail);
+    if (movie && projection) write_u32(result.data() + result.size() - 4U, 0U);
+    return true;
+}
+
+bool mapped_timed_header(std::span<const uint8_t> source, const isobmff_box_header& original,
+    std::span<const uint8_t> target, const isobmff_box_header& actual, std::vector<uint8_t>& result) {
+    std::vector<uint8_t> current;
+    if (!timed_header(source, original, result, false) || !timed_header(target, actual, current, false) ||
+        std::memcmp(result.data() + 4U, current.data() + 4U, 4U) != 0) return false;
+    const bool track = box_type(source, original.start, "tkhd");
+    std::memcpy(result.data() + 28U, current.data() + 28U, 4U); // target track-ID or timescale
+    const size_t duration = track ? 36U : 32U;
+    std::memcpy(result.data() + duration, current.data() + duration, 8U);
+    if (box_type(source, original.start, "mvhd"))
+        std::memcpy(result.data() + result.size() - 4U, current.data() + current.size() - 4U, 4U);
+    return true;
+}
+
+bool valid_handler(std::span<const uint8_t> data, const isobmff_box_header& box) {
+    return box.size >= box.header_size + 24U && read_u32(data.data() + box.start + box.header_size) == 0U;
+}
+
+bool map_header_parent(std::span<const uint8_t> source, const isobmff_box_header& original,
+    std::span<const uint8_t> target, const isobmff_box_header& actual, std::vector<uint8_t>& result) {
+    static_boxes before, after;
+    if (!children_of(source, original.start + original.header_size, original.start + original.size, before) ||
+        !children_of(target, actual.start + actual.header_size, actual.start + actual.size, after)) return false;
+    result.assign(target.begin() + actual.start, target.begin() + actual.start + actual.header_size);
+    bool copied_handler = false;
+    for (const auto& child : after) {
+        const bool timed = box_type(target, child.start, "mvhd") || box_type(target, child.start, "tkhd") || box_type(target, child.start, "mdhd");
+        const bool handler = box_type(target, child.start, "hdlr");
+        const bool container = box_type(target, child.start, "mdia") || box_type(target, child.start, "minf");
+        if (!timed && !handler && !container) {
+            result.insert(result.end(), target.begin() + child.start, target.begin() + child.start + child.size); continue;
+        }
+        const auto match = std::find_if(before.begin(), before.end(), [&](const auto& candidate) {
+            return std::memcmp(source.data() + candidate.start + 4U, target.data() + child.start + 4U, 4U) == 0;
+        });
+        if (match == before.end()) {
+            if (!handler) return false;
+            result.insert(result.end(), target.begin() + child.start, target.begin() + child.start + child.size); continue;
+        }
+        std::vector<uint8_t> mapped;
+        if (timed) { if (!mapped_timed_header(source, *match, target, child, mapped)) return false; }
+        else if (handler) {
+            if (!valid_handler(source, *match) || !valid_handler(target, child)) return false;
+            mapped.assign(source.begin() + match->start, source.begin() + match->start + match->size); copied_handler = true;
+        } else if (!map_header_parent(source, *match, target, child, mapped)) return false;
+        result.insert(result.end(), mapped.begin(), mapped.end());
+    }
+    // QuickTime minf may carry its own data-handler; ISO muxers omit it.
+    if (!copied_handler) for (const auto& child : before) if (box_type(source, child.start, "hdlr")) {
+        if (!valid_handler(source, child)) return false;
+        result.insert(result.end(), source.begin() + child.start, source.begin() + child.start + child.size);
+    }
+    if (actual.header_size == 16U) write_u64(result.data() + 8U, result.size());
+    else { if (result.size() > UINT32_MAX) return false; write_u32(result.data(), static_cast<uint32_t>(result.size())); }
+    return true;
+}
+
+using header_projections = std::array<std::vector<uint8_t>, 9>;
+bool capture_header_metadata(std::span<const uint8_t> data, const file_record& file, header_projections& result) {
+    isobmff_box_header box{}; size_t position = 0U;
+    bool quicktime = false;
+    if (!quicktime_file(data, quicktime)) return false;
+    if (!unique_child(data, file.moov_start + file.moov_header_size, file.moov_end, "mvhd", box, position) ||
+        !timed_header(data, box, result[0], true)) return false;
+    bool valid = false; const auto* audio = unique_audio(file, valid); const auto* video = unique_video(file);
+    if (!valid || video == nullptr) return false;
+    size_t index = 1U;
+    for (const auto* track : {video, audio}) {
+        if (track == nullptr) { index += 4U; continue; }
+        isobmff_box_header mdia{}, minf{}, header{}; size_t p = 0U;
+        if (!unique_child(data, track->start + 8U, track->end, "tkhd", header, p) || !timed_header(data, header, result[index], true) ||
+            !unique_child(data, track->start + 8U, track->end, "mdia", mdia, p) ||
+            !unique_child(data, mdia.start + mdia.header_size, mdia.start + mdia.size, "mdhd", header, p) ||
+            !timed_header(data, header, result[index + 1U], true) ||
+            !unique_child(data, mdia.start + mdia.header_size, mdia.start + mdia.size, "hdlr", header, p) || !valid_handler(data, header)) return false;
+        if (!handler_name_bytes(data, header, quicktime, false, result[index + 2U])) return false;
+        if (!unique_child(data, mdia.start + mdia.header_size, mdia.start + mdia.size, "minf", minf, p) ||
+            !unique_child(data, minf.start + minf.header_size, minf.start + minf.size, "hdlr", header, p, false)) return false;
+        if (header.size != 0U) {
+            if (!valid_handler(data, header)) return false;
+            if (!handler_name_bytes(data, header, quicktime, false, result[index + 3U])) return false;
+        }
+        index += 4U;
+    }
+    return true;
+}
+
+bool scoped_inventory(std::span<const uint8_t> data, const file_record& file,
+    std::array<static_boxes, 4>& scopes) {
+    const auto* video = unique_video(file);
+    bool valid = false;
+    const auto* audio = unique_audio(file, valid);
+    if (!valid || video == nullptr) return false;
+    for (const auto& track : file.tracks) {
+        if (std::memcmp(track.handler, "vide", 4U) != 0 && std::memcmp(track.handler, "soun", 4U) != 0 &&
+            !(track.is_mebx && std::memcmp(track.handler, "meta", 4U) == 0)) return false;
+    }
+    if (!classified_media_tree(data, *video, true, file.mdats) || (audio != nullptr && !classified_media_tree(data, *audio, false, file.mdats))) return false;
+    return static_inventory(data, 0U, data.size(), false, scopes[0], true) &&
+        static_inventory(data, file.moov_start + file.moov_header_size, file.moov_end, false, scopes[1], false, true) &&
+        static_inventory(data, video->start + 8U, video->end, true, scopes[2]) &&
+        (audio == nullptr || static_inventory(data, audio->start + 8U, audio->end, false, scopes[3]));
+}
+}
+
+bool capture_isobmff_static_metadata_evidence(std::span<const uint8_t> source,
+    std::span<const uint8_t> output, isobmff_static_metadata_evidence& evidence,
+    std::span<const isobmff_media_data_range> source_mdats,
+    std::span<const isobmff_media_data_range> output_mdats, const char** rejection_reason) noexcept {
+    evidence = {};
+    const auto reason = [&](const char* value) { if (rejection_reason != nullptr) *rejection_reason = value; };
+    reason("container hierarchy/sample tables");
     try {
         file_record input{}, target{};
-        if (!parse_file(source, input) || !parse_file(output, target)) return false;
+        if (!parse_file(source, input, source_mdats) || !parse_file(output, target, output_mdats)) return false;
+        reason("MEBX track hierarchy/references");
+        std::vector<track_record*> source_mebx, output_mebx;
+        track_record *source_video = nullptr, *output_video = nullptr;
+        if (!inspect_mebx_tracks(source, input, source_mebx, source_video) ||
+            !inspect_mebx_tracks(output, target, output_mebx, output_video)) return false;
         const auto* a = unique_video(input); const auto* b = unique_video(target);
         if (a == nullptr || b == nullptr) return false;
-        static_boxes sm, tm, sv, tv, sh, th;
-        return static_inventory(source, input.moov_start + input.moov_header_size, input.moov_end, false, sm) &&
-            static_inventory(output, target.moov_start + target.moov_header_size, target.moov_end, false, tm) &&
-            static_inventory(source, a->start + 8U, a->end, true, sv) &&
-            static_inventory(output, b->start + 8U, b->end, true, tv) &&
-            hdr_static_inventory(source, *a, sh) && hdr_static_inventory(output, *b, th) && sh.size() == th.size() &&
-            same_static(source, sh, output, th) &&
-            same_static(source, sm, output, tm) && same_static(source, sv, output, tv);
+        bool av = false, bv = false;
+        const auto* aa = unique_audio(input, av); const auto* ba = unique_audio(target, bv);
+        if (!av || !bv || (aa == nullptr) != (ba == nullptr)) return false;
+        std::array<static_boxes, 4> s{}, t{};
+        static_boxes sh, th;
+        reason("scoped static metadata/media-tree classification");
+        if (!scoped_inventory(source, input, s) || !scoped_inventory(output, target, t)) return false;
+        reason("visual geometry/HDR descriptor classification");
+        if (!hdr_static_inventory(source, *a, sh) || !hdr_static_inventory(output, *b, th) ||
+            sh.size() != th.size() || !same_static(source, sh, output, th)) return false;
+        reason("scoped metadata byte comparison");
+        lpb::crypto::sha256_ctx source_hash, output_hash;
+        for (uint8_t scope = 0U; scope < 5U; ++scope) {
+            const auto& original = scope == 4U ? sh : s[scope];
+            const auto& actual = scope == 4U ? th : t[scope];
+            if (!same_static(source, original, output, actual)) return false;
+            for (const auto& box : original) {
+                const auto it = std::find_if(actual.begin(), actual.end(), [&](const auto& candidate) {
+                    return same_metadata_key(source, box, output, candidate);
+                });
+                if (it == actual.end()) return false;
+                source_hash.update(&scope, 1U); output_hash.update(&scope, 1U);
+                source_hash.update(source.data() + box.start, box.size);
+                output_hash.update(output.data() + it->start, it->size);
+                ++evidence.box_count;
+                if (box_type(source, box.start, "uuid")) ++evidence.opaque_count;
+                if (scope == 3U) ++evidence.audio_count;
+            }
+        }
+        reason("movie/track/media header metadata comparison");
+        header_projections source_headers{}, output_headers{};
+        if (!capture_header_metadata(source, input, source_headers) || !capture_header_metadata(output, target, output_headers)) return false;
+        for (uint8_t index = 0U; index < source_headers.size(); ++index) {
+            if (source_headers[index].empty()) continue;
+            if (source_headers[index] != output_headers[index]) return false;
+            const uint8_t scope = static_cast<uint8_t>(5U + index);
+            source_hash.update(&scope, 1U); output_hash.update(&scope, 1U);
+            source_hash.update(source_headers[index].data(), source_headers[index].size());
+            output_hash.update(output_headers[index].data(), output_headers[index].size());
+            ++evidence.box_count;
+            if (index >= 5U) ++evidence.audio_count;
+        }
+        source_hash.finalize(evidence.source_sha256);
+        output_hash.finalize(evidence.output_sha256);
+        reason(nullptr);
+        return std::memcmp(evidence.source_sha256, evidence.output_sha256, 32U) == 0;
+    } catch (...) { evidence = {}; return false; }
+}
+
+bool validate_isobmff_mebx_stream_remux(std::span<const uint8_t> source_metadata,
+    std::span<const isobmff_media_data_range> source_mdats, const lpb::random_access_reader& source,
+    std::span<const uint8_t> output_metadata, std::span<const isobmff_media_data_range> output_mdats,
+    const lpb::random_access_reader& output, bool (*cancelled)(void*), void* state) noexcept {
+    try {
+        file_record a{}, b{};
+        std::vector<track_record*> original, actual;
+        track_record *av = nullptr, *bv = nullptr;
+        if (!parse_file(source_metadata, a, source_mdats) || !parse_file(output_metadata, b, output_mdats) ||
+            !inspect_mebx_tracks(source_metadata, a, original, av) ||
+            !inspect_mebx_tracks(output_metadata, b, actual, bv) || original.size() != actual.size() ||
+            a.movie_time_scale != b.movie_time_scale || a.movie_duration != b.movie_duration) return false;
+        if (original.empty()) return true;
+        if (av == nullptr || bv == nullptr || av->track_id != bv->track_id) return false;
+        bool source_qt = false, output_qt = false;
+        if (!quicktime_file(source_metadata, source_qt) || !quicktime_file(output_metadata, output_qt)) return false;
+        std::array<uint8_t, 64U * 1024U> x{}, y{};
+        for (size_t i = 0U; i < original.size(); ++i) {
+            const auto& s = *original[i]; const auto& t = *actual[i];
+            if (s.track_id != t.track_id || s.end - s.start != t.end - t.start ||
+                s.sample_table.chunk_offset_width != t.sample_table.chunk_offset_width ||
+                s.sample_table.chunks.size() != t.sample_table.chunks.size()) return false;
+            std::vector<uint8_t> normalized(output_metadata.begin() + t.start, output_metadata.begin() + t.end);
+            for (size_t j = 0U; j < s.sample_table.chunks.size(); ++j) {
+                const size_t sf = s.sample_table.chunk_offsets_entries_start + j * s.sample_table.chunk_offset_width;
+                const size_t tf = t.sample_table.chunk_offsets_entries_start + j * t.sample_table.chunk_offset_width;
+                const size_t width = t.sample_table.chunk_offset_width;
+                if (sf < s.start || tf < t.start || sf - s.start != tf - t.start ||
+                    tf - t.start > normalized.size() || width > normalized.size() - (tf - t.start)) return false;
+                std::memcpy(normalized.data() + tf - t.start, source_metadata.data() + sf, width);
+                const auto& sc = s.sample_table.chunks[j]; const auto& tc = t.sample_table.chunks[j];
+                if (sc.size != tc.size || sc.first_sample != tc.first_sample || sc.sample_count != tc.sample_count) return false;
+                uint64_t offset = 0U;
+                while (offset < sc.size) {
+                    if (cancelled != nullptr && cancelled(state)) return false;
+                    const size_t count = static_cast<size_t>(std::min<uint64_t>(x.size(), sc.size - offset));
+                    if (!source.read_exact(sc.offset + offset, std::span<uint8_t>(x).first(count)) ||
+                        !output.read_exact(tc.offset + offset, std::span<uint8_t>(y).first(count)) ||
+                        std::memcmp(x.data(), y.data(), count) != 0) return false;
+                    offset += count;
+                }
+            }
+            if (!normalize_track_handler_names(output_metadata, t, output_qt, source_qt, normalized) ||
+                std::memcmp(normalized.data(), source_metadata.data() + s.start, normalized.size()) != 0) return false;
+        }
+        return true;
     } catch (...) { return false; }
+}
+
+bool validate_isobmff_static_metadata(std::span<const uint8_t> source,
+    std::span<const uint8_t> output) noexcept {
+    isobmff_static_metadata_evidence evidence{};
+    return capture_isobmff_static_metadata_evidence(source, output, evidence);
+}
+
+bool map_isobmff_handler_names(std::span<const uint8_t> source, std::span<const uint8_t> target,
+    std::vector<uint8_t>& output, std::span<const isobmff_media_data_range> source_mdats,
+    std::span<const isobmff_media_data_range> target_mdats) noexcept {
+    output.clear();
+    try {
+        file_record before{}, after{};
+        if (!parse_file(source, before, source_mdats) || !parse_file(target, after, target_mdats)) return false;
+        output.assign(target.begin(), target.end());
+        if (!patch_handler_names(source, before, output, after, false)) { output.clear(); return false; }
+        return true;
+    } catch (...) { output.clear(); return false; }
 }
 
 bool preserve_isobmff_static_metadata(std::span<const uint8_t> source,
@@ -1092,25 +1808,51 @@ bool preserve_isobmff_static_metadata(std::span<const uint8_t> source,
         file_record input{}, target{};
         if (!parse_file(source, input) || !parse_file(stage, target) || target.moov_header_size != 8U) return false;
         const auto* a = unique_video(input); const auto* b = unique_video(target);
-        if (a == nullptr || b == nullptr || read_u32(source.data() + a->start) != a->end - a->start) return false;
-        static_boxes sm, sv, tm, tv;
-        if (!static_inventory(source, input.moov_start + input.moov_header_size, input.moov_end, false, sm) ||
-            !static_inventory(source, a->start + 8U, a->end, true, sv) ||
-            !static_inventory(stage, target.moov_start + target.moov_header_size, target.moov_end, false, tm) ||
-            !static_inventory(stage, b->start + 8U, b->end, true, tv)) return false;
-        std::vector<uint8_t> track, movie;
-        if (!rewrite_static_parent(source, sv, stage, b->start, b->end, nullptr, nullptr, track) ||
-            !rewrite_static_parent(source, sm, stage, target.moov_start, target.moov_end, b, &track, movie)) return false;
-        const auto previous = stage.subspan(target.moov_start, target.moov_end - target.moov_start);
-        const bool differs = movie.size() != previous.size() || !std::equal(movie.begin(), movie.end(), previous.begin());
-        const int64_t delta = static_cast<int64_t>(movie.size()) - static_cast<int64_t>(previous.size());
+        bool av = false, bv = false;
+        const auto* aa = unique_audio(input, av); const auto* ba = unique_audio(target, bv);
+        if (!av || !bv || a == nullptr || b == nullptr || (aa == nullptr) != (ba == nullptr)) return false;
+        std::array<static_boxes, 4> s{}, t{};
+        if (!scoped_inventory(source, input, s) || !scoped_inventory(stage, target, t)) return false;
+        // Rebuild tracks first, then substitute both into one movie rewrite.
+        std::vector<uint8_t> video, audio, movie, geometry_track, mapped;
+        isobmff_box_header original{}, actual{};
+        if (!preserve_visual_geometry(source, *a, stage, *b, geometry_track) ||
+            !try_read_box_header(source.data(), a->start, a->end, original) ||
+            !try_read_box_header(geometry_track.data(), 0U, geometry_track.size(), actual) ||
+            !map_header_parent(source, original, geometry_track, actual, mapped) ||
+            !rewrite_static_parent(source, s[2], mapped, 0U, mapped.size(), nullptr, nullptr, video)) return false;
+        if (aa != nullptr) {
+            if (!try_read_box_header(source.data(), aa->start, aa->end, original) ||
+                !try_read_box_header(stage.data(), ba->start, ba->end, actual) ||
+                !map_header_parent(source, original, stage, actual, mapped) ||
+                !rewrite_static_parent(source, s[3], mapped, 0U, mapped.size(), nullptr, nullptr, audio)) return false;
+        }
+        if (!rewrite_static_parent(source, s[1], stage, target.moov_start, target.moov_end,
+                b, &video, movie, ba, ba == nullptr ? nullptr : &audio)) return false;
+        if (!try_read_box_header(source.data(), input.moov_start, input.moov_end, original) ||
+            !try_read_box_header(movie.data(), 0U, movie.size(), actual) ||
+            !map_header_parent(source, original, movie, actual, mapped)) return false;
+        movie.swap(mapped);
+        const int64_t delta = static_cast<int64_t>(movie.size()) - static_cast<int64_t>(target.moov_end - target.moov_start);
         if (delta != 0 && !shift_chunk_offsets(movie, 0U, target.moov_end, delta)) return false;
         std::vector<uint8_t> result;
         result.insert(result.end(), stage.begin(), stage.begin() + target.moov_start);
         result.insert(result.end(), movie.begin(), movie.end());
         result.insert(result.end(), stage.begin() + target.moov_end, stage.end());
-        if (!validate_isobmff_static_metadata(source, result)) return false;
-        output.swap(result); changed = differs;
+        // Top UUIDs are appended after the existing file; never before mdat.
+        for (const auto& box : s[0]) {
+            const auto it = std::find_if(t[0].begin(), t[0].end(), [&](const auto& candidate) {
+                return same_metadata_key(source, box, stage, candidate);
+            });
+            if (it != t[0].end()) {
+                if (it->size != box.size || std::memcmp(stage.data() + it->start, source.data() + box.start, box.size) != 0) return false;
+            } else result.insert(result.end(), source.begin() + box.start, source.begin() + box.start + box.size);
+        }
+        file_record named_target{};
+        if (!parse_file(result, named_target) || !patch_handler_names(source, input, result, named_target, false) ||
+            !validate_isobmff_static_metadata(source, result)) return false;
+        changed = result.size() != stage.size() || !std::equal(result.begin(), result.end(), stage.begin());
+        output.swap(result);
         return true;
     } catch (...) { output.clear(); changed = false; return false; }
 }

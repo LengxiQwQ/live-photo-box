@@ -1,4 +1,5 @@
 using LivePhotoBox.Media;
+using LivePhotoBox.Media.Image;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Workspace;
@@ -33,6 +34,8 @@ namespace LivePhotoBox.Services
             int quality = 80, CancellationToken token = default)
         {
             token.ThrowIfCancellationRequested();
+            if (quality is < 1 or > 100)
+                throw new ArgumentOutOfRangeException(nameof(quality), "Image quality must be between 1 and 100.");
 
             await ProcessingPipelineRouter.RunAsync(
                 "edit.image-export",
@@ -51,7 +54,8 @@ namespace LivePhotoBox.Services
             };
 
             await using var workspace = new MediaWorkspace();
-            NeutralMediaBundle bundle = await new NeutralMediaService().CreateNeutralBundleAsync(
+            NeutralMediaBundle bundle = await new NeutralMediaService(
+                imageConverter: new RequestedQualityImageConverter(quality)).CreateNeutralBundleAsync(
                 sourcePath,
                 secondaryPath: null,
                 workspace,
@@ -67,12 +71,19 @@ namespace LivePhotoBox.Services
             if (bundle.PrimaryImage == null || !File.Exists(bundle.PrimaryImage.Path))
                 throw new IOException("The Rebuilt Native image pipeline produced no image output.");
 
-            if (quality is < 1 or > 100)
-                throw new ArgumentOutOfRangeException(nameof(quality), "Image quality must be between 1 and 100.");
-
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(targetPath))!);
             await WindowsOutputArtifactPublisher.PublishCopyAsync(
                 bundle.PrimaryImage, targetPath, overwriteExisting: true, token).ConfigureAwait(false);
+        }
+
+        // Export quality is a caller preference over the existing converter
+        // contract. Keep Neutral's extraction, binding, policy and validation
+        // flow intact, changing only the quality passed to its codec request.
+        private sealed class RequestedQualityImageConverter(int quality) : IImageConverter
+        {
+            public Task<ImageConversionResult> ConvertAsync(ImageConversionRequest request,
+                CancellationToken cancellationToken = default) =>
+                new ImageConverter().ConvertAsync(request with { Quality = quality }, cancellationToken);
         }
 
         /// <summary>

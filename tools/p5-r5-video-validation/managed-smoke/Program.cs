@@ -52,12 +52,15 @@ if (result.Success || result.OutputArtifact is not null || File.Exists(outputPat
     !truth.InputProfile.StartsWith("HEVC;", StringComparison.Ordinal) ||
     !string.Equals(truth.OutputProfile, "Unknown", StringComparison.Ordinal) ||
     truth.FallbackOccurred || result.ExecutionRecord.HardwareFallbackOccurred ||
-    result.ExecutionRecord.Backend != VideoBackend.Unknown ||
+    result.ExecutionRecord.Backend != VideoBackend.MinimalLibav ||
     result.ExecutionRecord.HardwareMode != VideoHardwareMode.SoftwareForced ||
     !result.ExecutionRecord.SelectedEncoder.StartsWith("minimal-libav/" + profile, StringComparison.Ordinal) ||
     !result.ErrorMessage!.StartsWith("BackendUnavailable:", StringComparison.Ordinal))
 {
-    throw new InvalidDataException("The managed missing-sidecar attempt did not report the selected HDR owner truthfully or leave the output directory clean.");
+    throw new InvalidDataException("The managed missing-sidecar attempt did not report the selected HDR owner truthfully or leave the output directory clean. " +
+        JsonSerializer.Serialize(new { result.Success, result.ErrorMessage, result.OutputArtifact,
+            truth, result.ExecutionRecord.Backend, result.ExecutionRecord.HardwareMode,
+            result.ExecutionRecord.SelectedEncoder, residualOwnedOutput }));
 }
 
 Console.WriteLine(JsonSerializer.Serialize(new

@@ -72,6 +72,9 @@ public static class NativeMediaService
             (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.HasSecondarySource)) != 480 ||
             (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.AuxiliaryCount)) != 484 ||
             (int)Marshal.OffsetOf<NativeSourceMediaFacts>(nameof(NativeSourceMediaFacts.PreservationCarrierCount)) != 18152 ||
+            Marshal.SizeOf<NativeVideoPreservationRequestV1>() != 16 ||
+            Marshal.SizeOf<NativeVideoPreservationResultV1>() != 96 ||
+            (int)Marshal.OffsetOf<NativeVideoPreservationResultV1>(nameof(NativeVideoPreservationResultV1.SourceSha256)) != 32 ||
             Marshal.SizeOf<NativeVideoBackendDiagnostics>() != 208 ||
             (int)Marshal.OffsetOf<NativeVideoBackendDiagnostics>(nameof(NativeVideoBackendDiagnostics.SelectedEncoder)) != 16 ||
             (int)Marshal.OffsetOf<NativeVideoBackendDiagnostics>(nameof(NativeVideoBackendDiagnostics.FallbackReason)) != 80 ||
@@ -84,7 +87,7 @@ public static class NativeMediaService
             (int)Marshal.OffsetOf<NativeImageOrientationObservationV1>(nameof(NativeImageOrientationObservationV1.ReflectionEvidence)) != 24 ||
             (int)Marshal.OffsetOf<NativeImageOrientationObservationV1>(nameof(NativeImageOrientationObservationV1.Reserved0)) != 28)
         {
-            throw new InvalidOperationException("Managed Native facts layout does not match ABI v10.");
+            throw new InvalidOperationException("Managed Native facts layout does not match ABI v11.");
         }
     }
 
@@ -962,7 +965,8 @@ public static class NativeMediaService
         VideoContainer targetContainer,
         VideoCodec targetCodec,
         int crf,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        PreservationPolicy preservationPolicy = PreservationPolicy.Strict)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -975,14 +979,19 @@ public static class NativeMediaService
                 {
                     StructSize = checked((uint)sizeof(NativeVideoBackendDiagnostics))
                 };
-                NativeResult res = NativeMethods.TranscodeVideoV2(
+                var preservationRequest = new NativeVideoPreservationRequestV1
+                {
+                    StructSize = 16, ApiVersion = 1, Policy = (uint)preservationPolicy
+                };
+                var preservation = new NativeVideoPreservationResultV1 { StructSize = 96 };
+                NativeResult res = NativeMethods.TranscodeVideoV3(
                     ctx.Handle,
                     inputVideoPath,
                     outputVideoPath,
                     (int)targetContainer,
                     (int)targetCodec,
                     crf,
-                    ref native);
+                    in preservationRequest, ref native, ref preservation);
                 var diagnostics = ProjectVideoDiagnostics(
                     (VideoBackend)native.Backend,
                     (VideoHardwareMode)native.HardwareMode,
@@ -1018,8 +1027,24 @@ public static class NativeMediaService
                     }
                 }
 
+                VideoMetadataPreservationEvidence? metadata = null;
+                if (res == NativeResult.Ok && preservation.StructSize == 96 && preservation.ApiVersion == 1 &&
+                    preservation.Policy == (uint)preservationPolicy && preservation.Status == 1 &&
+                    preservation.SourceBoxCount == preservation.VerifiedBoxCount &&
+                    new ReadOnlySpan<byte>(preservation.SourceSha256, 32).SequenceEqual(
+                        new ReadOnlySpan<byte>(preservation.OutputSha256, 32)))
+                {
+                    metadata = new VideoMetadataPreservationEvidence
+                    {
+                        Policy = preservationPolicy, SourceBoxCount = preservation.SourceBoxCount,
+                        VerifiedBoxCount = preservation.VerifiedBoxCount, OpaqueBoxCount = preservation.OpaqueBoxCount,
+                        AudioBoxCount = preservation.AudioBoxCount,
+                        SourceSha256 = Convert.ToHexString(new ReadOnlySpan<byte>(preservation.SourceSha256, 32)),
+                        OutputSha256 = Convert.ToHexString(new ReadOnlySpan<byte>(preservation.OutputSha256, 32))
+                    };
+                }
                 return new NativeVideoTranscodeAttempt(
-                    res, diagnostics, lastError, failureException, outputEvidence, outputEvidenceFailure);
+                    res, diagnostics, lastError, failureException, outputEvidence, outputEvidenceFailure, metadata);
             }
         }, cancellationToken);
     }
@@ -1485,7 +1510,8 @@ public static class NativeMediaService
         string? LastError,
         Exception? FailureException,
         NativeRegisteredOutputEvidence? OutputEvidence,
-        Exception? OutputEvidenceFailure)
+        Exception? OutputEvidenceFailure,
+        VideoMetadataPreservationEvidence? MetadataPreservation)
     {
         public bool Succeeded => ResultCode == NativeResult.Ok;
     }

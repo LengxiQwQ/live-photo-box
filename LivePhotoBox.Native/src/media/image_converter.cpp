@@ -84,6 +84,25 @@ lpb_result convert_image_file(lpb_context* context, const char* input_image_path
         return fast_file_copy(context, input_image_path, output_image_path);
     }
 
+    // The public ordinary codec entry point must enforce the same semantic
+    // boundary as its managed caller. Decoding only the primary image would
+    // otherwise silently discard a GainMap/auxiliary when called directly.
+    // Exact same-container copies above retain every byte; cross-container
+    // semantic conversion requires the separately bound HDR transaction API.
+    lpb_preservation_observation source_facts{};
+    source_facts.struct_size = sizeof(source_facts);
+    const lpb_result inspected = lpb_capture_preservation_observation(context, input_image_path,
+        LPB_SOURCE_PROTOCOL_UNKNOWN, source_container, &source_facts);
+    if (inspected != LPB_RESULT_OK) return inspected;
+    const lpb_result early_cancel = lpb_context_check_cancelled(context);
+    if (early_cancel != LPB_RESULT_OK) return early_cancel;
+    if ((source_facts.flags & (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HAS_GAINMAP_META |
+        LPB_POBS_HAS_HEIC_GAINMAP_SEMANTIC | LPB_POBS_HEIC_AUX_AMBIGUOUS |
+        LPB_POBS_CODESTREAM_ERROR)) != 0U) {
+        set_error(context, "Ordinary image conversion cannot discard GainMap/auxiliary media; an explicit bound semantic conversion is required.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
     if (source_container == LPB_IMAGE_CONTAINER_JPEG && target_container == LPB_IMAGE_CONTAINER_HEIC) {
         jpeg_rgb_image jpeg;
         const lpb_result decoded = decode_jpeg_rgb_file(context, input_image_path, jpeg);

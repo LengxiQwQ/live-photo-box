@@ -46,7 +46,22 @@ public sealed record VideoExecutionRecord
     public bool AudioPreserved { get; init; }
     public bool RotationPreserved { get; init; }
     public TimeSpan Duration { get; init; }
+    public VideoMetadataPreservationEvidence? MetadataPreservation { get; init; }
     public ConversionExecutionTruth Truth { get; init; } = new();
+}
+
+/// <summary>Native pre-publication comparison of scoped static metadata assets.
+/// Digests bind static boxes and canonical timed-header metadata projections;
+/// target-owned IDs/timebase/duration, coded A/V and file layout are excluded.</summary>
+public sealed record VideoMetadataPreservationEvidence
+{
+    public required PreservationPolicy Policy { get; init; }
+    public required uint SourceBoxCount { get; init; }
+    public required uint VerifiedBoxCount { get; init; }
+    public required uint OpaqueBoxCount { get; init; }
+    public required uint AudioBoxCount { get; init; }
+    public required string SourceSha256 { get; init; }
+    public required string OutputSha256 { get; init; }
 }
 
 public sealed record VideoConversionResult

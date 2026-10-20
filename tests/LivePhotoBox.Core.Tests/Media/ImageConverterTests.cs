@@ -418,10 +418,15 @@ public sealed class ImageConverterTests
         using var workspace = new TestFixtureWorkspace();
         string output = Path.Combine(workspace.RootDirectory, "native-decode.heic");
 
-        bool reencoded = await NativeMediaService.ConvertImageAsync(
-            source, output, ImageContainer.Heic, quality: 90);
+        // Exercise the codec staging primitive for every vendor, including
+        // genuine HDR sources. Ordinary conversion must not silently discard
+        // their auxiliary semantics; semantic HDR routes are tested separately.
+        NativeHeicEncodedImagesInfo encoded = await NativeMediaService.EncodeHeicPrimaryAndSecondaryJpegsAsync(
+            source, source, output, quality: 90);
 
-        Assert.True(reencoded);
+        Assert.NotEqual(0u, encoded.PrimaryItemId);
+        Assert.NotEqual(0u, encoded.SecondaryItemId);
+        Assert.NotEqual(encoded.PrimaryItemId, encoded.SecondaryItemId);
         Assert.True(File.Exists(output));
         Assert.True(new FileInfo(output).Length > 0);
         Assert.Equal(sourceHash, await ComputeSha256Async(source));

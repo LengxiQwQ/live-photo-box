@@ -48,9 +48,9 @@ public sealed class NativeRuntimeTests
     }
 
     [Fact]
-    public void SupportedAbiVersion_IsTen()
+    public void SupportedAbiVersion_IsEleven()
     {
-        Assert.Equal(10u, NativeRuntime.SupportedAbiVersion);
+        Assert.Equal(11u, NativeRuntime.SupportedAbiVersion);
     }
 
     [Fact]

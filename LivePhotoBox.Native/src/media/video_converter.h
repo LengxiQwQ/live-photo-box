@@ -17,7 +17,8 @@ lpb_result remux_video_file(
     lpb_context* context,
     const char* input_video_path,
     const char* output_video_path,
-    lpb_video_container target_container) noexcept;
+    lpb_video_container target_container,
+    lpb_video_preservation_result_v1* out_preservation = nullptr) noexcept;
 
 lpb_result transcode_video_file(
     lpb_context* context,
@@ -28,6 +29,7 @@ lpb_result transcode_video_file(
     int32_t crf,
     char* out_encoder_used,
     size_t encoder_buf_len,
-    lpb_video_backend_diagnostics* out_diagnostics = nullptr) noexcept;
+    lpb_video_backend_diagnostics* out_diagnostics = nullptr,
+    lpb_video_preservation_result_v1* out_preservation = nullptr) noexcept;
 
 } // namespace lpb::media

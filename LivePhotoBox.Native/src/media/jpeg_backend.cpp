@@ -338,6 +338,13 @@ lpb_result transform_jpeg_losslessly(lpb_context* context, const char* input_pat
     const int operation = to_turbo_transform(transform);
     if (operation < 0) { set_error(context, "Unsupported JPEG lossless transform operation."); return LPB_RESULT_INVALID_ARGUMENT; }
 
+    windows_readonly_source source_lease;
+    const fs::path source_path = utf8_to_path(input_path);
+    if (!source_lease.open(source_path)) {
+        set_error(context, "JPEG transform source could not be pinned read-only before orientation validation.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
     // A physical transform plus a retained non-default EXIF Orientation would
     // double-rotate at display time. R4 intentionally fails closed until a
     // project-owned Exif rewrite can make that semantic update atomically.
@@ -357,7 +364,7 @@ lpb_result transform_jpeg_losslessly(lpb_context* context, const char* input_pat
     }
 
     std::vector<unsigned char> source;
-    if (!read_file_bounded(utf8_to_path(input_path), source)) {
+    if (!read_file_bounded(source_path, source) || !source_lease.verify_same_identity(source_path)) {
         set_error(context, "JPEG input is unavailable, too large for the configured safety limit, or malformed.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }

@@ -1266,7 +1266,7 @@ public sealed class P7R2ConverterMidCancellationTests
                 return 0;
 
             probe = target;
-            int checkNumber = Interlocked.Increment(ref probe.CancelCheckCount);
+            Interlocked.Increment(ref probe.CancelCheckCount);
             if (probe.Cancellation.IsCancellationRequested)
                 return 1;
 
@@ -1277,7 +1277,12 @@ public sealed class P7R2ConverterMidCancellationTests
             {
                 var info = new FileInfo(path);
                 long bytes = info.Length;
-                if (bytes <= 0 || checkNumber < probe.MinimumStageCheckNumber)
+                if (bytes <= 0)
+                    continue;
+                // Count validation/publish checkpoints only after an owned,
+                // nonempty stage exists. Semantic preflight may also poll.
+                int checkNumber = Interlocked.Increment(ref probe.OwnedStageCheckCount);
+                if (checkNumber < probe.MinimumStageCheckNumber)
                     continue;
 
                 WindowsFileIdentity stageIdentity = WindowsFileIdentity.Capture(path);
@@ -1585,6 +1590,7 @@ public sealed class P7R2ConverterMidCancellationTests
         public int MinimumStageCheckNumber { get; } = minimumStageCheckNumber;
         public bool SetStageReadOnlyBeforeCancel { get; } = setStageReadOnlyBeforeCancel;
         public int CancelCheckCount;
+        public int OwnedStageCheckCount;
         public int CancellationRequested;
         public ImageStageSnapshot? StageAtCancellation { get; set; }
         public FileAttributes? StageAttributesBeforeReadOnly { get; set; }

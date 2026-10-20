@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-#define LPB_NATIVE_ABI_VERSION 10u
+#define LPB_NATIVE_ABI_VERSION 11u
 
 typedef struct lpb_context lpb_context;
 typedef struct lpb_extraction_plan lpb_extraction_plan;
@@ -795,6 +795,34 @@ typedef struct lpb_video_backend_diagnostics
     char fallback_reason[128];
 } lpb_video_backend_diagnostics;
 
+/* API v1 scoped metadata carriage. Policy 0/1/2 = Strict/BestEffort/AllowDiscard.
+ * None authorizes implicit loss of non-live metadata. Status 1 means actual
+ * source/staged-output scoped inventories were compared byte for byte before
+ * publication; 0 is unverified. Digests cover scopes 0..4 + complete source boxes,
+ * then scopes 5..13 for mvhd, video tkhd/mdhd/mdia-hdlr/minf-hdlr, audio equivalents.
+ * Timed headers use canonical v1 boxes with target-owned IDs, timebase/duration
+ * and mvhd next-track-ID zeroed; all other source fields are compared. Handler
+ * names use canonical ISO NUL encoding, with all other handler bytes retained.
+ * Not coded A/V, codec config or whole-file identity. */
+typedef struct lpb_video_preservation_request_v1 {
+    uint32_t struct_size;
+    uint32_t api_version;
+    uint32_t policy;
+    uint32_t reserved;
+} lpb_video_preservation_request_v1;
+typedef struct lpb_video_preservation_result_v1 {
+    uint32_t struct_size;
+    uint32_t api_version;
+    uint32_t policy;
+    uint32_t status;
+    uint32_t source_box_count;
+    uint32_t verified_box_count;
+    uint32_t opaque_box_count;
+    uint32_t audio_box_count;
+    uint8_t source_sha256[32];
+    uint8_t output_sha256[32];
+} lpb_video_preservation_result_v1;
+
 typedef struct lpb_gainmap_item_facts
 {
     uint32_t struct_size;
@@ -1254,6 +1282,13 @@ LPB_API lpb_result LPB_CALL lpb_transcode_video_v2(
     lpb_video_codec target_codec,
     int32_t crf,
     lpb_video_backend_diagnostics* out_diagnostics);
+
+LPB_API lpb_result LPB_CALL lpb_transcode_video_v3(
+    lpb_context* context, const char* input_video_path, const char* output_video_path,
+    lpb_video_container target_container, lpb_video_codec target_codec, int32_t crf,
+    const lpb_video_preservation_request_v1* preservation_request,
+    lpb_video_backend_diagnostics* out_diagnostics,
+    lpb_video_preservation_result_v1* out_preservation);
 
 /// Reassemble a JPEG primary image with an appended GainMap JPEG into a single
 /// multi-picture JPEG file. Validates JPEG magic bytes on both inputs before

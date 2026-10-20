@@ -5,6 +5,7 @@
 #include <array>
 #include <cstring>
 #include <fstream>
+#include <filesystem>
 #include <iostream>
 #include <limits>
 #include <span>
@@ -28,7 +29,7 @@ bool read_file(void* user, uint64_t offset, std::span<uint8_t> output) noexcept 
 }
 
 lpb::media::isobmff_video_profile inspect(const char* path) {
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    std::ifstream file(std::filesystem::path(std::u8string(path, path + std::strlen(path))), std::ios::binary | std::ios::ate);
     assert(file.is_open());
     const auto end = static_cast<std::streamoff>(file.tellg());
     assert(end > 0);
@@ -55,7 +56,7 @@ bool codec_is(uint32_t value, const char* fourcc) {
 }
 
 std::vector<uint8_t> read_bytes(const char* path) {
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    std::ifstream file(std::filesystem::path(std::u8string(path, path + std::strlen(path))), std::ios::binary | std::ios::ate);
     assert(file.is_open());
     const auto end = static_cast<std::streamoff>(file.tellg());
     assert(end > 0 && static_cast<uint64_t>(end) <= static_cast<uint64_t>(std::numeric_limits<size_t>::max()));
@@ -795,7 +796,7 @@ void verify_cicp_patch_mode_selection() {
 
 } // namespace
 
-int main(int argc, char** argv) {
+int run_profile_checks(int argc, char** argv) {
     assert(argc == 4);
     verify_cicp_patch_mode_selection();
     verify_source_presentation_timeline(argv[1], argv[2]);
@@ -809,9 +810,9 @@ int main(int argc, char** argv) {
     assert(lpb::media::select_video_conversion_owner(apple, lpb::media::requested_video_codec::copy) ==
         lpb::media::video_conversion_owner::project_remux);
     assert(lpb::media::select_video_conversion_owner(apple, lpb::media::requested_video_codec::hevc) ==
-        lpb::media::video_conversion_owner::media_foundation_software);
+        lpb::media::video_conversion_owner::minimal_libav_sidecar);
     assert(lpb::media::select_video_conversion_owner(apple, lpb::media::requested_video_codec::h264) ==
-        lpb::media::video_conversion_owner::media_foundation_software);
+        lpb::media::video_conversion_owner::minimal_libav_sidecar);
 
     const auto vivo = inspect(argv[2]);
     assert((codec_is(vivo.codec_fourcc, "avc1") || codec_is(vivo.codec_fourcc, "avc3")) &&
@@ -822,7 +823,7 @@ int main(int argc, char** argv) {
     assert(lpb::media::select_video_conversion_owner(vivo, lpb::media::requested_video_codec::copy) ==
         lpb::media::video_conversion_owner::project_remux);
     assert(lpb::media::select_video_conversion_owner(vivo, lpb::media::requested_video_codec::hevc) ==
-        lpb::media::video_conversion_owner::media_foundation_software);
+        lpb::media::video_conversion_owner::minimal_libav_sidecar);
     assert(lpb::media::select_video_conversion_owner(vivo, lpb::media::requested_video_codec::h264) ==
         lpb::media::video_conversion_owner::media_foundation_software);
 
@@ -855,3 +856,19 @@ int main(int argc, char** argv) {
     std::cout << "P5R5 strict input profile inspection and owner selection passed for Apple, Vivo, and Huawei RealSamples.\n";
     return 0;
 }
+
+#if defined(_WIN32)
+int wmain(int argc, wchar_t** argv) {
+    std::vector<std::string> utf8;
+    utf8.reserve(static_cast<size_t>(argc));
+    for (int index = 0; index < argc; ++index) {
+        const auto path = std::filesystem::path(argv[index]).u8string();
+        utf8.emplace_back(path.begin(), path.end());
+    }
+    std::vector<char*> arguments;
+    for (auto& value : utf8) arguments.push_back(value.data());
+    return run_profile_checks(argc, arguments.data());
+}
+#else
+int main(int argc, char** argv) { return run_profile_checks(argc, argv); }
+#endif
