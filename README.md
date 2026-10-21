@@ -34,11 +34,14 @@
 
 ---
 
-> 🎨 **Live Photo Box could use a new icon**
+> 📌 **Project Refactoring Status & Upcoming Update Plan**
 >
-> Now that Live Photo Box's main features are gradually stabilizing, the author would like to give the app a more fitting icon and refresh the homepage banner as well.
+> The project is currently undergoing a comprehensive core refactor, and there have been no new releases over the past two months. This work is now nearing completion, with the next major release expected in approximately **two weeks**.
 >
-> If you have a design direction you like or would like to try creating something, feel free to [share it in GitHub Discussions →](https://github.com/LengxiQwQ/live-photo-box/discussions/new?category=ideas). PNG, PSD, SVG, Figma files, and links to other design websites are all welcome. Simple sketches and ideas are welcome too. Thank you!
+> - **Complete Format Compatibility & Stability**: Once the core refactor and testing are finished, conversion stability will be significantly improved, ensuring that virtually all Live Photos from various brands and devices convert into any format smoothly, completely, and reliably.
+> - **Upcoming Major Overhaul of the Editor**: Following the core refactor, the Editor page will also receive a major redesign with several new capabilities, including **editing photos and videos independently**, **editing Live Photos frame-by-frame**, and **supporting edits via external tools followed by re-importing**.
+>
+> While spare time for development is limited outside of schoolwork, I will do my absolute best to make every feature solid and polished. My goal is to build a truly reliable tool that allows Live Photos across different brands to flow seamlessly. Thank you all for your understanding and continued support!
 
 ---
 
