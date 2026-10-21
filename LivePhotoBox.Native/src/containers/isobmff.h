@@ -108,6 +108,11 @@ bool inspect_isobmff_video_presentation_timeline(
     std::span<const uint8_t> data,
     isobmff_video_presentation_timeline& output) noexcept;
 
+// Observe the structurally owned Apple still-image-time metadata track's
+// leading empty edit. Returns false for malformed/ambiguous supported graphs.
+bool inspect_isobmff_still_image_time(std::span<const uint8_t> data,
+    bool& present, int64_t& timestamp_us) noexcept;
+
 bool is_type(std::span<const uint8_t> data, size_t offset, const char* type) noexcept;
 
 size_t find_child_box(

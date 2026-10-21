@@ -44,4 +44,10 @@ lpb_result inspect_source_with_plan(
 lpb_image_container detect_image_container(std::span<const uint8_t> header) noexcept;
 lpb_video_container detect_video_container(std::span<const uint8_t> header) noexcept;
 
+// Private observation reuses the authoritative owned-XMP scanner. Return -1
+// for malformed/duplicate data, 0 for absent, 1 for a present signed integer.
+int observe_source_xmp_integer(lpb_context* context, const std::vector<uint8_t>& bytes,
+    lpb_image_container container, bool primary_position, bool micro_video,
+    int64_t& value) noexcept;
+
 } // namespace lpb::media

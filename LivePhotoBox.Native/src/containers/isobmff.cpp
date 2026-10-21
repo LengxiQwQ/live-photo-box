@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <set>
 #include <utility>
 
 using namespace lpb;
@@ -823,6 +824,115 @@ bool inspect_isobmff_video_presentation_timeline(
         output = {};
         return false;
     }
+}
+
+bool inspect_isobmff_still_image_time(std::span<const uint8_t> data,
+    bool& present, int64_t& timestamp_us) noexcept {
+    present = false; timestamp_us = 0;
+    try {
+        isobmff_box_header moov{}; size_t ms = 0;
+        if (!direct_child(data.data(), 0, data.size(), "moov", moov, ms) || moov.size == 0) return false;
+        isobmff_box_header mvhd{}; size_t vs = 0; uint32_t scale = 0;
+        if (!direct_child(data.data(), ms + moov.header_size, ms + moov.size, "mvhd", mvhd, vs) ||
+            mvhd.size == 0 || !parse_media_header_timescale(data, vs, vs + mvhd.size, true, scale)) return false;
+        std::vector<isobmff_media_data_range> mdats;
+        for (size_t p = 0; p < data.size();) {
+            isobmff_box_header box{};
+            if (!try_read_box_header(data.data(), p, data.size(), box)) return false;
+            if (type_is(data.data(), p, "mdat")) mdats.push_back({p + box.header_size, p + box.size});
+            p += box.size;
+        }
+        constexpr char key_name[] = "com.apple.quicktime.still-image-time";
+        for (size_t p = ms + moov.header_size; p < ms + moov.size;) {
+            isobmff_box_header track{};
+            if (!try_read_box_header(data.data(), p, ms + moov.size, track)) return false;
+            const size_t te = p + track.size;
+            if (type_is(data.data(), p, "trak")) {
+                isobmff_box_header mdia{}, hdlr{}, minf{}, stbl{}, stsd{};
+                size_t a=0,b=0,c=0,d=0,e=0;
+                if (!direct_child(data.data(), p+track.header_size, te, "mdia", mdia,a) || mdia.size==0 ||
+                    !direct_child(data.data(), a+mdia.header_size,a+mdia.size,"hdlr",hdlr,b) || hdlr.size<hdlr.header_size+12) return false;
+                if (std::memcmp(data.data()+b+hdlr.header_size+8,"meta",4)==0) {
+                    if (!direct_child(data.data(),a+mdia.header_size,a+mdia.size,"minf",minf,c) || minf.size==0 ||
+                        !direct_child(data.data(),c+minf.header_size,c+minf.size,"stbl",stbl,d) || stbl.size==0 ||
+                        !direct_child(data.data(),d+stbl.header_size,d+stbl.size,"stsd",stsd,e) || stsd.size<stsd.header_size+8) return false;
+                    bool owns_key=false;uint32_t owned_key_id=0;
+                    const size_t desc=e+stsd.header_size;
+                    if (read_be32u(data.data()+desc)!=0) return false;
+                    uint32_t count=read_be32u(data.data()+desc+4); size_t ep=desc+8;
+                    if (count!=1 || count>(e+stsd.size-ep)/8) return false;
+                    for(uint32_t i=0;i<count;++i) {
+                        isobmff_box_header entry{};
+                        if(!try_read_box_header(data.data(),ep,e+stsd.size,entry))return false;
+                        if(type_is(data.data(),ep,"mebx")) {
+                            if(entry.size<entry.header_size+8)return false;
+                            isobmff_box_header keys{}; size_t ks=0;
+                            if(!direct_child(data.data(),ep+entry.header_size+8,ep+entry.size,"keys",keys,ks))return false;
+                            std::set<uint32_t> key_ids;
+                            if(keys.size) for(size_t kp=ks+keys.header_size;kp<ks+keys.size;) {
+                                isobmff_box_header item{},keyd{}; size_t kd=0;
+                                if(!try_read_box_header(data.data(),kp,ks+keys.size,item) ||
+                                    !direct_child(data.data(),kp+item.header_size,kp+item.size,"keyd",keyd,kd))return false;
+                                const uint32_t key_id=read_be32u(data.data()+kp+4);
+                                if(key_id==0||!key_ids.insert(key_id).second)return false;
+                                if(keyd.size==keyd.header_size+4+sizeof(key_name)-1 &&
+                                    std::memcmp(data.data()+kd+keyd.header_size,"mdta",4)==0 &&
+                                    std::memcmp(data.data()+kd+keyd.header_size+4,key_name,sizeof(key_name)-1)==0) {
+                                    if(owns_key)return false; owns_key=true;
+                                    owned_key_id=read_be32u(data.data()+kp+4);
+                                    if(owned_key_id==0)return false;
+                                }
+                                kp+=item.size;
+                            }
+                        }
+                        ep+=entry.size;
+                    }
+                    if(ep!=e+stsd.size)return false;
+                    if(owns_key) {
+                        if(present)return false;
+                        isobmff_sample_table_layout table{};
+                        if(!parse_sample_table_layout(data,d+stbl.header_size,d+stbl.size,mdats,0,table) || table.sample_count!=1)return false;
+                        if(table.chunks.size()!=1)return false;
+                        const auto& chunk=table.chunks.front();
+                        if(chunk.offset>data.size()||chunk.size>data.size()-chunk.offset)return false;
+                        bool sample_owns_key=false;
+                        for(size_t sp=static_cast<size_t>(chunk.offset);sp<chunk.offset+chunk.size;) {
+                            isobmff_box_header item{};
+                            if(!try_read_box_header(data.data(),sp,static_cast<size_t>(chunk.offset+chunk.size),item))return false;
+                            if(read_be32u(data.data()+sp+4)==owned_key_id) {
+                                if(sample_owns_key||item.size!=item.header_size+1||data[sp+item.header_size]!=0xff)return false;
+                                sample_owns_key=true;
+                            }
+                            sp+=item.size;
+                        }
+                        if(!sample_owns_key)return false;
+                        bool edit=false; uint64_t empty=0,segment=0; int64_t start=0;
+                        if(!parse_edit_list(data,p+track.header_size,te,scale,edit,empty,start,segment) || !edit ||scale==0 || start!=0)return false;
+                        // Only the single sample presented at media time zero is
+                        // supported here. A key in mdat is not timing authority
+                        // when the edit skips it or ctts moves its presentation.
+                        isobmff_box_header stts{},ctts{}; size_t ts=0,cs=0;
+                        uint8_t version=0; uint32_t runs=0; size_t entries=0;
+                        if(!direct_child(data.data(),d+stbl.header_size,d+stbl.size,"stts",stts,ts) || stts.size==0 ||
+                            !parse_full_box_table(data,ts,ts+stts.size,"stts",8,stts,version,runs,entries) ||
+                            version!=0 || runs!=1 || read_be32u(data.data()+entries)!=1 ||
+                            read_be32u(data.data()+entries+4)==0)return false;
+                        if(!direct_child(data.data(),d+stbl.header_size,d+stbl.size,"ctts",ctts,cs))return false;
+                        if(ctts.size && (!parse_full_box_table(data,cs,cs+ctts.size,"ctts",8,ctts,version,runs,entries) ||
+                            version>1 || runs!=1 || read_be32u(data.data()+entries)!=1 ||
+                            read_be32u(data.data()+entries+4)!=0))return false;
+                        const uint64_t whole=empty/scale,remainder=empty%scale;
+                        if(whole>static_cast<uint64_t>(INT64_MAX)/1000000)return false;
+                        const uint64_t fraction=(remainder*1000000+scale-1)/scale;
+                        if(whole*1000000>static_cast<uint64_t>(INT64_MAX)-fraction)return false;
+                        timestamp_us=static_cast<int64_t>(whole*1000000+fraction); present=true;
+                    }
+                }
+            }
+            p=te;
+        }
+        return true;
+    } catch(...) {present=false;timestamp_us=0;return false;}
 }
 
 bool inspect_isobmff_sample_table(

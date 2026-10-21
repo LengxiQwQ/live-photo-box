@@ -13,6 +13,7 @@
 #include <fstream>
 #include <limits>
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -40,6 +41,18 @@ void sha256_to_hex_upper(const uint8_t hash[32], char out_hex[LPB_POBS_SHA256_LE
     out_hex[64] = '\0';
 }
 
+// The file must close even if a vector allocation or parser operation throws.
+class scoped_read_handle final {
+public:
+    explicit scoped_read_handle(HANDLE value) noexcept : value_(value) {}
+    ~scoped_read_handle() noexcept { if (value_ != INVALID_HANDLE_VALUE) CloseHandle(value_); }
+    scoped_read_handle(const scoped_read_handle&) = delete;
+    scoped_read_handle& operator=(const scoped_read_handle&) = delete;
+    HANDLE get() const noexcept { return value_; }
+private:
+    HANDLE value_;
+};
+
 bool read_file_binary(const char* path, std::vector<uint8_t>& out_data,
     bool share_existing_writer = false) {
     if (!path) return false;
@@ -48,20 +61,19 @@ bool read_file_binary(const char* path, std::vector<uint8_t>& out_data,
     // preservation runs.  This observer is read-only, so its open must share
     // DELETE; otherwise the CRT's default share mode rejects a perfectly valid
     // staged object and pressures the transaction to weaken its authority.
-    HANDLE handle = CreateFileW(
+    scoped_read_handle handle(CreateFileW(
         p.c_str(),
         GENERIC_READ,
         FILE_SHARE_READ | FILE_SHARE_DELETE | (share_existing_writer ? FILE_SHARE_WRITE : 0),
         nullptr,
         OPEN_EXISTING,
         FILE_ATTRIBUTE_NORMAL,
-        nullptr);
-    if (handle == INVALID_HANDLE_VALUE) return false;
+        nullptr));
+    if (handle.get() == INVALID_HANDLE_VALUE) return false;
 
     LARGE_INTEGER file_size{};
-    if (!GetFileSizeEx(handle, &file_size) || file_size.QuadPart < 0 ||
+    if (!GetFileSizeEx(handle.get(), &file_size) || file_size.QuadPart < 0 ||
         static_cast<uint64_t>(file_size.QuadPart) > 1024ULL * 1024ULL * 1024ULL) {
-        CloseHandle(handle);
         return false;
     }
 
@@ -71,15 +83,13 @@ bool read_file_binary(const char* path, std::vector<uint8_t>& out_data,
     while (offset < size) {
         const DWORD request = static_cast<DWORD>(std::min<size_t>(size - offset, 1024 * 1024));
         DWORD read = 0;
-        if (!ReadFile(handle, out_data.data() + offset, request, &read, nullptr) || read == 0) {
+        if (!ReadFile(handle.get(), out_data.data() + offset, request, &read, nullptr) || read == 0) {
             out_data.clear();
-            CloseHandle(handle);
             return false;
         }
         offset += read;
     }
 
-    CloseHandle(handle);
     return true;
 }
 
@@ -1055,19 +1065,31 @@ bool parse_ipma_box(
     if (p + 4 > end) return false;
     const uint32_t entry_count = read_be32u(data.data() + p);
     p += 4;
-    std::vector<uint32_t> seen_items;
-    std::vector<std::pair<uint32_t, uint32_t>> seen_associations;
-    seen_items.reserve(entry_count);
+    // An entry consumes an item id and an association count even when it has no
+    // properties. Validate this byte budget before trusting the count for reserve.
+    // This also bounds allocations to actual container bytes, not a declared count.
+    const size_t id_size = version == 0 ? 2 : 4;
+    if (entry_count > (end - p) / (id_size + 1)) return false;
+    // Observation is a bounded capability, not an unbounded item-graph loader.
+    // Retain the full v0 item-id domain for v1 too, with up to 16 associations
+    // per budgeted item on average. Larger graphs yield Unknown/parse-error;
+    // no partial association proof is consumed by any caller.
+    constexpr size_t max_observed_items = 65536;
+    constexpr size_t max_observed_associations = 1048576;
+    if (entry_count > max_observed_items) return false;
+    // Ordered sets give deterministic O(log n) duplicate checks even for
+    // attacker-chosen ids; a hash table can still have adversarial collisions.
+    std::set<uint32_t> seen_items;
+    std::set<uint64_t> seen_associations;
 
     for (uint32_t i = 0; i < entry_count; ++i) {
-        const size_t id_size = version == 0 ? 2 : 4;
         if (p > end || id_size + 1 > end - p) return false;
         const uint32_t item_id = version == 0 ? read_be16u(data.data() + p) : read_be32u(data.data() + p);
         p += id_size;
-        if (std::find(seen_items.begin(), seen_items.end(), item_id) != seen_items.end()) return false;
-        seen_items.push_back(item_id);
+        if (!seen_items.insert(item_id).second) return false;
 
         const uint8_t association_count = data[p++];
+        if (association_count > max_observed_associations - seen_associations.size()) return false;
         for (uint8_t a = 0; a < association_count; ++a) {
             const size_t association_size = large_index ? 2 : 1;
             if (association_size > end - p) return false;
@@ -1075,9 +1097,8 @@ bool parse_ipma_box(
             p += association_size;
             const uint32_t property_index = large_index ? (raw & 0x7FFFu) : (raw & 0x7Fu);
             if (property_index == 0 || property_index > property_count) return false;
-            const auto association = std::make_pair(item_id, property_index);
-            if (std::find(seen_associations.begin(), seen_associations.end(), association) != seen_associations.end()) return false;
-            seen_associations.push_back(association);
+            const uint64_t association = (static_cast<uint64_t>(item_id) << 32) | property_index;
+            if (!seen_associations.insert(association).second) return false;
             out_associations.push_back({ item_id, property_index });
         }
     }
@@ -2183,7 +2204,7 @@ lpb_result lpb_media_capture_preservation_observation(
     lpb_image_container container_hint,
     lpb_preservation_observation* out_observation,
     bool share_existing_writer) noexcept
-{
+try {
     if (!context || !media_path || !out_observation) return LPB_RESULT_INVALID_ARGUMENT;
     if (out_observation->struct_size < sizeof(lpb_preservation_observation)) return LPB_RESULT_INVALID_ARGUMENT;
 
@@ -2218,6 +2239,15 @@ lpb_result lpb_media_capture_preservation_observation(
 
     return LPB_RESULT_OK;
 }
+catch (...) {
+    if (out_observation && out_observation->struct_size >= sizeof(lpb_preservation_observation)) {
+        const uint32_t saved_size = out_observation->struct_size;
+        std::memset(out_observation, 0, sizeof(*out_observation));
+        out_observation->struct_size = saved_size;
+    }
+    set_error(context, "Preservation observation failed inside the native exception boundary");
+    return LPB_RESULT_INTERNAL_ERROR;
+}
 
 lpb_result lpb_media_capture_preservation_observation_bytes(
     lpb_context* context,
@@ -2225,7 +2255,7 @@ lpb_result lpb_media_capture_preservation_observation_bytes(
     lpb_source_protocol protocol_hint,
     lpb_image_container container_hint,
     lpb_preservation_observation* out_observation) noexcept
-{
+try {
     if (!context || media_bytes.empty() || !out_observation ||
         (container_hint != LPB_IMAGE_CONTAINER_JPEG && container_hint != LPB_IMAGE_CONTAINER_HEIC))
         return LPB_RESULT_INVALID_ARGUMENT;
@@ -2242,6 +2272,15 @@ lpb_result lpb_media_capture_preservation_observation_bytes(
         observe_heic(context, media_bytes, protocol_hint, out_observation);
     }
     return LPB_RESULT_OK;
+}
+catch (...) {
+    if (out_observation && out_observation->struct_size >= sizeof(lpb_preservation_observation)) {
+        const uint32_t saved_size = out_observation->struct_size;
+        std::memset(out_observation, 0, sizeof(*out_observation));
+        out_observation->struct_size = saved_size;
+    }
+    set_error(context, "Preservation observation failed inside the native exception boundary");
+    return LPB_RESULT_INTERNAL_ERROR;
 }
 
 extern "C" {
@@ -2262,7 +2301,7 @@ LPB_API lpb_result LPB_CALL lpb_observe_image_orientation_v1(
     const char* image_path,
     lpb_image_container container_hint,
     lpb_image_orientation_observation_v1* out_observation)
-{
+try {
     if (!context || !image_path || image_path[0] == '\0' || !out_observation ||
         out_observation->struct_size < sizeof(lpb_image_orientation_observation_v1) ||
         out_observation->api_version != LPB_IMAGE_ORIENTATION_API_V1 ||
@@ -2298,6 +2337,17 @@ LPB_API lpb_result LPB_CALL lpb_observe_image_orientation_v1(
     out_observation->rotation_evidence = LPB_IMAGE_ORIENTATION_EVIDENCE_VERIFIED;
     out_observation->reflection_evidence = LPB_IMAGE_ORIENTATION_EVIDENCE_VERIFIED;
     return LPB_RESULT_OK;
+}
+catch (...) {
+    if (out_observation && out_observation->struct_size >= sizeof(*out_observation)) {
+        const uint32_t saved_size = out_observation->struct_size;
+        std::memset(out_observation, 0, sizeof(*out_observation));
+        out_observation->struct_size = saved_size;
+        out_observation->api_version = LPB_IMAGE_ORIENTATION_API_V1;
+        out_observation->status = LPB_IMAGE_ORIENTATION_STATUS_UNKNOWN;
+    }
+    set_error(context, "Image orientation observation failed inside the native exception boundary");
+    return LPB_RESULT_INTERNAL_ERROR;
 }
 
 static bool shas_equal_ignore_case(const char* a, const char* b) {

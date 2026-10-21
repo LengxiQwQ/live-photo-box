@@ -130,6 +130,8 @@ public sealed record NeutralTimingSemantics
     public long? PrimaryTimestampUs { get; init; }
     public int? CoverFrameIndex { get; init; }
     public int? TotalFrames { get; init; }
+    /// <summary>Verified duration of the final presentation timeline, in microseconds.</summary>
+    public long? DurationUs { get; init; }
     public NeutralEvidenceState EvidenceState { get; init; } = NeutralEvidenceState.Unknown;
 }
 

@@ -610,7 +610,7 @@ public sealed class P6NeutralPipelineTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task P6_UnverifiedConversionTimingAndOrientation_AreNotCopiedFromSource()
+    public async Task P6_UnverifiedConversionTimingCannotOverrideNativeFinalTimeline()
     {
         string primary = ResolveSample("苹果双文件.HEIC");
         string secondary = ResolveSample("苹果双文件.MOV");
@@ -637,11 +637,20 @@ public sealed class P6NeutralPipelineTests
 
         Assert.True(converter.ConvertCalled);
         Assert.Equal(sourceTiming, bundle.SourceProvenance.Timing);
-        Assert.Equal(NeutralEvidenceState.Unknown, bundle.Semantics.Timing.EvidenceState);
-        Assert.Null(bundle.Semantics.Timing.CoverTimestampUs);
+        // A converter's missing timing verdict must not copy the injected
+        // source diagnostic. The new Native observer proves actual source and
+        // final timeline facts independently of that converter's report.
+        Assert.Equal(NeutralEvidenceState.VerifiedPreserved, bundle.Semantics.Timing.EvidenceState);
+        Assert.Equal(1_500_000L, bundle.Semantics.Timing.CoverTimestampUs);
+        Assert.Equal(44, bundle.Semantics.Timing.CoverFrameIndex);
+        Assert.NotEqual(sourceTiming.CoverTimestampUs, bundle.Semantics.Timing.CoverTimestampUs);
         Assert.Null(bundle.Semantics.Timing.PrimaryTimestampUs);
-        Assert.Null(bundle.Semantics.Timing.CoverFrameIndex);
         MediaArtifact finalVideo = Assert.IsType<MediaArtifact>(bundle.MotionVideo);
+        Assert.Equal(await NativeNeutralTiming.ObserveAsync(primary, secondary, finalVideo, bundle.SourceProvenance),
+            bundle.Semantics.Timing);
+        Assert.True(bundle.Semantics.Timing.DurationUs > 0);
+        Assert.True(bundle.Semantics.Timing.TotalFrames > 0);
+        Assert.NotNull(bundle.Semantics.Timing.CoverFrameIndex);
         VideoFacts observedFinalVideo = await converter.ProbeAsync(finalVideo.Path);
         NeutralOrientationTransform finalVideoOrientation = Assert.IsType<NeutralOrientationTransform>(
             bundle.Semantics.Orientation.MotionVideo);
@@ -1025,7 +1034,7 @@ public sealed class P6NeutralPipelineTests
             Assert.Null(bundle.Semantics.MotionVideo);
             Assert.Null(bundle.Semantics.Preservation.MotionVideo);
             Assert.Null(bundle.Semantics.Orientation.MotionVideo);
-            AssertTimingDoesNotInventSourceFacts(bundle.Semantics.Timing, bundle.SourceProvenance.Timing, hasMotionVideo: false);
+            AssertFinalTimingIsConsistent(bundle.Semantics.Timing, hasMotionVideo: false);
         }
         else
         {
@@ -1074,7 +1083,12 @@ public sealed class P6NeutralPipelineTests
             if (!expectedVideoRotation.HasValue)
                 Assert.Equal(NeutralEvidenceState.Unknown, videoOrientation.ReflectionEvidence);
 
-            AssertTimingDoesNotInventSourceFacts(bundle.Semantics.Timing, bundle.SourceProvenance.Timing, hasMotionVideo: true);
+            // The frozen S08 XMP declares 4.251628s for a 2.689478s video.
+            // Independent FFprobe evidence establishes that this scalar cannot
+            // authorize a cover; do not turn the valid media route into a fake
+            // verified time or silently choose another frame.
+            AssertFinalTimingIsConsistent(bundle.Semantics.Timing, hasMotionVideo: true,
+                sourceHasInvalidDeclaredCover: routeId == "P6-S08");
             finalVideoEvidence = new
             {
                 container = finalVideoFacts.Container.ToString(),
@@ -1526,10 +1540,10 @@ public sealed class P6NeutralPipelineTests
     private sealed record MpfSampleLayout(int EoiEnd, uint PrimarySize, uint PrimaryOffset,
         uint GainMapSize, uint GainMapOffset);
 
-    private static void AssertTimingDoesNotInventSourceFacts(
+    private static void AssertFinalTimingIsConsistent(
         NeutralTimingSemantics neutralTiming,
-        TimingFacts sourceTiming,
-        bool hasMotionVideo)
+        bool hasMotionVideo,
+        bool sourceHasInvalidDeclaredCover = false)
     {
         if (!hasMotionVideo)
         {
@@ -1538,25 +1552,31 @@ public sealed class P6NeutralPipelineTests
             Assert.Null(neutralTiming.PrimaryTimestampUs);
             Assert.Null(neutralTiming.CoverFrameIndex);
             Assert.Null(neutralTiming.TotalFrames);
+            Assert.Null(neutralTiming.DurationUs);
             return;
         }
 
-        if (neutralTiming.EvidenceState == NeutralEvidenceState.VerifiedPreserved)
+        if (sourceHasInvalidDeclaredCover)
         {
-            Assert.Equal(sourceTiming.CoverTimestampUs, neutralTiming.CoverTimestampUs);
-            Assert.Equal(sourceTiming.PrimaryTimestampUs, neutralTiming.PrimaryTimestampUs);
-            Assert.Equal(sourceTiming.CoverFrameIndex, neutralTiming.CoverFrameIndex);
-            int? expectedTotalFrames = sourceTiming.TotalFrames > 0 ? sourceTiming.TotalFrames : null;
-            Assert.Equal(expectedTotalFrames, neutralTiming.TotalFrames);
+            Assert.Equal(NeutralEvidenceState.Unknown, neutralTiming.EvidenceState);
+            Assert.Null(neutralTiming.CoverTimestampUs);
+            Assert.Null(neutralTiming.PrimaryTimestampUs);
+            Assert.Null(neutralTiming.CoverFrameIndex);
+            Assert.True(neutralTiming.DurationUs > 0);
+            Assert.True(neutralTiming.TotalFrames > 0);
             return;
         }
 
         Assert.Contains(neutralTiming.EvidenceState,
-            new[] { NeutralEvidenceState.Unknown, NeutralEvidenceState.NotApplicable });
-        Assert.Null(neutralTiming.CoverTimestampUs);
-        Assert.Null(neutralTiming.PrimaryTimestampUs);
-        Assert.Null(neutralTiming.CoverFrameIndex);
-        Assert.Null(neutralTiming.TotalFrames);
+            new[] { NeutralEvidenceState.Verified, NeutralEvidenceState.VerifiedPreserved, NeutralEvidenceState.VerifiedConverted });
+        Assert.True(neutralTiming.DurationUs > 0);
+        Assert.True(neutralTiming.TotalFrames > 0);
+        Assert.NotNull(neutralTiming.CoverTimestampUs);
+        Assert.InRange(neutralTiming.CoverTimestampUs!.Value, 0, neutralTiming.DurationUs!.Value - 1);
+        Assert.NotNull(neutralTiming.CoverFrameIndex);
+        Assert.InRange(neutralTiming.CoverFrameIndex!.Value, 0, neutralTiming.TotalFrames!.Value - 1);
+        if (neutralTiming.PrimaryTimestampUs is long primary)
+            Assert.InRange(primary, 0, neutralTiming.DurationUs.Value - 1);
     }
 
     private sealed record SampleIdentitySnapshot(

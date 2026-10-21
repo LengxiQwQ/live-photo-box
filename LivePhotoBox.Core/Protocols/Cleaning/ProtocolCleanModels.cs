@@ -300,7 +300,14 @@ public sealed record NeutralArtifactManifest
     public AuxiliaryRepresentation Representation { get; init; }
     public AuxiliaryOwnership Ownership { get; init; }
     public long SourceOffset { get; init; }
+    /// <summary>
+    /// Compatibility byte evidence: PrimaryImage/MotionVideo identify the final
+    /// materialized asset; auxiliary rows retain their extraction/conversion handoff
+    /// range. Original whole-source identities belong to SourceProvenance.
+    /// Final correctness consumers use ByteLength/Sha256 and SemanticRepresentation.
+    /// </summary>
     public long SourceLength { get; init; }
+    /// <summary>Hash of the compatibility SourceLength range, not a uniform original-input fingerprint.</summary>
     public string SourceSha256 { get; init; } = string.Empty;
     public long ByteLength { get; init; }
     public ImageContainer ImageContainer { get; init; } = ImageContainer.Unknown;
@@ -341,6 +348,7 @@ public sealed record NeutralMediaBundle
     public required IReadOnlyList<NeutralArtifactManifest> Manifest { get; init; }
     public IReadOnlyList<AuxiliaryMediaDescriptor> AuxiliaryMedia { get; init; } = [];
     public IReadOnlyList<PreservationCarrier> PreservationCarriers { get; init; } = [];
+    /// <summary>Unverified source diagnostics only. Correctness consumers must use Semantics.Timing.</summary>
     public TimingFacts Timing { get; init; } = new();
     /// <summary>
     /// Platform-, backend-, and source-protocol-neutral facts for final media.

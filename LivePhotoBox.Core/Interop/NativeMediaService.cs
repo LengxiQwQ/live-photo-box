@@ -87,7 +87,7 @@ public static class NativeMediaService
             (int)Marshal.OffsetOf<NativeImageOrientationObservationV1>(nameof(NativeImageOrientationObservationV1.ReflectionEvidence)) != 24 ||
             (int)Marshal.OffsetOf<NativeImageOrientationObservationV1>(nameof(NativeImageOrientationObservationV1.Reserved0)) != 28)
         {
-            throw new InvalidOperationException("Managed Native facts layout does not match ABI v11.");
+            throw new InvalidOperationException("Managed Native facts layout does not match ABI v12.");
         }
     }
 

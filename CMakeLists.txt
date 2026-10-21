@@ -68,6 +68,7 @@ set(LPB_MEDIA_SOURCES
   LivePhotoBox.Native/src/media/media_extractor.cpp
   LivePhotoBox.Native/src/media/media_inspector.cpp
   LivePhotoBox.Native/src/media/preservation_observation.cpp
+  LivePhotoBox.Native/src/media/neutral_timing.cpp
   LivePhotoBox.Native/src/media/video_sidecar_bridge.cpp
   LivePhotoBox.Native/src/media/video_converter.cpp)
 source_group("Portable core" FILES ${LPB_PORTABLE_SOURCES})

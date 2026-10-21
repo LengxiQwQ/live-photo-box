@@ -141,6 +141,10 @@ namespace LivePhotoBox.Services
                 if (bundle.MotionVideo == null || !File.Exists(bundle.MotionVideo.Path))
                     throw new InvalidDataException("Rebuilt merge requires a Native-inspected motion video pair.");
 
+                long presentationTimestampUs = ResolveNeutralCoverTimestamp(
+                    bundle.Semantics.Timing,
+                    options.KeyPhotoTimestampUs);
+
                 string outputName = LivePhotoMergeService.CreateOutputFileName(
                     baseName,
                     options.SelectedModeIndex,
@@ -181,7 +185,7 @@ namespace LivePhotoBox.Services
                     finalOutputPath,
                     options.SelectedModeIndex,
                     token,
-                    bundle.Timing.CoverTimestampUs,
+                    presentationTimestampUs,
                     options.OutputFormatIndex,
                     overwriteExisting: options.OutputFilePath != null || options.OverwriteExisting,
                     testHook: null).ConfigureAwait(false);
@@ -206,6 +210,54 @@ namespace LivePhotoBox.Services
                     s_outputPathCandidates.TryRemove(candidateReservationKey, out _);
             }
         }
+
+        internal static long ResolveNeutralCoverTimestamp(
+            NeutralTimingSemantics timing,
+            long? requestedTimestampUs)
+        {
+            ArgumentNullException.ThrowIfNull(timing);
+
+            if (requestedTimestampUs is long requested)
+            {
+                if (!IsLegalCoverTimestamp(requested, timing.DurationUs))
+                {
+                    throw new InvalidDataException(
+                        "The requested key-photo timestamp must be within the known final video duration.");
+                }
+
+                return requested;
+            }
+
+            switch (timing.EvidenceState)
+            {
+                case NeutralEvidenceState.Verified:
+                case NeutralEvidenceState.VerifiedPreserved:
+                case NeutralEvidenceState.VerifiedConverted:
+                    if (timing.CoverTimestampUs is not long verifiedTimestamp ||
+                        !IsLegalCoverTimestamp(verifiedTimestamp, timing.DurationUs))
+                    {
+                        throw new InvalidDataException(
+                            "Verified neutral cover timing must be within the known final video duration.");
+                    }
+
+                    return verifiedTimestamp;
+
+                case NeutralEvidenceState.NotApplicable when timing.CoverTimestampUs is null && timing.DurationUs is > 0:
+                    // No source cover applies; retain the synthetic opening-frame default.
+                    return 0;
+
+                case NeutralEvidenceState.NotApplicable:
+                    throw new InvalidDataException(
+                        "NotApplicable neutral timing cannot include a source cover timestamp.");
+
+                default:
+                    throw new InvalidDataException(
+                        "Neutral cover timing is unknown; an explicit in-range key-photo timestamp is required.");
+            }
+        }
+
+        private static bool IsLegalCoverTimestamp(long timestampUs, long? durationUs) =>
+            timestampUs >= 0 && durationUs is long duration && duration > 0 && timestampUs < duration;
 
         // Choose a free-looking name without creating a placeholder file. The
         // publication transaction owns the final no-replace operation; if an

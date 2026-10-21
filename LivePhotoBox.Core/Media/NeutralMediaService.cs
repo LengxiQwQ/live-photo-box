@@ -84,6 +84,13 @@ public sealed class NeutralMediaService : INeutralMediaService
 
         MediaArtifact finalImage = cleanResult.CleanedImage;
         MediaArtifact? finalVideo = cleanResult.CleanedVideo;
+        using var finalReadLeases = new NeutralArtifactReadLeaseSet();
+        finalReadLeases.Pin(finalImage);
+        finalReadLeases.Pin(finalVideo);
+        finalReadLeases.Pin(cleanResult.CleanedGainMap);
+        foreach (AuxiliaryMediaDescriptor item in cleanResult.AuxiliaryMedia.Count > 0
+            ? cleanResult.AuxiliaryMedia : extracted.AuxiliaryMedia)
+            finalReadLeases.Pin(item.MaterializedArtifact);
 
         // A cleaned JPEG and verified GainMap bytes are first tested as a
         // possible compound neutral image. Only the final Native Inspector
@@ -106,6 +113,7 @@ public sealed class NeutralMediaService : INeutralMediaService
                 finalImage, cleanResult.CleanedGainMap, cleanResult.GainMapExpectedSha256,
                 workspace, cancellationToken)
                 .ConfigureAwait(false);
+            finalReadLeases.Pin(reassembledCandidate);
 
             try
             {
@@ -206,6 +214,7 @@ public sealed class NeutralMediaService : INeutralMediaService
                 }
 
                 finalImage = imgConv.OutputArtifact;
+                finalReadLeases.Pin(finalImage);
                 imageOutcome = CombineOutcome(imageOutcome, imgConv.ExecutionRecord.PreservationOutcome);
                 gainMapSemanticallyReencoded =
                     imgConv.ExecutionRecord.Truth.ActualOperationKind == ConversionOperationKind.HdrGainMapConversion &&
@@ -299,6 +308,7 @@ public sealed class NeutralMediaService : INeutralMediaService
                 }
 
                 finalVideo = vidConv.OutputArtifact;
+                finalReadLeases.Pin(finalVideo);
                 videoConversionTruth = vidConv.ExecutionRecord.Truth;
                 videoWasConverted = true;
                 videoOutcome = CombineOutcome(videoOutcome, vidConv.ExecutionRecord.Truth.PreservationOutcome);
@@ -449,12 +459,19 @@ public sealed class NeutralMediaService : INeutralMediaService
                 cancellationToken).ConfigureAwait(false);
         }
 
+        // Capture-date preservation is not video timeline authority. Native
+        // observes source fact presence and maps it onto the pinned final video.
+        NeutralTimingSemantics finalTiming = finalVideo is null
+            ? new NeutralTimingSemantics { EvidenceState = NeutralEvidenceState.NotApplicable }
+            : await NativeNeutralTiming.ObserveAsync(primaryPath, secondaryPath, finalVideo,
+                facts, cancellationToken).ConfigureAwait(false);
+
         NeutralMediaSemantics semantics = ProjectNeutralSemantics(
             manifest,
             finalImage,
             finalVideo,
             neutralFacts,
-            facts.Timing,
+            finalTiming,
             cleanResult.PreservationReport,
             imageOutcome,
             videoOutcome,
@@ -1036,7 +1053,7 @@ public sealed class NeutralMediaService : INeutralMediaService
         MediaArtifact finalImage,
         MediaArtifact? finalVideo,
         SourceMediaFacts finalFacts,
-        TimingFacts inspectedSourceTiming,
+        NeutralTimingSemantics finalTiming,
         PreservationReport? preservationReport,
         PreservationOutcome imageOutcome,
         PreservationOutcome videoOutcome,
@@ -1090,12 +1107,6 @@ public sealed class NeutralMediaService : INeutralMediaService
         NeutralAuxiliarySemantics? gainMap = ProjectFinalGainMap(manifest);
         var auxiliarySemantics = ProjectOtherAuxiliaryMedia(manifest);
 
-        NeutralTimingSemantics timing = ProjectTiming(
-            finalVideo != null,
-            inspectedSourceTiming,
-            preservationReport,
-            videoConversionTruth,
-            videoWasConverted);
         NeutralOrientationSemantics orientation = ProjectOrientation(
             preConversionImageOrientation,
             finalImageOrientation,
@@ -1198,7 +1209,7 @@ public sealed class NeutralMediaService : INeutralMediaService
             MotionVideo = motion,
             GainMap = gainMap,
             AuxiliaryMedia = auxiliarySemantics,
-            Timing = timing,
+            Timing = finalTiming,
             Orientation = orientation,
             ColorHdr = colorHdr,
             Preservation = new NeutralPreservationSemantics
@@ -1280,45 +1291,6 @@ public sealed class NeutralMediaService : INeutralMediaService
             throw new InvalidDataException($"Final auxiliary '{finalItem.StableIdentity}' has ambiguous preservation handoff evidence.");
         return matches.SingleOrDefault();
     }
-
-    private static NeutralTimingSemantics ProjectTiming(
-        bool hasMotionVideo,
-        TimingFacts sourceTiming,
-        PreservationReport? preservationReport,
-        ConversionExecutionTruth? videoConversionTruth,
-        bool videoWasConverted)
-    {
-        if (!hasMotionVideo)
-            return new NeutralTimingSemantics { EvidenceState = NeutralEvidenceState.NotApplicable };
-
-        if (videoWasConverted)
-        {
-            if (videoConversionTruth?.Timing == ConversionComponentOutcome.Preserved)
-                return TimingFromSource(sourceTiming, NeutralEvidenceState.VerifiedPreserved);
-            if (videoConversionTruth?.Timing == ConversionComponentOutcome.NotApplicable)
-                return new NeutralTimingSemantics { EvidenceState = NeutralEvidenceState.NotApplicable };
-            return new NeutralTimingSemantics { EvidenceState = NeutralEvidenceState.Unknown };
-        }
-
-        PreservationCheckStatus? status = FindPreservationStatus(preservationReport, "Timing");
-        return status switch
-        {
-            PreservationCheckStatus.VerifiedPreserved or PreservationCheckStatus.SemanticallyPreserved =>
-                TimingFromSource(sourceTiming, NeutralEvidenceState.VerifiedPreserved),
-            PreservationCheckStatus.NotApplicable =>
-                new NeutralTimingSemantics { EvidenceState = NeutralEvidenceState.NotApplicable },
-            _ => new NeutralTimingSemantics { EvidenceState = NeutralEvidenceState.Unknown }
-        };
-    }
-
-    private static NeutralTimingSemantics TimingFromSource(TimingFacts timing, NeutralEvidenceState evidence) => new()
-    {
-        CoverTimestampUs = timing.CoverTimestampUs,
-        PrimaryTimestampUs = timing.PrimaryTimestampUs,
-        CoverFrameIndex = timing.CoverFrameIndex,
-        TotalFrames = timing.TotalFrames > 0 ? timing.TotalFrames : null,
-        EvidenceState = evidence
-    };
 
     private static NeutralOrientationSemantics ProjectOrientation(
         NativeImageOrientationObservationV1? preConversionImageOrientation,

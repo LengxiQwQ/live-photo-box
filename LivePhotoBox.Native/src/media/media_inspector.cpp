@@ -5507,4 +5507,22 @@ lpb_result inspect_gainmap_metadata(lpb_context* context, const char* primary_pa
     }
 }
 
+int observe_source_xmp_integer(lpb_context* context, const std::vector<uint8_t>& bytes,
+    lpb_image_container container, bool primary_position, bool micro_video,
+    int64_t& value) noexcept {
+    value = 0;
+    try {
+        bool invalid = false;
+        const std::string packet = extract_xmp_string(context, bytes, container, &invalid);
+        if (invalid) return -1;
+        if (packet.empty()) return 0;
+        std::vector<xmp_node> nodes;
+        if (!scan_xmp_tree(packet, nodes)) return -1;
+        return get_global_attribute_i64(nodes,
+            primary_position ? oppo_camera_namespace : google_camera_namespace,
+            primary_position ? "MotionPhotoPrimaryPresentationTimestampUs" :
+                micro_video ? "MicroVideoPresentationTimestampUs" : "MotionPhotoPresentationTimestampUs", value);
+    } catch (...) { value = 0; return -1; }
+}
+
 } // namespace lpb::media

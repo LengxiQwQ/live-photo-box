@@ -54,9 +54,9 @@ namespace LivePhotoBox.Interop
     internal static partial class NativeMethods
     {
         internal const string LibraryName = "LivePhotoBox.Native";
-        // ABI v11 adds versioned video preservation policy and scoped evidence.
+        // ABI v12 adds identity-bound neutral timing observations with explicit presence.
         // Codec and platform implementation types remain entirely Native-private.
-        internal const uint RequiredAbiVersion = 11;
+        internal const uint RequiredAbiVersion = 12;
 
         [LibraryImport(LibraryName, EntryPoint = "lpb_get_abi_version")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]

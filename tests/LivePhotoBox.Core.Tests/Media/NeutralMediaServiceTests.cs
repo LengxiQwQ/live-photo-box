@@ -11,6 +11,7 @@ using LivePhotoBox.Media.Models;
 using LivePhotoBox.Protocols.Cleaning;
 using LivePhotoBox.Media.Workspace;
 using LivePhotoBox.Core.Tests.Protocols;
+using LivePhotoBox.Core.Tests.Support;
 using Xunit;
 
 namespace LivePhotoBox.Core.Tests.Media;
@@ -199,17 +200,21 @@ public sealed class NeutralMediaServiceTests
     [Fact]
     public async Task CreateNeutralBundle_FinalGainMapConsumeRejectsReplacementAfterPreservation()
     {
+        using var inputFixture = new TestFixtureWorkspace();
         using var workspace = new MediaWorkspace();
-        string primaryPath = workspace.AllocateFilePath("final-consume-primary", ".jpg");
+        string primaryPath = inputFixture.AllocateFilePath("final-consume-primary", ".jpg");
         SyntheticProtocolFixtures.CreateGoogleV1Jpeg(primaryPath);
 
-        string gainMapPath = workspace.AllocateFilePath("final-consume-gainmap", ".jpg");
+        string gainMapPath = inputFixture.AllocateFilePath("final-consume-gainmap", ".jpg");
         byte[] gainMapA =
         [
             0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
             0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xD9
         ];
-        byte[] gainMapB = [0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x04, 0x42, 0x00, 0xFF, 0xD9];
+        // Preserve the exact length and bounded JPEG structure so this test
+        // reaches the final content-identity gate rather than a length guard.
+        byte[] gainMapB = (byte[])gainMapA.Clone();
+        gainMapB[15] ^= 0x01;
         await File.WriteAllBytesAsync(gainMapPath, gainMapA);
 
         string primarySha = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(primaryPath)));
@@ -256,9 +261,14 @@ public sealed class NeutralMediaServiceTests
             extractor: new FixedExtractor(extracted),
             cleaner: cleaner);
 
-        await Assert.ThrowsAnyAsync<Exception>(() => service.CreateNeutralBundleAsync(
-            primaryPath, null, workspace, preservationPolicy: PreservationPolicy.BestEffort));
+        InvalidOperationException error = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.CreateNeutralBundleAsync(
+                primaryPath, null, workspace, preservationPolicy: PreservationPolicy.BestEffort));
 
+        Assert.Contains(
+            "GainMap artifact identity changed before final consumption",
+            error.Message,
+            StringComparison.Ordinal);
         Assert.True(cleaner.PreservationPassed);
         Assert.Equal(gainMapB, await File.ReadAllBytesAsync(gainMapPath));
         Assert.DoesNotContain(

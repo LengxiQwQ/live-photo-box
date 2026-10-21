@@ -20,7 +20,8 @@
 extern "C" {
 #endif
 
-#define LPB_NATIVE_ABI_VERSION 11u
+/* ABI 12 adds versioned neutral timing observation; existing PODs are unchanged. */
+#define LPB_NATIVE_ABI_VERSION 12u
 
 typedef struct lpb_context lpb_context;
 typedef struct lpb_extraction_plan lpb_extraction_plan;
@@ -1684,6 +1685,40 @@ LPB_API lpb_result LPB_CALL lpb_observe_image_orientation_v1(
     const char* image_path,
     lpb_image_container container_hint,
     lpb_image_orientation_observation_v1* out_observation);
+
+/* Final video timeline facts. Presence is independent of numeric zero. Source
+   protocol time is promoted only after source/final presentation validation. */
+#define LPB_NEUTRAL_TIMING_COVER_PRESENT 1u
+#define LPB_NEUTRAL_TIMING_PRIMARY_PRESENT 2u
+#define LPB_NEUTRAL_TIMING_COVER_FRAME_PRESENT 4u
+#define LPB_NEUTRAL_TIMING_TOTAL_FRAMES_PRESENT 8u
+#define LPB_NEUTRAL_TIMING_DURATION_PRESENT 16u
+#define LPB_NEUTRAL_TIMING_SECONDARY_PRESENT 32u
+#define LPB_NEUTRAL_TIMING_UNKNOWN 0
+#define LPB_NEUTRAL_TIMING_EXPLICIT 1
+#define LPB_NEUTRAL_TIMING_PROTOCOL_DEFAULT 2
+#define LPB_NEUTRAL_TIMING_NOT_APPLICABLE 3
+#define LPB_NEUTRAL_TIMING_VERIFIED_PRESERVED 1
+#define LPB_NEUTRAL_TIMING_MAPPED 2
+
+typedef struct lpb_neutral_timing_observation_v1 {
+    uint32_t struct_size;
+    uint32_t presence_flags;
+    int32_t source_evidence;
+    int32_t final_applicability;
+    int64_t cover_timestamp_us;
+    int64_t primary_timestamp_us;
+    int32_t cover_frame_index;
+    int32_t total_frames;
+    int64_t final_duration_us;
+    uint8_t primary_sha256[32];
+    uint8_t secondary_sha256[32];
+    uint8_t final_video_sha256[32];
+} lpb_neutral_timing_observation_v1;
+
+LPB_API lpb_result LPB_CALL lpb_observe_neutral_timing_v1(
+    lpb_context* context, const char* primary_path, const char* secondary_path,
+    const char* final_video_path, lpb_neutral_timing_observation_v1* out_observation);
 
 LPB_API lpb_result LPB_CALL lpb_inspect_hdr_gainmap_stage_v1(
     lpb_context* context,
