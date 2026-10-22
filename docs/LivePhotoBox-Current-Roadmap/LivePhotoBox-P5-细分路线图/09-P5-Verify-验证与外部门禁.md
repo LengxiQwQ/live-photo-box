@@ -1,5 +1,60 @@
 # P5 Verify — Fresh Verification and External Gate Handoff
 
+## 当前修复后候选的执行绑定草案（2026-10-22；待独立复核及用户授权后生效）
+
+本节只重新绑定重大修复后的候选、证据和当前已批准后端/工具身份，保留旧09原文作为其69dad62执行候选的历史程序。不得把旧9dd03a到69dad62的“仅09文档delta”桥用于本轮P5/P6生产修复，也不得把本节理解为豁免任何正式门禁。
+
+- Current Audit source base: e2e69feb626679a9a1d260eb28008f35bf01df0c（ef9ed09c原技术Audit经独立traffic-only-head-bridge-v1重绑，仅上游统计变化，707项源码不变）；P5 ABI11/metadata与P6 ABI12/timing修复已发布；当前dirty delta只允许本次已逐项复核的收口文档及CI路径触发规则，不允许未审查生产/测试/依赖/阈值变化。完整当前源码与审查身份由P5-formal-closeout独立审计报告及manifest绑定；旧673/ABI11候选只作影响分析来源。
+- Before formal Verify: fresh Audit必须对当前E1–E8、R0–R6、N1–N14给READY FOR VERIFICATION；独立复核publication applicability bridge；实际发布后重新取HEAD，并满足HEAD==origin/master、clean tree、准确激活当前Verify TASK、同实际HEAD push-triggered Build & Release verify及CodeQL C#/C++全部success。workflow_dispatch、旧SHA的CI和本地PASS均不替代。CodeQL的历史attempt1/2形状不是新执行要求；新执行保存实际attempt，不制造取消或重复成功job。
+- Publication bridge: 显式列出从本Audit source base到Verify实际HEAD的全部差异，限当前用户批准的收口文档和精确CI触发规则；证明原产品源码/测试/profile/样本/验收/依赖保持。CI步骤、权限、runner、测试Scope、超时和制品规则不因触发修补而改变。实际HEAD/SHA记录在当前Verify entry receipt，不在提交自身硬写其尚未产生的commit SHA。
+- Fresh/reuse: 原09要求的canonical Release/x64 build、P5 scoped filters、必需RealSample、R3/R4/R5完整独立验证、R6 integration以及当前runtime/package/load检查继续fresh执行一次。已经有效的输入结构/冻结字节和明确允许复用的窄claim可复用，不能把本地P5/P6/P7报告整体升格为formal campaign；不重跑P0–P6整个阶段或全项目suite。
+- Approved evolution: HEVC按已批准P7-R4 ADR与当前P5-R5 detail（minimal-libav负责HEVC输入/输出重编码；仅普通SDR H264→H264走MF），使用当前冻结11路线+5失败profile及其已审查errata。不能恢复旧9路线/MF HEVC预期。Native/managed使用当前ABI12完整配套，校验当前exports/layout/actual load，不硬套旧ABI10/11或旧hash。
+- **本轮唯一执行参数覆盖（优先于下方旧69dad62正文argv）：** 全部canonical Native build、R5 Core构建、route-driver部署及runtime/package检查统一 `VideoSidecarBuildId=r4-hevc-v2`。使用实际`r4-hevc-v2-libav-prerequisites.json`、`P7-R4-HEVC-v2/manifest.json`及其中冻结规则/已审查errata，不能把当前代码用旧`r5-main10-ci`再配置一套运行库。Native日志RecordId仍从实际Verify HEAD派生并create-only；脚本为隐式MSBuild调用自动分配的日志ID必须据实际输出保存，不能猜。
+
+  当前canonical和R5精确覆盖命令如下（其余restore、R1–R4/R6及package步骤保持原09程序；不得执行默认P5-R5-v1的旧Invoke wrapper）：
+
+  ```powershell
+  $verifyHead = (git rev-parse HEAD).Trim()
+  $shortSha = $verifyHead.Substring(0, 7)
+  $nativeAttempt = 1
+  $nativeRecordId = "p5-verify-$shortSha"
+  while (Test-Path ".ai-tmp/workspace/P5/R5/$nativeRecordId-native-Release-build.log") {
+      $nativeAttempt++
+      $nativeRecordId = "p5-verify-$shortSha-attempt$nativeAttempt"
+  }
+  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/native/build-native.ps1 `
+    -Configuration Release -Architecture x64 -RunTests `
+    -VideoSidecarBuildId r4-hevc-v2 -ExecutionRecordId $nativeRecordId
+  if ($LASTEXITCODE -ne 0) { throw 'Canonical Native build/runtime gate failed' }
+  dotnet test tests/LivePhotoBox.Core.Tests/LivePhotoBox.Core.Tests.csproj `
+    -c Release -p:Platform=x64 -p:VideoSidecarBuildId=r4-hevc-v2 --no-restore `
+    --filter "FullyQualifiedName~P5R5_" --nologo --verbosity minimal
+  if ($LASTEXITCODE -ne 0) { throw 'R5 Core gate failed' }
+  # 原09 R5 CTest仍须运行；buildDir/ctest从实际canonical输出解析，拒绝零测试。
+  dotnet build tools/p5-r5-video-validation/route-driver/P5R5.RouteDriver.csproj `
+    -c Release -p:Platform=x64 -p:SkipNativeBuild=true --no-restore --nologo --verbosity minimal
+  if ($LASTEXITCODE -ne 0) { throw 'R5 route-driver build failed' }
+  $r5Driver = (Resolve-Path 'tools/p5-r5-video-validation/route-driver/bin/x64/Release/net9.0-windows10.0.19041.0/P5R5.RouteDriver.dll').Path
+  $r5ValidationRecordId = "verify-final-$shortSha"
+  $r5Attempt = 1
+  while (Test-Path ".ai-tmp/workspace/P5/R5/$r5ValidationRecordId") {
+      $r5Attempt++
+      $r5ValidationRecordId = "verify-final-$shortSha-attempt$r5Attempt"
+  }
+  $frozenToolRoot = (Resolve-Path '.ai-tmp/cache/validation-tools/ffmpeg-8.0.1-full_build/bin').Path
+  python tools/p5-r5-video-validation/validate.py `
+    --record-id $r5ValidationRecordId --profile P7-R4-HEVC-v2 --driver-dll $r5Driver `
+    --ffmpeg "$frozenToolRoot/ffmpeg.exe" --ffprobe "$frozenToolRoot/ffprobe.exe"
+  if ($LASTEXITCODE -ne 0) { throw 'R5 full independent11+5 validation failed' }
+  ```
+
+  这组命令不替代原09其余必需门禁。独立工具运行前仍须按原SHA锁核对8.0.1，route-driver及其sibling runtime必须新构建并绑定；输出要求11/11路线、5/5失败、零skip。source/tool/阈值/原始assertion不改，失败不能以父脚本成功掩盖。禁止并行构建/测试共享库；R5结束后再记录最终runtime/package identity。
+
+- Exact scope: 在产品执行前做实际ListTests并冻结每个现有P5 filter的当前displayNames/参数集合；旧正文的8/9等历史计数不作为排除新增已批准回归或删除断言的理由。逐项证明原canonical request/失败Contract仍覆盖、当前合法新增回归也执行，零skip/空结果/缺项即FAIL。保留所有既有threshold、oracle和quality判定。旧改名场景依已审查semantic-mapping逐项绑定，不模糊匹配。
+- Tool path migrations: 原frozen validator/profile/工具字节保留；当前路径/import/error-projection等已审查errata需明确记录原/新SHA、只影响程序绑定的差异及原断言/阈值一致性。必要脚本先适配到本轮固定P5工作目录，不覆盖旧输出或改源码以通过；任何未证明等价的改动停止对应项交owner。
+- 此重绑不代签P5/P6/P7 ACCEPT，不更改阶段顺序或启用P8，不授权Git发布。Fresh Verifier只能输出原09规定的READY FOR EXTERNAL CHIEF GATE或FAIL，最后P5 ACCEPT仍须当前用户/External Chief明确决定。
+
+
 > **Role:** Fresh Verifier; production/test/spec changes are out of scope.
 > **Order:** R0–R6 → independent Audit → Verify → External Chief Gate. Verify does not accept or complete P5.
 > **Audit applicability base:** final Audit HEAD `9dd03aed2e46ddaca29beb139756958e12516092`; Roadmap revision `317465937A08A908F318ED0F1005AFF7D5B41E637DFF75276F7C08732BB859A7`. The actual Verify execution HEAD is established after durable publication. It must be a clean descendant whose documentation-only delta from this base is independently proven non-result-affecting and covered by required push CI on that exact HEAD.

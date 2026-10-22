@@ -3,15 +3,18 @@ name: CodeQL / 安全扫描
 on:
   push:
     branches: [master]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - 'screenshots/**'
-      - '.github/ISSUE_TEMPLATE/**'
-      - 'LICENSE*'
-      - '.gitignore'
-      - '.gitattributes'
-      - '.editorconfig'
+    paths:
+      - '**'
+      - '!**.md'
+      - '!docs/**'
+      - '!screenshots/**'
+      - '!.github/ISSUE_TEMPLATE/**'
+      - '!LICENSE*'
+      - '!.gitignore'
+      - '!.gitattributes'
+      - '!.editorconfig'
+      # Formal Verify authority needs exact-HEAD push CI; ordinary docs still skip.
+      - 'docs/LivePhotoBox-Current-Roadmap/LivePhotoBox-P5-细分路线图/09-P5-Verify-验证与外部门禁.md'
   workflow_dispatch:
 
 permissions:
