@@ -252,12 +252,12 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
 <!-- INSIGHTS:START -->
 **📊 Repository Traffic**
 
-Views: **4,822** ｜ Uniques: **221** (14-day) ｜ Clones: **5,434** ｜ Cloners: **160** (14-day)
+Views: **4,825** ｜ Uniques: **206** (14-day) ｜ Clones: **5,442** ｜ Cloners: **150** (14-day)
 
-**Top referrers (14-day):** github.com · Google · Bing · chatgpt.com · DuckDuckGo · perplexity.ai  
+**Top referrers (14-day):** github.com · Google · Bing · DuckDuckGo · chatgpt.com · perplexity.ai  
 **Top content (14-day):** releases · README.zh-CN.md · releases/tag/v2.2.1 · issues
 
-> Data since 2026-08-02 · Last updated: 2026-10-22 (UTC+8)
+> Data since 2026-08-02 · Last updated: 2026-10-23 (UTC+8)
 <!-- INSIGHTS:END -->
 
 ---
