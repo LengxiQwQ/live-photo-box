@@ -1,6 +1,6 @@
 # P7 — System Torture / Malformed / Regression Campaign
 
-当前进度：R0–R6 CLOSED，P7仍in_progress，R7未启动；R6综合收口已完成，停在R7/P8之前。阶段结论和未完成范围见[P7阶段进度](LivePhotoBox-P7-细分路线图/P7-阶段进度与后续边界.md)。原执行checkpoint已归本地任务资料，以下正式范围与验收条件不变。
+当前进度：**P7 complete / ACCEPTED，R0–R7当前阶段工作已收口。** 历史已执行范围复验、fresh Audit、separate fresh Verify及当前用户收口决定均完成。停止于P8之前；P8由用户另开聊天启动。R0/R5历史未证事实及发布前问题继续保留，详见[当前R7收口报告](../路线图P0-P6重新审查/08-P7-R7-独立审查与收口状态.md)。以下正式范围与验收条件不变。
 
 > **Entry:** P1–P6 已完成各自阶段验证。  
 > **Goal:** 用系统级攻击、组合与长期运行找跨模块、backend、事务和协议边界问题。  
