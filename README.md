@@ -257,7 +257,7 @@ Views: **4,844** ｜ Uniques: **177** (14-day) ｜ Clones: **5,500** ｜ Cloners
 **Top referrers (14-day):** github.com · Google · Bing · DuckDuckGo · perplexity.ai · tg.noisework.cn  
 **Top content (14-day):** releases · releases/tag/v2.2.1 · README.zh-CN.md · issues
 
-> Data since 2026-08-02 · Last updated: 2026-10-24 (UTC+8)
+> Data since 2026-08-02 · Last updated: 2026-10-25 (UTC+8)
 <!-- INSIGHTS:END -->
 
 ---
