@@ -5,6 +5,7 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:models="using:LivePhotoBox.Models"
+    xmlns:vm="using:LivePhotoBox.ViewModels"
     xmlns:ic="using:FluentIcons.WinUI"
     xmlns:ui="using:Windows.UI"
     mc:Ignorable="d"
@@ -160,8 +161,39 @@
     </Page.Resources>
 
     <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <Border Grid.Row="0" Margin="40,20,40,0" Style="{StaticResource CardBorderStyle}" Padding="16">
+            <StackPanel Spacing="8">
+                <Grid>
+                    <TextBlock x:Uid="ProductHistory_Title" FontSize="20" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                    <Button x:Uid="ProductHistory_Refresh" HorizontalAlignment="Right" Command="{x:Bind ViewModel.RefreshProductHistoryCommand}"/>
+                </Grid>
+                <TextBlock Text="{x:Bind ViewModel.ProductHistoryStatus, Mode=OneWay}" TextWrapping="Wrap"/>
+                <TextBlock x:Uid="ProductHistory_Retention"
+                           FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <ScrollViewer MaxHeight="260" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{x:Bind ViewModel.ProductOperations}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ProductHistoryCard">
+                                <Border Padding="10" Margin="0,4" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" CornerRadius="6">
+                                    <StackPanel Spacing="5">
+                                        <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{x:Bind Summary}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+                                        <TextBlock Text="{x:Bind Outputs}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+                                        <TextBlock Text="{x:Bind Evidence}" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" IsTextSelectionEnabled="True"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </StackPanel>
+        </Border>
         <!-- ========== 主内容区 ========== -->
-        <Grid x:Name="ContentArea" Margin="40,24,40,0">
+        <Grid x:Name="ContentArea" Grid.Row="1" Margin="40,24,40,0">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>  <!-- 标题 -->
                 <RowDefinition Height="Auto"/>  <!-- 文件夹选择 -->

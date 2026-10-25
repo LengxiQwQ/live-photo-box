@@ -64,11 +64,10 @@ namespace LivePhotoBox.ViewModels
         // <inheritdoc/>
         protected override string ProcessingStatusKey => "Status_Running";
 
-        // 处理中的状态文本，包含当前选中的协议名称和硬件加速信息。
+        // Requested protocol only; actual backend is reported by the terminal outcome.
         protected override string ProcessingStatusText =>
             ResourceService.Format("Status_Running") + " | " +
-            LivePhotoProtocol.FromIndex(SelectedModeIndex).DisplayName +
-            GetHardwareSuffix();
+            LivePhotoProtocol.FromIndex(SelectedModeIndex).DisplayName;
 
         #region Observable Properties
 
@@ -197,8 +196,7 @@ namespace LivePhotoBox.ViewModels
                     // 已暂停（暂停完成，等待用户点击继续）
                     if (IsPaused)
                         return ResourceService.GetString("Status_Paused") + " | " +
-                               LivePhotoProtocol.FromIndex(SelectedModeIndex).DisplayName +
-                               GetHardwareSuffix();
+                               LivePhotoProtocol.FromIndex(SelectedModeIndex).DisplayName;
                     // 暂停中（等待当前任务结束再进入暂停）
                     if (_isPausing)
                         return ResourceService.GetString("Status_Pausing");
@@ -584,7 +582,21 @@ namespace LivePhotoBox.ViewModels
             _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
 
             // 扫描添加任务时自动同步到显示列表
-            Tasks.CollectionChanged += (_, _) => RefreshTaskView();
+            Tasks.CollectionChanged += (_, change) =>
+            {
+                // A previous terminal summary must not hide newly appended work.
+                // Existing successes stay successful and are skipped by the runner.
+                if (!IsProcessing && change.NewItems is not null &&
+                    change.NewItems.OfType<MergeTask>().Any(task => task.Status == ProcessStatus.Pending))
+                {
+                    _mergeDone = false;
+                    _mergeStoppedByUser = false;
+                    SetStatus("Status_Init");
+                    OnPropertyChanged(nameof(ActionBtnText));
+                    NotifyStatsChanged();
+                }
+                RefreshTaskView();
+            };
 
             // 响应全局设置清除：刷新所有持久化属性 + 清空命名片段
             AppSettingsService.SettingsCleared += () =>
@@ -1064,7 +1076,12 @@ namespace LivePhotoBox.ViewModels
             var newTasks = new List<MergeTask>();
             var unmatchedImages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var matchedVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var nativePairs = await MatchNativePairsAsync(images, videos, CancellationToken.None);
+            LivePhotoFilePairInfo? explicitSelection = PairingMethodIndex == 0 && images.Count == 1 && videos.Count == 1
+                ? await LivePhotoMergeScanService.PrepareExplicitMediaSelectionAsync(images[0], videos[0], CancellationToken.None)
+                : null;
+            IReadOnlyList<LivePhotoFilePairInfo> nativePairs = explicitSelection is not null
+                ? new[] { explicitSelection }
+                : await MatchNativePairsAsync(images, videos, CancellationToken.None);
             foreach (var pair in nativePairs)
             {
                 string imgPath = pair.ImagePath;
@@ -1191,18 +1208,14 @@ namespace LivePhotoBox.ViewModels
             IReadOnlyList<string> videoPaths,
             CancellationToken token)
         {
-            var apple = await LivePhotoMetadataMatcher.MatchAsync(imagePaths, videoPaths, token).ConfigureAwait(false);
-            var matchedImages = new HashSet<string>(apple.Pairs.Select(pair => pair.ImagePath), StringComparer.OrdinalIgnoreCase);
-            var matchedVideos = new HashSet<string>(apple.Pairs.Select(pair => pair.VideoPath), StringComparer.OrdinalIgnoreCase);
-            var vivo = LivePhotoMetadataMatcher.MatchVivo(
-                imagePaths.Where(path => !matchedImages.Contains(path)).ToList(),
-                videoPaths.Where(path => !matchedVideos.Contains(path)).ToList());
+            var confirmedPairs = await LivePhotoMergeScanService.MatchMetadataPairsAsync(
+                imagePaths, videoPaths, token).ConfigureAwait(false);
 
             IEnumerable<MetadataPair> metadataPairs = PairingMethodIndex switch
             {
-                1 => apple.Pairs,
-                2 => vivo.Pairs,
-                _ => apple.Pairs.Concat(vivo.Pairs)
+                1 => confirmedPairs.Where(pair => pair.Source == MatchSource.ContentIdentifier),
+                2 => confirmedPairs.Where(pair => pair.Source == MatchSource.VivoLivePhoto),
+                _ => confirmedPairs
             };
 
             var inspector = new SourceInspector();
@@ -1481,18 +1494,31 @@ namespace LivePhotoBox.ViewModels
 
         private async Task RunRebuiltTasksAsync()
         {
+            OutputProfile outputProfile;
+            try
+            {
+                outputProfile = ProductSelectionAdapter.Merge(SelectedModeIndex, OutputFormatIndex);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+            {
+                SetStatus("Status_Error", ex.Message);
+                IsDirectoryPanelOpen = true;
+                return;
+            }
             InitializeRunState();
             _stopwatch = Stopwatch.StartNew();
             OnPropertyChanged(nameof(ElapsedTimeText));
 
             var token = GetProcessingToken();
             string outputDir = OutputDirectory;
-            string tempDir = Path.Combine(outputDir, "Temp");
-            Directory.CreateDirectory(outputDir);
-            Directory.CreateDirectory(tempDir);
+            var succeededThisRun = new System.Collections.Concurrent.ConcurrentBag<MergeTask>();
+            int alreadySucceeded = Tasks.Count(task => task.Status == ProcessStatus.Success);
+            _completedTasksCount = alreadySucceeded;
+            string capabilityDiagnostic = ProductOutcomePresentation.CapabilityDiagnostic(() => ProductCapabilityQuery.Query(outputProfile));
 
             try
             {
+                Directory.CreateDirectory(outputDir);
                 var tasksToProcess = Tasks.Where(t => t.Status != ProcessStatus.Success).ToList();
                 bool hasHeic = tasksToProcess.Any(t => HeicConverterService.IsHeicFile(t.ImagePath));
                 int maxParallel = hasHeic
@@ -1502,8 +1528,7 @@ namespace LivePhotoBox.ViewModels
                 var options = new LivePhotoMergeRunOptions
                 {
                     OutputDirectory = outputDir,
-                    SelectedModeIndex = SelectedModeIndex,
-                    OutputFormatIndex = OutputFormatIndex,
+                    OutputProfile = outputProfile,
                     NamingRuleIndex = NamingRuleIndex,
                     CustomNamingPattern = CustomNamingPattern,
                     MaxDegreeOfParallelism = maxParallel,
@@ -1512,17 +1537,22 @@ namespace LivePhotoBox.ViewModels
                     InputDirectory = InputDirectory,
                 };
 
-                await LivePhotoMergeRunnerService.RunAsync(
+                await LivePhotoMergeRunnerService.RunWithOutcomesAsync(
                     Tasks,
                     options,
                     PauseEvent,
                     token,
                     task => ApplyRebuiltMergeTaskStarted(task),
-                    (task, isSuccess, details, completedCount) =>
-                        ApplyRebuiltMergeTaskCompleted(task, isSuccess, details, completedCount));
+                    (task, outcome, completedCount) =>
+                    {
+                        ApplyRebuiltMergeTaskCompleted(task, outcome, alreadySucceeded + completedCount, capabilityDiagnostic);
+                        if (outcome.IsSuccess && task is MergeTask completedTask) succeededThisRun.Add(completedTask);
+                    });
             }
             catch (OperationCanceledException)
             {
+                foreach (var task in Tasks.Where(task => task.Status == ProcessStatus.Processing))
+                    UpdateTaskCancelled(task, ResourceService.GetString("Task_Cancelled"));
                 int total = Tasks.Count;
                 int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
                 int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
@@ -1539,9 +1569,6 @@ namespace LivePhotoBox.ViewModels
             }
             finally
             {
-                try { if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true); }
-                catch (Exception ex) { LogService.Merge($"Failed to clean rebuilt temp dir: {ex.Message}", LogLevel.Warning); }
-
                 _stopwatch.Stop();
                 bool wasCancelled = _cancelledByUser;
                 FinalizeRunState();
@@ -1555,7 +1582,7 @@ namespace LivePhotoBox.ViewModels
                         {
                             try { Directory.CreateDirectory(moveDir); }
                             catch (Exception ex) { LogService.Merge($"Failed to create original dir: {ex.Message}", LogLevel.Warning); }
-                            foreach (var task in Tasks.Where(t => t.Status == ProcessStatus.Success))
+                            foreach (var task in succeededThisRun)
                             {
                                 try { if (File.Exists(task.ImagePath)) File.Move(task.ImagePath, Path.Combine(moveDir, Path.GetFileName(task.ImagePath))); } catch { }
                                 if (!string.IsNullOrEmpty(task.VideoPath))
@@ -1565,7 +1592,7 @@ namespace LivePhotoBox.ViewModels
                     }
                     else if (AfterCompletionActionIndex == 2)
                     {
-                        foreach (var task in Tasks.Where(t => t.Status == ProcessStatus.Success))
+                        foreach (var task in succeededThisRun)
                         {
                             try
                             {
@@ -1605,13 +1632,22 @@ namespace LivePhotoBox.ViewModels
         }
 
         private void ApplyRebuiltMergeTaskCompleted(
-            IMergeTaskInfo task, bool isSuccess, string details, int completedCount)
+            IMergeTaskInfo task, ProductOperationOutcome outcome, int completedCount, string capabilityDiagnostic)
         {
             if (task is not MergeTask mergeTask) return;
             RunRebuiltMergeUiUpdate(() =>
             {
-                _completedTasksCount = completedCount;
-                UpdateTaskCompleted(mergeTask, isSuccess, details, completedCount);
+                mergeTask.LastOutcome = outcome;
+                mergeTask.OutcomeSummary = ProductOutcomePresentation.Describe(outcome, capabilityDiagnostic);
+                mergeTask.OutputPath = outcome.IsSuccess ? outcome.CommittedOutputs.FirstOrDefault()?.Path ?? string.Empty : string.Empty;
+                string details = ProductOutcomePresentation.Status(outcome);
+                if (outcome.Status == ProductOperationStatus.Cancelled)
+                    UpdateTaskCancelled(mergeTask, details);
+                else
+                {
+                    _completedTasksCount = Math.Max(_completedTasksCount, completedCount);
+                    UpdateTaskCompleted(mergeTask, outcome.IsSuccess, details, _completedTasksCount);
+                }
             });
         }
 
@@ -1727,6 +1763,9 @@ namespace LivePhotoBox.ViewModels
         private void UpdateTaskStarted(MergeTask task)
         {
             task.OutputPath = string.Empty;
+            task.LastOutcome = null;
+            task.OutcomeSummary = string.Empty;
+            task.IsCancelled = false;
             task.Status = ProcessStatus.Processing;
             task.Details = ResourceService.GetString("MergePage_Task_Processing");
             NotifyStatsChanged();

@@ -48,7 +48,7 @@ internal static partial class Program
                 tasks.Add(LivePhotoMergeRunnerService.RunAsync(
                     new IMergeTaskInfo[] { new Pair(i, "unused.jpg", "unused.mov", "paused") },
                     new LivePhotoMergeRunOptions { OutputDirectory = directory,
-                        SelectedModeIndex = 2, MaxDegreeOfParallelism = 1 },
+                        OutputProfile = LivePhotoBox.Services.ProductSelectionAdapter.Merge(2, 0), MaxDegreeOfParallelism = 1 },
                     pause, cancel.Token, _ => Interlocked.Increment(ref started), null));
             }
             bool queueConsumed = SpinWait.SpinUntil(() => ThreadPool.PendingWorkItemCount == 0, 5000);

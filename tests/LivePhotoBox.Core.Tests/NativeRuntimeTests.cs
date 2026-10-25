@@ -75,7 +75,7 @@ public sealed class NativeRuntimeTests
     public void Probe_ReportsTruthfulCapabilityIdentity()
     {
         WindowsH264CapabilityOracle.VerifySidecar();
-        bool osH264Available = WindowsH264CapabilityOracle.IsAvailable(_output.WriteLine);
+        var osH264State = WindowsH264CapabilityOracle.Probe(_output.WriteLine);
         NativeRuntimeInfo info = NativeRuntime.Probe();
         Assert.True(info.IsAvailable, info.Diagnostic);
         Assert.Equal(6, info.CapabilityIdentities.Count);
@@ -93,14 +93,19 @@ public sealed class NativeRuntimeTests
             var identity = Assert.Single(info.CapabilityIdentities, item => item.Operation == expected.Item1);
             if (expected.Item1 == NativeRuntimeOperationClass.VideoTranscodeSdrH264)
             {
-                Assert.Equal(osH264Available, identity.IsAvailable);
-                if (identity.IsAvailable)
+                Assert.Equal(osH264State != WindowsH264CapabilityOracle.DeploymentState.ProbeFailure, identity.IsAvailable);
+                if (osH264State == WindowsH264CapabilityOracle.DeploymentState.Available)
                 {
                     Assert.Contains("Both route owners available", identity.FallbackReason, StringComparison.Ordinal);
                 }
+                else if (osH264State is WindowsH264CapabilityOracle.DeploymentState.ComponentMissing or
+                    WindowsH264CapabilityOracle.DeploymentState.EncoderAbsent)
+                {
+                    Assert.Contains("controlled x264 route available", identity.FallbackReason, StringComparison.Ordinal);
+                }
                 else
                 {
-                    Assert.Contains("A route owner is unavailable", identity.FallbackReason, StringComparison.Ordinal);
+                    Assert.Contains("MFProbeFailure", identity.FallbackReason, StringComparison.Ordinal);
                 }
             }
             else

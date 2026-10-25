@@ -885,9 +885,6 @@ Devices change. Platforms change. But the memories that belong to you shouldn't 
   <data name="SplitPage_DropHint.Text" xml:space="preserve">
     <value>Drag existing live photos here to split them</value>
   </data>
-  <data name="SplitPage_StartButton.Content" xml:space="preserve">
-    <value>Start Split</value>
-  </data>
   <data name="SplitPage_ColSource.Text" xml:space="preserve">
     <value>Source File</value>
   </data>
@@ -4518,4 +4515,36 @@ Then click "Start Split".</value>
   <data name="Preview_InspectionFailed" xml:space="preserve">
     <value>Media inspection failed</value>
   </data>
+  <data name="ProductOutcome_Success" xml:space="preserve"><value>Success</value></data>
+  <data name="ProductOutcome_Unsupported" xml:space="preserve"><value>Unsupported request</value></data>
+  <data name="ProductOutcome_Failed" xml:space="preserve"><value>Failed</value></data>
+  <data name="ProductOutcome_Cancelled" xml:space="preserve"><value>Cancelled</value></data>
+  <data name="ProductOutcome_BuiltinEngine" xml:space="preserve"><value>Built-in video engine</value></data>
+  <data name="ProductOutcome_Selection" xml:space="preserve"><value>Requested output</value></data>
+  <data name="ProductOutcome_PreparationScope" xml:space="preserve"><value>Preservation and conversion evidence below applies to media preparation.</value></data>
+  <data name="ProductOutcome_BackendUnknown" xml:space="preserve"><value>No executed conversion backend was recorded.</value></data>
+  <data name="ProductOutcome_TargetPreservationUnknown" xml:space="preserve"><value>Complete preservation in the final target: not verified.</value></data>
+  <data name="ProductOutcome_Diagnostic" xml:space="preserve"><value>Diagnostic</value></data>
+  <data name="ProductOutcome_Capability" xml:space="preserve"><value>Preparation capability (each request still requires validation)</value></data>
+  <data name="ProductOutcome_FallbackCompleted" xml:space="preserve"><value>System media encoding was unavailable; preparation completed with the built-in video engine</value></data>
+  <data name="ProductOutcome_FallbackSelected" xml:space="preserve"><value>Built-in video engine selected; see diagnostics for the execution result</value></data>
+  <data name="ProductOutcome_ResultTitle" xml:space="preserve"><value>Operation result</value></data>
+  <data name="ProductHistory_Count" xml:space="preserve"><value>Loaded {0} operation records (displaying up to the latest 200).</value></data>
+  <data name="ProductHistory_Default" xml:space="preserve"><value>Default</value></data>
+  <data name="ProductHistory_Empty" xml:space="preserve"><value>No readable operation records. Uninitialized or unavailable logs do not provide durable history.</value></data>
+  <data name="ProductHistory_Execution" xml:space="preserve"><value>{0}; backend={1} {2}; hardware={3}; alternative route selected={4} (this alone does not prove encoder execution); {5}; stage={6}/{7}; preparation scope: pixels={8}, metadata={9}, color={10}, HDR/GainMap={11}, auxiliary={12}, audio={13}, timing={14}, orientation={15}</value></data>
+  <data name="ProductHistory_HistoricalScope" xml:space="preserve"><value>Historical evidence at operation time; this does not establish current file state. Final target preservation: Unknown (not verified).</value></data>
+  <data name="ProductHistory_Image" xml:space="preserve"><value>Image preparation: {0}</value></data>
+  <data name="ProductHistory_Merge" xml:space="preserve"><value>Merge</value></data>
+  <data name="ProductHistory_NoOutput" xml:space="preserve"><value>This operation has no committed output.</value></data>
+  <data name="ProductHistory_Outputs" xml:space="preserve"><value>Committed outputs from this operation (historical paths):</value></data>
+  <data name="ProductHistory_Refresh.Content" xml:space="preserve"><value>Refresh history</value></data>
+  <data name="ProductHistory_Retention.Text" xml:space="preserve"><value>History follows log retention and clearing (up to 100 app and 100 CLI session files). Reading is limited to 4 MiB per file tail and 32 MiB in total, with at most 1,000 distinct operations. Records describe evidence at operation time; final target preservation is Unknown. Folder XMP inspection is separate below.</value></data>
+  <data name="ProductHistory_Selection" xml:space="preserve"><value>Requested: {0} / {1}</value></data>
+  <data name="ProductHistory_Split" xml:space="preserve"><value>Split</value></data>
+  <data name="ProductHistory_Summary" xml:space="preserve"><value>{0}
+Inputs: {1}
+{2} / {3}: {4}</value></data>
+  <data name="ProductHistory_Title.Text" xml:space="preserve"><value>Operation history · App and CLI</value></data>
+  <data name="ProductHistory_Video" xml:space="preserve"><value>Video preparation: {0}; encoder={1}</value></data>
 </root>

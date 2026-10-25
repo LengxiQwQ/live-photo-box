@@ -254,6 +254,12 @@ namespace LivePhotoBox.Cli.Commands
                     parallel, yes, json, dryRun, verbose, overwrite, recursive, preserveSubdirs,
                     after, allVariants, keyTimestampUs, ct));
             }
+            catch (OperationCanceledException)
+            {
+                if (json) PrintJson(new { operation = "split", status = "cancelled" });
+                else CliConsole.WriteErrorLine("Cancelled.");
+                return 130;
+            }
             catch (RebuiltPipelineNotReadyException exception)
             {
                 if (json)
@@ -333,7 +339,7 @@ namespace LivePhotoBox.Cli.Commands
                 // Default output to the source file's directory (not cwd)
                 string outputDir = output?.FullName ?? Path.GetDirectoryName(Path.GetFullPath(singlePath))!;
                 Directory.CreateDirectory(outputDir);
-                return await RunSplitAllVariantsAsync(singlePath, outputDir, parallel, dryRun, verbose, isRebuilt, ct);
+                return await RunSplitAllVariantsAsync(singlePath, outputDir, parallel, dryRun, verbose, json, isRebuilt, ct);
             }
 
             // Resolve split protocol
@@ -636,28 +642,20 @@ namespace LivePhotoBox.Cli.Commands
                 if (verbose && !json)
                     Console.WriteLine($"Splitting: {Path.GetFileName(sourcePath)} ...");
 
-                var result = await LivePhotoSplitService.SplitAsync(
-                    sourcePath, outputDir, protocolIndex, formatIndex, ct,
-                    inputDirectory: null, outputBaseName: outputBaseName, overwriteExisting: overwrite,
-                    keyTimestampUs: keyTimestampUs);
-
-                if (json)
-                {
-                    PrintSingleJson(sourcePath, result.ImageOutputPath, result.VideoOutputPath, "split");
-                }
-                else if (verbose)
-                {
-                    CliConsole.WriteLine("Done", CliConsole.Success);
-                    Console.WriteLine($"-> {result.ImageOutputPath}");
-                    Console.WriteLine($"-> {result.VideoOutputPath}");
-                }
+                var capability = ProductCapabilityQuery.Query(ProductSelectionAdapter.Split(protocolIndex, formatIndex));
+                if (!json) Console.WriteLine($"Preparation capability: {capability.Diagnostic}");
+                var outcome = await LivePhotoSplitService.SplitWithOutcomeAsync(
+                    sourcePath, outputDir, ProductSelectionAdapter.Split(protocolIndex, formatIndex), ct,
+                    inputDirectory: null, outputBaseName: outputBaseName, overwriteExisting: overwrite);
+                if (json) PrintJson(ProjectSingleOutcome(sourcePath, outcome, capability));
                 else
                 {
-                    CliConsole.WriteLine("Done", CliConsole.Success);
+                    if (outcome.IsSuccess) CliConsole.WriteLine("Done", CliConsole.Success);
+                    else CliConsole.WriteErrorLine($"{OutcomeStatus(outcome)}: {outcome.Details}");
+                    PrintOutcome(outcome);
                 }
-
-                ApplyAfterAction(sourcePath, afterMoveDir, afterRecycle, json);
-                return 0;
+                if (outcome.IsSuccess) ApplyAfterAction(sourcePath, afterMoveDir, afterRecycle, json);
+                return outcome.ExitCode;
             }
             catch (OperationCanceledException)
             {
@@ -676,12 +674,6 @@ namespace LivePhotoBox.Cli.Commands
                 }
                 return 1;
             }
-            finally
-            {
-                // SplitService 会清理自身临时文件但保留 Temp 目录（供并发任务共享），此处单文件模式收尾清掉空目录。
-                try { if (Directory.Exists(Path.Combine(outputDir, "Temp"))) Directory.Delete(Path.Combine(outputDir, "Temp"), recursive: true); }
-                catch { /* best effort */ }
-            }
         }
 
         // ══════════════════════════════════════════════════════════════
@@ -690,129 +682,62 @@ namespace LivePhotoBox.Cli.Commands
         // ══════════════════════════════════════════════════════════════
 
         private static async Task<int> RunSplitAllVariantsAsync(
-            string sourcePath, string outputDir, int parallel, bool dryRun, bool verbose, bool rebuiltOnly, CancellationToken ct)
+            string sourcePath, string outputDir, int parallel, bool dryRun, bool verbose, bool json, bool rebuiltOnly, CancellationToken ct)
         {
             string originalBaseName = Path.GetFileNameWithoutExtension(sourcePath);
-
-            // Auto-create subfolder: {outputDir}/split_{name}_All_Variants/
             string variantsDir = Path.Combine(outputDir, $"split_{originalBaseName}_All_Variants");
             Directory.CreateDirectory(variantsDir);
-
-            // 导出 4 个中性媒体变体（协议无关拆分）。
-            // 数组顺序（keep → none 其余转换格式）只决定 dry-run 清单展示；
-            // 实际打印为并行完成顺序（谁快谁先，编号单调递增）。
-            // 每个变体 = 图片+视频一对文件，共享 base name、扩展名不同。
-            // 文件名 = 协议_格式（不含原名，原名进文件夹名）。
             var variants = new (int Proto, int Fmt, string BaseName, string Label)[]
             {
-                (0, 0, "none_keep",    "No protocol (keep original)"),
+                (0, 0, "none_keep", "No protocol (keep original)"),
                 (0, 1, "none_jpg+mov", "No protocol (JPG+MOV)"),
                 (0, 2, "none_heic+mov", "No protocol (HEIC+MOV)"),
                 (0, 3, "none_jpg+mp4", "No protocol (JPG+MP4)"),
             };
-
-            // keep 变体（Fmt=0）的扩展名跟随源文件，用于 dry-run 展示。
-            string sourceImageExt = Path.GetExtension(sourcePath);
-
-            LogService.Split(
-                $"All-variants: output={variantsDir} parallel={parallel} dryRun={dryRun} variants={variants.Length}");
-
+            var entries = variants.Select(v => new SplitJsonFileEntry { Path = sourcePath, Name = v.BaseName,
+                Status = dryRun ? "would-split" : "unprocessed" }).ToArray();
             if (dryRun)
             {
-                LogService.Split($"DRY RUN: would generate {variants.Length} variants.");
-                CliConsole.WriteFieldRgb("Output", variantsDir, width: 10, valueColor: CliConsole.PathGreen);
-                Console.WriteLine();
-                Console.Write("Would generate ");
-                CliConsole.Write(variants.Length.ToString(), CliConsole.Highlight);
-                Console.WriteLine(" variants:");
-                foreach (var v in variants)
-                {
-                    // 与 SplitService.BuildOutputPaths 的实际扩展名一致（转换变体大写；keep 跟随源）。
-                    (string imgExt, string vidExt) = v.Fmt switch
-                    {
-                        1 => (".JPG", ".MOV"),
-                        2 => (".HEIC", ".MOV"),
-                        3 => (".JPG", ".MP4"),
-                        _ => (sourceImageExt, ".MP4/.MOV"),
-                    };
-                    CliConsole.Write($"{v.BaseName}{imgExt}", CliConsole.PathGreen);
-                    Console.Write("  +  ");
-                    CliConsole.Write($"{v.BaseName}{vidExt}", CliConsole.PathGreen);
-                    Console.WriteLine();
-                }
+                if (json) PrintJson(new { command = "split", mode = "all-variants", output = variantsDir, status = "dry-run", files = entries });
+                else { Console.WriteLine($"[DRY RUN] Would generate {variants.Length} variants in {variantsDir}:"); foreach (var v in variants) Console.WriteLine(v.BaseName); }
                 return 0;
             }
-
-            CliConsole.WriteFieldRgb("Output", variantsDir, width: 10, valueColor: CliConsole.PathGreen);
-            CliConsole.WriteField("Variants", variants.Length.ToString(), width: 10, valueColor: CliConsole.Highlight);
-            Console.WriteLine();
-
             int ok = 0, fail = 0, completed = 0;
-            var semaphore = new SemaphoreSlim(Math.Max(1, parallel));
-
-            try
+            using var semaphore = new SemaphoreSlim(Math.Max(1, parallel));
+            var tasks = variants.Select(async (v, index) =>
             {
-                var tasks = variants.Select(async v =>
+                await semaphore.WaitAsync(ct).ConfigureAwait(false);
+                try
                 {
-                    await semaphore.WaitAsync(ct).ConfigureAwait(false);
-                    try
-                    {
-                        ct.ThrowIfCancellationRequested();
-
-                        var result = await LivePhotoSplitService.SplitAsync(
-                            sourcePath, variantsDir, v.Proto, v.Fmt, ct,
-                            inputDirectory: null,
-                            outputBaseName: v.BaseName,
-                            overwriteExisting: true);
-
-                        Interlocked.Increment(ref ok);
-                        // 完成顺序编号：谁先跑完谁就是 [1/N]，打印自上而下单调递增。
-                        int idx = Interlocked.Increment(ref completed);
-                        Console.Write($"[{idx}/{variants.Length}] ");
-                        CliConsole.Write("SUCCESS  ", CliConsole.Success);
-                        Console.WriteLine(v.Label);
-                        if (verbose)
-                        {
-                            Console.WriteLine($"-> {result.ImageOutputPath}");
-                            Console.WriteLine($"-> {result.VideoOutputPath}");
-                        }
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        throw;
-                    }
-                    catch (Exception ex)
-                    {
-                        Interlocked.Increment(ref fail);
-                        int idx = Interlocked.Increment(ref completed);
-                        Console.Write($"[{idx}/{variants.Length}] ");
-                        CliConsole.Write("FAIL  ", CliConsole.Error);
-                        Console.WriteLine($"{v.Label}  ({ex.Message})");
-                    }
-                    finally
-                    {
-                        semaphore.Release();
-                    }
-                });
-
-                await Task.WhenAll(tasks);
-            }
-            finally
-            {
-                // 清理 SplitService 遗留的 Temp 目录（每个 SplitAsync 已删除自身临时文件，仅剩空目录）
-                try { if (Directory.Exists(Path.Combine(variantsDir, "Temp"))) Directory.Delete(Path.Combine(variantsDir, "Temp"), recursive: true); }
-                catch { /* best effort */ }
-            }
-
-            Console.WriteLine();
-            CliConsole.Write("Done: ", CliConsole.Success);
-            CliConsole.Write(ok.ToString(), CliConsole.Highlight);
-            Console.Write(" SUCCESS, ");
-            CliConsole.Write(fail.ToString(), CliConsole.Highlight);
-            Console.Write(" FAIL, ");
-            CliConsole.Write(variants.Length.ToString(), CliConsole.Highlight);
-            Console.WriteLine(" total");
-            return fail > 0 ? 1 : 0;
+                    entries[index].Capability = ProductCapabilityQuery.Query(ProductSelectionAdapter.Split(v.Proto, v.Fmt));
+                    if (!json) Console.WriteLine($"Preparation capability: {entries[index].Capability!.Diagnostic}");
+                    var outcome = await LivePhotoSplitService.SplitWithOutcomeAsync(
+                        sourcePath, variantsDir, ProductSelectionAdapter.Split(v.Proto, v.Fmt), ct,
+                        inputDirectory: null, outputBaseName: v.BaseName, overwriteExisting: true);
+                    var entry = entries[index];
+                    entry.Outcome = outcome; entry.Status = OutcomeStatus(outcome);
+                    entry.ImageOutput = CommittedPath(outcome, "PrimaryImage"); entry.VideoOutput = CommittedPath(outcome, "MotionVideo");
+                    entry.Reason = outcome.IsSuccess ? "" : outcome.Details; entry.HistoryWarning = outcome.HistoryWarning;
+                    if (outcome.Status == ProductOperationStatus.Cancelled) throw new OperationCanceledException(ct);
+                    if (outcome.IsSuccess) Interlocked.Increment(ref ok); else Interlocked.Increment(ref fail);
+                    int count = Interlocked.Increment(ref completed);
+                    if (!json) { Console.WriteLine($"[{count}/{variants.Length}] {entry.Status}  {v.Label}  {entry.Reason}"); PrintOutcome(outcome); }
+                }
+                catch (OperationCanceledException) { throw; }
+                catch (Exception ex)
+                {
+                    entries[index].Status = "failed"; entries[index].Reason = ex.Message;
+                    Interlocked.Increment(ref fail); Interlocked.Increment(ref completed);
+                    if (!json) CliConsole.WriteErrorLine($"ERROR  {v.Label}  ({ex.Message})");
+                }
+                finally { semaphore.Release(); }
+            });
+            bool cancelled = false;
+            try { await Task.WhenAll(tasks); } catch (OperationCanceledException) { cancelled = true; }
+            if (json) PrintJson(new { command = "split", mode = "all-variants", output = variantsDir,
+                status = cancelled ? "cancelled" : "completed", scanned = variants.Length, split = ok, failed = fail, files = entries });
+            else Console.WriteLine($"{(cancelled ? "Cancelled" : "Done")}: {ok} SUCCESS, {fail} FAIL, {variants.Length} total");
+            return cancelled ? 130 : fail > 0 ? 1 : 0;
         }
 
         private static async Task<int> SplitBatchAsync(
@@ -948,6 +873,9 @@ namespace LivePhotoBox.Cli.Commands
             }
 
             int ok = 0, fail = 0, completed = 0;
+            var capability = ProductCapabilityQuery.Query(ProductSelectionAdapter.Split(protocolIndex, formatIndex));
+            if (!json) Console.WriteLine($"Preparation capability: {capability.Diagnostic}");
+            foreach (var entry in jsonFiles) entry.Capability = capability;
             using var semaphore = new SemaphoreSlim(Math.Max(1, parallel));
             var running = tasks.Select(async task =>
             {
@@ -963,14 +891,31 @@ namespace LivePhotoBox.Cli.Commands
 
                     try
                     {
-                        var result = await LivePhotoSplitService.SplitAsync(
-                            task.SourcePath, outputDir, protocolIndex, formatIndex, ct,
+                        var outcome = await LivePhotoSplitService.SplitWithOutcomeAsync(
+                            task.SourcePath, outputDir, ProductSelectionAdapter.Split(protocolIndex, formatIndex), ct,
                             inputDirectory: preserveSubdirs ? inputDir : null,
                             outputBaseName: outputBaseName,
                             overwriteExisting: overwrite);
 
+                        if (task.Json != null) { task.Json.Outcome = outcome; task.Json.Status = OutcomeStatus(outcome);
+                            task.Json.ImageOutput = CommittedPath(outcome, "PrimaryImage"); task.Json.VideoOutput = CommittedPath(outcome, "MotionVideo");
+                            task.Json.Reason = outcome.IsSuccess ? "" : outcome.Details; task.Json.HistoryWarning = outcome.HistoryWarning; }
+                        if (!json) PrintOutcome(outcome);
+                        if (outcome.Status == ProductOperationStatus.Cancelled)
+                        {
+                            task.Status = ProcessStatus.Cancelled;
+                            throw new OperationCanceledException(ct);
+                        }
+                        if (!outcome.IsSuccess)
+                        {
+                            task.Status = ProcessStatus.Failed;
+                            task.Details = outcome.Details;
+                            Interlocked.Increment(ref fail);
+                            int failedCount = Interlocked.Increment(ref completed);
+                            if (!json) CliConsole.WriteErrorLine($"[{failedCount}/{tasks.Count}] {OutcomeStatus(outcome)}  {Path.GetFileName(task.SourcePath)}  ({outcome.Details})");
+                            return;
+                        }
                         task.Status = ProcessStatus.Success;
-                        if (task.Json != null) task.Json.Status = "split";
                         Interlocked.Increment(ref ok);
                         int c = Interlocked.Increment(ref completed);
                         if (!json)
@@ -978,8 +923,6 @@ namespace LivePhotoBox.Cli.Commands
                             if (verbose)
                             {
                                 CliConsole.WriteLine("SUCCESS", CliConsole.Success);
-                                Console.WriteLine($"-> {result.ImageOutputPath}");
-                                Console.WriteLine($"-> {result.VideoOutputPath}");
                             }
                             else
                             {
@@ -988,6 +931,12 @@ namespace LivePhotoBox.Cli.Commands
                                 Console.WriteLine(Path.GetFileName(task.SourcePath));
                             }
                         }
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        task.Status = ProcessStatus.Cancelled;
+                        if (task.Json != null) task.Json.Status = "cancelled";
+                        throw;
                     }
                     catch (Exception ex)
                     {
@@ -1015,11 +964,21 @@ namespace LivePhotoBox.Cli.Commands
                 }
             });
 
-            await Task.WhenAll(running);
-
-            // 清理 SplitService 遗留的 Temp 目录（SplitService 已删除自身临时文件，仅剩空目录）
-            try { if (Directory.Exists(Path.Combine(outputDir, "Temp"))) Directory.Delete(Path.Combine(outputDir, "Temp"), recursive: true); }
-            catch { /* best effort */ }
+            try
+            {
+                await Task.WhenAll(running);
+            }
+            catch (OperationCanceledException)
+            {
+                foreach (var task in tasks.Where(task => task.Status == ProcessStatus.Pending))
+                    if (task.Json != null) task.Json.Status = "unprocessed";
+                if (json) PrintJson(new { input = inputDir, output = outputDir, status = "cancelled",
+                    scanned = tasks.Count, split = ok, failed = fail,
+                    cancelled = tasks.Count(task => task.Status == ProcessStatus.Cancelled),
+                    unprocessed = tasks.Count(task => task.Status == ProcessStatus.Pending), files = jsonFiles });
+                else CliConsole.WriteErrorLine($"Cancelled: {ok} succeeded, {fail} failed.");
+                return 130;
+            }
 
             // 6. After-completion actions (only on successful tasks)
             if (!string.IsNullOrEmpty(afterMoveDir))
@@ -1140,6 +1099,7 @@ namespace LivePhotoBox.Cli.Commands
             => Console.WriteLine(JsonSerializer.Serialize(data, new JsonSerializerOptions
             {
                 WriteIndented = true,
+                Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
                 Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
             }));
 
@@ -1168,6 +1128,35 @@ namespace LivePhotoBox.Cli.Commands
             public string Name { get; set; } = "";
             public string Status { get; set; } = "";  // split / would-split / failed / skipped
             public string Reason { get; set; } = "";  // 跳过/失败原因
+            public string ImageOutput { get; set; } = "";
+            public string VideoOutput { get; set; } = "";
+            public ProductOperationOutcome? Outcome { get; set; }
+            public string? HistoryWarning { get; set; }
+            public ProductCapabilityAssessment? Capability { get; set; }
+        }
+
+        private static string OutcomeStatus(ProductOperationOutcome outcome) => outcome.IsSuccess ? "split" : outcome.Status.ToString().ToLowerInvariant();
+        private static string CommittedPath(ProductOperationOutcome outcome, string role) => outcome.IsSuccess ? outcome.CommittedOutputs.FirstOrDefault(item => item.Role == role)?.Path ?? "" : "";
+        internal static object ProjectSingleOutcome(string input, ProductOperationOutcome outcome, ProductCapabilityAssessment? capability = null) =>
+            new { command = "split", mode = "single", input, imageOutput = CommittedPath(outcome, "PrimaryImage"),
+                videoOutput = CommittedPath(outcome, "MotionVideo"), status = OutcomeStatus(outcome),
+                reason = outcome.IsSuccess ? "" : outcome.Details, outcome, capability, historyWarning = outcome.HistoryWarning };
+
+        private static void PrintOutcome(ProductOperationOutcome outcome)
+        {
+            foreach (var artifact in outcome.CommittedOutputs) Console.WriteLine($"-> {artifact.Path}");
+            Console.WriteLine($"Final target preservation: {outcome.FinalTargetPreservation}");
+            if (outcome.PreparationExecution is { } execution)
+            {
+                if (execution.Image is { } image)
+                    Console.WriteLine($"Image preparation backend: {image.Truth.BackendName}; prepared media outcome: {image.Truth.PreservationOutcome}");
+                foreach (var record in execution.Videos)
+                    Console.WriteLine($"Video preparation backend: {record.Truth.BackendName}; encoder: {record.SelectedEncoder}; fallback selected: {record.HardwareFallbackOccurred}; prepared media outcome: {record.Truth.PreservationOutcome}; {record.HardwareFallbackReason}");
+                if (execution.Image is null && execution.Videos.Count == 0) Console.WriteLine("Preparation backend: not executed or unknown.");
+            }
+            else Console.WriteLine("Preparation backend: not executed or unknown.");
+            if (!outcome.IsSuccess) Console.WriteLine($"Diagnostic: {outcome.Diagnostic.Stage}/{outcome.Diagnostic.Category}; {outcome.Details}");
+            if (!string.IsNullOrEmpty(outcome.HistoryWarning)) CliConsole.WriteErrorLine($"WARN: {outcome.HistoryWarning}");
         }
 
         // ══════════════════════════════════════════════════════════════

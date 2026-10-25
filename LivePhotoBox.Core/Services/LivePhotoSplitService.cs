@@ -8,6 +8,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Runtime.ExceptionServices;
 using NeutralMediaBundle = LivePhotoBox.Protocols.Cleaning.NeutralMediaBundle;
 
 namespace LivePhotoBox.Services
@@ -22,9 +23,85 @@ namespace LivePhotoBox.Services
 
         public static Task<LivePhotoSplitResult> SplitAsync(string sourcePath, string outputDirectory, int protocolIndex, int outputFormatIndex, CancellationToken token, string? inputDirectory = null, string? outputBaseName = null, bool overwriteExisting = false, long? keyTimestampUs = null)
         {
-            return ProcessingPipelineRouter.RunRebuiltAsync("split", () => SplitRebuiltAsync(
-                sourcePath, outputDirectory, protocolIndex, outputFormatIndex, token,
-                inputDirectory, outputBaseName, overwriteExisting));
+            return SplitAsync(sourcePath, outputDirectory,
+                ProductSelectionAdapter.Split(protocolIndex, outputFormatIndex), token,
+                inputDirectory, outputBaseName, overwriteExisting);
+        }
+
+        public static async Task<LivePhotoSplitResult> SplitAsync(string sourcePath, string outputDirectory,
+            SplitMediaFormat format, CancellationToken token, string? inputDirectory = null,
+            string? outputBaseName = null, bool overwriteExisting = false)
+        {
+            SplitAttempt attempt = await ExecuteSplitWithOutcomeAsync(sourcePath, outputDirectory, format, token,
+                inputDirectory, outputBaseName, overwriteExisting).ConfigureAwait(false);
+            if (attempt.Error is not null) ExceptionDispatchInfo.Capture(attempt.Error).Throw();
+            return new LivePhotoSplitResult
+            {
+                ImageOutputPath = attempt.Result!.ImageOutputPath,
+                VideoOutputPath = attempt.Result.VideoOutputPath,
+                Outcome = attempt.Outcome
+            };
+        }
+
+        internal static async Task<ProductOperationOutcome> SplitWithOutcomeAsync(
+            string sourcePath, string outputDirectory, SplitMediaFormat format, CancellationToken token,
+            string? inputDirectory = null, string? outputBaseName = null, bool overwriteExisting = false)
+            => (await ExecuteSplitWithOutcomeAsync(sourcePath, outputDirectory, format, token,
+                inputDirectory, outputBaseName, overwriteExisting).ConfigureAwait(false)).Outcome;
+
+        private sealed record SplitAttempt(ProductOperationOutcome Outcome, LivePhotoSplitResult? Result, Exception? Error);
+
+        private static async Task<SplitAttempt> ExecuteSplitWithOutcomeAsync(
+            string sourcePath, string outputDirectory, SplitMediaFormat format, CancellationToken token,
+            string? inputDirectory, string? outputBaseName, bool overwriteExisting)
+        {
+            var baseline = new ProductOperationOutcome
+            {
+                OperationId = Guid.NewGuid(), StartedUtc = DateTimeOffset.UtcNow,
+                Operation = ProductOperationKind.Split,
+                RequestedSelection = new() { SplitFormat = Enum.IsDefined(format) ? format : null },
+                Inputs = new[] { sourcePath }, RequestedDestination = outputDirectory
+            };
+            ProductOperationStage stage = ProductOperationStage.Selection;
+            NeutralMediaBundle? prepared = null;
+            LivePhotoSplitResult? result = null;
+            Exception? failure = null;
+            ProductOperationOutcome terminal;
+            try
+            {
+                MediaFormatRequirement requirement = SplitMediaRequirements.Get(format);
+                stage = ProductOperationStage.Inspection;
+                result = await ProcessingPipelineRouter.RunRebuiltAsync("split", () => SplitRebuiltAsync(
+                    sourcePath, outputDirectory, requirement, token,
+                    inputDirectory, outputBaseName, overwriteExisting,
+                    bundle => prepared = bundle, boundary => stage = boundary)).ConfigureAwait(false);
+                terminal = baseline with
+                {
+                    Status = ProductOperationStatus.Success,
+                    PreparationSemantics = prepared?.Semantics,
+                    PreparationExecution = prepared?.PreparationExecution,
+                    CommittedOutputs = new[]
+                    {
+                        new ProductCommittedArtifact { Role = "PrimaryImage", Path = result.ImageOutputPath },
+                        new ProductCommittedArtifact { Role = "MotionVideo", Path = result.VideoOutputPath }
+                    },
+                    Diagnostic = new() { Stage = ProductOperationStage.Publication, Message = ResourceService.GetString("SplitPage_Task_Success") }
+                };
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+                NeutralPreparationDiagnostics.TryRead(exception, out var diagnosticPreparation);
+                var execution = diagnosticPreparation?.Execution ?? prepared?.PreparationExecution;
+                var diagnostic = ProductOutcomeCompletion.Failure(exception, stage, execution);
+                terminal = baseline with
+                {
+                    Status = ProductOutcomeCompletion.Status(exception, diagnostic), Diagnostic = diagnostic,
+                    PreparationSemantics = prepared?.Semantics, PreparationExecution = execution
+                };
+            }
+            terminal = ProductOutcomeCompletion.Record(terminal with { CompletedUtc = DateTimeOffset.UtcNow });
+            return new SplitAttempt(terminal, result, failure);
         }
 
         // Rebuilt split: materialize a source single-file live photo into two
@@ -33,28 +110,21 @@ namespace LivePhotoBox.Services
         private static async Task<LivePhotoSplitResult> SplitRebuiltAsync(
             string sourcePath,
             string outputDirectory,
-            int protocolIndex,
-            int outputFormatIndex,
+            MediaFormatRequirement requirement,
             CancellationToken token,
             string? inputDirectory,
             string? outputBaseName,
-            bool overwriteExisting)
+            bool overwriteExisting,
+            Action<NeutralMediaBundle>? onPrepared = null,
+            Action<ProductOperationStage>? onStage = null)
         {
             if (string.IsNullOrWhiteSpace(sourcePath))
             {
                 throw new ArgumentException("Source path cannot be null or whitespace.", nameof(sourcePath));
             }
 
-            if (protocolIndex != ProtocolFormatMatrix.SplitProtocolNone)
-            {
-                throw new NotSupportedException(
-                    "Rebuilt split currently exports protocol-free neutral media only; target protocol writers are not enabled. Use protocol 'none'.");
-            }
-
             _ = new FileInfo(sourcePath).Length;
 
-            MediaFormatRequirement requirement = ProtocolMediaRequirements.GetSplitRequirement(
-                ProtocolFormatMatrix.SplitProtocolNone, outputFormatIndex);
             using var workspace = new MediaWorkspace();
             NeutralMediaBundle bundle = await new NeutralMediaService().CreateNeutralBundleAsync(
                 sourcePath,
@@ -63,10 +133,12 @@ namespace LivePhotoBox.Services
                 requirement,
                 PreservationPolicy.BestEffort,
                 token).ConfigureAwait(false);
+            onPrepared?.Invoke(bundle);
 
             if (bundle.MotionVideo == null || !File.Exists(bundle.MotionVideo.Path))
                 throw new InvalidDataException("Rebuilt split requires a Native-inspected motion video.");
 
+            onStage?.Invoke(ProductOperationStage.Publication);
             string imageExtension = bundle.PrimaryImage.ImageContainer == ImageContainer.Heic ? ".HEIC" : ".JPG";
             string videoExtension = bundle.MotionVideo.VideoContainer == VideoContainer.Mov ? ".MOV" : ".MP4";
             (string imageOutputPath, string videoOutputPath) = BuildOutputPaths(
@@ -205,8 +277,9 @@ namespace LivePhotoBox.Services
             }
 
             string? subDir = null;
-            if (!string.IsNullOrEmpty(inputDirectory)
-                && AppSettingsService.GetValue("IsOutputPreserveSubfolderStructure", false))
+            // The caller's input root is the explicit preservation request.
+            // Core must not consult a GUI setting that can override a CLI flag.
+            if (!string.IsNullOrEmpty(inputDirectory))
             {
                 subDir = PathHelper.GetRelativeSubDirectory(inputDirectory, sourcePath);
             }

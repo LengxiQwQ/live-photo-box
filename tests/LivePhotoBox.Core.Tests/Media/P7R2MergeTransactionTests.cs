@@ -280,7 +280,7 @@ public sealed class P7R2MergeTransactionTests
         var options = new LivePhotoMergeRunOptions
         {
             OutputDirectory = directory.Path,
-            SelectedModeIndex = 2,
+            OutputProfile = LivePhotoBox.Services.ProductSelectionAdapter.Merge(2, 0),
             OutputFilePath = outputPath,
             MaxDegreeOfParallelism = 1,
             TaskStartInterval = TimeSpan.Zero,
@@ -583,8 +583,7 @@ public sealed class P7R2MergeTransactionTests
         var options = new LivePhotoMergeRunOptions
         {
             OutputDirectory = outputDirectory,
-            SelectedModeIndex = 2,
-            OutputFormatIndex = ProtocolFormatMatrix.FormatJpgMov,
+            OutputProfile = LivePhotoBox.Services.ProductSelectionAdapter.Merge(2, ProtocolFormatMatrix.FormatJpgMov),
             NamingRuleIndex = 0,
             MaxDegreeOfParallelism = 1,
             TaskStartInterval = TimeSpan.Zero,
@@ -683,8 +682,7 @@ public sealed class P7R2MergeTransactionTests
         var options = new LivePhotoMergeRunOptions
         {
             OutputDirectory = outputDirectory,
-            SelectedModeIndex = 2,
-            OutputFormatIndex = ProtocolFormatMatrix.FormatJpgMov,
+            OutputProfile = LivePhotoBox.Services.ProductSelectionAdapter.Merge(2, ProtocolFormatMatrix.FormatJpgMov),
             NamingRuleIndex = 0,
             MaxDegreeOfParallelism = 1,
             TaskStartInterval = TimeSpan.Zero,
@@ -979,8 +977,7 @@ public sealed class P7R2MergeTransactionTests
     private static LivePhotoMergeRunOptions CreateTopLevelRunnerOptions(string outputDirectory) => new()
     {
         OutputDirectory = outputDirectory,
-        SelectedModeIndex = 2,
-        OutputFormatIndex = ProtocolFormatMatrix.FormatJpgMov,
+        OutputProfile = LivePhotoBox.Services.ProductSelectionAdapter.Merge(2, ProtocolFormatMatrix.FormatJpgMov),
         NamingRuleIndex = 0,
         MaxDegreeOfParallelism = 1,
         TaskStartInterval = TimeSpan.Zero,

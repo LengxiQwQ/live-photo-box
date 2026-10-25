@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using LivePhotoBox.Media.Models;
 
 namespace LivePhotoBox.Services
 {
@@ -20,16 +21,12 @@ namespace LivePhotoBox.Services
 
         // 协议索引: 0=Fusion, 1=V1, 2=V2, 3=OPPO, 4=VIVO, 5=Samsung, 6=HUAWEI
         // 格式索引: 0=JPG_MP4, 1=JPG_MOV, 2=HEIC_MP4, 3=HEIC_MOV, 4=HEIC_MP4_H265
-        public static readonly bool[][] Matrix =
-        [
-            [true,  true,  false, false, false], // Fusion
-            [true,  true,  false, false, false], // V1
-            [true,  true,  false, true,  false], // V2
-            [true,  false, false, false, false], // OPPO
-            [true,  false, false, false, false], // VIVO
-            [true,  false, true,  false, false], // Samsung
-            [true,  false, true,  false, true ], // HUAWEI: JPG+MP4 / HEIC+MP4 / HEIC+MP4(H.265)
-        ];
+        // Compatibility projection for existing Windows dropdown/settings and CLI aliases.
+        // The typed catalog is the authority; this table does not define a second policy.
+        public static readonly bool[][] Matrix = Enumerable.Range(0, 7)
+            .Select(protocol => Enumerable.Range(0, 5)
+                .Select(format => OutputProfile.IsSupported(ProductSelectionAdapter.MergeTarget(protocol),
+                    ProductSelectionAdapter.MergeFormat(format))).ToArray()).ToArray();
 
         // 检查指定协议索引和格式索引的组合是否可用
         public static bool IsAvailable(int protocolIndex, int formatIndex)

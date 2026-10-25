@@ -197,6 +197,10 @@ function(lpb_native_target target_name output_name harness)
     $<IF:$<TARGET_EXISTS:libjpeg-turbo::turbojpeg>,libjpeg-turbo::turbojpeg,libjpeg-turbo::turbojpeg-static>
     bcrypt ole32
     mfplat mfreadwrite mfuuid)
+  # Names match the import libraries' actual PE descriptors (case sensitive).
+  # Every MF call is preceded by the secure System32 preflight in video_converter.
+  target_link_libraries(${target_name} PRIVATE delayimp)
+  target_link_options(${target_name} PRIVATE /DELAYLOAD:MFPlat.DLL /DELAYLOAD:MFReadWrite.dll)
   if(NOT harness AND TARGET LivePhotoBoxVideoLibav)
     target_include_directories(${target_name} PRIVATE
       "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>")
@@ -243,6 +247,28 @@ if(BUILD_TESTING)
     "${CMAKE_SOURCE_DIR}/.ai-tmp/cache/samples/P5-R5-v1/苹果双文件.MOV"
     "${LPB_P5R5_VFR_OUTPUT_DIR}")
   if(LPB_BUILD_VIDEO_SIDECAR)
+    # Synthetic deployment-state override exists ONLY inside this standalone
+    # executable. It exercises the real conversion/staging/sidecar code without
+    # modifying a system DLL, adding an exported ABI, or adding a runtime switch.
+    add_executable(lpb_p8_mf_controlled_smoke
+      tests/native/p8_mf_controlled_smoke.cpp
+      ${LPB_PROTOCOL_METADATA_SOURCES} ${LPB_WINDOWS_PLATFORM_SOURCES} ${LPB_MEDIA_SOURCES})
+    target_include_directories(lpb_p8_mf_controlled_smoke PRIVATE
+      LivePhotoBox.Native/include LivePhotoBox.Native/src
+      "${CMAKE_CURRENT_BINARY_DIR}/generated" "${CMAKE_CURRENT_BINARY_DIR}/generated/$<CONFIG>")
+    target_compile_definitions(lpb_p8_mf_controlled_smoke PRIVATE
+      LPB_NATIVE_BUILD _WINDOWS LPB_P8_MF_TEST_SEAM=1 LPB_VIDEO_SIDECAR_BUILD_IDENTITY=1
+      $<$<CONFIG:Debug>:_DEBUG> $<$<NOT:$<CONFIG:Debug>>:NDEBUG>)
+    target_compile_options(lpb_p8_mf_controlled_smoke PRIVATE /W4 /WX /permissive- /utf-8 /EHsc /guard:cf)
+    target_link_libraries(lpb_p8_mf_controlled_smoke PRIVATE livephotobox_portable_core JPEG::JPEG heif
+      $<IF:$<TARGET_EXISTS:libjpeg-turbo::turbojpeg>,libjpeg-turbo::turbojpeg,libjpeg-turbo::turbojpeg-static>
+      bcrypt ole32 mfplat mfreadwrite mfuuid delayimp)
+    target_link_options(lpb_p8_mf_controlled_smoke PRIVATE /guard:cf
+      /DELAYLOAD:MFPlat.DLL /DELAYLOAD:MFReadWrite.dll)
+    add_dependencies(lpb_p8_mf_controlled_smoke LivePhotoBoxVideoLibav lpb_p5_r5_video_sidecar_identity)
+    set_target_properties(lpb_p8_mf_controlled_smoke PROPERTIES
+      RUNTIME_OUTPUT_DIRECTORY "${LPB_NATIVE_OUTPUT_ROOT}/$<CONFIG>/win-x64")
+
     add_executable(lpb_video_sidecar_runtime_smoke tests/native/video_sidecar_runtime_smoke.cpp)
     target_include_directories(lpb_video_sidecar_runtime_smoke PRIVATE
       LivePhotoBox.Native/include LivePhotoBox.Native/src)

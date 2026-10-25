@@ -129,8 +129,7 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
             var options = new LivePhotoMergeRunOptions
             {
                 OutputDirectory = callerWorkspace.RootDirectory,
-                SelectedModeIndex = protocolIndex,
-                OutputFormatIndex = formatIndex,
+                OutputProfile = LivePhotoBox.Services.ProductSelectionAdapter.Merge(protocolIndex, formatIndex),
                 OutputFilePath = outputPath,
                 NamingRuleIndex = 0,
                 MaxDegreeOfParallelism = 1,

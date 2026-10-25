@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace LivePhotoBox.Services
 {
@@ -60,21 +61,11 @@ namespace LivePhotoBox.Services
 
             var imagePaths = allFiles.Where(IsImageFile).ToList();
             var videoPaths = allFiles.Where(IsVideoFile).ToList();
-            var matcher = LivePhotoMetadataMatcher.MatchAsync(imagePaths, videoPaths, cancellationToken)
+            var metadataPairs = MatchMetadataPairsAsync(imagePaths, videoPaths, cancellationToken)
                 .GetAwaiter().GetResult();
 
             var matchedImages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             var matchedVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var metadataPairs = matcher.Pairs.ToList();
-
-            var remainingImages = imagePaths
-                .Where(path => !metadataPairs.Any(pair => string.Equals(pair.ImagePath, path, StringComparison.OrdinalIgnoreCase)))
-                .ToList();
-            var remainingVideos = videoPaths
-                .Where(path => !metadataPairs.Any(pair => string.Equals(pair.VideoPath, path, StringComparison.OrdinalIgnoreCase)))
-                .ToList();
-            var vivo = LivePhotoMetadataMatcher.MatchVivo(remainingImages, remainingVideos);
-            metadataPairs.AddRange(vivo.Pairs);
 
             var pairs = new List<LivePhotoFilePairInfo>(metadataPairs.Count);
             var inspector = new SourceInspector();
@@ -134,6 +125,45 @@ namespace LivePhotoBox.Services
                 StandaloneVideosCount = standaloneVideos.Count,
                 StandaloneImagePaths = standaloneImages,
                 StandaloneVideoPaths = standaloneVideos
+            };
+        }
+
+        // A vivo image deliberately fails solo inspection. Confirm its complete pair
+        // before the Apple matcher inspects remaining files individually.
+        internal static async Task<IReadOnlyList<MetadataPair>> MatchMetadataPairsAsync(
+            IReadOnlyList<string> imagePaths, IReadOnlyList<string> videoPaths,
+            CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var vivo = LivePhotoMetadataMatcher.MatchVivo(imagePaths, videoPaths);
+            cancellationToken.ThrowIfCancellationRequested();
+            var matchedImages = new HashSet<string>(vivo.Pairs.Select(pair => pair.ImagePath), StringComparer.OrdinalIgnoreCase);
+            var matchedVideos = new HashSet<string>(vivo.Pairs.Select(pair => pair.VideoPath), StringComparer.OrdinalIgnoreCase);
+            var apple = await LivePhotoMetadataMatcher.MatchAsync(
+                imagePaths.Where(path => !matchedImages.Contains(path)).ToList(),
+                videoPaths.Where(path => !matchedVideos.Contains(path)).ToList(),
+                cancellationToken).ConfigureAwait(false);
+            return vivo.Pairs.Concat(apple.Pairs).ToList();
+        }
+
+        // Used only for the user's explicit one-image/one-video selection.
+        // Directory discovery never guesses such a relationship from filenames.
+        internal static async Task<LivePhotoFilePairInfo?> PrepareExplicitMediaSelectionAsync(
+            string imagePath, string videoPath, CancellationToken cancellationToken)
+        {
+            SourceMediaFacts facts = await new SourceInspector().InspectAsync(imagePath, videoPath, cancellationToken)
+                .ConfigureAwait(false);
+            if (facts.Protocol != SourceProtocol.NonLive) return null;
+            VideoFacts video = await LivePhotoBox.Interop.NativeMediaService.ProbeVideoAsync(videoPath, cancellationToken)
+                .ConfigureAwait(false);
+            if (!video.IsPresent || video.Container == VideoContainer.Unknown || video.Codec == VideoCodec.Unknown)
+                throw new InvalidDataException("Explicit media selection requires a valid companion video.");
+            return new LivePhotoFilePairInfo
+            {
+                BaseName = Path.GetFileNameWithoutExtension(imagePath), ImagePath = imagePath, VideoPath = videoPath,
+                ImageSizeBytes = new FileInfo(imagePath).Length, VideoSizeBytes = new FileInfo(videoPath).Length,
+                Protocol = LivePhotoProtocolType.Unknown, DetectionMethod = LivePhotoDetectionMethod.ExplicitMediaSelection,
+                VideoByteOffset = 0, VideoByteLength = new FileInfo(videoPath).Length, VideoContainer = video.Container
             };
         }
 

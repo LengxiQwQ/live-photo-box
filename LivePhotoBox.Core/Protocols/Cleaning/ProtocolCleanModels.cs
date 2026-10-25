@@ -333,6 +333,8 @@ public sealed record NeutralArtifactManifest
 /// </summary>
 public sealed record NeutralMediaBundle
 {
+    /// <summary>Executed preparation diagnostics only, separate from correctness/authority.</summary>
+    internal NeutralPreparationExecution? PreparationExecution { get; init; }
     public required MediaArtifact PrimaryImage { get; init; }
     public MediaArtifact? MotionVideo { get; init; }
     public MediaArtifact? GainMap { get; init; }

@@ -1064,6 +1064,7 @@
                                                     Background="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}"
                                                     VerticalAlignment="Center"/>
                                             <TextBlock Grid.Column="1" Text="{x:Bind DisplayStatusText, Mode=OneWay}"
+                                                       ToolTipService.ToolTip="{x:Bind OutcomeSummary, Mode=OneWay}"
                                                        Foreground="{x:Bind Status, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}"
                                                        FontSize="11" FontWeight="SemiBold" VerticalAlignment="Center"
                                                        TextWrapping="NoWrap"

@@ -503,7 +503,7 @@ namespace LivePhotoBox.Views
             1 => 2,  // HEIC+MOV
             2 => 1,  // JPG+MOV
             3 => 3,  // JPG+MP4
-            _ => 0,
+            _ => -1,
         };
 
         // 全局 formatIndex → 下拉项位置
@@ -513,7 +513,7 @@ namespace LivePhotoBox.Views
             1 => 2,  // JPG+MOV
             2 => 1,  // HEIC+MOV
             3 => 3,
-            _ => 0,
+            _ => -1,
         };
 
         // 将持久化的全局 formatIndex 还原到下拉位置，并按当前协议刷新可见性。
@@ -536,7 +536,7 @@ namespace LivePhotoBox.Views
                     item.Visibility = Visibility.Collapsed;
             }
 
-            if (ViewModel.ProtocolIndex != ProtocolFormatMatrix.SplitProtocolNone)
+            if (ViewModel.ProtocolIndex is ProtocolFormatMatrix.SplitProtocolApple or ProtocolFormatMatrix.SplitProtocolVivo)
             {
                 ViewModel.ProtocolIndex = ProtocolFormatMatrix.SplitProtocolNone;
                 ProtocolComboBox.SelectedIndex = ProtocolFormatMatrix.SplitProtocolNone;
@@ -562,8 +562,12 @@ namespace LivePhotoBox.Views
                 }
             }
 
-            // 如果当前选中项在新协议下不可用，自动切到第一个可用项
-            if (newSelected < 0 || newSelected >= available.Length || !available[newSelected])
+            // Unknown persisted values stay unselected until the user chooses a valid value.
+            // Do not silently turn an unknown media requirement into "keep source".
+            if (newSelected < 0 || newSelected >= available.Length) return;
+
+            // Known selections that become unavailable after a protocol change use its visible default.
+            if (!available[newSelected])
             {
                 for (int i = 0; i < available.Length; i++)
                 {
@@ -1455,7 +1459,8 @@ namespace LivePhotoBox.Views
         {
             if (sender is not FrameworkElement element) return;
             if (element.DataContext is not SplitTask task) return;
-            if (task.Status != ProcessStatus.Failed || string.IsNullOrWhiteSpace(task.Details)) return;
+            if (string.IsNullOrWhiteSpace(task.OutcomeSummary) &&
+                (task.Status != ProcessStatus.Failed || string.IsNullOrWhiteSpace(task.Details))) return;
 
             // TeachingTip 箭头指向状态文字前面的状态圆点（横向 StackPanel 的第一个子元素），
             // 比指向整块文字更贴合"状态"位置。
@@ -1468,7 +1473,8 @@ namespace LivePhotoBox.Views
             }
 
             if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == tipTarget) { ErrorDetailTip.IsOpen = false; return; }
-            ErrorDetailText.Text = task.Details;
+            ErrorDetailTip.Title = ResourceService.GetString("ProductOutcome_ResultTitle");
+            ErrorDetailText.Text = string.IsNullOrWhiteSpace(task.OutcomeSummary) ? task.Details : task.OutcomeSummary;
             ErrorDetailTip.Target = tipTarget;
             ErrorDetailTip.IsOpen = true;
         }

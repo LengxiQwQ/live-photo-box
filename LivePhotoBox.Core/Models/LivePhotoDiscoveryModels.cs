@@ -39,6 +39,8 @@ namespace LivePhotoBox.Models
         HeicVideoTrack,
         /// <summary>通过 vivo JPEG 尾部 JSON / MP4 uuid box (com.android.camera.livephoto ID) 匹配</summary>
         VivoLivePhoto,
+        /// <summary>One ordinary image/video pair explicitly selected for composition; not a detected source-live binding.</summary>
+        ExplicitMediaSelection,
     }
 
     /// <summary>实况照片协议类型 — 检测到的厂商/协议</summary>

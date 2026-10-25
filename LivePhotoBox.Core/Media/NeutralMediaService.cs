@@ -52,6 +52,16 @@ public sealed class NeutralMediaService : INeutralMediaService
         ArgumentNullException.ThrowIfNull(primaryPath);
         ArgumentNullException.ThrowIfNull(workspace);
 
+        ImageExecutionRecord? imageExecution = null;
+        var videoExecutions = new List<VideoExecutionRecord>();
+        ProductOperationStage diagnosticStage = ProductOperationStage.Inspection;
+        NeutralPreparationExecution SnapshotExecution() => new()
+        {
+            Image = imageExecution,
+            Videos = videoExecutions.ToArray()
+        };
+        try
+        {
         cancellationToken.ThrowIfCancellationRequested();
 
         // 1. Inspect
@@ -61,6 +71,7 @@ public sealed class NeutralMediaService : INeutralMediaService
         SourceMediaFacts facts = inspected.Facts;
 
         // 2. Extract
+        diagnosticStage = ProductOperationStage.Extraction;
         ExtractedMediaBundle extracted = await _extractor
             .ExtractAsync(inspected.ExtractionPlan, primaryPath, secondaryPath, workspace, cancellationToken)
             .ConfigureAwait(false);
@@ -70,6 +81,7 @@ public sealed class NeutralMediaService : INeutralMediaService
         using CleanupPlan? cleanupAuthority = extracted.CleanupPlan;
 
         // 3. Clean source Live/Motion Photo protocol
+        diagnosticStage = ProductOperationStage.Cleaning;
         ProtocolCleanResult cleanResult = await _cleaner.CleanAsync(new ProtocolCleanRequest
         {
             ExtractedBundle = extracted,
@@ -84,6 +96,48 @@ public sealed class NeutralMediaService : INeutralMediaService
 
         MediaArtifact finalImage = cleanResult.CleanedImage;
         MediaArtifact? finalVideo = cleanResult.CleanedVideo;
+        VideoConversionResult? explicitVideoPreparation = null;
+        // A caller may explicitly compose two ordinary media files. Inspector
+        // deliberately does not manufacture a source-live pairing for them.
+        // Prepare that independently validated companion through the existing
+        // Native media path, without changing source protocol/cleanup authority.
+        if (finalVideo is null && secondaryPath is not null && facts.Protocol == SourceProtocol.NonLive)
+        {
+            diagnosticStage = ProductOperationStage.VideoConversion;
+            if (facts.PairingIdentifier is not null || facts.MotionVideo is not null ||
+                facts.SecondarySha256 is not { Length: 64 })
+                throw new InvalidDataException("Explicit media preparation requires an inspected non-live companion identity.");
+            await workspace.AssertSourceUnmodifiedAsync(secondaryPath, facts.SecondarySha256, cancellationToken)
+                .ConfigureAwait(false);
+            VideoFacts companionFacts = await _videoConverter.ProbeAsync(secondaryPath, cancellationToken)
+                .ConfigureAwait(false);
+            if (!companionFacts.IsPresent || companionFacts.Container == VideoContainer.Unknown ||
+                companionFacts.Codec == VideoCodec.Unknown)
+                throw new InvalidDataException("Explicit companion is not a supported, independently valid video.");
+            explicitVideoPreparation = await _videoConverter.ConvertAsync(new VideoConversionRequest
+            {
+                SourceArtifact = new MediaArtifact
+                {
+                    Path = secondaryPath, Kind = MediaArtifactKind.MotionVideo,
+                    VideoContainer = companionFacts.Container, VideoCodec = companionFacts.Codec,
+                    Sha256 = facts.SecondarySha256, ByteLength = new FileInfo(secondaryPath).Length
+                },
+                TargetContainer = companionFacts.Container, TargetCodec = VideoCodec.Copy,
+                TargetDirectory = workspace.RootDirectory, PreservationPolicy = preservationPolicy,
+                TrustedSourceFacts = new VideoConversionSourceFacts
+                {
+                    Container = companionFacts.Container, Codec = companionFacts.Codec,
+                    HasAudio = companionFacts.HasAudio, RotationDegrees = companionFacts.RotationDegrees,
+                    DurationSeconds = companionFacts.DurationSeconds
+                }
+            }, cancellationToken).ConfigureAwait(false);
+            videoExecutions.Add(explicitVideoPreparation.ExecutionRecord);
+            if (!explicitVideoPreparation.Success || explicitVideoPreparation.OutputArtifact is null)
+                throw new InvalidOperationException("Explicit companion preparation failed: " + explicitVideoPreparation.ErrorMessage);
+            finalVideo = explicitVideoPreparation.OutputArtifact;
+            await workspace.AssertSourceUnmodifiedAsync(secondaryPath, facts.SecondarySha256, cancellationToken)
+                .ConfigureAwait(false);
+        }
         using var finalReadLeases = new NeutralArtifactReadLeaseSet();
         finalReadLeases.Pin(finalImage);
         finalReadLeases.Pin(finalVideo);
@@ -99,6 +153,7 @@ public sealed class NeutralMediaService : INeutralMediaService
         // independently inspected primary and carry the same GainMap as a
         // detached semantic artifact.
         bool gainMapEmbeddedInPrimary = false;
+        diagnosticStage = ProductOperationStage.Inspection;
         SourceMediaFacts neutralInputFacts = await _inspector
             .InspectAsync(finalImage.Path, cancellationToken: cancellationToken)
             .ConfigureAwait(false);
@@ -157,15 +212,16 @@ public sealed class NeutralMediaService : INeutralMediaService
 
         PreservationOutcome imageOutcome = cleanResult.PreservationOutcome;
         bool gainMapSemanticallyReencoded = false;
-        PreservationOutcome videoOutcome = cleanResult.CleanedVideo == null
+        PreservationOutcome videoOutcome = explicitVideoPreparation?.ExecutionRecord.Truth.PreservationOutcome ?? (cleanResult.CleanedVideo == null
             ? PreservationOutcome.Preserved
-            : cleanResult.PreservationOutcome;
+            : cleanResult.PreservationOutcome);
         ConversionExecutionTruth? imageConversionTruth = null;
-        ConversionExecutionTruth? videoConversionTruth = null;
+        ConversionExecutionTruth? videoConversionTruth = explicitVideoPreparation?.ExecutionRecord.Truth;
         VideoFacts? resolvedVideoFacts = null;
         NativeImageOrientationObservationV1? preConversionImageOrientation = null;
         bool imageWasConverted = false;
-        bool videoWasConverted = false;
+        bool videoWasConverted = videoConversionTruth is not null &&
+            videoConversionTruth.ActualOperationKind != ConversionOperationKind.Passthrough;
 
         // 4. Convert formats if requested
         if (requirement != null)
@@ -174,6 +230,7 @@ public sealed class NeutralMediaService : INeutralMediaService
             if (requirement.ImageContainer != ImageContainer.Unknown &&
                 requirement.ImageContainer != finalImage.ImageContainer)
             {
+                diagnosticStage = ProductOperationStage.ImageConversion;
                 preConversionImageOrientation = await NativeMediaService
                     .ObserveImageOrientationAsync(
                         finalImage.Path,
@@ -199,6 +256,7 @@ public sealed class NeutralMediaService : INeutralMediaService
                         }
                 }, cancellationToken).ConfigureAwait(false);
 
+                imageExecution = imgConv.ExecutionRecord;
                 if (!imgConv.Success || imgConv.OutputArtifact == null)
                 {
                     throw new InvalidOperationException($"Image conversion failed in neutral pipeline: {imgConv.ErrorMessage}");
@@ -248,6 +306,7 @@ public sealed class NeutralMediaService : INeutralMediaService
 
             if (finalVideo != null)
             {
+                diagnosticStage = ProductOperationStage.Inspection;
                 resolvedVideoFacts = await _videoConverter
                     .ProbeAsync(finalVideo.Path, cancellationToken)
                     .ConfigureAwait(false);
@@ -284,6 +343,7 @@ public sealed class NeutralMediaService : INeutralMediaService
                     requirement.VideoCodec == videoFacts.Codec
                     ? VideoCodec.Copy
                     : requirement.VideoCodec;
+                diagnosticStage = ProductOperationStage.VideoConversion;
                 var vidConv = await _videoConverter.ConvertAsync(new VideoConversionRequest
                 {
                     SourceArtifact = finalVideo,
@@ -302,6 +362,7 @@ public sealed class NeutralMediaService : INeutralMediaService
                     }
                 }, cancellationToken).ConfigureAwait(false);
 
+                videoExecutions.Add(vidConv.ExecutionRecord);
                 if (!vidConv.Success || vidConv.OutputArtifact == null)
                 {
                     throw new InvalidOperationException($"Video conversion failed in neutral pipeline: {vidConv.ErrorMessage}");
@@ -331,6 +392,7 @@ public sealed class NeutralMediaService : INeutralMediaService
         }
 
         // The bundle represents final media, so probe the actual post-clean /
+        diagnosticStage = ProductOperationStage.Inspection;
         // post-conversion video even when no format requirement requested a
         // conversion. The earlier requirement probe is only conversion input.
         if (finalVideo != null)
@@ -500,8 +562,15 @@ public sealed class NeutralMediaService : INeutralMediaService
             AuxiliaryMedia = auxiliaryHandoff,
             PreservationCarriers = preservationCarriers,
             Timing = facts.Timing,
-            Semantics = semantics
+            Semantics = semantics,
+            PreparationExecution = SnapshotExecution()
         };
+        }
+        catch (Exception exception)
+        {
+            NeutralPreparationDiagnostics.Attach(exception, diagnosticStage, SnapshotExecution());
+            throw;
+        }
     }
 
     private sealed record NeutralManifestProjection(

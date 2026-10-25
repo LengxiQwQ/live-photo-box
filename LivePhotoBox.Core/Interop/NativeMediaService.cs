@@ -1362,7 +1362,7 @@ public static class NativeMediaService
         return length == 0 ? string.Empty : Encoding.UTF8.GetString(bytes, length);
     }
 
-    private static NativeVideoTranscodeResult ProjectVideoDiagnostics(
+    internal static NativeVideoTranscodeResult ProjectVideoDiagnostics(
         VideoBackend backend,
         VideoHardwareMode hardwareMode,
         bool fallbackOccurred,
@@ -1416,7 +1416,11 @@ public static class NativeMediaService
                 "?" => "Unknown",
                 var version => version
             };
-            selectedEncoder = fields[2] is "na" or "?"
+            selectedEncoder = fallbackOccurred
+                ? fields[2] is "na" or "?"
+                    ? "minimal-libav/selected-encoder-unknown"
+                    : $"minimal-libav/{fields[2]}"
+                : fields[2] is "na" or "?"
                 ? "minimal-libav/P7-R4-HEVC-v2"
                 : $"minimal-libav/P7-R4-HEVC-v2/{fields[2]}";
         }

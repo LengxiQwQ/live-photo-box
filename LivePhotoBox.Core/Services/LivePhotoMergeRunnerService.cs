@@ -20,10 +20,7 @@ namespace LivePhotoBox.Services
     {
         // 输出目录路径。
         public required string OutputDirectory { get; init; }
-        // 选中的合成协议索引。
-        public required int SelectedModeIndex { get; init; }
-        // 输出格式索引（0=JPG+MP4, 1=JPG+MOV, 2=HEIC+MP4, 3=HEIC+MOV）。
-        public int OutputFormatIndex { get; init; } = 0;
+        public required OutputProfile OutputProfile { get; init; }
         // 命名规则索引（0=保留原名, 1=添加协议后缀, 2=自定义模板）。
         public int NamingRuleIndex { get; init; } = 0;
         // 自定义命名模板字符串（NamingRuleIndex==2 时使用）。
@@ -38,8 +35,7 @@ namespace LivePhotoBox.Services
         public bool PreserveSubfolders { get; init; } = false;
         // 输入目录（PreserveSubfolders 为 true 时用于计算相对路径）。
         public string? InputDirectory { get; init; }
-        // 预定的输出文件路径。设置后跳过内部路径生成和 OverwriteExisting 逻辑。
-        // GUI 用此选项传入自己计算的路径（含子目录保留/覆盖处理）。
+        // 预定的输出文件路径，仅跳过内部命名；覆盖仍须由 OverwriteExisting 授权。
         public string? OutputFilePath { get; init; }
         // 用户指定的封面（key photo）在视频时间轴上的位置（微秒）。
         // null = 自动跟随源视频自带的时间轴（Apple MOV mebx / vivo uuid box）；
@@ -72,7 +68,28 @@ namespace LivePhotoBox.Services
             CancellationToken cancellationToken,
             Action<IMergeTaskInfo>? onTaskStarted,
             Action<IMergeTaskInfo, bool, string, int>? onTaskCompleted)
+            => RunWithOutcomesAsync(tasks, options, pauseEvent, cancellationToken, onTaskStarted,
+                (task, outcome, count) =>
+                {
+                    if (outcome.Status != ProductOperationStatus.Cancelled)
+                        onTaskCompleted?.Invoke(task, outcome.IsSuccess, outcome.Details, count);
+                });
+
+        internal static Task RunWithOutcomesAsync(
+            IReadOnlyCollection<IMergeTaskInfo> tasks,
+            LivePhotoMergeRunOptions options,
+            ManualResetEventSlim pauseEvent,
+            CancellationToken cancellationToken,
+            Action<IMergeTaskInfo>? onTaskStarted,
+            Action<IMergeTaskInfo, ProductOperationOutcome, int>? onTaskCompleted)
         {
+            ArgumentNullException.ThrowIfNull(options);
+            ArgumentNullException.ThrowIfNull(options.OutputProfile);
+            if (options.TaskStartInterval < TimeSpan.Zero ||
+                options.TaskStartInterval.TotalMilliseconds > uint.MaxValue - 1)
+                throw new ArgumentOutOfRangeException(nameof(options.TaskStartInterval),
+                    "Batch start interval must be non-negative and within the supported delay range.");
+            cancellationToken.ThrowIfCancellationRequested();
             return ProcessingPipelineRouter.RunRebuiltAsync("merge", () => RunRebuiltAsync(
                 tasks, options, pauseEvent, cancellationToken, onTaskStarted, onTaskCompleted));
         }
@@ -83,15 +100,23 @@ namespace LivePhotoBox.Services
             ManualResetEventSlim pauseEvent,
             CancellationToken cancellationToken,
             Action<IMergeTaskInfo>? onTaskStarted,
-            Action<IMergeTaskInfo, bool, string, int>? onTaskCompleted)
+            Action<IMergeTaskInfo, ProductOperationOutcome, int>? onTaskCompleted)
         {
             Directory.CreateDirectory(options.OutputDirectory);
             int completedCount = 0;
             int batchSize = Math.Max(1, options.MaxDegreeOfParallelism);
+            long? previousBatchStart = null;
             foreach (var batch in tasks.Where(task => task.Status != ProcessStatus.Success).Chunk(batchSize))
             {
+                if (previousBatchStart is long previous)
+                {
+                    TimeSpan remaining = options.TaskStartInterval - Stopwatch.GetElapsedTime(previous);
+                    if (remaining > TimeSpan.Zero)
+                        await Task.Delay(remaining, cancellationToken).ConfigureAwait(false);
+                }
                 await WaitPauseAsync(pauseEvent, cancellationToken).ConfigureAwait(false);
                 cancellationToken.ThrowIfCancellationRequested();
+                previousBatchStart = Stopwatch.GetTimestamp();
 
                 var runningTasks = batch.Select(async task =>
                 {
@@ -102,15 +127,20 @@ namespace LivePhotoBox.Services
                     var result = await ProcessSinglePairRebuiltAsync(
                         task.ImagePath, task.VideoPath, task.BaseName, task.Index, options,
                         cancellationToken).ConfigureAwait(false);
+                    if (result.Status == ProductOperationStatus.Cancelled)
+                    {
+                        onTaskCompleted?.Invoke(task, result, Volatile.Read(ref completedCount));
+                        throw new OperationCanceledException(cancellationToken);
+                    }
                     int currentCompleted = Interlocked.Increment(ref completedCount);
-                    onTaskCompleted?.Invoke(task, result.IsSuccess, result.Details, currentCompleted);
+                    onTaskCompleted?.Invoke(task, result, currentCompleted);
                 });
 
                 await Task.WhenAll(runningTasks).ConfigureAwait(false);
             }
         }
 
-        private static async Task<(bool IsSuccess, string Details)> ProcessSinglePairRebuiltAsync(
+        private static async Task<ProductOperationOutcome> ProcessSinglePairRebuiltAsync(
             string imagePath,
             string videoPath,
             string baseName,
@@ -123,13 +153,26 @@ namespace LivePhotoBox.Services
             // for diagnostics only; a failed merge must never delete it by path.
             string? finalOutputPath = options.OutputFilePath;
             string? candidateReservationKey = null;
+            var baseline = new ProductOperationOutcome
+            {
+                OperationId = Guid.NewGuid(), StartedUtc = DateTimeOffset.UtcNow,
+                Operation = ProductOperationKind.Merge,
+                RequestedSelection = new() { TargetProtocol = options.OutputProfile?.TargetProtocol,
+                    OutputFormat = options.OutputProfile?.Format },
+                Inputs = new[] { imagePath, videoPath },
+                RequestedDestination = options.OutputFilePath ?? options.OutputDirectory
+            };
+            NeutralMediaBundle? prepared = null;
+            ProductOperationStage stage = ProductOperationStage.Selection;
+            ProductOperationOutcome terminal;
             try
             {
                 token.ThrowIfCancellationRequested();
-                MediaFormatRequirement requirement = ProtocolMediaRequirements.GetMergeRequirement(
-                    options.SelectedModeIndex, options.OutputFormatIndex);
+                ArgumentNullException.ThrowIfNull(options.OutputProfile);
+                MediaFormatRequirement requirement = options.OutputProfile.MediaRequirement;
 
                 using var workspace = new MediaWorkspace();
+                stage = ProductOperationStage.Inspection;
                 NeutralMediaBundle bundle = await new NeutralMediaService().CreateNeutralBundleAsync(
                     imagePath,
                     videoPath,
@@ -137,6 +180,7 @@ namespace LivePhotoBox.Services
                     requirement,
                     PreservationPolicy.BestEffort,
                     token).ConfigureAwait(false);
+                prepared = bundle;
 
                 if (bundle.MotionVideo == null || !File.Exists(bundle.MotionVideo.Path))
                     throw new InvalidDataException("Rebuilt merge requires a Native-inspected motion video pair.");
@@ -145,11 +189,11 @@ namespace LivePhotoBox.Services
                     bundle.Semantics.Timing,
                     options.KeyPhotoTimestampUs);
 
-                string outputName = LivePhotoMergeService.CreateOutputFileName(
+                stage = ProductOperationStage.Selection;
+                string outputName = ExistingTargetWriterAdapter.CreateOutputFileName(
                     baseName,
-                    options.SelectedModeIndex,
+                    options.OutputProfile,
                     bundle.PrimaryImage.Path,
-                    options.OutputFormatIndex,
                     options.NamingRuleIndex,
                     customPattern: options.NamingRuleIndex == 2 ? options.CustomNamingPattern : null,
                     taskIndex: options.NamingRuleIndex == 2 ? taskIndex : null);
@@ -179,36 +223,52 @@ namespace LivePhotoBox.Services
                     }
                 }
 
-                await LivePhotoMergeService.WriteLivePhotoRebuiltAsync(
-                    bundle.PrimaryImage.Path,
-                    bundle.MotionVideo.Path,
+                // Adapter owns its writer/publisher transaction. A generic
+                // exception cannot authoritatively identify a finer substage.
+                stage = ProductOperationStage.Writer;
+                await ExistingTargetWriterAdapter.WriteAsync(
+                    bundle,
+                    options.OutputProfile,
                     finalOutputPath,
-                    options.SelectedModeIndex,
                     token,
                     presentationTimestampUs,
-                    options.OutputFormatIndex,
-                    overwriteExisting: options.OutputFilePath != null || options.OverwriteExisting,
-                    testHook: null).ConfigureAwait(false);
+                    overwriteExisting: options.OverwriteExisting).ConfigureAwait(false);
 
                 stopwatch.Stop();
                 LogService.Merge($"Rebuilt merge completed for {baseName}: {finalOutputPath} ({stopwatch.Elapsed.TotalSeconds:F2}s)");
-                return (true, ResourceService.GetString("Task_Success"));
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
+                terminal = baseline with
+                {
+                    Status = ProductOperationStatus.Success,
+                    PreparationSemantics = bundle.Semantics,
+                    PreparationExecution = bundle.PreparationExecution,
+                    CommittedOutputs = new[] { new ProductCommittedArtifact { Role = "TargetLivePhoto", Path = finalOutputPath } },
+                    Diagnostic = new() { Stage = ProductOperationStage.Publication, Message = ResourceService.GetString("Task_Success") }
+                };
             }
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                LogService.Merge($"Rebuilt merge failed for {baseName}: {ex.Message} ({stopwatch.Elapsed.TotalSeconds:F2}s)", LogLevel.Error, ex);
-                return (false, ResourceService.Format("Task_Error", ex.Message));
+                NeutralPreparationDiagnostics.TryRead(ex, out var failurePreparation);
+                var execution = failurePreparation?.Execution ?? prepared?.PreparationExecution;
+                var diagnostic = ProductOutcomeCompletion.Failure(ex, stage, execution);
+                if (ex is not OperationCanceledException)
+                    LogService.Merge($"Rebuilt merge failed for {baseName}: {ex.Message} ({stopwatch.Elapsed.TotalSeconds:F2}s)", LogLevel.Error, ex);
+                terminal = baseline with
+                {
+                    Status = ProductOutcomeCompletion.Status(ex, diagnostic),
+                    PreparationSemantics = prepared?.Semantics,
+                    PreparationExecution = execution,
+                    Diagnostic = diagnostic with { Message = ex is OperationCanceledException ? ex.Message : ResourceService.Format("Task_Error", ex.Message) }
+                };
             }
             finally
             {
                 if (candidateReservationKey != null)
                     s_outputPathCandidates.TryRemove(candidateReservationKey, out _);
             }
+            // Includes workspace disposal and reservation release. No earlier
+            // success record can escape if cleanup itself throws.
+            return ProductOutcomeCompletion.Record(terminal with { CompletedUtc = DateTimeOffset.UtcNow });
         }
 
         internal static long ResolveNeutralCoverTimestamp(
@@ -342,7 +402,7 @@ namespace LivePhotoBox.Services
         // tempDir: 保留以兼容既有调用方；重建流程使用每次调用独占的 MediaWorkspace。
         // token: 取消令牌。
         // 返回: (是否成功, 结果描述)
-        public static Task<(bool IsSuccess, string Details)> ProcessSinglePairAsync(
+        public static async Task<(bool IsSuccess, string Details)> ProcessSinglePairAsync(
             string imagePath,
             string videoPath,
             string baseName,
@@ -352,8 +412,27 @@ namespace LivePhotoBox.Services
             CancellationToken token)
         {
             _ = tempDir;
+            ProductOperationOutcome outcome = await ProcessSinglePairWithOutcomeAsync(
+                imagePath, videoPath, baseName, taskIndex, options, token).ConfigureAwait(false);
+            if (outcome.Status == ProductOperationStatus.Cancelled) throw new OperationCanceledException(token);
+            return (outcome.IsSuccess, outcome.Details);
+        }
+
+        internal static Task<ProductOperationOutcome> ProcessSinglePairWithOutcomeAsync(
+            string imagePath, string videoPath, string baseName, int taskIndex,
+            LivePhotoMergeRunOptions options, CancellationToken token)
+        {
+            ArgumentNullException.ThrowIfNull(options);
             return ProcessingPipelineRouter.RunRebuiltAsync("merge", () => ProcessSinglePairRebuiltAsync(
                 imagePath, videoPath, baseName, taskIndex, options, token));
+        }
+
+        internal static Task<ProductOperationOutcome> ProcessSinglePairWithOutcomeAsync(
+            string imagePath, string videoPath, string baseName, int taskIndex,
+            LivePhotoMergeRunOptions options, string tempDir, CancellationToken token)
+        {
+            _ = tempDir;
+            return ProcessSinglePairWithOutcomeAsync(imagePath, videoPath, baseName, taskIndex, options, token);
         }
     }
 }

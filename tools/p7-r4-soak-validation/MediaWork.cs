@@ -201,8 +201,7 @@ internal static partial class Program
             Path.Combine(samples, "苹果-双文件.JPG"), Path.Combine(samples, "苹果-双文件.MOV"), "same-name")).ToArray();
         using var pause = new ManualResetEventSlim(true); int starts = 0, completions = 0;
         await LivePhotoMergeRunnerService.RunAsync(pairs,
-            new LivePhotoMergeRunOptions { OutputDirectory = directory, SelectedModeIndex = 2,
-                OutputFormatIndex = ProtocolFormatMatrix.FormatJpgMov, MaxDegreeOfParallelism = 3, TaskStartInterval = TimeSpan.Zero },
+            new LivePhotoMergeRunOptions { OutputDirectory = directory, OutputProfile = LivePhotoBox.Services.ProductSelectionAdapter.Merge(2, ProtocolFormatMatrix.FormatJpgMov), MaxDegreeOfParallelism = 3, TaskStartInterval = TimeSpan.Zero },
             pause, CancellationToken.None, _ => Interlocked.Increment(ref starts),
             (pair, success, details, _) => { pair.Status = success ? ProcessStatus.Success : ProcessStatus.Failed;
                 pair.Details = details; Interlocked.Increment(ref completions); });

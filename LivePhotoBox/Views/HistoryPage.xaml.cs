@@ -38,6 +38,7 @@ namespace LivePhotoBox.Views
         public HistoryPage()
         {
             InitializeComponent();
+            Loaded += (_, _) => ViewModel.RefreshProductHistory();
         }
 
         // 选择文件夹按钮点击：弹出文件夹选择器并将路径写入 ViewModel

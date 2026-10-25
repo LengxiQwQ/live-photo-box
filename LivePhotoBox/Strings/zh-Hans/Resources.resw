@@ -884,9 +884,6 @@
   <data name="SplitPage_DropHint.Text" xml:space="preserve">
     <value>拖拽已有的实况照片至此进行拆分</value>
   </data>
-  <data name="SplitPage_StartButton.Content" xml:space="preserve">
-    <value>开始拆分</value>
-  </data>
   <data name="SplitPage_ColSource.Text" xml:space="preserve">
     <value>源文件</value>
   </data>
@@ -4560,4 +4557,36 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="Preview_InspectionFailed" xml:space="preserve">
     <value>媒体检查失败</value>
   </data>
+  <data name="ProductOutcome_Success" xml:space="preserve"><value>成功</value></data>
+  <data name="ProductOutcome_Unsupported" xml:space="preserve"><value>不支持此请求</value></data>
+  <data name="ProductOutcome_Failed" xml:space="preserve"><value>处理失败</value></data>
+  <data name="ProductOutcome_Cancelled" xml:space="preserve"><value>已取消</value></data>
+  <data name="ProductOutcome_BuiltinEngine" xml:space="preserve"><value>内置视频引擎</value></data>
+  <data name="ProductOutcome_Selection" xml:space="preserve"><value>请求的输出</value></data>
+  <data name="ProductOutcome_PreparationScope" xml:space="preserve"><value>以下保留与转换信息仅针对媒体准备步骤。</value></data>
+  <data name="ProductOutcome_BackendUnknown" xml:space="preserve"><value>未记录到已执行的转换后端。</value></data>
+  <data name="ProductOutcome_TargetPreservationUnknown" xml:space="preserve"><value>最终目标文件的完整保留情况：未验证。</value></data>
+  <data name="ProductOutcome_Diagnostic" xml:space="preserve"><value>诊断</value></data>
+  <data name="ProductOutcome_Capability" xml:space="preserve"><value>媒体准备能力（实际请求仍需验证）</value></data>
+  <data name="ProductOutcome_FallbackCompleted" xml:space="preserve"><value>系统多媒体编码能力不可用，已使用内置视频引擎完成准备</value></data>
+  <data name="ProductOutcome_FallbackSelected" xml:space="preserve"><value>已选择内置视频引擎，执行结果请查看诊断</value></data>
+  <data name="ProductOutcome_ResultTitle" xml:space="preserve"><value>处理结果</value></data>
+  <data name="ProductHistory_Count" xml:space="preserve"><value>已读取 {0} 条操作记录（最多显示最近 200 条）。</value></data>
+  <data name="ProductHistory_Default" xml:space="preserve"><value>默认</value></data>
+  <data name="ProductHistory_Empty" xml:space="preserve"><value>暂无可读取的操作记录。未初始化或不可用的日志不会形成持久历史。</value></data>
+  <data name="ProductHistory_Execution" xml:space="preserve"><value>{0}；后端={1} {2}；硬件={3}；替代路线选择={4}（不单独证明编码器执行）；{5}；阶段={6}/{7}；准备范围像素={8}，元数据={9}，色彩={10}，HDR/GainMap={11}，辅助={12}，音频={13}，时序={14}，方向={15}</value></data>
+  <data name="ProductHistory_HistoricalScope" xml:space="preserve"><value>操作时的历史证据；不表示文件当前状态。最终目标保留：Unknown（未验证）。</value></data>
+  <data name="ProductHistory_Image" xml:space="preserve"><value>图像准备：{0}</value></data>
+  <data name="ProductHistory_Merge" xml:space="preserve"><value>合并</value></data>
+  <data name="ProductHistory_NoOutput" xml:space="preserve"><value>本次操作无已提交输出。</value></data>
+  <data name="ProductHistory_Outputs" xml:space="preserve"><value>本次已提交输出（历史路径）：</value></data>
+  <data name="ProductHistory_Refresh.Content" xml:space="preserve"><value>刷新记录</value></data>
+  <data name="ProductHistory_Retention.Text" xml:space="preserve"><value>历史随日志保留或清理（最多 100 个应用及 100 个 CLI 会话文件）。读取限制为每文件尾部 4 MiB、总计 32 MiB，最多 1,000 条不同操作。记录是操作时证据，最终目标保留为 Unknown。下方单独展示文件夹 XMP 分析。</value></data>
+  <data name="ProductHistory_Selection" xml:space="preserve"><value>请求：{0} / {1}</value></data>
+  <data name="ProductHistory_Split" xml:space="preserve"><value>拆分</value></data>
+  <data name="ProductHistory_Summary" xml:space="preserve"><value>{0}
+输入：{1}
+{2} / {3}：{4}</value></data>
+  <data name="ProductHistory_Title.Text" xml:space="preserve"><value>操作历史 · 应用与 CLI</value></data>
+  <data name="ProductHistory_Video" xml:space="preserve"><value>视频准备：{0}；编码器={1}</value></data>
 </root>

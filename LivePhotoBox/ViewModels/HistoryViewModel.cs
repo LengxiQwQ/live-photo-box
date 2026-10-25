@@ -21,11 +21,29 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
+using LivePhotoBox.Media.Models;
 
 namespace LivePhotoBox.ViewModels
 {
     public partial class HistoryViewModel : ViewModelBase
     {
+        // Disk-backed terminal outcomes are independent of the XMP inspection below.
+        public ObservableCollection<ProductHistoryCard> ProductOperations { get; } = new();
+
+        [ObservableProperty]
+        private string _productHistoryStatus = string.Empty;
+
+        [RelayCommand]
+        public void RefreshProductHistory()
+        {
+            ProductOperations.Clear();
+            foreach (var outcome in LogService.ReadProductOutcomes())
+                ProductOperations.Add(ProductHistoryCard.From(outcome));
+            ProductHistoryStatus = ProductOperations.Count == 0
+                ? ResourceService.GetString("ProductHistory_Empty")
+                : ResourceService.Format("ProductHistory_Count", ProductOperations.Count);
+        }
+
         // ── Protocol XMP namespaces ────────────────────────────────────────
         private static readonly XNamespace RdfNs   = "http://www.w3.org/1999/02/22-rdf-syntax-ns#";
         private static readonly XNamespace DcNs    = "http://purl.org/dc/elements/1.1/";
@@ -470,4 +488,44 @@ namespace LivePhotoBox.ViewModels
             return ext is ".jpg" or ".jpeg" or ".heic" or ".heif";
         }
     }
+}
+
+// String-only view data keeps the internal operation DTO out of the public UI API.
+namespace LivePhotoBox.ViewModels
+{
+public sealed record ProductHistoryCard(string Title, string Summary, string Outputs, string Evidence)
+{
+    internal static ProductHistoryCard From(ProductOperationOutcome outcome)
+    {
+        string status = outcome.Status switch
+        {
+            ProductOperationStatus.Success => ResourceService.GetString("ProductOutcome_Success"),
+            ProductOperationStatus.Unsupported => ResourceService.GetString("ProductOutcome_Unsupported"),
+            ProductOperationStatus.Cancelled => ResourceService.GetString("ProductOutcome_Cancelled"),
+            _ => ResourceService.GetString("ProductOutcome_Failed")
+        };
+        string kind = ResourceService.GetString(outcome.Operation == ProductOperationKind.Split ? "ProductHistory_Split" : "ProductHistory_Merge");
+        string title = $"{outcome.CompletedUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss} · {kind} · {status}";
+        string selection = ResourceService.Format("ProductHistory_Selection", outcome.RequestedSelection.TargetProtocol?.ToString() ?? "—",
+            outcome.RequestedSelection.OutputFormat?.ToString() ?? outcome.RequestedSelection.SplitFormat?.ToString() ?? ResourceService.GetString("ProductHistory_Default"));
+        string summary = ResourceService.Format("ProductHistory_Summary", selection, string.Join("; ", outcome.Inputs), outcome.Diagnostic.Stage, outcome.Diagnostic.Category, outcome.Diagnostic.Message);
+        string outputs = outcome.CommittedOutputs.Count == 0 ? ResourceService.GetString("ProductHistory_NoOutput")
+            : ResourceService.GetString("ProductHistory_Outputs") + "\n" + string.Join("\n", outcome.CommittedOutputs.Select(x => $"{x.Role}: {x.Path}"));
+        var evidence = new StringBuilder(ResourceService.GetString("ProductHistory_HistoricalScope"));
+        if (outcome.PreparationExecution?.Image is { } image)
+            evidence.Append('\n').Append(ResourceService.Format("ProductHistory_Image", Describe(image.Truth)));
+        if (outcome.PreparationExecution is { } preparation)
+            foreach (var video in preparation.Videos)
+                evidence.Append('\n').Append(ResourceService.Format("ProductHistory_Video", Describe(video.Truth),
+                    string.IsNullOrWhiteSpace(video.SelectedEncoder) ? "Unknown" : video.SelectedEncoder));
+        if (outcome.PreparationExecution == null)
+            evidence.Append('\n').Append(ResourceService.GetString("ProductOutcome_BackendUnknown"));
+        return new(title, summary, outputs, evidence.ToString());
+    }
+
+    private static string Describe(ConversionExecutionTruth truth) =>
+        ResourceService.Format("ProductHistory_Execution", truth.ActualOperationKind, truth.BackendName, truth.BackendVersion, truth.HardwareMode,
+            truth.FallbackOccurred, truth.FallbackReason ?? string.Empty, truth.FailureStage, truth.FailureCategory,
+            truth.Pixel, truth.Metadata, truth.ColorIcc, truth.HdrGainMap, truth.Auxiliary, truth.Audio, truth.Timing, truth.Orientation);
+}
 }

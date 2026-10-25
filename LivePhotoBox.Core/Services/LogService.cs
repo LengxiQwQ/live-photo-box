@@ -1,4 +1,5 @@
 using LivePhotoBox.Models;
+using LivePhotoBox.Media.Models;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -359,6 +360,20 @@ namespace LivePhotoBox.Services
         #endregion
 
         #region Query API
+
+        // Terminal media history bypasses the disposable in-memory log queue.
+        // Failure is diagnostic only; callers retain the media operation result.
+        internal static bool RecordProductOutcome(ProductOperationOutcome outcome)
+        {
+            lock (_fileLock)
+                return ProductOutcomeHistoryStore.Append(_currentLogPath, outcome);
+        }
+
+        internal static IReadOnlyList<ProductOperationOutcome> ReadProductOutcomes(int maxCount = 200)
+        {
+            lock (_fileLock)
+                return ProductOutcomeHistoryStore.Read(ResolveLogDirectory(), maxCount);
+        }
 
         // Returns up to <paramref name="count"/> recent log entries from the in-memory queue.
         public static IReadOnlyList<AppLogEntry> GetRecentEntries(int count = 100)

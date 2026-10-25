@@ -99,11 +99,21 @@ namespace LivePhotoBox.Services
             var inspector = new SourceInspector();
             int completed = 0;
 
+            // Confirm complete dual-file relationships before solo inspection: a
+            // vivo orphan is intentionally ambiguous at the Inspector boundary.
+            var confirmedPairs = scanMode.HasFlag(DiscoveryScanMode.CidMatch) || scanMode.HasFlag(DiscoveryScanMode.VivoMatch)
+                ? await LivePhotoMergeScanService.MatchMetadataPairsAsync(
+                    images.Select(i => i.FilePath).ToList(), videos.Select(v => v.FilePath).ToList(), ct).ConfigureAwait(false)
+                : Array.Empty<MetadataPair>();
+            var pairedPaths = new HashSet<string>(confirmedPairs.SelectMany(pair => new[] { pair.ImagePath, pair.VideoPath }),
+                StringComparer.OrdinalIgnoreCase);
+
             if (scanMode.HasFlag(DiscoveryScanMode.JpegMarkers) || scanMode.HasFlag(DiscoveryScanMode.HeicTrack))
             {
                 foreach (var item in images)
                 {
                     ct.ThrowIfCancellationRequested();
+                    if (pairedPaths.Contains(item.FilePath)) continue;
                     string ext = Path.GetExtension(item.FilePath);
                     bool enabled = JpegExtensions.Contains(ext)
                         ? scanMode.HasFlag(DiscoveryScanMode.JpegMarkers)
@@ -154,29 +164,12 @@ namespace LivePhotoBox.Services
             // Protocol pairing is metadata-authoritative and intentionally does
             // not use basename equality. Filename similarity is never a detected
             // protocol or pairing result.
-            var metadataPairs = new List<MetadataPair>();
-            if (scanMode.HasFlag(DiscoveryScanMode.CidMatch))
+            var metadataPairs = confirmedPairs.Where(pair => pair.Source switch
             {
-                var match = await LivePhotoMetadataMatcher.MatchAsync(
-                    images.Where(i => !classifiedPaths.Contains(i.FilePath)).Select(i => i.FilePath).ToList(),
-                    videos.Select(v => v.FilePath).ToList(), ct).ConfigureAwait(false);
-                metadataPairs.AddRange(match.Pairs);
-            }
-            if (scanMode.HasFlag(DiscoveryScanMode.VivoMatch))
-            {
-                var vivoMatch = LivePhotoMetadataMatcher.MatchVivo(
-                    images.Where(i => !classifiedPaths.Contains(i.FilePath)).Select(i => i.FilePath).ToList(),
-                    videos.Select(v => v.FilePath).ToList()).Pairs;
-                foreach (var pair in vivoMatch)
-                {
-                    if (!metadataPairs.Any(existing =>
-                        string.Equals(existing.ImagePath, pair.ImagePath, StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(existing.VideoPath, pair.VideoPath, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        metadataPairs.Add(pair);
-                    }
-                }
-            }
+                MatchSource.ContentIdentifier => scanMode.HasFlag(DiscoveryScanMode.CidMatch),
+                MatchSource.VivoLivePhoto => scanMode.HasFlag(DiscoveryScanMode.VivoMatch),
+                _ => false
+            });
 
             var itemsByPath = allItems.ToDictionary(i => i.FilePath, StringComparer.OrdinalIgnoreCase);
             foreach (var pair in metadataPairs)

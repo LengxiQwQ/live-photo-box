@@ -7,6 +7,37 @@ namespace LivePhotoBox.Core.Tests.Support;
 // mftransform.h. This proves activation, not encoding/type negotiation.
 internal static unsafe class WindowsH264CapabilityOracle
 {
+    internal enum DeploymentState { Available, ComponentMissing, EncoderAbsent, ProbeFailure }
+
+    internal static DeploymentState Probe(Action<string> report)
+    {
+        try
+        {
+            foreach (string dll in new[] { "MFPlat.DLL", "MFReadWrite.dll" })
+                _ = File.GetAttributes(Path.Combine(Environment.SystemDirectory, dll));
+        }
+        catch (Exception ex) when (ex is FileNotFoundException or DirectoryNotFoundException)
+        {
+            report($"Independent System32 component missing: {ex.Message}");
+            return DeploymentState.ComponentMissing;
+        }
+        catch (Exception ex)
+        {
+            report($"Independent System32 query failed: {ex.Message}");
+            return DeploymentState.ProbeFailure;
+        }
+        try
+        {
+            bool available = IsAvailableCore(report, out bool noCandidates);
+            return available ? DeploymentState.Available : noCandidates ? DeploymentState.EncoderAbsent : DeploymentState.ProbeFailure;
+        }
+        catch (Exception ex)
+        {
+            report($"Independent MF probe failed: {ex.Message}");
+            return DeploymentState.ProbeFailure;
+        }
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct MediaTypeFilter { public Guid Major; public Guid Subtype; }
 
@@ -17,8 +48,11 @@ internal static unsafe class WindowsH264CapabilityOracle
     [DllImport("mfplat.dll")] private static extern int MFTEnumEx(Guid category, uint flags,
         ref MediaTypeFilter input, ref MediaTypeFilter output, out nint activations, out uint count);
 
-    internal static bool IsAvailable(Action<string> report)
+    internal static bool IsAvailable(Action<string> report) => Probe(report) == DeploymentState.Available;
+
+    private static bool IsAvailableCore(Action<string> report, out bool noCandidates)
     {
+        noCandidates = false;
         int com = CoInitializeEx(0, 0);
         report($"CoInitializeEx=0x{com:X8}");
         if (com < 0 && com != unchecked((int)0x80010106)) Marshal.ThrowExceptionForHR(com);
@@ -38,6 +72,7 @@ internal static unsafe class WindowsH264CapabilityOracle
                 ref input, ref output, out list, out count);
             report($"MFTEnumEx NV12/H264 SYNCMFT=0x{enumeration:X8}; count={count}");
             Marshal.ThrowExceptionForHR(enumeration);
+            noCandidates = count == 0;
             if (count > 0 && list == 0) throw new InvalidOperationException("MFTEnumEx returned a null list.");
             for (int i = 0; i < count; i++)
             {

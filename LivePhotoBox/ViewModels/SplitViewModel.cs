@@ -61,9 +61,9 @@ namespace LivePhotoBox.ViewModels
         // <inheritdoc/>
         protected override string ProcessingStatusKey => "SplitPage_Status_Running";
 
-        // 处理中的状态文本，包含硬件加速信息。
+        // Actual backend is reported by the terminal outcome, not hardware discovery.
         protected override string ProcessingStatusText =>
-            ResourceService.Format("SplitPage_Status_Running") + GetHardwareSuffix();
+            ResourceService.Format("SplitPage_Status_Running");
 
         #region Observable Properties
 
@@ -190,7 +190,7 @@ namespace LivePhotoBox.ViewModels
                         return ResourceService.GetString("Status_Stopping");
                     // 已暂停（暂停完成，等待用户点击继续）
                     if (IsPaused)
-                        return ResourceService.GetString("Status_Paused") + GetHardwareSuffix();
+                        return ResourceService.GetString("Status_Paused");
                     // 暂停中（等待当前任务结束再进入暂停）
                     if (_isPausing)
                         return ResourceService.GetString("Status_Pausing");
@@ -607,7 +607,21 @@ namespace LivePhotoBox.ViewModels
             _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
 
             // 扫描添加任务时自动同步到显示列表
-            Tasks.CollectionChanged += (_, _) => RefreshTaskView();
+            Tasks.CollectionChanged += (_, change) =>
+            {
+                // A previous terminal summary must not hide newly appended work.
+                // Existing successes stay successful and are skipped by the runner.
+                if (!IsProcessing && change.NewItems is not null &&
+                    change.NewItems.OfType<SplitTask>().Any(task => task.Status == ProcessStatus.Pending))
+                {
+                    _splitDone = false;
+                    _splitStoppedByUser = false;
+                    SetStatus("SplitPage_Status_Ready");
+                    OnPropertyChanged(nameof(ActionBtnText));
+                    NotifyStatsChanged();
+                }
+                RefreshTaskView();
+            };
 
             // 响应全局设置清除：刷新所有持久化属性 + 清空命名片段
             AppSettingsService.SettingsCleared += () =>
@@ -1357,20 +1371,32 @@ namespace LivePhotoBox.ViewModels
 
         private async Task RunSplitTasksAsync()
         {
+            SplitMediaFormat outputFormat;
+            try
+            {
+                outputFormat = ProductSelectionAdapter.Split(ProtocolIndex, OutputFormatIndex);
+            }
+            catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
+            {
+                SetStatus("Status_Error", ex.Message);
+                IsDirectoryPanelOpen = true;
+                return;
+            }
             InitializeRunState();
             _stopwatch = Stopwatch.StartNew();
             OnPropertyChanged(nameof(ElapsedTimeText));
 
             var token = GetProcessingToken();
             string outputDir = OutputDirectory;
-            int protocolIndex = ProtocolIndex;
-            int outputFormatIndex = OutputFormatIndex;
             bool overwriteExisting = OverwriteExisting;
-            string inputDirectory = InputDirectory;
-            Directory.CreateDirectory(outputDir);
+            string? inputDirectory = AppSettingsService.GetValue("IsOutputPreserveSubfolderStructure", false)
+                ? InputDirectory : null;
+            var succeededThisRun = new System.Collections.Concurrent.ConcurrentBag<SplitTask>();
+            string capabilityDiagnostic = ProductOutcomePresentation.CapabilityDiagnostic(() => ProductCapabilityQuery.Query(outputFormat));
 
             try
             {
+                Directory.CreateDirectory(outputDir);
                 await Task.Run(async () =>
                 {
                     var tasksToProcess = Tasks.Where(t => t.Status != ProcessStatus.Success).ToList();
@@ -1379,7 +1405,8 @@ namespace LivePhotoBox.ViewModels
 
                     var semaphore = new SemaphoreSlim(maxParallel, maxParallel);
                     var pendingTasks = new List<Task>();
-                    int localCompletedCount = 0;
+                    int localCompletedCount = tasksToProcess.Count == Tasks.Count ? 0 : Tasks.Count(task => task.Status == ProcessStatus.Success);
+                    _completedTasksCount = localCompletedCount;
                     var lockObj = new object();
 
                     async Task ProcessTask(SplitTask task)
@@ -1404,17 +1431,20 @@ namespace LivePhotoBox.ViewModels
                             bool isCanceled = false;
                             string outputImagePath = string.Empty;
                             string outputVideoPath = string.Empty;
+                            ProductOperationOutcome? outcome = null;
 
                             try
                             {
                                 string outputBaseName = ComputeOutputBaseName(task);
-                                var result = await LivePhotoSplitService.SplitAsync(
-                                    task.SourcePath, outputDir, protocolIndex, outputFormatIndex, token,
+                                outcome = await LivePhotoSplitService.SplitWithOutcomeAsync(
+                                    task.SourcePath, outputDir, outputFormat, token,
                                     inputDirectory, outputBaseName, overwriteExisting);
-                                outputImagePath = result.ImageOutputPath;
-                                outputVideoPath = result.VideoOutputPath;
-                                isSuccess = true;
-                                detailMessage = ResourceService.GetString("SplitPage_Task_Success") ?? "Success";
+                                isSuccess = outcome.IsSuccess;
+                                isCanceled = outcome.Status == ProductOperationStatus.Cancelled;
+                                outputImagePath = outcome.CommittedOutputs.FirstOrDefault(output => output.Role == "PrimaryImage")?.Path ?? string.Empty;
+                                outputVideoPath = outcome.CommittedOutputs.FirstOrDefault(output => output.Role == "MotionVideo")?.Path ?? string.Empty;
+                                if (isSuccess) succeededThisRun.Add(task);
+                                detailMessage = ProductOutcomePresentation.Status(outcome);
                             }
                             catch (OperationCanceledException)
                             {
@@ -1454,6 +1484,10 @@ namespace LivePhotoBox.ViewModels
                             {
                                 try
                                 {
+                                    task.LastOutcome = outcome;
+                                    task.OutcomeSummary = outcome is null ? detailMessage : ProductOutcomePresentation.Describe(outcome, capabilityDiagnostic);
+                                    task.OutputImagePath = isSuccess ? outputImagePath : string.Empty;
+                                    task.OutputVideoPath = isSuccess ? outputVideoPath : string.Empty;
                                     if (isCanceled)
                                         UpdateTaskCancelled(task, detailMessage);
                                     else
@@ -1556,9 +1590,6 @@ namespace LivePhotoBox.ViewModels
                 bool wasCancelled = _cancelledByUser;
                 FinalizeRunState();
 
-                // 所有任务结束后统一清理 Temp 目录（确保无残留）
-                CleanSplitTempDirectory(outputDir);
-
                 // ── 完成后处理原始文件 ──
                 if (!wasCancelled)
                 {
@@ -1569,7 +1600,7 @@ namespace LivePhotoBox.ViewModels
                         {
                             try { Directory.CreateDirectory(moveDir); }
                             catch (Exception ex) { LogService.Split($"Failed to create original dir: {ex.Message}", LogLevel.Warning); }
-                            foreach (var task in Tasks.Where(t => t.Status == ProcessStatus.Success))
+                            foreach (var task in succeededThisRun)
                             {
                                 try { if (File.Exists(task.SourcePath)) File.Move(task.SourcePath, Path.Combine(moveDir, Path.GetFileName(task.SourcePath))); } catch { }
                             }
@@ -1577,7 +1608,7 @@ namespace LivePhotoBox.ViewModels
                     }
                     else if (AfterCompletionActionIndex == 2) // 回收站
                     {
-                        foreach (var task in Tasks.Where(t => t.Status == ProcessStatus.Success))
+                        foreach (var task in succeededThisRun)
                         {
                             try
                             {
@@ -1697,6 +1728,9 @@ namespace LivePhotoBox.ViewModels
         // 标记任务开始处理（设置为 Processing 状态）。
         private void UpdateTaskStarted(SplitTask task)
         {
+            task.LastOutcome = null;
+            task.OutcomeSummary = string.Empty;
+            task.IsCancelled = false;
             task.OutputImagePath = string.Empty;
             task.OutputVideoPath = string.Empty;
             task.Status = ProcessStatus.Processing;
@@ -1782,23 +1816,5 @@ namespace LivePhotoBox.ViewModels
 
         #endregion
 
-        // 安全地清理拆分过程的 Temp 目录（全部任务结束后调用）。
-        private static void CleanSplitTempDirectory(string outputDir)
-        {
-            if (string.IsNullOrWhiteSpace(outputDir)) return;
-            try
-            {
-                string tempDir = Path.Combine(outputDir, "Temp");
-                if (Directory.Exists(tempDir))
-                {
-                    Directory.Delete(tempDir, recursive: true);
-                    LogService.Split($"Cleaned split Temp directory: {tempDir}");
-                }
-            }
-            catch (Exception ex)
-            {
-                LogService.Split($"Failed to clean split Temp directory: {ex.Message}", LogLevel.Warning);
-            }
-        }
     }
 }

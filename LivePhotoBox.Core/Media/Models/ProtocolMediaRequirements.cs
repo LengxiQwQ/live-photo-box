@@ -28,46 +28,7 @@ public static class ProtocolMediaRequirements
     /// </summary>
     public static MediaFormatRequirement GetMergeRequirement(int protocolIndex, int formatIndex)
     {
-        if (!ProtocolFormatMatrix.IsAvailable(protocolIndex, formatIndex))
-        {
-            throw new ArgumentException(
-                $"Merge format index {formatIndex} is not available for protocol index {protocolIndex}.");
-        }
-
-        return formatIndex switch
-        {
-            ProtocolFormatMatrix.FormatJpgMp4 => new MediaFormatRequirement
-            {
-                ImageContainer = ImageContainer.Jpeg,
-                VideoContainer = VideoContainer.Mp4,
-                VideoCodec = VideoCodec.Copy
-            },
-            ProtocolFormatMatrix.FormatJpgMov => new MediaFormatRequirement
-            {
-                ImageContainer = ImageContainer.Jpeg,
-                VideoContainer = VideoContainer.Mov,
-                VideoCodec = VideoCodec.Copy
-            },
-            ProtocolFormatMatrix.FormatHeicMp4 => new MediaFormatRequirement
-            {
-                ImageContainer = ImageContainer.Heic,
-                VideoContainer = VideoContainer.Mp4,
-                VideoCodec = VideoCodec.Copy
-            },
-            ProtocolFormatMatrix.FormatHeicMov => new MediaFormatRequirement
-            {
-                ImageContainer = ImageContainer.Heic,
-                VideoContainer = VideoContainer.Mov,
-                VideoCodec = VideoCodec.Copy
-            },
-            ProtocolFormatMatrix.FormatHeicMp4H265 => new MediaFormatRequirement
-            {
-                ImageContainer = ImageContainer.Heic,
-                VideoContainer = VideoContainer.Mp4,
-                VideoCodec = VideoCodec.Hevc
-            },
-            _ => throw new ArgumentOutOfRangeException(nameof(formatIndex), formatIndex, "Unknown format index.")
-        };
+        return ProductSelectionAdapter.Merge(protocolIndex, formatIndex).MediaRequirement;
     }
 
     /// <summary>
@@ -82,34 +43,6 @@ public static class ProtocolMediaRequirements
                 $"Split format index {splitFormatIndex} is not available for split protocol index {splitProtocolIndex}.");
         }
 
-        return splitFormatIndex switch
-        {
-            ProtocolFormatMatrix.SplitFormatKeep => new MediaFormatRequirement // keep
-            {
-                ImageContainer = ImageContainer.Unknown,
-                VideoContainer = VideoContainer.Unknown,
-                VideoCodec = VideoCodec.Copy,
-                KeepSourceIfSame = true
-            },
-            ProtocolFormatMatrix.SplitFormatJpgMov => new MediaFormatRequirement // jpg+mov
-            {
-                ImageContainer = ImageContainer.Jpeg,
-                VideoContainer = VideoContainer.Mov,
-                VideoCodec = VideoCodec.Hevc
-            },
-            ProtocolFormatMatrix.SplitFormatHeicMov => new MediaFormatRequirement // heic+mov
-            {
-                ImageContainer = ImageContainer.Heic,
-                VideoContainer = VideoContainer.Mov,
-                VideoCodec = VideoCodec.Hevc
-            },
-            ProtocolFormatMatrix.SplitFormatJpgMp4 => new MediaFormatRequirement // jpg+mp4
-            {
-                ImageContainer = ImageContainer.Jpeg,
-                VideoContainer = VideoContainer.Mp4,
-                VideoCodec = VideoCodec.H264
-            },
-            _ => throw new ArgumentOutOfRangeException(nameof(splitFormatIndex), splitFormatIndex, "Unknown split format index.")
-        };
+        return SplitMediaRequirements.Get(ProductSelectionAdapter.Split(0, splitFormatIndex));
     }
 }

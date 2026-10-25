@@ -814,12 +814,25 @@ lpb_result LPB_CALL lpb_get_runtime_capability_identity(
         version = "Native source-profile dispatch";
         {
             lpb::media::VideoSidecarModule sidecar;
-            const bool mf = lpb::media::software_video_encoder_available(context, LPB_VIDEO_CODEC_H264);
-            const bool libav = sidecar.load();
-            identity->is_available = mf && libav ? 1U : 0U;
-            fallback_reason = identity->is_available != 0U
-                ? "H.264 SDR input selects MF; HEVC input selects minimal-libav. Both route owners available; no fallback."
-                : "H.264 SDR input selects MF; HEVC input selects minimal-libav. A route owner is unavailable; no fallback.";
+            const auto mf = lpb::media::probe_software_video_encoder(context, LPB_VIDEO_CODEC_H264);
+            const bool libav = sidecar.load() && sidecar.info() != nullptr &&
+                (sidecar.info()->capability_flags & LPB_VIDEO_SIDECAR_CAP_H264) != 0U;
+            const bool ordinary_route = mf.state == lpb::media::mf_deployment_state::available ||
+                (mf.permits_h264_fallback() && libav);
+            identity->is_available = ordinary_route && libav ? 1U : 0U;
+            if (mf.permits_h264_fallback()) {
+                fallback_reason = libav
+                    ? (mf.state == lpb::media::mf_deployment_state::component_missing
+                        ? "MFComponentMissing: controlled x264 route available; request validation required; no conversion executed."
+                        : "MFH264EncoderAbsent: controlled x264 route available; request validation required; no conversion executed.")
+                    : "A route owner is unavailable: approved MF alternative requires exact H264 sidecar; no conversion executed.";
+            } else if (mf.state == lpb::media::mf_deployment_state::probe_failure) {
+                fallback_reason = "MFProbeFailure: H264 route unknown; no fallback allowed; request validation required.";
+            } else {
+                fallback_reason = identity->is_available != 0U
+                    ? "Both route owners available: ordinary H264 selects MF; HEVC input selects minimal-libav; no conversion executed."
+                    : "A route owner is unavailable: ordinary MF route may remain usable; request validation required.";
+            }
         }
         break;
     case LPB_RUNTIME_OPERATION_VIDEO_TRANSCODE_SDR_HEVC:

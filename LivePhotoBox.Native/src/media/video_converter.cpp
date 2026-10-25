@@ -6,6 +6,7 @@
 #include "containers/isobmff_mebx_transplant.h"
 #include "containers/isobmff_video_profile.h"
 #include "media/video_sidecar_bridge.h"
+#include "media/video_sidecar_loader.h"
 #include "media/video_presentation_timing.h"
 #include "media/h264_order_proof.h"
 #include "platform/windows_filesystem.h"
@@ -19,6 +20,8 @@
 #include <limits>
 #include <cstdio>
 #include <cstring>
+#include <mutex>
+#include <iterator>
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -817,7 +820,7 @@ static lpb_result remux_video_reader(
             return fail_remux(LPB_RESULT_INTERNAL_ERROR,
                 "OutputValidation: final MOV staging did not retain exact metadata/MEBX and source timing.");
         }
-        // Dispose the consumed MF staging before final MOV publication. A
+        // Dispose the consumed transcode staging before final MOV publication. A
         // cleanup failure must never become a reported failure after publish.
         if (!abort_owned_output_and_report(context, *consumed_stage, nullptr))
             return fail_remux(LPB_RESULT_INTERNAL_ERROR, nullptr);
@@ -921,6 +924,150 @@ struct mf_activation_list final {
     }
 };
 
+mf_deployment_state classify_mf_component_open_error(uint32_t error) noexcept {
+    return error == ERROR_FILE_NOT_FOUND || error == ERROR_PATH_NOT_FOUND
+        ? mf_deployment_state::component_missing : mf_deployment_state::probe_failure;
+}
+
+namespace {
+// Success modules and their exact system files remain pinned for process lifetime.
+// Failed queries are not cached, so a later installation can be discovered.
+struct mf_system_modules {
+    std::mutex mutex;
+    HMODULE modules[2]{};
+    HANDLE files[2]{INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE};
+};
+
+mf_deployment_probe preflight_mf_modules() noexcept {
+    static mf_system_modules pinned;
+    try {
+        std::scoped_lock lock(pinned.mutex);
+        constexpr const wchar_t* names[]{L"MFPlat.DLL", L"MFReadWrite.dll"};
+        if (pinned.modules[0] != nullptr && pinned.modules[1] != nullptr) {
+            for (size_t index = 0; index < 2U; ++index) {
+                HMODULE by_name = nullptr;
+                const bool trusted = GetModuleHandleExW(0U, names[index], &by_name) && by_name == pinned.modules[index];
+                if (by_name != nullptr) FreeLibrary(by_name);
+                if (!trusted) return {mf_deployment_state::probe_failure, ERROR_INVALID_DLL,
+                    "MFProbeFailure: delay-import basename no longer matches pinned System32 module."};
+            }
+            return {mf_deployment_state::available, 0U, "MFAvailable: System32 modules pinned."};
+        }
+        wchar_t system_directory[32768]{};
+        const UINT length = GetSystemDirectoryW(system_directory, static_cast<UINT>(std::size(system_directory)));
+        if (length == 0U || length >= std::size(system_directory))
+            return {mf_deployment_state::probe_failure, GetLastError(), "MFProbeFailure: System32 path query failed."};
+        const std::wstring paths[]{(fs::path(system_directory) / names[0]).wstring(),
+            (fs::path(system_directory) / names[1]).wstring()};
+        HMODULE modules[2]{};
+        HANDLE files[2]{INVALID_HANDLE_VALUE, INVALID_HANDLE_VALUE};
+        const auto release = [&]() noexcept {
+            for (size_t index = 0; index < 2U; ++index) {
+                if (modules[index] != nullptr) FreeLibrary(modules[index]);
+                if (files[index] != INVALID_HANDLE_VALUE) CloseHandle(files[index]);
+            }
+        };
+        for (size_t index = 0; index < 2U; ++index) {
+            const std::wstring& path = paths[index];
+            files[index] = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES, FILE_SHARE_READ,
+                nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+            if (files[index] == INVALID_HANDLE_VALUE) {
+                const DWORD error = GetLastError();
+                release();
+                const bool missing = classify_mf_component_open_error(error) == mf_deployment_state::component_missing;
+                return {missing ? mf_deployment_state::component_missing : mf_deployment_state::probe_failure,
+                    error, missing ? "MFComponentMissing: required System32 MF DLL absent." :
+                    "MFProbeFailure: required System32 MF file cannot be pinned."};
+            }
+            BY_HANDLE_FILE_INFORMATION expected_file{};
+            if (!GetFileInformationByHandle(files[index], &expected_file) ||
+                (expected_file.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) != 0U) {
+                release();
+                return {mf_deployment_state::probe_failure, ERROR_INVALID_DLL,
+                    "MFProbeFailure: expected System32 MF file is not a regular non-reparse file."};
+            }
+            HMODULE existing = nullptr;
+            if (GetModuleHandleExW(0U, names[index], &existing)) {
+                wchar_t existing_path[32768]{};
+                const DWORD existing_length = GetModuleFileNameW(existing, existing_path,
+                    static_cast<DWORD>(std::size(existing_path)));
+                const bool trusted_existing = existing_length > 0U && existing_length < std::size(existing_path) &&
+                    _wcsicmp(path.c_str(), existing_path) == 0;
+                FreeLibrary(existing);
+                if (!trusted_existing) {
+                    release();
+                    return {mf_deployment_state::probe_failure, ERROR_INVALID_DLL,
+                        "MFProbeFailure: same-name MF module already loaded outside System32."};
+                }
+            }
+            modules[index] = LoadLibraryExW(path.c_str(), nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
+            if (modules[index] == nullptr) {
+                const DWORD error = GetLastError(); release();
+                return {mf_deployment_state::probe_failure, error, "MFProbeFailure: present System32 MF DLL cannot load."};
+            }
+            wchar_t module_path[32768]{};
+            const DWORD module_length = GetModuleFileNameW(modules[index], module_path,
+                static_cast<DWORD>(std::size(module_path)));
+            HANDLE loaded_file = module_length > 0U && module_length < std::size(module_path)
+                ? CreateFileW(module_path, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, nullptr,
+                    OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr) : INVALID_HANDLE_VALUE;
+            BY_HANDLE_FILE_INFORMATION expected{}, actual{};
+            const bool same = loaded_file != INVALID_HANDLE_VALUE &&
+                _wcsicmp(path.c_str(), module_path) == 0 &&
+                GetFileInformationByHandle(files[index], &expected) &&
+                GetFileInformationByHandle(loaded_file, &actual) &&
+                expected.dwVolumeSerialNumber == actual.dwVolumeSerialNumber &&
+                expected.nFileIndexHigh == actual.nFileIndexHigh && expected.nFileIndexLow == actual.nFileIndexLow &&
+                (expected.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)) == 0U;
+            if (loaded_file != INVALID_HANDLE_VALUE) CloseHandle(loaded_file);
+            if (!same) {
+                release();
+                return {mf_deployment_state::probe_failure, ERROR_INVALID_DLL, "MFProbeFailure: loaded MF module identity differs from System32."};
+            }
+            HMODULE by_name = nullptr;
+            const bool delay_name_trusted = GetModuleHandleExW(0U, names[index], &by_name) && by_name == modules[index];
+            if (by_name != nullptr) FreeLibrary(by_name);
+            if (!delay_name_trusted) {
+                release();
+                return {mf_deployment_state::probe_failure, ERROR_INVALID_DLL,
+                    "MFProbeFailure: delay-import basename does not resolve to pinned System32 module."};
+            }
+        }
+        constexpr const char* platform_exports[]{"MFStartup", "MFShutdown", "MFTEnumEx", "MFCreateMediaType",
+            "MFCreateSample", "MFCreateMemoryBuffer", "MFCreateAttributes", "MFCreateFile"};
+        constexpr const char* readwrite_exports[]{"MFCreateSourceReaderFromURL", "MFCreateSinkWriterFromURL"};
+        for (const char* name : platform_exports) {
+            if (GetProcAddress(modules[0], name) == nullptr) {
+                release(); return {mf_deployment_state::probe_failure, ERROR_PROC_NOT_FOUND, "MFProbeFailure: required MFPlat export absent."};
+            }
+        }
+        for (const char* name : readwrite_exports) {
+            if (GetProcAddress(modules[1], name) == nullptr) {
+                release(); return {mf_deployment_state::probe_failure, ERROR_PROC_NOT_FOUND, "MFProbeFailure: required MFReadWrite export absent."};
+            }
+        }
+        for (size_t index = 0; index < 2U; ++index) {
+            pinned.modules[index] = modules[index]; pinned.files[index] = files[index];
+        }
+        return {mf_deployment_state::available, 0U, "MFAvailable: System32 modules pinned."};
+    } catch (...) {
+        return {mf_deployment_state::probe_failure, ERROR_NOT_ENOUGH_MEMORY, "MFProbeFailure: module preflight failed."};
+    }
+}
+
+#if defined(LPB_P8_MF_TEST_SEAM)
+thread_local bool synthetic_probe_enabled = false;
+thread_local mf_deployment_state synthetic_probe_state = mf_deployment_state::available;
+#endif
+} // namespace
+
+#if defined(LPB_P8_MF_TEST_SEAM)
+void set_synthetic_mf_probe(mf_deployment_state state) noexcept {
+    synthetic_probe_state = state; synthetic_probe_enabled = true;
+}
+void clear_synthetic_mf_probe() noexcept { synthetic_probe_enabled = false; }
+#endif
+
 class mf_runtime_guard final {
 public:
     mf_runtime_guard() noexcept = default;
@@ -932,36 +1079,59 @@ public:
     mf_runtime_guard& operator=(const mf_runtime_guard&) = delete;
 
     bool start(lpb_context* context) noexcept {
+        probe_ = preflight_mf_modules();
+        if (probe_.state != mf_deployment_state::available) {
+            set_error(context, probe_.reason); return false;
+        }
         const HRESULT com_hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
         com_initialized_ = SUCCEEDED(com_hr);
         if (FAILED(com_hr) && com_hr != RPC_E_CHANGED_MODE) {
-            set_error(context, "BackendUnavailable: failed to initialize COM for software Media Foundation conversion; no fallback.");
+            probe_ = {mf_deployment_state::probe_failure, static_cast<uint32_t>(com_hr), "MFProbeFailure: COM initialization failed; no retry."};
+            set_error(context, probe_.reason);
             return false;
         }
         const HRESULT mf_hr = MFStartup(MF_VERSION, MFSTARTUP_FULL);
         if (FAILED(mf_hr)) {
-            set_error(context, "BackendUnavailable: failed to initialize Windows Media Foundation; no fallback.");
+            probe_ = {mf_deployment_state::probe_failure, static_cast<uint32_t>(mf_hr), "MFProbeFailure: MFStartup failed; no retry."};
+            set_error(context, probe_.reason);
             return false;
         }
         mf_started_ = true;
         return true;
     }
+    mf_deployment_probe probe() const noexcept { return probe_; }
 
 private:
     bool com_initialized_{};
     bool mf_started_{};
+    mf_deployment_probe probe_{};
 };
 
-bool software_video_encoder_available(lpb_context* context, lpb_video_codec codec) noexcept {
-    if (codec != LPB_VIDEO_CODEC_H264 && codec != LPB_VIDEO_CODEC_HEVC) return false;
+mf_deployment_probe probe_software_video_encoder(lpb_context* context, lpb_video_codec codec) noexcept {
+#if defined(LPB_P8_MF_TEST_SEAM)
+    if (synthetic_probe_enabled) {
+        const mf_deployment_probe result{synthetic_probe_state, 0U,
+            synthetic_probe_state == mf_deployment_state::component_missing ? "MFComponentMissing: Synthetic System32 DLL absence." :
+            synthetic_probe_state == mf_deployment_state::encoder_absent ? "MFH264EncoderAbsent: Synthetic successful zero enumeration." :
+            synthetic_probe_state == mf_deployment_state::available ? "MFAvailable: Synthetic deployment result." :
+            "MFProbeFailure: Synthetic startup/enumeration failure; no retry."};
+        return result;
+    }
+#endif
+    if (codec != LPB_VIDEO_CODEC_H264 && codec != LPB_VIDEO_CODEC_HEVC)
+        return {mf_deployment_state::probe_failure, ERROR_INVALID_PARAMETER, "MFProbeFailure: unsupported codec query."};
     mf_runtime_guard runtime;
-    if (!runtime.start(context)) return false;
+    if (!runtime.start(context)) return runtime.probe();
     MFT_REGISTER_TYPE_INFO input_filter{MFMediaType_Video, MFVideoFormat_NV12};
     MFT_REGISTER_TYPE_INFO output_filter{MFMediaType_Video,
         codec == LPB_VIDEO_CODEC_HEVC ? MFVideoFormat_HEVC : MFVideoFormat_H264};
     mf_activation_list activations{};
     const HRESULT hr = MFTEnumEx(MFT_CATEGORY_VIDEO_ENCODER, MFT_ENUM_FLAG_SYNCMFT,
         &input_filter, &output_filter, &activations.values, &activations.count);
+    if (FAILED(hr) || (activations.count > 0U && activations.values == nullptr))
+        return {mf_deployment_state::probe_failure, static_cast<uint32_t>(hr), "MFProbeFailure: encoder enumeration failed or malformed; no retry."};
+    if (activations.count == 0U)
+        return {mf_deployment_state::encoder_absent, 0U, "MFEncoderAbsent: synchronous requested encoder enumeration succeeded with zero candidates."};
     if (SUCCEEDED(hr) && activations.values != nullptr) {
         for (UINT32 index = 0U; index < activations.count; ++index) {
             mf_owned_ptr<IMFTransform> candidate;
@@ -973,11 +1143,16 @@ bool software_video_encoder_available(lpb_context* context, lpb_video_codec code
             UINT32 asynchronous = FALSE;
             const HRESULT async_hr = attributes->GetUINT32(MF_TRANSFORM_ASYNC, &asynchronous);
             if ((SUCCEEDED(async_hr) && asynchronous == FALSE) || async_hr == MF_E_ATTRIBUTENOTFOUND)
-                return true;
+                return {mf_deployment_state::available, 0U, "MFAvailable: synchronous software encoder activated."};
         }
     }
-    set_error(context, "BackendUnavailable: no activatable synchronous software Media Foundation encoder for the requested NV12/output codec; no fallback.");
-    return false;
+    return {mf_deployment_state::probe_failure, 0U, "MFProbeFailure: enumerated encoders could not activate or validate; no retry."};
+}
+
+bool software_video_encoder_available(lpb_context* context, lpb_video_codec codec) noexcept {
+    const auto probe = probe_software_video_encoder(context, codec);
+    if (probe.state != mf_deployment_state::available) set_error(context, probe.reason);
+    return probe.state == mf_deployment_state::available;
 }
 
 struct mf_retained_video_sample {
@@ -2424,7 +2599,41 @@ lpb_result transcode_video_file(
     if (target_codec == LPB_VIDEO_CODEC_COPY) requested = requested_video_codec::copy;
     else if (target_codec == LPB_VIDEO_CODEC_H264) requested = requested_video_codec::h264;
     else if (target_codec == LPB_VIDEO_CODEC_HEVC) requested = requested_video_codec::hevc;
-    const video_conversion_owner owner = select_video_conversion_owner(semantic_profile, requested);
+    const video_conversion_owner original_owner = select_video_conversion_owner(semantic_profile, requested);
+    video_conversion_owner owner = original_owner;
+    bool mf_fallback = false;
+    mf_deployment_probe deployment{};
+    isobmff_video_presentation_timeline fallback_source_timeline{};
+    if (original_owner == video_conversion_owner::media_foundation_software &&
+        target_codec == LPB_VIDEO_CODEC_H264) {
+        deployment = probe_software_video_encoder(context, target_codec);
+        if (deployment.state != mf_deployment_state::available) {
+            if (!deployment.permits_h264_fallback()) {
+                char error[256]{};
+                std::snprintf(error, sizeof(error), "BackendUnavailable: %s code=0x%08X; no fallback.",
+                    deployment.reason, static_cast<unsigned>(deployment.error_code));
+                set_error(context, error); return LPB_RESULT_INTERNAL_ERROR;
+            }
+            if (semantic_profile.classification != video_profile_class::ordinary_sdr ||
+                strict_source_codec != LPB_VIDEO_CODEC_H264 || semantic_profile.bit_depth_luma != 8U ||
+                semantic_profile.bit_depth_chroma != 8U) {
+                set_error(context, "Unsupported: missing-MF fallback requires ordinary 8-bit AVC SDR; no output created.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            owner = video_conversion_owner::minimal_libav_sidecar;
+            mf_fallback = true;
+        }
+    }
+    const auto set_sidecar_diagnostics = [&](const char* identity, const char* detail) noexcept {
+        char reason[128]{};
+        if (mf_fallback) {
+            std::snprintf(reason, sizeof(reason), "%s controlled x264 route; %s",
+                deployment.state == mf_deployment_state::component_missing ? "MFComponentMissing:" : "MFH264EncoderAbsent:",
+                detail != nullptr ? detail : "");
+        }
+        set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_MINIMAL_LIBAV,
+            LPB_VIDEO_HARDWARE_SOFTWARE_FORCED, mf_fallback, identity, mf_fallback ? reason : detail);
+    };
 
     // Only an explicit Copy request selects the project-owned stream remux.
     // An explicit codec request always requests a codec transform, even when
@@ -2446,6 +2655,12 @@ lpb_result transcode_video_file(
     }
 
     if (owner == video_conversion_owner::minimal_libav_sidecar) {
+        // The strict preservation mapper supports ISO AAC sample entries, not
+        // the QuickTime wave wrapper generated by libav's MOV muxer. Plan this
+        // newly approved route as one x264 encode followed by our existing
+        // validated owned MOV remux, as the MF path already does. No retry.
+        const bool fallback_mov = mf_fallback && target_container == LPB_VIDEO_CONTAINER_MOV;
+        const lpb_video_container sidecar_container = fallback_mov ? LPB_VIDEO_CONTAINER_MP4 : target_container;
         if (semantic_profile.bit_depth_luma != semantic_profile.bit_depth_chroma ||
             (semantic_profile.bit_depth_luma != 8U && semantic_profile.bit_depth_luma != 10U)) {
             set_error(context, "Unsupported: minimal-libav requires an exact supported 8-bit or 10-bit source depth; no output was created.");
@@ -2457,11 +2672,27 @@ lpb_result transcode_video_file(
             set_error(context, "Video conversion failed closed: Native could not encode selected minimal-libav diagnostics.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
-        set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_MINIMAL_LIBAV,
-            LPB_VIDEO_HARDWARE_SOFTWARE_FORCED, false, selected_identity,
+        set_sidecar_diagnostics(selected_identity, mf_fallback ? "Selected; encoder not yet executed." :
             "minimal-libav selected from the Native preservation profile; no fallback.");
+        if (mf_fallback) {
+            VideoSidecarModule sidecar;
+            if (!sidecar.load() || sidecar.info() == nullptr ||
+                (sidecar.info()->capability_flags & LPB_VIDEO_SIDECAR_CAP_H264) == 0U) {
+                set_error(context, "BackendUnavailable: controlled H264 fallback requires the exact packaged sidecar with H264 capability; no output created.");
+                return LPB_RESULT_INTERNAL_ERROR;
+            }
+            std::vector<uint8_t> timeline_bytes;
+            if (!read_all_bytes(semantic_reader, timeline_bytes) ||
+                !inspect_isobmff_video_presentation_timeline(timeline_bytes, fallback_source_timeline) ||
+                fallback_source_timeline.sample_count == 0U ||
+                fallback_source_timeline.presentation_order.size() != fallback_source_timeline.sample_count) {
+                set_error(context, "Unsupported: controlled H264 fallback requires one complete source presentation timeline; no output created.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+        }
         if (out_encoder_used && encoder_buf_len > 0U) {
-            strncpy_s(out_encoder_used, encoder_buf_len, "minimal-libav/P7-R4-HEVC-v2", _TRUNCATE);
+            strncpy_s(out_encoder_used, encoder_buf_len,
+                mf_fallback ? "minimal-libav/selected-encoder-unknown" : "minimal-libav/P7-R4-HEVC-v2", _TRUNCATE);
         }
 
         std::vector<uint8_t> source_bytes;
@@ -2503,12 +2734,20 @@ lpb_result transcode_video_file(
             const bool stage_b_cleaned = stage_b.abort_and_confirm();
             const DWORD stage_b_cleanup_error = stage_b_cleaned ? ERROR_SUCCESS : GetLastError();
             if (stage_a_cleaned && stage_b_cleaned) {
-                set_error(context, message);
+                // A nested operation (owned MOV remux) already supplied the
+                // precise failure. Null means preserve it, not replace it with
+                // set_error's generic "Unknown native error" fallback.
+                if (message != nullptr) set_error(context, message);
                 return result;
             }
             try {
                 std::string cleanup_error = "[CleanupFailed] Original failure: ";
-                cleanup_error += message != nullptr ? message : "Native operation failed.";
+                if (message != nullptr) cleanup_error += message;
+                else {
+                    // Owned-output cleanup above does not mutate context error.
+                    std::scoped_lock lock(context->error_mutex);
+                    cleanup_error += context->last_error.empty() ? "Native operation failed." : context->last_error;
+                }
                 auto append_identity = [&](const char* label, bool captured,
                     const lpb_file_identity& identity, const std::string& staging_path,
                     const std::string& owned_handle_path, DWORD cleanup_error_code) {
@@ -2548,7 +2787,7 @@ lpb_result transcode_video_file(
         }
 
         const auto bridge = run_video_sidecar_transcode(
-            context, semantic_reader, stage_a, target_container, target_codec, crf, has_mebx,
+            context, semantic_reader, stage_a, sidecar_container, target_codec, crf, has_mebx,
             semantic_profile);
         if (bridge.native_result != LPB_RESULT_OK) {
             const auto& failed_sidecar = bridge.sidecar_result;
@@ -2559,8 +2798,7 @@ lpb_result transcode_video_file(
                     (failed_sidecar.library_version[0] == '\0' ? "?" : failed_sidecar.library_version),
                     failed_sidecar.encoder_name[0] == '\0' ? "na" : failed_sidecar.encoder_name,
                     semantic_profile, nullptr, failure_identity, sizeof(failure_identity))) {
-                set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_MINIMAL_LIBAV,
-                    LPB_VIDEO_HARDWARE_SOFTWARE_FORCED, false, failure_identity,
+                set_sidecar_diagnostics(failure_identity, mf_fallback ? "Selected attempt failed; no retry." :
                     "minimal-libav selected from the Native preservation profile; no fallback.");
             }
             return fail_sidecar(bridge.native_result, bridge.reason.data());
@@ -2576,8 +2814,7 @@ lpb_result transcode_video_file(
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                 "Native could not encode bounded minimal-libav candidate diagnostics.");
         }
-        set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_MINIMAL_LIBAV,
-            LPB_VIDEO_HARDWARE_SOFTWARE_FORCED, false, candidate_identity,
+        set_sidecar_diagnostics(candidate_identity, mf_fallback ? "Stage A candidate; no retry." :
             "minimal-libav Stage A candidate; no fallback.");
 
         lpb_video_item_facts stage_a_facts{};
@@ -2618,8 +2855,7 @@ lpb_result transcode_video_file(
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                 "Native could not encode bounded minimal-libav Stage A profile diagnostics.");
         }
-        set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_MINIMAL_LIBAV,
-            LPB_VIDEO_HARDWARE_SOFTWARE_FORCED, false, candidate_identity,
+        set_sidecar_diagnostics(candidate_identity, mf_fallback ? "Stage A profile inspected; no retry." :
             "minimal-libav Stage A profile inspected; no fallback.");
 
         const uint32_t stage_a_profile_depth = std::min<uint32_t>(
@@ -2632,8 +2868,16 @@ lpb_result transcode_video_file(
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                 "Minimal-libav Stage A could not be re-read to verify its deferred MEBX track inventory.");
         }
+        if (mf_fallback) {
+            isobmff_video_presentation_timeline timeline{};
+            uint32_t failed_frame = 0U;
+            if (!inspect_isobmff_video_presentation_timeline(stage_a_bytes, timeline) ||
+                !presentation_timing_within_source_frame_intervals(fallback_source_timeline, timeline, failed_frame))
+                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
+                    "OutputValidation: controlled H264 Stage A failed exact source-frame interval timing; no retry.");
+        }
         const bool stage_a_profile_valid =
-            stage_a_facts.container == target_container && stage_a_facts.codec == target_codec &&
+            stage_a_facts.container == sidecar_container && stage_a_facts.codec == target_codec &&
             stage_a_facts.width == sidecar_facts.output_width && stage_a_facts.height == sidecar_facts.output_height &&
             stage_a_facts.width == src_facts.width && stage_a_facts.height == src_facts.height &&
             stage_a_facts.rotation_degrees == src_facts.rotation_degrees &&
@@ -2719,8 +2963,7 @@ lpb_result transcode_video_file(
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                 "Native could not encode bounded final Stage B profile diagnostics.");
         }
-        set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_MINIMAL_LIBAV,
-            LPB_VIDEO_HARDWARE_SOFTWARE_FORCED, false, candidate_identity,
+        set_sidecar_diagnostics(candidate_identity, mf_fallback ? "Final staged profile inspected; no retry." :
             "minimal-libav Native Stage B profile inspected; no fallback.");
 
         const bool expected_sample_entry = target_codec == LPB_VIDEO_CODEC_HEVC
@@ -2732,7 +2975,7 @@ lpb_result transcode_video_file(
             output_profile.bit_depth_luma, output_profile.bit_depth_chroma);
         const int32_t expected_range = output_profile.full_range != 0U ? 2 : 1;
         const bool preserved_profile =
-            output_facts.container == target_container && output_facts.codec == target_codec &&
+            output_facts.container == sidecar_container && output_facts.codec == target_codec &&
             output_facts.width == sidecar_facts.output_width && output_facts.height == sidecar_facts.output_height &&
             output_facts.width == src_facts.width && output_facts.height == src_facts.height &&
             output_facts.rotation_degrees == src_facts.rotation_degrees &&
@@ -2767,7 +3010,7 @@ lpb_result transcode_video_file(
         }
         char backend_encoder[64]{};
         const int encoder_written = std::snprintf(backend_encoder, sizeof(backend_encoder),
-            "minimal-libav/P7-R4-HEVC-v2/%s", sidecar_facts.encoder_name);
+            mf_fallback ? "minimal-libav/%s" : "minimal-libav/P7-R4-HEVC-v2/%s", sidecar_facts.encoder_name);
         if (encoder_written < 0 || static_cast<size_t>(encoder_written) >= sizeof(backend_encoder)) {
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                 "Native could not encode the minimal-libav encoder identity.");
@@ -2786,10 +3029,27 @@ lpb_result transcode_video_file(
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                 "OutputValidation: protected sidecar metadata inventory differs from the source.");
         }
+        if (mf_fallback) {
+            isobmff_video_presentation_timeline timeline{};
+            uint32_t failed_frame = 0U;
+            if (!inspect_isobmff_video_presentation_timeline(metadata_readback, timeline) ||
+                !presentation_timing_within_source_frame_intervals(fallback_source_timeline, timeline, failed_frame))
+                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
+                    "OutputValidation: controlled H264 final staging failed exact source-frame interval timing; no retry.");
+        }
         const lpb_result metadata_cancel = lpb_context_check_cancelled(context);
         if (metadata_cancel != LPB_RESULT_OK) return fail_sidecar(metadata_cancel,
             "Video conversion was cancelled after metadata verification and before publication.");
-        if (!publish_stage->publish_registered_no_replace(
+        if (fallback_mov) {
+            // Non-consumed Stage A was disposed above when Stage B is used.
+            // The remux helper validates the actual MOV container, original
+            // metadata/MEBX and source timing, consumes publish_stage before
+            // publication, and publishes only its own creating-handle object.
+            const lpb_result remux_result = remux_video_reader(context, publish_stage->reader(),
+                output_video_path, target_container, publish_stage, source_bytes,
+                &transplanted_facts, &fallback_source_timeline, out_preservation);
+            if (remux_result != LPB_RESULT_OK) return fail_sidecar(remux_result, nullptr);
+        } else if (!publish_stage->publish_registered_no_replace(
                 context, LPB_ARTIFACT_MOTION_VIDEO, p_out)) {
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                 "Validated minimal-libav output could not be published without replacement.");
@@ -2804,8 +3064,7 @@ lpb_result transcode_video_file(
                 "Native preserved %zu MEBX tracks; FFmpeg %s; no fallback.",
                 transplanted_facts.size(), sidecar_facts.library_version));
         }
-        set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_MINIMAL_LIBAV,
-            LPB_VIDEO_HARDWARE_SOFTWARE_FORCED, false, validated_identity,
+        set_sidecar_diagnostics(validated_identity, mf_fallback ? "Validated minimal-libav/libx264; metadata and timing verified." :
             has_mebx ? success_reason.data() : bridge.reason.data());
         return LPB_RESULT_OK;
     }
