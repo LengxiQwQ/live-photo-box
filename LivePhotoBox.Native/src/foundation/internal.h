@@ -175,6 +175,27 @@ struct lpb_cleaner_test_hook
     int32_t trigger_count{0};
 };
 
+struct lpb_target_writer_session;
+enum class lpb_destroy_owner : uint8_t { None, Synchronous, Deferred, Finalizing };
+
+// Writer frames never lend authority to callbacks. A linked stack avoids any
+// allocation in lifetime/reentrancy tracking and also handles nested contexts.
+struct lpb_writer_frame {
+    lpb_context* context;
+    lpb_writer_frame* previous;
+    explicit lpb_writer_frame(lpb_context*) noexcept;
+    ~lpb_writer_frame() noexcept;
+};
+bool lpb_writer_frame_active(const lpb_context*) noexcept;
+bool lpb_writer_callback_active(const lpb_context*) noexcept;
+struct lpb_writer_callback_frame {
+    const lpb_context* context;
+    lpb_writer_callback_frame* previous;
+    explicit lpb_writer_callback_frame(const lpb_context*) noexcept;
+    ~lpb_writer_callback_frame() noexcept;
+};
+bool lpb_generate_unique_plan_token(uint64_t& token) noexcept;
+
 struct lpb_context
 {
     lpb_log_callback log_callback{};
@@ -190,11 +211,14 @@ struct lpb_context
     std::condition_variable lifetime_cv;
     uint32_t active_operations{};
     bool destroy_requested{};
+    lpb_destroy_owner destruction_owner{lpb_destroy_owner::None};
     std::mutex plan_mutex;
     std::vector<lpb_extraction_plan_record> extraction_plans;
     uint64_t next_plan_generation{1};
     std::vector<lpb_cleanup_plan_record> cleanup_plans;
     uint64_t next_cleanup_generation{1};
+    std::vector<std::shared_ptr<lpb_target_writer_session>> target_writer_plans;
+    uint64_t next_target_writer_generation{1};
     std::mutex hdr_gainmap_mutex;
     std::vector<std::pair<uint64_t, std::shared_ptr<void>>> hdr_gainmap_stages;
     // Non-zero only while a plan-authorized clean invocation is executing on

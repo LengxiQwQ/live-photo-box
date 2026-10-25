@@ -1,4 +1,6 @@
 #include "media/media_inspector.h"
+#include "media/target_writer.h"
+#include "metadata/exif.h"
 #include "media/jpeg_gainmap_mpf.h"
 #include "media/video_converter.h"
 #include "foundation/internal.h"
@@ -5525,4 +5527,186 @@ int observe_source_xmp_integer(lpb_context* context, const std::vector<uint8_t>&
     } catch (...) { value = 0; return -1; }
 }
 
+lpb_result observe_target_writer_primary(lpb_context* context,const std::vector<uint8_t>& bytes) noexcept {
+    try {
+        if(detect_image_container(bytes)!=LPB_IMAGE_CONTAINER_JPEG) {
+            set_error(context,"[Unsupported] Writer v1 accepts whole-file non-auxiliary JPEG only; HEIF target integration is pending.");
+            return LPB_RESULT_UNSUPPORTED;
+        }
+        jpeg_gainmap_mpf::jpeg_info jpeg{};
+        if(!jpeg_gainmap_mpf::parse_jpeg(bytes,jpeg) ||
+            !is_valid_jpeg_media_range(bytes.data(),bytes.size(),0,bytes.size())) {
+            set_error(context,"[Malformed] Writer primary JPEG marker/scan structure is invalid.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if(jpeg.eoi_end!=bytes.size() || jpeg.mpf_status!=jpeg_gainmap_mpf::status::absent) {
+            set_error(context,"[Unsupported] Writer v1 cannot accept JPEG tail, MPF or auxiliary assets.");
+            return LPB_RESULT_UNSUPPORTED;
+        }
+        std::vector<std::string> packets;
+        if(jpeg_xmp_structure_invalid(bytes,&packets)) {
+            set_error(context,"[Malformed] Writer primary has duplicate or malformed XMP.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        for(const auto& packet:packets) {
+            // The shared scanner does not expand XML entities or DTDs. Keep
+            // this authority-producing subset explicit rather than interpreting
+            // an encoded namespace as an unrelated, neutral namespace.
+            if(packet.find("<!")!=std::string::npos) {
+                set_error(context,"[Unsupported] Writer v1 XMP declarations are outside the observed subset.");
+                return LPB_RESULT_UNSUPPORTED;
+            }
+            std::vector<xmp_node> nodes;
+            if(!scan_xmp_tree(packet,nodes))return LPB_RESULT_INVALID_ARGUMENT;
+            size_t roots=0;
+            const auto owned=[](std::string_view uri) {
+                return uri==google_camera_namespace || uri==google_container_namespace ||
+                    uri==google_item_namespace || uri==oppo_camera_namespace ||
+                    uri==vivo_camera_namespace || uri==micamera_namespace ||
+                    uri=="http://ns.adobe.com/hdr-gain-map/1.0/" ||
+                    uri=="http://ns.apple.com/HDRGainMap/1.0/";
+            };
+            for(const auto& node:nodes) {
+                if(node.parent_index==k_no_parent)++roots;
+                if(node.tag_name.find(':')!=std::string_view::npos&&node.resolved_uri.empty())
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                if(owned(node.resolved_uri)) {
+                    set_error(context,"[Unsupported] Writer primary retains protocol-owned or HDR XMP structure.");
+                    return LPB_RESULT_UNSUPPORTED;
+                }
+                for(const auto& attribute:node.attributes) {
+                    if(std::count_if(node.attributes.begin(),node.attributes.end(),[&](const auto& candidate){
+                        return candidate.name==attribute.name;})!=1)return LPB_RESULT_INVALID_ARGUMENT;
+                    const bool declaration=attribute.name=="xmlns" || attribute.name.starts_with("xmlns:");
+                    if(declaration&&attribute.value.find('&')!=std::string_view::npos) {
+                        set_error(context,"[Unsupported] Writer v1 cannot authorize entity-encoded XMP namespaces.");
+                        return LPB_RESULT_UNSUPPORTED;
+                    }
+                    if(!declaration&&attribute.name.find(':')!=std::string_view::npos&&attribute.resolved_uri.empty()&&
+                        !attribute.name.starts_with("xml:"))return LPB_RESULT_INVALID_ARGUMENT;
+                    if(owned(attribute.resolved_uri)) {
+                        set_error(context,"[Unsupported] Writer primary retains protocol-owned or HDR XMP property.");
+                        return LPB_RESULT_UNSUPPORTED;
+                    }
+                }
+            }
+            if(roots!=1)return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        // The general XMP observer above covers only metadata before the first
+        // SOS. Walk the complete marker stream here: legal APP1 may also occur
+        // between scans or before EOI. V1 conservatively rejects every such APP1
+        // rather than issuing authority with unobserved XMP/Exif ownership.
+        // The existing TIFF parser handles pre-scan Exif. Opaque MakerNote,
+        // UserComment and TIFF auxiliary graphs remain outside this subset.
+        unsigned exif_count=0;
+        bool saw_scan=false,inside_scan=false;
+        for(size_t p=2;p+1<bytes.size();) {
+            if(inside_scan) {
+                bool found_marker=false;
+                while(p<bytes.size()) {
+                    if(bytes[p]!=0xff){++p;continue;}
+                    const size_t start=p;
+                    size_t code=p+1;
+                    while(code<bytes.size()&&bytes[code]==0xff)++code;
+                    if(code==bytes.size())return LPB_RESULT_INVALID_ARGUMENT;
+                    if(bytes[code]==0x00 || (bytes[code]>=0xd0&&bytes[code]<=0xd7)) {
+                        p=code+1;continue;
+                    }
+                    p=start;found_marker=true;break;
+                }
+                if(!found_marker)return LPB_RESULT_INVALID_ARGUMENT;
+                inside_scan=false;
+            }
+            if(bytes[p++]!=0xff)return LPB_RESULT_INVALID_ARGUMENT;
+            while(p<bytes.size()&&bytes[p]==0xff)++p;
+            if(p==bytes.size())return LPB_RESULT_INVALID_ARGUMENT;
+            const uint8_t marker=bytes[p++];
+            if(marker==0xd9)break;
+            if(marker==0x00 || marker==0xd8 || (marker>=0xd0&&marker<=0xd7))return LPB_RESULT_INVALID_ARGUMENT;
+            if(marker==0x01)continue;
+            if(p+2>bytes.size())return LPB_RESULT_INVALID_ARGUMENT;
+            const size_t length=(static_cast<size_t>(bytes[p])<<8)|bytes[p+1];
+            if(length<2||length>bytes.size()-p)return LPB_RESULT_INVALID_ARGUMENT;
+            const size_t payload=p+2,end=p+length;
+            if(marker==0xe1 && saw_scan) {
+                set_error(context,"[Unsupported] Writer v1 cannot authorize JPEG APP1 metadata after a scan begins.");
+                return LPB_RESULT_UNSUPPORTED;
+            }
+            constexpr char extension_header[]="http://ns.adobe.com/xmp/extension/";
+            if(marker==0xe1 && end-payload>=sizeof(extension_header) &&
+                std::memcmp(bytes.data()+payload,extension_header,sizeof(extension_header))==0 &&
+                end-payload<sizeof(extension_header)+32+8)return LPB_RESULT_INVALID_ARGUMENT;
+            constexpr char standard_header[]="http://ns.adobe.com/xap/1.0/";
+            if(marker==0xe1 && end-payload>=sizeof(standard_header) &&
+                std::memcmp(bytes.data()+payload,standard_header,sizeof(standard_header))==0) {
+                // extract_xml_fragment deliberately extracts a first supported
+                // wrapper for general inspection. Authority must also reject
+                // roots/declarations outside that fragment in the raw packet.
+                const std::string raw(reinterpret_cast<const char*>(bytes.data()+payload+sizeof(standard_header)),
+                    end-payload-sizeof(standard_header));
+                if(raw.find("<!")!=std::string::npos)return LPB_RESULT_UNSUPPORTED;
+                std::vector<xmp_node> raw_nodes;
+                if(!scan_xmp_tree(raw,raw_nodes) ||
+                    std::count_if(raw_nodes.begin(),raw_nodes.end(),[](const auto& node){return node.parent_index==k_no_parent;})!=1)
+                    return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if(marker==0xe1 && end-payload>=6 && std::memcmp(bytes.data()+payload,"Exif\0\0",6)==0) {
+                if(++exif_count!=1)return LPB_RESULT_INVALID_ARGUMENT;
+                const size_t tiff=payload+6;
+                if(end-tiff<8)return LPB_RESULT_INVALID_ARGUMENT;
+                const bool big=bytes[tiff]=='M'&&bytes[tiff+1]=='M';
+                if(!big && !(bytes[tiff]=='I'&&bytes[tiff+1]=='I'))return LPB_RESULT_INVALID_ARGUMENT;
+                const auto u16=[&](size_t at){return big ? read_be16u(bytes.data()+at):
+                    static_cast<uint16_t>(bytes[at]|(static_cast<uint16_t>(bytes[at+1])<<8));};
+                const auto u32=[&](size_t at){return big ? read_be32u(bytes.data()+at):
+                    static_cast<uint32_t>(bytes[at]|(static_cast<uint32_t>(bytes[at+1])<<8)|
+                        (static_cast<uint32_t>(bytes[at+2])<<16)|(static_cast<uint32_t>(bytes[at+3])<<24));};
+                if(u16(tiff+2)!=42)return LPB_RESULT_INVALID_ARGUMENT;
+                const uint32_t root_ifd=u32(tiff+4);
+                if(root_ifd<8)return LPB_RESULT_INVALID_ARGUMENT;
+                std::vector<uint32_t> pending{root_ifd},seen;
+                std::vector<std::pair<uint64_t,uint64_t>> occupied{{0,8}};
+                const auto claim_range=[&](uint64_t start,uint64_t length) {
+                    if(start>end-tiff || length>end-tiff-start)return false;
+                    const uint64_t finish=start+length;
+                    for(const auto& range:occupied)
+                        if(start<range.second && range.first<finish)return false;
+                    occupied.emplace_back(start,finish);return true;
+                };
+                while(!pending.empty()) {
+                    const uint32_t offset=pending.back();pending.pop_back();
+                    if(!offset)continue;
+                    if(offset<8 || offset>end-tiff || seen.size()>=32 ||
+                        std::find(seen.begin(),seen.end(),offset)!=seen.end())return LPB_RESULT_INVALID_ARGUMENT;
+                    seen.push_back(offset);
+                    tiff_ifd directory{};
+                    if(!parse_ifd(bytes.data(),end,tiff,offset,big,&directory))return LPB_RESULT_INVALID_ARGUMENT;
+                    if(!claim_range(offset,2+static_cast<uint64_t>(directory.entries.size())*12+4))
+                        return LPB_RESULT_INVALID_ARGUMENT;
+                    std::vector<uint16_t> tags;
+                    for(const auto& entry:directory.entries) {
+                        if(std::find(tags.begin(),tags.end(),entry.tag)!=tags.end())return LPB_RESULT_INVALID_ARGUMENT;
+                        tags.push_back(entry.tag);
+                        if(entry.tag==0x927c || entry.tag==0x9286 || entry.tag==0x014a || entry.tag==0xb000)
+                            return LPB_RESULT_UNSUPPORTED;
+                        uint64_t width=0;
+                        switch(entry.type){case 1:case 2:case 6:case 7:width=1;break;
+                        case 3:case 8:width=2;break;case 4:case 9:case 11:width=4;break;
+                        case 5:case 10:case 12:width=8;break;default:return LPB_RESULT_UNSUPPORTED;}
+                        const uint64_t n=width*entry.count;
+                        if(!n || (n>4 && !claim_range(entry.value_offset,n)))return LPB_RESULT_INVALID_ARGUMENT;
+                        if(entry.tag==0x8769 || entry.tag==0x8825 || entry.tag==0xa005) {
+                            if(entry.type!=4||entry.count!=1||entry.value_offset<8)return LPB_RESULT_INVALID_ARGUMENT;
+                            pending.push_back(entry.value_offset);
+                        }
+                    }
+                    pending.push_back(directory.next_ifd_offset);
+                }
+            }
+            p=end;
+            if(marker==0xda){saw_scan=true;inside_scan=true;}
+        }
+        return LPB_RESULT_OK;
+    } catch(...) {set_error(context,"Writer primary observation failed.");return LPB_RESULT_INTERNAL_ERROR;}
+}
 } // namespace lpb::media

@@ -7,10 +7,12 @@ using Xunit;
 namespace LivePhotoBox.Core.Tests;
 
 /// <summary>
-/// Exercises the Native in-place Apple MakerNote path against an untouched real HEIC copy.
+/// Exercises the frozen historical Apple MakerNote algorithm against an untouched real HEIC copy.
+/// This is algorithm regression evidence, not production target Writer acceptance.
 /// The source sample is never modified; each invocation creates its own disposable copy.
 /// </summary>
 [Trait("Category", "RealSamples")]
+[Trait("Evidence", "HistoricalAlgorithm")]
 public sealed class NativeAppleMakerNoteRealSampleTests
 {
     [Fact]
@@ -32,14 +34,14 @@ public sealed class NativeAppleMakerNoteRealSampleTests
             Assert.False(string.IsNullOrWhiteSpace(originalContentId));
 
             Assert.True(
-                AppleMakerNoteWriter.TryStripAppleLivePhotoEntries(copyPath, out string? stripError),
+                LegacyAppleMakerNoteWriter.TryStripAppleLivePhotoEntries(copyPath, out string? stripError),
                 $"Could not strip the source Apple MakerNote: {stripError}");
             Assert.False(
                 AppleMakerNoteWriter.TryReadContentIdentifierFromImage(copyPath, out _, out _),
                 "ContentIdentifier must no longer be readable after stripping the real HEIC copy.");
 
             Assert.True(
-                AppleMakerNoteWriter.TryWriteContentIdentifier(copyPath, replacementContentId, out string? writeError),
+                LegacyAppleMakerNoteWriter.TryWriteContentIdentifier(copyPath, replacementContentId, out string? writeError),
                 $"Could not rewrite the stripped Apple MakerNote: {writeError}");
             Assert.Equal(originalLength, new FileInfo(copyPath).Length);
 
@@ -71,7 +73,7 @@ public sealed class NativeAppleMakerNoteRealSampleTests
                 $"Could not read the source ContentIdentifier: {readError}");
 
             Assert.True(
-                AppleMakerNoteWriter.TryInjectAppleMakerNoteIntoHeic(copyPath, contentId!, out string? injectError),
+                LegacyAppleMakerNoteWriter.TryInjectAppleMakerNoteIntoHeic(copyPath, contentId!, out string? injectError),
                 $"Could not inject the Apple MakerNote into the real HEIC copy: {injectError}");
             Assert.True(
                 AppleMakerNoteWriter.TryReadContentIdentifierFromImage(copyPath, out string? rewrittenContentId, out string? rewrittenReadError),

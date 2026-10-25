@@ -6,6 +6,7 @@ using Xunit;
 
 namespace LivePhotoBox.Core.Tests;
 
+[Trait("Evidence", "HistoricalAlgorithm")]
 public sealed class VivoNativeMetadataDifferentialTests
 {
     private static readonly byte[] Json = Encoding.UTF8.GetBytes(
@@ -19,7 +20,7 @@ public sealed class VivoNativeMetadataDifferentialTests
         byte[] input = [0xFF, 0xD8, 0x01, 0x02, 0xFF, 0xD9];
         byte[] expected = [.. input, .. BuildLegacyTail(Json)];
 
-        Assert.True(NativeVivoLegacyMetadata.TryRewriteImage(
+        Assert.True(TestVivoLegacyMetadata.TryRewriteImage(
             input, Json, replaceExisting: false, out byte[] actual, out string? error), error);
         Assert.Equal(expected, actual);
     }
@@ -33,7 +34,7 @@ public sealed class VivoNativeMetadataDifferentialTests
         byte[] input = [.. prefix, .. BuildLegacyTail(oldJson)];
         byte[] expected = [.. prefix, .. BuildLegacyTail(Json)];
 
-        Assert.True(NativeVivoLegacyMetadata.TryRewriteImage(
+        Assert.True(TestVivoLegacyMetadata.TryRewriteImage(
             input, Json, replaceExisting: true, out byte[] actual, out string? error), error);
         Assert.Equal(expected, actual);
     }
@@ -44,7 +45,7 @@ public sealed class VivoNativeMetadataDifferentialTests
         byte[] prefix = [0xFF, 0xD8, .. "ordinary vivo{ text"u8, 0xFF, 0xD9];
         byte[] input = [.. prefix];
 
-        Assert.True(NativeVivoLegacyMetadata.TryRewriteImage(
+        Assert.True(TestVivoLegacyMetadata.TryRewriteImage(
             input, Json, replaceExisting: true, out byte[] actual, out string? error), error);
         Assert.Equal(input, actual.AsSpan(0, input.Length).ToArray());
         Assert.Equal(BuildLegacyTail(Json), actual.AsSpan(input.Length).ToArray());
@@ -73,11 +74,11 @@ public sealed class VivoNativeMetadataDifferentialTests
         try
         {
             File.WriteAllBytes(legacyPath, input);
-            Assert.True(Mp4MdtaKeyStripper.TryStripUuidBox(
+            Assert.True(LegacyMp4MdtaKeyStripper.TryStripUuidBox(
                 legacyPath, "vivoMediaExtInfo", out string? stripError), stripError);
             byte[] expected = [.. File.ReadAllBytes(legacyPath), .. BuildUuidBox(BuildLegacyTail(Json))];
 
-            Assert.True(NativeVivoLegacyMetadata.TryRewriteVideo(
+            Assert.True(TestVivoLegacyMetadata.TryRewriteVideo(
                 input, Json, out byte[] actual, out string? error), error);
             Assert.Equal(expected, actual);
         }
@@ -92,7 +93,7 @@ public sealed class VivoNativeMetadataDifferentialTests
     {
         byte[] invalidJson = "vivo{\"version\":2104}"u8.ToArray();
 
-        Assert.False(NativeVivoLegacyMetadata.TryRewriteImage(
+        Assert.False(TestVivoLegacyMetadata.TryRewriteImage(
             [0xFF, 0xD8, 0xFF, 0xD9], invalidJson, false,
             out byte[] output, out string? error));
         Assert.Empty(output);

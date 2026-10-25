@@ -115,10 +115,36 @@ internal static class WindowsSplitOutputPublisher
         }
     }
 
-    internal static async Task<PublishedOwnedFile> PublishSingleAsync(
+    internal static Task<PublishedOwnedFile> PublishSingleAsync(
         string finalPath,
         bool overwriteExisting,
         Func<Stream, CancellationToken, Task> writeStageAsync,
+        Func<SplitPublicationTraceEvent, CancellationToken, Task>? testHook,
+        CancellationToken token) =>
+        PublishSingleCoreAsync(finalPath, overwriteExisting, writeStageAsync, null, testHook, token);
+
+    /// <summary>
+    /// P9 publication seam. The observer runs only after the writer view is closed
+    /// and flushed, and must inspect a fresh read-only view before publication.
+    /// Target protocol rules are supplied by the independent Target Validator.
+    /// </summary>
+    internal static Task<PublishedOwnedFile> PublishTargetAsync(
+        string finalPath,
+        bool overwriteExisting,
+        Func<Stream, CancellationToken, Task> writeStageAsync,
+        Func<TargetPublicationStage, CancellationToken, Task> validateStageAsync,
+        CancellationToken token)
+    {
+        ArgumentNullException.ThrowIfNull(validateStageAsync);
+        return PublishSingleCoreAsync(finalPath, overwriteExisting, writeStageAsync,
+            validateStageAsync, TestHook.Value, token);
+    }
+
+    private static async Task<PublishedOwnedFile> PublishSingleCoreAsync(
+        string finalPath,
+        bool overwriteExisting,
+        Func<Stream, CancellationToken, Task> writeStageAsync,
+        Func<TargetPublicationStage, CancellationToken, Task>? validateStageAsync,
         Func<SplitPublicationTraceEvent, CancellationToken, Task>? testHook,
         CancellationToken token)
     {
@@ -130,7 +156,7 @@ internal static class WindowsSplitOutputPublisher
 
         try
         {
-            await transaction.PrepareSingleAsync(writeStageAsync, token).ConfigureAwait(false);
+            await transaction.PrepareSingleAsync(writeStageAsync, validateStageAsync, token).ConfigureAwait(false);
             await transaction.CommitAsync(token).ConfigureAwait(false);
             return transaction.SingleReceipt!;
         }
@@ -151,6 +177,73 @@ internal static class WindowsSplitOutputPublisher
             }
 
             throw;
+        }
+    }
+
+    internal sealed class TargetPublicationStage : IDisposable
+    {
+        private readonly object _gate = new();
+        private readonly List<FileStream> _readers = [];
+        private bool _disposed;
+
+        internal TargetPublicationStage(string path, WindowsFileIdentity identity, long length, string sha256)
+        {
+            Path = path;
+            Identity = identity;
+            ByteLength = length;
+            Sha256 = sha256;
+        }
+
+        internal string Path { get; }
+        internal WindowsFileIdentity Identity { get; }
+        internal long ByteLength { get; }
+        internal string Sha256 { get; }
+
+        internal FileStream OpenRead()
+        {
+            lock (_gate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                // The creating guard denies new write/delete opens. This reader
+                // shares the guard's existing access, without acquiring write access.
+                SafeFileHandle handle = CreateFileW(Path, GenericRead, 0x7, IntPtr.Zero,
+                    OpenExisting, FileAttributeNormal | OpenReparsePoint, IntPtr.Zero);
+                if (handle.IsInvalid)
+                {
+                    int error = Marshal.GetLastWin32Error();
+                    handle.Dispose();
+                    throw BuildIOException("Unable to reopen the guarded target stage for validation.", error);
+                }
+                try
+                {
+                    WindowsFileIdentity actual = CaptureAndValidateRegularFile(handle, Path, requiredLinkCount: 1);
+                    if (!SameObjectAndAttributes(Identity, actual) || GetLength(handle, Path) != ByteLength ||
+                        !string.Equals(ComputeSha256(handle, ByteLength, Path, CancellationToken.None), Sha256, StringComparison.Ordinal))
+                        throw new IOException("Reopened target stage no longer matches its sealed object and bytes.");
+                    var reader = new FileStream(handle, FileAccess.Read, BufferSize, isAsync: false);
+                    // Handle hashing advances its file pointer. A fresh validation
+                    // stream must start at the beginning of the complete artifact.
+                    reader.Position = 0;
+                    _readers.Add(reader);
+                    return reader;
+                }
+                catch
+                {
+                    handle.Dispose();
+                    throw;
+                }
+            }
+        }
+
+        public void Dispose()
+        {
+            lock (_gate)
+            {
+                if (_disposed) return;
+                _disposed = true;
+                foreach (FileStream reader in _readers) reader.Dispose();
+                _readers.Clear();
+            }
         }
     }
 
@@ -210,6 +303,7 @@ internal static class WindowsSplitOutputPublisher
 
         public async Task PrepareSingleAsync(
             Func<Stream, CancellationToken, Task> writeStageAsync,
+            Func<TargetPublicationStage, CancellationToken, Task>? validateStageAsync,
             CancellationToken token)
         {
             if (_slots.Count != 1)
@@ -217,7 +311,8 @@ internal static class WindowsSplitOutputPublisher
 
             token.ThrowIfCancellationRequested();
             OutputSlot slot = _slots[0];
-            TransactionFile stage = CreateTransactionFile(_targetDirectory, "stage", deleteOnClose: false);
+            TransactionFile stage = CreateTransactionFile(_targetDirectory, "stage", deleteOnClose: false,
+                allowReadOnlyValidation: validateStageAsync != null);
             slot.Stage = stage;
 
             using (var borrowedHandle = new SafeFileHandle(stage.Handle.DangerousGetHandle(), ownsHandle: false))
@@ -240,6 +335,14 @@ internal static class WindowsSplitOutputPublisher
 
             stage.Length = GetLength(stage.Handle, stage.Path);
             stage.Sha256 = ComputeSha256(stage.Handle, stage.Length, stage.Path, token);
+
+            if (validateStageAsync != null)
+            {
+                using (var sealedStage = new TargetPublicationStage(stage.Path, stageIdentity, stage.Length, stage.Sha256))
+                    await validateStageAsync(sealedStage, token).ConfigureAwait(false);
+                token.ThrowIfCancellationRequested();
+                VerifyOwnedFileMatches(stage, stage.Length, stage.Sha256, token);
+            }
 
             if (!_overwriteExisting)
             {
@@ -820,7 +923,8 @@ internal static class WindowsSplitOutputPublisher
         public bool HandleDisposedByProof { get; set; }
     }
 
-    private static TransactionFile CreateTransactionFile(string directory, string role, bool deleteOnClose)
+    private static TransactionFile CreateTransactionFile(string directory, string role, bool deleteOnClose,
+        bool allowReadOnlyValidation = false)
     {
         for (int attempt = 0; attempt < 32; attempt++)
         {
@@ -832,7 +936,7 @@ internal static class WindowsSplitOutputPublisher
             SafeFileHandle handle = CreateFileW(
                 path,
                 GenericRead | GenericWrite | DeleteAccess | FileReadAttributes,
-                shareMode: 0,
+                shareMode: allowReadOnlyValidation ? FileShareRead : 0,
                 IntPtr.Zero,
                 CreateNew,
                 flags,

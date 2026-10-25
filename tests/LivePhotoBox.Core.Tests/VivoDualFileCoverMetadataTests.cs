@@ -58,7 +58,7 @@ public sealed class VivoDualFileCoverMetadataTests
             await File.WriteAllBytesAsync(imagePath, [0xFF, 0xD8, 0xFF, 0xD9]);
             await File.WriteAllBytesAsync(videoPath, Ftyp());
 
-            await VivoDualFileMetadataWriter.WritePairMetadataAsync(
+            await LegacyVivoDualFileMetadataWriter.WritePairMetadataAsync(
                 imagePath, videoPath, CancellationToken.None);
 
             string imageText = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(imagePath));
@@ -85,7 +85,7 @@ public sealed class VivoDualFileCoverMetadataTests
             await File.WriteAllBytesAsync(imagePath, [0xFF, 0xD8, 0xFF, 0xD9]);
             await File.WriteAllBytesAsync(videoPath, Ftyp());
 
-            await VivoDualFileMetadataWriter.WritePairMetadataAsync(
+            await LegacyVivoDualFileMetadataWriter.WritePairMetadataAsync(
                 imagePath, videoPath, CancellationToken.None);
 
             byte[] image = await File.ReadAllBytesAsync(imagePath);
@@ -120,7 +120,7 @@ public sealed class VivoDualFileCoverMetadataTests
                 .. oldUuid
             ]);
 
-            await VivoDualFileMetadataWriter.WritePairMetadataAsync(
+            await LegacyVivoDualFileMetadataWriter.WritePairMetadataAsync(
                 imagePath, videoPath, CancellationToken.None);
 
             byte[] result = await File.ReadAllBytesAsync(videoPath);
@@ -143,7 +143,7 @@ public sealed class VivoDualFileCoverMetadataTests
             await File.WriteAllBytesAsync(imagePath, [0xFF, 0xD8, 0xFF, 0xD9]);
             await File.WriteAllBytesAsync(videoPath, Ftyp());
 
-            await VivoDualFileMetadataWriter.WritePairMetadataAsync(
+            await LegacyVivoDualFileMetadataWriter.WritePairMetadataAsync(
                 imagePath, videoPath, CancellationToken.None);
 
             string videoText = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(videoPath));

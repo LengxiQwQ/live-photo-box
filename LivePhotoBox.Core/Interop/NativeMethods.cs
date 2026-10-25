@@ -14,7 +14,8 @@ namespace LivePhotoBox.Interop
         InternalError = 5,
         AuthorityViolation = 6,
         PlanReplayed = 7,
-        SourceChanged = 8
+        SourceChanged = 8,
+        Unsupported = 9
     }
 
     internal enum NativeInspectionFailureCategory { None = 0, Unsupported = 1, Ambiguous = 2, Malformed = 3, InvalidArgument = 4, Io = 5 }
@@ -54,9 +55,9 @@ namespace LivePhotoBox.Interop
     internal static partial class NativeMethods
     {
         internal const string LibraryName = "LivePhotoBox.Native";
-        // ABI v12 adds identity-bound neutral timing observations with explicit presence.
+        // ABI v13 adds context-bound target Writer sessions. Existing POD layouts remain unchanged.
         // Codec and platform implementation types remain entirely Native-private.
-        internal const uint RequiredAbiVersion = 12;
+        internal const uint RequiredAbiVersion = 13;
 
         [LibraryImport(LibraryName, EntryPoint = "lpb_get_abi_version")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]

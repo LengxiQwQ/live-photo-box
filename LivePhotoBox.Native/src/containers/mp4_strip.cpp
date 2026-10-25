@@ -143,6 +143,15 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_uuid_box(
     size_t output_size,
     size_t* out_written)
 {
+#if !defined(LPB_NATIVE_TEST_HARNESS)
+    if (context != nullptr && !lpb_has_clean_authority(context))
+    {
+        if (out_written) *out_written = 0;
+        set_error(context, "[AuthorityViolation] Legacy raw mutation requires active Native cleanup-plan authority.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+#endif
+
     if (context == nullptr || input == nullptr || user_type_16 == nullptr || out_written == nullptr)
         return LPB_RESULT_INVALID_ARGUMENT;
 
@@ -729,6 +738,15 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_stsd_tracks(
     size_t output_size,
     size_t* out_written)
 {
+#if !defined(LPB_NATIVE_TEST_HARNESS)
+    if (context != nullptr && !lpb_has_clean_authority(context))
+    {
+        if (out_written) *out_written = 0;
+        set_error(context, "[AuthorityViolation] Legacy raw mutation requires active Native cleanup-plan authority.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+#endif
+
     if (context == nullptr || input == nullptr || out_written == nullptr)
         return LPB_RESULT_INVALID_ARGUMENT;
 
@@ -795,6 +813,15 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_mdta_keys(
     size_t output_size,
     size_t* out_written)
 {
+#if !defined(LPB_NATIVE_TEST_HARNESS)
+    if (context != nullptr && !lpb_has_clean_authority(context))
+    {
+        if (out_written) *out_written = 0;
+        set_error(context, "[AuthorityViolation] Legacy raw mutation requires active Native cleanup-plan authority.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+#endif
+
     if (context == nullptr || input == nullptr || out_written == nullptr)
         return LPB_RESULT_INVALID_ARGUMENT;
 

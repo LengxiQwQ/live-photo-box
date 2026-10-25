@@ -500,6 +500,17 @@ void windows_readonly_source::close() noexcept {
     directories_.clear();
 }
 
+bool windows_readonly_source::capture_identity(lpb_file_identity& identity) const noexcept {
+    identity = {};
+    BY_HANDLE_FILE_INFORMATION info{};
+    if (!file_ || !GetFileInformationByHandle(file_, &info)) return false;
+    identity.volume_serial = info.dwVolumeSerialNumber;
+    identity.file_index = (static_cast<uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
+    identity.file_size = (static_cast<uint64_t>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
+    identity.link_count = info.nNumberOfLinks;
+    return true;
+}
+
 bool windows_readonly_source::open(const std::filesystem::path& source, bool pin_ancestors) noexcept {
     close();
     if (source.empty()) return false;

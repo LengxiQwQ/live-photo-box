@@ -20,8 +20,8 @@
 extern "C" {
 #endif
 
-/* ABI 12 adds versioned neutral timing observation; existing PODs are unchanged. */
-#define LPB_NATIVE_ABI_VERSION 12u
+/* ABI 13 adds context-bound target Writer sessions; existing PODs are unchanged. */
+#define LPB_NATIVE_ABI_VERSION 13u
 
 typedef struct lpb_context lpb_context;
 typedef struct lpb_extraction_plan lpb_extraction_plan;
@@ -40,7 +40,8 @@ typedef enum lpb_result
        to preserve the existing result-code meanings. */
     LPB_RESULT_AUTHORITY_VIOLATION = 6,
     LPB_RESULT_PLAN_REPLAYED = 7,
-    LPB_RESULT_SOURCE_CHANGED = 8
+    LPB_RESULT_SOURCE_CHANGED = 8,
+    LPB_RESULT_UNSUPPORTED = 9
 } lpb_result;
 
 typedef enum lpb_inspection_failure_category
@@ -1388,6 +1389,70 @@ typedef struct lpb_file_identity
     uint64_t file_size;
     uint32_t link_count;
 } lpb_file_identity;
+
+/* Target Writer v1: x64 alignment8 / managed Pack8. Existing PODs unchanged. */
+typedef struct lpb_target_writer_plan lpb_target_writer_plan;
+
+/* Explicit map from typed OutputProfile; never cast UI/source enum. */
+typedef enum lpb_target_writer_profile_v1 {
+ LPB_TARGET_GOOGLE_V1=1, LPB_TARGET_GOOGLE_V2=2, LPB_TARGET_OPPO=3,
+ LPB_TARGET_VIVO_MODERN=4, LPB_TARGET_SAMSUNG=5, LPB_TARGET_HUAWEI=6,
+ LPB_TARGET_APPLE=7, LPB_TARGET_VIVO_LEGACY=8, LPB_TARGET_FUSION=9
+} lpb_target_writer_profile_v1;
+/* format: 0 JpegMp4,1 JpegMov,2 HeicMp4,3 HeicMov,4 HeicMp4Hevc.
+   role: 0 PrimaryImage,1 MotionVideo. Other roles unsupported in v1.
+   container uses existing lpb_image_container / lpb_video_container by role.
+   video_codec uses existing lpb_video_codec; PrimaryImage requires0 (actual
+   primary image coding is observed Native, not guessed from a managed codec).
+   identity/sha256 are expectations checked against actual full pinned file.
+   No selectors, foreign temps, historical preservation flags or raw patches. */
+typedef struct lpb_target_writer_artifact_v1 {
+ uint32_t struct_size, version;                         /*0,4*/
+ uint32_t role, container, video_codec, reserved;       /*8..20*/
+ lpb_file_identity expected_identity;                  /*24,32 bytes*/
+ uint8_t sha256[32];                                   /*56*/
+ char path_utf8[1024];                                 /*88*/
+} lpb_target_writer_artifact_v1;                        /*1112*/
+typedef struct lpb_target_writer_request_v1 {
+ uint32_t struct_size,version;                         /*0,4*/
+ uint32_t target_profile,target_version,media_format;   /*8,12,16*/
+ uint32_t artifact_count,reserved0,reserved1;           /*20,24,28*/
+ const lpb_target_writer_artifact_v1* artifacts;        /*32*/
+ int64_t cover_timestamp_us;                           /*40*/
+ uint32_t cover_timestamp_present,reserved2;            /*48,52*/
+ char staging_directory_utf8[1024];                    /*56*/
+} lpb_target_writer_request_v1;                        /*1080*/
+/* cover present0 requires value0, internally remains Unknown. present1 is a
+   requested target cover which Native proves lies on observed video timeline.
+   No historical VerifiedPreserved/Converted authority travels in this request.
+   Foundation checks actual schedule/profile/structure and retains exact input
+   leases/identities/hashes/fingerprint. Normalized semantic DTOs await family work.
+   Strict preservation is the only v1 policy; no degradation flag is granted. */
+typedef struct lpb_target_writer_output_v1 {
+ uint32_t struct_size,version;                         /*0,4*/
+ uint32_t artifact_role,artifact_index,target_profile,target_version; /*8..20*/
+ uint64_t generation,stage_id,byte_length;              /*24,32,40*/
+ lpb_file_identity identity;                           /*48*/
+ uint8_t sha256[32],request_fingerprint[32];            /*80,112*/
+} lpb_target_writer_output_v1;                         /*144*/
+/* states Issued0,Claimed1,Succeeded2,Failed3,Cancelled4,ReleaseRequested5;
+   failure None0,Unsupported1,Malformed2,Ambiguous3,Identity4,Io5,
+   CleanupFailed6,Authority7. Failure details also in last_error. */
+typedef struct lpb_target_writer_status_v1 {
+ uint32_t struct_size,version,state,failure_category;
+ uint32_t target_profile,output_count;
+ uint64_t generation;
+} lpb_target_writer_status_v1;                         /*32*/
+LPB_API lpb_result LPB_CALL lpb_target_writer_prepare_v1(lpb_context*,
+ const lpb_target_writer_request_v1*,lpb_target_writer_plan**);
+LPB_API lpb_result LPB_CALL lpb_target_writer_stage_v1(lpb_context*,lpb_target_writer_plan*);
+LPB_API lpb_result LPB_CALL lpb_target_writer_get_outputs_v1(lpb_context*,lpb_target_writer_plan*,
+ lpb_target_writer_output_v1*,uint32_t,uint32_t*,lpb_target_writer_status_v1*);
+LPB_API lpb_result LPB_CALL lpb_target_writer_read_stage_v1(lpb_context*,lpb_target_writer_plan*,
+ uint64_t,uint64_t,uint8_t*,uint32_t,uint32_t*);
+LPB_API lpb_result LPB_CALL lpb_target_writer_release_v1(lpb_context*,lpb_target_writer_plan*);
+/* Writer callback destroy requests deferred destruction. Existing outer leases keep context alive; last lease finalizes once without callbacks, or transfers ownership to a synchronous external destroy waiter. Caller must not use context after outer operation returns from a callback that requested destroy. All five Writer APIs reject callback reentry. See native-design.md for exact lifetime-owner protocol. */
+
 
 /* Cleaner staged-output ownership record.  The Native cleaner captures this
  * from the creating handle at publish time and returns it through

@@ -5,6 +5,7 @@
 #include "media/video_converter.h"
 #include <windows.h>
 #include <bcrypt.h>
+#include <unordered_set>
 
 #pragma comment(lib, "bcrypt.lib")
 
@@ -24,6 +25,38 @@ bool is_live_plan_state(lpb_plan_state state) noexcept
 }
 #endif
 
+namespace {
+thread_local lpb_writer_frame* writer_frames{};
+thread_local lpb_writer_callback_frame* writer_callbacks{};
+std::mutex issued_token_mutex;
+std::unordered_set<uint64_t> issued_tokens;
+void finalize_context_no_callbacks(lpb_context* context) noexcept;
+}
+lpb_writer_frame::lpb_writer_frame(lpb_context* value) noexcept : context(value), previous(writer_frames) { writer_frames=this; }
+lpb_writer_frame::~lpb_writer_frame() noexcept { writer_frames=previous; }
+lpb_writer_callback_frame::lpb_writer_callback_frame(const lpb_context* value) noexcept : context(value), previous(writer_callbacks) { writer_callbacks=this; }
+lpb_writer_callback_frame::~lpb_writer_callback_frame() noexcept { writer_callbacks=previous; }
+bool lpb_writer_frame_active(const lpb_context* context) noexcept {
+    for(auto* p=writer_frames;p;p=p->previous) if(p->context==context)return true;
+    return false;
+}
+bool lpb_writer_callback_active(const lpb_context* context) noexcept {
+    for(auto* p=writer_callbacks;p;p=p->previous)if(p->context==context)return true;
+    return false;
+}
+bool lpb_generate_unique_plan_token(uint64_t& token) noexcept {
+    token=0;
+    try {
+        for(int attempt=0;attempt<32;++attempt) {
+            uint64_t candidate=0;
+            if(BCryptGenRandom(nullptr,reinterpret_cast<PUCHAR>(&candidate),
+                static_cast<ULONG>(sizeof(candidate)),BCRYPT_USE_SYSTEM_PREFERRED_RNG)!=0 || !candidate)continue;
+            std::scoped_lock lock(issued_token_mutex);
+            if(issued_tokens.insert(candidate).second){token=candidate;return true;}
+        }
+    } catch(...) {}
+    return false;
+}
 lpb_context_operation::lpb_context_operation(lpb_context* context) noexcept
 {
     if (context == nullptr)
@@ -49,29 +82,23 @@ lpb_context_operation::lpb_context_operation(lpb_context* context) noexcept
 
 lpb_context_operation::~lpb_context_operation() noexcept
 {
-    if (context_ == nullptr)
-    {
-        return;
-    }
-
-    try
-    {
-        std::unique_lock lock(context_->lifetime_mutex);
-        if (context_->active_operations > 0)
+    lpb_context* context=context_;
+    if(!context)return;
+    bool finalize=false;
+    try {
         {
-            --context_->active_operations;
+            std::unique_lock lock(context->lifetime_mutex);
+            if(context->active_operations>0)--context->active_operations;
+            if(context->destroy_requested && context->active_operations==0) {
+                if(context->destruction_owner==lpb_destroy_owner::Deferred) {
+                    context->destruction_owner=lpb_destroy_owner::Finalizing;
+                    finalize=true;
+                } else context->lifetime_cv.notify_all();
+            }
         }
-        if (context_->destroy_requested && context_->active_operations == 0)
-        {
-            context_->lifetime_cv.notify_all();
-        }
-    }
-    catch (...)
-    {
-        // A lifetime lease must never throw through a C ABI boundary.
-    }
+        if(finalize)finalize_context_no_callbacks(context);
+    } catch(...) {}
 }
-
 uint64_t plan_token_from_handle(const lpb_extraction_plan* handle) noexcept
 {
     // This conversion is intentionally the only operation performed on a
@@ -132,93 +159,17 @@ lpb_cleanup_plan_record* find_cleanup_plan_locked(lpb_context* context, uint64_t
 
 bool generate_cleanup_plan_token_unlocked(lpb_context* context, uint64_t& token) noexcept
 {
-    token = 0;
-    if (context == nullptr)
-    {
-        return false;
-    }
-
-    for (int attempt = 0; attempt < 32; ++attempt)
-    {
-        uint64_t candidate = 0;
-        if (BCryptGenRandom(
-                nullptr,
-                reinterpret_cast<PUCHAR>(&candidate),
-                static_cast<ULONG>(sizeof(candidate)),
-                BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0 || candidate == 0)
-        {
-            continue;
-        }
-
-        // Caller must hold context->plan_mutex: the duplicate check runs
-        // against the same locked plan registry the insert will use.
-        if (find_cleanup_plan_locked(context, candidate) == nullptr)
-        {
-            token = candidate;
-            return true;
-        }
-    }
-    return false;
+    token=0; return context != nullptr && lpb_generate_unique_plan_token(token);
 }
 
 bool generate_cleanup_plan_token(lpb_context* context, uint64_t& token) noexcept
 {
-    token = 0;
-    if (context == nullptr)
-    {
-        return false;
-    }
-
-    for (int attempt = 0; attempt < 32; ++attempt)
-    {
-        uint64_t candidate = 0;
-        if (BCryptGenRandom(
-                nullptr,
-                reinterpret_cast<PUCHAR>(&candidate),
-                static_cast<ULONG>(sizeof(candidate)),
-                BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0 || candidate == 0)
-        {
-            continue;
-        }
-
-        std::scoped_lock lock(context->plan_mutex);
-        if (find_cleanup_plan_locked(context, candidate) == nullptr)
-        {
-            token = candidate;
-            return true;
-        }
-    }
-    return false;
+    token=0; return context != nullptr && lpb_generate_unique_plan_token(token);
 }
 
 bool generate_plan_token(lpb_context* context, uint64_t& token) noexcept
 {
-    token = 0;
-    if (context == nullptr)
-    {
-        return false;
-    }
-
-    for (int attempt = 0; attempt < 32; ++attempt)
-    {
-        uint64_t candidate = 0;
-        if (BCryptGenRandom(
-                nullptr,
-                reinterpret_cast<PUCHAR>(&candidate),
-                static_cast<ULONG>(sizeof(candidate)),
-                BCRYPT_USE_SYSTEM_PREFERRED_RNG) != 0 || candidate == 0)
-        {
-            continue;
-        }
-
-        std::scoped_lock lock(context->plan_mutex);
-        if (find_plan_locked(context, candidate) == nullptr)
-        {
-            token = candidate;
-            return true;
-        }
-    }
-    return false;
+    token=0; return context != nullptr && lpb_generate_unique_plan_token(token);
 }
 
 lpb_result begin_plan_native_call(
@@ -394,6 +345,7 @@ void log_message(lpb_context* context, lpb_log_level level, const char* message)
 
     try
     {
+        lpb_writer_callback_frame callback(lpb_writer_frame_active(context) ? context : nullptr);
         context->log_callback(context->user_data, level, message, std::strlen(message));
     }
     catch (...)
@@ -495,22 +447,9 @@ lpb_result LPB_CALL lpb_create_context(
     return LPB_RESULT_OK;
 }
 
-void LPB_CALL lpb_destroy_context(lpb_context* context)
-{
-    if (context == nullptr)
-    {
-        return;
-    }
-
-    {
-        std::unique_lock lock(context->lifetime_mutex);
-        context->destroy_requested = true;
-        context->lifetime_cv.wait(lock, [context] {
-            return context->active_operations == 0;
-        });
-    }
-
-    {
+namespace {
+void finalize_context_no_callbacks(lpb_context* context) noexcept
+{    {
         std::scoped_lock lock(context->plan_mutex);
         for (auto& record : context->extraction_plans)
         {
@@ -535,10 +474,39 @@ void LPB_CALL lpb_destroy_context(lpb_context* context)
     test_archive_destroyed_context(context);
 #endif
 
-    log_message(context, LPB_LOG_DEBUG, "LivePhotoBox.Native context destroyed.");
     delete context;
 }
 
+} // namespace
+void LPB_CALL lpb_destroy_context(lpb_context* context)
+{
+    if(!context)return;
+    {
+        std::unique_lock lock(context->lifetime_mutex);
+        if(context->destruction_owner==lpb_destroy_owner::Finalizing)return;
+        if(lpb_writer_callback_active(context)) {
+            context->destroy_requested=true;
+            if(context->destruction_owner==lpb_destroy_owner::None)
+                context->destruction_owner=lpb_destroy_owner::Deferred;
+            return;
+        }
+        if(context->destruction_owner==lpb_destroy_owner::Synchronous)return;
+        context->destroy_requested=true;
+        context->destruction_owner=lpb_destroy_owner::Synchronous;
+        context->lifetime_cv.wait(lock,[context]{return context->active_operations==0;});
+        context->destruction_owner=lpb_destroy_owner::Finalizing;
+    }
+    // Preserve the ordinary synchronous destruction notification. Deferred
+    // destruction from a callback must not re-enter host callbacks during the
+    // last operation's teardown; that path calls only the no-callback helper.
+    // Finalizing is already exclusive, so a callback requesting destruction
+    // again returns without waiting on itself.
+    {
+        lpb_writer_callback_frame callback(context);
+        log_message(context, LPB_LOG_DEBUG, "LivePhotoBox.Native context destroyed.");
+    }
+    finalize_context_no_callbacks(context);
+}
 #if defined(LPB_NATIVE_TEST_HARNESS)
 uint64_t test_context_id(const lpb_context* context) noexcept
 {
@@ -884,6 +852,7 @@ lpb_result LPB_CALL lpb_context_check_cancelled(lpb_context* context)
     {
         if (context->cancel_callback != nullptr)
         {
+            lpb_writer_callback_frame callback(lpb_writer_frame_active(context) ? context : nullptr);
             cancelled = context->cancel_callback(context->user_data);
         }
     }

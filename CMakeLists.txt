@@ -45,7 +45,8 @@ set(LPB_PORTABLE_SOURCES
   LivePhotoBox.Native/src/protocols/apple_mebx.cpp
   LivePhotoBox.Native/src/protocols/huawei.cpp
   LivePhotoBox.Native/src/protocols/samsung_sef.cpp
-  LivePhotoBox.Native/src/protocols/vivo_legacy.cpp)
+  LivePhotoBox.Native/src/protocols/vivo_legacy.cpp
+  LivePhotoBox.Native/src/protocols/target_structure.cpp)
 set(LPB_PROTOCOL_METADATA_SOURCES
   LivePhotoBox.Native/src/containers/mp4_strip.cpp
   LivePhotoBox.Native/src/foundation/sha256.cpp
@@ -69,6 +70,7 @@ set(LPB_MEDIA_SOURCES
   LivePhotoBox.Native/src/media/media_inspector.cpp
   LivePhotoBox.Native/src/media/preservation_observation.cpp
   LivePhotoBox.Native/src/media/neutral_timing.cpp
+  LivePhotoBox.Native/src/media/target_writer.cpp
   LivePhotoBox.Native/src/media/video_sidecar_bridge.cpp
   LivePhotoBox.Native/src/media/video_converter.cpp)
 source_group("Portable core" FILES ${LPB_PORTABLE_SOURCES})
@@ -197,6 +199,14 @@ function(lpb_native_target target_name output_name harness)
     $<IF:$<TARGET_EXISTS:libjpeg-turbo::turbojpeg>,libjpeg-turbo::turbojpeg,libjpeg-turbo::turbojpeg-static>
     bcrypt ole32
     mfplat mfreadwrite mfuuid)
+  # These declared C ABI entries live in otherwise unreferenced archive
+  # objects. Retain their guarded production implementations (and the separate
+  # historical Harness variant) without pulling in the whole portable archive.
+  target_link_options(${target_name} PRIVATE
+    /INCLUDE:lpb_huawei_patch_heic_ftyp
+    /INCLUDE:lpb_huawei_patch_mp4
+    /INCLUDE:lpb_vivo_rewrite_image_metadata
+    /INCLUDE:lpb_vivo_rewrite_video_metadata)
   # Names match the import libraries' actual PE descriptors (case sensitive).
   # Every MF call is preceded by the secure System32 preflight in video_converter.
   target_link_libraries(${target_name} PRIVATE delayimp)
@@ -222,6 +232,19 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+  add_executable(lpb_target_writer_foundation_tests tests/native/target_writer_foundation_tests.cpp)
+  target_include_directories(lpb_target_writer_foundation_tests PRIVATE LivePhotoBox.Native/include LivePhotoBox.Native/src)
+  target_compile_options(lpb_target_writer_foundation_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+  target_link_libraries(lpb_target_writer_foundation_tests PRIVATE LivePhotoBoxNative bcrypt)
+  add_test(NAME P9R1_TargetWriterFoundation COMMAND lpb_target_writer_foundation_tests
+    "${CMAKE_SOURCE_DIR}/.ai-tmp/workspace/P9/target-writers/R1/native-fixtures")
+  set_tests_properties(P9R1_TargetWriterFoundation PROPERTIES TIMEOUT 90
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:LivePhotoBoxNative>")
+  add_executable(lpb_target_structure_tests tests/native/target_structure_tests.cpp)
+  target_include_directories(lpb_target_structure_tests PRIVATE LivePhotoBox.Native/src)
+  target_compile_options(lpb_target_structure_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+  target_link_libraries(lpb_target_structure_tests PRIVATE livephotobox_portable_core)
+  add_test(NAME P9R1_TargetStructure COMMAND lpb_target_structure_tests)
   add_executable(lpb_portable_io_smoke tests/native/portable_io_smoke.cpp)
   target_include_directories(lpb_portable_io_smoke PRIVATE LivePhotoBox.Native/src)
   target_compile_options(lpb_portable_io_smoke PRIVATE /W4 /WX /utf-8 /EHsc)

@@ -201,6 +201,14 @@ lpb_result LPB_CALL lpb_huawei_patch_heic_ftyp(
     uint8_t* data,
     size_t data_size)
 {
+#if !defined(LPB_NATIVE_TEST_HARNESS)
+    if (context != nullptr && !lpb_has_clean_authority(context))
+    {
+        set_error(context, "[AuthorityViolation] Legacy raw mutation requires active Native cleanup-plan authority.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+#endif
+
     if (context == nullptr || data == nullptr)
     {
         return LPB_RESULT_INVALID_ARGUMENT;
@@ -238,6 +246,14 @@ lpb_result LPB_CALL lpb_huawei_patch_mp4(
     uint8_t* data,
     size_t data_size)
 {
+#if !defined(LPB_NATIVE_TEST_HARNESS)
+    if (context != nullptr && !lpb_has_clean_authority(context))
+    {
+        set_error(context, "[AuthorityViolation] Legacy raw mutation requires active Native cleanup-plan authority.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+#endif
+
     if (context == nullptr || data == nullptr)
     {
         return LPB_RESULT_INVALID_ARGUMENT;

@@ -1,3 +1,4 @@
+// TEST ASSEMBLY ONLY: raw Native algorithm contract fixture.
 using System;
 using System.Runtime.InteropServices;
 using LivePhotoBox.Models;

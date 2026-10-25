@@ -8,6 +8,7 @@ using System.IO;
 
 namespace LivePhotoBox.Core.Tests;
 
+[Trait("Evidence", "HistoricalAlgorithm")]
 public sealed class Mp4MdtaKeyStripperDifferentialTests
 {
     private static byte[] BuildBox(string type, byte[] payload)
@@ -72,7 +73,7 @@ public sealed class Mp4MdtaKeyStripperDifferentialTests
 
         // We run the legacy manually by invoking it on a file and bypassing Native.
         // But since TryStripTracks currently tries Native first, we'll temporarly rename or just use reflection to call StripTracksWithKeys
-        var legacyMethod = typeof(Mp4MdtaKeyStripper).GetMethod("StripTracksWithKeys", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        var legacyMethod = typeof(LegacyMp4MdtaKeyStripper).GetMethod("StripTracksWithKeys", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
         byte[]? legacyResult = (byte[]?)legacyMethod!.Invoke(null, new object[] { fileData, new string[] { "com.apple.quicktime.live-photo-info" } });
 
         Assert.True(nativeSuccess, nativeError);

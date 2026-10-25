@@ -212,6 +212,15 @@ lpb_result LPB_CALL lpb_vivo_rewrite_image_metadata(
     size_t output_size,
     size_t* required_size)
 {
+#if !defined(LPB_NATIVE_TEST_HARNESS)
+    if (context != nullptr && !lpb_has_clean_authority(context))
+    {
+        if (required_size) *required_size = 0;
+        set_error(context, "[AuthorityViolation] Legacy raw mutation requires active Native cleanup-plan authority.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+#endif
+
     if (context == nullptr || (input == nullptr && input_size != 0)
         || vivo_json == nullptr || vivo_json_size == 0)
     {
@@ -277,6 +286,15 @@ lpb_result LPB_CALL lpb_vivo_rewrite_video_metadata(
     size_t output_size,
     size_t* required_size)
 {
+#if !defined(LPB_NATIVE_TEST_HARNESS)
+    if (context != nullptr && !lpb_has_clean_authority(context))
+    {
+        if (required_size) *required_size = 0;
+        set_error(context, "[AuthorityViolation] Legacy raw mutation requires active Native cleanup-plan authority.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+#endif
+
     if (context == nullptr || (input == nullptr && input_size != 0)
         || vivo_json == nullptr || vivo_json_size == 0)
     {

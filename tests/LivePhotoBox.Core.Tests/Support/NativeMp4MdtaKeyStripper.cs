@@ -1,3 +1,4 @@
+// TEST ASSEMBLY ONLY: raw Native algorithm contract fixture.
 using System;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -11,15 +12,15 @@ namespace LivePhotoBox.Interop;
 /// </summary>
 internal static class NativeMp4MdtaKeyStripper
 {
-    [DllImport(NativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_mp4_strip_uuid_box", ExactSpelling = true)]
+    [DllImport(TestHarnessNativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_mp4_strip_uuid_box", ExactSpelling = true)]
     private static extern unsafe NativeResult lpb_mp4_strip_uuid_box(
         nint context, byte* input, nuint inputSize, byte* userType16, byte* output, nuint outputSize, out nuint outWritten);
 
-    [DllImport(NativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_mp4_strip_stsd_tracks", ExactSpelling = true)]
+    [DllImport(TestHarnessNativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_mp4_strip_stsd_tracks", ExactSpelling = true)]
     private static extern unsafe NativeResult lpb_mp4_strip_stsd_tracks(
         nint context, byte* input, nuint inputSize, nint* keyFragments, nuint fragmentCount, byte* output, nuint outputSize, out nuint outWritten);
 
-    [DllImport(NativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_mp4_strip_mdta_keys", ExactSpelling = true)]
+    [DllImport(TestHarnessNativeMethods.LibraryName, CallingConvention = CallingConvention.Cdecl, EntryPoint = "lpb_mp4_strip_mdta_keys", ExactSpelling = true)]
     private static extern unsafe NativeResult lpb_mp4_strip_mdta_keys(
         nint context, byte* input, nuint inputSize,
         nint* nameStarts, nuint nameStartsCount,
@@ -38,7 +39,7 @@ internal static class NativeMp4MdtaKeyStripper
         nint context = nint.Zero;
         try
         {
-            if (NativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
+            if (TestHarnessNativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
 
             byte[] outBuf = new byte[input.Length];
             NativeResult result;
@@ -67,7 +68,7 @@ internal static class NativeMp4MdtaKeyStripper
         }
         finally
         {
-            if (context != nint.Zero) { try { NativeMethods.DestroyContext(context); } catch { } }
+            if (context != nint.Zero) { try { TestHarnessNativeMethods.DestroyContext(context); } catch { } }
         }
     }
 
@@ -79,7 +80,7 @@ internal static class NativeMp4MdtaKeyStripper
         nint[] ptrs = new nint[stsdKeyFragments.Length];
         try
         {
-            if (NativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
+            if (TestHarnessNativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
 
             for (int i = 0; i < stsdKeyFragments.Length; i++)
                 ptrs[i] = Marshal.StringToCoTaskMemAnsi(stsdKeyFragments[i]);
@@ -112,7 +113,7 @@ internal static class NativeMp4MdtaKeyStripper
         finally
         {
             foreach (var ptr in ptrs) if (ptr != nint.Zero) Marshal.FreeCoTaskMem(ptr);
-            if (context != nint.Zero) { try { NativeMethods.DestroyContext(context); } catch { } }
+            if (context != nint.Zero) { try { TestHarnessNativeMethods.DestroyContext(context); } catch { } }
         }
     }
 
@@ -128,7 +129,7 @@ internal static class NativeMp4MdtaKeyStripper
 
         try
         {
-            if (NativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
+            if (TestHarnessNativeMethods.CreateContext(nint.Zero, out context) != NativeResult.Ok) return false;
 
             for (int i = 0; i < nameStarts.Length; i++) ptrsNameStarts[i] = Marshal.StringToCoTaskMemAnsi(nameStarts[i]);
             for (int i = 0; i < nameContains.Length; i++) ptrsNameContains[i] = Marshal.StringToCoTaskMemAnsi(nameContains[i]);
@@ -170,13 +171,13 @@ internal static class NativeMp4MdtaKeyStripper
             foreach (var ptr in ptrsNameStarts) if (ptr != nint.Zero) Marshal.FreeCoTaskMem(ptr);
             foreach (var ptr in ptrsNameContains) if (ptr != nint.Zero) Marshal.FreeCoTaskMem(ptr);
             foreach (var ptr in ptrsValueContains) if (ptr != nint.Zero) Marshal.FreeCoTaskMem(ptr);
-            if (context != nint.Zero) { try { NativeMethods.DestroyContext(context); } catch { } }
+            if (context != nint.Zero) { try { TestHarnessNativeMethods.DestroyContext(context); } catch { } }
         }
     }
 
     private static string? ReadLastError(nint context)
     {
-        NativeResult sizeResult = NativeMethods.GetLastError(
+        NativeResult sizeResult = TestHarnessNativeMethods.GetLastError(
             context, nint.Zero, 0, out nuint requiredSize);
         if (sizeResult != NativeResult.BufferTooSmall || requiredSize <= 1)
             return null;
@@ -184,7 +185,7 @@ internal static class NativeMp4MdtaKeyStripper
         nint buffer = Marshal.AllocHGlobal(checked((nint)requiredSize));
         try
         {
-            return NativeMethods.GetLastError(context, buffer, requiredSize, out _) == NativeResult.Ok
+            return TestHarnessNativeMethods.GetLastError(context, buffer, requiredSize, out _) == NativeResult.Ok
                 ? Marshal.PtrToStringUTF8(buffer)
                 : null;
         }

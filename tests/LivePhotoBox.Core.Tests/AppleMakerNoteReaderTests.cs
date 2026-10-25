@@ -73,7 +73,7 @@ public sealed class AppleMakerNoteReaderTests
             File.WriteAllBytes(temp, BuildIfd0OnlyJpeg(AppleMakerNoteWriter.BuildMakerNote(
                 "11111111-2222-3333-4444-555566667777")));
 
-            Assert.False(AppleMakerNoteWriter.TryInjectIntoJpeg(
+            Assert.False(LegacyAppleMakerNoteWriter.TryInjectIntoJpeg(
                 temp, AppleMakerNoteWriter.BuildMakerNote(
                     "AAAAAAAA-BBBB-CCCC-DDDD-EEEEFFFF0000"), out _));
         }
@@ -113,12 +113,12 @@ public sealed class AppleMakerNoteReaderTests
         {
             File.WriteAllBytes(temp, BuildOwnedJpeg(AppleMakerNoteWriter.BuildMakerNote(
                 "99999999-8888-7777-6666-555544443333")));
-            Assert.True(AppleMakerNoteWriter.TryStripAppleLivePhotoEntries(
+            Assert.True(LegacyAppleMakerNoteWriter.TryStripAppleLivePhotoEntries(
                 temp, out string? stripError), stripError);
             Assert.False(AppleMakerNoteWriter.TryReadContentIdentifierFromImage(
                 temp, out _, out _));
 
-            Assert.True(AppleMakerNoteWriter.TryWriteContentIdentifier(
+            Assert.True(LegacyAppleMakerNoteWriter.TryWriteContentIdentifier(
                 temp, replacement, out string? writeError), writeError);
             Assert.True(AppleMakerNoteWriter.TryReadContentIdentifierFromImage(
                 temp, out string? cid, out string? readError), readError);

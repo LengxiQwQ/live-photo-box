@@ -52,6 +52,7 @@ public:
         std::vector<uint8_t>& out_bytes) const noexcept;
     lpb::random_access_reader reader() const noexcept;
     bool verify_same_identity(const std::filesystem::path& source) const noexcept;
+    bool capture_identity(lpb_file_identity& identity) const noexcept;
 
 private:
     void* file_{};
