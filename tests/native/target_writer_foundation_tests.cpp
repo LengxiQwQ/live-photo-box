@@ -109,7 +109,7 @@ void bind_primary(lpb_target_writer_artifact_v1& artifact,const fs::path& path) 
         for(uint32_t i=0;i<2;++i){auto& a=artifacts[i];a.struct_size=sizeof(a);a.version=1;a.role=i;a.container=1;
             a.video_codec=i?LPB_VIDEO_CODEC_H264:0;a.expected_identity=identity(files[i]);
             const auto hash=hash_file(files[i]);std::memcpy(a.sha256,hash.data(),hash.size());path_field(a.path_utf8,sizeof(a.path_utf8),files[i]);}
-        request.struct_size=sizeof(request);request.version=1;request.target_profile=LPB_TARGET_GOOGLE_V2;request.target_version=1;
+        request.struct_size=sizeof(request);request.version=1;request.target_profile=LPB_TARGET_GOOGLE_V1;request.target_version=1;
         request.artifact_count=2;request.artifacts=artifacts.data();path_field(request.staging_directory_utf8,sizeof(request.staging_directory_utf8),directory);
     }
 };
@@ -133,7 +133,7 @@ int32_t LPB_CALL cancel(void* user) {
     return 0;
 }
 lpb_context* context(callbacks* callback=nullptr) {
-    lpb_context_options options{};options.struct_size=sizeof(options);options.abi_version=13;
+    lpb_context_options options{};options.struct_size=sizeof(options);options.abi_version=14;
     if(callback){options.cancel_callback=cancel;options.user_data=callback;}
     lpb_context* result{};REQUIRE(lpb_create_context(&options,&result)==LPB_RESULT_OK);
     if(callback)callback->context=result;return result;
@@ -148,7 +148,7 @@ int main(int argc,char** argv) {
         const std::string directory_utf8=argv[1];
         const fs::path directory=std::u8string(reinterpret_cast<const char8_t*>(directory_utf8.data()),directory_utf8.size());
         fixture f(directory);
-        REQUIRE(lpb_get_abi_version()==13);REQUIRE(sizeof(lpb_target_writer_artifact_v1)==1112);
+        REQUIRE(lpb_get_abi_version()==14);REQUIRE(sizeof(lpb_target_writer_artifact_v1)==1112);
         REQUIRE(sizeof(lpb_target_writer_request_v1)==1080);REQUIRE(sizeof(lpb_target_writer_output_v1)==144);REQUIRE(sizeof(lpb_target_writer_status_v1)==32);
         auto* owner=context();auto* other=context();lpb_target_writer_plan* plan{};
         // Null context and unissued tokens cannot borrow any Writer authority.
@@ -250,7 +250,7 @@ int main(int argc,char** argv) {
         f.artifacts[0].expected_identity.file_index^=1;
         REQUIRE(lpb_target_writer_prepare_v1(owner,&f.request,&plan)==LPB_RESULT_SOURCE_CHANGED&&!plan);f.artifacts[0].expected_identity.file_index^=1;
         f.request.target_profile=LPB_TARGET_APPLE;
-        REQUIRE(lpb_target_writer_prepare_v1(owner,&f.request,&plan)==LPB_RESULT_UNSUPPORTED&&!plan);f.request.target_profile=LPB_TARGET_GOOGLE_V2;
+        REQUIRE(lpb_target_writer_prepare_v1(owner,&f.request,&plan)==LPB_RESULT_UNSUPPORTED&&!plan);f.request.target_profile=LPB_TARGET_GOOGLE_V1;
         f.request.reserved0=1;REQUIRE(lpb_target_writer_prepare_v1(owner,&f.request,&plan)==LPB_RESULT_INVALID_ARGUMENT&&!plan);f.request.reserved0=0;
         f.request.cover_timestamp_us=1;REQUIRE(lpb_target_writer_prepare_v1(owner,&f.request,&plan)==LPB_RESULT_INVALID_ARGUMENT&&!plan);f.request.cover_timestamp_us=0;
         {handle locked(CreateFileW((directory/L"neutral.mp4").c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_EXISTING,0,nullptr));REQUIRE(locked.value!=INVALID_HANDLE_VALUE);

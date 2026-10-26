@@ -7,6 +7,8 @@
 #include <cstring>
 #include <limits>
 #include <span>
+#include <vector>
+#include "media/jpeg_marker.h"
 
 namespace lpb::media::jpeg_gainmap_mpf {
 
@@ -213,88 +215,22 @@ inline bool parse_mpf_segment(
 // Walks the actual JPEG marker stream, including entropy-coded scans, and
 // parses MPF only from APP2 segments in that stream. Bytes following EOI are
 // intentionally left for the caller to classify as a separate bounded range.
-inline bool parse_jpeg(
-    std::span<const uint8_t> bytes,
-    jpeg_info& out) noexcept {
-    out = {};
-    if (bytes.size() < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8) return false;
-
-    bool inside_scan = false;
-    bool saw_mpf_marker = false;
-    bool saw_mpf_index = false;
-    size_t cursor = 2;
-    while (cursor < bytes.size()) {
-        if (inside_scan) {
-            bool found_marker = false;
-            while (cursor < bytes.size()) {
-                if (bytes[cursor] != 0xFF) {
-                    ++cursor;
-                    continue;
-                }
-                const size_t marker_start = cursor;
-                size_t code_position = cursor + 1;
-                while (code_position < bytes.size() && bytes[code_position] == 0xFF) ++code_position;
-                if (code_position >= bytes.size()) return false;
-                const uint8_t scan_code = bytes[code_position];
-                if (scan_code == 0x00 || (scan_code >= 0xD0 && scan_code <= 0xD7)) {
-                    cursor = code_position + 1;
-                    continue;
-                }
-                cursor = marker_start;
-                found_marker = true;
-                break;
-            }
-            if (!found_marker) return false;
-            inside_scan = false;
+inline bool parse_jpeg(std::span<const uint8_t> bytes,jpeg_info& out) noexcept {
+    out={};lpb::memory_random_access memory{bytes};bool saw_marker=false,saw_index=false;
+    uint64_t eoi=0;
+    const bool ok=lpb::media::walk_jpeg_markers(memory.view(),eoi,[&](const lpb::media::jpeg_marker_range& marker){
+        if(marker.marker!=0xe2||marker.length<3)return true;
+        const size_t first=static_cast<size_t>(marker.payload),last=first+static_cast<size_t>(marker.length);
+        if(std::memcmp(bytes.data()+first,"MPF",3))return true;
+        if(saw_marker){out.mpf_status=status::malformed;return false;}saw_marker=true;
+        bool index=false;relationship parsed{};
+        if(marker.length<4||bytes[first+3]!=0||!detail::parse_mpf_segment(bytes,first,last,parsed,index)){
+            out.mpf_status=status::malformed;return false;
         }
-
-        if (cursor + 1 >= bytes.size() || bytes[cursor] != 0xFF) return false;
-        size_t code_position = cursor + 1;
-        while (code_position < bytes.size() && bytes[code_position] == 0xFF) ++code_position;
-        if (code_position >= bytes.size()) return false;
-        const uint8_t marker = bytes[code_position];
-        const size_t marker_start = cursor;
-        cursor = code_position + 1;
-
-        if (marker == 0xD9) {
-            out.eoi_end = cursor;
-            out.mpf_status = saw_mpf_index ? status::present : status::absent;
-            return true;
-        }
-        if (marker == 0x00 || marker == 0xD8 || (marker >= 0xD0 && marker <= 0xD7)) return false;
-        if (marker == 0x01) continue;
-        if (cursor + 2 > bytes.size()) return false;
-        const uint16_t segment_length = static_cast<uint16_t>(
-            (static_cast<uint16_t>(bytes[cursor]) << 8) | bytes[cursor + 1]);
-        if (segment_length < 2 || segment_length > bytes.size() - cursor) return false;
-        const size_t payload_start = cursor + 2;
-        const size_t payload_end = cursor + segment_length;
-
-        if (marker == 0xE2 && payload_end - payload_start >= 3 &&
-            bytes[payload_start] == 'M' && bytes[payload_start + 1] == 'P' && bytes[payload_start + 2] == 'F') {
-            if (saw_mpf_marker) {
-                out.mpf_status = status::malformed;
-                return false;
-            }
-            saw_mpf_marker = true;
-            bool is_index = false;
-            relationship parsed{};
-            if (payload_end - payload_start < 4 || bytes[payload_start + 3] != 0 ||
-                !detail::parse_mpf_segment(bytes, payload_start, payload_end, parsed, is_index)) {
-                out.mpf_status = status::malformed;
-                return false;
-            }
-            if (is_index) {
-                out.mpf = parsed;
-                saw_mpf_index = true;
-            }
-        }
-
-        cursor = payload_end;
-        if (marker == 0xDA) inside_scan = true;
-        static_cast<void>(marker_start);
-    }
-    return false;
+        if(index){out.mpf=parsed;saw_index=true;}return true;
+    });
+    if(!ok)return false;
+    out.eoi_end=static_cast<size_t>(eoi);out.mpf_status=saw_index?status::present:status::absent;return true;
 }
 
 inline void write_u32(std::span<uint8_t> bytes, size_t offset, uint32_t value, bool little_endian) noexcept {

@@ -1,10 +1,10 @@
-> 最新执行方式（2026-10-26）：每个R完成验证和报告后提交推送，再由新开的Codex聊天完全接任下一个R，不能用子代理代替接班。当前聊天只负责R1收口、推送和R2完整交接；不在本聊天继续R2。此条覆盖旧的同聊天连续推进文字，验收标准不变。
+> 现行执行方式（2026-10-26）：每个主聊天只负责当前R，完成真实验证、fresh Review/另一fresh Verify和白话报告后提交推送，再由新开的主Codex聊天完整接任下一个R，不能用子代理代替接班。普通工程问题自主解决，不再逐R重复请示；实际功能/支持能力、方向及重要工具/安全/生产依赖决定仍须用户处理。验收标准不变。
 
 > 产品范围澄清（2026-10-25）：当前用户明确Apple双文件、旧vivo双文件按拆分场景单独安排，本轮只做合成，不新增两种合成选项；拆分入口见 ../拆分功能-独立后续清单.md。旧“待问是否增加Apple/旧vivo合成”的文字已由本条作否定决定，保留原文作历史，不能自动启用。
 > 当前用户授权更新（2026-10-25）：连续自主推进整个P9，不再逐R请示。普通内部接口/ABI与工程选择由主代理处理；实际功能/支持能力变化、项目方向或重要工具/安全/生产依赖决定先说明并询问。Fusion继续延期。旧逐R等待及普通接口等待文字记录历史，被本条覆盖；真实验收、设备与独立门禁不豁免，不自动进入P10或发布Git。
 # P9 唯一进度 TODO
 
-2026-10-26，LOCAL_OWNER。**R0、R1 COMPLETE；R2 NOT_STARTED，等待新Codex聊天完整接班；Fusion/R6延期。** R1最终188项托管+2项Native、零跳过，独立Review/另一fresh Verify通过；实际各家输出、独立Validator与设备/P9整体验收尚未完成。详见08与09。
+2026-10-26，LOCAL_OWNER。**R0、R1、R2 COMPLETE；R3等待新主Codex聊天完整接班；Fusion/R6延期。** R2正式390项托管+3项Native、零跳过，fresh Review及另一fresh Verify通过，最小GoogleV2实验生产链已闭环。完整厂商/variant、设备、产品切换和P9整体仍未完成。详见10与11。
 
 ## 本轮核查规划
 
@@ -34,9 +34,9 @@
 
 ## R2 独立Validator
 
-- [ ] fresh close/reopen、observed事实、独立规则与分维度结果；不信Writer返回或SourceInspector最终分类。
-- [ ] 接通生产发布前门禁及发布身份连续性/必要发布后检查，无坏产物success。
-- [ ] wrongtarget/pair、错误结构、重开失败、验证后替换、部分组失败等反例通过；fresh独立复核。
+- [x] fresh close/reopen、独立observed事实/规则与四维结果；最小GoogleV2 JPEG MP4/MOV实验链实际运行，不信Writer或SourceInspector最终分类。其他族/变体随对应R补齐，无全族声明。
+- [x] 具体Validator强制接入新生产链发布门禁，同一对象/字节连续性及发布后检查通过，调用方不能给always-pass verdict；现有GUI/CLI尚未切换，待R8完整生命周期。
+- [x] 当前单文件范围的wrongtarget、结构/重开/字节替换/取消/真实权限/清理反例通过；未启用多成员/配对范围明确拒绝，不声称已通过双文件配对。正式390/390 managed、3/3 Native、106条真实样本回归，949payload，fresh Review及另一fresh Verify PASS；见10及11。
 
 ## R3–R7 每族完整生命周期
 
@@ -59,6 +59,6 @@
 - [ ] 正式P9各条款/每targetvariant证据矩阵齐全，同一最终候选有界aggregate通过，零必需skip；无全产品suite。
 - [ ] fresh只读Review通过，另一fresh独立Verify通过；必要用户/外部门禁到位。
 - [ ] doctor/必要sync/verify/reconcile/diff检查；最终长期结论/限制/遗留归属、state/TASK真实登记。
-- [ ] 满足所有条件后P9complete，停P10之前；无Git发布授权。
+- [ ] 满足所有条件后P9complete，停P10之前；Git提交推送按现行逐R授权，tag/release不自动授权。
 
 如果新修改只影响某些证据，只回退对应复选项并写明原因/下一动作；不全表清零，不改旧失败为通过。详细命令/逐样本记录留同任务workspace/evidence。

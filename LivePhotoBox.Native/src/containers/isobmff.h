@@ -141,3 +141,23 @@ bool shift_chunk_offsets(
     size_t moov_start,
     size_t threshold,
     int64_t delta) noexcept;
+
+// Strict standalone-reader facts. Only moov metadata is snapshotted (64 MiB);
+// media payloads and their uint64 coordinates stay in the actual reader.
+enum class isobmff_reader_failure { none, malformed, unsupported, io };
+struct isobmff_reader_diagnostic {
+    isobmff_reader_failure failure{isobmff_reader_failure::none};
+    uint64_t offset{UINT64_MAX};
+};
+struct isobmff_reader_observation {
+    std::vector<top_level_box> top_level_boxes;
+    std::vector<uint8_t> moov_bytes;
+    std::vector<isobmff_media_data_range> mdats;
+    std::vector<isobmff_sample_table_layout> sample_tables;
+    isobmff_video_presentation_timeline timeline;
+    uint32_t video_width{}, video_height{}, video_orientation{}, video_codec{};
+    bool quicktime{};
+    bool opaque_metadata{};
+};
+bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool require_ftyp,
+    isobmff_reader_observation& output, isobmff_reader_diagnostic& diagnostic) noexcept;

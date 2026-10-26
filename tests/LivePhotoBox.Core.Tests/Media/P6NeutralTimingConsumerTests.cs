@@ -126,7 +126,7 @@ public sealed class P6NeutralTimingConsumerTests
             "LivePhotoMergeRunnerService.cs");
         string source = File.ReadAllText(runnerPath);
         const string methodStart =
-            "private static async Task<(bool IsSuccess, string Details)> ProcessSinglePairRebuiltAsync(";
+            "private static async Task<ProductOperationOutcome> ProcessSinglePairRebuiltAsync(";
         const string methodEnd = "internal static long ResolveNeutralCoverTimestamp(";
         int start = source.IndexOf(methodStart, StringComparison.Ordinal);
         Assert.True(start >= 0, "The rebuilt merge consumer method was not found.");

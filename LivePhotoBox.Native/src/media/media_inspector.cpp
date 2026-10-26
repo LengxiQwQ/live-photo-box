@@ -1,3 +1,5 @@
+#include "media/jpeg_observation.h"
+#include "media/xmp_observation.h"
 #include "media/media_inspector.h"
 #include "media/target_writer.h"
 #include "metadata/exif.h"
@@ -51,6 +53,7 @@ struct xmp_node {
     std::vector<size_t> children;
     std::string_view text_value;
     size_t content_start{0};
+    size_t tag_start{0},close_start{std::string_view::npos};
 };
 
 static constexpr std::string_view google_camera_namespace = "http://ns.google.com/photos/1.0/camera/";
@@ -105,8 +108,8 @@ static std::string_view canonical_namespace_uri(std::string_view value) noexcept
 }
 
 static void set_namespace_binding(std::vector<namespace_binding>& bindings,
-    std::string_view prefix, std::string_view uri) {
-    uri = canonical_namespace_uri(uri);
+    std::string_view prefix, std::string_view uri, bool strict = false) {
+    if(!strict)uri = canonical_namespace_uri(uri);
     for (auto& binding : bindings) {
         if (binding.first == prefix) {
             binding.second = uri;
@@ -200,7 +203,7 @@ static bool parse_close_tag(std::string_view xml, size_t start, size_t end, std:
     return p < end && xml[p] == '>';
 }
 
-static bool scan_xmp_tree(std::string_view xml, std::vector<xmp_node>& nodes) {
+static bool scan_xmp_tree(std::string_view xml, std::vector<xmp_node>& nodes, bool strict = false) {
     std::vector<std::vector<namespace_binding>> scopes;
     std::vector<size_t> open_stack;
     size_t p = 0;
@@ -212,6 +215,10 @@ static bool scan_xmp_tree(std::string_view xml, std::vector<xmp_node>& nodes) {
             continue;
         }
         if (p + 1 < xml.size() && (xml[p + 1] == '!' || xml[p + 1] == '?')) {
+            if(strict&&xml[p+1]=='?') {
+                const size_t pi_end=xml.find("?>",p+2);if(pi_end==std::string_view::npos)return false;
+                p=pi_end+2;continue;
+            }
             size_t tag_end = 0;
             if (!find_tag_end(xml, p, tag_end)) return false;
             p = tag_end;
@@ -226,6 +233,7 @@ static bool scan_xmp_tree(std::string_view xml, std::vector<xmp_node>& nodes) {
             if (!parse_close_tag(xml, p, tag_end, closing_name)) return false;
             if (open_stack.empty()) return false;
             const size_t top_idx = open_stack.back();
+            nodes[top_idx].close_start=p;
             if (nodes[top_idx].tag_name != closing_name) return false; // Mismatched closing tag
             if (nodes[top_idx].children.empty() && nodes[top_idx].content_start <= p) {
                 std::string_view value = xml.substr(nodes[top_idx].content_start, p - nodes[top_idx].content_start);
@@ -247,9 +255,9 @@ static bool scan_xmp_tree(std::string_view xml, std::vector<xmp_node>& nodes) {
             std::vector<namespace_binding>{} : scopes.back();
         for (const auto& attribute : attributes) {
             if (attribute.name == "xmlns") {
-                set_namespace_binding(bindings, {}, attribute.value);
+                set_namespace_binding(bindings, {}, attribute.value, strict);
             } else if (attribute.name.size() > 6 && attribute.name.substr(0, 6) == "xmlns:") {
-                set_namespace_binding(bindings, attribute.name.substr(6), attribute.value);
+                set_namespace_binding(bindings, attribute.name.substr(6), attribute.value, strict);
             }
         }
 
@@ -260,7 +268,7 @@ static bool scan_xmp_tree(std::string_view xml, std::vector<xmp_node>& nodes) {
 
         const size_t new_idx = nodes.size();
         const size_t parent_idx = open_stack.empty() ? k_no_parent : open_stack.back();
-        nodes.push_back({ new_idx, parent_idx, tag_name, tag_uri, std::move(attributes), {}, {}, tag_end });
+        nodes.push_back({ new_idx, parent_idx, tag_name, tag_uri, std::move(attributes), {}, {}, tag_end, p, std::string_view::npos });
         if (parent_idx != k_no_parent) {
             nodes[parent_idx].children.push_back(new_idx);
         }
@@ -5652,61 +5660,177 @@ lpb_result observe_target_writer_primary(lpb_context* context,const std::vector<
             }
             if(marker==0xe1 && end-payload>=6 && std::memcmp(bytes.data()+payload,"Exif\0\0",6)==0) {
                 if(++exif_count!=1)return LPB_RESULT_INVALID_ARGUMENT;
-                const size_t tiff=payload+6;
-                if(end-tiff<8)return LPB_RESULT_INVALID_ARGUMENT;
-                const bool big=bytes[tiff]=='M'&&bytes[tiff+1]=='M';
-                if(!big && !(bytes[tiff]=='I'&&bytes[tiff+1]=='I'))return LPB_RESULT_INVALID_ARGUMENT;
-                const auto u16=[&](size_t at){return big ? read_be16u(bytes.data()+at):
-                    static_cast<uint16_t>(bytes[at]|(static_cast<uint16_t>(bytes[at+1])<<8));};
-                const auto u32=[&](size_t at){return big ? read_be32u(bytes.data()+at):
-                    static_cast<uint32_t>(bytes[at]|(static_cast<uint32_t>(bytes[at+1])<<8)|
-                        (static_cast<uint32_t>(bytes[at+2])<<16)|(static_cast<uint32_t>(bytes[at+3])<<24));};
-                if(u16(tiff+2)!=42)return LPB_RESULT_INVALID_ARGUMENT;
-                const uint32_t root_ifd=u32(tiff+4);
-                if(root_ifd<8)return LPB_RESULT_INVALID_ARGUMENT;
-                std::vector<uint32_t> pending{root_ifd},seen;
-                std::vector<std::pair<uint64_t,uint64_t>> occupied{{0,8}};
-                const auto claim_range=[&](uint64_t start,uint64_t length) {
-                    if(start>end-tiff || length>end-tiff-start)return false;
-                    const uint64_t finish=start+length;
-                    for(const auto& range:occupied)
-                        if(start<range.second && range.first<finish)return false;
-                    occupied.emplace_back(start,finish);return true;
-                };
-                while(!pending.empty()) {
-                    const uint32_t offset=pending.back();pending.pop_back();
-                    if(!offset)continue;
-                    if(offset<8 || offset>end-tiff || seen.size()>=32 ||
-                        std::find(seen.begin(),seen.end(),offset)!=seen.end())return LPB_RESULT_INVALID_ARGUMENT;
-                    seen.push_back(offset);
-                    tiff_ifd directory{};
-                    if(!parse_ifd(bytes.data(),end,tiff,offset,big,&directory))return LPB_RESULT_INVALID_ARGUMENT;
-                    if(!claim_range(offset,2+static_cast<uint64_t>(directory.entries.size())*12+4))
-                        return LPB_RESULT_INVALID_ARGUMENT;
-                    std::vector<uint16_t> tags;
-                    for(const auto& entry:directory.entries) {
-                        if(std::find(tags.begin(),tags.end(),entry.tag)!=tags.end())return LPB_RESULT_INVALID_ARGUMENT;
-                        tags.push_back(entry.tag);
-                        if(entry.tag==0x927c || entry.tag==0x9286 || entry.tag==0x014a || entry.tag==0xb000)
-                            return LPB_RESULT_UNSUPPORTED;
-                        uint64_t width=0;
-                        switch(entry.type){case 1:case 2:case 6:case 7:width=1;break;
-                        case 3:case 8:width=2;break;case 4:case 9:case 11:width=4;break;
-                        case 5:case 10:case 12:width=8;break;default:return LPB_RESULT_UNSUPPORTED;}
-                        const uint64_t n=width*entry.count;
-                        if(!n || (n>4 && !claim_range(entry.value_offset,n)))return LPB_RESULT_INVALID_ARGUMENT;
-                        if(entry.tag==0x8769 || entry.tag==0x8825 || entry.tag==0xa005) {
-                            if(entry.type!=4||entry.count!=1||entry.value_offset<8)return LPB_RESULT_INVALID_ARGUMENT;
-                            pending.push_back(entry.value_offset);
-                        }
-                    }
-                    pending.push_back(directory.next_ifd_offset);
-                }
+                uint32_t orientation=1;jpeg_observation_failure exif_failure{};
+                if(!observe_plain_exif(std::span<const uint8_t>(bytes.data()+payload,end-payload),orientation,exif_failure))
+                    return exif_failure==jpeg_observation_failure::unsupported?LPB_RESULT_UNSUPPORTED:LPB_RESULT_INVALID_ARGUMENT;
+
             }
             p=end;
             if(marker==0xda){saw_scan=true;inside_scan=true;}
         }
         return LPB_RESULT_OK;
     } catch(...) {set_error(context,"Writer primary observation failed.");return LPB_RESULT_INTERNAL_ERROR;}
+}
+
+namespace {
+bool target_xml_lexical(std::string_view xml) {
+    // Bounded nonexpanding XML subset: ordinary predefined entities retained;
+    // declarations/entities outside it are reported Unsupported by caller.
+    for(size_t p=0;p<xml.size();) {
+        const unsigned char c=static_cast<unsigned char>(xml[p++]);if(c<0x80)continue;
+        unsigned count=0;uint32_t value=0,minimum=0;
+        if(c>=0xc2&&c<=0xdf){count=1;value=c&31;minimum=0x80;}
+        else if(c>=0xe0&&c<=0xef){count=2;value=c&15;minimum=0x800;}
+        else if(c>=0xf0&&c<=0xf4){count=3;value=c&7;minimum=0x10000;}
+        else return false;
+        if(count>xml.size()-p)return false;
+        for(unsigned i=0;i<count;++i){const unsigned char next=static_cast<unsigned char>(xml[p++]);if((next&0xc0)!=0x80)return false;value=(value<<6)|(next&63);}
+        if(value<minimum||value>0x10ffff||(value>=0xd800&&value<=0xdfff)||value==0xfffe||value==0xffff)return false;
+    }
+    for(size_t p=0;p<xml.size();++p) {
+        const unsigned char c=static_cast<unsigned char>(xml[p]);
+        if(c<0x20&&c!=9&&c!=10&&c!=13)return false;
+        if(c=='<'&&xml.substr(p,2)=="<?") {
+            const size_t end=xml.find("?>",p+2);if(end==std::string_view::npos)return false;
+            p=end+1;continue;
+        }
+        if(c=='&') {
+            const size_t end=xml.find(';',p+1);if(end==std::string_view::npos)return false;
+            const auto e=xml.substr(p,end-p+1);
+            if(e!="&amp;"&&e!="&lt;"&&e!="&gt;"&&e!="&quot;"&&e!="&apos;")return false;
+            p=end;
+        }
+    }
+    size_t text_start=0;
+    for(size_t p=0;(p=xml.find('<',p))!=std::string_view::npos;) {
+        if(xml.substr(text_start,p-text_start).find("]]>")!=std::string_view::npos)return false;
+        if(xml.substr(p,2)=="<?") {
+            const size_t e=xml.find("?>",p+2);if(e==std::string_view::npos)return false;
+            size_t at=p+2;const size_t first=at;
+            if(at>=e||!(std::isalpha(static_cast<unsigned char>(xml[at]))||xml[at]=='_'))return false;
+            while(at<e&&is_xml_name_char(xml[at]))++at;
+            const auto target=xml.substr(first,at-first);
+            if(at<e&&!std::isspace(static_cast<unsigned char>(xml[at])))return false;
+            const bool reserved=target.size()==3&&std::tolower(static_cast<unsigned char>(target[0]))=='x'&&
+                std::tolower(static_cast<unsigned char>(target[1]))=='m'&&std::tolower(static_cast<unsigned char>(target[2]))=='l';
+            if(reserved) {
+                if(target!="xml"||p!=0)return false;
+                unsigned order=0;bool version=false;
+                while(at<e) {
+                    if(!std::isspace(static_cast<unsigned char>(xml[at])))return false;
+                    while(at<e&&std::isspace(static_cast<unsigned char>(xml[at])))++at;
+                    if(at==e)break;
+                    const size_t key_start=at;while(at<e&&is_xml_name_char(xml[at]))++at;
+                    const auto key=xml.substr(key_start,at-key_start);
+                    while(at<e&&std::isspace(static_cast<unsigned char>(xml[at])))++at;
+                    if(at>=e||xml[at++]!='=')return false;
+                    while(at<e&&std::isspace(static_cast<unsigned char>(xml[at])))++at;
+                    if(at>=e||(xml[at]!='\''&&xml[at]!='"'))return false;
+                    const char quote=xml[at++];const size_t value_start=at;while(at<e&&xml[at]!=quote)++at;if(at>=e)return false;
+                    const auto value=xml.substr(value_start,at-value_start);++at;
+                    if(key=="version"&&order==0&&value=="1.0"){version=true;order=1;}
+                    else if(key=="encoding"&&order==1&&(value=="UTF-8"||value=="utf-8")){order=2;}
+                    else if(key=="standalone"&&(order==1||order==2)&&(value=="yes"||value=="no")){order=3;}
+                    else return false;
+                }
+                if(!version)return false;
+            }
+            p=e+2;text_start=p;continue;
+        }
+        size_t end=0;if(!find_tag_end(xml,p,end))return false;
+        size_t at=p+1;const bool closing=at<end&&xml[at]=='/';if(closing)++at;
+        const size_t name=at;while(at<end&&is_xml_name_char(xml[at]))++at;if(at==name)return false;
+        if(closing){while(at<end&&std::isspace(static_cast<unsigned char>(xml[at])))++at;if(at+1!=end||xml[at]!='>')return false;p=end;text_start=p;continue;}
+        while(at<end) {
+            if(xml[at]=='>'){if(at+1!=end)return false;break;}
+            if(xml[at]=='/'){if(at+2!=end||xml[at+1]!='>')return false;break;}
+            if(!std::isspace(static_cast<unsigned char>(xml[at])))return false;
+            while(at<end&&std::isspace(static_cast<unsigned char>(xml[at])))++at;
+            if(at>=end)return false;if(xml[at]=='>'||xml[at]=='/')continue;
+            const size_t attr=at;while(at<end&&is_xml_name_char(xml[at]))++at;if(at==attr)return false;
+            while(at<end&&std::isspace(static_cast<unsigned char>(xml[at])))++at;
+            if(at>=end||xml[at++]!='=')return false;
+            while(at<end&&std::isspace(static_cast<unsigned char>(xml[at])))++at;
+            if(at>=end||(xml[at]!='\''&&xml[at]!='"'))return false;
+            const char quote=xml[at++];while(at<end&&xml[at]!=quote)++at;if(at>=end)return false;++at;
+        }
+        p=end;text_start=p;
+    }
+    return xml.substr(text_start).find("]]>")==std::string_view::npos;
+}
+}
+bool observe_target_xmp(std::string_view xml,target_xmp_observation& output,
+    xmp_observation_failure& failure) noexcept {
+    output={};failure=xmp_observation_failure::malformed;
+    try {
+        if(xml.find("<!")!=std::string_view::npos){failure=xmp_observation_failure::unsupported;return false;}
+        if(!target_xml_lexical(xml))return false;
+        std::vector<xmp_node> nodes;if(!scan_xmp_tree(xml,nodes,true)||nodes.empty())return false;
+        size_t root=k_no_parent,root_count=0,rdf_count=0,rdf_index=k_no_parent;
+        for(const auto& node:nodes) {
+            if(node.parent_index==k_no_parent){root=node.node_index;++root_count;}
+            const auto name_valid=[](std::string_view n){
+                if(n.empty()||!(std::isalpha(static_cast<unsigned char>(n[0]))||n[0]=='_'))return false;
+                const size_t c=n.find(':');return c==std::string_view::npos||
+                    (c>0&&c+1<n.size()&&n.find(':',c+1)==std::string_view::npos&&
+                     (std::isalpha(static_cast<unsigned char>(n[c+1]))||n[c+1]=='_'));
+            };
+            if(!name_valid(node.tag_name)||
+                (node.tag_name.find(':')!=std::string_view::npos&&node.resolved_uri.empty()))return false;
+            for(size_t i=0;i<node.attributes.size();++i) {
+                const auto& a=node.attributes[i];
+                if(!name_valid(a.name)||a.value.find('<')!=std::string_view::npos)return false;
+                const bool decl=a.name=="xmlns"||a.name.starts_with("xmlns:");
+                if(decl&&a.value.find('&')!=std::string_view::npos){failure=xmp_observation_failure::unsupported;return false;}
+                if(a.name=="xmlns:xmlns"||(a.name.starts_with("xmlns:")&&a.value.empty())||
+                    (a.name=="xmlns:xml"&&a.value!="http://www.w3.org/XML/1998/namespace"))return false;
+                if(decl&&(a.value=="http://www.w3.org/2000/xmlns/"||
+                    (a.value=="http://www.w3.org/XML/1998/namespace"&&a.name!="xmlns:xml")))return false;
+                if(!decl&&a.name.find(':')!=std::string_view::npos&&a.resolved_uri.empty()&&!a.name.starts_with("xml:"))return false;
+                for(size_t j=0;j<i;++j)if(!decl&&node.attributes[j].resolved_uri==a.resolved_uri&&local_name(node.attributes[j].name)==local_name(a.name)){
+                    failure=xmp_observation_failure::ambiguous;return false;
+                }
+            }
+            if(node_is(node,rdf_namespace,"RDF")){++rdf_count;rdf_index=node.node_index;output.rdf_close_offset=node.close_start;}
+            const auto foreign=[](std::string_view uri){return uri==oppo_camera_namespace||uri==vivo_camera_namespace||uri==micamera_namespace||uri=="http://ns.adobe.com/hdr-gain-map/1.0/"||uri=="http://ns.apple.com/HDRGainMap/1.0/";};
+            if(foreign(node.resolved_uri))output.foreign_claim=true;
+            for(const auto& a:node.attributes)if(foreign(a.resolved_uri))output.foreign_claim=true;
+        }
+        if(root_count!=1||rdf_count!=1)return false;
+        const auto& root_node=nodes[root];
+        if(root!=rdf_index&&!(node_is(root_node,"adobe:ns:meta/","xmpmeta")&&
+            nodes[rdf_index].parent_index==root&&root_node.children.size()==1))return false;
+        const size_t begin=root_node.tag_start;
+        const size_t finish=root_node.close_start==std::string_view::npos?root_node.content_start:
+            xml.find('>',root_node.close_start)+1;
+        if(finish==0||finish>xml.size())return false;
+        const auto outside_ok=[](std::string_view text){
+            size_t p=0;while(p<text.size()) {
+                if(std::isspace(static_cast<unsigned char>(text[p]))){++p;continue;}
+                if(text.substr(p,2)=="<?") {const size_t e=text.find("?>",p+2);if(e==std::string_view::npos)return false;p=e+2;continue;}
+                return false;
+            }return true;
+        };
+        if(!outside_ok(xml.substr(0,begin))||!outside_ok(xml.substr(finish)))return false;
+        // Target protocol ownership is factual; independent rules below decide conformance.
+        size_t owner=k_no_parent;
+        if(!validate_xmp_protocol_ownership(nodes,owner)){failure=xmp_observation_failure::ambiguous;return false;}
+        output.live_claim=has_attribute_name_in_nodes(nodes,google_camera_namespace,"MotionPhoto")||
+            has_attribute_name_in_nodes(nodes,google_container_namespace,"Directory");
+        if(!output.live_claim){failure=xmp_observation_failure::none;return true;}
+        if(owner==k_no_parent||nodes[owner].parent_index!=rdf_index)return false;
+        const int motion=get_global_attribute_u64(nodes,google_camera_namespace,"MotionPhoto",output.motion_photo);
+        const int version=get_global_attribute_u64(nodes,google_camera_namespace,"MotionPhotoVersion",output.motion_version);
+        const int cover=get_global_attribute_i64(nodes,google_camera_namespace,"MotionPhotoPresentationTimestampUs",output.cover_us);
+        if(motion!=1||version!=1||cover<0){failure=xmp_observation_failure::ambiguous;return false;}
+        output.cover_present=cover==1;
+        container_directory_info directory;
+        if(!find_container_directory(nodes,directory,owner))return false;
+        for(const auto& item:directory.items){
+            if(item.malformed_length||item.malformed_padding)return false;
+            output.items.push_back({std::string(item.semantic),std::string(item.mime),item.length,item.padding,item.has_length,item.has_padding});
+        }
+        failure=xmp_observation_failure::none;return true;
+    }catch(...){return false;}
 }
 } // namespace lpb::media

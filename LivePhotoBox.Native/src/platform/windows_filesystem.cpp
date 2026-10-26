@@ -713,6 +713,12 @@ lpb::random_access_reader windows_owned_output::reader() noexcept {
     return {identity.file_size, file, owned_handle_read_at};
 }
 
+bool windows_owned_output::capture_identity(lpb_file_identity& identity) noexcept {
+    identity={};std::wstring path;
+    return handle_ && exact_owned_path(static_cast<HANDLE>(handle_),temp_path_) &&
+        capture_file_identity_from_handle(static_cast<HANDLE>(handle_),identity,path);
+}
+
 bool windows_owned_output::publish_no_replace(const std::filesystem::path& destination,
     const lpb_file_identity* expected_identity) noexcept {
     HANDLE file = static_cast<HANDLE>(handle_);

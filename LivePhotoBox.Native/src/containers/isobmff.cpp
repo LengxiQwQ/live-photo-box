@@ -509,7 +509,12 @@ bool parse_full_box_table(std::span<const uint8_t> data, size_t start, size_t en
 
 bool parse_edit_list(std::span<const uint8_t> data, size_t trak_start, size_t trak_end,
     uint32_t& movie_timescale, bool& has_edit, uint64_t& leading_empty_duration,
-    int64_t& media_start, uint64_t& media_segment_duration) noexcept {
+    int64_t& media_start, uint64_t& media_segment_duration,
+    isobmff_reader_failure* failure = nullptr) noexcept {
+    const auto unsupported = [&]() {
+        if (failure) *failure = isobmff_reader_failure::unsupported;
+        return false;
+    };
     has_edit = false;
     leading_empty_duration = 0;
     media_start = 0;
@@ -531,12 +536,12 @@ bool parse_edit_list(std::span<const uint8_t> data, size_t trak_start, size_t tr
     if (body_size < 8 || data[body + 1] != 0 || data[body + 2] != 0 || data[body + 3] != 0) return false;
     const uint8_t version = data[body];
     const size_t entry_size = version == 0 ? 12U : version == 1 ? 20U : 0U;
-    if (entry_size == 0) return false;
+    if (entry_size == 0) return unsupported();
     const uint32_t count = read_be32u(data.data() + body + 4);
     const size_t entries_start = body + 8;
-    if ((count != 1 && count != 2) ||
-        count > (elst_start + elst.size - entries_start) / entry_size ||
+    if (count == 0 || count > (elst_start + elst.size - entries_start) / entry_size ||
         static_cast<size_t>(count) * entry_size != elst_start + elst.size - entries_start) return false;
+    if (count > 2) return unsupported();
 
     struct edit_entry { uint64_t segment_duration{}; int64_t media_time{}; uint16_t rate_integer{}; uint16_t rate_fraction{}; };
     edit_entry edits[2]{};
@@ -553,15 +558,15 @@ bool parse_edit_list(std::span<const uint8_t> data, size_t trak_start, size_t tr
             edits[index].rate_integer = read_be16u(data.data() + entry + 16);
             edits[index].rate_fraction = read_be16u(data.data() + entry + 18);
         }
-        if (edits[index].segment_duration == 0 || edits[index].rate_integer != 1 ||
-            edits[index].rate_fraction != 0) return false;
+        if (edits[index].segment_duration == 0 || edits[index].media_time < -1) return false;
+        if (edits[index].rate_integer != 1 || edits[index].rate_fraction != 0) return unsupported();
     }
     if (count == 1) {
-        if (edits[0].media_time < 0) return false;
+        if (edits[0].media_time < 0) return unsupported();
         media_start = edits[0].media_time;
         media_segment_duration = edits[0].segment_duration;
     } else {
-        if (edits[0].media_time != -1 || edits[1].media_time < 0) return false;
+        if (edits[0].media_time != -1 || edits[1].media_time < 0) return unsupported();
         leading_empty_duration = edits[0].segment_duration;
         media_start = edits[1].media_time;
         media_segment_duration = edits[1].segment_duration;
@@ -571,44 +576,20 @@ bool parse_edit_list(std::span<const uint8_t> data, size_t trak_start, size_t tr
 }
 }
 
-bool inspect_isobmff_video_presentation_timeline(
-    std::span<const uint8_t> data,
-    isobmff_video_presentation_timeline& output) noexcept
+namespace {
+bool inspect_timeline_moov(std::span<const uint8_t> data,
+    const isobmff_box_header& moov, size_t moov_start, size_t moov_end,
+    std::span<const isobmff_media_data_range> mdats, uint64_t coordinate_origin,
+    bool quicktime_brand, isobmff_video_presentation_timeline& output,
+    isobmff_reader_failure* failure = nullptr) noexcept
 {
     output = {};
+    if (failure) *failure = isobmff_reader_failure::malformed;
+    const auto unsupported = [&]() {
+        if (failure) *failure = isobmff_reader_failure::unsupported;
+        return false;
+    };
     try {
-        if (data.size() < 16) return false;
-        std::vector<isobmff_media_data_range> mdats;
-        size_t moov_start = 0;
-        size_t moov_end = 0;
-        isobmff_box_header moov{};
-        size_t ftyp_count = 0;
-        bool quicktime_brand = false;
-        size_t position = 0;
-        while (position < data.size()) {
-            isobmff_box_header box{};
-            if (!try_read_box_header(data.data(), position, data.size(), box)) return false;
-            if (type_is(data.data(), position, "moov")) {
-                if (moov.size != 0) return false;
-                moov = box;
-                moov_start = position;
-                moov_end = position + box.size;
-            } else if (type_is(data.data(), position, "mdat")) {
-                mdats.push_back({position + box.header_size, position + box.size});
-            } else if (type_is(data.data(), position, "ftyp")) {
-                ++ftyp_count;
-                const size_t payload = position + box.header_size;
-                const size_t payload_size = box.size - box.header_size;
-                if (ftyp_count != 1 || payload_size < 8 || (payload_size - 8) % 4 != 0) return false;
-                if (std::memcmp(data.data() + payload, "qt  ", 4) == 0) quicktime_brand = true;
-                for (size_t brand = payload + 8; brand < position + box.size; brand += 4) {
-                    if (std::memcmp(data.data() + brand, "qt  ", 4) == 0) quicktime_brand = true;
-                }
-            }
-            position += box.size;
-        }
-        if (position != data.size() || moov.size == 0 || mdats.empty()) return false;
-
         isobmff_box_header mvhd{};
         size_t mvhd_start = 0;
         if (!direct_child(data.data(), moov_start + moov.header_size, moov_end, "mvhd", mvhd, mvhd_start) ||
@@ -635,7 +616,7 @@ bool inspect_isobmff_video_presentation_timeline(
                         "hdlr", hdlr, hdlr_start) || hdlr.size < hdlr.header_size + 12) return false;
                 const size_t handler_type = hdlr_start + hdlr.header_size + 8;
                 if (std::memcmp(data.data() + handler_type, "vide", 4) == 0) {
-                    if (found_video) return false;
+                    if (found_video) return unsupported();
                     found_video = true;
 
                     isobmff_box_header mdhd{};
@@ -655,7 +636,7 @@ bool inspect_isobmff_video_presentation_timeline(
                             "stbl", stbl, stbl_start) || stbl.size == 0) return false;
                     isobmff_sample_table_layout sample_table{};
                     if (!parse_sample_table_layout(data, stbl_start + stbl.header_size,
-                            stbl_start + stbl.size, mdats, 0, sample_table)) return false;
+                            stbl_start + stbl.size, mdats, coordinate_origin, sample_table)) return false;
                     parsed.sample_count = sample_table.sample_count;
 
                     isobmff_box_header stts{};
@@ -753,7 +734,7 @@ bool inspect_isobmff_video_presentation_timeline(
                     uint64_t media_segment_duration = 0;
                     if (!parse_edit_list(data, child_position + child.header_size, trak_end,
                             parsed.movie_timescale, has_edit, leading_empty_duration,
-                            media_start, media_segment_duration)) return false;
+                            media_start, media_segment_duration, failure)) return false;
                     parsed.media_edit_start_ticks = has_edit ? media_start : entries.front().presentation_time;
                     parsed.leading_empty_duration_ticks = leading_empty_duration;
 
@@ -772,7 +753,7 @@ bool inspect_isobmff_video_presentation_timeline(
                         uint64_t elapsed_media_ticks = 0;
                         if (has_edit) {
                             if (entry.presentation_time < media_start) {
-                                if (presentation_end > media_start) return false;
+                                if (presentation_end > media_start) return unsupported();
                             } else {
                                 elapsed_media_ticks = static_cast<uint64_t>(entry.presentation_time - media_start);
                                 uint64_t start_numerator = 0;
@@ -784,7 +765,7 @@ bool inspect_isobmff_video_presentation_timeline(
                                     uint64_t end_numerator = 0;
                                     if (!checked_add_u64(elapsed_media_ticks, duration, end_delta) ||
                                         !checked_multiply_u64(end_delta, parsed.movie_timescale, end_numerator) ||
-                                        end_numerator > edit_end_numerator) return false;
+                                        end_numerator > edit_end_numerator) return unsupported();
                                 }
                             }
                         } else {
@@ -819,7 +800,57 @@ bool inspect_isobmff_video_presentation_timeline(
         if (child_position != moov_end || !found_video || parsed.sample_count == 0 ||
             parsed.visible_sample_count == 0 || parsed.presentation_order.size() != parsed.sample_count) return false;
         output = std::move(parsed);
+        if (failure) *failure = isobmff_reader_failure::none;
         return true;
+    } catch (...) {
+        if (failure) *failure = isobmff_reader_failure::unsupported;
+        output = {};
+        return false;
+    }
+}
+
+}
+
+bool inspect_isobmff_video_presentation_timeline(
+    std::span<const uint8_t> data,
+    isobmff_video_presentation_timeline& output) noexcept
+{
+    output = {};
+    try {
+        if (data.size() < 16) return false;
+        std::vector<isobmff_media_data_range> mdats;
+        size_t moov_start = 0;
+        size_t moov_end = 0;
+        isobmff_box_header moov{};
+        size_t ftyp_count = 0;
+        bool quicktime_brand = false;
+        size_t position = 0;
+        while (position < data.size()) {
+            isobmff_box_header box{};
+            if (!try_read_box_header(data.data(), position, data.size(), box)) return false;
+            if (type_is(data.data(), position, "moov")) {
+                if (moov.size != 0) return false;
+                moov = box;
+                moov_start = position;
+                moov_end = position + box.size;
+            } else if (type_is(data.data(), position, "mdat")) {
+                mdats.push_back({position + box.header_size, position + box.size});
+            } else if (type_is(data.data(), position, "ftyp")) {
+                ++ftyp_count;
+                const size_t payload = position + box.header_size;
+                const size_t payload_size = box.size - box.header_size;
+                if (ftyp_count != 1 || payload_size < 8 || (payload_size - 8) % 4 != 0) return false;
+                if (std::memcmp(data.data() + payload, "qt  ", 4) == 0) quicktime_brand = true;
+                for (size_t brand = payload + 8; brand < position + box.size; brand += 4) {
+                    if (std::memcmp(data.data() + brand, "qt  ", 4) == 0) quicktime_brand = true;
+                }
+            }
+            position += box.size;
+        }
+        if (position != data.size() || moov.size == 0 || mdats.empty()) return false;
+
+        return inspect_timeline_moov(data, moov, moov_start, moov_end,
+            mdats, 0, quicktime_brand, output);
     } catch (...) {
         output = {};
         return false;
@@ -1238,4 +1269,281 @@ bool shift_chunk_offsets(
     }
 
     return position == moov_end;
+}
+
+bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool require_ftyp,
+    isobmff_reader_observation& output, isobmff_reader_diagnostic& diagnostic) noexcept
+{
+    output = {}; diagnostic = {};
+    uint64_t current_offset = 0;
+    const auto fail = [&](isobmff_reader_failure reason, uint64_t offset) {
+        diagnostic = {reason, offset}; output = {}; return false;
+    };
+    try {
+        isobmff_reader_observation parsed{};
+        uint64_t position = 0, moov_offset = 0;
+        bool have_moov = false, have_ftyp = false;
+        while (position < reader.length) {
+            current_offset = position;
+            if (reader.length - position < 8) return fail(isobmff_reader_failure::malformed, position);
+            uint8_t header[16]{};
+            if (!reader.read_exact(position, std::span<uint8_t>(header, 8))) return fail(isobmff_reader_failure::io, position);
+            uint64_t size = read_be32u(header);
+            uint32_t header_size = 8;
+            if (size == 1) {
+                if (reader.length - position < 16) return fail(isobmff_reader_failure::malformed, position);
+                if (!reader.read_exact(position + 8, std::span<uint8_t>(header + 8, 8))) return fail(isobmff_reader_failure::io, position + 8);
+                size = read_be64u_local(header + 8); header_size = 16;
+            } else if (size == 0) size = reader.length - position;
+            if (size < header_size || size > reader.length - position) return fail(isobmff_reader_failure::malformed, position);
+            top_level_box box{position, size, {}, header_size};
+            std::memcpy(box.type, header + 4, 4);
+            parsed.top_level_boxes.push_back(box);
+            const auto type = [&](const char* value) { return std::memcmp(box.type, value, 4) == 0; };
+            if(type("uuid"))parsed.opaque_metadata=true;
+            if (type("ftyp")) {
+                if (have_ftyp || (require_ftyp && position != 0) || size - header_size < 8 ||
+                    (size - header_size - 8) % 4 != 0) return fail(isobmff_reader_failure::malformed, position);
+                have_ftyp = true;
+                // Only brand bytes are read; no total-file or ftyp snapshot cap.
+                uint8_t brands[4096]{};
+                uint64_t cursor = position + header_size;
+                while (cursor < position + size) {
+                    const size_t count = static_cast<size_t>(std::min<uint64_t>(sizeof(brands), position + size - cursor));
+                    if (!reader.read_exact(cursor, std::span<uint8_t>(brands, count))) return fail(isobmff_reader_failure::io, cursor);
+                    for (size_t i = 0; i < count; i += 4) {
+                        if (cursor + i != position + header_size + 4 && std::memcmp(brands + i, "qt  ", 4) == 0) parsed.quicktime = true;
+                    }
+                    cursor += count;
+                }
+            } else if (type("moov")) {
+                if (have_moov) return fail(isobmff_reader_failure::malformed, position);
+                have_moov = true; moov_offset = position;
+                if (size > 64ULL * 1024 * 1024) return fail(isobmff_reader_failure::unsupported, position);
+                parsed.moov_bytes.resize(static_cast<size_t>(size));
+                if (!reader.read_exact(position, parsed.moov_bytes)) return fail(isobmff_reader_failure::io, position);
+            } else if (type("mdat")) {
+                parsed.mdats.push_back({position + header_size, position + size});
+            } else if (type("moof") || type("mfra") || type("sidx")) {
+                return fail(isobmff_reader_failure::unsupported, position);
+            } else if (!type("free") && !type("skip") && !type("wide") && !type("uuid")) {
+                return fail(isobmff_reader_failure::unsupported, position);
+            }
+            position += size;
+        }
+        if (!have_moov || parsed.mdats.empty() || (require_ftyp && !have_ftyp)) return fail(isobmff_reader_failure::malformed, UINT64_MAX);
+        if (!have_ftyp) parsed.quicktime = true;
+        const std::span<const uint8_t> data(parsed.moov_bytes);
+        const auto metadata_graph=[&](auto&& self,size_t first,size_t last,unsigned depth)->bool {
+            if(depth>16)return false;
+            for(size_t at=first;at<last;) {
+                isobmff_box_header child{};if(!try_read_box_header(data.data(),at,last,child))return false;
+                const auto kind=[&](const char* name){return type_is(data.data(),at,name);};
+                if(kind("uuid")||kind("meta")||kind("udta")||kind("meco")||kind("tref")||kind("mpvd")||kind("sefd"))parsed.opaque_metadata=true;
+                if(kind("moov")||kind("trak")||kind("mdia")||kind("minf")||kind("stbl")||kind("edts")||kind("dinf"))
+                    if(!self(self,at+child.header_size,at+child.size,depth+1))return false;
+                at+=child.size;
+            }return true;
+        };
+        if(!metadata_graph(metadata_graph,0,data.size(),0))return fail(isobmff_reader_failure::malformed,moov_offset);
+        isobmff_box_header moov{};
+        if (!try_read_box_header(data.data(), 0, data.size(), moov) || moov.size != data.size()) return fail(isobmff_reader_failure::malformed, moov_offset);
+        current_offset = moov_offset;
+        isobmff_box_header mvex{}; size_t mvex_s = 0;
+        if (!direct_child(data.data(), moov.header_size, data.size(), "mvex", mvex, mvex_s)) return fail(isobmff_reader_failure::malformed, moov_offset);
+        if (mvex.size) return fail(isobmff_reader_failure::unsupported, moov_offset + mvex_s);
+        size_t video_count = 0;
+        std::vector<std::pair<uint64_t, uint64_t>> chunks;
+        for (size_t p = moov.header_size; p < data.size();) {
+            isobmff_box_header trak{};
+            if (!try_read_box_header(data.data(), p, data.size(), trak)) return fail(isobmff_reader_failure::malformed, moov_offset + p);
+            if (type_is(data.data(), p, "trak")) {
+                current_offset = moov_offset + p;
+                const size_t end = p + trak.size;
+                isobmff_box_header mdia{}, hdlr{}, minf{}, stbl{}, stsd{}, stz2{}, mdhd{};
+                size_t ms = 0, hs = 0, fs = 0, ss = 0, ds = 0, zs = 0, ts = 0;
+                if (!direct_child(data.data(), p + trak.header_size, end, "mdia", mdia, ms) || !mdia.size ||
+                    !direct_child(data.data(), ms + mdia.header_size, ms + mdia.size, "hdlr", hdlr, hs) || hdlr.size < hdlr.header_size + 12 ||
+                    !direct_child(data.data(), ms + mdia.header_size, ms + mdia.size, "minf", minf, fs) || !minf.size ||
+                    !direct_child(data.data(), fs + minf.header_size, fs + minf.size, "stbl", stbl, ss) || !stbl.size ||
+                    !direct_child(data.data(), ms + mdia.header_size, ms + mdia.size, "mdhd", mdhd, ts) || !mdhd.size) return fail(isobmff_reader_failure::malformed, current_offset);
+                uint32_t timescale = 0;
+                if (!parse_media_header_timescale(data, ts, ts + mdhd.size, false, timescale)) return fail(isobmff_reader_failure::malformed, moov_offset + ts);
+                const bool video = std::memcmp(data.data() + hs + hdlr.header_size + 8, "vide", 4) == 0;
+                const bool audio = std::memcmp(data.data() + hs + hdlr.header_size + 8, "soun", 4) == 0;
+                if (!video && !audio) return fail(isobmff_reader_failure::unsupported, current_offset);
+                if (video && ++video_count != 1) return fail(isobmff_reader_failure::unsupported, current_offset);
+                if (!direct_child(data.data(), ss + stbl.header_size, ss + stbl.size, "stz2", stz2, zs)) return fail(isobmff_reader_failure::malformed, current_offset);
+                if (stz2.size) return fail(isobmff_reader_failure::unsupported, moov_offset + zs);
+                // The legacy table seam also serves historical permissive consumers;
+                // enforce full-box versions and nonzero sample extents here only.
+                for (const char* table_type : {"stsd", "stts", "stsc", "stsz", "stco", "co64", "ctts"}) {
+                    isobmff_box_header full{}; size_t bs = 0;
+                    if (!direct_child(data.data(), ss + stbl.header_size, ss + stbl.size, table_type, full, bs))
+                        return fail(isobmff_reader_failure::malformed, moov_offset + ss);
+                    if (!full.size) continue;
+                    if (full.size < full.header_size + 4) return fail(isobmff_reader_failure::malformed, moov_offset + bs);
+                    const size_t fb = bs + full.header_size;
+                    if (data[fb + 1] || data[fb + 2] || data[fb + 3] ||
+                        data[fb] > (std::strcmp(table_type, "ctts") == 0 ? 1 : 0))
+                        return fail(isobmff_reader_failure::malformed, moov_offset + bs);
+                    if (std::strcmp(table_type, "stts") == 0 && full.size >= full.header_size + 8) {
+                        const uint32_t count = read_be32u(data.data() + fb + 4);
+                        if (count > (bs + full.size - fb - 8) / 8) return fail(isobmff_reader_failure::malformed, moov_offset + bs);
+                        for (uint32_t run = 0; run < count; ++run)
+                            if (!read_be32u(data.data() + fb + 12 + static_cast<size_t>(run) * 8))
+                                return fail(isobmff_reader_failure::malformed, moov_offset + bs);
+                    }
+                    if (std::strcmp(table_type, "stsz") == 0 && full.size >= full.header_size + 12 &&
+                        read_be32u(data.data() + fb + 4) == 0) {
+                        const uint32_t count = read_be32u(data.data() + fb + 8);
+                        if (count > (bs + full.size - fb - 12) / 4) return fail(isobmff_reader_failure::malformed, moov_offset + bs);
+                        for (uint32_t sample = 0; sample < count; ++sample)
+                            if (!read_be32u(data.data() + fb + 12 + static_cast<size_t>(sample) * 4))
+                                return fail(isobmff_reader_failure::malformed, moov_offset + bs);
+                    }
+                }
+                isobmff_sample_table_layout table{};
+                if (!parse_sample_table_layout(data, ss + stbl.header_size, ss + stbl.size, parsed.mdats, 0, table)) return fail(isobmff_reader_failure::malformed, moov_offset + ss);
+                // An optional sync-sample table is an owned sample reference set,
+                // not opaque metadata. Missing stss means all samples are sync.
+                isobmff_box_header sync{}; size_t sync_start = 0;
+                if (!direct_child(data.data(), ss + stbl.header_size, ss + stbl.size,
+                    "stss", sync, sync_start)) return fail(isobmff_reader_failure::malformed, moov_offset + ss);
+                if (sync.size) {
+                    if (sync.size < sync.header_size + 8) return fail(isobmff_reader_failure::malformed, moov_offset + sync_start);
+                    const size_t payload = sync_start + sync.header_size;
+                    const size_t entries_size = sync.size - sync.header_size - 8;
+                    const uint32_t count = read_be32u(data.data() + payload + 4);
+                    if (read_be32u(data.data() + payload) != 0 || entries_size % 4 ||
+                        count != entries_size / 4 || count > table.sample_count)
+                        return fail(isobmff_reader_failure::malformed, moov_offset + sync_start);
+                    uint32_t previous = 0;
+                    for (uint32_t index = 0; index < count; ++index) {
+                        const uint32_t sample = read_be32u(data.data() + payload + 8 + static_cast<size_t>(index) * 4);
+                        if (sample <= previous || sample > table.sample_count)
+                            return fail(isobmff_reader_failure::malformed, moov_offset + payload + 8 + static_cast<size_t>(index) * 4);
+                        previous = sample;
+                    }
+                }
+                for (const auto& chunk : table.chunks) chunks.emplace_back(chunk.offset, chunk.offset + chunk.size);
+                if (!direct_child(data.data(), ss + stbl.header_size, ss + stbl.size, "stsd", stsd, ds)) return fail(isobmff_reader_failure::malformed, current_offset);
+                if (table.sample_description_count != 1) return fail(isobmff_reader_failure::unsupported, moov_offset + ds);
+                // Resolve data_reference_index=1 to an actual self-contained URL.
+                isobmff_box_header dinf{}, dref{}; size_t di = 0, dr = 0;
+                if (!direct_child(data.data(), fs + minf.header_size, fs + minf.size, "dinf", dinf, di) || !dinf.size ||
+                    !direct_child(data.data(), di + dinf.header_size, di + dinf.size, "dref", dref, dr) || dref.size < dref.header_size + 8)
+                    return fail(isobmff_reader_failure::malformed, current_offset);
+                const size_t db = dr + dref.header_size;
+                if (read_be32u(data.data() + db) != 0 || read_be32u(data.data() + db + 4) != 1)
+                    return fail(isobmff_reader_failure::unsupported, moov_offset + dr);
+                isobmff_box_header url{}; const size_t us = db + 8;
+                if (!try_read_box_header(data.data(), us, dr + dref.size, url) || us + url.size != dr + dref.size ||
+                    !type_is(data.data(), us, "url ") || url.size != url.header_size + 4 ||
+                    read_be32u(data.data() + us + url.header_size) != 1)
+                    return fail(isobmff_reader_failure::unsupported, moov_offset + us);
+                const size_t entry_start = ds + stsd.header_size + 8;
+                isobmff_box_header entry{};
+                if (!try_read_box_header(data.data(), entry_start, ds + stsd.size, entry)) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start);
+                const size_t eb = entry_start + entry.header_size;
+                if (entry.size < entry.header_size + 8 || read_be16u(data.data() + eb + 6) != 1) return fail(isobmff_reader_failure::unsupported, moov_offset + entry_start);
+                if (video) {
+                    if (entry.size < entry.header_size + 78) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start);
+                    if (type_is(data.data(), entry_start, "avc1") || type_is(data.data(), entry_start, "avc3")) parsed.video_codec = 2;
+                    else if (type_is(data.data(), entry_start, "hvc1") || type_is(data.data(), entry_start, "hev1")) parsed.video_codec = 3;
+                    else return fail(isobmff_reader_failure::unsupported, moov_offset + entry_start);
+                    parsed.video_width = read_be16u(data.data() + eb + 24);
+                    parsed.video_height = read_be16u(data.data() + eb + 26);
+                    if (!parsed.video_width || !parsed.video_height) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start);
+                    isobmff_box_header tkhd{}; size_t ks = 0;
+                    if (!direct_child(data.data(), p + trak.header_size, end, "tkhd", tkhd, ks) || !tkhd.size || tkhd.size < tkhd.header_size + 4) return fail(isobmff_reader_failure::malformed, current_offset);
+                    const size_t kb = ks + tkhd.header_size;
+                    const uint8_t version = data[kb];
+                    if (version > 1) return fail(isobmff_reader_failure::unsupported, moov_offset + ks);
+                    const size_t matrix = kb + (version == 0 ? 40 : 52);
+                    if (ks + tkhd.size - kb != (version == 0 ? 84U : 96U)) return fail(isobmff_reader_failure::malformed, moov_offset + ks);
+                    const int64_t a = sign_extend_be32(read_be32u(data.data() + matrix));
+                    const int64_t b = sign_extend_be32(read_be32u(data.data() + matrix + 4));
+                    const int64_t c = sign_extend_be32(read_be32u(data.data() + matrix + 12));
+                    const int64_t d = sign_extend_be32(read_be32u(data.data() + matrix + 16));
+                    if (read_be32u(data.data() + matrix + 8) || read_be32u(data.data() + matrix + 20) || read_be32u(data.data() + matrix + 32) != 0x40000000U) return fail(isobmff_reader_failure::unsupported, moov_offset + matrix);
+                    constexpr int32_t transforms[8][4] = {{1,0,0,1},{-1,0,0,1},{-1,0,0,-1},{1,0,0,-1},{0,1,1,0},{0,1,-1,0},{0,-1,-1,0},{0,-1,1,0}};
+                    for (uint32_t i = 0; i < 8; ++i) if (a == transforms[i][0] * 65536LL && b == transforms[i][1] * 65536LL && c == transforms[i][2] * 65536LL && d == transforms[i][3] * 65536LL) parsed.video_orientation = i + 1;
+                    if (!parsed.video_orientation) return fail(isobmff_reader_failure::unsupported, moov_offset + matrix);
+                    const uint32_t width_fixed = read_be32u(data.data() + matrix + 36);
+                    const uint32_t height_fixed = read_be32u(data.data() + matrix + 40);
+                    if (width_fixed != (parsed.video_width << 16) || height_fixed != (parsed.video_height << 16)) return fail(isobmff_reader_failure::unsupported, moov_offset + matrix + 36);
+                } else {
+                    // The active ordinary audio subset is a version-0 AAC entry.
+                    if (!type_is(data.data(), entry_start, "mp4a")) return fail(isobmff_reader_failure::unsupported, moov_offset + entry_start);
+                    if (entry.size < entry.header_size + 28) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start);
+                    if (read_be16u(data.data() + eb + 8) != 0) return fail(isobmff_reader_failure::unsupported, moov_offset + entry_start);
+                    if (!read_be16u(data.data() + eb + 16) || !read_be16u(data.data() + eb + 18) || !read_be32u(data.data() + eb + 24)) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start);
+                    isobmff_box_header esds{}; size_t es = 0;
+                    if (!direct_child(data.data(), eb + 28, entry_start + entry.size, "esds", esds, es) || esds.size < esds.header_size + 8) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start);
+                    if (read_be32u(data.data() + es + esds.header_size) != 0) return fail(isobmff_reader_failure::unsupported, moov_offset + es);
+                    // Descriptor lengths are variable-length integers, never raw tag searches.
+                    const auto descriptor = [&](size_t& cursor, size_t limit, uint8_t tag, size_t& payload_end) {
+                        if (cursor >= limit || data[cursor++] != tag) return false;
+                        uint32_t length = 0;
+                        for (unsigned n = 0; n < 4; ++n) {
+                            if (cursor >= limit) return false;
+                            const uint8_t byte = data[cursor++];
+                            length = (length << 7) | (byte & 0x7fU);
+                            if (!(byte & 0x80U)) {
+                                if (length > limit - cursor) return false;
+                                payload_end = cursor + length; return true;
+                            }
+                        }
+                        return false;
+                    };
+                    size_t cursor = es + esds.header_size + 4, es_end = 0, config_end = 0, asc_end = 0;
+                    if (!descriptor(cursor, es + esds.size, 3, es_end) || es_end - cursor < 3)
+                        return fail(isobmff_reader_failure::malformed, moov_offset + es);
+                    cursor += 2; const uint8_t flags = data[cursor++];
+                    if (flags & 0xe0U) return fail(isobmff_reader_failure::unsupported, moov_offset + es);
+                    if (!descriptor(cursor, es_end, 4, config_end) || config_end - cursor < 13)
+                        return fail(isobmff_reader_failure::malformed, moov_offset + es);
+                    if (data[cursor] != 0x40 || (data[cursor + 1] >> 2) != 5 || !(data[cursor + 1] & 1))
+                        return fail(isobmff_reader_failure::unsupported, moov_offset + es);
+                    cursor += 13;
+                    if (!descriptor(cursor, config_end, 5, asc_end) || asc_end - cursor < 2)
+                        return fail(isobmff_reader_failure::malformed, moov_offset + es);
+                    const unsigned object_type = data[cursor] >> 3;
+                    const unsigned frequency = ((data[cursor] & 7U) << 1) | (data[cursor + 1] >> 7);
+                    const unsigned channels = (data[cursor + 1] >> 3) & 15U;
+                    if (object_type != 2 || frequency > 12 || !channels || channels > 7 ||
+                        (data[cursor + 1] & 7U) != 0)
+                        return fail(isobmff_reader_failure::unsupported, moov_offset + es);
+                    constexpr uint32_t rates[13]={96000,88200,64000,48000,44100,32000,24000,22050,16000,12000,11025,8000,7350};
+                    constexpr uint16_t channel_counts[8]={0,1,2,3,4,5,6,8};
+                    if(read_be16u(data.data()+eb+16)!=channel_counts[channels]||
+                        read_be32u(data.data()+eb+24)!=(rates[frequency]<<16))
+                        return fail(isobmff_reader_failure::malformed,moov_offset+entry_start);
+                    // Common explicit sync extension states that SBR is absent.
+                    if (asc_end - cursor != 2 && !(asc_end - cursor == 5 &&
+                        data[cursor + 2] == 0x56 && data[cursor + 3] == 0xe5 && data[cursor + 4] == 0))
+                        return fail(isobmff_reader_failure::unsupported, moov_offset + es);
+                    if (asc_end != config_end) return fail(isobmff_reader_failure::unsupported, moov_offset + es);
+                    cursor = config_end;
+                    size_t sl_end = 0;
+                    if (!descriptor(cursor, es_end, 6, sl_end) || sl_end - cursor != 1 || data[cursor] != 2 ||
+                        sl_end != es_end || es_end != es + esds.size)
+                        return fail(isobmff_reader_failure::unsupported, moov_offset + es);
+                }
+                parsed.sample_tables.push_back(std::move(table));
+            }
+            p += trak.size;
+        }
+        if (video_count != 1) return fail(isobmff_reader_failure::malformed, moov_offset);
+        std::sort(chunks.begin(), chunks.end());
+        for (size_t i = 1; i < chunks.size(); ++i) if (chunks[i-1].second > chunks[i].first) return fail(isobmff_reader_failure::malformed, chunks[i].first);
+        isobmff_reader_failure timing_failure = isobmff_reader_failure::malformed;
+        if (!inspect_timeline_moov(data, moov, 0, data.size(), parsed.mdats, 0, parsed.quicktime,
+                parsed.timeline, &timing_failure)) return fail(timing_failure, moov_offset);
+        output = std::move(parsed);
+        return true;
+    } catch (...) {
+        return fail(isobmff_reader_failure::unsupported, current_offset);
+    }
 }

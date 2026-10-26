@@ -71,6 +71,9 @@ set(LPB_MEDIA_SOURCES
   LivePhotoBox.Native/src/media/preservation_observation.cpp
   LivePhotoBox.Native/src/media/neutral_timing.cpp
   LivePhotoBox.Native/src/media/target_writer.cpp
+  LivePhotoBox.Native/src/media/target_validator.cpp
+  LivePhotoBox.Native/src/media/jpeg_observation.cpp
+  LivePhotoBox.Native/src/protocols/google_v2_writer.cpp
   LivePhotoBox.Native/src/media/video_sidecar_bridge.cpp
   LivePhotoBox.Native/src/media/video_converter.cpp)
 source_group("Portable core" FILES ${LPB_PORTABLE_SOURCES})
@@ -232,6 +235,14 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+  add_executable(lpb_target_validator_tests tests/native/target_validator_tests.cpp)
+  target_include_directories(lpb_target_validator_tests PRIVATE LivePhotoBox.Native/include LivePhotoBox.Native/src)
+  target_compile_options(lpb_target_validator_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+  target_link_libraries(lpb_target_validator_tests PRIVATE LivePhotoBoxNative livephotobox_portable_core bcrypt)
+  add_test(NAME P9R2_TargetValidator COMMAND lpb_target_validator_tests
+    "${CMAKE_SOURCE_DIR}/.ai-tmp/workspace/P9/target-writers/R2/inputs")
+  set_tests_properties(P9R2_TargetValidator PROPERTIES TIMEOUT 120
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:LivePhotoBoxNative>")
   add_executable(lpb_target_writer_foundation_tests tests/native/target_writer_foundation_tests.cpp)
   target_include_directories(lpb_target_writer_foundation_tests PRIVATE LivePhotoBox.Native/include LivePhotoBox.Native/src)
   target_compile_options(lpb_target_writer_foundation_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)

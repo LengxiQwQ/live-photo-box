@@ -55,9 +55,9 @@ namespace LivePhotoBox.Interop
     internal static partial class NativeMethods
     {
         internal const string LibraryName = "LivePhotoBox.Native";
-        // ABI v13 adds context-bound target Writer sessions. Existing POD layouts remain unchanged.
+        // ABI v14 adds a read-only random-access Target Validator. Existing POD layouts remain unchanged.
         // Codec and platform implementation types remain entirely Native-private.
-        internal const uint RequiredAbiVersion = 13;
+        internal const uint RequiredAbiVersion = 14;
 
         [LibraryImport(LibraryName, EntryPoint = "lpb_get_abi_version")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]

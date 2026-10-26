@@ -20,8 +20,8 @@
 extern "C" {
 #endif
 
-/* ABI 13 adds context-bound target Writer sessions; existing PODs are unchanged. */
-#define LPB_NATIVE_ABI_VERSION 13u
+/* ABI14 adds fresh-reader Target Validator; existing PODs are unchanged. */
+#define LPB_NATIVE_ABI_VERSION 14u
 
 typedef struct lpb_context lpb_context;
 typedef struct lpb_extraction_plan lpb_extraction_plan;
@@ -1392,6 +1392,39 @@ typedef struct lpb_file_identity
 
 /* Target Writer v1: x64 alignment8 / managed Pack8. Existing PODs unchanged. */
 typedef struct lpb_target_writer_plan lpb_target_writer_plan;
+
+/* ABI14: synchronous read-only target observation. x64 alignment8 / Pack8.
+ * Reader and user data are borrowed only until lpb_target_validate_v1 returns.
+ * Generic status1 means structural media validity, not full bitstream decode.
+ * Preservation/device remain NotEvaluated/NotRun (0). */
+typedef lpb_result(LPB_CALL* lpb_target_read_at_v1)(void*,uint64_t,uint8_t*,uint32_t,uint32_t*);
+typedef struct lpb_target_reader_v1 {
+ uint32_t struct_size,version;
+ uint64_t byte_length;
+ void* user;
+ lpb_target_read_at_v1 read_at;
+ uint64_t reserved0,reserved1;
+} lpb_target_reader_v1;
+typedef struct lpb_target_validation_request_v1 {
+ uint32_t struct_size,version,target_profile,target_version,media_format;
+ uint32_t member_count,member_index,artifact_role;
+ int64_t cover_timestamp_us;
+ uint32_t cover_timestamp_present,expected_video_codec,expected_auxiliary_count,flags;
+ uint64_t reserved;
+} lpb_target_validation_request_v1;
+typedef struct lpb_target_validation_result_v1 {
+ uint32_t struct_size,version,structural_status,generic_media_status;
+ uint32_t preservation_status,device_status,failure_category,failure_stage;
+ uint32_t observed_target_profile,observed_target_version,observed_media_format,observed_video_codec;
+ uint64_t observed_byte_length,primary_offset,primary_length,video_offset,video_length;
+ int64_t observed_cover_timestamp_us;
+ uint32_t cover_encoding,image_width,image_height,image_orientation;
+ uint32_t video_width,video_height,video_orientation,observed_auxiliary_count,rule_id,reserved;
+ uint64_t failure_byte_offset;
+ uint8_t observed_sha256[32];
+} lpb_target_validation_result_v1;
+LPB_API lpb_result LPB_CALL lpb_target_validate_v1(lpb_context*,
+ const lpb_target_validation_request_v1*,const lpb_target_reader_v1*,lpb_target_validation_result_v1*);
 
 /* Explicit map from typed OutputProfile; never cast UI/source enum. */
 typedef enum lpb_target_writer_profile_v1 {

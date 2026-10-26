@@ -6,6 +6,7 @@
 #include "protocols/target_structure.h"
 #include "containers/isobmff.h"
 #include "containers/isobmff_video_profile.h"
+#include "protocols/google_v2_writer.h"
 #include <array>
 #include <string_view>
 
@@ -31,9 +32,24 @@ struct lpb_target_writer_session {
     std::array<uint8_t,32> fingerprint{};
     uint32_t state{},failure{};
     bool release_requested{};
+    uint32_t active_reads{};
+    std::mutex stage_io;
+    std::unique_ptr<windows_owned_output> stage;
+    lpb_target_writer_output_v1 output{};
     void* directory{};
-    ~lpb_target_writer_session() noexcept { if(directory)CloseHandle(directory); }
+    ~lpb_target_writer_session() noexcept { if(stage)stage->abort_and_confirm();if(directory)CloseHandle(directory); }
 };
+bool lpb_abort_target_writer_stages(lpb_context* context) noexcept {
+    if(!context)return false;
+    bool confirmed=true;
+    try {
+        // Finalization is exclusive: active_operations is zero. No callbacks.
+        for(const auto& session:context->target_writer_plans)
+            if(session->stage&&!session->stage->abort_and_confirm())confirmed=false;
+        context->target_writer_plans.clear();
+    }catch(...){return false;}
+    return confirmed;
+}
 namespace {
 constexpr uint32_t failure_unsupported=1,failure_malformed=2,failure_identity=4,failure_io=5;
 bool fixed_utf8(const char* value,size_t capacity) noexcept {
@@ -77,7 +93,7 @@ lpb_result hash_reader(lpb_context* context,const lpb::random_access_reader& rea
 }
 // Existing bounded box parser supplies hierarchy. Unsupported metadata owners
 // are rejected, not searched as arbitrary strings or silently declared neutral.
-lpb_result plain_video_graph(std::span<const uint8_t> bytes,size_t first,size_t end,unsigned depth=0) {
+lpb_result plain_video_graph(std::span<const uint8_t> bytes,size_t first,size_t end,unsigned depth=0,std::string_view parent={}) {
     if(depth>16)return LPB_RESULT_INVALID_ARGUMENT;
     for(size_t p=first;p<end;) {
         isobmff_box_header box{};
@@ -89,10 +105,14 @@ lpb_result plain_video_graph(std::span<const uint8_t> bytes,size_t first,size_t 
             const size_t b=p+box.header_size;
             if(box.size<box.header_size+12)return LPB_RESULT_INVALID_ARGUMENT;
             const std::string_view handler(reinterpret_cast<const char*>(bytes.data()+b+8),4);
-            if(handler!="vide"&&handler!="soun"&&handler!="alis")return LPB_RESULT_UNSUPPORTED;
+            const std::string_view component(reinterpret_cast<const char*>(bytes.data()+b+4),4);
+            // QuickTime's ordinary, self-contained data handler is not a live
+            // metadata track. Its references are checked by the generic reader.
+            const bool quicktime_data=parent=="minf"&&component=="dhlr"&&handler=="url ";
+            if(handler!="vide"&&handler!="soun"&&handler!="alis"&&!quicktime_data)return LPB_RESULT_UNSUPPORTED;
         }
         if(type=="moov"||type=="trak"||type=="mdia"||type=="minf"||type=="stbl"||type=="edts"||type=="dinf") {
-            const auto result=plain_video_graph(bytes,p+box.header_size,p+box.size,depth+1);
+            const auto result=plain_video_graph(bytes,p+box.header_size,p+box.size,depth+1,type);
             if(result!=LPB_RESULT_OK)return result;
         }
         p+=box.size;
@@ -203,16 +223,26 @@ lpb_result revalidate(lpb_context* context,lpb_target_writer_session& session) {
     }
     return observe_inputs(context,session);
 }
-void finish(lpb_context* context,const std::shared_ptr<lpb_target_writer_session>& session,lpb_result result) {
+lpb_result finish(lpb_context* context,const std::shared_ptr<lpb_target_writer_session>& session,lpb_result result) {
     std::scoped_lock lock(context->plan_mutex);
-    session->state=result==LPB_RESULT_CANCELLED?4U:3U;
-    session->failure=result==LPB_RESULT_UNSUPPORTED?failure_unsupported:
+    if(session->release_requested&&result==LPB_RESULT_OK)result=LPB_RESULT_CANCELLED;
+    if(result!=LPB_RESULT_OK && session->stage) {
+        if(!session->stage->abort_and_confirm()) {
+            result=LPB_RESULT_INTERNAL_ERROR;session->failure=6;
+            set_error(context,"[CleanupFailed] Writer exact-owned stage cleanup failed.");
+        }
+        session->stage.reset();session->output={};
+    }
+    session->state=result==LPB_RESULT_OK?2U:result==LPB_RESULT_CANCELLED?4U:3U;
+    if(session->failure!=6)session->failure=result==LPB_RESULT_OK?0U:result==LPB_RESULT_UNSUPPORTED?failure_unsupported:
         result==LPB_RESULT_SOURCE_CHANGED?failure_identity:result==LPB_RESULT_INVALID_ARGUMENT?failure_malformed:failure_io;
     if(session->release_requested) {
         auto& plans=context->target_writer_plans;
         plans.erase(std::remove(plans.begin(),plans.end(),session),plans.end());
     }
+    return result;
 }
+
 bool reentry(lpb_context* context) noexcept {
     if(!context||lpb_writer_callback_active(context)) {
         set_error(context,"[AuthorityViolation] Writer callback reentry is not authorized.");return true;
@@ -289,14 +319,39 @@ lpb_result LPB_CALL lpb_target_writer_stage_v1(lpb_context* context,lpb_target_w
         auto result=check_cancel(context);
         if(result==LPB_RESULT_OK)result=revalidate(context,*session);
         if(result==LPB_RESULT_OK) {
-            // No family serializer has been connected yet. Never mint target
-            // bytes or target-success from a validated neutral input session.
-            set_error(context,"[Unsupported] Target serializer is not implemented; Writer attempt consumed with no outputs.");
-            result=LPB_RESULT_UNSUPPORTED;
+            if(session->request.target_profile!=LPB_TARGET_GOOGLE_V2||session->request.media_format>1) {
+                set_error(context,"[Unsupported] Target serializer is not implemented; Writer attempt consumed with no outputs.");
+                result=LPB_RESULT_UNSUPPORTED;
+            } else {
+                std::vector<uint8_t> primary,serialized;
+                if(!session->inputs[0].read_all_bounded(4,32ULL*1024*1024,primary))result=LPB_RESULT_INTERNAL_ERROR;
+                else result=lpb::target::build_google_v2_primary(context,primary,session->inputs[1].size(),
+                    session->request.media_format,session->request.cover_timestamp_present!=0,session->request.cover_timestamp_us,serialized);
+                if(result==LPB_RESULT_OK) {
+                    session->stage=std::make_unique<windows_owned_output>();
+                    const auto destination=utf8_to_path(session->request.staging_directory_utf8)/L"target-stage.bin";
+                    if(!session->stage->create(destination,L"lpb-target-",L".stage",true)||!session->stage->write_all(serialized))result=LPB_RESULT_INTERNAL_ERROR;
+                    std::array<uint8_t,65536> buffer{};
+                    for(uint64_t at=0;result==LPB_RESULT_OK&&at<session->inputs[1].size();) {
+                        result=check_cancel(context);if(result!=LPB_RESULT_OK)break;
+                        const size_t n=static_cast<size_t>(std::min<uint64_t>(buffer.size(),session->inputs[1].size()-at));
+                        if(!session->inputs[1].read_at(at,std::span<uint8_t>(buffer.data(),n))||
+                            !session->stage->write_all(std::span<const uint8_t>(buffer.data(),n)))result=LPB_RESULT_INTERNAL_ERROR;
+                        at+=n;
+                    }
+                    if(result==LPB_RESULT_OK)result=check_cancel(context);
+                    auto& output=session->output;
+                    output={sizeof(output),1,0,0,session->request.target_profile,1,session->generation};
+                    if(result==LPB_RESULT_OK&&(!session->stage->ready_to_consume()||
+                        !session->stage->capture_identity(output.identity)||!session->stage->size(output.byte_length)||
+                        !session->stage->compute_sha256(output.sha256)||!lpb_generate_unique_plan_token(output.stage_id)))result=LPB_RESULT_INTERNAL_ERROR;
+                    if(result==LPB_RESULT_OK)std::memcpy(output.request_fingerprint,session->fingerprint.data(),32);
+                }
+            }
         }
-        finish(context,session,result);return result;
+        return finish(context,session,result);
     } catch(...) {
-        if(session)finish(context,session,LPB_RESULT_INTERNAL_ERROR);
+        if(session)static_cast<void>(finish(context,session,LPB_RESULT_INTERNAL_ERROR));
         set_error(context,"Writer stage failed at exception boundary.");return LPB_RESULT_INTERNAL_ERROR;
     }
 }
@@ -310,8 +365,14 @@ lpb_result LPB_CALL lpb_target_writer_get_outputs_v1(lpb_context* context,lpb_ta
         if(!count||!status||status->struct_size!=sizeof(*status)||status->version!=1||(capacity&&!outputs))return LPB_RESULT_INVALID_ARGUMENT;
         std::scoped_lock lock(context->plan_mutex);const auto session=find_locked(context,plan);
         if(!session)return LPB_RESULT_AUTHORITY_VIOLATION;
-        *status={sizeof(*status),1,session->state,session->failure,session->request.target_profile,0,session->generation};
-        return LPB_RESULT_OK; // Query succeeded, status never claims target success.
+        const uint32_t total=session->state==2&&!session->release_requested&&session->stage?1U:0U;
+        *status={sizeof(*status),1,session->state,session->failure,session->request.target_profile,total,session->generation};
+        *count=total;
+        if(total&&capacity) {
+            if(outputs[0].struct_size!=sizeof(outputs[0])||outputs[0].version!=1){*count=0;return LPB_RESULT_INVALID_ARGUMENT;}
+            outputs[0]=session->output;
+        }
+        return LPB_RESULT_OK;
     } catch(...) {return LPB_RESULT_INTERNAL_ERROR;}
 }
 lpb_result LPB_CALL lpb_target_writer_read_stage_v1(lpb_context* context,lpb_target_writer_plan* plan,
@@ -322,10 +383,34 @@ lpb_result LPB_CALL lpb_target_writer_read_stage_v1(lpb_context* context,lpb_tar
     lpb_writer_frame frame(context);
     try {
         if(!count||(capacity&&!output))return LPB_RESULT_INVALID_ARGUMENT;
-        std::scoped_lock lock(context->plan_mutex);
-        if(!find_locked(context,plan))return LPB_RESULT_AUTHORITY_VIOLATION;
-        static_cast<void>(stage);static_cast<void>(offset);
-        return LPB_RESULT_UNSUPPORTED; // No sealed target object exists in R1.
+        std::shared_ptr<lpb_target_writer_session> session;
+        {
+            std::scoped_lock lock(context->plan_mutex);session=find_locked(context,plan);
+            if(!session)return LPB_RESULT_AUTHORITY_VIOLATION;
+            if(session->state!=2||session->release_requested||!session->stage)return LPB_RESULT_UNSUPPORTED;
+            if(stage!=session->output.stage_id)return LPB_RESULT_AUTHORITY_VIOLATION;
+            if(offset>session->output.byte_length||capacity>session->output.byte_length-offset)return LPB_RESULT_INVALID_ARGUMENT;
+            ++session->active_reads;
+        }
+        lpb_result result=check_cancel(context);
+        {
+            std::scoped_lock io(session->stage_io);
+            lpb_file_identity actual{};
+            if(result==LPB_RESULT_OK&&(!session->stage->capture_identity(actual)||!identity_equal(actual,session->output.identity)))result=LPB_RESULT_SOURCE_CHANGED;
+            if(result==LPB_RESULT_OK&&capacity&&!session->stage->reader().read_exact(offset,std::span<uint8_t>(output,capacity)))result=LPB_RESULT_INTERNAL_ERROR;
+        }
+        if(result==LPB_RESULT_OK)result=check_cancel(context);
+        bool cleanup=false;
+        {
+            std::scoped_lock lock(context->plan_mutex);--session->active_reads;
+            cleanup=session->active_reads==0&&session->release_requested;
+            if(cleanup){auto& plans=context->target_writer_plans;plans.erase(std::remove(plans.begin(),plans.end(),session),plans.end());}
+        }
+        if(cleanup&&session->stage&&!session->stage->abort_and_confirm()) {
+            set_error(context,"[CleanupFailed] Released Writer read stage cleanup failed.");result=LPB_RESULT_INTERNAL_ERROR;
+        }
+        if(result==LPB_RESULT_OK)*count=capacity;
+        return result;
     } catch(...) {return LPB_RESULT_INTERNAL_ERROR;}
 }
 lpb_result LPB_CALL lpb_target_writer_release_v1(lpb_context* context,lpb_target_writer_plan* plan) {
@@ -337,9 +422,12 @@ lpb_result LPB_CALL lpb_target_writer_release_v1(lpb_context* context,lpb_target
         {
             std::scoped_lock lock(context->plan_mutex);session=find_locked(context,plan);
             if(!session)return LPB_RESULT_AUTHORITY_VIOLATION;
-            if(session->state==1||session->state==5) {session->release_requested=true;session->state=5;return LPB_RESULT_OK;}
+            if(session->state==1||session->state==5||session->active_reads) {session->release_requested=true;session->state=5;return LPB_RESULT_OK;}
             auto& plans=context->target_writer_plans;
             plans.erase(std::remove(plans.begin(),plans.end(),session),plans.end());
+        }
+        if(session->stage&&!session->stage->abort_and_confirm()) {
+            set_error(context,"[CleanupFailed] Writer exact-owned stage cleanup failed during release.");return LPB_RESULT_INTERNAL_ERROR;
         }
         return LPB_RESULT_OK;
     } catch(...) {return LPB_RESULT_INTERNAL_ERROR;}

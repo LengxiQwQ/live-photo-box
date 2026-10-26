@@ -195,6 +195,8 @@ struct lpb_writer_callback_frame {
     ~lpb_writer_callback_frame() noexcept;
 };
 bool lpb_generate_unique_plan_token(uint64_t& token) noexcept;
+// Called only after the last context operation lease, without host callbacks.
+bool lpb_abort_target_writer_stages(lpb_context*) noexcept;
 
 struct lpb_context
 {

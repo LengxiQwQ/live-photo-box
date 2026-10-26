@@ -124,20 +124,23 @@ internal static class WindowsSplitOutputPublisher
         PublishSingleCoreAsync(finalPath, overwriteExisting, writeStageAsync, null, testHook, token);
 
     /// <summary>
-    /// P9 publication seam. The observer runs only after the writer view is closed
-    /// and flushed, and must inspect a fresh read-only view before publication.
-    /// Target protocol rules are supplied by the independent Target Validator.
+    /// The concrete Target Validator reopens complete flushed bytes. Callers supply
+    /// semantic expectations and cannot replace or disable the publication verdict.
     /// </summary>
     internal static Task<PublishedOwnedFile> PublishTargetAsync(
         string finalPath,
         bool overwriteExisting,
         Func<Stream, CancellationToken, Task> writeStageAsync,
-        Func<TargetPublicationStage, CancellationToken, Task> validateStageAsync,
+        TargetValidationExpectations expectations,
         CancellationToken token)
     {
-        ArgumentNullException.ThrowIfNull(validateStageAsync);
+        ArgumentNullException.ThrowIfNull(expectations);
         return PublishSingleCoreAsync(finalPath, overwriteExisting, writeStageAsync,
-            validateStageAsync, TestHook.Value, token);
+            (stage, cancellation) =>
+            {
+                NativeTargetValidator.ValidateStage(stage, expectations, cancellation);
+                return Task.CompletedTask;
+            }, TestHook.Value, token);
     }
 
     private static async Task<PublishedOwnedFile> PublishSingleCoreAsync(

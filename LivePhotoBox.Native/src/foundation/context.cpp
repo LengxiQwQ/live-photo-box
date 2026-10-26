@@ -59,7 +59,7 @@ bool lpb_generate_unique_plan_token(uint64_t& token) noexcept {
 }
 lpb_context_operation::lpb_context_operation(lpb_context* context) noexcept
 {
-    if (context == nullptr)
+    if (context == nullptr || lpb_writer_callback_active(context))
     {
         return;
     }
@@ -474,6 +474,8 @@ void finalize_context_no_callbacks(lpb_context* context) noexcept
     test_archive_destroyed_context(context);
 #endif
 
+    if(!lpb_abort_target_writer_stages(context))
+        set_error(context,"[CleanupFailed] Context finalization could not confirm exact-owned Writer stage cleanup.");
     delete context;
 }
 
@@ -724,7 +726,7 @@ lpb_result LPB_CALL lpb_get_runtime_info(
 
 bool lpb_has_clean_authority(const lpb_context* context) noexcept
 {
-    return context != nullptr &&
+    return context != nullptr && !lpb_writer_callback_active(context) &&
         tls_cleanup_authority.context == static_cast<const void*>(context) &&
         tls_cleanup_authority.token != 0 &&
         tls_cleanup_authority.token == context->active_clean_authority_token;

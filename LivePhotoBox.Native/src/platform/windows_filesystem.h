@@ -83,6 +83,7 @@ public:
     bool compute_sha256(uint8_t out_hash[32]) noexcept;
     bool flush() noexcept;
     bool ready_to_consume() noexcept;
+    bool capture_identity(lpb_file_identity& identity) noexcept;
     lpb::random_access_reader reader() noexcept;
     bool publish_no_replace(const std::filesystem::path& destination,
         const lpb_file_identity* expected_identity = nullptr) noexcept;
