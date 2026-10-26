@@ -66,11 +66,18 @@ jobs:
             .ai-tmp/workspace/P5/R5/cmake-build/vcpkg_installed
             ~/AppData/Local/vcpkg/downloads
           key: native-deps-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'tools/p5-r5-video-validation/sidecar-dependencies/**', 'tools/p5-r5-video-validation/profiles/P5-R5-v1/backend-build.json') }}
+      - name: Check analysis storage / 检查分析存储
+        shell: pwsh
+        run: ./scripts/ci/check-codeql-storage.ps1
       - name: Initialize CodeQL / 初始化 CodeQL
         uses: github/codeql-action/init@v4
         with:
           languages: ${{ matrix.language }}
           build-mode: manual
+          # Keep the query database off the runner's D: workspace volume.
+          db-location: C:/codeql-databases/${{ matrix.language }}
+          ram: 10240
+          threads: 2
       - name: Build Native project for managed analysis / 构建 Native（C# 分析用 Debug）
         if: matrix.language == 'csharp'
         shell: pwsh
@@ -93,7 +100,13 @@ jobs:
         run: |
           dotnet build "LivePhotoBox/LivePhotoBox.csproj" -c Debug -p:Platform=x64 -p:SkipNativeBuild=true
           dotnet build "LivePhotoBox.CLI/LivePhotoBox.CLI.csproj" -c Debug -p:Platform=x64 -p:SkipNativeBuild=true
+      - name: Recheck analysis storage / 分析前复查存储
+        shell: pwsh
+        run: ./scripts/ci/check-codeql-storage.ps1
       - name: Analyze / 分析
         uses: github/codeql-action/analyze@v4
         with:
           category: /language:${{ matrix.language }}
+          output: C:/codeql-results/${{ matrix.language }}
+          ram: 10240
+          threads: 2
