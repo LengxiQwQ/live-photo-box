@@ -4,7 +4,7 @@
 > 当前用户授权更新（2026-10-25）：连续自主推进整个P9，不再逐R请示。普通内部接口/ABI与工程选择由主代理处理；实际功能/支持能力变化、项目方向或重要工具/安全/生产依赖决定先说明并询问。Fusion继续延期。旧逐R等待及普通接口等待文字记录历史，被本条覆盖；真实验收、设备与独立门禁不豁免，不自动进入P10或发布Git。
 # P9 唯一进度 TODO
 
-2026-10-26，LOCAL_OWNER。**R0、R1、R2、R3 技术 COMPLETE；R4 尚未开始，须先完成远程 CI 修复实跑门禁；Fusion/R6 延期。** R3 正式506项托管+10项Native、零跳过，fresh Review及另一fresh Verify通过；146条实际RealSamples回归，57份独立媒体完整解码。设备、产品切换和P9整体仍未完成。详见12与13。
+2026-10-26，LOCAL_OWNER。**R0、R1、R2、R3 技术 COMPLETE；R3已推送，R4由新主聊天接任；Fusion/R6 延期。** 当前用户决定不等待 CI，新主推送前检查远程 Build/CodeQL，失败先修复。R3 正式506项托管+10项Native、零跳过，fresh Review及另一fresh Verify通过；146条实际RealSamples回归，57份独立媒体完整解码。设备、产品切换和P9整体仍未完成。详见12与13。
 
 ## 本轮核查规划
 
@@ -41,7 +41,7 @@
 ## R3–R7 每族完整生命周期
 
 - [x] R3技术：GoogleV1/V2、OPPO结构化Writer+Validator，Xiaomi兼容分行；RELEASE-004精确原图五个适用JPEGprofile、无XMP/duplicate/malformed/普通metadata及MPF未知字节保留、辅助身份/事务/独立证据；fresh Review及另一fresh Verify通过。设备及产品切换仍R8，RELEASE-004不整体关闭。
-- [ ] 用户插入维护门禁：进入R4前修复并验证远程CI。CodeQL历史失败D卷失联，CI-only修复已推送，精确最终R3提交的实际Build/CodeQL通过与回执待完成；不能仅凭workflow改动称已修复。
+- [ ] 用户更新的维护要求：不等待CI即可交接R4；新主推送前先检查远程Build/CodeQL，失败先修复。CodeQL历史失败D卷失联，CI修复已推送，R3代码提交d6b45e2b的Build40339731952/CodeQL40339731934仍在运行，不能仅凭workflow改动称已修复。
 - [ ] R4：Huawei/Honor合法JPEG/HEIC、LIVE_与完整视频、封面/扩展保留；HEVC冲突按决定处理；不代签RELEASE-001。
 - [ ] R5：SamsungJPEG/HEIC、XMP+SEF双层规则、mpv2/mpv3/relocation，独立保留与反例。
 - **R6：DEFERRED_BY_CURRENT_USER**。Fusion暂不做、不计本轮交付、不勾成通过；Apple旧public utility实际旁路审查归R1，新Apple输出另行决定。
