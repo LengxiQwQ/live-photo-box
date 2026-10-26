@@ -21,7 +21,7 @@ extern "C" {
 #endif
 
 /* ABI14 adds fresh-reader Target Validator; existing PODs are unchanged. */
-#define LPB_NATIVE_ABI_VERSION 14u
+#define LPB_NATIVE_ABI_VERSION 15u
 
 typedef struct lpb_context lpb_context;
 typedef struct lpb_extraction_plan lpb_extraction_plan;
@@ -1484,6 +1484,63 @@ LPB_API lpb_result LPB_CALL lpb_target_writer_get_outputs_v1(lpb_context*,lpb_ta
 LPB_API lpb_result LPB_CALL lpb_target_writer_read_stage_v1(lpb_context*,lpb_target_writer_plan*,
  uint64_t,uint64_t,uint8_t*,uint32_t,uint32_t*);
 LPB_API lpb_result LPB_CALL lpb_target_writer_release_v1(lpb_context*,lpb_target_writer_plan*);
+
+/* ABI15 additive target semantics. Old v1 PODs/entry signatures remain exact.
+ * Aux representation1 Embedded,2 Detached,3 Both. Selector1 JPEG directory
+ * ordinal,2 HEIF item ID; request0/id0 resolves a unique observed semantic
+ * owner/range and freezes its actual selector before fingerprint/issuance.
+ * Native re-observes owner/selector/semantic graph;
+ * a caller range/hash never establishes semantic authority on its own.
+ * materialized uses role0 image, whole-file identity/hash for Detached/Both;
+ * Embedded requires its entire materialized record zero. owner_index is0.
+ * Stable identity is diagnostic semantic identity, distinct from content SHA.
+ * Strict preservation only, no arbitrary patch/strip/degradation permission. */
+typedef struct lpb_target_auxiliary_v2 {
+ uint32_t struct_size,version,representation,selector_kind,selector_id,owner_index;
+ uint64_t embedded_offset,byte_length;
+ uint8_t sha256[32];
+ char stable_identity[128],owner_identity[128],semantic[32],relationship[96];
+ lpb_target_writer_artifact_v1 materialized;
+} lpb_target_auxiliary_v2;
+typedef struct lpb_target_writer_request_v2 {
+ uint32_t struct_size,version;
+ lpb_target_writer_request_v1 base;
+ int64_t primary_timestamp_us;
+ uint32_t primary_timestamp_present,auxiliary_count;
+ const lpb_target_auxiliary_v2* auxiliaries;
+ char primary_identity[128];
+ uint64_t reserved;
+} lpb_target_writer_request_v2;
+LPB_API lpb_result LPB_CALL lpb_target_writer_prepare_v2(lpb_context*,
+ const lpb_target_writer_request_v2*,lpb_target_writer_plan**);
+
+typedef struct lpb_target_auxiliary_expectation_v2 {
+ uint32_t struct_size,version,semantic,container; /*1GainMap,2Original,3MiCameraSubimage,4MiCameraLensWatermark; container is owner format for embedded PNG*/
+ uint64_t byte_length;
+ uint8_t sha256[32];
+} lpb_target_auxiliary_expectation_v2;
+typedef struct lpb_target_validation_request_v2 {
+ uint32_t struct_size,version;
+ lpb_target_validation_request_v1 base;
+ int64_t primary_timestamp_us;
+ uint32_t primary_timestamp_present,auxiliary_count;
+ const lpb_target_auxiliary_expectation_v2* auxiliaries;
+ uint64_t reserved;
+} lpb_target_validation_request_v2;
+typedef struct lpb_target_auxiliary_observed_v2 {
+ uint32_t semantic,container,selector_kind,selector_id;
+ uint64_t byte_offset,byte_length;
+ uint8_t sha256[32];
+} lpb_target_auxiliary_observed_v2;
+typedef struct lpb_target_validation_result_v2 {
+ uint32_t struct_size,version;
+ lpb_target_validation_result_v1 base;
+ int64_t observed_primary_timestamp_us;
+ uint32_t primary_timestamp_encoding,auxiliary_count;
+ lpb_target_auxiliary_observed_v2 auxiliaries[2];
+} lpb_target_validation_result_v2;
+LPB_API lpb_result LPB_CALL lpb_target_validate_v2(lpb_context*,
+ const lpb_target_validation_request_v2*,const lpb_target_reader_v1*,lpb_target_validation_result_v2*);
 /* Writer callback destroy requests deferred destruction. Existing outer leases keep context alive; last lease finalizes once without callbacks, or transfers ownership to a synchronous external destroy waiter. Caller must not use context after outer operation returns from a callback that requested destroy. All five Writer APIs reject callback reentry. See native-design.md for exact lifetime-owner protocol. */
 
 

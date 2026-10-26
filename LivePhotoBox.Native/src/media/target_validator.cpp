@@ -1,6 +1,8 @@
 #include "media/target_validator.h"
 #include "media/jpeg_observation.h"
 #include "media/xmp_observation.h"
+#include "media/target_writer.h"
+#include "media/target_video_observation.h"
 #include "containers/isobmff.h"
 #include "containers/isobmff_video_profile.h"
 #include "foundation/internal.h"
@@ -68,7 +70,7 @@ lpb_result LPB_CALL lpb_target_validate_v1(lpb_context* context,const lpb_target
    request->media_format>4||request->expected_video_codec<2||request->expected_video_codec>3) {
     reject(1,1,1);return LPB_RESULT_INVALID_ARGUMENT;
   }
-  if(request->target_profile!=2||request->target_version!=1||request->media_format>1||
+  if((request->target_profile!=1&&request->target_profile!=2)||request->target_version!=1||request->media_format>1||
    request->member_count!=1||request->member_index||request->artifact_role||request->expected_auxiliary_count)
     return reject(4,1,13,true);
   reader_adapter adapter{context,*reader};const auto full=adapter.view();
@@ -84,18 +86,34 @@ lpb_result LPB_CALL lpb_target_validate_v1(lpb_context* context,const lpb_target
   }
   hash.finalize(output->observed_sha256);output->observed_byte_length=full.length;
   lpb::media::jpeg_observation jpeg;lpb::media::jpeg_observation_failure jpeg_failure{};uint64_t bad=0;
-  if(!lpb::media::observe_jpeg(full,jpeg,jpeg_failure,bad)) {
+  if(!lpb::media::observe_jpeg(full,jpeg,jpeg_failure,bad,{true,true,true})) {
    if(read_failure())return adapter.error;output->failure_byte_offset=bad;
    output->generic_media_status=jpeg_failure==lpb::media::jpeg_observation_failure::unsupported?3U:2U;
    return reject(jpeg_failure==lpb::media::jpeg_observation_failure::unsupported?4U:2U,3,3,jpeg_failure==lpb::media::jpeg_observation_failure::unsupported);
   }
   output->primary_length=jpeg.eoi_end;output->image_width=jpeg.width;output->image_height=jpeg.height;output->image_orientation=jpeg.orientation;
+  if(!jpeg.exif_payload.empty()) {
+   const auto neutral=lpb::media::observe_target_neutral_exif(jpeg.exif_payload);
+   if(neutral!=LPB_RESULT_OK)return reject(neutral==LPB_RESULT_UNSUPPORTED?4U:2U,3,3,neutral==LPB_RESULT_UNSUPPORTED);
+  }
+  if(jpeg.mpf_index&&(!jpeg.singleton_mpf||jpeg.mpf_primary_size!=jpeg.eoi_end))return reject(2,3,3);
   if(jpeg.standard_packets!=1)return reject(2,4,4);
   lpb::media::target_xmp_observation xmp;lpb::media::xmp_observation_failure xmp_failure{};
-  if(!lpb::media::observe_target_xmp(jpeg.xmp,xmp,xmp_failure))return reject(
+  if(!lpb::media::observe_target_xmp_packets(jpeg.xmp,jpeg.extended_xmp,jpeg.extended_guid,xmp,xmp_failure))return reject(
    xmp_failure==lpb::media::xmp_observation_failure::unsupported?4U: xmp_failure==lpb::media::xmp_observation_failure::ambiguous?3U:2U,4,5,
    xmp_failure==lpb::media::xmp_observation_failure::unsupported);
-  if(!xmp.live_claim||xmp.foreign_claim||xmp.motion_photo!=1||xmp.motion_version!=1)return reject(2,4,6);
+  if(xmp.foreign_claim)return reject(2,4,6);
+  if(xmp.hdr_claim)return reject(4,4,13,true);
+  uint64_t video_length=0;
+  if(request->target_profile==1) {
+   if(xmp.live_claim||!xmp.micro_claim||xmp.micro_video!=1||xmp.micro_version!=1||
+      !xmp.micro_offset||xmp.micro_offset>full.length)return reject(2,4,6);
+   if(xmp.directory_present&&(xmp.items.size()!=1||xmp.items[0].semantic!="Primary"||
+      xmp.items[0].mime!="image/jpeg"||xmp.items[0].length||xmp.items[0].padding))return reject(2,4,7);
+   video_length=xmp.micro_offset;
+   if(jpeg.eoi_end!=full.length-video_length)return reject(2,4,8);
+  }else {
+  if(!xmp.live_claim||xmp.motion_photo!=1||xmp.motion_version!=1)return reject(2,4,6);
   size_t primary_count=0,video_count=0;
   for(const auto& item:xmp.items){if(item.semantic=="Primary")++primary_count;if(item.semantic=="MotionPhoto")++video_count;}
   if(primary_count!=1||video_count!=1)return reject(2,4,7);
@@ -106,23 +124,29 @@ lpb_result LPB_CALL lpb_target_validate_v1(lpb_context* context,const lpb_target
    !video.has_length||!video.length||(video.has_padding&&video.padding))return reject(2,4,7);
   if(video.length>full.length||jpeg.eoi_end>full.length-video.length||
    primary.padding!=full.length-video.length-jpeg.eoi_end)return reject(2,4,8);
-  output->video_offset=full.length-video.length;output->video_length=video.length;
-  slice_reader video_slice{full,output->video_offset,video.length};const auto video_reader=video_slice.view();
-  isobmff_reader_observation media;isobmff_reader_diagnostic diagnostic;
-  if(!inspect_isobmff_reader(video_reader,request->media_format==0,media,diagnostic)){
-   if(read_failure())return adapter.error;output->generic_media_status=diagnostic.failure==isobmff_reader_failure::unsupported?3U:2U;
+  video_length=video.length;
+  }
+  output->video_offset=full.length-video_length;output->video_length=video_length;
+  slice_reader video_slice{full,output->video_offset,video_length};const auto video_reader=video_slice.view();
+  lpb::media::target_video_observation observed_video;
+  lpb::media::target_video_diagnostic diagnostic;
+  if(!lpb::media::observe_target_video(video_reader,request->media_format==0,observed_video,diagnostic)) {
+   if(read_failure())return adapter.error;
+   const bool unsupported=diagnostic.failure==lpb::media::target_video_failure::unsupported||
+       diagnostic.failure==lpb::media::target_video_failure::source_binding;
+   output->generic_media_status=unsupported?3U:2U;
    output->failure_byte_offset=diagnostic.offset==UINT64_MAX?UINT64_MAX:output->video_offset+diagnostic.offset;
-   return reject(diagnostic.failure==isobmff_reader_failure::unsupported?4U:2U,5,10,diagnostic.failure==isobmff_reader_failure::unsupported);
+   return reject(unsupported?4U:2U,5,10,unsupported);
   }
+  const auto& media=observed_video.media;
   if(media.quicktime!=(request->media_format==1))return reject(2,5,9);
-  if(media.opaque_metadata)return reject(4,5,13,true);
-  lpb::media::isobmff_video_profile profile;lpb::media::video_profile_failure why{};
-  if(!lpb::media::inspect_isobmff_video_profile(video_reader,profile,why)){
-   if(read_failure())return adapter.error;return reject(why==lpb::media::video_profile_failure::unsupported?4U:2U,5,11,why==lpb::media::video_profile_failure::unsupported);
-  }
-  if(profile.classification!=lpb::media::video_profile_class::ordinary_sdr)return reject(4,5,11,true);
+  if(observed_video.profile.classification!=lpb::media::video_profile_class::ordinary_sdr)return reject(4,5,11,true);
   output->observed_video_codec=media.video_codec;output->video_width=media.video_width;output->video_height=media.video_height;output->video_orientation=media.video_orientation;
   if(media.video_codec!=request->expected_video_codec)return reject(2,5,11);
+  if(request->target_profile==1) {
+   if(!xmp.micro_cover_present||xmp.micro_cover_us<0)return reject(4,6,12,true);
+   xmp.cover_us=xmp.micro_cover_us;xmp.cover_present=true;
+  }
   if(!xmp.cover_present)return reject(4,6,12,true);
   output->observed_cover_timestamp_us=xmp.cover_us;output->cover_encoding=xmp.cover_us==-1?2U:1U;
   if(request->cover_timestamp_present) {
@@ -133,7 +157,7 @@ lpb_result LPB_CALL lpb_target_validate_v1(lpb_context* context,const lpb_target
    if(!found)return reject(2,6,12);
   }else if(xmp.cover_us!=-1)return reject(2,6,12);
   const auto cancellation=cancelled(context);if(cancellation!=LPB_RESULT_OK){output->failure_category=6;output->failure_stage=2;return cancellation;}
-  output->generic_media_status=1;output->structural_status=1;output->observed_target_profile=2;output->observed_target_version=1;output->observed_media_format=request->media_format;
+  output->generic_media_status=1;output->structural_status=1;output->observed_target_profile=request->target_profile;output->observed_target_version=1;output->observed_media_format=request->media_format;
   return LPB_RESULT_OK;
  }catch(...){reject(9,2,2);return LPB_RESULT_INTERNAL_ERROR;}
 }

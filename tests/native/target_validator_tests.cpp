@@ -20,7 +20,7 @@
 namespace fs=std::filesystem;
 #define REQUIRE(x) do{if(!(x))throw std::runtime_error(std::string("line ")+std::to_string(__LINE__)+": "+#x);}while(false)
 std::vector<uint8_t> load(const fs::path& p){std::ifstream f(p,std::ios::binary);REQUIRE(f.good());return {std::istreambuf_iterator<char>(f),{}};}
-lpb_context* make_context(){lpb_context_options o{};o.struct_size=sizeof(o);o.abi_version=14;lpb_context* c{};REQUIRE(lpb_create_context(&o,&c)==LPB_RESULT_OK);return c;}
+lpb_context* make_context(){lpb_context_options o{};o.struct_size=sizeof(o);o.abi_version=15;lpb_context* c{};REQUIRE(lpb_create_context(&o,&c)==LPB_RESULT_OK);return c;}
 lpb_target_validation_request_v1 request(){return {sizeof(lpb_target_validation_request_v1),1,2,1,0,1,0,0,0,0,2,0,0,0};}
 struct memory {
  std::vector<uint8_t> bytes;lpb_context* context{};int mode{};bool tested{};
@@ -133,6 +133,12 @@ size_t owned_child(const std::vector<uint8_t>& bytes,size_t first,size_t last,co
 void reader_sync_sample_tests(const std::vector<uint8_t>& original){
  isobmff_reader_observation observed;isobmff_reader_diagnostic failure;lpb::memory_random_access input{original};
  REQUIRE(inspect_isobmff_reader(input.view(),true,observed,failure));REQUIRE(observed.sample_tables.size()==1);
+ auto opaque=original;opaque.insert(opaque.end(),{0,0,0,12,'c','o','m','m',1,2,3,4});
+ lpb::memory_random_access opaque_reader{opaque};
+ REQUIRE(inspect_isobmff_reader(opaque_reader.view(),true,observed,failure)&&observed.opaque_metadata);
+ opaque.pop_back();lpb::memory_random_access truncated_opaque{opaque};
+ REQUIRE(!inspect_isobmff_reader(truncated_opaque.view(),true,observed,failure)&&failure.failure==isobmff_reader_failure::malformed);
+ REQUIRE(inspect_isobmff_reader(input.view(),true,observed,failure));
  const uint32_t samples=observed.sample_tables.front().sample_count;REQUIRE(samples>=2&&samples<UINT32_MAX);
  // Resolve only legal direct children through the exact single-track ownership chain.
  std::array<size_t,5> ancestors{};size_t first=0,last=original.size();
@@ -261,7 +267,7 @@ struct writer_fixture {
  }
 };
 lpb_context* callback_context(lifecycle_callback& callback){
- lpb_context_options options{};options.struct_size=sizeof(options);options.abi_version=14;
+ lpb_context_options options{};options.struct_size=sizeof(options);options.abi_version=15;
  options.cancel_callback=lifecycle_callback::cancel;options.user_data=&callback;
  lpb_context* result{};REQUIRE(lpb_create_context(&options,&result)==LPB_RESULT_OK);callback.context=result;return result;
 }
@@ -402,7 +408,9 @@ int main(int argc,char** argv){try{
  m.mode=3;REQUIRE(validate(m,r,LPB_RESULT_INTERNAL_ERROR).failure_category==5);
  m.mode=4;REQUIRE(validate(m,r).structural_status==1&&m.tested);m.mode=0;
  auto bad_request=r;bad_request.reserved=1;REQUIRE(validate(m,bad_request,LPB_RESULT_INVALID_ARGUMENT).structural_status!=1);
- bad_request=r;bad_request.target_profile=1;REQUIRE(validate(m,bad_request).structural_status==3);
+ // R3 activates V1: actual V2 bytes are now a conformance failure for that
+ // active target, rather than the historical inactive-capability result.
+ bad_request=r;bad_request.target_profile=1;REQUIRE(validate(m,bad_request).structural_status==2);
  reader_structure_tests(directory,video,context);
  // Actual Native Writer stage -> transported bytes -> independent callback reader.
  std::array<lpb_target_writer_artifact_v1,2> artifacts{};

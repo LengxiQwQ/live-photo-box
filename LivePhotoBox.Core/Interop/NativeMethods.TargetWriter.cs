@@ -47,8 +47,36 @@ internal struct NativeTargetWriterStatusV1
     public ulong Generation;
 }
 
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal unsafe struct NativeTargetAuxiliaryV2
+{
+    public uint StructSize, Version, Representation, SelectorKind, SelectorId, OwnerIndex;
+    public ulong EmbeddedOffset, ByteLength;
+    public fixed byte Sha256[32];
+    public fixed byte StableIdentity[128], OwnerIdentity[128], Semantic[32], Relationship[96];
+    public NativeTargetWriterArtifactV1 Materialized;
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal unsafe struct NativeTargetWriterRequestV2
+{
+    public uint StructSize, Version;
+    public NativeTargetWriterRequestV1 Base;
+    public long PrimaryTimestampUs;
+    public uint PrimaryTimestampPresent, AuxiliaryCount;
+    public nint Auxiliaries;
+    public fixed byte PrimaryIdentity[128];
+    public ulong Reserved;
+}
+
 internal static partial class NativeMethods
 {
+    [LibraryImport(LibraryName, EntryPoint = "lpb_target_writer_prepare_v2")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static unsafe partial NativeResult TargetWriterPrepareV2(nint context,
+        NativeTargetWriterRequestV2* request, out nint plan);
+
     [LibraryImport(LibraryName, EntryPoint = "lpb_target_writer_prepare_v1")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

@@ -141,12 +141,12 @@ public sealed class P6NeutralPipelineTests
         string primaryFilename,
         string? secondaryFilename,
         SourceProtocol expectedProtocol,
-        bool expectedUnsupported)
+        bool expectedUnknownOrientation)
     {
         bool isAuthorizedXiaomiRoute = routeId == "P6-S02" &&
             string.Equals(primaryFilename, "小米.jpg", StringComparison.Ordinal) &&
             secondaryFilename == null && expectedProtocol == SourceProtocol.GoogleMotionPhotoV2;
-        Assert.Equal(isAuthorizedXiaomiRoute, expectedUnsupported);
+        Assert.Equal(isAuthorizedXiaomiRoute, expectedUnknownOrientation);
 
         var evidence = new Dictionary<string, object?>(StringComparer.Ordinal)
         {
@@ -154,7 +154,7 @@ public sealed class P6NeutralPipelineTests
             ["primaryFilename"] = primaryFilename,
             ["secondaryFilename"] = secondaryFilename,
             ["expectedProtocol"] = expectedProtocol.ToString(),
-            ["expectedOutcome"] = expectedUnsupported ? "Unsupported" : "NeutralMediaBundle"
+            ["expectedOutcome"] = expectedUnknownOrientation ? "NeutralMediaBundle with unknown unchanged orientation" : "NeutralMediaBundle"
         };
 
         string? primaryPath = null;
@@ -199,22 +199,6 @@ public sealed class P6NeutralPipelineTests
 
             using var workspace = new MediaWorkspace();
             workspaceRoot = workspace.RootDirectory;
-            if (expectedUnsupported)
-            {
-                Assert.True(sourceFacts.MotionVideo is { IsPresent: true },
-                    "The Xiaomi exception must occur after upstream motion inspection succeeds.");
-                Assert.True(sourceFacts.GainMap is { IsPresent: true },
-                    "The Xiaomi exception must occur after upstream GainMap inspection succeeds.");
-
-                NotSupportedException unsupported = await Assert.ThrowsAsync<NotSupportedException>(async () =>
-                    await new NeutralMediaService().CreateNeutralBundleAsync(
-                        primaryPath, secondaryPath, workspace));
-                unsupportedReason = unsupported.Message;
-                Assert.Contains("final PrimaryImage orientation", unsupported.Message,
-                    StringComparison.OrdinalIgnoreCase);
-                evidence["outcome"] = "Unsupported";
-            }
-            else
             {
                 NeutralMediaBundle bundle = await new NeutralMediaService()
                     .CreateNeutralBundleAsync(primaryPath, secondaryPath, workspace);
@@ -224,7 +208,7 @@ public sealed class P6NeutralPipelineTests
                     expectedProtocol,
                     primaryBefore,
                     secondaryBefore,
-                    bundle);
+                    bundle, expectedUnknownOrientation);
             }
         }
         catch (Exception exception)
@@ -565,7 +549,7 @@ public sealed class P6NeutralPipelineTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task P6_XiaomiJpegGainMap_IsUnsupportedWhenFinalOrientationCannotBeVerified()
+    public async Task P6_XiaomiJpegGainMap_UnknownOrientationRemainsUnknownWithoutChangingImage()
     {
         string primary = ResolveSample("小米.jpg");
         string sourceSha256 = await FileSha256Async(primary);
@@ -576,18 +560,22 @@ public sealed class P6NeutralPipelineTests
         Assert.True(sourceFacts.GainMap is { IsPresent: true });
         using var workspace = new MediaWorkspace();
 
-        NotSupportedException unsupported = await Assert.ThrowsAsync<NotSupportedException>(async () =>
-            await new NeutralMediaService().CreateNeutralBundleAsync(primary, null, workspace));
-
-        Assert.Contains("final PrimaryImage orientation", unsupported.Message, StringComparison.OrdinalIgnoreCase);
+        NeutralMediaBundle bundle = await new NeutralMediaService().CreateNeutralBundleAsync(primary, null, workspace);
+        Assert.Null(bundle.Semantics.Orientation.PrimaryImage.ClockwiseRotationDegrees);
+        Assert.Equal(NeutralReflection.Unknown, bundle.Semantics.Orientation.PrimaryImage.Reflection);
+        Assert.Equal(NeutralEvidenceState.Unknown, bundle.Semantics.Orientation.PrimaryImage.RotationEvidence);
+        Assert.Equal(NeutralEvidenceState.Unknown, bundle.Semantics.Orientation.PrimaryImage.ReflectionEvidence);
+        Assert.Null(bundle.PreparationExecution?.Image);
+        Assert.NotNull(bundle.Semantics.GainMap);
         Assert.Equal(sourceSha256, await FileSha256Async(primary));
-        _output.WriteLine($"P6_XIAOMI_NEUTRAL_UNSUPPORTED_JSON={JsonSerializer.Serialize(new
+        _output.WriteLine($"P6_XIAOMI_NEUTRAL_UNKNOWN_ORIENTATION_JSON={JsonSerializer.Serialize(new
         {
             sourceSha256,
             sourceProtocol = sourceFacts.Protocol.ToString(),
             sourceMotionVideoPresent = sourceFacts.MotionVideo?.IsPresent,
             sourceGainMapPresent = sourceFacts.GainMap?.IsPresent,
-            failure = unsupported.Message
+            orientation = bundle.Semantics.Orientation.PrimaryImage,
+            finalPrimarySha256 = await FileSha256Async(bundle.PrimaryImage.Path)
         })}");
     }
 
@@ -952,7 +940,7 @@ public sealed class P6NeutralPipelineTests
         SourceProtocol expectedProtocol,
         SampleIdentitySnapshot primaryInput,
         SampleIdentitySnapshot? secondaryInput,
-        NeutralMediaBundle bundle)
+        NeutralMediaBundle bundle, bool expectedUnknownOrientation = false)
     {
         Assert.Equal(expectedProtocol, bundle.SourceProvenance.Protocol);
         Assert.Equal(primaryInput.ActualSha256, bundle.SourceProvenance.PrimarySha256, ignoreCase: true);
@@ -986,17 +974,19 @@ public sealed class P6NeutralPipelineTests
         }
 
         NativeImageOrientationObservationV1 finalImageOrientation = await NativeMediaService
-            .ObserveImageOrientationAsync(bundle.PrimaryImage.Path, finalFacts.PrimaryImage.Container);
+            .ObserveImageOrientationAsync(bundle.PrimaryImage.Path, finalFacts.PrimaryImage.Container,
+                allowUnknown: expectedUnknownOrientation);
         NeutralOrientationTransform neutralImageOrientation = bundle.Semantics.Orientation.PrimaryImage;
-        Assert.Equal(finalImageOrientation.ClockwiseRotationDegrees, neutralImageOrientation.ClockwiseRotationDegrees);
-        Assert.Equal(finalImageOrientation.Reflection switch
+        Assert.Equal(expectedUnknownOrientation ? NativeImageOrientationStatus.Unknown : NativeImageOrientationStatus.Verified, finalImageOrientation.Status);
+        Assert.Equal(expectedUnknownOrientation ? null : (int?)finalImageOrientation.ClockwiseRotationDegrees, neutralImageOrientation.ClockwiseRotationDegrees);
+        Assert.Equal(expectedUnknownOrientation ? NeutralReflection.Unknown : finalImageOrientation.Reflection switch
         {
             NativeImageOrientationReflection.None => NeutralReflection.None,
             NativeImageOrientationReflection.Horizontal => NeutralReflection.Horizontal,
             _ => NeutralReflection.Unknown
         }, neutralImageOrientation.Reflection);
-        Assert.Equal(NeutralEvidenceState.Verified, neutralImageOrientation.RotationEvidence);
-        Assert.Equal(NeutralEvidenceState.Verified, neutralImageOrientation.ReflectionEvidence);
+        Assert.Equal(expectedUnknownOrientation ? NeutralEvidenceState.Unknown : NeutralEvidenceState.Verified, neutralImageOrientation.RotationEvidence);
+        Assert.Equal(expectedUnknownOrientation ? NeutralEvidenceState.Unknown : NeutralEvidenceState.Verified, neutralImageOrientation.ReflectionEvidence);
 
         NeutralArtifactManifest primaryRow = Assert.Single(bundle.Manifest, item => item.Role == "PrimaryImage");
         long primaryByteLength = new FileInfo(bundle.PrimaryImage.Path).Length;

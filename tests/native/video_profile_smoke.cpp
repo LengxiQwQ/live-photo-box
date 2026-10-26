@@ -658,6 +658,20 @@ void verify_cicp_alias_patch(const char* path, uint16_t alias_transfer, uint16_t
 
     auto conflicting_bytes = aliased_bytes;
     const size_t color_payload = static_cast<size_t>(collapse_patch.moov_offset) + collapse_patch.color_payload_offset;
+    if((source.transfer_characteristics==1||source.transfer_characteristics==6)&&
+        source.bitstream_color_description_present&&source.bitstream_transfer_characteristics==source.transfer_characteristics) {
+        auto equivalent=original;
+        const uint16_t other=source.transfer_characteristics==1?6:1;
+        write_be16(equivalent.data()+color_payload+6,other);
+        lpb::media::isobmff_video_profile same_function{};
+        assert(inspect_bytes(equivalent,same_function,failure));
+        assert(same_function.transfer_characteristics==other&&
+            same_function.bitstream_transfer_characteristics==source.bitstream_transfer_characteristics);
+        // A distinct sRGB transfer curve still conflicts with BT.709/170M.
+        write_be16(equivalent.data()+color_payload+6,13);
+        assert(!inspect_bytes(equivalent,same_function,failure));
+        assert(failure==lpb::media::video_profile_failure::ambiguous);
+    }
     write_be16(conflicting_bytes.data() + color_payload + 4, source.color_primaries);
     write_be16(conflicting_bytes.data() + color_payload + 6, source.transfer_characteristics);
     write_be16(conflicting_bytes.data() + color_payload + 8, source.matrix_coefficients);

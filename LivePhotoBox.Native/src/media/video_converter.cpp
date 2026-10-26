@@ -2548,8 +2548,11 @@ lpb_result transcode_video_file(
 
     isobmff_video_profile semantic_profile{};
     video_profile_failure profile_failure{};
-    if (!inspect_isobmff_video_profile(semantic_reader, semantic_profile, profile_failure)) {
-        set_error(context, "Video conversion failed closed: source codec, bit depth, CICP, or sample-entry facts are malformed, ambiguous, or unsupported.");
+    video_profile_diagnostic profile_diagnostic{};
+    if (!inspect_isobmff_video_profile(semantic_reader, semantic_profile, profile_failure, &profile_diagnostic)) {
+        const std::string reason="Video conversion failed closed: source codec, bit depth, CICP, or sample-entry facts are malformed, ambiguous, or unsupported. Category="+
+            std::to_string(static_cast<unsigned>(profile_failure))+"; stage="+std::to_string(static_cast<unsigned>(profile_diagnostic))+".";
+        set_error(context, reason.c_str());
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 

@@ -83,5 +83,8 @@ lpb_result encode_heic_primary_and_gainmap_bytes(lpb_context* context,
     std::span<const uint8_t> gainmap_xmp, std::vector<uint8_t>& output,
     heic_encoded_image_facts& facts) noexcept;
 const char* heic_backend_version() noexcept;
+// Codec validity for already bounded primary bytes. Does not serialize target
+// metadata or decide target conformance; decoding preserves HDR signal depth.
+lpb_result validate_heic_bytes(lpb_context*,std::span<const uint8_t>) noexcept;
 
 } // namespace lpb::media

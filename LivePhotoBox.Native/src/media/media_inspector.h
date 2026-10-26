@@ -44,6 +44,15 @@ lpb_result inspect_source_with_plan(
 lpb_image_container detect_image_container(std::span<const uint8_t> header) noexcept;
 lpb_video_container detect_video_container(std::span<const uint8_t> header) noexcept;
 
+// Observe the unique, namespace-owned MiCamera XMPMeta pair against actual
+// JPEG/PNG payloads. full_length may include a separately streamed video tail.
+// 0 absent, 1 complete pair, -1 malformed/shadowed/out-of-range claim.
+int observe_micamera_assets(const std::vector<uint8_t>& prefix,
+    std::string_view packet, uint64_t full_length,
+    lpb_media_range& subimage, lpb_media_range& watermark) noexcept;
+bool rebase_micamera_offsets(std::string_view packet, uint64_t appended_length,
+    std::string& output) noexcept;
+
 // Private observation reuses the authoritative owned-XMP scanner. Return -1
 // for malformed/duplicate data, 0 for absent, 1 for a present signed integer.
 int observe_source_xmp_integer(lpb_context* context, const std::vector<uint8_t>& bytes,

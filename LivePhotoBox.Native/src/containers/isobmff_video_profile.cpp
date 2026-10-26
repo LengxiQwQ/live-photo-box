@@ -1044,8 +1044,13 @@ bool parse_video_track(
             }
             return bitstream_value == 2 || container_value == bitstream_value;
         };
+        // H.273 table 3: code 1 (BT.709) and 6 (SMPTE 170M) describe
+        // the same transfer function. Retain both original code values;
+        // this factual equivalence authorizes no byte patch or color convert.
+        const bool equivalent_transfer=(output.transfer_characteristics==1&&output.bitstream_transfer_characteristics==6)||
+            (output.transfer_characteristics==6&&output.bitstream_transfer_characteristics==1);
         if (!reconcile_color(output.color_primaries, output.bitstream_color_primaries) ||
-            !reconcile_color(output.transfer_characteristics, output.bitstream_transfer_characteristics) ||
+            (!equivalent_transfer&&!reconcile_color(output.transfer_characteristics, output.bitstream_transfer_characteristics)) ||
             !reconcile_color(output.matrix_coefficients, output.bitstream_matrix_coefficients)) {
             failure = video_profile_failure::ambiguous;
             return false;

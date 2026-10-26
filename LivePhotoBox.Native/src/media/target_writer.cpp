@@ -1,5 +1,10 @@
 #include "media/target_writer.h"
 #include "media/media_inspector.h"
+#include "media/target_video_observation.h"
+#include "media/target_primary_observation.h"
+#include "media/heic_backend.h"
+#include "media/jpeg_gainmap_mpf.h"
+#include "containers/heif_internal.h"
 #include "foundation/internal.h"
 #include "foundation/sha256_core.h"
 #include "platform/windows_filesystem.h"
@@ -20,15 +25,26 @@ static_assert(offsetof(lpb_target_writer_request_v1,cover_timestamp_us)==40);
 static_assert(offsetof(lpb_target_writer_request_v1,staging_directory_utf8)==56);
 static_assert(sizeof(lpb_target_writer_output_v1)==144);
 static_assert(sizeof(lpb_target_writer_status_v1)==32);
+static_assert(sizeof(lpb_target_auxiliary_v2)==1568);
+static_assert(offsetof(lpb_target_auxiliary_v2,materialized)==456);
+static_assert(sizeof(lpb_target_writer_request_v2)==1248);
+static_assert(offsetof(lpb_target_writer_request_v2,auxiliaries)==1104);
 
 struct lpb_target_writer_session {
     lpb_context* owner{};
     uint64_t token{},generation{};
     lpb_target_writer_request_v1 request{};
-    std::array<lpb_target_writer_artifact_v1,2> artifacts{};
-    std::array<windows_readonly_source,2> inputs;
-    std::array<lpb_file_identity,2> observed{};
-    std::array<std::array<uint8_t,32>,2> hashes{};
+    std::array<lpb_target_writer_artifact_v1,4> artifacts{};
+    std::array<windows_readonly_source,4> inputs;
+    std::array<lpb_file_identity,4> observed{};
+    std::array<std::array<uint8_t,32>,4> hashes{};
+    uint32_t input_count{2};
+    bool extended{},primary_timestamp_present{};
+    int64_t primary_timestamp_us{};
+    std::string primary_identity;
+    std::vector<lpb_target_auxiliary_v2> auxiliaries;
+    std::array<uint32_t,2> auxiliary_input_indices{UINT32_MAX,UINT32_MAX};
+    lpb::media::target_primary_observation primary_facts;
     std::array<uint8_t,32> fingerprint{};
     uint32_t state{},failure{};
     bool release_requested{};
@@ -62,6 +78,13 @@ bool identity_equal(const lpb_file_identity& a,const lpb_file_identity& b) noexc
     return a.volume_serial==b.volume_serial&&a.file_index==b.file_index&&
         a.file_size==b.file_size&&a.link_count==b.link_count;
 }
+template<size_t N> bool fixed_text(const char (&value)[N]) noexcept {
+    return std::find(value,value+N,'\0')!=value+N&&value[0]&&fixed_utf8(value,N);
+}
+bool zero_bytes(const void* value,size_t size) noexcept {
+    const auto* bytes=static_cast<const uint8_t*>(value);
+    return std::all_of(bytes,bytes+size,[](uint8_t v){return v==0;});
+}
 uint64_t token_of(lpb_target_writer_plan* value) noexcept {
     return static_cast<uint64_t>(reinterpret_cast<uintptr_t>(value));
 }
@@ -91,95 +114,133 @@ lpb_result hash_reader(lpb_context* context,const lpb::random_access_reader& rea
     }
     hash.finalize(output);return LPB_RESULT_OK;
 }
-// Existing bounded box parser supplies hierarchy. Unsupported metadata owners
-// are rejected, not searched as arbitrary strings or silently declared neutral.
-lpb_result plain_video_graph(std::span<const uint8_t> bytes,size_t first,size_t end,unsigned depth=0,std::string_view parent={}) {
-    if(depth>16)return LPB_RESULT_INVALID_ARGUMENT;
-    for(size_t p=first;p<end;) {
-        isobmff_box_header box{};
-        if(!try_read_box_header(bytes.data(),p,end,box))return LPB_RESULT_INVALID_ARGUMENT;
-        const std::string_view type(reinterpret_cast<const char*>(bytes.data()+p+4),4);
-        if(type=="uuid"||type=="meta"||type=="udta"||type=="meco"||type=="tref"||type=="mpvd"||type=="sefd")
-            return LPB_RESULT_UNSUPPORTED;
-        if(type=="hdlr") {
-            const size_t b=p+box.header_size;
-            if(box.size<box.header_size+12)return LPB_RESULT_INVALID_ARGUMENT;
-            const std::string_view handler(reinterpret_cast<const char*>(bytes.data()+b+8),4);
-            const std::string_view component(reinterpret_cast<const char*>(bytes.data()+b+4),4);
-            // QuickTime's ordinary, self-contained data handler is not a live
-            // metadata track. Its references are checked by the generic reader.
-            const bool quicktime_data=parent=="minf"&&component=="dhlr"&&handler=="url ";
-            if(handler!="vide"&&handler!="soun"&&handler!="alis"&&!quicktime_data)return LPB_RESULT_UNSUPPORTED;
+lpb_result observe_extended_primary(lpb_context* context,lpb_target_writer_session& session,
+    const std::vector<uint8_t>& primary) {
+    std::string error;
+    auto& facts=session.primary_facts;
+    if(!lpb::media::observe_target_primary(primary,facts,error)) {
+        set_error(context,error.c_str());return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if(static_cast<uint32_t>(facts.container)!=session.artifacts[0].container||
+        lpb::media::target_primary_has_live_binding(facts)||facts.xmp.foreign_claim) {
+        set_error(context,"Prepared primary container differs or retains source live binding.");return LPB_RESULT_UNSUPPORTED;
+    }
+    if(!facts.exif_payload.empty()) {
+        const auto neutral=lpb::media::observe_target_neutral_exif(facts.exif_payload);
+        if(neutral!=LPB_RESULT_OK)return neutral;
+    }
+    if(facts.container==LPB_IMAGE_CONTAINER_HEIC) {
+        const auto valid=lpb::media::validate_heic_bytes(context,primary);
+        if(valid!=LPB_RESULT_OK)return valid;
+    }
+    if(session.auxiliaries.size()>2)return LPB_RESULT_INVALID_ARGUMENT;
+    std::vector<uint32_t> selected;
+    for(size_t i=0;i<session.auxiliaries.size();++i) {
+        auto& requested=session.auxiliaries[i];
+        const std::string_view semantic=requested.semantic;
+        if(requested.representation==1||requested.representation==3) {
+            const lpb::media::target_primary_auxiliary* match=nullptr;
+            for(size_t j=0;j<facts.auxiliaries.size();++j) {
+                const auto& actual=facts.auxiliaries[j];
+                const bool resolve=requested.selector_kind==0&&requested.selector_id==0&&actual.semantic==semantic&&
+                    actual.relationship==requested.relationship&&actual.range.offset==requested.embedded_offset&&actual.range.length==requested.byte_length;
+                if(resolve||(actual.selector_kind==requested.selector_kind&&actual.selector_id==requested.selector_id)) {
+                    if(match||std::find(selected.begin(),selected.end(),static_cast<uint32_t>(j))!=selected.end())return LPB_RESULT_INVALID_ARGUMENT;
+                    match=&actual;selected.push_back(static_cast<uint32_t>(j));
+                }
+            }
+            if(!match||match->semantic!=semantic||match->relationship!=requested.relationship||
+                match->range.offset!=requested.embedded_offset||match->range.length!=requested.byte_length||
+                match->range.offset>primary.size()||match->range.length>primary.size()-match->range.offset) {
+                set_error(context,"Auxiliary request does not match the actual owner/selector/semantic graph.");return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            requested.selector_kind=match->selector_kind;requested.selector_id=match->selector_id;
+            uint8_t hash[32]{};lpb::crypto::sha256_ctx digest;
+            digest.update(primary.data()+static_cast<size_t>(match->range.offset),static_cast<size_t>(match->range.length));digest.finalize(hash);
+            if(std::memcmp(hash,requested.sha256,32))return LPB_RESULT_SOURCE_CHANGED;
+        }else {
+            for(const auto& actual:facts.auxiliaries)if(actual.semantic==semantic) {
+                set_error(context,"Detached auxiliary would duplicate an embedded semantic asset.");return LPB_RESULT_INVALID_ARGUMENT;
+            }
         }
-        if(type=="moov"||type=="trak"||type=="mdia"||type=="minf"||type=="stbl"||type=="edts"||type=="dinf") {
-            const auto result=plain_video_graph(bytes,p+box.header_size,p+box.size,depth+1,type);
-            if(result!=LPB_RESULT_OK)return result;
+        const uint32_t index=session.auxiliary_input_indices[i];
+        if(index!=UINT32_MAX) {
+            if(session.inputs[index].size()!=requested.byte_length||std::memcmp(session.hashes[index].data(),requested.sha256,32))return LPB_RESULT_SOURCE_CHANGED;
+            // GainMap is one neutral image. Original is an immutable scoped
+            // image asset whose historical metadata is not primary authority.
+            std::vector<uint8_t> bytes;
+            if(!session.inputs[index].read_all_bounded(4,32ULL*1024*1024,bytes))return LPB_RESULT_UNSUPPORTED;
+            if(semantic=="Original") {
+                if(!lpb::media::observe_original_jpeg_asset(bytes,error)) {
+                    set_error(context,error.c_str());return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                continue;
+            }
+            if(semantic=="GainMap") {
+                if(!lpb::media::observe_gainmap_jpeg_asset(bytes,error)) {
+                    set_error(context,error.c_str());return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                continue;
+            }
+            lpb::media::target_primary_observation auxiliary;
+            if(!lpb::media::observe_target_primary(bytes,auxiliary,error)) {
+                set_error(context,("Materialized auxiliary observation: "+error).c_str());return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if(lpb::media::target_primary_has_live_binding(auxiliary)||auxiliary.xmp.foreign_claim||
+                !auxiliary.auxiliaries.empty()) {
+                set_error(context,"Materialized auxiliary retains a live binding or an unrepresented nested auxiliary graph.");return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if(!auxiliary.exif_payload.empty()) {
+                const auto neutral=lpb::media::observe_target_neutral_exif(auxiliary.exif_payload);if(neutral!=LPB_RESULT_OK)return neutral;
+            }
         }
-        p+=box.size;
+    }
+    if(selected.size()!=facts.auxiliaries.size()) {
+        set_error(context,"Prepared auxiliary graph has unrepresented assets; Strict cannot discard them.");return LPB_RESULT_UNSUPPORTED;
+    }
+    if(facts.xmp.hdr_claim&&std::none_of(session.auxiliaries.begin(),session.auxiliaries.end(),
+        [](const auto& asset){return std::string_view(asset.semantic)=="GainMap";})) {
+        set_error(context,"HDR metadata has no represented GainMap semantic asset.");return LPB_RESULT_UNSUPPORTED;
     }
     return LPB_RESULT_OK;
 }
 lpb_result observe_inputs(lpb_context* context,lpb_target_writer_session& session) {
-    std::vector<uint8_t> primary,video;
-    if(!session.inputs[0].read_all_bounded(4,32ULL*1024*1024,primary)||
-        !session.inputs[1].read_all_bounded(8,256ULL*1024*1024,video)) {
-        set_error(context,"[Unsupported] Writer v1 structural snapshot limits are 32MiB image and 256MiB video.");
+    std::vector<uint8_t> primary;
+    if(!session.inputs[0].read_all_bounded(4,32ULL*1024*1024,primary)) {
+        set_error(context,"[Unsupported] Writer primary rewrite snapshot exceeds32MiB; video remains streaming.");
         return LPB_RESULT_UNSUPPORTED;
     }
-    auto result=lpb::media::observe_target_writer_primary(context,primary);
+    auto result=session.extended?observe_extended_primary(context,session,primary):
+        lpb::media::observe_target_writer_primary(context,primary);
     if(result!=LPB_RESULT_OK)return result;
-    if(session.artifacts[0].container!=LPB_IMAGE_CONTAINER_JPEG) {
-        set_error(context,"[Malformed] Writer observed JPEG primary does not match the requested image container.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-    const auto container=lpb::media::detect_video_container(video);
-    if(static_cast<uint32_t>(container)!=session.artifacts[1].container) {
-        set_error(context,"[Malformed] Writer observed video container does not match the requested video container.");
-        return LPB_RESULT_INVALID_ARGUMENT;
-    }
-    const bool valid=container==LPB_VIDEO_CONTAINER_MP4 ?
-        is_valid_isobmff_media_range(video.data(),video.size(),0,video.size()):
-        container==LPB_VIDEO_CONTAINER_MOV&&is_valid_mov_media_range(video.data(),video.size(),0,video.size());
-    if(!valid){set_error(context,"[Malformed] Writer video hierarchy or sample tables are invalid.");return LPB_RESULT_INVALID_ARGUMENT;}
-    result=plain_video_graph(video,0,video.size());
-    if(result!=LPB_RESULT_OK) {
-        set_error(context,"[Unsupported] Writer v1 cannot establish Neutral eligibility for this video metadata/track graph.");
-        return result;
-    }
-    lpb::media::isobmff_video_profile profile{};
-    lpb::media::video_profile_failure failure{};
-    lpb::media::video_profile_diagnostic diagnostic{};
-    if(!lpb::media::inspect_isobmff_video_profile(session.inputs[1].reader(),profile,failure,&diagnostic)) {
-        const std::string message="Writer video profile inspection failed: category="+std::to_string(static_cast<int>(failure))+
-            ", stage="+std::to_string(static_cast<int>(diagnostic))+".";
-        set_error(context,message.c_str());
-        return failure==lpb::media::video_profile_failure::unsupported?LPB_RESULT_UNSUPPORTED:LPB_RESULT_INVALID_ARGUMENT;
-    }
-    if(profile.classification!=lpb::media::video_profile_class::ordinary_sdr) {
-        set_error(context,"[Unsupported] Writer v1 requires an observed ordinary SDR video profile.");
-        return LPB_RESULT_UNSUPPORTED;
-    }
-    const uint32_t codec=profile.codec_fourcc==0x61766331U||profile.codec_fourcc==0x61766333U ?
-        LPB_VIDEO_CODEC_H264 : profile.codec_fourcc==0x68766331U||profile.codec_fourcc==0x68657631U ? LPB_VIDEO_CODEC_HEVC:LPB_VIDEO_CODEC_UNKNOWN;
-    if(codec!=session.artifacts[1].video_codec) {
-        set_error(context,"[Malformed] Writer observed video codec does not match the requested video codec.");
+    if(!session.extended&&session.artifacts[0].container!=LPB_IMAGE_CONTAINER_JPEG) {
+        set_error(context,"[Malformed] Writer observed JPEG differs from requested image container.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     const uint32_t format=session.request.media_format;
-    if(((format==0||format==2||format==4) && container!=LPB_VIDEO_CONTAINER_MP4)||
-        ((format==1||format==3) && container!=LPB_VIDEO_CONTAINER_MOV)) {
-        set_error(context,"[Malformed] Writer target media format does not match the observed video container.");
-        return LPB_RESULT_INVALID_ARGUMENT;
+    if(format>1&&(!session.extended||format!=3||session.request.target_profile!=2||
+        session.primary_facts.container!=LPB_IMAGE_CONTAINER_HEIC))return LPB_RESULT_UNSUPPORTED;
+    const bool mp4=session.artifacts[1].container==LPB_VIDEO_CONTAINER_MP4;
+    if(session.artifacts[1].container!=static_cast<uint32_t>((format==0||format==2||format==4)?LPB_VIDEO_CONTAINER_MP4:LPB_VIDEO_CONTAINER_MOV)) {
+        set_error(context,"[Malformed] Requested target format and prepared video container differ.");return LPB_RESULT_INVALID_ARGUMENT;
     }
-    if(format>=2) {
-        set_error(context,"[Unsupported] Writer v1 HEIF primary/auxiliary integration is pending.");
-        return LPB_RESULT_UNSUPPORTED;
+    lpb::media::target_video_observation video;
+    lpb::media::target_video_diagnostic diagnostic;
+    if(!lpb::media::observe_target_video(session.inputs[1].reader(),mp4,video,diagnostic)) {
+        set_error(context,diagnostic.reason.c_str());
+        return diagnostic.failure==lpb::media::target_video_failure::unsupported||
+            diagnostic.failure==lpb::media::target_video_failure::source_binding?LPB_RESULT_UNSUPPORTED:
+            diagnostic.failure==lpb::media::target_video_failure::io?LPB_RESULT_INTERNAL_ERROR:LPB_RESULT_INVALID_ARGUMENT;
     }
-    isobmff_video_presentation_timeline timeline{};
-    if(!inspect_isobmff_video_presentation_timeline(video,timeline)||!timeline.visible_sample_count) {
-        set_error(context,"[Malformed] Writer video presentation timeline is invalid or has no visible samples.");
-        return LPB_RESULT_INVALID_ARGUMENT;
+    if(video.media.quicktime!=(format==1||format==3)||video.media.video_codec!=session.artifacts[1].video_codec) {
+        set_error(context,"[Malformed] Actual observed video container/codec differs from prepared expectation.");return LPB_RESULT_INVALID_ARGUMENT;
     }
+    if(video.profile.classification!=lpb::media::video_profile_class::ordinary_sdr&&
+        (!session.extended||video.profile.classification!=lpb::media::video_profile_class::preservation_critical)) {
+        set_error(context,"[Unsupported] HDR video profile integration pending.");return LPB_RESULT_UNSUPPORTED;
+    }
+    const auto& timeline=video.media.timeline;
+    if(!timeline.visible_sample_count)return LPB_RESULT_INVALID_ARGUMENT;
     if(session.request.cover_timestamp_present) {
         const auto requested=session.request.cover_timestamp_us;
         if(requested<0||requested>INT64_MAX/10) {
@@ -196,6 +257,17 @@ lpb_result observe_inputs(lpb_context* context,lpb_target_writer_session& sessio
             return LPB_RESULT_INVALID_ARGUMENT;
         }
     }
+    if(session.extended&&session.primary_timestamp_present) {
+        if(session.primary_timestamp_us<0||session.primary_timestamp_us>INT64_MAX/10)return LPB_RESULT_INVALID_ARGUMENT;
+        const auto stamp=session.primary_timestamp_us*10;
+        if(std::none_of(timeline.presentation_order.begin(),timeline.presentation_order.end(),[&](const auto& sample){
+            return sample.visible&&sample.normalized_time_100ns>=0&&sample.duration_100ns>0&&
+                stamp>=sample.normalized_time_100ns&&stamp-sample.normalized_time_100ns<sample.duration_100ns;
+        }))return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if(session.request.target_profile==LPB_TARGET_OPPO&&(!session.extended||!session.primary_timestamp_present)) {
+        set_error(context,"OPlus original capture timestamp is unknown; cannot invent one from current cover.");return LPB_RESULT_UNSUPPORTED;
+    }
     return LPB_RESULT_OK;
 }
 void fingerprint(lpb_target_writer_session& session) noexcept {
@@ -203,7 +275,10 @@ void fingerprint(lpb_target_writer_session& session) noexcept {
     const auto integer=[&](uint64_t value){uint8_t bytes[8]{};for(unsigned i=0;i<8;++i)bytes[i]=static_cast<uint8_t>(value>>(i*8));hash.update(bytes,8);};
     integer(session.request.target_profile);integer(session.request.target_version);integer(session.request.media_format);
     integer(session.request.cover_timestamp_present);integer(static_cast<uint64_t>(session.request.cover_timestamp_us));
-    for(size_t i=0;i<2;++i) {
+    integer(session.extended);integer(session.primary_timestamp_present);integer(static_cast<uint64_t>(session.primary_timestamp_us));
+    hash.update(reinterpret_cast<const uint8_t*>(session.primary_identity.data()),session.primary_identity.size());
+    for(const auto& auxiliary:session.auxiliaries)hash.update(reinterpret_cast<const uint8_t*>(&auxiliary),sizeof(auxiliary));
+    for(size_t i=0;i<session.input_count;++i) {
         integer(session.artifacts[i].role);integer(session.artifacts[i].container);integer(session.artifacts[i].video_codec);
         integer(session.observed[i].volume_serial);integer(session.observed[i].file_index);
         integer(session.observed[i].file_size);integer(session.observed[i].link_count);
@@ -212,7 +287,7 @@ void fingerprint(lpb_target_writer_session& session) noexcept {
     hash.finalize(session.fingerprint.data());
 }
 lpb_result revalidate(lpb_context* context,lpb_target_writer_session& session) {
-    for(size_t i=0;i<2;++i) {
+    for(size_t i=0;i<session.input_count;++i) {
         lpb_file_identity current{};
         if(!session.inputs[i].capture_identity(current)||!identity_equal(current,session.observed[i])||
             !session.inputs[i].verify_same_identity(utf8_to_path(session.artifacts[i].path_utf8)))return LPB_RESULT_SOURCE_CHANGED;
@@ -222,6 +297,149 @@ lpb_result revalidate(lpb_context* context,lpb_target_writer_session& session) {
         if(hash!=session.hashes[i])return LPB_RESULT_SOURCE_CHANGED;
     }
     return observe_inputs(context,session);
+}
+bool expand_owned_mpf(std::vector<uint8_t>& primary,const std::vector<lpb::media::target_xmp_item>& auxiliaries,uint64_t padding) {
+    using namespace lpb::media::jpeg_gainmap_mpf;
+    jpeg_info before;
+    if(!parse_jpeg(primary,before))return false;
+    const bool need_gainmap=std::any_of(auxiliaries.begin(),auxiliaries.end(),[](const auto& a){return a.semantic=="GainMap";});
+    if(before.mpf_status==status::absent&&!need_gainmap)return true;
+    const size_t count=auxiliaries.size()+1;
+    if(count>max_mpf_image_count)return false;
+    if(before.mpf_status==status::present&&before.mpf.image_count==count)return true;
+    // Called only after observe_extended_primary bound the old graph and every
+    // newly appended detached semantic member. Expand its single owned index,
+    // retaining all existing entry flags/dependencies and unknown MPF fields.
+    std::vector<uint8_t> payload;
+    size_t marker_start=0,marker_end=0;
+    if(before.mpf_status==status::present) {
+        uint64_t eoi=0;lpb::memory_random_access memory{primary};
+        if(!lpb::media::walk_jpeg_markers(memory.view(),eoi,[&](const lpb::media::jpeg_marker_range& marker){
+            if(marker.marker==0xe2&&marker.length>=4&&std::memcmp(primary.data()+marker.payload,"MPF\0",4)==0) {
+                if(!payload.empty())return false;
+                marker_start=static_cast<size_t>(marker.start);marker_end=static_cast<size_t>(marker.payload+marker.length);
+                payload.assign(primary.begin()+static_cast<ptrdiff_t>(marker.payload),primary.begin()+static_cast<ptrdiff_t>(marker_end));
+            }return true;
+        })||payload.empty()||before.mpf.image_count>count)return false;
+    }else {
+        // Big-endian baseline MP Index, one formal IFD and no unknown fields.
+        payload={'M','P','F',0,'M','M',0,42,0,0,0,8,0,3,
+            0xb0,0,0,7,0,0,0,4,'0','1','0','0',
+            0xb0,1,0,4,0,0,0,1,0,0,0,1,
+            0xb0,2,0,7,0,0,0,16,0,0,0,50,0,0,0,0,
+            0,3,0,0,0,0,0,1,0,0,0,0,0,0,0,0};
+        marker_start=marker_end=2;
+    }
+    const size_t old_payload_start=before.mpf_status==status::present?before.mpf.tiff_header_offset-4:0;
+    const bool little=before.mpf_status==status::present&&before.mpf.little_endian;
+    const size_t table=payload.size();payload.resize(table+count*16,0);
+    for(size_t i=0;i<count;++i) {
+        const uint32_t attributes=i==0?0x00030000U:0U;
+        write_u32(payload,table+i*16,attributes,little);
+        if(before.mpf_status==status::present&&i<before.mpf.image_count) {
+            const size_t source=before.mpf.entries_array_offset+i*16;
+            std::copy_n(primary.data()+source,16,payload.data()+table+i*16);
+        }
+    }
+    const size_t image_count_field=before.mpf_status==status::present?before.mpf.image_count_value_field_offset-old_payload_start:34;
+    const size_t byte_count_field=before.mpf_status==status::present?before.mpf.entries_byte_count_field_offset-old_payload_start:42;
+    const size_t table_field=before.mpf_status==status::present?before.mpf.entries_value_field_offset-old_payload_start:46;
+    write_u32(payload,image_count_field,static_cast<uint32_t>(count),little);
+    write_u32(payload,byte_count_field,static_cast<uint32_t>(count*16),little);
+    write_u32(payload,table_field,static_cast<uint32_t>(table-4),little);
+    if(payload.size()>65533)return false;
+    std::vector<uint8_t> segment{0xff,0xe2,static_cast<uint8_t>((payload.size()+2)>>8),static_cast<uint8_t>(payload.size()+2)};
+    segment.insert(segment.end(),payload.begin(),payload.end());
+    const uint64_t new_eoi=before.eoi_end-(marker_end-marker_start)+segment.size();
+    const uint64_t tiff=marker_start+8;
+    if(new_eoi>UINT32_MAX)return false;
+    write_u32(segment,4+table+4,static_cast<uint32_t>(new_eoi),little);
+    write_u32(segment,4+table+8,0,little);
+    uint64_t offset=new_eoi+padding;
+    for(size_t i=0;i<auxiliaries.size();++i) {
+        const auto& asset=auxiliaries[i];
+        if(asset.length>UINT32_MAX||offset<tiff||offset-tiff>UINT32_MAX)return false;
+        write_u32(segment,4+table+(i+1)*16+4,static_cast<uint32_t>(asset.length),little);
+        write_u32(segment,4+table+(i+1)*16+8,static_cast<uint32_t>(offset-tiff),little);
+        offset+=asset.length;
+    }
+    if(offset!=primary.size()-(marker_end-marker_start)+segment.size())return false;
+    primary.erase(primary.begin()+static_cast<ptrdiff_t>(marker_start),primary.begin()+static_cast<ptrdiff_t>(marker_end));
+    primary.insert(primary.begin()+static_cast<ptrdiff_t>(marker_start),segment.begin(),segment.end());
+    return true;
+}
+lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_session& session,std::vector<uint8_t>& serialized) {
+    std::vector<uint8_t> primary;
+    if(!session.inputs[0].read_all_bounded(4,32ULL*1024*1024,primary))return LPB_RESULT_UNSUPPORTED;
+    lpb::target::google_xmp_request request;
+    request.target=session.request.target_profile;request.format=session.request.media_format;
+    request.video_length=session.inputs[1].size();request.cover_present=session.request.cover_timestamp_present!=0;
+    request.cover_us=session.request.cover_timestamp_us;
+    request.primary_cover_present=session.primary_timestamp_present;request.primary_cover_us=session.primary_timestamp_us;
+    request.primary_mime=session.primary_facts.container==LPB_IMAGE_CONTAINER_HEIC?"image/heic":"image/jpeg";
+    request.hdr_relationship_validated=std::any_of(session.auxiliaries.begin(),session.auxiliaries.end(),
+        [](const auto& asset){return std::string_view(asset.semantic)=="GainMap";});
+    if(session.primary_facts.container==LPB_IMAGE_CONTAINER_HEIC) {
+        if(std::any_of(session.auxiliaries.begin(),session.auxiliaries.end(),
+            [](const auto& asset){return asset.representation==2;}))return LPB_RESULT_UNSUPPORTED;
+        if(request.video_length>UINT64_MAX-16)return LPB_RESULT_INVALID_ARGUMENT;
+        const uint64_t header=request.video_length<=UINT32_MAX-8ULL?8ULL:16ULL;
+        request.primary_padding=header;
+        std::string xml,error;
+        auto result=lpb::target::build_google_xmp(session.primary_facts.standard_xml,request,xml);
+        if(result!=LPB_RESULT_OK)return result;
+        if(!lpb::containers::rewrite_primary_xmp(primary,xml,serialized,error)) {
+            set_error(context,error.c_str());return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        // Re-observe the rewritten prefix before framing. Existing encoded
+        // image/auxiliary identities remain in their original item graph.
+        lpb::media::target_primary_observation observed;
+        if(!lpb::media::observe_target_primary(serialized,observed,error))return LPB_RESULT_INVALID_ARGUMENT;
+        for(const auto& asset:session.auxiliaries) {
+            const auto found=std::find_if(observed.auxiliaries.begin(),observed.auxiliaries.end(),[&](const auto& actual){
+                return actual.selector_kind==asset.selector_kind&&actual.selector_id==asset.selector_id&&actual.semantic==asset.semantic;
+            });
+            if(found==observed.auxiliaries.end()||found->range.length!=asset.byte_length||
+                found->range.offset>serialized.size()||found->range.length>serialized.size()-found->range.offset)return LPB_RESULT_INVALID_ARGUMENT;
+            uint8_t hash[32]{};lpb::crypto::sha256_ctx digest;
+            digest.update(serialized.data()+static_cast<size_t>(found->range.offset),static_cast<size_t>(found->range.length));digest.finalize(hash);
+            if(std::memcmp(hash,asset.sha256,32))return LPB_RESULT_SOURCE_CHANGED;
+        }
+        const uint64_t total=request.video_length+header;
+        if(header==8)for(int i=3;i>=0;--i)serialized.push_back(static_cast<uint8_t>(total>>(i*8)));
+        else serialized.insert(serialized.end(),{0,0,0,1});
+        serialized.insert(serialized.end(),{'m','p','v','d'});
+        if(header==16)for(int i=7;i>=0;--i)serialized.push_back(static_cast<uint8_t>(total>>(i*8)));
+        return LPB_RESULT_OK;
+    }
+    if(session.primary_facts.xmp.directory_present)request.primary_padding=session.primary_facts.xmp.items[0].padding;
+    if(std::any_of(session.primary_facts.auxiliaries.begin(),session.primary_facts.auxiliaries.end(),
+        [](const auto& a){return a.selector_kind==3;})) {
+        // MiCamera's JPEG/PNG assets retain their native XMPMeta graph and
+        // placement. They are primary padding, never invented Google items.
+        request.primary_padding=primary.size()-session.primary_facts.encoding_boundary;
+    }
+    // Existing embedded assets stay exactly once in their current order. A
+    // detached semantic member is appended only after its explicit identity
+    // and no-embedded-duplicate proof in observe_extended_primary.
+    std::array<std::string_view,2> order{"GainMap","Original"};
+    for(const auto semantic:order) {
+        const auto found=std::find_if(session.auxiliaries.begin(),session.auxiliaries.end(),[&](const auto& asset){return std::string_view(asset.semantic)==semantic;});
+        if(found==session.auxiliaries.end())continue;
+        const size_t index=static_cast<size_t>(found-session.auxiliaries.begin());
+        if(found->representation==2) {
+            // Appending before an existing later item would reorder ownership;
+            // that layout needs an explicit reflow, never a silent permutation.
+            if(semantic=="GainMap"&&std::any_of(session.primary_facts.auxiliaries.begin(),session.primary_facts.auxiliaries.end(),
+                [](const auto& actual){return actual.semantic=="Original";}))return LPB_RESULT_UNSUPPORTED;
+            std::vector<uint8_t> bytes;
+            if(!session.inputs[session.auxiliary_input_indices[index]].read_all_bounded(4,32ULL*1024*1024,bytes))return LPB_RESULT_UNSUPPORTED;
+            primary.insert(primary.end(),bytes.begin(),bytes.end());
+        }
+        request.auxiliary_items.push_back({std::string(semantic),"image/jpeg",found->byte_length,0,true,false});
+    }
+    if(!expand_owned_mpf(primary,request.auxiliary_items,request.primary_padding))return LPB_RESULT_INVALID_ARGUMENT;
+    return lpb::target::build_google_primary(context,primary,request,serialized);
 }
 lpb_result finish(lpb_context* context,const std::shared_ptr<lpb_target_writer_session>& session,lpb_result result) {
     std::scoped_lock lock(context->plan_mutex);
@@ -251,7 +469,8 @@ bool reentry(lpb_context* context) noexcept {
 }
 }
 
-lpb_result LPB_CALL lpb_target_writer_prepare_v1(lpb_context* context,const lpb_target_writer_request_v1* request,lpb_target_writer_plan** output) {
+static lpb_result prepare_target_writer(lpb_context* context,const lpb_target_writer_request_v1* request,
+    lpb_target_writer_plan** output,const lpb_target_writer_request_v2* extended) {
     if(output)*output=nullptr;
     if(reentry(context))return LPB_RESULT_AUTHORITY_VIOLATION;
     lpb_context_operation operation(context);if(!operation.acquired())return LPB_RESULT_AUTHORITY_VIOLATION;
@@ -264,6 +483,50 @@ lpb_result LPB_CALL lpb_target_writer_prepare_v1(lpb_context* context,const lpb_
         if(request->target_version!=1||!lpb::target::profile_accepts(request->target_profile,request->media_format))return LPB_RESULT_UNSUPPORTED;
         auto session=std::make_shared<lpb_target_writer_session>();
         session->owner=context;session->request=*request;session->request.artifacts=nullptr;
+        if(extended) {
+            if(extended->struct_size!=sizeof(*extended)||extended->version!=2||extended->reserved||
+                extended->primary_timestamp_present>1||(!extended->primary_timestamp_present&&extended->primary_timestamp_us)||
+                extended->auxiliary_count>2||(extended->auxiliary_count&&!extended->auxiliaries)||
+                !fixed_text(extended->primary_identity))return LPB_RESULT_INVALID_ARGUMENT;
+            session->extended=true;session->primary_timestamp_present=extended->primary_timestamp_present!=0;
+            session->primary_timestamp_us=extended->primary_timestamp_us;session->primary_identity=extended->primary_identity;
+            for(uint32_t i=0;i<extended->auxiliary_count;++i) {
+                const auto& auxiliary=extended->auxiliaries[i];
+                if(auxiliary.struct_size!=sizeof(auxiliary)||auxiliary.version!=2||auxiliary.owner_index||
+                    auxiliary.representation<1||auxiliary.representation>3||!auxiliary.byte_length||
+                    !fixed_text(auxiliary.stable_identity)||!fixed_text(auxiliary.owner_identity)||
+                    !fixed_text(auxiliary.semantic)||!fixed_text(auxiliary.relationship)||
+                    std::string_view(auxiliary.owner_identity)!=session->primary_identity||
+                    (std::string_view(auxiliary.semantic)!="GainMap"&&std::string_view(auxiliary.semantic)!="Original"&&
+                     std::string_view(auxiliary.semantic)!="MiCameraSubimage"&&std::string_view(auxiliary.semantic)!="MiCameraLensWatermark"))return LPB_RESULT_INVALID_ARGUMENT;
+                if((std::string_view(auxiliary.semantic)=="MiCameraSubimage"||std::string_view(auxiliary.semantic)=="MiCameraLensWatermark")&&
+                    auxiliary.representation!=1)return LPB_RESULT_INVALID_ARGUMENT;
+                const std::string_view semantic=auxiliary.semantic;
+                const std::string_view relationship=semantic=="GainMap"?"gain-map":semantic=="Original"?"Original":
+                    semantic=="MiCameraSubimage"?"micamera-xmpmeta-subimage":"micamera-xmpmeta-lenswatermark";
+                if(std::string_view(auxiliary.relationship)!=relationship) {
+                    set_error(context,"Auxiliary semantic/relationship identity mismatch before mutation.");return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                for(const auto& prior:session->auxiliaries)
+                    if(std::string_view(prior.stable_identity)==auxiliary.stable_identity||
+                       std::string_view(prior.semantic)==auxiliary.semantic)return LPB_RESULT_INVALID_ARGUMENT;
+                if(auxiliary.representation==2) {
+                    if(auxiliary.selector_kind||auxiliary.selector_id||auxiliary.embedded_offset)return LPB_RESULT_INVALID_ARGUMENT;
+                }else if(auxiliary.selector_kind>3||(!auxiliary.selector_kind&&auxiliary.selector_id)||
+                    (auxiliary.selector_kind>=2&&!auxiliary.selector_id))return LPB_RESULT_INVALID_ARGUMENT;
+                if(auxiliary.representation==1) {
+                    if(!zero_bytes(&auxiliary.materialized,sizeof(auxiliary.materialized)))return LPB_RESULT_INVALID_ARGUMENT;
+                }else {
+                    const auto& materialized=auxiliary.materialized;
+                    if(materialized.struct_size!=sizeof(materialized)||materialized.version!=1||materialized.role||
+                        materialized.container!=LPB_IMAGE_CONTAINER_JPEG||materialized.video_codec||materialized.reserved||
+                        !fixed_utf8(materialized.path_utf8,sizeof(materialized.path_utf8)))return LPB_RESULT_INVALID_ARGUMENT;
+                    const uint32_t index=session->input_count++;
+                    session->artifacts[index]=materialized;session->auxiliary_input_indices[i]=index;
+                }
+                session->auxiliaries.push_back(auxiliary);
+            }
+        }
         bool roles[2]{};
         for(size_t i=0;i<2;++i) {
             const auto& artifact=request->artifacts[i];
@@ -277,7 +540,7 @@ lpb_result LPB_CALL lpb_target_writer_prepare_v1(lpb_context* context,const lpb_
         if(!lpb_platform_pin_directory(utf8_to_path(session->request.staging_directory_utf8),session->directory)) {
             set_error(context,"[IO] Writer cannot pin staging directory.");return LPB_RESULT_INTERNAL_ERROR;
         }
-        for(size_t i=0;i<2;++i) {
+        for(size_t i=0;i<session->input_count;++i) {
             if(!session->inputs[i].open(utf8_to_path(session->artifacts[i].path_utf8),true)||
                 !session->inputs[i].capture_identity(session->observed[i])) {
                 set_error(context,"[IO] Writer cannot pin input with exclusive reader ownership.");return LPB_RESULT_INTERNAL_ERROR;
@@ -288,8 +551,9 @@ lpb_result LPB_CALL lpb_target_writer_prepare_v1(lpb_context* context,const lpb_
             if(result!=LPB_RESULT_OK)return result;
             if(std::memcmp(session->hashes[i].data(),session->artifacts[i].sha256,32))return LPB_RESULT_SOURCE_CHANGED;
         }
-        if(session->observed[0].volume_serial==session->observed[1].volume_serial&&session->observed[0].file_index==session->observed[1].file_index)
-            return LPB_RESULT_AUTHORITY_VIOLATION;
+        for(size_t i=0;i<session->input_count;++i)for(size_t j=0;j<i;++j)
+            if(session->observed[i].volume_serial==session->observed[j].volume_serial&&session->observed[i].file_index==session->observed[j].file_index)
+                return LPB_RESULT_AUTHORITY_VIOLATION;
         const auto observed=observe_inputs(context,*session);if(observed!=LPB_RESULT_OK)return observed;
         fingerprint(*session);
         if(check_cancel(context)!=LPB_RESULT_OK)return LPB_RESULT_CANCELLED;
@@ -303,6 +567,12 @@ lpb_result LPB_CALL lpb_target_writer_prepare_v1(lpb_context* context,const lpb_
         *output=reinterpret_cast<lpb_target_writer_plan*>(static_cast<uintptr_t>(session->token));
         return LPB_RESULT_OK;
     } catch(...) {set_error(context,"Writer prepare failed at exception boundary.");return LPB_RESULT_INTERNAL_ERROR;}
+}
+lpb_result LPB_CALL lpb_target_writer_prepare_v1(lpb_context* context,const lpb_target_writer_request_v1* request,lpb_target_writer_plan** output) {
+    return prepare_target_writer(context,request,output,nullptr);
+}
+lpb_result LPB_CALL lpb_target_writer_prepare_v2(lpb_context* context,const lpb_target_writer_request_v2* request,lpb_target_writer_plan** output) {
+    return prepare_target_writer(context,request?&request->base:nullptr,output,request);
 }
 lpb_result LPB_CALL lpb_target_writer_stage_v1(lpb_context* context,lpb_target_writer_plan* plan) {
     if(reentry(context))return LPB_RESULT_AUTHORITY_VIOLATION;
@@ -319,14 +589,17 @@ lpb_result LPB_CALL lpb_target_writer_stage_v1(lpb_context* context,lpb_target_w
         auto result=check_cancel(context);
         if(result==LPB_RESULT_OK)result=revalidate(context,*session);
         if(result==LPB_RESULT_OK) {
-            if(session->request.target_profile!=LPB_TARGET_GOOGLE_V2||session->request.media_format>1) {
+            if((session->request.target_profile!=LPB_TARGET_GOOGLE_V2&&session->request.target_profile!=LPB_TARGET_GOOGLE_V1&&
+                (!session->extended||session->request.target_profile!=LPB_TARGET_OPPO))||
+                (session->request.media_format>1&&(!session->extended||session->request.target_profile!=2||session->request.media_format!=3))) {
                 set_error(context,"[Unsupported] Target serializer is not implemented; Writer attempt consumed with no outputs.");
                 result=LPB_RESULT_UNSUPPORTED;
             } else {
                 std::vector<uint8_t> primary,serialized;
-                if(!session->inputs[0].read_all_bounded(4,32ULL*1024*1024,primary))result=LPB_RESULT_INTERNAL_ERROR;
+                if(session->extended)result=serialize_extended_primary(context,*session,serialized);
+                else if(!session->inputs[0].read_all_bounded(4,32ULL*1024*1024,primary))result=LPB_RESULT_INTERNAL_ERROR;
                 else result=lpb::target::build_google_v2_primary(context,primary,session->inputs[1].size(),
-                    session->request.media_format,session->request.cover_timestamp_present!=0,session->request.cover_timestamp_us,serialized);
+                    session->request.media_format,session->request.cover_timestamp_present!=0,session->request.cover_timestamp_us,serialized,session->request.target_profile);
                 if(result==LPB_RESULT_OK) {
                     session->stage=std::make_unique<windows_owned_output>();
                     const auto destination=utf8_to_path(session->request.staging_directory_utf8)/L"target-stage.bin";

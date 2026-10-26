@@ -88,15 +88,16 @@ public sealed class P9TargetValidatorTests
     }
 
     [Fact]
-    public void OpaqueAudioFixtureRemainsExplicitlyUnsupportedWithoutMetadataDiscard()
+    public void OrdinaryEmptyUdtaIsPreservedAndValidatedWithoutMetadataDiscard()
     {
         string path = Path.Combine(P9TargetTestInputs.Root, "v2-audio-with-empty-udta.jpg");
         byte[] before = File.ReadAllBytes(path);
         using var reader = File.OpenRead(path);
         var report = NativeTargetValidator.Observe(reader, new(2, 0, 2, 0), CancellationToken.None);
         Assert.Equal(NativeResult.Ok, report.InvocationResult);
-        Assert.Equal(3u, report.Observed.StructuralStatus); Assert.Equal(4u, report.Observed.FailureCategory);
-        Assert.False(report.CanPublish); Assert.Equal(before, File.ReadAllBytes(path));
+        Assert.True(report.CanPublish, $"ordinary metadata rejected: category={report.Observed.FailureCategory}, stage={report.Observed.FailureStage}, rule={report.Observed.RuleId}, offset={report.Observed.FailureByteOffset}");
+        Assert.Equal(1u, report.Observed.StructuralStatus); Assert.Equal(0u, report.Observed.FailureCategory);
+        Assert.True(report.CanPublish); Assert.Equal(before, File.ReadAllBytes(path));
     }
 
     [Fact]

@@ -13,6 +13,7 @@
 #include <thread>
 #include <vector>
 #include <cstring>
+#include <algorithm>
 namespace fs=std::filesystem;
 #define REQUIRE(x) do { if(!(x))throw std::runtime_error(std::string("line ")+std::to_string(__LINE__)+": "+#x); } while(false)
 lpb_result prepare_positive(lpb_context* owner,const lpb_target_writer_request_v1* request,lpb_target_writer_plan** plan) {
@@ -133,7 +134,7 @@ int32_t LPB_CALL cancel(void* user) {
     return 0;
 }
 lpb_context* context(callbacks* callback=nullptr) {
-    lpb_context_options options{};options.struct_size=sizeof(options);options.abi_version=14;
+    lpb_context_options options{};options.struct_size=sizeof(options);options.abi_version=15;
     if(callback){options.cancel_callback=cancel;options.user_data=callback;}
     lpb_context* result{};REQUIRE(lpb_create_context(&options,&result)==LPB_RESULT_OK);
     if(callback)callback->context=result;return result;
@@ -142,13 +143,94 @@ void exclusive_write_probe(const fs::path& path) {
     handle file(CreateFileW(path.c_str(),GENERIC_READ|GENERIC_WRITE,0,nullptr,OPEN_EXISTING,0,nullptr));
     REQUIRE(file.value!=INVALID_HANDLE_VALUE);
 }
+struct detached_reader {
+    std::vector<uint8_t> bytes;
+    static lpb_result LPB_CALL read(void* user,uint64_t offset,uint8_t* destination,uint32_t capacity,uint32_t* count) {
+        const auto& bytes=static_cast<detached_reader*>(user)->bytes;*count=0;
+        if(offset>bytes.size()||capacity>bytes.size()-offset)return LPB_RESULT_INVALID_ARGUMENT;
+        if(capacity)std::memcpy(destination,bytes.data()+static_cast<size_t>(offset),capacity);
+        *count=capacity;return LPB_RESULT_OK;
+    }
+};
+void detached_v2_authority_tests(const fs::path& directory,fixture& source) {
+    const auto auxiliary_path=directory/L"v2-original.jpg",backup=directory/L"v2-original-before-replacement.jpg";
+    const std::string source_path=source.artifacts[0].path_utf8;
+    const auto original=read_bytes(fs::path(std::u8string(reinterpret_cast<const char8_t*>(source_path.data()),source_path.size())));
+    write_bytes(auxiliary_path,original);
+    lpb_target_auxiliary_v2 auxiliary{};auxiliary.struct_size=sizeof(auxiliary);auxiliary.version=2;
+    auxiliary.representation=2;auxiliary.byte_length=original.size();
+    std::memcpy(auxiliary.stable_identity,"test:v2:original:0",sizeof("test:v2:original:0"));
+    std::memcpy(auxiliary.owner_identity,"primary:0",sizeof("primary:0"));
+    std::memcpy(auxiliary.semantic,"Original",sizeof("Original"));
+    std::memcpy(auxiliary.relationship,"Original",sizeof("Original"));
+    auxiliary.materialized=source.artifacts[0];bind_primary(auxiliary.materialized,auxiliary_path);
+    std::memcpy(auxiliary.sha256,auxiliary.materialized.sha256,32);
+    lpb_target_writer_request_v2 request{};request.struct_size=sizeof(request);request.version=2;request.base=source.request;
+    std::memset(request.base.staging_directory_utf8,0,sizeof(request.base.staging_directory_utf8));
+    path_field(request.base.staging_directory_utf8,sizeof(request.base.staging_directory_utf8),directory);
+    request.base.target_profile=LPB_TARGET_GOOGLE_V2;request.auxiliary_count=1;request.auxiliaries=&auxiliary;
+    std::memcpy(request.primary_identity,"primary:0",sizeof("primary:0"));
+    auto* owner=context();lpb_target_writer_plan* plan=nullptr;
+    // Real object replacement, with the old object retained so its FileId
+    // cannot be recycled into the new object at the same path.
+    if(fs::exists(backup))REQUIRE(fs::remove(backup));
+    fs::rename(auxiliary_path,backup);write_bytes(auxiliary_path,original);
+    REQUIRE(identity(auxiliary_path).file_index!=auxiliary.materialized.expected_identity.file_index);
+    REQUIRE(lpb_target_writer_prepare_v2(owner,&request,&plan)==LPB_RESULT_SOURCE_CHANGED&&!plan);
+    bind_primary(auxiliary.materialized,auxiliary_path);
+    const auto expected_hash=hash_file(auxiliary_path);
+    {
+        handle writer(CreateFileW(auxiliary_path.c_str(),GENERIC_READ|GENERIC_WRITE,
+            FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,0,nullptr));
+        REQUIRE(writer.value!=INVALID_HANDLE_VALUE);
+        REQUIRE(lpb_target_writer_prepare_v2(owner,&request,&plan)==LPB_RESULT_INTERNAL_ERROR&&!plan);
+    }
+    exclusive_write_probe(auxiliary_path);
+    const auto files=[&](){std::vector<fs::path> names;for(const auto& entry:fs::directory_iterator(directory))names.push_back(entry.path());std::sort(names.begin(),names.end());return names;};
+    const auto before=files();
+    REQUIRE(lpb_target_writer_prepare_v2(owner,&request,&plan)==LPB_RESULT_OK&&plan);
+    {
+        handle writer(CreateFileW(auxiliary_path.c_str(),GENERIC_WRITE,FILE_SHARE_READ|FILE_SHARE_WRITE|FILE_SHARE_DELETE,
+            nullptr,OPEN_EXISTING,0,nullptr));const DWORD error=GetLastError();
+        REQUIRE(writer.value==INVALID_HANDLE_VALUE&&error==ERROR_SHARING_VIOLATION);
+    }
+    // Caller storage is mutable; issued authority must retain the prepared
+    // Original identity rather than reinterpret later changes to this POD.
+    std::memset(auxiliary.semantic,0,sizeof(auxiliary.semantic));std::memcpy(auxiliary.semantic,"GainMap",sizeof("GainMap"));
+    std::memset(auxiliary.relationship,0,sizeof(auxiliary.relationship));std::memcpy(auxiliary.relationship,"gain-map",sizeof("gain-map"));
+    REQUIRE(lpb_target_writer_stage_v1(owner,plan)==LPB_RESULT_OK);
+    REQUIRE(lpb_target_writer_stage_v1(owner,plan)==LPB_RESULT_PLAN_REPLAYED);
+    lpb_target_writer_output_v1 artifact{};artifact.struct_size=sizeof(artifact);artifact.version=1;
+    lpb_target_writer_status_v1 status{};status.struct_size=sizeof(status);status.version=1;uint32_t count=0;
+    REQUIRE(lpb_target_writer_get_outputs_v1(owner,plan,&artifact,1,&count,&status)==LPB_RESULT_OK&&count==1&&status.state==2);
+    REQUIRE(artifact.byte_length<=UINT32_MAX);
+    detached_reader snapshot;snapshot.bytes.resize(static_cast<size_t>(artifact.byte_length));
+    REQUIRE(lpb_target_writer_read_stage_v1(owner,plan,artifact.stage_id,0,snapshot.bytes.data(),
+        static_cast<uint32_t>(snapshot.bytes.size()),&count)==LPB_RESULT_OK&&count==snapshot.bytes.size());
+    lpb_target_reader_v1 reader{sizeof(reader),1,snapshot.bytes.size(),&snapshot,detached_reader::read,0,0};
+    lpb_target_auxiliary_expectation_v2 expected{};expected.struct_size=sizeof(expected);expected.version=2;
+    expected.semantic=2;expected.container=1;expected.byte_length=original.size();std::memcpy(expected.sha256,expected_hash.data(),32);
+    lpb_target_validation_request_v2 validation{};validation.struct_size=sizeof(validation);validation.version=2;
+    validation.base.struct_size=sizeof(validation.base);validation.base.version=1;validation.base.target_profile=2;
+    validation.base.target_version=1;validation.base.member_count=1;validation.base.expected_video_codec=2;
+    validation.base.expected_auxiliary_count=1;validation.auxiliary_count=1;validation.auxiliaries=&expected;
+    lpb_target_validation_result_v2 observed{};observed.struct_size=sizeof(observed);observed.version=2;
+    auto* checker=context();REQUIRE(lpb_target_validate_v2(checker,&validation,&reader,&observed)==LPB_RESULT_OK);
+    REQUIRE(observed.base.structural_status==1&&observed.base.generic_media_status==1&&observed.auxiliary_count==1&&observed.auxiliaries[0].semantic==2);
+    lpb_destroy_context(checker);
+    REQUIRE(lpb_target_writer_release_v1(owner,plan)==LPB_RESULT_OK);
+    REQUIRE(lpb_target_writer_release_v1(owner,plan)==LPB_RESULT_AUTHORITY_VIOLATION);
+    REQUIRE(files()==before&&hash_file(auxiliary_path)==expected_hash);exclusive_write_probe(auxiliary_path);
+    lpb_destroy_context(owner);
+    std::cout<<"P9R3_V2MaterializedAuthority: real replacement/share-lock/pinning/frozen auxiliary/replay/cleanup PASS\n";
+}
 int main(int argc,char** argv) {
     try {
         REQUIRE(argc==2);
         const std::string directory_utf8=argv[1];
         const fs::path directory=std::u8string(reinterpret_cast<const char8_t*>(directory_utf8.data()),directory_utf8.size());
         fixture f(directory);
-        REQUIRE(lpb_get_abi_version()==14);REQUIRE(sizeof(lpb_target_writer_artifact_v1)==1112);
+        REQUIRE(lpb_get_abi_version()==15);REQUIRE(sizeof(lpb_target_writer_artifact_v1)==1112);
         REQUIRE(sizeof(lpb_target_writer_request_v1)==1080);REQUIRE(sizeof(lpb_target_writer_output_v1)==144);REQUIRE(sizeof(lpb_target_writer_status_v1)==32);
         auto* owner=context();auto* other=context();lpb_target_writer_plan* plan{};
         // Null context and unissued tokens cannot borrow any Writer authority.
@@ -176,6 +258,7 @@ int main(int argc,char** argv) {
         REQUIRE(lpb_target_writer_release_v1(owner,plan)==LPB_RESULT_OK);
         REQUIRE(lpb_target_writer_release_v1(owner,plan)==LPB_RESULT_AUTHORITY_VIOLATION);
         const fs::path derivatives=directory/L"native-tests";fs::create_directories(derivatives);
+        detached_v2_authority_tests(derivatives,f);
         const auto image=read_bytes(directory/L"neutral.jpg");
         const auto original_primary=f.artifacts[0];
         const std::string benign="<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description xmlns:dc=\"http://purl.org/dc/elements/1.1/\" dc:format=\"image/jpeg\"/></rdf:RDF></x:xmpmeta>";
@@ -189,7 +272,9 @@ int main(int argc,char** argv) {
             1,0,0x7c,0x92,7,0,4,0,0,0,'A','B','C','D',0,0,0,0};
         const auto expect_rejected=[&](const wchar_t* name,const std::vector<uint8_t>& data,lpb_result expected) {
             const auto path=derivatives/name;write_bytes(path,data);bind_primary(f.artifacts[0],path);
-            REQUIRE(lpb_target_writer_prepare_v1(owner,&f.request,&plan)==expected&&!plan);
+            const auto actual=lpb_target_writer_prepare_v1(owner,&f.request,&plan);
+            if(actual!=expected||plan)std::wcerr<<L"prepare rejection "<<name<<L" actual="<<actual<<L" expected="<<expected<<L" plan="<<plan<<L'\n';
+            REQUIRE(actual==expected&&!plan);
             REQUIRE(read_bytes(path)==data);exclusive_write_probe(path);
         };
         expect_rejected(L"post-scan-live-xmp.jpg",post_scan_app1(image,xmp_payload(live)),LPB_RESULT_UNSUPPORTED);
@@ -198,7 +283,14 @@ int main(int argc,char** argv) {
         expect_rejected(L"post-scan-makernote.jpg",post_scan_app1(image,maker_exif),LPB_RESULT_UNSUPPORTED);
         expect_rejected(L"pre-post-duplicate-xmp.jpg",post_scan_app1(benign_image,xmp_payload(benign)),LPB_RESULT_UNSUPPORTED);
         expect_rejected(L"pre-post-duplicate-exif.jpg",post_scan_app1(app1(image,empty_exif),empty_exif),LPB_RESULT_UNSUPPORTED);
-        expect_rejected(L"pre-scan-makernote.jpg",app1(image,maker_exif),LPB_RESULT_UNSUPPORTED);
+        // R3 now structurally supports an ordinary opaque, correctly owned
+        // MakerNote. Require actual prepare success and exact source retention;
+        // the post-scan and malformed-owner rejections above/below remain.
+        const auto opaque_image=app1(image,maker_exif);
+        write_bytes(derivatives/L"pre-scan-makernote.jpg",opaque_image);bind_primary(f.artifacts[0],derivatives/L"pre-scan-makernote.jpg");
+        REQUIRE(prepare_positive(owner,&f.request,&plan)==LPB_RESULT_OK&&plan);
+        REQUIRE(lpb_target_writer_release_v1(owner,plan)==LPB_RESULT_OK);
+        REQUIRE(read_bytes(derivatives/L"pre-scan-makernote.jpg")==opaque_image);
         auto missing_ifd=empty_exif;missing_ifd.resize(14);missing_ifd[10]=0;
         expect_rejected(L"missing-ifd0.jpg",app1(image,missing_ifd),LPB_RESULT_INVALID_ARGUMENT);
         auto header_ifd=empty_exif;header_ifd[10]=4;

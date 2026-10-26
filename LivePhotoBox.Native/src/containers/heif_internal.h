@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <span>
 #include <string>
+#include <string_view>
+#include <string_view>
 #include <vector>
 
 namespace lpb::containers {
@@ -39,5 +41,24 @@ bool attach_gainmap_auxiliary_graph(std::span<const uint8_t> input,
 bool enumerate_xmp_ranges_describing_item(std::span<const uint8_t> input,
     uint32_t described_item_id, std::vector<lpb_media_range>& ranges,
     std::string& error) noexcept;
+
+// Project-owned item-graph XMP transport. XML semantics and ordinary-field merge
+// belong to the caller; the replacement is the complete merged primary packet.
+// Success preserves every non-selected item payload and its item identity.
+// input and output must use separate storage. No public C ABI is added.
+bool read_primary_xmp(std::span<const uint8_t> input, uint32_t& primary_item_id,
+    std::string& xml, std::string& error) noexcept;
+
+bool rewrite_primary_xmp(std::span<const uint8_t> input, std::string_view replacement_xml,
+    std::vector<uint8_t>& output, std::string& error) noexcept;
+
+struct heif_primary_properties {
+    uint32_t item_id{}, width{}, height{}, orientation{};
+    std::string item_type;
+    std::vector<lpb_media_range> encoding_extents;
+    std::vector<uint8_t> exif_payload; // JPEG-compatible Exif\0\0 + TIFF bytes
+};
+bool observe_primary_item_properties(std::span<const uint8_t> input,
+    heif_primary_properties& output, std::string& error) noexcept;
 
 } // namespace lpb::containers

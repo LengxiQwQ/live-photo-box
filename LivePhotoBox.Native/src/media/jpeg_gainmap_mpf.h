@@ -153,7 +153,7 @@ inline bool parse_mpf_segment(
             image_count = read_u32(bytes, field + 8, little_endian);
             image_count_value_field_offset = field + 8;
         } else if (tag == 0xB002) {
-            if (found_mp_entries || type != 7 || value_bytes != count || count < 32 || count % 16 != 0) return false;
+            if (found_mp_entries || type != 7 || value_bytes != count || count < 16 || count % 16 != 0) return false;
             const uint32_t value_offset = read_u32(bytes, field + 8, little_endian);
             if (value_offset > payload_end - tiff || count > payload_end - tiff - value_offset) return false;
             mp_entries_start = tiff + static_cast<size_t>(value_offset);
@@ -172,7 +172,7 @@ inline bool parse_mpf_segment(
         // one (or rejected as a malformed index).
         return found_version;
     }
-    if (!found_image_count || !found_mp_entries || image_count < 2 || image_count > max_mpf_image_count ||
+    if (!found_image_count || !found_mp_entries || image_count < 1 || image_count > max_mpf_image_count ||
         image_count > std::numeric_limits<uint32_t>::max() / 16 ||
         mp_entries_byte_count != image_count * 16 ||
         mp_entries_start > payload_end || payload_end - mp_entries_start < mp_entries_byte_count) return false;
@@ -205,6 +205,8 @@ inline bool parse_mpf_segment(
             entry.absolute_offset = static_cast<uint64_t>(parsed.tiff_header_offset) + entry.relative_offset;
         }
     }
+    if(image_count==1&&(!found_version||parsed.entries[0].attributes!=0x00030000U||
+        parsed.entries[0].dependent_image_1||parsed.entries[0].dependent_image_2))return false;
     out = parsed;
     out_is_index = true;
     return true;
@@ -247,6 +249,23 @@ inline void write_u32(std::span<uint8_t> bytes, size_t offset, uint32_t value, b
     }
 }
 
+// One self-entry is a factual MP Index, not a GainMap relationship. Reflow
+// may derive its redundant size only after the complete pinned primary has
+// been independently bounded. Validators require the final exact self-size.
+inline bool singleton_primary(const jpeg_info& jpeg) noexcept {
+    return jpeg.mpf_status==status::present&&jpeg.mpf.image_count==1&&
+        jpeg.mpf.entries_byte_count==16&&jpeg.mpf.entries[0].attributes==0x00030000U&&
+        jpeg.mpf.entries[0].relative_offset==0&&!jpeg.mpf.entries[0].dependent_image_1&&
+        !jpeg.mpf.entries[0].dependent_image_2;
+}
+inline bool patch_singleton_primary(std::span<uint8_t> bytes,const jpeg_info& jpeg) noexcept {
+    if(!singleton_primary(jpeg)||jpeg.eoi_end>UINT32_MAX||jpeg.eoi_end!=bytes.size()||
+        jpeg.mpf.entries[0].size_field_offset>bytes.size()||
+        bytes.size()-jpeg.mpf.entries[0].size_field_offset<4)return false;
+    write_u32(bytes,jpeg.mpf.entries[0].size_field_offset,static_cast<uint32_t>(jpeg.eoi_end),jpeg.mpf.little_endian);
+    return true;
+}
+
 inline bool patch_layout(
     std::span<uint8_t> bytes,
     const relationship& mpf,
@@ -283,7 +302,7 @@ inline bool patch_layout(
     write_u32(bytes, second.offset_field_offset,
         static_cast<uint32_t>(gainmap_offset - mpf.tiff_header_offset), mpf.little_endian);
     std::fill(bytes.begin() + static_cast<std::ptrdiff_t>(mpf.entries_array_offset + 32),
-        bytes.begin() + static_cast<std::ptrdiff_t>(mpf.entries_array_offset + mpf.entries_byte_count), 0);
+        bytes.begin() + static_cast<std::ptrdiff_t>(mpf.entries_array_offset + mpf.entries_byte_count), uint8_t{0});
     return true;
 }
 

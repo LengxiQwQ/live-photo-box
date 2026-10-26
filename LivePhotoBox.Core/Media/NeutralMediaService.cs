@@ -441,7 +441,8 @@ public sealed class NeutralMediaService : INeutralMediaService
         try
         {
             finalImageOrientation = await NativeMediaService
-                .ObserveImageOrientationAsync(finalImage.Path, neutralFacts.PrimaryImage.Container, cancellationToken)
+                .ObserveImageOrientationAsync(finalImage.Path, neutralFacts.PrimaryImage.Container, cancellationToken,
+                    allowUnknown: !imageWasConverted)
                 .ConfigureAwait(false);
         }
         catch (InvalidDataException ex)
@@ -1383,18 +1384,19 @@ public sealed class NeutralMediaService : INeutralMediaService
              preConversionImageOrientation.Value.Reflection != finalImageOrientation.Reflection))
             throw new InvalidDataException("Orientation preservation evidence disagrees with final Native orientation observation.");
 
+        bool knownImageOrientation = finalImageOrientation.Status == NativeImageOrientationStatus.Verified;
         NeutralOrientationTransform imageTransform = new()
         {
-            ClockwiseRotationDegrees = finalImageOrientation.ClockwiseRotationDegrees,
-            Reflection = finalImageOrientation.Reflection switch
+            ClockwiseRotationDegrees = knownImageOrientation ? finalImageOrientation.ClockwiseRotationDegrees : null,
+            Reflection = !knownImageOrientation ? NeutralReflection.Unknown : finalImageOrientation.Reflection switch
             {
                 NativeImageOrientationReflection.None => NeutralReflection.None,
                 NativeImageOrientationReflection.Horizontal => NeutralReflection.Horizontal,
                 _ => NeutralReflection.Unknown
             },
-            RotationEvidence = NeutralEvidenceState.Verified,
-            ReflectionEvidence = NeutralEvidenceState.Verified,
-            Preservation = imageOrientationPreservation
+            RotationEvidence = knownImageOrientation ? NeutralEvidenceState.Verified : NeutralEvidenceState.Unknown,
+            ReflectionEvidence = knownImageOrientation ? NeutralEvidenceState.Verified : NeutralEvidenceState.Unknown,
+            Preservation = knownImageOrientation ? imageOrientationPreservation : ConversionComponentOutcome.NotEvaluated
         };
 
         if (resolvedVideoFacts is not { IsPresent: true })

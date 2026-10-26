@@ -1327,7 +1327,10 @@ bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool requir
             } else if (type("moof") || type("mfra") || type("sidx")) {
                 return fail(isobmff_reader_failure::unsupported, position);
             } else if (!type("free") && !type("skip") && !type("wide") && !type("uuid")) {
-                return fail(isobmff_reader_failure::unsupported, position);
+                // An unknown, completely bounded top-level box is opaque
+                // metadata, not a sample-data owner. Target-specific source
+                // binding checks run separately; never infer offsets from it.
+                parsed.opaque_metadata = true;
             }
             position += size;
         }

@@ -72,7 +72,11 @@ set(LPB_MEDIA_SOURCES
   LivePhotoBox.Native/src/media/neutral_timing.cpp
   LivePhotoBox.Native/src/media/target_writer.cpp
   LivePhotoBox.Native/src/media/target_validator.cpp
+  LivePhotoBox.Native/src/media/target_validator_v2.cpp
+  LivePhotoBox.Native/src/media/target_primary_observation.cpp
+  LivePhotoBox.Native/src/media/target_video_observation.cpp
   LivePhotoBox.Native/src/media/jpeg_observation.cpp
+  LivePhotoBox.Native/src/metadata/target_exif.cpp
   LivePhotoBox.Native/src/protocols/google_v2_writer.cpp
   LivePhotoBox.Native/src/media/video_sidecar_bridge.cpp
   LivePhotoBox.Native/src/media/video_converter.cpp)
@@ -184,6 +188,8 @@ function(lpb_native_target target_name output_name harness)
     $<$<CONFIG:Debug>:_DEBUG> $<$<NOT:$<CONFIG:Debug>>:NDEBUG>)
   if(harness)
     target_compile_definitions(${target_name} PRIVATE LPB_NATIVE_TEST_HARNESS)
+    target_sources(${target_name} PRIVATE tests/native/target_primary_observation_tests.cpp
+      tests/native/target_google_xmp_tests.cpp)
     # MSVC 19.51 intermittently crashes in its shared type-server PDB for this
     # large test-only target; /Z7 retains symbols without that compiler server.
     set_property(TARGET ${target_name} PROPERTY MSVC_DEBUG_INFORMATION_FORMAT
@@ -235,6 +241,39 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+  add_executable(lpb_target_validator_v2_tests tests/native/target_validator_v2_tests.cpp)
+  target_include_directories(lpb_target_validator_v2_tests PRIVATE LivePhotoBox.Native/include)
+  target_compile_options(lpb_target_validator_v2_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+  target_link_libraries(lpb_target_validator_v2_tests PRIVATE LivePhotoBoxNative)
+  add_test(NAME P9R3_TargetValidatorV2 COMMAND lpb_target_validator_v2_tests)
+  set_tests_properties(P9R3_TargetValidatorV2 PROPERTIES TIMEOUT 120
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:$<TARGET_FILE_DIR:LivePhotoBoxNative>")
+  if(LPB_BUILD_TEST_HARNESS)
+    add_executable(lpb_target_structural_v2_host tests/native/target_structural_v2_host.cpp)
+    target_compile_options(lpb_target_structural_v2_host PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+    add_dependencies(lpb_target_structural_v2_host LivePhotoBoxNativeTestHarness)
+    add_test(NAME P9R3_PrimaryObservation COMMAND lpb_target_structural_v2_host
+      "$<TARGET_FILE:LivePhotoBoxNativeTestHarness>" lpb_test_p9_primary_observation)
+    add_test(NAME P9R3_GoogleXmpModel COMMAND lpb_target_structural_v2_host
+      "$<TARGET_FILE:LivePhotoBoxNativeTestHarness>" lpb_test_p9_google_xmp)
+  endif()
+  add_executable(lpb_target_video_observation_tests tests/native/target_video_observation_tests.cpp
+    LivePhotoBox.Native/src/media/target_video_observation.cpp)
+  target_include_directories(lpb_target_video_observation_tests PRIVATE LivePhotoBox.Native/include LivePhotoBox.Native/src)
+  target_compile_options(lpb_target_video_observation_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+  target_link_libraries(lpb_target_video_observation_tests PRIVATE livephotobox_portable_core)
+  add_test(NAME P9R3_VideoMetadata COMMAND lpb_target_video_observation_tests)
+  add_executable(lpb_target_heif_xmp_tests tests/native/target_heif_xmp_tests.cpp)
+  target_include_directories(lpb_target_heif_xmp_tests PRIVATE LivePhotoBox.Native/include LivePhotoBox.Native/src)
+  target_compile_options(lpb_target_heif_xmp_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+  target_link_libraries(lpb_target_heif_xmp_tests PRIVATE livephotobox_portable_core)
+  add_test(NAME P9R3_HeifXmpGraph COMMAND lpb_target_heif_xmp_tests)
+  add_executable(lpb_target_jpeg_metadata_tests tests/native/target_jpeg_metadata_tests.cpp
+    LivePhotoBox.Native/src/media/jpeg_observation.cpp LivePhotoBox.Native/src/metadata/target_exif.cpp)
+  target_include_directories(lpb_target_jpeg_metadata_tests PRIVATE LivePhotoBox.Native/include LivePhotoBox.Native/src)
+  target_compile_options(lpb_target_jpeg_metadata_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+  target_link_libraries(lpb_target_jpeg_metadata_tests PRIVATE livephotobox_portable_core)
+  add_test(NAME P9R3_JpegMetadata COMMAND lpb_target_jpeg_metadata_tests)
   add_executable(lpb_target_validator_tests tests/native/target_validator_tests.cpp)
   target_include_directories(lpb_target_validator_tests PRIVATE LivePhotoBox.Native/include LivePhotoBox.Native/src)
   target_compile_options(lpb_target_validator_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)

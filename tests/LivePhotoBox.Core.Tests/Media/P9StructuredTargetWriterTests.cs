@@ -99,7 +99,7 @@ public sealed class P9StructuredTargetWriterTests
         var bundle = P9TargetTestInputs.Bundle(folder.Path);
         bundle = bundle with { Semantics = bundle.Semantics with { Orientation = new NeutralOrientationSemantics
         { PrimaryImage = new NeutralOrientationTransform { ClockwiseRotationDegrees = 90, RotationEvidence = NeutralEvidenceState.Verified } } } };
-        await Assert.ThrowsAsync<NotSupportedException>(() => StructuredTargetWriterService.WriteAsync(bundle, Profile,
+        await Assert.ThrowsAsync<TargetValidationException>(() => StructuredTargetWriterService.WriteAsync(bundle, Profile,
             Path.Combine(folder.Path, "target.jpg"), folder.Path, false, CancellationToken.None));
         Assert.Equal(2, Directory.GetFiles(folder.Path).Length);
     }

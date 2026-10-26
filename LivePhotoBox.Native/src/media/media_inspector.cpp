@@ -1277,7 +1277,9 @@ static bool parse_micamera_xmpmeta_fragment(std::string_view xml, micamera_embed
 static int parse_micamera_xmpmeta_claim(
     const std::vector<xmp_node>& nodes,
     const std::vector<uint8_t>& data,
-    micamera_embedded_pair& out_pair) {
+    micamera_embedded_pair& out_pair, uint64_t full_length = 0) {
+    if (!full_length) full_length=data.size();
+    if (full_length<data.size()) return -1;
     size_t candidate_count = 0;
     size_t exact_attribute_count = 0;
     std::string_view encoded_value;
@@ -1304,9 +1306,9 @@ static int parse_micamera_xmpmeta_claim(
         !parse_micamera_xmpmeta_fragment(inner_xml, out_pair)) return -1;
 
     const auto bounded_jpeg_range = [&](const micamera_embedded_item& item, uint64_t& start) {
-        if (item.offset > data.size() || item.length > item.offset) return false;
-        start = data.size() - item.offset;
-        return item.length <= data.size() - static_cast<size_t>(start);
+        if (item.offset > full_length || item.length > item.offset) return false;
+        start = full_length - item.offset;
+        return start<=data.size() && item.length <= data.size() - static_cast<size_t>(start);
     };
     uint64_t subimage_start = 0;
     uint64_t lenswatermark_start = 0;
@@ -4808,6 +4810,17 @@ lpb_result inspect_source(
                 }
             }
 
+            if(micamera_claim>0) {
+                if(micamera_pair.owner_description!=xmp_owner_description||gainmap_item||dir.items.size()!=2||
+                    micamera_pair.subimage.offset!=jpeg_end||
+                    micamera_pair.lenswatermark.offset+micamera_pair.lenswatermark.length!=vid_offset||
+                    !publish_micamera_embedded_items(out_facts,primary_data,micamera_pair)) {
+                    set_error(context,"MiCamera assets do not uniquely own the complete V2 Primary padding.");
+                    set_inspection_status(context,LPB_INSPECTION_FAILURE_AMBIGUOUS,
+                        LPB_INSPECTION_STAGE_CONTAINER,LPB_CAPABILITY_GOOGLE_V2);
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+            }
             out_facts->protocol = LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2;
             out_facts->motion_video.is_present = 1;
             out_facts->motion_video.container = (motion_item->mime == "video/quicktime") ? LPB_VIDEO_CONTAINER_MOV : LPB_VIDEO_CONTAINER_MP4;
@@ -5517,6 +5530,56 @@ lpb_result inspect_gainmap_metadata(lpb_context* context, const char* primary_pa
     }
 }
 
+int observe_micamera_assets(const std::vector<uint8_t>& prefix, std::string_view packet,
+    uint64_t full_length, lpb_media_range& subimage, lpb_media_range& watermark) noexcept {
+    subimage={};watermark={};
+    try {
+        if(packet.empty())return 0;
+        std::vector<xmp_node> nodes;
+        if(!scan_xmp_tree(packet,nodes))return -1;
+        micamera_embedded_pair pair;
+        const int result=parse_micamera_xmpmeta_claim(nodes,prefix,pair,full_length);
+        if(result==1){subimage={pair.subimage.offset,pair.subimage.length};watermark={pair.lenswatermark.offset,pair.lenswatermark.length};}
+        return result;
+    }catch(...){return -1;}
+}
+bool rebase_micamera_offsets(std::string_view packet,uint64_t appended_length,std::string& output) noexcept {
+    output.clear();
+    try {
+        std::vector<xmp_node> nodes;
+        if(!scan_xmp_tree(packet,nodes))return false;
+        std::string_view encoded;size_t candidates=0;
+        for(const auto& node:nodes){
+            if(local_name(node.tag_name)=="XMPMeta")++candidates;
+            for(const auto& attr:node.attributes)if(local_name(attr.name)=="XMPMeta"){
+                ++candidates;
+                if(attr.resolved_uri==micamera_namespace&&node_is(node,rdf_namespace,"Description"))encoded=attr.value;
+            }
+        }
+        if(!candidates){output=packet;return true;}
+        if(candidates!=1||encoded.empty())return false;
+        std::string decoded;
+        micamera_embedded_pair pair;
+        if(!decode_micamera_xml_attribute(encoded,decoded)||!parse_micamera_xmpmeta_fragment(decoded,pair))return false;
+        // Only numeric coordinate values change. Keep the original escaped
+        // fragment, whitespace, ordinary attributes and surrounding packet.
+        std::string replacement(encoded);
+        struct edit {size_t at,length;std::string text;};std::vector<edit> edits;
+        for(const auto old:{pair.subimage.offset,pair.lenswatermark.offset}){
+            if(old>UINT64_MAX-appended_length)return false;
+            const std::string needle="offset=&quot;"+std::to_string(old)+"&quot;";
+            const size_t at=encoded.find(needle);
+            if(at==std::string_view::npos||encoded.find(needle,at+needle.size())!=std::string_view::npos)return false;
+            edits.push_back({at+13,std::to_string(old).size(),std::to_string(old+appended_length)});
+        }
+        std::sort(edits.begin(),edits.end(),[](const edit& a,const edit& b){return a.at>b.at;});
+        for(const auto& edit:edits)replacement.replace(edit.at,edit.length,edit.text);
+        output=packet;
+        output.replace(static_cast<size_t>(encoded.data()-packet.data()),encoded.size(),replacement);
+        return true;
+    }catch(...){output.clear();return false;}
+}
+
 int observe_source_xmp_integer(lpb_context* context, const std::vector<uint8_t>& bytes,
     lpb_image_container container, bool primary_position, bool micro_video,
     int64_t& value) noexcept {
@@ -5535,6 +5598,15 @@ int observe_source_xmp_integer(lpb_context* context, const std::vector<uint8_t>&
     } catch (...) { value = 0; return -1; }
 }
 
+lpb_result observe_target_neutral_exif(std::span<const uint8_t> payload) noexcept {
+    try {
+        if(payload.size()<6||std::memcmp(payload.data(),"Exif\0\0",6))return LPB_RESULT_INVALID_ARGUMENT;
+        std::string identifier;bool conflict=false;
+        const bool binding=extract_apple_cid_from_owned_exif(payload.data(),6,payload.size(),identifier,conflict);
+        if(conflict)return LPB_RESULT_INVALID_ARGUMENT;
+        return binding?LPB_RESULT_UNSUPPORTED:LPB_RESULT_OK;
+    }catch(...){return LPB_RESULT_INTERNAL_ERROR;}
+}
 lpb_result observe_target_writer_primary(lpb_context* context,const std::vector<uint8_t>& bytes) noexcept {
     try {
         if(detect_image_container(bytes)!=LPB_IMAGE_CONTAINER_JPEG) {
@@ -5547,58 +5619,58 @@ lpb_result observe_target_writer_primary(lpb_context* context,const std::vector<
             set_error(context,"[Malformed] Writer primary JPEG marker/scan structure is invalid.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
-        if(jpeg.eoi_end!=bytes.size() || jpeg.mpf_status!=jpeg_gainmap_mpf::status::absent) {
+        if(jpeg.eoi_end!=bytes.size() || (jpeg.mpf_status!=jpeg_gainmap_mpf::status::absent&&
+            !jpeg_gainmap_mpf::singleton_primary(jpeg))) {
             set_error(context,"[Unsupported] Writer v1 cannot accept JPEG tail, MPF or auxiliary assets.");
             return LPB_RESULT_UNSUPPORTED;
+        }
+        bool post_scan_app1=false;uint64_t observed_eoi=0;
+        lpb::memory_random_access primary_reader{bytes};
+        if(!walk_jpeg_markers(primary_reader.view(),observed_eoi,[&](const jpeg_marker_range& marker){
+            post_scan_app1=post_scan_app1||(marker.marker==0xe1&&marker.after_scan);return true;
+        }))return LPB_RESULT_INVALID_ARGUMENT;
+        if(post_scan_app1){set_error(context,"Writer cannot authorize APP1 metadata after a scan begins.");return LPB_RESULT_UNSUPPORTED;}
+        jpeg_observation metadata;jpeg_observation_failure metadata_failure{};uint64_t metadata_bad=0;
+        if(!observe_jpeg(primary_reader.view(),metadata,metadata_failure,metadata_bad,{true,true,true}))
+            return metadata_failure==jpeg_observation_failure::unsupported?LPB_RESULT_UNSUPPORTED:LPB_RESULT_INVALID_ARGUMENT;
+        if(!metadata.exif_payload.empty()) {
+            const auto neutral=observe_target_neutral_exif(metadata.exif_payload);
+            if(neutral!=LPB_RESULT_OK){set_error(context,"Writer Exif retains an Apple pairing binding or ambiguous owner.");return neutral;}
         }
         std::vector<std::string> packets;
         if(jpeg_xmp_structure_invalid(bytes,&packets)) {
             set_error(context,"[Malformed] Writer primary has duplicate or malformed XMP.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
-        for(const auto& packet:packets) {
-            // The shared scanner does not expand XML entities or DTDs. Keep
-            // this authority-producing subset explicit rather than interpreting
-            // an encoded namespace as an unrelated, neutral namespace.
-            if(packet.find("<!")!=std::string::npos) {
-                set_error(context,"[Unsupported] Writer v1 XMP declarations are outside the observed subset.");
+        if(!metadata.xmp.empty()) {
+            const auto& packet=metadata.xmp;
+            // Namespace entity expansion remains outside the authority subset.
+            // Classify it before lexical numeric/property checks, retaining the
+            // explicit Unsupported contract rather than guessing a namespace.
+            std::vector<xmp_node> namespace_nodes;
+            if(scan_xmp_tree(packet,namespace_nodes,true))for(const auto& node:namespace_nodes)
+                for(const auto& attribute:node.attributes)
+                    if((attribute.name=="xmlns"||attribute.name.starts_with("xmlns:"))&&
+                        attribute.value.find('&')!=std::string_view::npos)return LPB_RESULT_UNSUPPORTED;
+            target_xmp_observation observed;
+            xmp_observation_failure why{};
+            if(!observe_target_xmp_packets(packet,metadata.extended_xmp,metadata.extended_guid,observed,why)) {
+                set_error(context,"Writer primary XMP is malformed, ambiguous or outside the supported XML subset.");
+                return (why==xmp_observation_failure::unsupported||observed.live_claim||observed.micro_claim)?
+                    LPB_RESULT_UNSUPPORTED:LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if(observed.live_claim||observed.micro_claim||observed.foreign_claim||observed.hdr_claim) {
+                set_error(context,"Writer primary retains live binding or an inactive HDR/foreign property.");
                 return LPB_RESULT_UNSUPPORTED;
             }
-            std::vector<xmp_node> nodes;
-            if(!scan_xmp_tree(packet,nodes))return LPB_RESULT_INVALID_ARGUMENT;
-            size_t roots=0;
-            const auto owned=[](std::string_view uri) {
-                return uri==google_camera_namespace || uri==google_container_namespace ||
-                    uri==google_item_namespace || uri==oppo_camera_namespace ||
-                    uri==vivo_camera_namespace || uri==micamera_namespace ||
-                    uri=="http://ns.adobe.com/hdr-gain-map/1.0/" ||
-                    uri=="http://ns.apple.com/HDRGainMap/1.0/";
-            };
-            for(const auto& node:nodes) {
-                if(node.parent_index==k_no_parent)++roots;
-                if(node.tag_name.find(':')!=std::string_view::npos&&node.resolved_uri.empty())
-                    return LPB_RESULT_INVALID_ARGUMENT;
-                if(owned(node.resolved_uri)) {
-                    set_error(context,"[Unsupported] Writer primary retains protocol-owned or HDR XMP structure.");
-                    return LPB_RESULT_UNSUPPORTED;
-                }
-                for(const auto& attribute:node.attributes) {
-                    if(std::count_if(node.attributes.begin(),node.attributes.end(),[&](const auto& candidate){
-                        return candidate.name==attribute.name;})!=1)return LPB_RESULT_INVALID_ARGUMENT;
-                    const bool declaration=attribute.name=="xmlns" || attribute.name.starts_with("xmlns:");
-                    if(declaration&&attribute.value.find('&')!=std::string_view::npos) {
-                        set_error(context,"[Unsupported] Writer v1 cannot authorize entity-encoded XMP namespaces.");
-                        return LPB_RESULT_UNSUPPORTED;
-                    }
-                    if(!declaration&&attribute.name.find(':')!=std::string_view::npos&&attribute.resolved_uri.empty()&&
-                        !attribute.name.starts_with("xml:"))return LPB_RESULT_INVALID_ARGUMENT;
-                    if(owned(attribute.resolved_uri)) {
-                        set_error(context,"[Unsupported] Writer primary retains protocol-owned or HDR XMP property.");
-                        return LPB_RESULT_UNSUPPORTED;
-                    }
-                }
+            // A harmless namespace declaration or a single Primary inventory
+            // does not establish a source live binding (RELEASE-004).
+            if(observed.directory_present && (observed.items.size()!=1||
+                observed.items[0].semantic!="Primary"||observed.items[0].mime!="image/jpeg"||
+                observed.items[0].length||observed.items[0].padding)) {
+                set_error(context,"Writer primary inventory requires auxiliary graph integration.");
+                return LPB_RESULT_UNSUPPORTED;
             }
-            if(roots!=1)return LPB_RESULT_INVALID_ARGUMENT;
         }
         // The general XMP observer above covers only metadata before the first
         // SOS. Walk the complete marker stream here: legal APP1 may also occur
@@ -5660,8 +5732,8 @@ lpb_result observe_target_writer_primary(lpb_context* context,const std::vector<
             }
             if(marker==0xe1 && end-payload>=6 && std::memcmp(bytes.data()+payload,"Exif\0\0",6)==0) {
                 if(++exif_count!=1)return LPB_RESULT_INVALID_ARGUMENT;
-                uint32_t orientation=1;jpeg_observation_failure exif_failure{};
-                if(!observe_plain_exif(std::span<const uint8_t>(bytes.data()+payload,end-payload),orientation,exif_failure))
+                uint32_t orientation=1;jpeg_observation_failure exif_failure{};exif_observation exif_facts;
+                if(!observe_exif(std::span<const uint8_t>(bytes.data()+payload,end-payload),orientation,exif_facts,exif_failure,true))
                     return exif_failure==jpeg_observation_failure::unsupported?LPB_RESULT_UNSUPPORTED:LPB_RESULT_INVALID_ARGUMENT;
 
             }
@@ -5791,10 +5863,15 @@ bool observe_target_xmp(std::string_view xml,target_xmp_observation& output,
                     failure=xmp_observation_failure::ambiguous;return false;
                 }
             }
-            if(node_is(node,rdf_namespace,"RDF")){++rdf_count;rdf_index=node.node_index;output.rdf_close_offset=node.close_start;}
-            const auto foreign=[](std::string_view uri){return uri==oppo_camera_namespace||uri==vivo_camera_namespace||uri==micamera_namespace||uri=="http://ns.adobe.com/hdr-gain-map/1.0/"||uri=="http://ns.apple.com/HDRGainMap/1.0/";};
-            if(foreign(node.resolved_uri))output.foreign_claim=true;
-            for(const auto& a:node.attributes)if(foreign(a.resolved_uri))output.foreign_claim=true;
+            if(node_is(node,rdf_namespace,"RDF")){++rdf_count;rdf_index=node.node_index;output.rdf_close_offset=node.close_start;output.rdf_content_offset=node.content_start;output.rdf_name=node.tag_name;}
+            const auto classify=[&](std::string_view uri,std::string_view name){
+                if(uri=="http://ns.adobe.com/hdr-gain-map/1.0/"||uri=="http://ns.apple.com/HDRGainMap/1.0/")output.hdr_claim=true;
+                if(uri==oppo_camera_namespace&&xmp_name_is_protocol_marker(uri,name))output.oppo_claim=true;
+                if(uri==vivo_camera_namespace&&xmp_name_is_protocol_marker(uri,name))output.vivo_claim=true;
+            };
+            classify(node.resolved_uri,local_name(node.tag_name));
+            for(const auto& a:node.attributes)classify(a.resolved_uri,local_name(a.name));
+            output.foreign_claim=output.oppo_claim||output.vivo_claim;
         }
         if(root_count!=1||rdf_count!=1)return false;
         const auto& root_node=nodes[root];
@@ -5812,25 +5889,158 @@ bool observe_target_xmp(std::string_view xml,target_xmp_observation& output,
             }return true;
         };
         if(!outside_ok(xml.substr(0,begin))||!outside_ok(xml.substr(finish)))return false;
+        // Inventory actual RDF properties by expanded name and subject, not
+        // prefixes or namespace declarations. A standard/extended packet pair
+        // is one logical property set, so shadow properties cannot hide there.
+        for(const auto& description:nodes)if(node_is(description,rdf_namespace,"Description")) {
+            std::string_view subject;
+            for(const auto& a:description.attributes)if(a.resolved_uri==rdf_namespace&&local_name(a.name)=="about")subject=a.value;
+            const auto remember=[&](std::string_view uri,std::string_view name) {
+                if(uri.empty()||uri==rdf_namespace)return true;
+                const std::string key=std::to_string(subject.size())+":"+std::string(subject)+
+                    std::to_string(uri.size())+":"+std::string(uri)+std::string(name);
+                if(std::find(output.property_inventory.begin(),output.property_inventory.end(),key)!=output.property_inventory.end())return false;
+                output.property_inventory.push_back(key);return true;
+            };
+            for(const auto& a:description.attributes) {
+                if(a.name=="xmlns"||a.name.starts_with("xmlns:")||a.name.starts_with("xml:"))continue;
+                if(!remember(a.resolved_uri,local_name(a.name))){failure=xmp_observation_failure::ambiguous;return false;}
+                if(a.resolved_uri==micamera_namespace&&local_name(a.name)=="XMPMeta") {
+                    if(!output.micamera_owner_name.empty()){failure=xmp_observation_failure::ambiguous;return false;}
+                    output.micamera_owner_name=description.tag_name;
+                    output.micamera_owner_content_offset=description.content_start;
+                    output.micamera_owner_close_offset=description.close_start;
+                }
+            }
+            for(size_t child:description.children)if(!remember(nodes[child].resolved_uri,local_name(nodes[child].tag_name))){
+                failure=xmp_observation_failure::ambiguous;return false;
+            }
+        }
+        std::string_view extension_reference;
+        const int reference=get_global_attribute_string(nodes,"http://ns.adobe.com/xmp/note/","HasExtendedXMP",extension_reference);
+        if(reference<0){failure=xmp_observation_failure::ambiguous;return false;}
+        if(reference==1) {
+            if(extension_reference.size()!=32)return false;
+            for(char value:extension_reference)if(!std::isxdigit(static_cast<unsigned char>(value)))return false;
+            output.extended_reference_present=true;output.extended_reference=extension_reference;
+            std::transform(output.extended_reference.begin(),output.extended_reference.end(),output.extended_reference.begin(),
+                [](unsigned char value){return static_cast<char>(std::toupper(value));});
+        }
         // Target protocol ownership is factual; independent rules below decide conformance.
         size_t owner=k_no_parent;
         if(!validate_xmp_protocol_ownership(nodes,owner)){failure=xmp_observation_failure::ambiguous;return false;}
         output.live_claim=has_attribute_name_in_nodes(nodes,google_camera_namespace,"MotionPhoto")||
-            has_attribute_name_in_nodes(nodes,google_container_namespace,"Directory");
-        if(!output.live_claim){failure=xmp_observation_failure::none;return true;}
+            has_attribute_name_in_nodes(nodes,google_camera_namespace,"MotionPhotoVersion")||
+            has_attribute_name_in_nodes(nodes,google_camera_namespace,"MotionPhotoPresentationTimestampUs");
+        output.micro_claim=has_attribute_name_in_nodes(nodes,google_camera_namespace,"MicroVideo")||
+            has_attribute_name_in_nodes(nodes,google_camera_namespace,"MicroVideoVersion")||
+            has_attribute_name_in_nodes(nodes,google_camera_namespace,"MicroVideoOffset")||
+            has_attribute_name_in_nodes(nodes,google_camera_namespace,"MicroVideoPresentationTimestampUs");
+        output.directory_present=has_attribute_name_in_nodes(nodes,google_container_namespace,"Directory");
+        if(!output.live_claim&&!output.micro_claim&&!output.directory_present){failure=xmp_observation_failure::none;return true;}
         if(owner==k_no_parent||nodes[owner].parent_index!=rdf_index)return false;
-        const int motion=get_global_attribute_u64(nodes,google_camera_namespace,"MotionPhoto",output.motion_photo);
-        const int version=get_global_attribute_u64(nodes,google_camera_namespace,"MotionPhotoVersion",output.motion_version);
-        const int cover=get_global_attribute_i64(nodes,google_camera_namespace,"MotionPhotoPresentationTimestampUs",output.cover_us);
-        if(motion!=1||version!=1||cover<0){failure=xmp_observation_failure::ambiguous;return false;}
-        output.cover_present=cover==1;
-        container_directory_info directory;
-        if(!find_container_directory(nodes,directory,owner))return false;
-        for(const auto& item:directory.items){
-            if(item.malformed_length||item.malformed_padding)return false;
-            output.items.push_back({std::string(item.semantic),std::string(item.mime),item.length,item.padding,item.has_length,item.has_padding});
+        output.owner_close_offset=nodes[owner].close_start;
+        if(output.oppo_claim) {
+            std::string_view value;
+            const int owner_value=get_global_attribute_string(nodes,oppo_camera_namespace,"MotionPhotoOwner",value);
+            if(owner_value<0){failure=xmp_observation_failure::ambiguous;return false;}
+            if(owner_value==1)output.oppo_owner=value;
+            const int version=get_global_attribute_u64(nodes,oppo_camera_namespace,"OLivePhotoVersion",output.oppo_version);
+            const int length=get_global_attribute_u64(nodes,oppo_camera_namespace,"VideoLength",output.oppo_video_length);
+            const int primary=get_global_attribute_i64(nodes,oppo_camera_namespace,"MotionPhotoPrimaryPresentationTimestampUs",output.primary_cover_us);
+            const int edit=get_global_attribute_string(nodes,oppo_camera_namespace,"MotionPhotoEnable",value);
+            if(version<0||length<0||primary<0||edit<0){failure=xmp_observation_failure::ambiguous;return false;}
+            output.oppo_version_present=version==1;output.oppo_length_present=length==1;output.primary_cover_present=primary==1;
+            output.edit_flag_present=edit==1;if(edit==1)output.edit_flag=value;
+        }
+        if(output.live_claim) {
+            const int motion=get_global_attribute_u64(nodes,google_camera_namespace,"MotionPhoto",output.motion_photo);
+            const int version=get_global_attribute_u64(nodes,google_camera_namespace,"MotionPhotoVersion",output.motion_version);
+            const int cover=get_global_attribute_i64(nodes,google_camera_namespace,"MotionPhotoPresentationTimestampUs",output.cover_us);
+            if(motion!=1||version!=1||cover<0){failure=xmp_observation_failure::ambiguous;return false;}
+            output.cover_present=cover==1;
+        }
+        // V2 ignores obsolete V1 fields, including a deliberately stale offset.
+        if(output.micro_claim&&!output.live_claim) {
+            const int flag=get_global_attribute_u64(nodes,google_camera_namespace,"MicroVideo",output.micro_video);
+            const int version=get_global_attribute_u64(nodes,google_camera_namespace,"MicroVideoVersion",output.micro_version);
+            const int offset=get_global_attribute_u64(nodes,google_camera_namespace,"MicroVideoOffset",output.micro_offset);
+            const int cover=get_global_attribute_i64(nodes,google_camera_namespace,"MicroVideoPresentationTimestampUs",output.micro_cover_us);
+            if(flag!=1||version!=1||offset!=1||cover<0){failure=xmp_observation_failure::ambiguous;return false;}
+            output.micro_cover_present=cover==1;
+        }
+        if(output.directory_present) {
+            container_directory_info directory;
+            if(!find_container_directory(nodes,directory,owner))return false;
+            output.sequence_close_offset=nodes[directory.seq_node_index].close_start;
+            for(const auto& item:directory.items){
+                if(item.malformed_length||item.malformed_padding)return false;
+                output.items.push_back({std::string(item.semantic),std::string(item.mime),item.length,item.padding,item.has_length,item.has_padding});
+            }
         }
         failure=xmp_observation_failure::none;return true;
     }catch(...){return false;}
+}
+bool rewrite_target_primary_padding(std::string_view xml,uint64_t padding,std::string& output,xmp_observation_failure& failure) noexcept {
+    output.clear();failure=xmp_observation_failure::malformed;
+    try {
+        target_xmp_observation observed;
+        if(!observe_target_xmp(xml,observed,failure)||!observed.directory_present||observed.items.empty()||
+            observed.items[0].semantic!="Primary"||observed.live_claim||observed.micro_claim||observed.foreign_claim)return false;
+        std::vector<xmp_node> nodes;container_directory_info directory;
+        if(!scan_xmp_tree(xml,nodes,true)||!find_container_directory(nodes,directory)||directory.items.empty())return false;
+        const auto& primary=nodes[directory.items[0].node_index];
+        std::string_view value;
+        auto result=get_node_property_value_checked(nodes,primary,google_item_namespace,"Padding",value);
+        if(result==node_property_result::absent&&primary.parent_index!=k_no_parent&&
+            node_is(nodes[primary.parent_index],rdf_namespace,"li"))
+            result=get_node_property_value_checked(nodes,nodes[primary.parent_index],google_item_namespace,"Padding",value);
+        if(result==node_property_result::malformed)return false;
+        output=xml;
+        if(result==node_property_result::present){
+            const size_t start=static_cast<size_t>(value.data()-xml.data());
+            if(start>xml.size()||value.size()>xml.size()-start){output.clear();return false;}
+            output.replace(start,value.size(),std::to_string(padding));
+        }else{
+            // A fresh locally bound prefix avoids inheriting a hostile binding.
+            std::string prefix="lpbPrimaryPadding";
+            for(unsigned n=0;;++n){bool collision=false;for(const auto& attr:primary.attributes)
+                if(attr.name=="xmlns:"+prefix||attr.name.starts_with(prefix+":")){collision=true;break;}
+                if(!collision)break;prefix="lpbPrimaryPadding"+std::to_string(n);
+            }
+            if(!primary.content_start||primary.content_start>xml.size())return false;
+            size_t insert=primary.content_start-1;if(insert&&xml[insert-1]=='/')--insert;
+            output.insert(insert," xmlns:"+prefix+"=\""+std::string(google_item_namespace)+"\" "+prefix+":Padding=\""+std::to_string(padding)+"\"");
+        }
+        target_xmp_observation checked;
+        if(!observe_target_xmp(output,checked,failure)||checked.items.empty()||checked.items[0].padding!=padding){output.clear();return false;}
+        failure=xmp_observation_failure::none;return true;
+    }catch(...){output.clear();return false;}
+}
+bool observe_target_xmp_packets(std::string_view standard,std::string_view extension,std::string_view guid,
+    target_xmp_observation& output,xmp_observation_failure& failure) noexcept {
+    if(!observe_target_xmp(standard,output,failure))return false;
+    if(extension.empty()) {
+        if(output.extended_reference_present){failure=xmp_observation_failure::malformed;return false;}
+        return true;
+    }
+    try {
+        if(!output.extended_reference_present||output.extended_reference!=guid){failure=xmp_observation_failure::malformed;return false;}
+        target_xmp_observation extended;
+        if(!observe_target_xmp(extension,extended,failure))return false;
+        if(extended.extended_reference_present){failure=xmp_observation_failure::ambiguous;return false;}
+        for(const auto& key:extended.property_inventory)
+            if(std::find(output.property_inventory.begin(),output.property_inventory.end(),key)!=output.property_inventory.end()){
+                failure=xmp_observation_failure::ambiguous;return false;
+            }
+        // Target structure is deliberately kept in the unique standard packet.
+        // Ordinary Extended metadata is preserved byte-for-byte; split target
+        // ownership is never combined by first-match observation.
+        if(extended.live_claim||extended.micro_claim||extended.directory_present||extended.foreign_claim||extended.hdr_claim){
+            failure=xmp_observation_failure::unsupported;return false;
+        }
+        output.property_inventory.insert(output.property_inventory.end(),extended.property_inventory.begin(),extended.property_inventory.end());
+        failure=xmp_observation_failure::none;return true;
+    }catch(...){failure=xmp_observation_failure::malformed;return false;}
 }
 } // namespace lpb::media

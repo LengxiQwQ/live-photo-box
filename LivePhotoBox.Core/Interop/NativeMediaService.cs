@@ -94,7 +94,8 @@ public static class NativeMediaService
     internal static Task<NativeImageOrientationObservationV1> ObserveImageOrientationAsync(
         string imagePath,
         ImageContainer container,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool allowUnknown = false)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(imagePath);
         if (container is not (ImageContainer.Jpeg or ImageContainer.Heic))
@@ -114,6 +115,13 @@ public static class NativeMediaService
             NativeResult result = NativeMethods.ObserveImageOrientationV1(
                 context.Handle, imagePath, (int)container, ref observation);
             context.ThrowIfFailed(result);
+
+            if (allowUnknown && observation.StructSize >= Marshal.SizeOf<NativeImageOrientationObservationV1>() &&
+                observation.ApiVersion == 1 && observation.Status == NativeImageOrientationStatus.Unknown &&
+                observation.ClockwiseRotationDegrees == 0 && observation.Reflection == NativeImageOrientationReflection.None &&
+                observation.RotationEvidence == NativeImageOrientationEvidence.Unknown &&
+                observation.ReflectionEvidence == NativeImageOrientationEvidence.Unknown && observation.Reserved0 == 0)
+                return observation;
 
             if (observation.StructSize < Marshal.SizeOf<NativeImageOrientationObservationV1>() ||
                 observation.ApiVersion != 1 ||

@@ -226,6 +226,30 @@ namespace lpb::media {
 
 const char* heic_backend_version() noexcept { return "libheif " LIBHEIF_VERSION; }
 
+lpb_result validate_heic_bytes(lpb_context* context,std::span<const uint8_t> bytes) noexcept {
+    try {
+        if(!context||bytes.empty())return LPB_RESULT_INVALID_ARGUMENT;
+        heif_context_owner file;heif_handle_owner primary;
+        if(!file.value||!okay(heif_context_read_from_memory_without_copy(file.value,bytes.data(),bytes.size(),nullptr))||
+            !okay(heif_context_get_primary_image_handle(file.value,&primary.value))||!primary.value)return LPB_RESULT_INVALID_ARGUMENT;
+        heic_image_facts facts;
+        if(!fill_facts(primary.value,facts))return LPB_RESULT_INVALID_ARGUMENT;
+        pixel_surface decoded;
+        auto result=decode_image_handle(context,primary.value,decoded);
+        if(result!=LPB_RESULT_OK)return result;
+        // Every declared auxiliary image must decode under its own media
+        // semantics as well; mere item/range presence never establishes it.
+        for(const auto& auxiliary:facts.auxiliaries) {
+            heif_handle_owner handle;
+            if(!okay(heif_image_handle_get_auxiliary_image_handle(primary.value,auxiliary.item_id,&handle.value))||!handle.value)
+                return LPB_RESULT_INVALID_ARGUMENT;
+            result=decode_image_handle(context,handle.value,decoded);
+            if(result!=LPB_RESULT_OK)return result;
+        }
+        return LPB_RESULT_OK;
+    }catch(...){set_error(context,"HEIF bounded-byte decoder failed at exception boundary.");return LPB_RESULT_INTERNAL_ERROR;}
+}
+
 lpb_result inspect_heic_file(lpb_context* context, const char* input_path, heic_image_facts& output) noexcept {
     output = {};
     if (!context || !input_path) return LPB_RESULT_INVALID_ARGUMENT;
