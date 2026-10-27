@@ -124,6 +124,7 @@ public sealed record WindowsFileIdentity
 /// </summary>
 public sealed record MediaArtifact
 {
+    internal LivePhotoBox.Interop.NativeCompoundPrimary? CompoundPrimary { get; init; }
     public required string Path { get; init; }
     public required MediaArtifactKind Kind { get; init; }
     public string MimeType { get; init; } = string.Empty;

@@ -3,6 +3,7 @@
 #include "media/target_video_observation.h"
 #include "media/target_primary_observation.h"
 #include "media/heic_backend.h"
+#include "media/compound_primary.h"
 #include "media/jpeg_gainmap_mpf.h"
 #include "containers/heif_internal.h"
 #include "foundation/internal.h"
@@ -12,6 +13,7 @@
 #include "containers/isobmff.h"
 #include "containers/isobmff_video_profile.h"
 #include "protocols/google_v2_writer.h"
+#include "protocols/huawei_target.h"
 #include <array>
 #include <string_view>
 
@@ -45,6 +47,8 @@ struct lpb_target_writer_session {
     std::vector<lpb_target_auxiliary_v2> auxiliaries;
     std::array<uint32_t,2> auxiliary_input_indices{UINT32_MAX,UINT32_MAX};
     lpb::media::target_primary_observation primary_facts;
+    lpb::target::huawei_movie_plan huawei_movie;
+    std::shared_ptr<lpb::media::compound_primary_proof> compound;
     std::array<uint8_t,32> fingerprint{};
     uint32_t state{},failure{};
     bool release_requested{};
@@ -118,7 +122,8 @@ lpb_result observe_extended_primary(lpb_context* context,lpb_target_writer_sessi
     const std::vector<uint8_t>& primary) {
     std::string error;
     auto& facts=session.primary_facts;
-    if(!lpb::media::observe_target_primary(primary,facts,error)) {
+    if(!(session.compound?lpb::media::validate_compound_primary(primary,*session.compound,facts,error):
+        lpb::media::observe_target_primary(primary,facts,error))) {
         set_error(context,error.c_str());return LPB_RESULT_INVALID_ARGUMENT;
     }
     if(static_cast<uint32_t>(facts.container)!=session.artifacts[0].container||
@@ -218,7 +223,11 @@ lpb_result observe_inputs(lpb_context* context,lpb_target_writer_session& sessio
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     const uint32_t format=session.request.media_format;
-    if(format>1&&(!session.extended||format!=3||session.request.target_profile!=2||
+    const bool huawei=session.request.target_profile==LPB_TARGET_HUAWEI;
+    if(huawei&&(!session.extended||(format==4&&session.artifacts[1].video_codec!=3))) {
+        set_error(context,"[Unsupported] Explicit Huawei HEVC profile requires prepared HEVC/AAC.");return LPB_RESULT_UNSUPPORTED;
+    }
+    if(format>1&&(!session.extended||!((format==3&&session.request.target_profile==2)||((format==2||format==4)&&huawei))||
         session.primary_facts.container!=LPB_IMAGE_CONTAINER_HEIC))return LPB_RESULT_UNSUPPORTED;
     const bool mp4=session.artifacts[1].container==LPB_VIDEO_CONTAINER_MP4;
     if(session.artifacts[1].container!=static_cast<uint32_t>((format==0||format==2||format==4)?LPB_VIDEO_CONTAINER_MP4:LPB_VIDEO_CONTAINER_MOV)) {
@@ -268,6 +277,21 @@ lpb_result observe_inputs(lpb_context* context,lpb_target_writer_session& sessio
     if(session.request.target_profile==LPB_TARGET_OPPO&&(!session.extended||!session.primary_timestamp_present)) {
         set_error(context,"OPlus original capture timestamp is unknown; cannot invent one from current cover.");return LPB_RESULT_UNSUPPORTED;
     }
+    if(huawei) {
+        if(video.media.sample_tables.size()!=2) {
+            set_error(context,"[Unsupported] Huawei requires one video and one AAC audio track.");return LPB_RESULT_UNSUPPORTED;
+        }
+        if(!session.request.cover_timestamp_present||session.primary_timestamp_present) {
+            set_error(context,"[Unsupported] Huawei requires a known current cover without source capture history.");return LPB_RESULT_UNSUPPORTED;
+        }
+        if(std::any_of(session.auxiliaries.begin(),session.auxiliaries.end(),[](const auto& a){return a.representation!=1&&a.representation!=3;})) {
+            set_error(context,"[Unsupported] Detached Huawei image auxiliaries require explicit primary representation.");return LPB_RESULT_UNSUPPORTED;
+        }
+        std::string error;
+        if(!lpb::target::prepare_huawei_movie(session.inputs[1].reader(),session.request.cover_timestamp_us,session.huawei_movie,error)) {
+            set_error(context,error.c_str());return LPB_RESULT_INVALID_ARGUMENT;
+        }
+    }
     return LPB_RESULT_OK;
 }
 void fingerprint(lpb_target_writer_session& session) noexcept {
@@ -277,6 +301,10 @@ void fingerprint(lpb_target_writer_session& session) noexcept {
     integer(session.request.cover_timestamp_present);integer(static_cast<uint64_t>(session.request.cover_timestamp_us));
     integer(session.extended);integer(session.primary_timestamp_present);integer(static_cast<uint64_t>(session.primary_timestamp_us));
     hash.update(reinterpret_cast<const uint8_t*>(session.primary_identity.data()),session.primary_identity.size());
+    if(session.compound) {
+        integer(session.compound->token);integer(session.compound->known_length);integer(session.compound->opaque_length);
+        hash.update(session.compound->opaque_sha256.data(),32);
+    }
     for(const auto& auxiliary:session.auxiliaries)hash.update(reinterpret_cast<const uint8_t*>(&auxiliary),sizeof(auxiliary));
     for(size_t i=0;i<session.input_count;++i) {
         integer(session.artifacts[i].role);integer(session.artifacts[i].container);integer(session.artifacts[i].video_codec);
@@ -287,6 +315,7 @@ void fingerprint(lpb_target_writer_session& session) noexcept {
     hash.finalize(session.fingerprint.data());
 }
 lpb_result revalidate(lpb_context* context,lpb_target_writer_session& session) {
+    if(session.compound&&session.compound->revoked)return LPB_RESULT_AUTHORITY_VIOLATION;
     for(size_t i=0;i<session.input_count;++i) {
         lpb_file_identity current{};
         if(!session.inputs[i].capture_identity(current)||!identity_equal(current,session.observed[i])||
@@ -470,7 +499,7 @@ bool reentry(lpb_context* context) noexcept {
 }
 
 static lpb_result prepare_target_writer(lpb_context* context,const lpb_target_writer_request_v1* request,
-    lpb_target_writer_plan** output,const lpb_target_writer_request_v2* extended) {
+    lpb_target_writer_plan** output,const lpb_target_writer_request_v2* extended,uint64_t compound_token=0) {
     if(output)*output=nullptr;
     if(reentry(context))return LPB_RESULT_AUTHORITY_VIOLATION;
     lpb_context_operation operation(context);if(!operation.acquired())return LPB_RESULT_AUTHORITY_VIOLATION;
@@ -480,9 +509,15 @@ static lpb_result prepare_target_writer(lpb_context* context,const lpb_target_wr
             request->artifact_count!=2||!request->artifacts||request->reserved0||request->reserved1||request->reserved2||
             request->cover_timestamp_present>1||(!request->cover_timestamp_present&&request->cover_timestamp_us!=0)||
             !fixed_utf8(request->staging_directory_utf8,sizeof(request->staging_directory_utf8)))return LPB_RESULT_INVALID_ARGUMENT;
-        if(request->target_version!=1||!lpb::target::profile_accepts(request->target_profile,request->media_format))return LPB_RESULT_UNSUPPORTED;
+        if((request->target_version!=1&&!(request->target_profile==LPB_TARGET_HUAWEI&&request->target_version==2))||
+            !lpb::target::profile_accepts(request->target_profile,request->media_format))return LPB_RESULT_UNSUPPORTED;
         auto session=std::make_shared<lpb_target_writer_session>();
         session->owner=context;session->request=*request;session->request.artifacts=nullptr;
+        if(compound_token) {
+            if(!extended||request->target_profile!=LPB_TARGET_HUAWEI||request->media_format!=0)return LPB_RESULT_UNSUPPORTED;
+            session->compound=lpb::media::find_compound_primary(compound_token);
+            if(!session->compound||session->compound->revoked)return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
         if(extended) {
             if(extended->struct_size!=sizeof(*extended)||extended->version!=2||extended->reserved||
                 extended->primary_timestamp_present>1||(!extended->primary_timestamp_present&&extended->primary_timestamp_us)||
@@ -498,12 +533,16 @@ static lpb_result prepare_target_writer(lpb_context* context,const lpb_target_wr
                     !fixed_text(auxiliary.semantic)||!fixed_text(auxiliary.relationship)||
                     std::string_view(auxiliary.owner_identity)!=session->primary_identity||
                     (std::string_view(auxiliary.semantic)!="GainMap"&&std::string_view(auxiliary.semantic)!="Original"&&
-                     std::string_view(auxiliary.semantic)!="MiCameraSubimage"&&std::string_view(auxiliary.semantic)!="MiCameraLensWatermark"))return LPB_RESULT_INVALID_ARGUMENT;
-                if((std::string_view(auxiliary.semantic)=="MiCameraSubimage"||std::string_view(auxiliary.semantic)=="MiCameraLensWatermark")&&
+                     std::string_view(auxiliary.semantic)!="MiCameraSubimage"&&std::string_view(auxiliary.semantic)!="MiCameraLensWatermark"&&
+                     std::string_view(auxiliary.semantic)!="MpfAuxiliaryImage"))return LPB_RESULT_INVALID_ARGUMENT;
+                if((std::string_view(auxiliary.semantic)=="MiCameraSubimage"||std::string_view(auxiliary.semantic)=="MiCameraLensWatermark"||std::string_view(auxiliary.semantic)=="MpfAuxiliaryImage")&&
                     auxiliary.representation!=1)return LPB_RESULT_INVALID_ARGUMENT;
                 const std::string_view semantic=auxiliary.semantic;
+                if(semantic=="MpfAuxiliaryImage"&&request->target_profile!=LPB_TARGET_HUAWEI) {
+                    set_error(context,"[Unsupported] MPF auxiliary image passthrough is bounded to Huawei/Honor targets.");return LPB_RESULT_UNSUPPORTED;
+                }
                 const std::string_view relationship=semantic=="GainMap"?"gain-map":semantic=="Original"?"Original":
-                    semantic=="MiCameraSubimage"?"micamera-xmpmeta-subimage":"micamera-xmpmeta-lenswatermark";
+                    semantic=="MpfAuxiliaryImage"?"mpf-image":semantic=="MiCameraSubimage"?"micamera-xmpmeta-subimage":"micamera-xmpmeta-lenswatermark";
                 if(std::string_view(auxiliary.relationship)!=relationship) {
                     set_error(context,"Auxiliary semantic/relationship identity mismatch before mutation.");return LPB_RESULT_INVALID_ARGUMENT;
                 }
@@ -512,7 +551,7 @@ static lpb_result prepare_target_writer(lpb_context* context,const lpb_target_wr
                        std::string_view(prior.semantic)==auxiliary.semantic)return LPB_RESULT_INVALID_ARGUMENT;
                 if(auxiliary.representation==2) {
                     if(auxiliary.selector_kind||auxiliary.selector_id||auxiliary.embedded_offset)return LPB_RESULT_INVALID_ARGUMENT;
-                }else if(auxiliary.selector_kind>3||(!auxiliary.selector_kind&&auxiliary.selector_id)||
+                }else if(auxiliary.selector_kind>4||(!auxiliary.selector_kind&&auxiliary.selector_id)||
                     (auxiliary.selector_kind>=2&&!auxiliary.selector_id))return LPB_RESULT_INVALID_ARGUMENT;
                 if(auxiliary.representation==1) {
                     if(!zero_bytes(&auxiliary.materialized,sizeof(auxiliary.materialized)))return LPB_RESULT_INVALID_ARGUMENT;
@@ -555,6 +594,9 @@ static lpb_result prepare_target_writer(lpb_context* context,const lpb_target_wr
             if(session->observed[i].volume_serial==session->observed[j].volume_serial&&session->observed[i].file_index==session->observed[j].file_index)
                 return LPB_RESULT_AUTHORITY_VIOLATION;
         const auto observed=observe_inputs(context,*session);if(observed!=LPB_RESULT_OK)return observed;
+        if(session->compound) {
+            if(!identity_equal(session->compound->identity,session->observed[0])||session->compound->sha256!=session->hashes[0])return LPB_RESULT_SOURCE_CHANGED;
+        }
         fingerprint(*session);
         if(check_cancel(context)!=LPB_RESULT_OK)return LPB_RESULT_CANCELLED;
         if(!lpb_generate_unique_plan_token(session->token))return LPB_RESULT_INTERNAL_ERROR;
@@ -574,6 +616,12 @@ lpb_result LPB_CALL lpb_target_writer_prepare_v1(lpb_context* context,const lpb_
 lpb_result LPB_CALL lpb_target_writer_prepare_v2(lpb_context* context,const lpb_target_writer_request_v2* request,lpb_target_writer_plan** output) {
     return prepare_target_writer(context,request?&request->base:nullptr,output,request);
 }
+lpb_result LPB_CALL lpb_target_writer_prepare_v3(lpb_context* context,const lpb_target_writer_request_v3* request,lpb_target_writer_plan** output) {
+    if(output)*output=nullptr;
+    if(!request||request->struct_size!=sizeof(*request)||request->version!=3||request->reserved||!request->compound_primary_token)
+        return LPB_RESULT_INVALID_ARGUMENT;
+    return prepare_target_writer(context,&request->base.base,output,&request->base,request->compound_primary_token);
+}
 lpb_result LPB_CALL lpb_target_writer_stage_v1(lpb_context* context,lpb_target_writer_plan* plan) {
     if(reentry(context))return LPB_RESULT_AUTHORITY_VIOLATION;
     lpb_context_operation operation(context);if(!operation.acquired())return LPB_RESULT_AUTHORITY_VIOLATION;
@@ -590,13 +638,18 @@ lpb_result LPB_CALL lpb_target_writer_stage_v1(lpb_context* context,lpb_target_w
         if(result==LPB_RESULT_OK)result=revalidate(context,*session);
         if(result==LPB_RESULT_OK) {
             if((session->request.target_profile!=LPB_TARGET_GOOGLE_V2&&session->request.target_profile!=LPB_TARGET_GOOGLE_V1&&
-                (!session->extended||session->request.target_profile!=LPB_TARGET_OPPO))||
-                (session->request.media_format>1&&(!session->extended||session->request.target_profile!=2||session->request.media_format!=3))) {
+                (!session->extended||(session->request.target_profile!=LPB_TARGET_OPPO&&session->request.target_profile!=LPB_TARGET_HUAWEI)))||
+                (session->request.media_format>1&&(!session->extended||!((session->request.target_profile==2&&session->request.media_format==3)||
+                    (session->request.target_profile==LPB_TARGET_HUAWEI&&(session->request.media_format==2||session->request.media_format==4)))))) {
                 set_error(context,"[Unsupported] Target serializer is not implemented; Writer attempt consumed with no outputs.");
                 result=LPB_RESULT_UNSUPPORTED;
             } else {
                 std::vector<uint8_t> primary,serialized;
-                if(session->extended)result=serialize_extended_primary(context,*session,serialized);
+                const bool huawei=session->request.target_profile==LPB_TARGET_HUAWEI;
+                if(huawei) {
+                    if(!session->inputs[0].read_all_bounded(4,32ULL*1024*1024,serialized))result=LPB_RESULT_INTERNAL_ERROR;
+                }
+                else if(session->extended)result=serialize_extended_primary(context,*session,serialized);
                 else if(!session->inputs[0].read_all_bounded(4,32ULL*1024*1024,primary))result=LPB_RESULT_INTERNAL_ERROR;
                 else result=lpb::target::build_google_v2_primary(context,primary,session->inputs[1].size(),
                     session->request.media_format,session->request.cover_timestamp_present!=0,session->request.cover_timestamp_us,serialized,session->request.target_profile);
@@ -605,16 +658,26 @@ lpb_result LPB_CALL lpb_target_writer_stage_v1(lpb_context* context,lpb_target_w
                     const auto destination=utf8_to_path(session->request.staging_directory_utf8)/L"target-stage.bin";
                     if(!session->stage->create(destination,L"lpb-target-",L".stage",true)||!session->stage->write_all(serialized))result=LPB_RESULT_INTERNAL_ERROR;
                     std::array<uint8_t,65536> buffer{};
-                    for(uint64_t at=0;result==LPB_RESULT_OK&&at<session->inputs[1].size();) {
+                    const uint64_t movie_length=huawei?session->huawei_movie.output_length:session->inputs[1].size();
+                    for(uint64_t at=0;result==LPB_RESULT_OK&&at<movie_length;) {
                         result=check_cancel(context);if(result!=LPB_RESULT_OK)break;
-                        const size_t n=static_cast<size_t>(std::min<uint64_t>(buffer.size(),session->inputs[1].size()-at));
-                        if(!session->inputs[1].read_at(at,std::span<uint8_t>(buffer.data(),n))||
+                        const size_t n=static_cast<size_t>(std::min<uint64_t>(buffer.size(),movie_length-at));
+                        const bool read=huawei?session->huawei_movie.read(session->inputs[1].reader(),at,std::span<uint8_t>(buffer.data(),n)):
+                            session->inputs[1].read_at(at,std::span<uint8_t>(buffer.data(),n));
+                        if(!read||
                             !session->stage->write_all(std::span<const uint8_t>(buffer.data(),n)))result=LPB_RESULT_INTERNAL_ERROR;
                         at+=n;
                     }
+                    if(huawei&&result==LPB_RESULT_OK) {
+                        std::array<uint8_t,60> tail{};std::string error;
+                        if(!lpb::target::make_huawei_footer(session->request.target_version,session->huawei_movie.cover_frame,session->huawei_movie.total_frames,movie_length,tail,error)) {
+                            set_error(context,error.c_str());result=LPB_RESULT_INVALID_ARGUMENT;
+                        }else if(!session->stage->write_all(tail))result=LPB_RESULT_INTERNAL_ERROR;
+                    }
+                    if(session->compound&&session->compound->revoked)result=LPB_RESULT_AUTHORITY_VIOLATION;
                     if(result==LPB_RESULT_OK)result=check_cancel(context);
                     auto& output=session->output;
-                    output={sizeof(output),1,0,0,session->request.target_profile,1,session->generation};
+                    output={sizeof(output),1,0,0,session->request.target_profile,session->request.target_version,session->generation};
                     if(result==LPB_RESULT_OK&&(!session->stage->ready_to_consume()||
                         !session->stage->capture_identity(output.identity)||!session->stage->size(output.byte_length)||
                         !session->stage->compute_sha256(output.sha256)||!lpb_generate_unique_plan_token(output.stage_id)))result=LPB_RESULT_INTERNAL_ERROR;
@@ -668,11 +731,13 @@ lpb_result LPB_CALL lpb_target_writer_read_stage_v1(lpb_context* context,lpb_tar
         lpb_result result=check_cancel(context);
         {
             std::scoped_lock io(session->stage_io);
+            if(result==LPB_RESULT_OK&&session->compound&&session->compound->revoked)result=LPB_RESULT_AUTHORITY_VIOLATION;
             lpb_file_identity actual{};
             if(result==LPB_RESULT_OK&&(!session->stage->capture_identity(actual)||!identity_equal(actual,session->output.identity)))result=LPB_RESULT_SOURCE_CHANGED;
             if(result==LPB_RESULT_OK&&capacity&&!session->stage->reader().read_exact(offset,std::span<uint8_t>(output,capacity)))result=LPB_RESULT_INTERNAL_ERROR;
         }
         if(result==LPB_RESULT_OK)result=check_cancel(context);
+        if(result==LPB_RESULT_OK&&session->compound&&session->compound->revoked)result=LPB_RESULT_AUTHORITY_VIOLATION;
         bool cleanup=false;
         {
             std::scoped_lock lock(context->plan_mutex);--session->active_reads;

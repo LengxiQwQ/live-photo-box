@@ -21,7 +21,7 @@ extern "C" {
 #endif
 
 /* ABI14 adds fresh-reader Target Validator; existing PODs are unchanged. */
-#define LPB_NATIVE_ABI_VERSION 15u
+#define LPB_NATIVE_ABI_VERSION 16u
 
 typedef struct lpb_context lpb_context;
 typedef struct lpb_extraction_plan lpb_extraction_plan;
@@ -1679,6 +1679,40 @@ LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_cleanup_plan(
     lpb_removed_protocol_fact* out_facts,
     size_t facts_capacity,
     size_t* out_facts_count);
+
+/* Opaque lineage can only be minted from a successfully consumed cleanup plan
+ * and its Native creating-handle output registration. Ordinary manifest rows
+ * or serialized observations cannot import this authority. */
+typedef struct lpb_compound_primary_observation_v1 {
+    uint32_t struct_size, version;
+    uint64_t known_length, opaque_length;
+    uint8_t opaque_sha256[32];
+} lpb_compound_primary_observation_v1;
+LPB_API lpb_result LPB_CALL lpb_compound_primary_from_cleanup_v1(lpb_context*,lpb_cleanup_plan*,
+    uint64_t generation,const char* stage_path,uint64_t* proof_token);
+LPB_API lpb_result LPB_CALL lpb_compound_primary_inspect_v1(lpb_context*,uint64_t proof_token,
+    const char* path,lpb_source_media_facts*,lpb_compound_primary_observation_v1*);
+LPB_API lpb_result LPB_CALL lpb_compound_primary_release_v1(uint64_t proof_token);
+LPB_API lpb_result LPB_CALL lpb_compound_primary_gainmap_v1(lpb_context*,uint64_t proof_token,
+    const char* path,const char* materialized_gainmap_path,lpb_gainmap_metadata_v1*);
+
+typedef struct lpb_target_writer_request_v3 {
+    uint32_t struct_size, version;
+    lpb_target_writer_request_v2 base;
+    uint64_t compound_primary_token;
+    uint64_t reserved;
+} lpb_target_writer_request_v3;
+LPB_API lpb_result LPB_CALL lpb_target_writer_prepare_v3(lpb_context*,
+    const lpb_target_writer_request_v3*,lpb_target_writer_plan**);
+
+typedef struct lpb_target_validation_request_v3 {
+    uint32_t struct_size, version;
+    lpb_target_validation_request_v2 base;
+    lpb_compound_primary_observation_v1 compound;
+    uint64_t reserved;
+} lpb_target_validation_request_v3;
+LPB_API lpb_result LPB_CALL lpb_target_validate_v3(lpb_context*,
+    const lpb_target_validation_request_v3*,const lpb_target_reader_v1*,lpb_target_validation_result_v2*);
 
 /* Returns the cleaner-owned staged output records this context recorded while
  * the last plan-authorized clean ran (successful or failed).  Each record is

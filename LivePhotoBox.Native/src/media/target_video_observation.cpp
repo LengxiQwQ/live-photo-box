@@ -16,6 +16,7 @@ struct inspector {
     std::span<const uint8_t> data;
     std::set<uint32_t> tracks;
     std::vector<uint32_t> references;
+    target_covertime_observation* covertime{};
     bool fail(target_video_failure f,size_t at,std::string why) {
         d={f,target_video_stage::metadata,origin+at,std::move(why)};return false;
     }
@@ -61,7 +62,7 @@ struct inspector {
         // no target placement/timing authority. Known live UUIDs above reject.
         return true;
     }
-    bool meta(const box& b) {
+    bool meta(const box& b,std::string_view owner) {
         size_t start=b.body;
         if(b.end-start>=4&&u32(data.data()+start)==0)start+=4; // ISO FullBox; QT omits it.
         std::vector<box> list;if(!children(start,b.end,list))return false;
@@ -73,6 +74,28 @@ struct inspector {
             *slot=&c;
         }
         if(!handler&&!keys&&!ilst)return true;
+        // Ordinary iTunes text owns literal data values, not mdta key indices.
+        // Huawei's encoder owner uses manufacturer 'ohav'; preserve its ©too
+        // bytes while independently inspecting any sibling movie mdta owner.
+        if(handler&&!keys&&ilst&&handler->end-handler->body>=24&&text(handler->body+8,handler->body+12)=="mdir") {
+            if(text(handler->body+12,handler->body+16)!="appl"&&text(handler->body+12,handler->body+16)!="ohav")
+                return fail(target_video_failure::unsupported,handler->at,"Unclassified iTunes metadata handler");
+            if(!fullzero(*handler,24)||u32(data.data()+handler->body+4)||
+               u32(data.data()+handler->body+16)||u32(data.data()+handler->body+20))
+                return fail(target_video_failure::malformed,handler->at,"Invalid iTunes metadata handler");
+            for(size_t p=handler->body+24;p<handler->end;++p)if(data[p])return fail(target_video_failure::unsupported,p,"Unknown iTunes handler name");
+            std::vector<box> ordinary;if(!children(ilst->body,ilst->end,ordinary))return false;
+            std::set<std::string> tags;
+            for(const auto& item:ordinary) {
+                const bool known=item.type==std::string("\xa9" "too",4)||item.type==std::string("\xa9" "nam",4)||
+                    item.type==std::string("\xa9" "cmt",4)||item.type==std::string("\xa9" "cpy",4)||item.type==std::string("\xa9" "ART",4);
+                if(!known||!tags.insert(item.type).second)return fail(target_video_failure::unsupported,item.at,"Unknown or duplicate iTunes property");
+                std::vector<box> values;if(!children(item.body,item.end,values)||values.size()!=1||values[0].type!="data"||
+                    values[0].end-values[0].body<8||u32(data.data()+values[0].body)!=1||u32(data.data()+values[0].body+4))
+                    return fail(target_video_failure::malformed,item.at,"Invalid ordinary iTunes text ownership");
+            }
+            return true;
+        }
         // A QuickTime/iTunes mdir handler with an actually empty ilst has no
         // key/value properties or live binding. FFmpeg's preserved ordinary
         // audio fixture uses this legal empty owner, not mdta+keys.
@@ -91,7 +114,7 @@ struct inspector {
         if(text(handler->body+8,handler->body+12)!="mdta")return fail(target_video_failure::unsupported,handler->at,"Unsupported metadata handler");
         const uint32_t count=u32(data.data()+keys->body+4);
         if(count>65536)return fail(target_video_failure::unsupported,keys->at,"Metadata key resource limit");
-        size_t p=keys->body+8;std::set<std::string> names;
+        size_t p=keys->body+8;std::set<std::string> names;uint32_t cover_index=0;
         for(uint32_t i=0;i<count;++i) {
             if(keys->end-p<8)return fail(target_video_failure::malformed,p,"Truncated metadata key");
             const uint32_t n=u32(data.data()+p);
@@ -100,7 +123,8 @@ struct inspector {
             const auto name=text(p+8,p+n);
             if(name.find('\0')!=name.npos)return fail(target_video_failure::malformed,p,"NUL metadata key");
             if(!names.emplace(name).second)return fail(target_video_failure::ambiguous,p,"Duplicate metadata key");
-            if(live(name))return fail(target_video_failure::source_binding,p,"Live metadata key remains: "+std::string(name));
+            if(name=="com.openharmony.covertime"&&covertime)cover_index=i+1;
+            else if(live(name))return fail(target_video_failure::source_binding,p,"Live metadata key remains: "+std::string(name));
             // N9 preserves unknown metadata. The complete mdta keys/ilst
             // hierarchy is checked below; only confirmed live keys grant a
             // source-binding diagnosis, never opaque value text or key names.
@@ -118,10 +142,17 @@ struct inspector {
                 return fail(target_video_failure::malformed,item.at,"Metadata data ownership is missing or shadowed");
             // Value bytes are opaque ordinary data, not another box hierarchy.
             if(data[values[0].body]!=0)return fail(target_video_failure::unsupported,values[0].at,"Unsupported metadata data version");
+            if(index==cover_index&&covertime) {
+                const auto& v=values[0];target_covertime_property property;
+                property.owner=owner;property.type=u32(data.data()+v.body);property.locale=u32(data.data()+v.body+4);
+                property.value.assign(data.begin()+static_cast<ptrdiff_t>(v.body+8),data.begin()+static_cast<ptrdiff_t>(v.end));
+                covertime->properties.push_back(std::move(property));
+            }
         }
+        if(cover_index&&!indices.contains(cover_index))return fail(target_video_failure::malformed,b.at,"Covertime key has no indexed value");
         return true;
     }
-    bool walk(size_t first,size_t last,unsigned depth=0,std::string_view parent={}) {
+    bool walk(size_t first,size_t last,unsigned depth=0,std::string_view parent={},std::string path="moov") {
         if(depth>16)return fail(target_video_failure::unsupported,first,"Metadata nesting resource limit");
         std::vector<box> list;if(!children(first,last,list))return false;
         std::set<std::string> singleton;
@@ -129,13 +160,13 @@ struct inspector {
         for(const auto& b:list) {
             if(b.type=="meta"||b.type=="udta"||b.type=="tref"||b.type=="hdlr"||b.type=="tkhd")
                 if(!singleton.insert(b.type).second)return fail(target_video_failure::ambiguous,b.at,"Duplicate metadata owner: "+b.type);
-            if(b.type=="meta") {if(!meta(b))return false;}
+            if(b.type=="meta") {if(!meta(b,path))return false;}
             else if(b.type=="uuid") {
                 if(b.end-b.body>=16&&!uuid_types.emplace(text(b.body,b.body+16)).second)
                     return fail(target_video_failure::ambiguous,b.at,"Duplicate UUID ownership");
                 if(!uuid(b,parent))return false;
             }
-            else if(b.type=="udta") {if(!walk(b.body,b.end,depth+1,"udta"))return false;}
+            else if(b.type=="udta") {if(!walk(b.body,b.end,depth+1,"udta",path+"/udta"))return false;}
             else if(b.type=="tref") {
                 if(parent!="trak")return fail(target_video_failure::malformed,b.at,"Track reference has no track owner");
                 std::vector<box> refs;if(!children(b.body,b.end,refs))return false;
@@ -167,7 +198,7 @@ struct inspector {
                 const std::string_view required=b.type=="trak"?"moov":b.type=="mdia"||b.type=="edts"?"trak":
                     b.type=="minf"?"mdia":b.type=="stbl"||b.type=="dinf"?"minf":"";
                 if(required.empty()||parent!=required)return fail(target_video_failure::malformed,b.at,"Known container has no legal parent");
-                if(!walk(b.body,b.end,depth+1,b.type))return false;
+                if(!walk(b.body,b.end,depth+1,b.type,path+"/"+b.type))return false;
             } else if(b.type=="meco"||b.type=="mpvd"||b.type=="sefd")
                 return fail(target_video_failure::unsupported,b.at,"Unexpected ownership container: "+b.type);
             else if(b.type=="keys"||b.type=="ilst")
@@ -187,8 +218,9 @@ struct inspector {
     }
 };
 }
-bool observe_target_video_metadata(const lpb::random_access_reader& reader,target_video_diagnostic& d) noexcept {
+bool observe_target_video_metadata(const lpb::random_access_reader& reader,target_video_diagnostic& d,target_covertime_observation* covertime) noexcept {
     d={};
+    if(covertime)covertime->properties.clear();
     try {
         const auto boxes=scan_top_level_boxes(reader);
         if(boxes.empty()){d={target_video_failure::malformed,target_video_stage::metadata,0,"Invalid top-level box graph"};return false;}
@@ -214,9 +246,10 @@ bool observe_target_video_metadata(const lpb::random_access_reader& reader,targe
             std::vector<uint8_t> bytes(static_cast<size_t>(size));
             if(!reader.read_exact(b.offset,bytes)){d={target_video_failure::io,target_video_stage::metadata,b.offset,"Metadata read failed"};return false;}
             inspector inspect{d,b.offset,bytes};
+            inspect.covertime=covertime;
             if(!std::memcmp(b.type,"uuid",4)) {if(!inspect.uuid({0,bytes.size(),b.header_size,"uuid"}))return false;}
-            else if(top_meta) {if(!inspect.meta({0,bytes.size(),b.header_size,"meta"}))return false;}
-            else if(top_udta) {if(!inspect.walk(b.header_size,bytes.size(),0,"udta"))return false;}
+            else if(top_meta) {if(!inspect.meta({0,bytes.size(),b.header_size,"meta"},"top"))return false;}
+            else if(top_udta) {if(!inspect.walk(b.header_size,bytes.size(),0,"udta","top/udta"))return false;}
             else {
                 if(!inspect.walk(b.header_size,bytes.size(),0,"moov"))return false;
                 for(const auto id:inspect.references)if(!inspect.tracks.contains(id))return inspect.fail(target_video_failure::malformed,0,"Dangling track reference");
@@ -226,8 +259,8 @@ bool observe_target_video_metadata(const lpb::random_access_reader& reader,targe
         return true;
     }catch(...){d={target_video_failure::unsupported,target_video_stage::metadata,UINT64_MAX,"Metadata observation resource failure"};return false;}
 }
-bool observe_target_video(const lpb::random_access_reader& reader,bool require_ftyp,target_video_observation& out,target_video_diagnostic& d) noexcept {
-    out={};if(!observe_target_video_metadata(reader,d))return false;
+bool observe_target_video(const lpb::random_access_reader& reader,bool require_ftyp,target_video_observation& out,target_video_diagnostic& d,target_covertime_observation* covertime) noexcept {
+    out={};if(!observe_target_video_metadata(reader,d,covertime))return false;
     isobmff_reader_diagnostic media;
     if(!inspect_isobmff_reader(reader,require_ftyp,out.media,media)) {
         const auto f=media.failure==isobmff_reader_failure::io?target_video_failure::io:media.failure==isobmff_reader_failure::unsupported?target_video_failure::unsupported:target_video_failure::malformed;

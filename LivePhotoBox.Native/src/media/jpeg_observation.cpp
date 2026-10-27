@@ -20,6 +20,7 @@ bool observe_exif(std::span<const uint8_t> bytes,uint32_t& orientation,exif_obse
   const auto u32=[&](size_t at){return big?static_cast<uint32_t>((static_cast<uint32_t>(bytes[at])<<24)|(bytes[at+1]<<16)|(bytes[at+2]<<8)|bytes[at+3]):static_cast<uint32_t>(bytes[at]|(bytes[at+1]<<8)|(bytes[at+2]<<16)|(static_cast<uint32_t>(bytes[at+3])<<24));};
   if(u16(tiff+2)!=42||u32(tiff+4)<8)return false;
   out.big_endian=big;out.ifd0_offset=u32(tiff+4);
+  size_t maker_count=0;bool apple_maker=false;
   std::vector<uint32_t> pending{u32(tiff+4)},seen;std::vector<std::pair<uint64_t,uint64_t>> occupied{{0,8}};
   std::set<uint32_t> image_ifds{u32(tiff+4)};
   const auto claim=[&](uint64_t start,uint64_t length){
@@ -33,7 +34,11 @@ bool observe_exif(std::span<const uint8_t> bytes,uint32_t& orientation,exif_obse
    seen.push_back(offset);tiff_ifd directory{};if(!parse_ifd(bytes.data(),end,tiff,offset,big,&directory)||!claim(offset,2+static_cast<uint64_t>(directory.entries.size())*12+4))return false;
    std::set<uint16_t> tags;
    for(const auto& entry:directory.entries){
-    if(!tags.insert(entry.tag).second)return false;
+    // Huawei/Honor legitimately retain several opaque vendor MakerNotes in
+    // the formal ExifIFD. They grant no target authority. All pointers, ranges
+    // and other tags remain unique; any Apple-shaped owner plus another note
+    // is a pairing shadow and is rejected below as well as by the CID reader.
+    if(!tags.insert(entry.tag).second&&!(allow_opaque&&entry.tag==0x927c))return false;
     if(entry.tag==0x014a||entry.tag==0xb000||(!allow_opaque&&(entry.tag==0x927c||entry.tag==0x9286))){failure=jpeg_observation_failure::unsupported;return false;}
     uint64_t width=0;switch(entry.type){case 1:case 2:case 6:case 7:width=1;break;case 3:case 8:width=2;break;case 4:case 9:case 11:width=4;break;case 5:case 10:case 12:width=8;break;default:failure=jpeg_observation_failure::unsupported;return false;}
     const uint64_t n=width*entry.count;if(!n||(n>4&&!claim(entry.value_offset,n)))return false;
@@ -42,6 +47,11 @@ bool observe_exif(std::span<const uint8_t> bytes,uint32_t& orientation,exif_obse
      if(!out.exif_ifd_offset||offset!=out.exif_ifd_offset||
         (entry.tag==0x927c?entry.type!=7:(entry.type!=7&&entry.type!=2)))return false;
      out.opaque_metadata=true;
+     if(entry.tag==0x927c) {
+      ++maker_count;const size_t at=n<=4?entry.absolute_pos+8:tiff+entry.value_offset;
+      if(n>=9&&std::memcmp(bytes.data()+at,"Apple iOS",9)==0)apple_maker=true;
+      if(maker_count>1&&apple_maker)return false;
+     }
      if(entry.tag==0x9286){
       if(out.has_user_comment)return false;out.has_user_comment=true;
       out.user_comment_entry=entry.absolute_pos-tiff;

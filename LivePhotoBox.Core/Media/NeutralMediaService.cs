@@ -95,6 +95,9 @@ public sealed class NeutralMediaService : INeutralMediaService
         }
 
         MediaArtifact finalImage = cleanResult.CleanedImage;
+        if (finalImage.CompoundPrimary is not null && requirement is { ImageContainer: not ImageContainer.Unknown } &&
+            requirement.ImageContainer != finalImage.ImageContainer)
+            throw new NotSupportedException("The opaque source-prefix lineage cannot authorize cross-container image conversion.");
         MediaArtifact? finalVideo = cleanResult.CleanedVideo;
         VideoConversionResult? explicitVideoPreparation = null;
         // A caller may explicitly compose two ordinary media files. Inspector
@@ -154,11 +157,10 @@ public sealed class NeutralMediaService : INeutralMediaService
         // detached semantic artifact.
         bool gainMapEmbeddedInPrimary = false;
         diagnosticStage = ProductOperationStage.Inspection;
-        SourceMediaFacts neutralInputFacts = await _inspector
-            .InspectAsync(finalImage.Path, cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
+        SourceMediaFacts neutralInputFacts = await InspectPrimaryAsync(finalImage, cancellationToken).ConfigureAwait(false);
+        gainMapEmbeddedInPrimary = finalImage.CompoundPrimary is not null && neutralInputFacts.GainMap is { IsPresent: true };
         if (cleanResult.CleanedGainMap != null
-            && finalImage.ImageContainer == ImageContainer.Jpeg)
+            && finalImage.ImageContainer == ImageContainer.Jpeg && finalImage.CompoundPrimary is null)
         {
             if (!IsVerifiedNeutralPrimary(neutralInputFacts))
                 throw new InvalidDataException("Cleaned primary is not a verified neutral image before auxiliary representation selection.");
@@ -423,9 +425,7 @@ public sealed class NeutralMediaService : INeutralMediaService
         // Final guard: a neutral bundle must not expose a still image that the
         // Native Inspector still recognizes as a Live/Motion Photo. This is a
         // post-clean check, not a second protocol parser or a writer check.
-        SourceMediaFacts neutralFacts = await _inspector
-            .InspectAsync(finalImage.Path, cancellationToken: cancellationToken)
-            .ConfigureAwait(false);
+        SourceMediaFacts neutralFacts = await InspectPrimaryAsync(finalImage, cancellationToken).ConfigureAwait(false);
         if (neutralFacts.Protocol != SourceProtocol.NonLive
             || neutralFacts.MotionVideo != null
             || neutralFacts.ProtocolTailLength != 0
@@ -516,10 +516,10 @@ public sealed class NeutralMediaService : INeutralMediaService
                     ?? throw new InvalidDataException("Both GainMap representation requires its verified materialized artifact.");
             }
 
-            finalGainMapMetadata = await NativeMediaService.InspectGainMapMetadataAsync(
-                finalImage.Path,
-                materializedGainMapPath,
-                cancellationToken).ConfigureAwait(false);
+            finalGainMapMetadata = finalImage.CompoundPrimary is { } compoundPrimary
+                ? compoundPrimary.InspectGainMap(finalImage.Path, materializedGainMapPath, cancellationToken)
+                : await NativeMediaService.InspectGainMapMetadataAsync(finalImage.Path,
+                    materializedGainMapPath, cancellationToken).ConfigureAwait(false);
         }
 
         // Capture-date preservation is not video timeline authority. Native
@@ -1791,6 +1791,11 @@ public sealed class NeutralMediaService : INeutralMediaService
         if (a == PreservationOutcome.TranscodedLossless || b == PreservationOutcome.TranscodedLossless) return PreservationOutcome.TranscodedLossless;
         return PreservationOutcome.Preserved;
     }
+
+    private Task<SourceMediaFacts> InspectPrimaryAsync(MediaArtifact image, CancellationToken token) =>
+        image.CompoundPrimary is null
+            ? _inspector.InspectAsync(image.Path, cancellationToken: token)
+            : Task.FromResult(image.CompoundPrimary.Inspect(image.Path, token).Facts);
 
     private static async Task<MediaArtifact> ReassembleJpegGainMapAsync(
         MediaArtifact primaryImage,

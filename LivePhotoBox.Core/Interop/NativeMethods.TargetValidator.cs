@@ -86,6 +86,11 @@ internal struct NativeTargetValidationResultV2
 
 internal static partial class NativeMethods
 {
+    [LibraryImport(LibraryName, EntryPoint = "lpb_target_validate_v3")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static unsafe partial NativeResult TargetValidateV3(nint context,
+        NativeTargetValidationRequestV3* request, NativeTargetReaderV1* reader, NativeTargetValidationResultV2* result);
     [LibraryImport(LibraryName, EntryPoint = "lpb_target_validate_v2")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -99,4 +104,13 @@ internal static partial class NativeMethods
     internal static unsafe partial NativeResult TargetValidate(nint context,
         NativeTargetValidationRequestV1* request, NativeTargetReaderV1* reader,
         NativeTargetValidationResultV1* result);
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal struct NativeTargetValidationRequestV3
+{
+    public uint StructSize, Version;
+    public NativeTargetValidationRequestV2 Base;
+    public NativeCompoundPrimaryObservation Compound;
+    public ulong Reserved;
 }

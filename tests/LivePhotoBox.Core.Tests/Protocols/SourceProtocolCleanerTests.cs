@@ -91,7 +91,25 @@ public sealed class SourceProtocolCleanerTests
         string cleanedImgPath = cleanResult.CleanedImage.Path;
         string? cleanedVidPath = cleanResult.CleanedVideo?.Path;
 
-        var recheckFacts = await inspector.InspectAsync(cleanedImgPath, secondaryPath != null ? cleanedVidPath : null);
+        SourceMediaFacts recheckFacts;
+        if (cleanResult.CleanedImage.CompoundPrimary is { } compound)
+        {
+            byte[] cleaned = await File.ReadAllBytesAsync(cleanedImgPath);
+            byte[] original = await File.ReadAllBytesAsync(primaryPath);
+            Assert.Equal(original.AsSpan(0, cleaned.Length).ToArray(), cleaned);
+            string cleanedHash = ComputeSha256(cleanedImgPath);
+            await Assert.ThrowsAsync<SourceInspectionException>(() => inspector.InspectAsync(cleanedImgPath));
+            await Assert.ThrowsAsync<SourceInspectionException>(() => inspector.InspectWithPlanAsync(cleanedImgPath));
+            recheckFacts = compound.Inspect(cleanedImgPath, default).Facts;
+            Assert.Equal(SourceProtocol.NonLive, recheckFacts.Protocol);
+            Assert.Equal(SourceProtocol.NonLive, compound.Inspect(cleanedImgPath, default).Facts.Protocol);
+            Assert.Equal(cleanedHash, ComputeSha256(cleanedImgPath));
+            // Unknown opaque bytes require their Native lineage. This branch
+            // proves stable reinspection and fail-closed generic re-cleaning;
+            // it does not claim successful generic cleaner idempotency.
+            return;
+        }
+        recheckFacts = await inspector.InspectAsync(cleanedImgPath, secondaryPath != null ? cleanedVidPath : null);
         Assert.Equal(SourceProtocol.NonLive, recheckFacts.Protocol);
 
         // 6. Idempotency test: Cleaning already cleaned media produces NonLive output without error

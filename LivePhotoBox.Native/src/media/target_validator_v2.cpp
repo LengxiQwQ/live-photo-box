@@ -1,6 +1,7 @@
 #include "media/target_validator_v2.h"
 #include "media/target_primary_observation.h"
 #include "media/target_video_observation.h"
+#include "media/huawei_conformance.h"
 #include "media/target_writer.h"
 #include "media/heic_backend.h"
 #include "foundation/internal.h"
@@ -57,8 +58,8 @@ bool selects(const isobmff_video_presentation_timeline& timeline,int64_t us) {
  return false;
 }
 }
-lpb_result LPB_CALL lpb_target_validate_v2(lpb_context* context,const lpb_target_validation_request_v2* request,
- const lpb_target_reader_v1* reader,lpb_target_validation_result_v2* output) {
+static lpb_result validate_target_extended(lpb_context* context,const lpb_target_validation_request_v2* request,
+ const lpb_target_reader_v1* reader,lpb_target_validation_result_v2* output,const lpb_compound_primary_observation_v1* compound) {
  if(!context||lpb_writer_callback_active(context))return LPB_RESULT_AUTHORITY_VIOLATION;
  lpb_context_operation operation(context);if(!operation.acquired())return LPB_RESULT_AUTHORITY_VIOLATION;
  lpb_writer_frame frame(context);
@@ -83,16 +84,18 @@ lpb_result LPB_CALL lpb_target_validate_v2(lpb_context* context,const lpb_target
    expected.expected_video_codec<2||expected.expected_video_codec>3||expected.expected_auxiliary_count!=request->auxiliary_count) {
    reject(1,1,101,"Malformed target v2 base expectations");return LPB_RESULT_INVALID_ARGUMENT;
   }
-  const bool v1=expected.target_profile==1,v2=expected.target_profile==2,oppo=expected.target_profile==3;
-  const bool heif=expected.media_format==3;
-  if(expected.target_version!=1||expected.member_count!=1||expected.member_index||expected.artifact_role||
-   !(v1||v2||oppo)||!((v1&&expected.media_format<=1)||(v2&&(expected.media_format<=1||heif))||(oppo&&expected.media_format==0)))
+  const bool v1=expected.target_profile==1,v2=expected.target_profile==2,oppo=expected.target_profile==3,huawei=expected.target_profile==6;
+  const bool heif=expected.media_format==3||(huawei&&(expected.media_format==2||expected.media_format==4));
+  if((expected.target_version!=1&&!(huawei&&expected.target_version==2))||expected.member_count!=1||expected.member_index||expected.artifact_role||
+   !(v1||v2||oppo||huawei)||!((v1&&expected.media_format<=1)||(v2&&(expected.media_format<=1||heif))||(oppo&&expected.media_format==0)||(huawei&&(expected.media_format==0||expected.media_format==2||expected.media_format==4))))
    return reject(4,1,102,"Target/format combination is outside v2 validator rules",true);
   if(!oppo&&request->primary_timestamp_present)return reject(2,1,103,"Original timestamp expectation belongs to OPlus target only");
+  if(compound&&(!huawei||expected.media_format!=0||compound->struct_size!=sizeof(*compound)||compound->version!=1||
+      !compound->known_length||!compound->opaque_length))return reject(2,1,145,"Malformed compound primary expectations");
   std::array<lpb_target_auxiliary_expectation_v2,2> aux_expect{};std::set<uint32_t> semantics;
   for(uint32_t i=0;i<request->auxiliary_count;++i) {
    aux_expect[i]=request->auxiliaries[i];const auto& a=aux_expect[i];
-   if(a.struct_size!=sizeof(a)||a.version!=2||a.semantic<1||a.semantic>4||a.container<1||a.container>2||!a.byte_length||!semantics.insert(a.semantic).second) {
+   if(a.struct_size!=sizeof(a)||a.version!=2||a.semantic<1||a.semantic>5||a.container<1||a.container>2||!a.byte_length||!semantics.insert(a.semantic).second) {
     reject(1,1,104,"Malformed or duplicate auxiliary expectations");return LPB_RESULT_INVALID_ARGUMENT;
    }
   }
@@ -106,7 +109,14 @@ lpb_result LPB_CALL lpb_target_validate_v2(lpb_context* context,const lpb_target
   result.observed_byte_length=full.length;
   uint64_t prefix_length=0,video_offset=0,video_length=0,video_header=0;
   lpb::media::jpeg_observation jpeg;
-  if(!heif) {
+  lpb::media::huawei_footer_observation footer;
+  if(huawei) {
+   std::array<uint8_t,60> tail{};
+   if(full.length<=60||!full.read_exact(full.length-60,tail)){if(io())return source.error;return reject(2,4,140,"Huawei fixed footer is missing");}
+   if(!lpb::media::observe_huawei_footer(tail,footer)||footer.variant!=expected.target_version||footer.movie_length>=full.length-60)
+    return reject(2,4,140,"Huawei footer variant, numeric fields or LIVE length is invalid");
+   video_length=footer.movie_length;prefix_length=video_offset=full.length-60-video_length;
+  }else if(!heif) {
    lpb::media::jpeg_observation_failure why;uint64_t bad=0;
    if(!lpb::media::observe_jpeg(full,jpeg,why,bad,{true,true,true,true})) {
     if(io())return source.error;result.failure_byte_offset=bad;
@@ -136,7 +146,15 @@ lpb_result LPB_CALL lpb_target_validate_v2(lpb_context* context,const lpb_target
   std::vector<uint8_t> prefix(static_cast<size_t>(prefix_length));
   if(!full.read_exact(0,prefix)){io();return source.error;}
   lpb::media::target_primary_observation primary;std::string error;
-  const bool observed=!heif&&!v1?lpb::media::observe_target_jpeg_prefix(prefix,full.length,primary,error):lpb::media::observe_target_primary(prefix,primary,error,false,full.length);
+  if(compound) {
+   if(compound->known_length>=prefix_length||compound->opaque_length!=prefix_length-compound->known_length)
+    return reject(2,3,146,"Compound primary ranges do not exactly partition the observed prefix");
+   uint8_t digest[32]{};
+   if(!hash_range(full,compound->known_length,compound->opaque_length,digest)){if(io())return source.error;return reject(2,3,146,"Opaque range read failed");}
+   if(std::memcmp(digest,compound->opaque_sha256,32))return reject(2,3,146,"Opaque source-prefix bytes were changed or lost");
+  }
+  const auto known=std::span<const uint8_t>(prefix).first(static_cast<size_t>(compound?compound->known_length:prefix_length));
+  const bool observed=!heif&&!v1&&!huawei?lpb::media::observe_target_jpeg_prefix(prefix,full.length,primary,error):lpb::media::observe_target_primary(known,primary,error,false,huawei?known.size():full.length);
   if(!observed)return reject(2,3,111,error.c_str());
   if(primary.container!=(heif?LPB_IMAGE_CONTAINER_HEIC:LPB_IMAGE_CONTAINER_JPEG)||!primary.width||!primary.height)
    return reject(2,3,112,"Primary representation does not match target MIME");
@@ -144,7 +162,12 @@ lpb_result LPB_CALL lpb_target_validate_v2(lpb_context* context,const lpb_target
   const auto exif=primary.exif_payload.empty()?LPB_RESULT_OK:lpb::media::observe_target_neutral_exif(primary.exif_payload);
   if(exif!=LPB_RESULT_OK)return reject(exif==LPB_RESULT_UNSUPPORTED?4:2,3,114,"Primary retains foreign live Exif ownership",exif==LPB_RESULT_UNSUPPORTED);
   const auto& x=primary.xmp;
-  if(v1) {
+  if(huawei) {
+   if(lpb::media::target_primary_has_live_binding(primary)||x.foreign_claim||x.oppo_claim||x.vivo_claim)
+    return reject(2,4,141,"Huawei primary has a second or foreign live owner");
+   if(!expected.cover_timestamp_present||(expected.media_format==4&&expected.expected_video_codec!=3))
+    return reject(4,6,142,"Huawei requires known cover and matching H264/HEVC media selection",true);
+  }else if(v1) {
    if(!x.micro_claim||x.micro_video!=1||x.micro_version!=1||x.micro_offset!=video_length||x.live_claim||x.oppo_claim||x.vivo_claim)
     return reject(2,4,115,"V1 binding/version/offset or foreign ownership mismatch");
    if(!expected.cover_timestamp_present)return reject(4,6,116,"Unknown V1 cover has no established writable semantic",true);
@@ -184,7 +207,7 @@ lpb_result LPB_CALL lpb_target_validate_v2(lpb_context* context,const lpb_target
   if(primary.auxiliaries.size()!=request->auxiliary_count)return reject(2,4,124,"Auxiliary cardinality differs from semantic expectations");
   std::set<uint32_t> actual_semantics;
   for(size_t i=0;i<primary.auxiliaries.size();++i) {
-   const auto& a=primary.auxiliaries[i];const uint32_t semantic=a.semantic=="GainMap"?1:a.semantic=="Original"?2:a.semantic=="MiCameraSubimage"?3:a.semantic=="MiCameraLensWatermark"?4:0;
+   const auto& a=primary.auxiliaries[i];const uint32_t semantic=a.semantic=="GainMap"?1:a.semantic=="Original"?2:a.semantic=="MiCameraSubimage"?3:a.semantic=="MiCameraLensWatermark"?4:a.semantic=="MpfAuxiliaryImage"?5:0;
    const uint32_t container=a.mime=="image/jpeg"||a.mime=="image/png"?1:a.mime=="image/heic"?2:0;
    if(!semantic||!container||!actual_semantics.insert(semantic).second||a.owner_selector!=primary.primary_selector||!a.range.length)
     return reject(2,4,125,"Auxiliary selector/semantic/owner graph is invalid");
@@ -203,15 +226,28 @@ lpb_result LPB_CALL lpb_target_validate_v2(lpb_context* context,const lpb_target
   }
   output->auxiliary_count=static_cast<uint32_t>(primary.auxiliaries.size());result.observed_auxiliary_count=output->auxiliary_count;
   slice video{full,video_offset,video_length};lpb::media::target_video_observation media;lpb::media::target_video_diagnostic diagnostic;
-  if(!lpb::media::observe_target_video(video.view(),expected.media_format==0,media,diagnostic)) {
+  lpb::media::target_covertime_observation cover_properties;
+  if(!lpb::media::observe_target_video(video.view(),expected.media_format==0||huawei,media,diagnostic,huawei?&cover_properties:nullptr)) {
    if(io())return source.error;const bool unsupported=diagnostic.failure==lpb::media::target_video_failure::unsupported;
    result.generic_media_status=unsupported?3:2;result.failure_byte_offset=diagnostic.offset==UINT64_MAX?UINT64_MAX:video_offset+diagnostic.offset;
    return reject(unsupported?4:2,5,126,diagnostic.reason.c_str(),unsupported);
   }
-  if(media.media.quicktime!=(expected.media_format!=0)||media.media.video_codec!=expected.expected_video_codec)
+  if(media.media.quicktime!=(!huawei&&expected.media_format!=0)||media.media.video_codec!=expected.expected_video_codec)
    return reject(2,5,127,"Observed video container/codec differs from target expectations");
   if(expected.cover_timestamp_present&&!selects(media.media.timeline,expected.cover_timestamp_us))return reject(2,6,128,"Current cover does not select an observed visible sample");
   if(oppo&&!selects(media.media.timeline,request->primary_timestamp_us))return reject(2,6,129,"Original timestamp does not select an observed visible sample");
+  if(huawei) {
+   int64_t observed_time=0;uint32_t frame_index=0,frame_count=0;
+   if(media.media.sample_tables.size()!=2||!lpb::media::observe_huawei_covertime(cover_properties,observed_time)||
+      observed_time!=expected.cover_timestamp_us||!lpb::media::select_huawei_frame(media.media.timeline,observed_time,frame_index,frame_count)||
+      footer.frame!=frame_index||footer.history!=std::to_string(frame_index)+":"+std::to_string(frame_count))
+    return reject(2,6,143,"Huawei typed millisecond cover, legacy frame or new-file frame/count history mismatch");
+   const auto& boxes=media.media.top_level_boxes;
+   std::array<uint8_t,4> brand{};
+   if(boxes.empty()||std::memcmp(boxes.front().type,"ftyp",4)||!video.view().read_exact(boxes.front().header_size,brand)||std::memcmp(brand.data(),"mp42",4))
+    return reject(2,5,144,"Huawei movie brand differs from mp42");
+   result.observed_cover_timestamp_us=observed_time;result.cover_encoding=1;
+  }
   result.primary_length=prefix_length;result.video_offset=video_offset;result.video_length=video_length;
   result.image_width=primary.width;result.image_height=primary.height;result.image_orientation=primary.orientation;
   result.video_width=media.media.video_width;result.video_height=media.media.video_height;result.video_orientation=media.media.video_orientation;result.observed_video_codec=media.media.video_codec;
@@ -225,4 +261,13 @@ lpb_result LPB_CALL lpb_target_validate_v2(lpb_context* context,const lpb_target
   const auto cancelled=cancellation(context);if(cancelled!=LPB_RESULT_OK){result.failure_category=6;result.failure_stage=2;return cancelled;}
   result.structural_status=1;result.generic_media_status=1;return LPB_RESULT_OK;
  }catch(...){reject(9,2,131,"Target v2 observation failed at exception boundary");return LPB_RESULT_INTERNAL_ERROR;}
+}
+lpb_result LPB_CALL lpb_target_validate_v2(lpb_context* context,const lpb_target_validation_request_v2* request,
+ const lpb_target_reader_v1* reader,lpb_target_validation_result_v2* output) {
+ return validate_target_extended(context,request,reader,output,nullptr);
+}
+lpb_result LPB_CALL lpb_target_validate_v3(lpb_context* context,const lpb_target_validation_request_v3* request,
+ const lpb_target_reader_v1* reader,lpb_target_validation_result_v2* output) {
+ if(!request||request->struct_size!=sizeof(*request)||request->version!=3||request->reserved)return LPB_RESULT_INVALID_ARGUMENT;
+ return validate_target_extended(context,&request->base,reader,output,&request->compound);
 }

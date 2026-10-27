@@ -1468,7 +1468,7 @@ public sealed class ImageConverterTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task Transform_HuaweiPrimaryJpeg_PreservesProjectObservedMetadataAndDoesNotMutateSource()
+    public async Task Transform_HuaweiRasterCodestream_PreservesMetadataAndRejectsWholeCompoundPrimary()
     {
         string source = ResolveSample("华为-Mate80.jpg");
         string beforeHash = await ComputeSha256Async(source);
@@ -1477,8 +1477,24 @@ public sealed class ImageConverterTests
         Assert.Equal(ImageContainer.Jpeg, facts.PrimaryImage.Container);
 
         using var workspace = new TestFixtureWorkspace();
+        string compoundPath = Path.Combine(workspace.RootDirectory, "huawei-compound.jpg");
+        await CopyRangeAsync(source, compoundPath, facts.PrimaryImage.ByteOffset, facts.PrimaryImage.ByteLength);
+        string compoundHash = await ComputeSha256Async(compoundPath);
+        string refused = Path.Combine(workspace.RootDirectory, "refused-transform.jpg");
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            NativeMediaService.TransformJpegLosslesslyAsync(compoundPath, refused, transform: 1));
+        Assert.Contains("structural reassembly", failure.Message);
+        Assert.False(File.Exists(refused));
+        Assert.Equal(compoundHash, await ComputeSha256Async(compoundPath));
         string primary = Path.Combine(workspace.RootDirectory, "huawei-primary.jpg");
-        await CopyRangeAsync(source, primary, facts.PrimaryImage.ByteOffset, facts.PrimaryImage.ByteLength);
+        // This primitive transforms one JPEG raster. The extraction primary
+        // now correctly includes the MPF secondary and ordinary camera data.
+        // The MPF declaration remains in this derived raster codestream; this
+        // fixture is not a valid singleton Neutral primary or MPF graph.
+        long rasterLength = Assert.Single(facts.AuxiliaryItems.Where(a => a.Semantic == "MpfAuxiliaryImage")).ByteOffset
+            - facts.PrimaryImage.ByteOffset;
+        Assert.InRange(rasterLength, 1, facts.PrimaryImage.ByteLength - 1);
+        await CopyRangeAsync(source, primary, facts.PrimaryImage.ByteOffset, rasterLength);
         PreservationObservation before = await NativeMediaService.CapturePreservationObservationAsync(
             primary, SourceProtocol.HuaweiMovingPhoto, ImageContainer.Jpeg);
         Assert.Equal((ushort)1, before.Orientation);

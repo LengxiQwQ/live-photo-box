@@ -16,6 +16,8 @@ internal sealed record TargetValidationExpectations(
     uint TargetProfile, uint MediaFormat, uint VideoCodec, long? CoverTimestampUs)
 {
     internal bool UseV2 { get; init; }
+    internal uint TargetVersion { get; init; } = 1;
+    internal NativeCompoundPrimaryObservation? Compound { get; init; }
     internal long? PrimaryTimestampUs { get; init; }
     internal IReadOnlyList<TargetAuxiliaryExpectation> Auxiliaries { get; init; } = [];
     internal uint? ImageWidth { get; init; }
@@ -91,7 +93,7 @@ internal static class NativeTargetValidator
             var request = new NativeTargetValidationRequestV1
             {
                 StructSize = (uint)sizeof(NativeTargetValidationRequestV1), Version = 1,
-                TargetProfile = expected.TargetProfile, TargetVersion = 1,
+                TargetProfile = expected.TargetProfile, TargetVersion = expected.TargetVersion,
                 MediaFormat = expected.MediaFormat, MemberCount = 1,
                 ExpectedVideoCodec = expected.VideoCodec,
                 CoverTimestampPresent = expected.CoverTimestampUs.HasValue ? 1u : 0,
@@ -109,7 +111,7 @@ internal static class NativeTargetValidator
                 {
                     var row = expected.Auxiliaries[i];
                     byte[] digest = Convert.FromHexString(row.Sha256);
-                    if (digest.Length != 32 || row.ByteLength == 0 || row.Semantic is not (1 or 2 or 3 or 4))
+                    if (digest.Length != 32 || row.ByteLength == 0 || row.Semantic is not (1 or 2 or 3 or 4 or 5))
                         throw new InvalidDataException("Target auxiliary expectation is incomplete.");
                     auxiliaries[i] = new NativeTargetAuxiliaryExpectationV2
                     {
@@ -129,7 +131,13 @@ internal static class NativeTargetValidator
                 };
                 var observedV2 = new NativeTargetValidationResultV2
                 { StructSize = (uint)sizeof(NativeTargetValidationResultV2), Version = 2 };
-                result = NativeMethods.TargetValidateV2(operation.Handle, &requestV2, &source, &observedV2);
+                if (expected.Compound is { } compound)
+                {
+                    var requestV3 = new NativeTargetValidationRequestV3
+                    { StructSize = (uint)sizeof(NativeTargetValidationRequestV3), Version = 3, Base = requestV2, Compound = compound };
+                    result = NativeMethods.TargetValidateV3(operation.Handle, &requestV3, &source, &observedV2);
+                }
+                else result = NativeMethods.TargetValidateV2(operation.Handle, &requestV2, &source, &observedV2);
                 observed = observedV2.Base;
                 actualV2 = observedV2;
             }
@@ -159,7 +167,7 @@ internal static class NativeTargetValidator
     {
         var facts = report.Observed;
         if (!report.CanPublish || facts.ObservedTargetProfile != expected.TargetProfile ||
-            facts.ObservedTargetVersion != 1 || facts.ObservedMediaFormat != expected.MediaFormat ||
+            facts.ObservedTargetVersion != expected.TargetVersion || facts.ObservedMediaFormat != expected.MediaFormat ||
             facts.ObservedVideoCodec != expected.VideoCodec || facts.ObservedAuxiliaryCount != expected.Auxiliaries.Count ||
             (expected.CoverTimestampUs is long cover &&
                 (facts.CoverEncoding != 1 || facts.ObservedCoverTimestampUs != cover)) ||

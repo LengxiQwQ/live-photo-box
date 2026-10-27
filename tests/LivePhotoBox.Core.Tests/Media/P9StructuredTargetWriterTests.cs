@@ -104,11 +104,13 @@ public sealed class P9StructuredTargetWriterTests
         Assert.Equal(2, Directory.GetFiles(folder.Path).Length);
     }
 
-    [Fact]
-    public async Task RealDirectoryAclDenialBlocksNativeStageWithoutPublicationAndRestoresAcl()
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public async Task RealDirectoryAclDenialBlocksNativeStageWithoutPublicationAndRestoresAcl(bool huawei)
     {
-        using var folder = new P9TargetTestInputs.Folder(nameof(RealDirectoryAclDenialBlocksNativeStageWithoutPublicationAndRestoresAcl));
-        var bundle = P9TargetTestInputs.Bundle(folder.Path);
+        using var folder = new P9TargetTestInputs.Folder(nameof(RealDirectoryAclDenialBlocksNativeStageWithoutPublicationAndRestoresAcl) + huawei);
+        var bundle = P9TargetTestInputs.Bundle(folder.Path, audio: huawei);
+        var selectedProfile = huawei ? OutputProfile.Create(TargetProtocol.HuaweiMovingPhoto, OutputMediaFormat.JpegMp4) : Profile;
         string denied = Path.Combine(folder.Path, "denied-stage"); Directory.CreateDirectory(denied);
         var directory = new DirectoryInfo(denied);
         DirectorySecurity original = directory.GetAccessControl(AccessControlSections.Access);
@@ -123,7 +125,7 @@ public sealed class P9StructuredTargetWriterTests
             var deniedProbe = Assert.Throws<UnauthorizedAccessException>(() => File.WriteAllBytes(Path.Combine(denied, "probe.bin"), [1]));
             probeError = deniedProbe.HResult;
             string final = Path.Combine(folder.Path, "target.jpg");
-            var failure = await Assert.ThrowsAsync<IOException>(() => StructuredTargetWriterService.WriteAsync(bundle, Profile,
+            var failure = await Assert.ThrowsAsync<IOException>(() => StructuredTargetWriterService.WriteAsync(bundle, selectedProfile,
                 final, denied, false, CancellationToken.None));
             stageFailure = failure.Message;
             Assert.False(File.Exists(final)); Assert.Empty(Directory.GetFiles(denied));
@@ -139,7 +141,7 @@ public sealed class P9StructuredTargetWriterTests
             directory.SetAccessControl(restored);
             string after = directory.GetAccessControl(AccessControlSections.Access).GetSecurityDescriptorSddlForm(AccessControlSections.Access);
             Assert.Equal(before, after);
-            string? evidence = Environment.GetEnvironmentVariable("LIVEPHOTOBOX_P9_R2_OUTPUTS");
+            string? evidence = Environment.GetEnvironmentVariable(huawei ? "LIVEPHOTOBOX_P9_R4_OUTPUTS" : "LIVEPHOTOBOX_P9_R2_OUTPUTS");
             if (!string.IsNullOrWhiteSpace(evidence))
             {
                 Directory.CreateDirectory(evidence);

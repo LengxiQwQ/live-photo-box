@@ -22,7 +22,7 @@ lpb_result inspect_gainmap_metadata(
     const char* primary_path,
     const char* materialized_gainmap_path,
     gainmap_metadata_facts& out_metadata,
-    bool share_existing_writer = false) noexcept;
+    bool share_existing_writer = false, uint64_t compound_token = 0) noexcept;
 
 lpb_result inspect_source(
     lpb_context* context,

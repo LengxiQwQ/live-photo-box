@@ -1,5 +1,6 @@
 #include "media/target_primary_observation.h"
 #include "media/jpeg_gainmap_mpf.h"
+#include "media/jpeg_mpf_vendor.h"
 #include "media/media_inspector.h"
 #include "media/target_writer.h"
 #include "containers/heif_internal.h"
@@ -51,6 +52,15 @@ bool jpeg_facts(std::span<const uint8_t> input, target_primary_observation& out,
         }
     }
     uint64_t cursor = out.encoding_boundary;
+    if(out.xmp.items.empty()&&mpf.mpf_status==jpeg_gainmap_mpf::status::present&&mpf.mpf.image_count==2) {
+        mpf_vendor_primary vendor;
+        if(!observe_mpf_vendor_primary(input,vendor)) {error="MPF auxiliary/ordinary metadata inventory is incomplete.";return false;}
+        target_primary_auxiliary aux;
+        aux.selector="jpeg:mpf:2";aux.owner_selector=out.primary_selector;aux.selector_kind=4;aux.selector_id=2;
+        aux.semantic="MpfAuxiliaryImage";aux.mime="image/jpeg";aux.item_type="jpeg";aux.relationship="mpf-image";
+        aux.range={vendor.auxiliary_offset,vendor.auxiliary_length};out.auxiliaries.push_back(std::move(aux));
+        cursor=input.size();
+    }
     if (!out.xmp.items.empty()) {
         if (out.xmp.items.front().padding > input.size() - cursor) { error="JPEG primary padding exceeds the observed span."; return false; }
         cursor += out.xmp.items.front().padding;

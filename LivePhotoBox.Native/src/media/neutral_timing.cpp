@@ -1,4 +1,5 @@
 #include "media/neutral_timing.h"
+#include "media/huawei_conformance.h"
 #include "media/media_inspector.h"
 #include "media/video_presentation_timing.h"
 #include "foundation/internal.h"
@@ -98,8 +99,10 @@ bool mdta_meta_scalar(std::span<const uint8_t> data,const isobmff_box_header& me
         const uint32_t index=read_be32u(data.data()+ip+4);
         if(index==0||index>count||!indexes.insert(index).second)return false;
         if(index==target) {
-            if(!child(data,ip+item.header_size,ip+item.size,"data",value)||value.size<value.header_size+8)return false;
+            if(!child(data,ip+item.header_size,ip+item.size,"data",value)||value.size<value.header_size+8||
+                value.start!=ip+item.header_size||value.size!=item.size-item.header_size)return false;
             const size_t vb=value.start+value.header_size;
+            if(read_be32u(data.data()+vb+4)!=0)return false;
             const uint32_t type=read_be32u(data.data()+vb);
             const size_t length=value.size-value.header_size-8;
             const uint8_t* payload=data.data()+vb+8;
@@ -112,7 +115,9 @@ bool mdta_meta_scalar(std::span<const uint8_t> data,const isobmff_box_header& me
                 if(parsed.ec!=std::errc{}||parsed.ptr!=first+length)return false;
             } else return false;
             if(!std::isfinite(milliseconds)||milliseconds<0||milliseconds>static_cast<double>(INT64_MAX/1000))return false;
-            microseconds=static_cast<int64_t>(std::round(milliseconds*1000));present=true;
+            const double rounded=std::round(milliseconds*1000);
+            if(!std::isfinite(rounded)||rounded>=static_cast<double>(INT64_MAX))return false;
+            microseconds=static_cast<int64_t>(rounded);present=true;
         }
         ip+=item.size;
     }
@@ -260,6 +265,31 @@ bool footer_frame(const std::vector<uint8_t>& data,int64_t& frame) {
     if(!std::all_of(end,start+20,[](char c){return c==' '||c=='\0';}))return false;
     auto result=std::from_chars(start+4,end,frame);return result.ec==std::errc{}&&result.ptr==end&&frame>=0;
 }
+}
+
+bool lpb::media::observe_huawei_source_timing(std::span<const uint8_t> movie,
+    uint32_t legacy_frame,int64_t& cover_us,uint32_t& total_frames) noexcept {
+    cover_us=-1;total_frames=0;
+    try {
+        bool present=false;int64_t modern=0;
+        if(!mdta_scalar(movie,"com.openharmony.covertime",present,modern))return false;
+        // LIVE_ identification has no mandatory cover. Unknown is explicit;
+        // malformed owned timing above never becomes an absent timestamp.
+        if(!present&&legacy_frame==UINT32_MAX)return true;
+        timeline observed{};
+        if(!inspect_isobmff_video_presentation_timeline(movie,observed))return false;
+        const auto samples=visible(observed);
+        if(samples.empty()||samples.size()>UINT32_MAX)return false;
+        total_frames=static_cast<uint32_t>(samples.size());
+        if(present) {
+            if(modern<0||modern>INT64_MAX/10)return false;
+            uint32_t index=0,count=0;if(!select_huawei_frame(observed,modern,index,count))return false;
+            cover_us=modern;
+        }else {
+            if(!project_huawei_legacy_cover(observed,legacy_frame,cover_us,total_frames))return false;
+        }
+        return true;
+    }catch(...){return false;}
 }
 
 LPB_API lpb_result LPB_CALL lpb_observe_neutral_timing_v1(lpb_context* context,

@@ -134,6 +134,8 @@ struct lpb_cleanup_plan_record
     lpb_plan_state state{lpb_plan_state::Issued};
     bool managed_claim_active{};
     bool native_call_active{};
+    bool compound_proof_issued{};
+    bool native_clean_succeeded{};
 };
 
 #if defined(LPB_NATIVE_TEST_HARNESS)

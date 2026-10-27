@@ -9,6 +9,7 @@
 #include <limits>
 #include <vector>
 #include <cstring>
+#include <set>
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -94,6 +95,71 @@ static bool has_complete_top_level_boxes(const uint8_t* data, size_t data_size) 
 
 struct box_entry { size_t start; size_t size; std::string name; };
 struct ilst_item { size_t start; size_t size; int32_t index; std::string value; };
+
+struct mdta_property { std::string name,value;bool present{}; };
+struct mdta_owner { size_t meta{};bool under_udta{};std::vector<mdta_property> properties; };
+// Shared strict read-only ownership inventory for authority discovery and the
+// real removal site. It never selects the first/last duplicate metadata owner.
+static bool collect_mdta_owners(std::span<const uint8_t> data,size_t moov,size_t moov_end,std::vector<mdta_owner>& out) {
+    out.clear();
+    const auto children=[&](size_t first,size_t last,std::vector<isobmff_box_header>& list) {
+        for(size_t p=first;p<last;) {isobmff_box_header h{};
+            if(!try_read_box_header(data.data(),p,last,h)||h.extends_to_end)return false;
+            list.push_back(h);p+=h.size;}
+        return true;
+    };
+    isobmff_box_header movie{};if(!try_read_box_header(data.data(),moov,moov_end,movie)||movie.start+movie.size!=moov_end)return false;
+    std::vector<isobmff_box_header> direct;if(!children(moov+movie.header_size,moov_end,direct))return false;
+    std::vector<std::pair<isobmff_box_header,bool>> metas;bool direct_seen=false,udta_seen=false;
+    for(const auto& b:direct) {
+        if(is_type(data,b.start,"meta")){if(direct_seen)return false;direct_seen=true;metas.emplace_back(b,false);}
+        if(is_type(data,b.start,"udta")) {
+            if(udta_seen)return false;udta_seen=true;
+            std::vector<isobmff_box_header> nested;if(!children(b.start+b.header_size,b.start+b.size,nested))return false;
+            bool nested_seen=false;
+            for(const auto& n:nested)if(is_type(data,n.start,"meta")){if(nested_seen)return false;nested_seen=true;metas.emplace_back(n,true);}
+        }
+    }
+    for(const auto& [meta,under]:metas) {
+        size_t first=meta.start+meta.header_size;const size_t end=meta.start+meta.size;
+        if(end-first>=4&&read_be32u(data.data()+first)==0)first+=4;
+        std::vector<isobmff_box_header> fields;if(!children(first,end,fields))return false;
+        const isobmff_box_header *handler=nullptr,*keys=nullptr,*ilst=nullptr;
+        for(const auto& f:fields) {
+            const isobmff_box_header** slot=is_type(data,f.start,"hdlr")?&handler:is_type(data,f.start,"keys")?&keys:is_type(data,f.start,"ilst")?&ilst:nullptr;
+            if(slot){if(*slot)return false;*slot=&f;}
+        }
+        if(!keys)continue; // ordinary iTunes/opaque data cannot own mdta keys
+        if(!handler||!ilst||handler->size<handler->header_size+12||keys->size<keys->header_size+8||
+           std::memcmp(data.data()+handler->start+handler->header_size+8,"mdta",4))return false;
+        const size_t key_body=keys->start+keys->header_size,key_end=keys->start+keys->size;
+        if(read_be32u(data.data()+key_body))return false;
+        const uint32_t count=read_be32u(data.data()+key_body+4);if(count>65536)return false;
+        mdta_owner owner{meta.start,under,{}};size_t p=key_body+8;std::set<std::string> names;
+        for(uint32_t i=0;i<count;++i) {
+            if(p>key_end||key_end-p<9)return false;const uint32_t n=read_be32u(data.data()+p);
+            if(n<9||n>key_end-p||std::memcmp(data.data()+p+4,"mdta",4))return false;
+            std::string name(reinterpret_cast<const char*>(data.data()+p+8),n-8);
+            if(name.find('\0')!=std::string::npos||!names.insert(name).second)return false;
+            owner.properties.push_back({std::move(name),{},false});p+=n;
+        }
+        if(p!=key_end)return false;
+        std::vector<isobmff_box_header> values;if(!children(ilst->start+ilst->header_size,ilst->start+ilst->size,values))return false;
+        std::set<uint32_t> indices;
+        for(const auto& value:values) {
+            const uint32_t index=read_be32u(data.data()+value.start+4);
+            if(!index||index>count||!indices.insert(index).second)return false;
+            std::vector<isobmff_box_header> scalars;if(!children(value.start+value.header_size,value.start+value.size,scalars)||
+                scalars.size()!=1||!is_type(data,scalars[0].start,"data")||scalars[0].size<scalars[0].header_size+8)return false;
+            const auto& scalar=scalars[0];const size_t body=scalar.start+scalar.header_size;
+            if(data[body])return false;
+            owner.properties[index-1].value.assign(reinterpret_cast<const char*>(data.data()+body+8),scalar.size-scalar.header_size-8);
+            owner.properties[index-1].present=true;
+        }
+        out.push_back(std::move(owner));
+    }
+    return true;
+}
 
 static std::vector<uint8_t> rebuild_container(
     std::span<const uint8_t> data, size_t box_start, size_t box_end, size_t children_start,
@@ -406,7 +472,7 @@ static bool rebuild_moov_without_matching_tracks(
     return true;
 }
 
-static bool rebuild_moov_without_matching_mdta_keys(
+static bool rebuild_one_moov_mdta_owner(
     lpb_context* context,
     std::span<const uint8_t> data,
     const char* const* name_starts,
@@ -417,13 +483,13 @@ static bool rebuild_moov_without_matching_mdta_keys(
     size_t value_contains_count,
     std::vector<uint8_t>& out_new_moov,
     bool& out_modified,
-    std::vector<bool>* out_starts_matched = nullptr,
-    std::vector<bool>* out_contains_matched = nullptr,
-    std::vector<std::string>* out_starts_fps = nullptr,
-    std::vector<std::string>* out_contains_fps = nullptr,
-    const lpb_cleanup_action* actions = nullptr,
-    size_t action_count = 0,
-    lpb_source_protocol expected_protocol = LPB_SOURCE_PROTOCOL_UNKNOWN)
+    std::vector<bool>* out_starts_matched,
+    std::vector<bool>* out_contains_matched,
+    std::vector<std::string>* out_starts_fps,
+    std::vector<std::string>* out_contains_fps,
+    const lpb_cleanup_action* actions,
+    size_t action_count,
+    lpb_source_protocol expected_protocol, size_t selected_meta)
 {
     out_modified = false;
     if (data.size() < 8 || !is_type(data, 0, "moov")) return false;
@@ -436,26 +502,15 @@ static bool rebuild_moov_without_matching_mdta_keys(
     const size_t moov_end = moov_size;
     const size_t missing = std::numeric_limits<size_t>::max();
 
-    bool meta_under_udta = false;
-    size_t meta = missing;
-    const size_t direct_meta = find_child_box(data, 8, moov_end, "meta");
-    if (direct_meta != missing) {
-        meta = direct_meta;
-    }
-    const size_t udta = find_child_box(data, 8, moov_end, "udta");
-    size_t udta_end = moov_end;
-    if (udta != missing) {
-        isobmff_box_header udta_header{};
-        if (!try_read_box_header(data.data(), udta, moov_end, udta_header)) {
-            set_error(context, "Malformed QuickTime udta box.");
-            return false;
-        }
-        udta_end = udta + udta_header.size;
-    }
-    if (meta == missing && udta != missing) {
-        meta = find_child_box(data, udta + 8, udta_end, "meta");
-        meta_under_udta = true;
-    }
+    std::vector<mdta_owner> inventory;
+    if(!collect_mdta_owners(data,0,moov_end,inventory)) {set_error(context,"Malformed or shadowed mdta ownership before mutation");return false;}
+    const auto selected=std::find_if(inventory.begin(),inventory.end(),[&](const auto& owner){return owner.meta==selected_meta;});
+    if(selected==inventory.end())return false;
+    const bool meta_under_udta=selected->under_udta;
+    const size_t meta=selected->meta;
+    const size_t udta=find_child_box(data,8,moov_end,"udta");
+    size_t udta_end=moov_end;
+    if(meta_under_udta){isobmff_box_header u{};if(udta==missing||!try_read_box_header(data.data(),udta,moov_end,u))return false;udta_end=udta+u.size;}
     if (meta == missing) {
         out_new_moov.assign(data.begin(), data.end());
         return true;
@@ -533,12 +588,8 @@ static bool rebuild_moov_without_matching_mdta_keys(
     bool any_removed = false;
 
     for (size_t i = 0; i < key_entries.size(); i++) {
-        int32_t item_pos = -1;
-        if (i < ilst_items.size()) {
-            int32_t idx = ilst_items[i].index;
-            item_pos = (idx >= 1 && idx <= static_cast<int32_t>(ilst_items.size()) && ilst_items[idx - 1].index == idx) ? idx - 1 : static_cast<int32_t>(i);
-        }
-        std::string value = item_pos >= 0 ? ilst_items[item_pos].value : "";
+        const auto owned=std::find_if(ilst_items.begin(),ilst_items.end(),[&](const auto& item){return item.index==static_cast<int32_t>(i+1);});
+        const std::string value=owned==ilst_items.end()?std::string{}:owned->value;
         std::string name = key_entries[i].name;
 
         bool should_remove = false;
@@ -726,6 +777,64 @@ static bool rebuild_moov_without_matching_mdta_keys(
 
     out_modified = true;
     return true;
+}
+
+static bool rebuild_moov_without_matching_mdta_keys(
+    lpb_context* context,
+    std::span<const uint8_t> data,
+    const char* const* name_starts,
+    size_t name_starts_count,
+    const char* const* name_contains,
+    size_t name_contains_count,
+    const char* const* value_contains,
+    size_t value_contains_count,
+    std::vector<uint8_t>& out_new_moov,
+    bool& out_modified,
+    std::vector<bool>* out_starts_matched = nullptr,
+    std::vector<bool>* out_contains_matched = nullptr,
+    std::vector<std::string>* out_starts_fps = nullptr,
+    std::vector<std::string>* out_contains_fps = nullptr,
+    const lpb_cleanup_action* actions = nullptr,
+    size_t action_count = 0,
+    lpb_source_protocol expected_protocol = LPB_SOURCE_PROTOCOL_UNKNOWN)
+{
+    out_modified=false;
+    if(out_starts_matched)out_starts_matched->assign(name_starts_count,false);
+    if(out_contains_matched)out_contains_matched->assign(name_contains_count,false);
+    if(out_starts_fps)out_starts_fps->assign(name_starts_count,{});
+    if(out_contains_fps)out_contains_fps->assign(name_contains_count,{});
+    std::vector<uint8_t> current(data.begin(),data.end());
+    for(unsigned pass=0;pass<3;++pass) {
+        std::vector<mdta_owner> owners;
+        if(!collect_mdta_owners(current,0,current.size(),owners)){set_error(context,"Malformed or ambiguous mdta owner graph");return false;}
+        size_t selected=SIZE_MAX;std::set<std::string> matched_names;
+        for(const auto& owner:owners)for(const auto& property:owner.properties) {
+            bool wanted=false;
+            for(size_t i=0;i<name_starts_count;++i)wanted=wanted||starts_with_icase(property.name,name_starts[i]);
+            for(size_t i=0;i<name_contains_count;++i)wanted=wanted||contains_icase(property.name,name_contains[i]);
+            for(size_t i=0;i<value_contains_count;++i)wanted=wanted||contains_icase(property.value,value_contains[i]);
+            if(wanted) {
+                if(!property.present||!matched_names.insert(property.name).second){set_error(context,"Duplicate/shadowed or missing mdta mutation property");return false;}
+                if(selected==SIZE_MAX)selected=owner.meta;
+            }
+        }
+        if(selected==SIZE_MAX){out_new_moov=std::move(current);return true;}
+        std::vector<bool> starts(name_starts_count,false),contains(name_contains_count,false);
+        std::vector<std::string> starts_fps(name_starts_count),contains_fps(name_contains_count);
+        std::vector<uint8_t> next;bool modified=false;
+        if(!rebuild_one_moov_mdta_owner(context,current,name_starts,name_starts_count,name_contains,name_contains_count,
+            value_contains,value_contains_count,next,modified,&starts,&contains,&starts_fps,&contains_fps,
+            actions,action_count,expected_protocol,selected)||!modified)return false;
+        const auto merge=[&](const auto& flags,const auto& fps,auto* target,auto* fingerprints){
+            for(size_t i=0;i<flags.size();++i)if(flags[i]) {
+                if(target)(*target)[i]=true;
+                if(fingerprints){if(!(*fingerprints)[i].empty()&&(*fingerprints)[i]!=fps[i])return false;(*fingerprints)[i]=fps[i];}
+            }return true;
+        };
+        if(!merge(starts,starts_fps,out_starts_matched,out_starts_fps)||!merge(contains,contains_fps,out_contains_matched,out_contains_fps))return false;
+        out_modified=true;current=std::move(next);
+    }
+    set_error(context,"mdta owner rewrite failed to converge within the bounded two-owner graph");return false;
 }
 
 extern "C" lpb_result LPB_CALL lpb_mp4_strip_stsd_tracks(
@@ -953,7 +1062,6 @@ lpb_result stream_clean_mp4_bytes(
     };
     std::vector<BoxEntry> boxes;
     uint64_t pos = 0;
-    uint64_t mdat_offset = std::numeric_limits<uint64_t>::max();
     size_t moov_index = std::numeric_limits<size_t>::max();
 
     while (pos < file_size) {
@@ -991,10 +1099,8 @@ lpb_result stream_clean_mp4_bytes(
         b.size = s;
         std::memcpy(b.type, hdr + 4, 4);
 
-        if (std::memcmp(b.type, "mdat", 4) == 0 && mdat_offset == std::numeric_limits<uint64_t>::max()) {
-            mdat_offset = pos;
-        }
-        if (std::memcmp(b.type, "moov", 4) == 0 && moov_index == std::numeric_limits<size_t>::max()) {
+        if (std::memcmp(b.type, "moov", 4) == 0) {
+            if (moov_index != std::numeric_limits<size_t>::max()) return LPB_RESULT_INVALID_ARGUMENT;
             moov_index = boxes.size();
         }
         if (spec.strip_uuid_16 != nullptr && std::memcmp(b.type, "uuid", 4) == 0 && s >= hdr_sz + 16) {
@@ -1098,6 +1204,61 @@ lpb_result stream_clean_mp4_bytes(
         }
     }
 
+    // Resolve every retained chunk against its own original mdat. Metadata and
+    // UUID removals can move different mdats by different amounts.
+    if (moov_index != std::numeric_limits<size_t>::max() &&
+        (outcome.uuid_removed || outcome.mdta_removed || outcome.track_removed)) {
+        std::vector<isobmff_media_data_range> mdats;
+        std::vector<uint64_t> relocated;
+        uint64_t next = 0;
+        for (size_t i = 0; i < boxes.size(); ++i) {
+            const auto& b = boxes[i];
+            if (b.is_target_uuid) continue;
+            if (!std::memcmp(b.type, "mdat", 4)) {
+                const size_t header = read_be32u(in_bytes.data() + b.offset) == 1 ? 16 : 8;
+                mdats.push_back({b.offset + header, b.offset + b.size});
+                relocated.push_back(next + header);
+            }
+            const uint64_t size = i == moov_index ? moov_data.size() : b.size;
+            if (next > UINT64_MAX - size) return LPB_RESULT_INVALID_ARGUMENT;
+            next += size;
+        }
+        isobmff_box_header root{};
+        if (!try_read_box_header(moov_data.data(), 0, moov_data.size(), root) || root.size != moov_data.size())
+            return LPB_RESULT_INVALID_ARGUMENT;
+        for (size_t p = root.header_size; p < moov_data.size();) {
+            isobmff_box_header track{};
+            if (!try_read_box_header(moov_data.data(), p, moov_data.size(), track)) return LPB_RESULT_INVALID_ARGUMENT;
+            if (is_type(moov_data, p, "trak")) {
+                size_t first = p + track.header_size, end = p + track.size;
+                for (const char* type : {"mdia", "minf", "stbl"}) {
+                    const size_t child = find_child_box(moov_data, first, end, type);
+                    isobmff_box_header h{};
+                    if (!child || !try_read_box_header(moov_data.data(), child, end, h)) return LPB_RESULT_INVALID_ARGUMENT;
+                    first = child + h.header_size; end = child + h.size;
+                }
+                isobmff_sample_table_layout table{};
+                if (!inspect_isobmff_sample_table(moov_data, first, end, mdats, 0, table)) return LPB_RESULT_INVALID_ARGUMENT;
+                for (size_t i = 0; i < table.chunks.size(); ++i) {
+                    const auto& chunk = table.chunks[i]; size_t owner = mdats.size();
+                    for (size_t j = 0; j < mdats.size(); ++j) if (chunk.offset >= mdats[j].start &&
+                        chunk.offset <= mdats[j].end && chunk.size <= mdats[j].end - chunk.offset) {
+                        if (owner != mdats.size()) return LPB_RESULT_INVALID_ARGUMENT; owner = j;
+                    }
+                    if (owner == mdats.size()) return LPB_RESULT_INVALID_ARGUMENT;
+                    const uint64_t relative = chunk.offset - mdats[owner].start;
+                    if (relocated[owner] > UINT64_MAX - relative) return LPB_RESULT_INVALID_ARGUMENT;
+                    const uint64_t value = relocated[owner] + relative;
+                    const size_t width = table.chunk_offset_width, at = table.chunk_offsets_entries_start + i * width;
+                    if ((width != 4 && width != 8) || at > moov_data.size() || width > moov_data.size() - at ||
+                        (width == 4 && value > UINT32_MAX)) return LPB_RESULT_INVALID_ARGUMENT;
+                    for (size_t j = 0; j < width; ++j) moov_data[at + j] = static_cast<uint8_t>(value >> ((width - 1 - j) * 8));
+                }
+            }
+            p += track.size;
+        }
+    }
+
     auto p_out = utf8_to_path(out_path.c_str());
     std::error_code ec;
     auto temp_dir = p_out.parent_path();
@@ -1128,28 +1289,6 @@ lpb_result stream_clean_mp4_bytes(
             return LPB_RESULT_INTERNAL_ERROR;
         }
         return LPB_RESULT_OK;
-    }
-
-    // 3. Compute exact mdat shift and adjust chunk offsets
-    if (moov_index != std::numeric_limits<size_t>::max() && mdat_offset != std::numeric_limits<uint64_t>::max()) {
-        int64_t mdat_shift = 0;
-        for (const auto& b : boxes) {
-            if (b.is_target_uuid && b.offset < mdat_offset) {
-                mdat_shift -= static_cast<int64_t>(b.size);
-            }
-        }
-        if (moov_offset < mdat_offset) {
-            int64_t moov_shrinkage = static_cast<int64_t>(old_moov_size) - static_cast<int64_t>(moov_data.size());
-            mdat_shift -= moov_shrinkage;
-        }
-        if (mdat_shift != 0) {
-            if (!shift_chunk_offsets(moov_data, 0, 0, mdat_shift)) {
-                static_cast<void>(lpb_platform_dispose_owned(out_handle));
-                CloseHandle(out_handle);
-                set_error(context, "Failed to adjust chunk offsets in moov.");
-                return LPB_RESULT_INTERNAL_ERROR;
-            }
-        }
     }
 
     // 4. Stream-write to temporary file through the creating handle
@@ -1190,126 +1329,20 @@ lpb_result stream_clean_mp4_bytes(
     return LPB_RESULT_OK;
 }
 
-bool mp4_get_mdta_key_fingerprint(
-    std::span<const uint8_t> data,
-    std::string_view target_key,
-    std::string& out_fp)
+bool mp4_get_mdta_key_fingerprint(std::span<const uint8_t> data,std::string_view target_key,std::string& out_fp)
 {
-    if (data.size() < 8 || target_key.empty()) return false;
-    const size_t missing = std::numeric_limits<size_t>::max();
-    size_t moov = missing;
-    size_t p = 0;
-    while (p + 8 <= data.size()) {
-        isobmff_box_header box{};
-        if (!try_read_box_header(data.data(), p, data.size(), box)) break;
-        if (std::memcmp(data.data() + p + 4, "moov", 4) == 0) {
-            moov = p;
-            break;
-        }
-        p += box.size;
+    out_fp.clear();if(target_key.empty())return false;
+    size_t movie=SIZE_MAX,movie_end=0;
+    for(size_t p=0;p<data.size();) {isobmff_box_header b{};if(!try_read_box_header(data.data(),p,data.size(),b)||b.extends_to_end)return false;
+        if(is_type(data,p,"moov")){if(movie!=SIZE_MAX)return false;movie=p;movie_end=p+b.size;}p+=b.size;}
+    if(movie==SIZE_MAX)return false;
+    std::vector<mdta_owner> owners;if(!collect_mdta_owners(data,movie,movie_end,owners))return false;
+    const mdta_property* found=nullptr;
+    for(const auto& owner:owners)for(const auto& property:owner.properties)if(property.name==target_key) {
+        if(found||!property.present)return false;found=&property;
     }
-    if (moov == missing || moov + 8 > data.size()) return false;
-
-    isobmff_box_header moov_header{};
-    if (!try_read_box_header(data.data(), moov, data.size(), moov_header)) return false;
-    const size_t moov_end = moov + moov_header.size;
-
-    size_t meta_start = missing;
-    isobmff_box_header meta{};
-    p = moov + moov_header.header_size;
-    while (p < moov_end) {
-        isobmff_box_header box{};
-        if (!try_read_box_header(data.data(), p, moov_end, box)) break;
-        if (std::memcmp(data.data() + p + 4, "meta", 4) == 0) {
-            meta_start = p;
-            meta = box;
-            break;
-        }
-        if (std::memcmp(data.data() + p + 4, "udta", 4) == 0) {
-            size_t up = p + box.header_size;
-            size_t uend = p + box.size;
-            while (up < uend) {
-                isobmff_box_header ubox{};
-                if (!try_read_box_header(data.data(), up, uend, ubox)) break;
-                if (std::memcmp(data.data() + up + 4, "meta", 4) == 0) {
-                    meta_start = up;
-                    meta = ubox;
-                    break;
-                }
-                up += ubox.size;
-            }
-            if (meta_start != missing) break;
-        }
-        p += box.size;
-    }
-    if (meta_start == missing || meta.size < meta.header_size + 8) return false;
-
-    const size_t meta_end = meta_start + meta.size;
-    size_t child_start = meta_start + meta.header_size;
-    isobmff_box_header first_child{};
-    if (!try_read_box_header(data.data(), child_start, meta_end, first_child)) {
-        if (child_start <= meta_end - 4 && try_read_box_header(data.data(), child_start + 4, meta_end, first_child)) {
-            child_start += 4;
-        }
-    }
-
-    size_t keys_start = missing;
-    isobmff_box_header keys{};
-    size_t ilst_start = missing;
-    isobmff_box_header ilst{};
-    p = child_start;
-    while (p < meta_end) {
-        isobmff_box_header box{};
-        if (!try_read_box_header(data.data(), p, meta_end, box)) break;
-        if (std::memcmp(data.data() + p + 4, "keys", 4) == 0) {
-            keys_start = p;
-            keys = box;
-        } else if (std::memcmp(data.data() + p + 4, "ilst", 4) == 0) {
-            ilst_start = p;
-            ilst = box;
-        }
-        p += box.size;
-    }
-    if (keys_start == missing || keys.size < keys.header_size + 8) return false;
-
-    const size_t keys_body = keys_start + keys.header_size;
-    const int32_t key_count = read_be32(data.data() + keys_body + 4);
-    if (key_count <= 0 || key_count > 1024) return false;
-    size_t key_pos = keys_body + 8;
-    int32_t target_index = -1;
-    for (uint32_t index = 1; index <= static_cast<uint32_t>(key_count); ++index) {
-        if (key_pos > keys_start + keys.size || keys_start + keys.size - key_pos < 8) return false;
-        const int32_t key_size = read_be32(data.data() + key_pos);
-        if (key_size < 8 || static_cast<size_t>(key_size) > keys_start + keys.size - key_pos) return false;
-        if (std::memcmp(data.data() + key_pos + 4, "mdta", 4) == 0) {
-            std::string name = read_key_name(data.data(), key_pos, static_cast<size_t>(key_size));
-            if (name == target_key) {
-                target_index = static_cast<int32_t>(index);
-                break;
-            }
-        }
-        key_pos += static_cast<size_t>(key_size);
-    }
-    if (target_index < 0) return false;
-
-    std::string val_str;
-    if (ilst_start != missing && ilst.size >= 8) {
-        size_t ip = ilst_start + 8;
-        size_t ilst_end = ilst_start + ilst.size;
-        while (ip <= ilst_end && ilst_end - ip >= 8) {
-            int32_t item_size = read_be32(data.data() + ip);
-            if (item_size < 8 || static_cast<size_t>(item_size) > ilst_end - ip) break;
-            int32_t idx = read_be32(data.data() + ip + 4);
-            if (idx == target_index) {
-                val_str = read_ilst_value(data.data(), ip + 8, ip + static_cast<size_t>(item_size));
-                break;
-            }
-            ip += static_cast<size_t>(item_size);
-        }
-    }
-
-    out_fp = lpb::crypto::compute_mdta_key_fingerprint(
-        target_key, reinterpret_cast<const uint8_t*>(val_str.data()), val_str.size());
+    if(!found)return false;
+    out_fp=lpb::crypto::compute_mdta_key_fingerprint(target_key,reinterpret_cast<const uint8_t*>(found->value.data()),found->value.size());
     return true;
 }
 

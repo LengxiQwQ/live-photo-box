@@ -516,6 +516,9 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     // so a foreign writer cannot replace the namespace entry
                     // that the pathname-based validators will resolve.
                     journal.AcquireValidationNamespaceLease(facts.Protocol);
+                    if (facts.PreservationCarriers.Any(carrier => carrier.Kind == PreservationCarrierKind.OpaqueFragment &&
+                        carrier.Semantic == "OpaqueSourcePrefix"))
+                        cleanupPlan = cleanupPlan with { CompoundPrimary = NativeCompoundPrimary.FromCleanup(planAttempt, stagedImgPath) };
                     if (FaultInjectionHook != null)
                     {
                         await FaultInjectionHook(
@@ -935,6 +938,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             // be re-claimed as this transaction's output.
             var cleanImgArtifact = new MediaArtifact
             {
+                CompoundPrimary = cleanupPlan.CompoundPrimary,
                 Path = imgPublished!.FinalPath,
                 Kind = MediaArtifactKind.PrimaryImage,
                 MimeType = bundle.PrimaryImage.MimeType,

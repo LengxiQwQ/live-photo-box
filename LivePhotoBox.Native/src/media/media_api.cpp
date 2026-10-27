@@ -1,4 +1,5 @@
 #include "media/media_inspector.h"
+#include "media/compound_primary.h"
 #include "media/jpeg_gainmap_mpf.h"
 #include "media/media_extractor.h"
 #include "media/image_converter.h"
@@ -195,11 +196,11 @@ bool read_locked_media_file(lpb_context* context, HANDLE handle, std::vector<uin
     return position == bytes.size();
 }
 
-LPB_API lpb_result LPB_CALL lpb_inspect_gainmap_metadata_v1(
+static lpb_result inspect_gainmap_metadata_entry(
     lpb_context* context,
     const char* primary_image_path,
     const char* materialized_gainmap_path,
-    lpb_gainmap_metadata_v1* out_metadata)
+    lpb_gainmap_metadata_v1* out_metadata, uint64_t compound_token)
 {
     lpb_context_operation context_operation(context);
     if (!context_operation.acquired() || !primary_image_path || !out_metadata ||
@@ -209,8 +210,13 @@ LPB_API lpb_result LPB_CALL lpb_inspect_gainmap_metadata_v1(
     }
     gainmap_metadata_facts metadata{};
     const lpb_result result = inspect_gainmap_metadata(context, primary_image_path,
-        materialized_gainmap_path, metadata);
+        materialized_gainmap_path, metadata, false, compound_token);
     if (result != LPB_RESULT_OK) return result;
+    if (compound_token) {
+        const auto proof = lpb::media::find_compound_primary(compound_token);
+        if (!proof || proof->revoked) return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+    if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) return LPB_RESULT_CANCELLED;
     out_metadata->kind = static_cast<lpb_gainmap_metadata_kind>(metadata.kind);
     if (metadata.kind == gainmap_metadata_kind::iso) {
         std::copy(metadata.iso.gain_map_min.begin(), metadata.iso.gain_map_min.end(), out_metadata->gain_map_min);
@@ -226,6 +232,16 @@ LPB_API lpb_result LPB_CALL lpb_inspect_gainmap_metadata_v1(
         out_metadata->apple_maker_note_48 = metadata.apple_maker_note_48;
     }
     return LPB_RESULT_OK;
+}
+
+LPB_API lpb_result LPB_CALL lpb_inspect_gainmap_metadata_v1(lpb_context* context,
+    const char* primary,const char* materialized,lpb_gainmap_metadata_v1* output) {
+    return inspect_gainmap_metadata_entry(context,primary,materialized,output,0);
+}
+LPB_API lpb_result LPB_CALL lpb_compound_primary_gainmap_v1(lpb_context* context,uint64_t token,
+    const char* primary,const char* materialized,lpb_gainmap_metadata_v1* output) {
+    if(!token)return LPB_RESULT_AUTHORITY_VIOLATION;
+    return inspect_gainmap_metadata_entry(context,primary,materialized,output,token);
 }
 
 LPB_API lpb_result LPB_CALL lpb_decode_heic_primary_image(
@@ -1512,6 +1528,7 @@ LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_cleanup_plan(
             if (record != nullptr && record->owner_context == context)
             {
                 record->native_call_active = false;
+                record->native_clean_succeeded = result == LPB_RESULT_OK;
                 if (record->state == lpb_plan_state::Claimed && !record->managed_claim_active)
                 {
                     record->state = lpb_plan_state::Consumed;

@@ -49,6 +49,18 @@ int main(){
   put16(thumbnail,80,0,big);REQUIRE(!observe(image({thumbnail}),out));
  }
  const bytes marker{'o','p','l','u','s','_','1','0','4','8','5','7','9','2',0};
+ for(bool big:{false,true}) {
+  bytes vendor(6+128,0);std::copy_n("Exif\0\0",6,vendor.begin());vendor[6]=vendor[7]=big?'M':'I';
+  put16(vendor,8,42,big);put32(vendor,10,8,big);put16(vendor,14,1,big);
+  put16(vendor,16,0x8769,big);put16(vendor,18,4,big);put32(vendor,20,1,big);put32(vendor,24,26,big);
+  put16(vendor,32,2,big);
+  for(size_t i=0;i<2;++i){const size_t at=34+i*12;put16(vendor,at,0x927c,big);put16(vendor,at+2,7,big);put32(vendor,at+4,12,big);put32(vendor,at+8,static_cast<uint32_t>(80+i*20),big);}
+  std::copy_n("HUAWEI_NOTE",11,vendor.begin()+86);std::copy_n("HONOR_NOTE_",11,vendor.begin()+106);
+  REQUIRE(observe(image({vendor}),out)&&out.exif_payload==vendor);
+  auto apple_shadow=vendor;std::copy_n("Apple iOS",9,apple_shadow.begin()+86);
+  REQUIRE(!observe(image({apple_shadow}),out));
+  auto overlapping=vendor;put32(overlapping,54,80,big);REQUIRE(!observe(image({overlapping}),out));
+ }
  for(bool big:{false,true}){
   bytes unknown(32,0);std::copy_n("Exif\0\0",6,unknown.begin());unknown[6]=unknown[7]=big?'M':'I';
   put16(unknown,8,42,big);put32(unknown,10,8,big);put16(unknown,14,1,big);

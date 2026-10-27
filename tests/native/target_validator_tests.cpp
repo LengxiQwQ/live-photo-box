@@ -20,7 +20,7 @@
 namespace fs=std::filesystem;
 #define REQUIRE(x) do{if(!(x))throw std::runtime_error(std::string("line ")+std::to_string(__LINE__)+": "+#x);}while(false)
 std::vector<uint8_t> load(const fs::path& p){std::ifstream f(p,std::ios::binary);REQUIRE(f.good());return {std::istreambuf_iterator<char>(f),{}};}
-lpb_context* make_context(){lpb_context_options o{};o.struct_size=sizeof(o);o.abi_version=15;lpb_context* c{};REQUIRE(lpb_create_context(&o,&c)==LPB_RESULT_OK);return c;}
+lpb_context* make_context(){lpb_context_options o{};o.struct_size=sizeof(o);o.abi_version=16;lpb_context* c{};REQUIRE(lpb_create_context(&o,&c)==LPB_RESULT_OK);return c;}
 lpb_target_validation_request_v1 request(){return {sizeof(lpb_target_validation_request_v1),1,2,1,0,1,0,0,0,0,2,0,0,0};}
 struct memory {
  std::vector<uint8_t> bytes;lpb_context* context{};int mode{};bool tested{};
@@ -267,7 +267,7 @@ struct writer_fixture {
  }
 };
 lpb_context* callback_context(lifecycle_callback& callback){
- lpb_context_options options{};options.struct_size=sizeof(options);options.abi_version=15;
+ lpb_context_options options{};options.struct_size=sizeof(options);options.abi_version=16;
  options.cancel_callback=lifecycle_callback::cancel;options.user_data=&callback;
  lpb_context* result{};REQUIRE(lpb_create_context(&options,&result)==LPB_RESULT_OK);callback.context=result;return result;
 }

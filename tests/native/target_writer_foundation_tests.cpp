@@ -134,7 +134,7 @@ int32_t LPB_CALL cancel(void* user) {
     return 0;
 }
 lpb_context* context(callbacks* callback=nullptr) {
-    lpb_context_options options{};options.struct_size=sizeof(options);options.abi_version=15;
+    lpb_context_options options{};options.struct_size=sizeof(options);options.abi_version=16;
     if(callback){options.cancel_callback=cancel;options.user_data=callback;}
     lpb_context* result{};REQUIRE(lpb_create_context(&options,&result)==LPB_RESULT_OK);
     if(callback)callback->context=result;return result;
@@ -230,7 +230,7 @@ int main(int argc,char** argv) {
         const std::string directory_utf8=argv[1];
         const fs::path directory=std::u8string(reinterpret_cast<const char8_t*>(directory_utf8.data()),directory_utf8.size());
         fixture f(directory);
-        REQUIRE(lpb_get_abi_version()==15);REQUIRE(sizeof(lpb_target_writer_artifact_v1)==1112);
+        REQUIRE(lpb_get_abi_version()==16);REQUIRE(sizeof(lpb_target_writer_artifact_v1)==1112);
         REQUIRE(sizeof(lpb_target_writer_request_v1)==1080);REQUIRE(sizeof(lpb_target_writer_output_v1)==144);REQUIRE(sizeof(lpb_target_writer_status_v1)==32);
         auto* owner=context();auto* other=context();lpb_target_writer_plan* plan{};
         // Null context and unissued tokens cannot borrow any Writer authority.

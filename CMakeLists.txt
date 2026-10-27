@@ -75,6 +75,9 @@ set(LPB_MEDIA_SOURCES
   LivePhotoBox.Native/src/media/target_validator_v2.cpp
   LivePhotoBox.Native/src/media/target_primary_observation.cpp
   LivePhotoBox.Native/src/media/target_video_observation.cpp
+  LivePhotoBox.Native/src/protocols/huawei_target.cpp
+  LivePhotoBox.Native/src/media/huawei_conformance.cpp
+  LivePhotoBox.Native/src/media/compound_primary.cpp
   LivePhotoBox.Native/src/media/jpeg_observation.cpp
   LivePhotoBox.Native/src/metadata/target_exif.cpp
   LivePhotoBox.Native/src/protocols/google_v2_writer.cpp
@@ -263,6 +266,15 @@ if(BUILD_TESTING)
   target_compile_options(lpb_target_video_observation_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
   target_link_libraries(lpb_target_video_observation_tests PRIVATE livephotobox_portable_core)
   add_test(NAME P9R3_VideoMetadata COMMAND lpb_target_video_observation_tests)
+  add_executable(lpb_huawei_target_movie_tests tests/native/huawei_target_movie_tests.cpp
+    LivePhotoBox.Native/src/protocols/huawei_target.cpp
+    LivePhotoBox.Native/src/media/huawei_conformance.cpp
+    LivePhotoBox.Native/src/media/target_video_observation.cpp)
+  target_include_directories(lpb_huawei_target_movie_tests PRIVATE LivePhotoBox.Native/include LivePhotoBox.Native/src)
+  target_compile_options(lpb_huawei_target_movie_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+  target_link_libraries(lpb_huawei_target_movie_tests PRIVATE livephotobox_portable_core)
+  add_test(NAME P9R4_HuaweiMovie COMMAND lpb_huawei_target_movie_tests
+    "${CMAKE_SOURCE_DIR}/.ai-tmp/workspace/P9/target-writers/R2/inputs")
   add_executable(lpb_target_heif_xmp_tests tests/native/target_heif_xmp_tests.cpp)
   target_include_directories(lpb_target_heif_xmp_tests PRIVATE LivePhotoBox.Native/include LivePhotoBox.Native/src)
   target_compile_options(lpb_target_heif_xmp_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)

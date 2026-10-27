@@ -2,8 +2,11 @@
 #include "media/xmp_observation.h"
 #include "media/media_inspector.h"
 #include "media/target_writer.h"
+#include "media/huawei_conformance.h"
+#include "media/neutral_timing.h"
 #include "metadata/exif.h"
 #include "media/jpeg_gainmap_mpf.h"
+#include "media/jpeg_mpf_vendor.h"
 #include "media/video_converter.h"
 #include "foundation/internal.h"
 #include "foundation/sha256.h"
@@ -1490,66 +1493,42 @@ static bool check_huawei_moving_photo(
     int64_t& out_cover_time_us,
     bool& is_honor)
 {
-    if (data.size() < 60) return false;
-
-    size_t scan_start = data.size() > 4096 ? data.size() - 4096 : 0;
-    std::string_view tail(reinterpret_cast<const char*>(data.data() + scan_start), data.size() - scan_start);
-
-    auto live_pos = tail.rfind("LIVE_");
-    if (live_pos == std::string_view::npos) return false;
-
-    size_t actual_live_pos = scan_start + live_pos;
-
-    // Parse LIVE_NNNNNNN
-    // LIVE_ is the final 20-byte field of the fixed 60-byte footer.  A marker
-    // in an MP4 sample or a stale value in the middle of the file must not
-    // become a destructive range candidate.
-    if (actual_live_pos != data.size() - 20) return false;
-    const std::string_view num_part = tail.substr(live_pos + 5, 15);
-    uint64_t mp4_plus_20 = 0;
-    const char* first = num_part.data();
-    const char* last = first + num_part.size();
-    const char* digit_end = first;
-    while (digit_end < last && *digit_end >= '0' && *digit_end <= '9') ++digit_end;
-    auto parsed = std::from_chars(first, digit_end, mp4_plus_20, 10);
-    bool padding_ok = true;
-    for (const char* p = digit_end; p < last; ++p) padding_ok = padding_ok && (*p == ' ' || *p == '\0');
-    if (parsed.ec == std::errc{} && parsed.ptr == digit_end && digit_end != first && padding_ok &&
-        mp4_plus_20 > 20 && mp4_plus_20 <= file_size) {
-        out_video_len = mp4_plus_20 - 20;
-
-        size_t trailer_start = (actual_live_pos >= 40) ? (actual_live_pos - 40) : 0;
-        if (trailer_start > file_size || out_video_len > trailer_start) return false;
-        out_video_offset = trailer_start - out_video_len;
-        if (out_video_offset > file_size || out_video_len > file_size - out_video_offset ||
-            !is_valid_isobmff_media_range(data.data(), data.size(), out_video_offset, out_video_len)) return false;
-
-        // Check if Honor (uses v2_f prefix or contains srcDstWh)
-        if (tail.find("v2_f") != std::string_view::npos || 
-            tail.find("srcDstWh") != std::string_view::npos ||
-            tail.find("v1_f") != std::string_view::npos) {
-            is_honor = true;
-        } else {
-            is_honor = false;
-        }
-
-        if (trailer_start + 40 <= data.size()) {
-            std::string_view time_part(reinterpret_cast<const char*>(data.data() + trailer_start + 20), 20);
-            auto colon = time_part.find(':');
-            if (colon != std::string_view::npos) {
-                uint64_t cover_ms = 0;
-                const auto time_value = time_part.substr(0, colon);
-                auto time_parsed = std::from_chars(time_value.data(), time_value.data() + time_value.size(), cover_ms, 10);
-                if (time_parsed.ec == std::errc{} && time_parsed.ptr == time_value.data() + time_value.size() &&
-                    cover_ms <= static_cast<uint64_t>(std::numeric_limits<int64_t>::max() / 1000)) {
-                    out_cover_time_us = static_cast<int64_t>(cover_ms * 1000);
-                }
+    if (data.size() != file_size || data.size() < 60) return false;
+    lpb::media::huawei_footer_observation footer;
+    const bool has_legacy_frame = lpb::media::observe_huawei_footer(std::span<const uint8_t>(data).last(60), footer);
+    if (!has_legacy_frame) {
+        const auto* legacy=data.data()+data.size()-60;
+        if(!std::memcmp(legacy,"v6_f",4)||!std::memcmp(legacy,"v2_f",4))return false;
+        // LIVE_ is the source identification marker. Older/minimal sources
+        // need not carry the legacy album frame field. Do not invent timing.
+        const auto* marker = data.data() + data.size() - 20;
+        if (std::memcmp(marker,"LIVE_",5)) return false;
+        uint64_t length = 0; size_t digits = 0;
+        for (size_t i=5;i<20;++i) {
+            const uint8_t c=marker[i];
+            if(c==' '||c==0) {
+                for(size_t j=i;j<20;++j)if(marker[j]!=' '&&marker[j]!=0)return false;
+                break;
             }
+            if(c<'0'||c>'9'||length>(UINT64_MAX-(c-'0'))/10)return false;
+            length=length*10+(c-'0');++digits;
         }
-        return true;
+        if(!digits||length<=20)return false;
+        footer.movie_length=length-20;
     }
-
-    return false;
+    const uint64_t trailer_start = file_size - 60;
+    if (footer.movie_length >= trailer_start) return false;
+    out_video_len = footer.movie_length;
+    out_video_offset = trailer_start - out_video_len;
+    // LIVE_ owns the COMPLETE bounded MP4, including legal top-level UUID
+    // stabilization boxes after moov. Neither moov end nor text search can
+    // choose the media boundary. Unowned non-box suffix bytes fail closed.
+    if (!is_valid_isobmff_media_range(data.data(), data.size(), out_video_offset, out_video_len)) return false;
+    is_honor = footer.variant == 2;
+    uint32_t total_frames = 0;
+    return lpb::media::observe_huawei_source_timing(
+        std::span<const uint8_t>(data).subspan(static_cast<size_t>(out_video_offset), static_cast<size_t>(out_video_len)),
+        has_legacy_frame ? footer.frame : UINT32_MAX, out_cover_time_us, total_frames);
 }
 
 static int check_samsung_sef_jpeg(
@@ -3657,12 +3636,46 @@ lpb_result inspect_source(
                 }
             }
         }
+        bool retained_mpf_vendor=false;
+        if(img_cont==LPB_IMAGE_CONTAINER_JPEG&&!out_facts->gain_map.is_present) {
+            mpf_vendor_primary vendor;
+            if(observe_mpf_vendor_primary(std::span<const uint8_t>(primary_data).first(static_cast<size_t>(huawei_vid_off)),vendor)) {
+                if(!publish_auxiliary_item(out_facts,primary_data,LPB_IMAGE_CONTAINER_JPEG,
+                    {vendor.auxiliary_offset,vendor.auxiliary_length},LPB_AUX_REPRESENTATION_EMBEDDED,
+                    LPB_AUX_OWNER_PRIMARY,2,"mpf-image","MpfAuxiliaryImage","mpf-image:2","primary:0",LPB_AUX_CODEC_JPEG))return LPB_RESULT_INVALID_ARGUMENT;
+                if(vendor.metadata_length&&!publish_preservation_carrier(out_facts,primary_data,LPB_PRESERVATION_CARRIER_CONTAINER_METADATA,
+                    {vendor.metadata_offset,vendor.metadata_length},"primary-metadata:VLDMAGIC","CameraMetadata","primary:0","opaque-camera-metadata"))return LPB_RESULT_INVALID_ARGUMENT;
+                retained_mpf_vendor=true;
+            }
+            else {
+                jpeg_gainmap_mpf::jpeg_info inventory;
+                if(!jpeg_gainmap_mpf::parse_jpeg(std::span<const uint8_t>(primary_data).first(static_cast<size_t>(huawei_vid_off)),inventory)||
+                   inventory.mpf_status!=jpeg_gainmap_mpf::status::absent) {
+                    set_error(context,"Huawei MPF prefix cannot be retained as a complete image inventory.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                if(jpeg_end!=huawei_vid_off) {
+                    set_error(context,"Huawei image prefix has unclassified bytes without preservation lineage.");
+                    return LPB_RESULT_UNSUPPORTED;
+                }
+            }
+        }
+        if(img_cont==LPB_IMAGE_CONTAINER_JPEG&&out_facts->gain_map.is_present) {
+            const uint64_t known_end=out_facts->gain_map.file_range.offset+out_facts->gain_map.file_range.length;
+            if(known_end>huawei_vid_off)return LPB_RESULT_INVALID_ARGUMENT;
+            if(known_end<huawei_vid_off) {
+                if(!publish_preservation_carrier(out_facts,primary_data,LPB_PRESERVATION_CARRIER_OPAQUE_FRAGMENT,
+                    {known_end,huawei_vid_off-known_end},"opaque-source-prefix:0","OpaqueSourcePrefix","primary:0","preserved-source-prefix"))
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                retained_mpf_vendor=true; // full static prefix; later access requires Native lineage
+            }
+        }
         out_facts->protocol = is_honor ? LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO : LPB_SOURCE_PROTOCOL_HUAWEI_MOVING_PHOTO;
         out_facts->primary_image.file_range.offset = 0;
         // The protocol report defines JPEG extraction at the first EOI.  Any
         // vendor-owned bytes before the embedded ftyp are part of the live
         // wrapper, not part of the neutral primary JPEG artifact.
-        out_facts->primary_image.file_range.length = img_cont == LPB_IMAGE_CONTAINER_JPEG
+        out_facts->primary_image.file_range.length = img_cont == LPB_IMAGE_CONTAINER_JPEG&&!retained_mpf_vendor
             ? jpeg_end
             : huawei_vid_off;
         out_facts->motion_video.is_present = 1;
@@ -4994,6 +5007,21 @@ lpb_result inspect_source(
         }
     }
 
+    // A complete non-live MPF image graph may retain opaque camera metadata.
+    // This is an ordinary primary container inventory, not live-tail authority.
+    bool retained_mpf_nonlive=false;
+    if(img_cont==LPB_IMAGE_CONTAINER_JPEG&&nodes.empty()) {
+        mpf_vendor_primary vendor;
+        if(observe_mpf_vendor_primary(primary_data,vendor)) {
+            if(!publish_auxiliary_item(out_facts,primary_data,LPB_IMAGE_CONTAINER_JPEG,
+                {vendor.auxiliary_offset,vendor.auxiliary_length},LPB_AUX_REPRESENTATION_EMBEDDED,
+                LPB_AUX_OWNER_PRIMARY,2,"mpf-image","MpfAuxiliaryImage","mpf-image:2","primary:0",LPB_AUX_CODEC_JPEG))return LPB_RESULT_INVALID_ARGUMENT;
+            if(vendor.metadata_length&&!publish_preservation_carrier(out_facts,primary_data,LPB_PRESERVATION_CARRIER_CONTAINER_METADATA,
+                {vendor.metadata_offset,vendor.metadata_length},"primary-metadata:VLDMAGIC","CameraMetadata","primary:0","opaque-camera-metadata"))return LPB_RESULT_INVALID_ARGUMENT;
+            retained_mpf_nonlive=true;
+        }
+    }
+
     // A cleaned neutral JPEG may intentionally retain an auxiliary GainMap
     // JPEG after the primary EOI.  This is not an unexplained protocol tail:
     // accept it only when the authoritative XMP Container Directory has
@@ -5140,7 +5168,12 @@ lpb_result inspect_source(
         // A JPEG followed by unexplained bytes is not an ordinary image. Do
         // not silently absorb an unrecognised payload into the primary range:
         // protocol-specific branches above must prove and claim every tail.
-        if (jpeg_end != primary_size) {
+        if(retained_mpf_nonlive&&out_facts->pairing_identifier[0]) {
+            set_error(context,"MPF ordinary primary retains a source pairing binding.");
+            set_inspection_status(context,LPB_INSPECTION_FAILURE_AMBIGUOUS,LPB_INSPECTION_STAGE_PAIRING);
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if (jpeg_end != primary_size&&!retained_mpf_nonlive) {
             set_error(context, single_vivo_id.empty()
                 ? "JPEG contains unexplained trailing bytes; source protocol is ambiguous."
                 : "vivo legacy image marker has no matching video identifier; pairing is ambiguous.");
@@ -5307,7 +5340,7 @@ lpb_result inspect_source_with_plan(
 
 lpb_result inspect_gainmap_metadata(lpb_context* context, const char* primary_path,
     const char* materialized_gainmap_path, gainmap_metadata_facts& out_metadata,
-    bool share_existing_writer) noexcept {
+    bool share_existing_writer, uint64_t compound_token) noexcept {
     out_metadata = {};
     if (!context || !primary_path || primary_path[0] == '\0') return LPB_RESULT_INVALID_ARGUMENT;
     try {
@@ -5324,8 +5357,10 @@ lpb_result inspect_gainmap_metadata(lpb_context* context, const char* primary_pa
 
         lpb_source_media_facts source_facts{};
         source_facts.struct_size = sizeof(source_facts);
-        const lpb_result inspection = inspect_source(context, primary_path, nullptr, &source_facts,
-            nullptr, share_existing_writer);
+        lpb_compound_primary_observation_v1 compound{sizeof(compound),1};
+        const lpb_result inspection = compound_token
+            ? lpb_compound_primary_inspect_v1(context,compound_token,primary_path,&source_facts,&compound)
+            : inspect_source(context, primary_path, nullptr, &source_facts, nullptr, share_existing_writer);
         if (inspection != LPB_RESULT_OK || !source_facts.gain_map.is_present ||
             source_facts.gain_map.auxiliary_index >= source_facts.auxiliary_count) {
             set_error(context, "GainMap metadata inspection requires one freshly inspected auxiliary binding.");
@@ -5355,6 +5390,10 @@ lpb_result inspect_gainmap_metadata(lpb_context* context, const char* primary_pa
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         const lpb_image_container container = detect_image_container(primary_bytes);
+        if(compound_token) {
+            uint8_t digest[32]{};lpb::crypto::sha256_buffer(primary_bytes.data(),primary_bytes.size(),digest);
+            if(std::memcmp(digest,source_facts.primary_sha256,32))return LPB_RESULT_SOURCE_CHANGED;
+        }
         if ((container != LPB_IMAGE_CONTAINER_JPEG && container != LPB_IMAGE_CONTAINER_HEIC) ||
             source_facts.gain_map.container != container) {
             set_error(context, "GainMap metadata container disagrees with the freshly inspected source identity.");

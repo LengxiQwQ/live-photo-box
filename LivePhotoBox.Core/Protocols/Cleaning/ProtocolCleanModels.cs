@@ -89,6 +89,7 @@ public sealed record PlannedArtifactTarget
 /// </summary>
 public sealed record ProtocolCleanupPlan
 {
+    internal LivePhotoBox.Interop.NativeCompoundPrimary? CompoundPrimary { get; init; }
     public required SourceProtocol Protocol { get; init; }
     public required IReadOnlyList<PlannedCleanupAction> Actions { get; init; }
     public required IReadOnlyList<PlannedArtifactTarget> ArtifactTargets { get; init; }

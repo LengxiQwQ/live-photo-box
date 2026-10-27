@@ -59,19 +59,20 @@ public sealed class TargetedPostCleanVerifier : ITargetedPostCleanVerifier
                 MediaArtifactKind.MotionVideo);
         }
 
-        await VerifyPostCleanWithInspectorAsync(originalFacts, stagedImgPath, stagedVidPath, cancellationToken).ConfigureAwait(false);
+        await VerifyPostCleanWithInspectorAsync(originalFacts, stagedImgPath, stagedVidPath, cancellationToken, cleanupPlan.CompoundPrimary).ConfigureAwait(false);
     }
 
     private async Task VerifyPostCleanWithInspectorAsync(
         SourceMediaFacts facts,
         string stagedImgPath,
         string? stagedVidPath,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, LivePhotoBox.Interop.NativeCompoundPrimary? compound)
     {
         bool isDualSource = facts.MotionVideo is { IsPresent: true, SourceIndex: 1 };
 
-        var imgRecheck = await InspectStagedAsync(
-            facts, stagedImgPath, null, MediaArtifactKind.PrimaryImage, cancellationToken).ConfigureAwait(false);
+        var imgRecheck = compound is null
+            ? await InspectStagedAsync(facts, stagedImgPath, null, MediaArtifactKind.PrimaryImage, cancellationToken).ConfigureAwait(false)
+            : compound.Inspect(stagedImgPath, cancellationToken).Facts;
         if (imgRecheck.Protocol != SourceProtocol.NonLive ||
             imgRecheck.MotionVideo != null ||
             imgRecheck.ProtocolTailLength != 0 ||

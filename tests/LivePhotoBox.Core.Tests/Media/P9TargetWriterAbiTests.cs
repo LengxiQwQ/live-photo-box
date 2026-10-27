@@ -26,6 +26,9 @@ public sealed class P9TargetWriterAbiTests
         Assert.Equal(112, Marshal.OffsetOf<NativeTargetWriterOutputV1>(nameof(NativeTargetWriterOutputV1.RequestFingerprint)).ToInt32());
         Assert.Equal(32, Marshal.SizeOf<NativeTargetWriterStatusV1>());
         Assert.Equal(24, Marshal.OffsetOf<NativeTargetWriterStatusV1>(nameof(NativeTargetWriterStatusV1.Generation)).ToInt32());
+        Assert.Equal(1272, Marshal.SizeOf<NativeTargetWriterRequestV3>());
+        Assert.Equal(1256, Marshal.OffsetOf<NativeTargetWriterRequestV3>(nameof(NativeTargetWriterRequestV3.CompoundPrimaryToken)).ToInt32());
+        Assert.Equal(56, Marshal.SizeOf<NativeCompoundPrimaryObservation>());
     }
 
     [Fact]

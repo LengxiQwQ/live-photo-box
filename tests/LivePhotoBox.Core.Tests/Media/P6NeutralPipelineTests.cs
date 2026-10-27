@@ -955,7 +955,18 @@ public sealed class P6NeutralPipelineTests
 
         Assert.Equal(MediaArtifactKind.PrimaryImage, bundle.PrimaryImage.Kind);
         Assert.True(File.Exists(bundle.PrimaryImage.Path), $"{routeId} final primary artifact is missing.");
-        SourceMediaFacts finalFacts = await new SourceInspector().InspectAsync(bundle.PrimaryImage.Path);
+        SourceMediaFacts finalFacts;
+        if (bundle.PrimaryImage.CompoundPrimary is { } compound)
+        {
+            await Assert.ThrowsAsync<SourceInspectionException>(() => new SourceInspector().InspectAsync(bundle.PrimaryImage.Path));
+            finalFacts = compound.Inspect(bundle.PrimaryImage.Path, CancellationToken.None).Facts;
+            var opaque = Assert.Single(bundle.PreservationCarriers.Where(c => c.Semantic == "OpaqueSourcePrefix"));
+            Assert.Equal("primary:0", opaque.OwnerIdentity);
+            byte[] bytes = await File.ReadAllBytesAsync(bundle.PrimaryImage.Path);
+            Assert.Equal(opaque.SourceSha256, Convert.ToHexString(SHA256.HashData(bytes.AsSpan(
+                checked((int)opaque.SourceOffset), checked((int)opaque.SourceLength)))), ignoreCase: true);
+        }
+        else finalFacts = await new SourceInspector().InspectAsync(bundle.PrimaryImage.Path);
         object? realSampleMpfEvidence = await AssertRealSampleMpfRelationshipAsync(routeId, bundle, finalFacts);
         Assert.Equal(SourceProtocol.NonLive, finalFacts.Protocol);
         Assert.True(finalFacts.PrimaryImage.IsPresent);

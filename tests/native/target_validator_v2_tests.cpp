@@ -27,7 +27,7 @@ lpb_target_validation_request_v2 request(){
  r.base.member_count=1;r.base.expected_video_codec=2;return r;
 }
 lpb_target_validation_result_v2 output(){lpb_target_validation_result_v2 r{};r.struct_size=sizeof(r);r.version=2;return r;}
-lpb_context* create(){lpb_context_options o{};o.struct_size=sizeof(o);o.abi_version=15;lpb_context* c=nullptr;require(lpb_create_context(&o,&c)==LPB_RESULT_OK,"context ABI15");return c;}
+lpb_context* create(){lpb_context_options o{};o.struct_size=sizeof(o);o.abi_version=16;lpb_context* c=nullptr;require(lpb_create_context(&o,&c)==LPB_RESULT_OK,"context ABI16");return c;}
 }
 int main(){
  try {

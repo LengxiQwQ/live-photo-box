@@ -71,6 +71,10 @@ internal unsafe struct NativeTargetWriterRequestV2
 
 internal static partial class NativeMethods
 {
+    [LibraryImport(LibraryName, EntryPoint = "lpb_target_writer_prepare_v3")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static unsafe partial NativeResult TargetWriterPrepareV3(nint context, NativeTargetWriterRequestV3* request, out nint plan);
     [LibraryImport(LibraryName, EntryPoint = "lpb_target_writer_prepare_v2")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -105,4 +109,12 @@ internal static partial class NativeMethods
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
     internal static partial NativeResult TargetWriterRelease(nint context, nint plan);
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal struct NativeTargetWriterRequestV3
+{
+    public uint StructSize, Version;
+    public NativeTargetWriterRequestV2 Base;
+    public ulong CompoundPrimaryToken, Reserved;
 }

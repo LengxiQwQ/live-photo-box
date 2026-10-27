@@ -15,6 +15,10 @@ using NativeFileIdentity = LivePhotoBox.Interop.NativeCleanService.NativeFileIde
 
 namespace LivePhotoBox.Services;
 
+// Explicit internal target selection; never inferred from Neutral provenance,
+// Make, or an ordinary stabilization UUID. Product choices still await R8.
+internal enum HuaweiTargetVariant : uint { HuaweiV6 = 1, HonorV2 = 2 }
+
 /// <summary>
 /// Experimental structured Native target path. Product adapters migrate only after
 /// their complete target lifecycle; this service has no fallback or selectable validator.
@@ -23,7 +27,8 @@ internal static class StructuredTargetWriterService
 {
     internal static async Task<PublishedOwnedFile> WriteAsync(NeutralMediaBundle bundle,
         OutputProfile profile, string finalPath, string stagingDirectory,
-        bool overwriteExisting, CancellationToken token)
+        bool overwriteExisting, CancellationToken token,
+        HuaweiTargetVariant huaweiVariant = HuaweiTargetVariant.HuaweiV6)
     {
         ArgumentNullException.ThrowIfNull(bundle);
         ArgumentNullException.ThrowIfNull(profile);
@@ -32,9 +37,15 @@ internal static class StructuredTargetWriterService
             TargetProtocol.GoogleMicroVideoV1 => 1,
             TargetProtocol.GoogleMotionPhotoV2 => 2,
             TargetProtocol.OppoLivePhoto => 3,
-            _ => throw new NotSupportedException("This structured path implements the R3 Google and OPPO families.")
+            TargetProtocol.HuaweiMovingPhoto => 6,
+            _ => throw new NotSupportedException("This structured path does not implement the requested target family.")
         };
         MediaArtifact video = bundle.MotionVideo ?? throw new InvalidDataException("A prepared motion video is required.");
+        if (!Enum.IsDefined(huaweiVariant) || (target != 6 && huaweiVariant != HuaweiTargetVariant.HuaweiV6))
+            throw new ArgumentException("The explicit Huawei/Honor variant does not apply to this target.", nameof(huaweiVariant));
+        uint targetVersion = target == 6 ? (uint)huaweiVariant : 1u;
+        if (target == 6 && profile.Format == OutputMediaFormat.HeicMp4Hevc && video.VideoCodec != VideoCodec.Hevc)
+            throw new NotSupportedException("The explicit Huawei HEVC profile requires prepared HEVC video.");
         if (bundle.PrimaryImage.Kind != MediaArtifactKind.PrimaryImage || video.Kind != MediaArtifactKind.MotionVideo ||
             bundle.PrimaryImage.ImageContainer != profile.MediaRequirement.ImageContainer ||
             video.VideoContainer != profile.MediaRequirement.VideoContainer ||
@@ -49,9 +60,12 @@ internal static class StructuredTargetWriterService
         if (target == 3 && !primaryTime.HasValue)
             throw new NotSupportedException("OPPO original capture time is unknown; current cover cannot invent that history.");
         AuxiliaryBinding[] auxiliaries = await BindAuxiliariesAsync(bundle, finalPath, token).ConfigureAwait(false);
+        NativeCompoundPrimaryObservation? compound = bundle.PrimaryImage.CompoundPrimary?.Inspect(bundle.PrimaryImage.Path, token).Observation;
+        if (compound.HasValue && (target != 6 || profile.Format != OutputMediaFormat.JpegMp4))
+            throw new NotSupportedException("Opaque compound primary lineage permits Huawei/Honor whole-JPEG passthrough only.");
         var expected = new TargetValidationExpectations(target, (uint)profile.Format, (uint)video.VideoCodec, cover)
         {
-            UseV2 = true, PrimaryTimestampUs = primaryTime,
+            UseV2 = true, TargetVersion = targetVersion, Compound = compound, PrimaryTimestampUs = primaryTime,
             Auxiliaries = auxiliaries.Select(row => new TargetAuxiliaryExpectation(
                 AuxiliarySemanticCode(row.Row.Semantic), (uint)row.Row.ImageContainer,
                 checked((ulong)row.Row.ByteLength), row.Row.Sha256)).ToArray(),
@@ -60,7 +74,7 @@ internal static class StructuredTargetWriterService
             VideoRotationDegrees = KnownRotation(bundle.Semantics.Orientation.MotionVideo),
             VideoReflection = KnownReflection(bundle.Semantics.Orientation.MotionVideo)
         };
-        using var session = new Session(bundle.PrimaryImage, video, profile, target, cover, primaryTime,
+        using var session = new Session(bundle.PrimaryImage, video, profile, target, targetVersion, cover, primaryTime,
             auxiliaries, stagingDirectory, token);
         return await WindowsSplitOutputPublisher.PublishTargetAsync(finalPath, overwriteExisting,
             session.CopyToAsync, expected, token).ConfigureAwait(false);
@@ -75,6 +89,7 @@ internal static class StructuredTargetWriterService
         "Original" => 2,
         "MiCameraSubimage" => 3,
         "MiCameraLensWatermark" => 4,
+        "MpfAuxiliaryImage" => 5,
         _ => throw new NotSupportedException("The target cannot represent this auxiliary semantic asset.")
     };
 
@@ -111,6 +126,29 @@ internal static class StructuredTargetWriterService
                 cancellationToken: token).ConfigureAwait(false);
             if (facts.Protocol != SourceProtocol.NonLive)
                 throw new InvalidDataException("Prepared primary still contains source live binding.");
+        }
+        if (bundle.PreservationCarriers.Count != 0)
+        {
+            facts ??= bundle.PrimaryImage.CompoundPrimary is { } compoundPrimary
+                ? compoundPrimary.Inspect(bundle.PrimaryImage.Path, token).Facts
+                : await new SourceInspector().InspectAsync(bundle.PrimaryImage.Path, cancellationToken: token).ConfigureAwait(false);
+            if (facts.Protocol != SourceProtocol.NonLive)
+                throw new InvalidDataException("Prepared carrier owner retains a source live binding.");
+            foreach (var carrier in bundle.PreservationCarriers)
+            {
+                // Descriptive evidence never authorizes an append. Only an
+                // actually observed embedded ordinary camera region is copied
+                // as part of the independently leased whole primary artifact.
+                bool ordinary = carrier.Kind == PreservationCarrierKind.ContainerMetadata && carrier.Semantic == "CameraMetadata" && carrier.Relationship == "opaque-camera-metadata";
+                bool opaque = bundle.PrimaryImage.CompoundPrimary is not null && carrier.Kind == PreservationCarrierKind.OpaqueFragment &&
+                    carrier.Semantic == "OpaqueSourcePrefix" && carrier.Relationship == "preserved-source-prefix";
+                if (carrier.ArtifactRole != MediaArtifactKind.PrimaryImage || (!ordinary && !opaque) || carrier.OwnerIdentity != "primary:0" ||
+                    facts.PreservationCarriers.Count(actual => actual.StableIdentity == carrier.StableIdentity &&
+                        actual.SourceOffset == carrier.SourceOffset && actual.SourceLength == carrier.SourceLength &&
+                        actual.SourceSha256 == carrier.SourceSha256 && actual.Semantic == carrier.Semantic &&
+                        actual.OwnerIdentity == carrier.OwnerIdentity && actual.Relationship == carrier.Relationship) != 1)
+                    throw new NotSupportedException("Carrier is not the observed embedded ordinary primary camera metadata.");
+            }
         }
         var result = new List<AuxiliaryBinding>();
         foreach (var semantic in semantics)
@@ -187,8 +225,6 @@ internal static class StructuredTargetWriterService
             }
             result.Add(new AuxiliaryBinding(row, representation, selectorKind, selectorId, materialized));
         }
-        if (bundle.PreservationCarriers.Any(carrier => !rows.Any(row => carrier.StableIdentity == row.StableIdentity)))
-            throw new NotSupportedException("A preservation carrier has no represented final asset.");
         return result.ToArray();
     }
 
@@ -237,8 +273,10 @@ internal static class StructuredTargetWriterService
         private readonly NativeContextLease _operation;
         private nint _plan;
         private NativeTargetWriterOutputV1 _output;
+        private NativeCompoundPrimary? _compound;
+        private bool _compoundRetained;
 
-        internal unsafe Session(MediaArtifact image, MediaArtifact video, OutputProfile profile, uint target,
+        internal unsafe Session(MediaArtifact image, MediaArtifact video, OutputProfile profile, uint target, uint targetVersion,
             long? cover, long? primaryTime, AuxiliaryBinding[] bindings, string stagingDirectory, CancellationToken token)
         {
             _context = NativeContext.Create(token);
@@ -252,7 +290,7 @@ internal static class StructuredTargetWriterService
                 {
                     StructSize = (uint)sizeof(NativeTargetWriterRequestV1), Version = 1,
                     TargetProfile = target,
-                    TargetVersion = 1, MediaFormat = (uint)profile.Format,
+                    TargetVersion = targetVersion, MediaFormat = (uint)profile.Format,
                     ArtifactCount = 2, Artifacts = (nint)artifacts,
                     CoverTimestampPresent = cover.HasValue ? 1u : 0, CoverTimestampUs = cover ?? 0
                 };
@@ -284,7 +322,15 @@ internal static class StructuredTargetWriterService
                     AuxiliaryCount = (uint)bindings.Length, Auxiliaries = bindings.Length == 0 ? 0 : (nint)auxiliaries
                 };
                 EncodeText("primary:0", requestV2.PrimaryIdentity, 128);
-                Require(NativeMethods.TargetWriterPrepareV2(_operation.Handle, &requestV2, out _plan), "prepare");
+                _compound = image.CompoundPrimary;
+                if (_compound is not null)
+                {
+                    _compound.DangerousAddRef(ref _compoundRetained);
+                    var requestV3 = new NativeTargetWriterRequestV3 { StructSize = (uint)sizeof(NativeTargetWriterRequestV3),
+                        Version = 3, Base = requestV2, CompoundPrimaryToken = unchecked((ulong)_compound.DangerousGetHandle()) };
+                    Require(NativeMethods.TargetWriterPrepareV3(_operation.Handle, &requestV3, out _plan), "prepare");
+                }
+                else Require(NativeMethods.TargetWriterPrepareV2(_operation.Handle, &requestV2, out _plan), "prepare");
                 if (_plan == 0) throw new IOException("Native Writer did not issue a plan.");
                 Require(NativeMethods.TargetWriterStage(_operation.Handle, _plan), "stage");
                 var status = new NativeTargetWriterStatusV1
@@ -296,7 +342,7 @@ internal static class StructuredTargetWriterService
                 if (count != 1 || status.State != 2 || status.OutputCount != 1 || status.FailureCategory != 0 ||
                     output.StructSize != sizeof(NativeTargetWriterOutputV1) || output.Version != 1 ||
                     output.ArtifactRole != 0 || output.ArtifactIndex != 0 || output.TargetProfile != request.TargetProfile ||
-                    output.TargetVersion != 1 || output.Generation != status.Generation || output.StageId == 0 ||
+                    output.TargetVersion != request.TargetVersion || output.Generation != status.Generation || output.StageId == 0 ||
                     output.ByteLength == 0 || output.ByteLength > long.MaxValue || output.Identity.LinkCount != 1 ||
                     output.Identity.FileSize != output.ByteLength)
                     throw new IOException("Native Writer did not provide one complete sealed target artifact.");
@@ -392,6 +438,7 @@ internal static class StructuredTargetWriterService
 
         public void Dispose()
         {
+            if (_compoundRetained) { _compoundRetained = false; _compound!.DangerousRelease(); }
             NativeResult release = NativeResult.Ok;
             try
             {
