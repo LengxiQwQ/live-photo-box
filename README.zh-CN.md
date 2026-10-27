@@ -253,12 +253,12 @@ python scripts/testing/run-cli-integration-test.py
 <!-- INSIGHTS:START -->
 **📊 仓库流量**
 
-访问次数：**4,920** ｜ 不重复访客：**170**（近 14 天） ｜ 仓库克隆：**5,548** ｜ 不重复克隆：**142**（近 14 天）
+访问次数：**4,943** ｜ 不重复访客：**163**（近 14 天） ｜ 仓库克隆：**5,638** ｜ 不重复克隆：**169**（近 14 天）
 
-**热门来源（近 14 天）：** github.com · Google · Bing · DuckDuckGo · lengxiqwq.com · perplexity.ai  
+**热门来源（近 14 天）：** github.com · Google · Bing · lengxiqwq.com · DuckDuckGo · perplexity.ai  
 **热门内容（近 14 天）：** releases · README.zh-CN.md · releases/tag/v2.2.1 · issues
 
-> 数据开始：2026-08-02 · 最后更新：2026-10-26 (UTC+8)
+> 数据开始：2026-08-02 · 最后更新：2026-10-27 (UTC+8)
 <!-- INSIGHTS:END -->
 
 ---
