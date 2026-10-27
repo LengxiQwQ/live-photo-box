@@ -204,6 +204,19 @@ struct inspector {
             else if(b.type=="keys"||b.type=="ilst")
                 return fail(target_video_failure::malformed,b.at,"Metadata key/value owner outside meta");
             else if(parent=="udta") {
+                // Samsung camera user data is retained as bounded ordinary
+                // metadata. No bytes here authorize a live range or timing.
+                if(b.type=="SDLN"||b.type=="smrd") {
+                    if(path!="moov/udta"||b.body==b.end)return fail(target_video_failure::malformed,b.at,"Samsung ordinary data has wrong owner or empty payload");
+                    continue;
+                }
+                if(b.type=="smta") {
+                    if(path!="moov/udta"||!fullzero(b))return fail(target_video_failure::malformed,b.at,"Samsung smta has wrong owner/full-box header");
+                    std::vector<box> members;if(!children(b.body+4,b.end,members))return false;
+                    if(members.size()!=1||members.front().type!="mdln"||members.front().body==members.front().end)
+                        return fail(target_video_failure::unsupported,b.at,"Samsung smta ordinary child ownership unsupported");
+                    continue;
+                }
                 // QuickTime user-data text atoms are literal payloads. Unknown
                 // children are not implicitly parsed as safe ordinary data.
                 const bool text_atom=b.type==std::string("\xa9" "nam",4)||b.type==std::string("\xa9" "cmt",4)||

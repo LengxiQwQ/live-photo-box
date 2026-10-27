@@ -26,8 +26,10 @@ std::string resource(std::string_view semantic,std::string_view mime,uint64_t le
 lpb_result build_google_xmp(std::string_view input,const google_xmp_request& request,std::string& output) noexcept {
  output.clear();
  try {
-  if(request.target<1||request.target>3||(request.format!=0&&request.format!=1&&request.format!=3)||!request.video_length)return LPB_RESULT_UNSUPPORTED;
-  const bool heif=request.format==3;
+  const bool samsung=request.target==5;
+  if((request.target<1||request.target>3)&&!samsung)return LPB_RESULT_UNSUPPORTED;
+  if((request.format!=0&&request.format!=1&&request.format!=3&&!(samsung&&request.format==2))||!request.video_length)return LPB_RESULT_UNSUPPORTED;
+  const bool heif=request.format==3||(samsung&&request.format==2);
   if(request.primary_mime!=(heif?"image/heic":"image/jpeg")||
      (heif&&(request.primary_padding!=8&&request.primary_padding!=16)))return LPB_RESULT_UNSUPPORTED;
   if(request.target==1&&heif)return LPB_RESULT_UNSUPPORTED;
@@ -35,7 +37,8 @@ lpb_result build_google_xmp(std::string_view input,const google_xmp_request& req
   if(request.primary_cover_present&&request.primary_cover_us<0)return LPB_RESULT_INVALID_ARGUMENT;
   bool gainmap=false,original=false;
   for(const auto& item:request.auxiliary_items){
-   if(!item.has_length||!item.length||item.padding||item.mime!="image/jpeg")return LPB_RESULT_UNSUPPORTED;
+   const bool embedded_samsung_gainmap=samsung&&heif&&item.semantic=="GainMap"&&item.mime=="image/heic"&&item.has_length&&!item.length&&!item.padding;
+   if(!embedded_samsung_gainmap&&(!item.has_length||!item.length||item.padding||item.mime!="image/jpeg"))return LPB_RESULT_UNSUPPORTED;
    if(item.semantic=="GainMap"){if(gainmap||original)return LPB_RESULT_UNSUPPORTED;gainmap=true;}
    else if(item.semantic=="Original"){if(original)return LPB_RESULT_UNSUPPORTED;original=true;}
    else return LPB_RESULT_UNSUPPORTED;
@@ -56,7 +59,7 @@ lpb_result build_google_xmp(std::string_view input,const google_xmp_request& req
     property("VideoLength",std::to_string(request.video_length),op)+
     property("MotionPhotoPrimaryPresentationTimestampUs",std::to_string(request.primary_cover_us),op);
   }
-  const std::string video=resource("MotionPhoto",request.format==0?"video/mp4":"video/quicktime",request.video_length);
+  const std::string video=resource("MotionPhoto",request.format==0||samsung?"video/mp4":"video/quicktime",request.video_length);
   std::string assets;for(const auto& item:request.auxiliary_items)assets+=resource(item.semantic,item.mime,item.length);
   const std::string directory=v1&&request.auxiliary_items.empty()?"":"<lpbcontainer:Directory xmlns:lpbcontainer=\"http://ns.google.com/photos/1.0/container/\">"
    "<lpbrdf:Seq xmlns:lpbrdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"+
@@ -167,7 +170,7 @@ lpb_result build_google_primary(lpb_context* context,std::span<const uint8_t> in
   std::string rebased;
   std::string_view packet=jpeg.xmp;
   if(packet.find("XMPMeta")!=std::string_view::npos){
-   if(!lpb::media::rebase_micamera_offsets(packet,request.video_length,rebased))return LPB_RESULT_UNSUPPORTED;
+   if(!lpb::media::rebase_micamera_offsets(packet,request.video_length+(request.target==5?24:0),rebased))return LPB_RESULT_UNSUPPORTED;
    packet=rebased;
   }
   const auto merged=build_google_xmp(packet,request,xml);

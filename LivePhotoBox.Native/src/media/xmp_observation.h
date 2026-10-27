@@ -35,7 +35,7 @@ struct target_xmp_observation {
 bool observe_target_xmp(std::string_view,target_xmp_observation&,xmp_observation_failure&) noexcept;
 // Changes only the uniquely owned Primary Padding property using parsed XML
 // ranges. All other bytes, including unknown item attributes, are retained.
-bool rewrite_target_primary_padding(std::string_view,uint64_t,std::string&,xmp_observation_failure&) noexcept;
+bool rewrite_target_primary_padding(std::string_view,uint64_t,std::string&,xmp_observation_failure&,bool generated_target=false) noexcept;
 // Extended transport GUID/coverage is established by the JPEG observer. This
 // layer checks the logical XML reference and cross-packet property ownership.
 bool observe_target_xmp_packets(std::string_view standard,std::string_view extension,

@@ -3,6 +3,7 @@
 #include "binary/binary_io.h"
 #include "containers/isobmff.h"
 #include "containers/heif_internal.h"
+#include "protocols/samsung_inventory.h"
 #include <array>
 #include <algorithm>
 #include <cstring>
@@ -1898,8 +1899,14 @@ bool parse_xmp_rewrite_graph(std::span<const uint8_t> input,
         if (is_type(box, "moov") || is_type(box, "moof") || is_type(box, "sidx") ||
             is_type(box, "mfra") || is_type(box, "iloc"))
             return fail("HEIF XMP rewrite: top-level offset-bearing movie/index layout is unsupported.");
-        if (is_type(box, "mpvd") || is_type(box, "sefd"))
+        if (is_type(box, "mpvd"))
             return fail("HEIF XMP rewrite: input already has a live video/trailer box.");
+        if(is_type(box,"sefd")) {
+            lpb::memory_random_access memory{input};lpb::protocols::sef_inventory inventory;
+            if(box.start+box.size!=input.size()||!lpb::protocols::observe_sef(memory.view(),box.body_start,box.start+box.size,inventory,error)||
+               inventory.begin!=box.body_start||!lpb::protocols::ordinary_sef(inventory))
+                return fail("HEIF XMP rewrite: SEFD is not one final ordinary metadata inventory.");
+        }
         if (is_type(box, "ftyp")) {
             if (file_type || box.body_size < 8 || (box.body_size - 8) % 4 != 0)
                 return fail("HEIF XMP rewrite: duplicate or malformed file type authority.");

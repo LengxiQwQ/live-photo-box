@@ -18,6 +18,7 @@ namespace LivePhotoBox.Services;
 // Explicit internal target selection; never inferred from Neutral provenance,
 // Make, or an ordinary stabilization UUID. Product choices still await R8.
 internal enum HuaweiTargetVariant : uint { HuaweiV6 = 1, HonorV2 = 2 }
+internal enum SamsungTargetVariant : uint { Mpv2 = 2, Mpv3 = 3 }
 
 /// <summary>
 /// Experimental structured Native target path. Product adapters migrate only after
@@ -28,7 +29,8 @@ internal static class StructuredTargetWriterService
     internal static async Task<PublishedOwnedFile> WriteAsync(NeutralMediaBundle bundle,
         OutputProfile profile, string finalPath, string stagingDirectory,
         bool overwriteExisting, CancellationToken token,
-        HuaweiTargetVariant huaweiVariant = HuaweiTargetVariant.HuaweiV6)
+        HuaweiTargetVariant huaweiVariant = HuaweiTargetVariant.HuaweiV6,
+        SamsungTargetVariant samsungVariant = SamsungTargetVariant.Mpv3)
     {
         ArgumentNullException.ThrowIfNull(bundle);
         ArgumentNullException.ThrowIfNull(profile);
@@ -37,13 +39,16 @@ internal static class StructuredTargetWriterService
             TargetProtocol.GoogleMicroVideoV1 => 1,
             TargetProtocol.GoogleMotionPhotoV2 => 2,
             TargetProtocol.OppoLivePhoto => 3,
+            TargetProtocol.SamsungMotionPhoto => 5,
             TargetProtocol.HuaweiMovingPhoto => 6,
             _ => throw new NotSupportedException("This structured path does not implement the requested target family.")
         };
         MediaArtifact video = bundle.MotionVideo ?? throw new InvalidDataException("A prepared motion video is required.");
         if (!Enum.IsDefined(huaweiVariant) || (target != 6 && huaweiVariant != HuaweiTargetVariant.HuaweiV6))
             throw new ArgumentException("The explicit Huawei/Honor variant does not apply to this target.", nameof(huaweiVariant));
-        uint targetVersion = target == 6 ? (uint)huaweiVariant : 1u;
+        if (!Enum.IsDefined(samsungVariant) || (target != 5 && samsungVariant != SamsungTargetVariant.Mpv3))
+            throw new ArgumentException("Samsung variant does not apply to the selected target.", nameof(samsungVariant));
+        uint targetVersion = target == 6 ? (uint)huaweiVariant : target == 5 ? (uint)samsungVariant : 1u;
         if (target == 6 && profile.Format == OutputMediaFormat.HeicMp4Hevc && video.VideoCodec != VideoCodec.Hevc)
             throw new NotSupportedException("The explicit Huawei HEVC profile requires prepared HEVC video.");
         if (bundle.PrimaryImage.Kind != MediaArtifactKind.PrimaryImage || video.Kind != MediaArtifactKind.MotionVideo ||
@@ -112,9 +117,8 @@ internal static class StructuredTargetWriterService
             throw new NotSupportedException("Unrepresented auxiliary/carrier bytes cannot be silently discarded.");
         if (semantics.Count == 0)
         {
-            if (bundle.AuxiliaryMedia.Count != 0 || bundle.PreservationCarriers.Count != 0)
+            if (bundle.AuxiliaryMedia.Count != 0)
                 throw new NotSupportedException("Unbound auxiliary/carrier descriptors cannot authorize target writing.");
-            return [];
         }
         // Only prepared Neutral bytes are re-observed to bind structural selectors.
         // Source provenance never selects a target layout.
@@ -142,10 +146,14 @@ internal static class StructuredTargetWriterService
                 bool ordinary = carrier.Kind == PreservationCarrierKind.ContainerMetadata && carrier.Semantic == "CameraMetadata" && carrier.Relationship == "opaque-camera-metadata";
                 bool opaque = bundle.PrimaryImage.CompoundPrimary is not null && carrier.Kind == PreservationCarrierKind.OpaqueFragment &&
                     carrier.Semantic == "OpaqueSourcePrefix" && carrier.Relationship == "preserved-source-prefix";
-                if (carrier.ArtifactRole != MediaArtifactKind.PrimaryImage || (!ordinary && !opaque) || carrier.OwnerIdentity != "primary:0" ||
+                bool sef = carrier.Kind == PreservationCarrierKind.SamsungSef &&
+                    carrier.StableIdentity.StartsWith("samsung:sef:", StringComparison.Ordinal) &&
+                    carrier.Relationship.StartsWith("SEFH/SEFT", StringComparison.Ordinal);
+                bool index = sef && carrier.StableIdentity == "samsung:sef:index-trailer" && carrier.Semantic == "SamsungSEFIndexTrailer";
+                if (carrier.ArtifactRole != MediaArtifactKind.PrimaryImage || (!ordinary && !opaque && !sef) || carrier.OwnerIdentity != "primary:0" ||
                     facts.PreservationCarriers.Count(actual => actual.StableIdentity == carrier.StableIdentity &&
-                        actual.SourceOffset == carrier.SourceOffset && actual.SourceLength == carrier.SourceLength &&
-                        actual.SourceSha256 == carrier.SourceSha256 && actual.Semantic == carrier.Semantic &&
+                        actual.Kind == carrier.Kind && (sef || actual.SourceOffset == carrier.SourceOffset) &&
+                        (index || (actual.SourceLength == carrier.SourceLength && actual.SourceSha256 == carrier.SourceSha256)) && actual.Semantic == carrier.Semantic &&
                         actual.OwnerIdentity == carrier.OwnerIdentity && actual.Relationship == carrier.Relationship) != 1)
                     throw new NotSupportedException("Carrier is not the observed embedded ordinary primary camera metadata.");
             }

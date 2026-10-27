@@ -5,6 +5,7 @@
 #include "media/target_writer.h"
 #include "containers/heif_internal.h"
 #include "containers/isobmff.h"
+#include "protocols/samsung_inventory.h"
 #include <algorithm>
 #include <cstring>
 #include <set>
@@ -20,7 +21,7 @@ bool xml_facts(target_primary_observation& out, std::string& error) {
     return true;
 }
 bool jpeg_facts(std::span<const uint8_t> input, target_primary_observation& out, std::string& error,
-    uint64_t full_file_length, bool prefix_mode) {
+    uint64_t full_file_length, bool prefix_mode,uint64_t samsung_padding=UINT64_MAX) {
     memory_random_access memory{input}; jpeg_observation_failure failure{}; uint64_t bad = 0;
     if (!observe_jpeg(memory.view(), out.jpeg, failure, bad, {true,true,true,true})) {
         error = "Prepared JPEG marker/Exif/XMP transport observation failed."; return false;
@@ -61,14 +62,24 @@ bool jpeg_facts(std::span<const uint8_t> input, target_primary_observation& out,
         aux.range={vendor.auxiliary_offset,vendor.auxiliary_length};out.auxiliaries.push_back(std::move(aux));
         cursor=input.size();
     }
-    if (!out.xmp.items.empty()) {
+    const uint64_t samsung_embedded_padding=micamera==1?watermark.offset+watermark.length-out.encoding_boundary:0;
+    if(samsung_padding!=UINT64_MAX&&(out.xmp.items.empty()||out.xmp.items.front().padding!=samsung_padding+samsung_embedded_padding)) {
+        error="Samsung compatibility padding differs from actual tag extent.";return false;
+    }
+    if (!out.xmp.items.empty()&&samsung_padding==UINT64_MAX) {
         if (out.xmp.items.front().padding > input.size() - cursor) { error="JPEG primary padding exceeds the observed span."; return false; }
+        const uint64_t padding=out.xmp.items.front().padding;
+        if(padding>=20&&input[cursor+padding-4]=='S'&&input[cursor+padding-3]=='E'&&input[cursor+padding-2]=='F'&&input[cursor+padding-1]=='T') {
+            lpb::protocols::sef_inventory inventory;
+            if(!lpb::protocols::observe_sef(memory.view(),cursor,cursor+padding,inventory,error)||inventory.begin!=cursor||!lpb::protocols::ordinary_sef(inventory))return false;
+            out.samsung_metadata={cursor,padding};
+        }
         cursor += out.xmp.items.front().padding;
     }
     if(micamera==1) {
         if(subimage.offset!=out.encoding_boundary||subimage.offset+subimage.length!=watermark.offset||
             watermark.offset+watermark.length>input.size()||
-            (out.xmp.directory_present&&cursor!=watermark.offset+watermark.length)) {
+            (out.xmp.directory_present&&samsung_padding==UINT64_MAX&&cursor!=watermark.offset+watermark.length)) {
             error="MiCamera auxiliary placement disagrees with the bounded primary padding.";return false;
         }
         if(mpf.mpf_status!=jpeg_gainmap_mpf::status::absent){error="MiCamera and MPF overlapping ownership is unsupported.";return false;}
@@ -98,10 +109,11 @@ bool jpeg_facts(std::span<const uint8_t> input, target_primary_observation& out,
             if (i+1 != out.xmp.items.size() || item.padding || (item.mime != "video/mp4" && item.mime != "video/quicktime")) {
                 error = "JPEG MotionPhoto must be the final bounded video item."; return false;
             }
-            if (prefix_mode && (cursor != input.size() || full_file_length <= cursor || item.length != full_file_length - cursor)) {
+            const uint64_t gap=samsung_padding==UINT64_MAX?0:samsung_padding;
+            if (prefix_mode && (cursor != input.size() || gap>=full_file_length-cursor || item.length != full_file_length - cursor-gap)) {
                 error="JPEG prefix boundary or full file length disagrees with the final MotionPhoto inventory."; return false;
             }
-            out.has_video=true; out.video_offset=cursor; out.video_length=item.length;
+            out.has_video=true; out.video_offset=cursor+gap; out.video_length=item.length;
             out.primary_size=cursor;
         } else {
             const auto bytes=input.subspan(static_cast<size_t>(cursor),static_cast<size_t>(item.length));
@@ -120,6 +132,13 @@ bool jpeg_facts(std::span<const uint8_t> input, target_primary_observation& out,
         if (!external_final_video) cursor += item.length + item.padding;
     }
     if (prefix_mode && !out.has_video) { error="JPEG prefix observation requires an actual final MotionPhoto directory item."; return false; }
+    if(cursor<input.size()&&out.xmp.items.empty()) {
+        lpb::protocols::sef_inventory inventory;
+        if(!lpb::protocols::observe_sef(memory.view(),cursor,input.size(),inventory,error)||inventory.begin!=cursor||!lpb::protocols::ordinary_sef(inventory)) {
+            error="Prepared JPEG has unowned or non-tightly-packed trailing bytes: "+error;return false;
+        }
+        out.samsung_metadata={cursor,input.size()-cursor};cursor=input.size();
+    }
     if (cursor != input.size()) { error="Prepared JPEG has unowned or non-tightly-packed trailing bytes."; return false; }
     if (!out.has_video) out.primary_size=cursor;
     if (mpf.mpf_status == jpeg_gainmap_mpf::status::present && !out.singleton_mpf) {
@@ -171,6 +190,13 @@ bool heif_facts(std::span<const uint8_t> input, target_primary_observation& out,
             }
             saw_video=true; image_end=p; out.has_video=true; out.video_header_size=box.header_size;
             out.video_offset=p+box.header_size; out.video_length=box.size-box.header_size;
+        }
+        if(!std::memcmp(input.data()+p+4,"sefd",4)) {
+            memory_random_access memory{input};lpb::protocols::sef_inventory inventory;
+            if(out.samsung_metadata.length||p+box.size!=input.size()||
+               !lpb::protocols::observe_sef(memory.view(),p+box.header_size,input.size(),inventory,error)||
+               inventory.begin!=p+box.header_size||!lpb::protocols::ordinary_sef(inventory))return false;
+            out.samsung_metadata={p,box.size};
         }
         p+=box.size;
     }
@@ -229,6 +255,12 @@ bool observe_target_jpeg_prefix(std::span<const uint8_t> prefix, uint64_t full_f
         if (!jpeg_facts(prefix,result,error,full_file_length,true)) return false;
         output=std::move(result); return true;
     } catch (...) { output={}; error="JPEG prefix observation could not allocate or complete."; return false; }
+}
+bool observe_samsung_jpeg_prefix(std::span<const uint8_t> prefix,uint64_t full_length,uint64_t metadata_padding,
+ target_primary_observation& output,std::string& error) noexcept {
+ output={};error.clear();
+ try {return jpeg_facts(prefix,output,error,full_length,true,metadata_padding);}
+ catch(...){output={};error="Samsung JPEG prefix observation failed";return false;}
 }
 bool target_primary_has_live_binding(const target_primary_observation& facts) noexcept {
     if (facts.has_video || facts.xmp.live_claim || facts.xmp.micro_claim) return true;

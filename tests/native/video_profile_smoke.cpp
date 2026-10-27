@@ -675,6 +675,17 @@ void verify_cicp_alias_patch(const char* path, uint16_t alias_transfer, uint16_t
     write_be16(conflicting_bytes.data() + color_payload + 4, source.color_primaries);
     write_be16(conflicting_bytes.data() + color_payload + 6, source.transfer_characteristics);
     write_be16(conflicting_bytes.data() + color_payload + 8, source.matrix_coefficients);
+    // Transfer1/6 and matrix5/6 have identical functions. Different raw
+    // declarations alone are not conflicting media semantics (H.273).
+    lpb::media::isobmff_video_profile equivalent_aliases{};
+    assert(inspect_bytes(conflicting_bytes,equivalent_aliases,failure));
+    assert(equivalent_aliases.transfer_characteristics==source.transfer_characteristics&&
+        equivalent_aliases.matrix_coefficients==source.matrix_coefficients&&
+        equivalent_aliases.bitstream_transfer_characteristics==alias_transfer&&
+        equivalent_aliases.bitstream_matrix_coefficients==alias_matrix);
+    // BT.2020 coefficients remain a real conflict against the5/6 SPS.
+    assert(alias_matrix==5||alias_matrix==6);
+    write_be16(conflicting_bytes.data()+color_payload+8,9);
     lpb::media::isobmff_video_profile conflicting{};
     assert(!inspect_bytes(conflicting_bytes, conflicting, failure));
     assert(failure == lpb::media::video_profile_failure::ambiguous);

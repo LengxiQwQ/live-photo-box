@@ -27,6 +27,7 @@ struct target_primary_observation {
     target_xmp_observation xmp;
     std::vector<target_primary_auxiliary> auxiliaries;
     bool singleton_mpf{}, singleton_size_matches{}, has_video{};
+    lpb_media_range samsung_metadata{};
 };
 // Factual reader, independent of writer state. JPEG bytes must cover the full
 // prepared primary including tightly packed declared auxiliary JPEGs. HEIF may
@@ -40,6 +41,8 @@ bool observe_target_primary(std::span<const uint8_t> input,
 bool observe_target_jpeg_prefix(std::span<const uint8_t> prefix,
     uint64_t full_file_length, target_primary_observation& output,
     std::string& error) noexcept;
+bool observe_samsung_jpeg_prefix(std::span<const uint8_t>,uint64_t full_length,uint64_t metadata_padding,
+    target_primary_observation&,std::string&) noexcept;
 // The caller must also apply SourceInspector eligibility. This function tests
 // properties/semantic items, never harmless namespace declarations or HDR alone.
 bool target_primary_has_live_binding(const target_primary_observation&) noexcept;

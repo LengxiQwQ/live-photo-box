@@ -14,6 +14,7 @@
 #include "containers/isobmff_video_profile.h"
 #include "protocols/google_v2_writer.h"
 #include "protocols/huawei_target.h"
+#include "protocols/samsung_target.h"
 #include <array>
 #include <string_view>
 
@@ -48,6 +49,7 @@ struct lpb_target_writer_session {
     std::array<uint32_t,2> auxiliary_input_indices{UINT32_MAX,UINT32_MAX};
     lpb::media::target_primary_observation primary_facts;
     lpb::target::huawei_movie_plan huawei_movie;
+    std::vector<uint8_t> samsung_suffix;
     std::shared_ptr<lpb::media::compound_primary_proof> compound;
     std::array<uint8_t,32> fingerprint{};
     uint32_t state{},failure{};
@@ -224,10 +226,11 @@ lpb_result observe_inputs(lpb_context* context,lpb_target_writer_session& sessio
     }
     const uint32_t format=session.request.media_format;
     const bool huawei=session.request.target_profile==LPB_TARGET_HUAWEI;
+    const bool samsung=session.request.target_profile==LPB_TARGET_SAMSUNG;
     if(huawei&&(!session.extended||(format==4&&session.artifacts[1].video_codec!=3))) {
         set_error(context,"[Unsupported] Explicit Huawei HEVC profile requires prepared HEVC/AAC.");return LPB_RESULT_UNSUPPORTED;
     }
-    if(format>1&&(!session.extended||!((format==3&&session.request.target_profile==2)||((format==2||format==4)&&huawei))||
+    if(format>1&&(!session.extended||!((format==3&&session.request.target_profile==2)||(format==2&&samsung)||((format==2||format==4)&&huawei))||
         session.primary_facts.container!=LPB_IMAGE_CONTAINER_HEIC))return LPB_RESULT_UNSUPPORTED;
     const bool mp4=session.artifacts[1].container==LPB_VIDEO_CONTAINER_MP4;
     if(session.artifacts[1].container!=static_cast<uint32_t>((format==0||format==2||format==4)?LPB_VIDEO_CONTAINER_MP4:LPB_VIDEO_CONTAINER_MOV)) {
@@ -291,6 +294,10 @@ lpb_result observe_inputs(lpb_context* context,lpb_target_writer_session& sessio
         if(!lpb::target::prepare_huawei_movie(session.inputs[1].reader(),session.request.cover_timestamp_us,session.huawei_movie,error)) {
             set_error(context,error.c_str());return LPB_RESULT_INVALID_ARGUMENT;
         }
+    }
+    if(samsung&&(!session.extended||session.primary_timestamp_present||std::any_of(session.auxiliaries.begin(),session.auxiliaries.end(),
+        [](const auto& a){return a.representation!=1&&a.representation!=3;}))) {
+        set_error(context,"[Unsupported] Samsung requires an explicitly bound embedded primary auxiliary graph.");return LPB_RESULT_UNSUPPORTED;
     }
     return LPB_RESULT_OK;
 }
@@ -509,7 +516,8 @@ static lpb_result prepare_target_writer(lpb_context* context,const lpb_target_wr
             request->artifact_count!=2||!request->artifacts||request->reserved0||request->reserved1||request->reserved2||
             request->cover_timestamp_present>1||(!request->cover_timestamp_present&&request->cover_timestamp_us!=0)||
             !fixed_utf8(request->staging_directory_utf8,sizeof(request->staging_directory_utf8)))return LPB_RESULT_INVALID_ARGUMENT;
-        if((request->target_version!=1&&!(request->target_profile==LPB_TARGET_HUAWEI&&request->target_version==2))||
+        const bool samsung=request->target_profile==LPB_TARGET_SAMSUNG;
+        if((samsung?(request->target_version!=2&&request->target_version!=3):(request->target_version!=1&&!(request->target_profile==LPB_TARGET_HUAWEI&&request->target_version==2)))||
             !lpb::target::profile_accepts(request->target_profile,request->media_format))return LPB_RESULT_UNSUPPORTED;
         auto session=std::make_shared<lpb_target_writer_session>();
         session->owner=context;session->request=*request;session->request.artifacts=nullptr;
@@ -543,7 +551,7 @@ static lpb_result prepare_target_writer(lpb_context* context,const lpb_target_wr
                 }
                 const std::string_view relationship=semantic=="GainMap"?"gain-map":semantic=="Original"?"Original":
                     semantic=="MpfAuxiliaryImage"?"mpf-image":semantic=="MiCameraSubimage"?"micamera-xmpmeta-subimage":"micamera-xmpmeta-lenswatermark";
-                if(std::string_view(auxiliary.relationship)!=relationship) {
+                if(std::string_view(auxiliary.relationship)!=relationship&&!(semantic=="GainMap"&&request->target_profile==LPB_TARGET_SAMSUNG&&request->media_format==2)) {
                     set_error(context,"Auxiliary semantic/relationship identity mismatch before mutation.");return LPB_RESULT_INVALID_ARGUMENT;
                 }
                 for(const auto& prior:session->auxiliaries)
@@ -638,15 +646,24 @@ lpb_result LPB_CALL lpb_target_writer_stage_v1(lpb_context* context,lpb_target_w
         if(result==LPB_RESULT_OK)result=revalidate(context,*session);
         if(result==LPB_RESULT_OK) {
             if((session->request.target_profile!=LPB_TARGET_GOOGLE_V2&&session->request.target_profile!=LPB_TARGET_GOOGLE_V1&&
-                (!session->extended||(session->request.target_profile!=LPB_TARGET_OPPO&&session->request.target_profile!=LPB_TARGET_HUAWEI)))||
+                (!session->extended||(session->request.target_profile!=LPB_TARGET_OPPO&&session->request.target_profile!=LPB_TARGET_HUAWEI&&session->request.target_profile!=LPB_TARGET_SAMSUNG)))||
                 (session->request.media_format>1&&(!session->extended||!((session->request.target_profile==2&&session->request.media_format==3)||
+                    (session->request.target_profile==LPB_TARGET_SAMSUNG&&session->request.media_format==2)||
                     (session->request.target_profile==LPB_TARGET_HUAWEI&&(session->request.media_format==2||session->request.media_format==4)))))) {
                 set_error(context,"[Unsupported] Target serializer is not implemented; Writer attempt consumed with no outputs.");
                 result=LPB_RESULT_UNSUPPORTED;
             } else {
                 std::vector<uint8_t> primary,serialized;
                 const bool huawei=session->request.target_profile==LPB_TARGET_HUAWEI;
-                if(huawei) {
+                const bool samsung=session->request.target_profile==LPB_TARGET_SAMSUNG;
+                if(samsung) {
+                    std::string error;
+                    if(!session->inputs[0].read_all_bounded(4,32ULL*1024*1024,primary))result=LPB_RESULT_UNSUPPORTED;
+                    else if(!lpb::target::prepare_samsung_target(context,primary,session->primary_facts,session->inputs[1].size(),session->request.target_version,
+                        session->request.cover_timestamp_present!=0,session->request.cover_timestamp_us,serialized,session->samsung_suffix,error)) {
+                        set_error(context,error.c_str());result=LPB_RESULT_INVALID_ARGUMENT;
+                    }
+                }else if(huawei) {
                     if(!session->inputs[0].read_all_bounded(4,32ULL*1024*1024,serialized))result=LPB_RESULT_INTERNAL_ERROR;
                 }
                 else if(session->extended)result=serialize_extended_primary(context,*session,serialized);
@@ -668,6 +685,7 @@ lpb_result LPB_CALL lpb_target_writer_stage_v1(lpb_context* context,lpb_target_w
                             !session->stage->write_all(std::span<const uint8_t>(buffer.data(),n)))result=LPB_RESULT_INTERNAL_ERROR;
                         at+=n;
                     }
+                    if(samsung&&result==LPB_RESULT_OK&&!session->stage->write_all(session->samsung_suffix))result=LPB_RESULT_INTERNAL_ERROR;
                     if(huawei&&result==LPB_RESULT_OK) {
                         std::array<uint8_t,60> tail{};std::string error;
                         if(!lpb::target::make_huawei_footer(session->request.target_version,session->huawei_movie.cover_frame,session->huawei_movie.total_frames,movie_length,tail,error)) {

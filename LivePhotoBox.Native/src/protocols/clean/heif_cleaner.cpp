@@ -3,6 +3,7 @@
 #include "media/media_cleaner.h"
 #include "foundation/residue_fingerprint.h"
 #include "containers/isobmff.h"
+#include "protocols/samsung_inventory.h"
 #include "foundation/internal.h"
 #include "platform/windows_filesystem.h"
 #include <cstring>
@@ -221,11 +222,11 @@ static bool rewrite_samsung_xmp(
     }
 
     // Keep the HEIF item length and all iloc offsets stable. The removed
-    // protocol fields only make the XML shorter; zero-fill the unused tail so
+    // protocol fields only make the XML shorter; XML-whitespace-fill the tail so
     // no stale bytes can be parsed as a second XML document.
     std::copy(cleaned_xmp.begin(), cleaned_xmp.end(), data.begin() + xml_start);
     std::fill(data.begin() + xml_start + cleaned_xmp.size(),
-        data.begin() + xml_start + old_xml_length, static_cast<uint8_t>(0));
+        data.begin() + xml_start + old_xml_length, static_cast<uint8_t>(' '));
     return true;
 }
 
@@ -367,6 +368,22 @@ lpb_result clean_samsung_heic(
         ((should_remove_mpvd || should_remove_sefd) && !validate_samsung_sefd(input, sefd_box, video_offset, video_length))) {
         set_error(context, "Validated Samsung HEIC mpvd/sefd structure was not found or was malformed.");
         return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if(removed_sefd) {
+        // The authority/fingerprint above authorizes removing live ownership,
+        // not discarding the ordinary entries sharing the same SEFD owner.
+        lpb::memory_random_access memory{input};sef_inventory inventory;std::string error;
+        std::vector<uint8_t> retained;
+        if(!observe_sef(memory.view(),sefd_box.start+sefd_box.header_size,sefd_box.start+sefd_box.size,inventory,error)||
+           inventory.begin!=sefd_box.start+sefd_box.header_size||!retain_ordinary_sef(input,inventory,retained)) {
+            set_error(context,"Samsung HEIC ordinary SEF inventory cannot be preserved.");return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if(!retained.empty()) {
+            if(retained.size()>UINT32_MAX-8ULL)return LPB_RESULT_UNSUPPORTED;
+            const uint32_t size=static_cast<uint32_t>(retained.size()+8);
+            for(int i=3;i>=0;--i)output.push_back(static_cast<uint8_t>(size>>(i*8)));
+            output.insert(output.end(),{'s','e','f','d'});output.insert(output.end(),retained.begin(),retained.end());
+        }
     }
     if (!write_atomic(context, LPB_ARTIFACT_PRIMARY_IMAGE, output_path, output)) {
         set_error(context, "Failed to publish cleaned Samsung HEIC.");

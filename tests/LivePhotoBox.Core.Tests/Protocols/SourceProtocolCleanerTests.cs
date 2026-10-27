@@ -214,7 +214,19 @@ public sealed class SourceProtocolCleanerTests
         string cleanedText = Encoding.UTF8.GetString(await File.ReadAllBytesAsync(cleanResult.CleanedImage!.Path));
         Assert.DoesNotContain("GCamera:MotionPhoto", cleanedText, StringComparison.Ordinal);
         Assert.DoesNotContain("Semantic=\"MotionPhoto\"", cleanedText, StringComparison.OrdinalIgnoreCase);
-        Assert.DoesNotContain("sefd", cleanedText, StringComparison.Ordinal);
+        var postFacts = await inspector.InspectAsync(cleanResult.CleanedImage.Path);
+        Assert.Equal(SourceProtocol.NonLive, postFacts.Protocol);
+        Assert.Null(postFacts.MotionVideo);
+        var ordinaryTags = facts.PreservationCarriers.Where(row => row.Kind == PreservationCarrierKind.SamsungSef &&
+            row.StableIdentity != "samsung:sef:index-trailer").ToArray();
+        Assert.NotEmpty(ordinaryTags);
+        foreach (var tag in ordinaryTags)
+        {
+            var retained = Assert.Single(postFacts.PreservationCarriers, row => row.StableIdentity == tag.StableIdentity);
+            Assert.Equal(tag.Semantic, retained.Semantic); Assert.Equal(tag.Relationship, retained.Relationship);
+            Assert.Equal(tag.SourceLength, retained.SourceLength); Assert.Equal(tag.SourceSha256, retained.SourceSha256);
+        }
+        Assert.Contains(postFacts.PreservationCarriers, row => row.StableIdentity == "samsung:sef:index-trailer");
         Assert.Contains("Semantic=\"GainMap\"", cleanedText, StringComparison.OrdinalIgnoreCase);
     }
 

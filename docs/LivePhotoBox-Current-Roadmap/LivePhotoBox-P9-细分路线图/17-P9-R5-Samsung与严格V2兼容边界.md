@@ -1,0 +1,17 @@
+# P9 R5 Samsung 私有布局与严格 Google V2 冲突（待用户决定）
+
+2026-10-27，基于缓存三星原始JPEG、HEIC真实字节和fresh只读设计复核。根规则禁止实现反向改写验收；此处提交可审阅事实与具体产品方案，未改正式acceptance。
+
+三星JPEG SHA6CAEF9FD8F5AA65CE13BA4282A9BE7773DFBD5BD52ECB568AA3354E71C8C8488：主图EOI2927943；实际GainMap[2927943,3002205)，74262B；SEF普通tag始3002205；MotionData header3628515，MP4起3628539，长4121007；最终SEFH7749546，table+footer104B。XMP PrimaryPadding626334，GainMapLength74262，MotionPhotoLength4121111。EOF反推确实命中MP4起点，但声明资源含104B索引，PrimaryPadding后推GainMap却落入AutoPlay数据。不能将这份XMP称为严格标准V2。
+
+严格V2要求真实顺序、紧密资源、视频为最后媒体项，视频之后无额外字节，只有Primary能padding；Samsung实际要求视频后SEF索引，GainMap与视频之间有MotionData头。HEIC样本最终兄弟sefd同样位于MP4后。无证据支持用free重包索引、猜新布局或放宽通用GoogleV2 Validator。
+
+## 推荐决定
+
+R5交付遵循真实Samsung布局的实验Writer/独立Validator；分别检查：Samsung私有结构、Samsung兼容XMP的EOF资源定位/时间/实际视频关联、通用媒体/非live保留。严格GoogleV2 conformance明确标 Incompatible/未满足，不改通用GoogleValidator；GooglePhotos实际识别仍R8 NotRun。这样可以诚实完成Samsung有限实验技术单元，但不能称其是严格GoogleV2成品或已获跨平台兼容证明。
+
+需要用户明确允许将R5中的“V2兼容层”验收界定为Samsung原生兼容XMP定位层；严格GoogleV2保持单独不通过，设备支持与跨平台支持不在本次升级。正式03与TODO/结论须先记录当前用户决定后实施依赖部分。其它私有结构、保留/安全、独立验证标准不变。
+
+另一选择：保持原验收语义，继续做不依赖冲突的Native/Neutral修复，R5整体保留未完成，等待有真实证据的替代布局或新产品决定。不能通过删GainMap/普通tag或假造标准PASS解决。
+
+2026-10-27 当前用户明确选择：按推荐，保持三星原生格式并明确兼容边界。推荐验收定义已批准；Samsung私有结构及兼容XMP定位层分别验证，严格GoogleV2明确Incompatible，通用GoogleValidator不改，跨平台真机验收R8。

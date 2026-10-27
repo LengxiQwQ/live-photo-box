@@ -6,6 +6,7 @@
 #include "media/heic_backend.h"
 #include "foundation/internal.h"
 #include "foundation/sha256_core.h"
+#include "protocols/samsung_inventory.h"
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -84,10 +85,10 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
    expected.expected_video_codec<2||expected.expected_video_codec>3||expected.expected_auxiliary_count!=request->auxiliary_count) {
    reject(1,1,101,"Malformed target v2 base expectations");return LPB_RESULT_INVALID_ARGUMENT;
   }
-  const bool v1=expected.target_profile==1,v2=expected.target_profile==2,oppo=expected.target_profile==3,huawei=expected.target_profile==6;
-  const bool heif=expected.media_format==3||(huawei&&(expected.media_format==2||expected.media_format==4));
-  if((expected.target_version!=1&&!(huawei&&expected.target_version==2))||expected.member_count!=1||expected.member_index||expected.artifact_role||
-   !(v1||v2||oppo||huawei)||!((v1&&expected.media_format<=1)||(v2&&(expected.media_format<=1||heif))||(oppo&&expected.media_format==0)||(huawei&&(expected.media_format==0||expected.media_format==2||expected.media_format==4))))
+  const bool v1=expected.target_profile==1,v2=expected.target_profile==2,oppo=expected.target_profile==3,huawei=expected.target_profile==6,samsung=expected.target_profile==5;
+  const bool heif=expected.media_format==3||((huawei||samsung)&&(expected.media_format==2||expected.media_format==4));
+  if((samsung?(expected.target_version!=2&&expected.target_version!=3):(expected.target_version!=1&&!(huawei&&expected.target_version==2)))||expected.member_count!=1||expected.member_index||expected.artifact_role||
+   !(v1||v2||oppo||huawei||samsung)||!((v1&&expected.media_format<=1)||(v2&&(expected.media_format<=1||heif))||(oppo&&expected.media_format==0)||(samsung&&(expected.media_format==0||expected.media_format==2))||(huawei&&(expected.media_format==0||expected.media_format==2||expected.media_format==4))))
    return reject(4,1,102,"Target/format combination is outside v2 validator rules",true);
   if(!oppo&&request->primary_timestamp_present)return reject(2,1,103,"Original timestamp expectation belongs to OPlus target only");
   if(compound&&(!huawei||expected.media_format!=0||compound->struct_size!=sizeof(*compound)||compound->version!=1||
@@ -108,9 +109,52 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
   if(!hash_range(full,0,full.length,result.observed_sha256)){io();return source.error;}
   result.observed_byte_length=full.length;
   uint64_t prefix_length=0,video_offset=0,video_length=0,video_header=0;
+  uint64_t samsung_padding=0,samsung_resource=0;
   lpb::media::jpeg_observation jpeg;
   lpb::media::huawei_footer_observation footer;
-  if(huawei) {
+  if(samsung) {
+   lpb::protocols::sef_inventory inventory;std::string error;uint32_t version=0;
+   uint64_t lower=0;
+   if(heif) {
+    const auto top=scan_top_level_boxes(full);const top_level_box* mpvd=nullptr;const top_level_box* sefd=nullptr;
+    for(const auto& box:top) {
+     if(!std::memcmp(box.type,"mpvd",4)){if(mpvd)return reject(3,3,150,"Samsung HEIC duplicate mpvd owner");mpvd=&box;}
+     if(!std::memcmp(box.type,"sefd",4)){if(sefd)return reject(3,3,150,"Samsung HEIC duplicate sefd owner");sefd=&box;}
+    }
+    if(!mpvd||!sefd||mpvd->header_size!=8||sefd->header_size!=8||mpvd->offset+mpvd->size!=sefd->offset||
+       sefd->offset+sefd->size!=full.length||mpvd->size<=8||sefd->size<=8)return reject(2,3,150,"Samsung HEIC mpvd/sefd must be explicit adjacent final siblings");
+    std::array<uint8_t,4> box_size{};
+    if(!full.read_exact(mpvd->offset,box_size)){if(io())return source.error;return reject(2,3,150,"Samsung mpvd header missing");}
+    if(std::all_of(box_size.begin(),box_size.end(),[](auto b){return b==0;}))return reject(2,3,150,"Samsung mpvd implicit size rejected");
+    if(!full.read_exact(sefd->offset,box_size)){if(io())return source.error;return reject(2,3,150,"Samsung sefd header missing");}
+    if(std::all_of(box_size.begin(),box_size.end(),[](auto b){return b==0;}))return reject(2,3,150,"Samsung sefd implicit size rejected");
+    prefix_length=mpvd->offset;video_offset=mpvd->offset+8;video_length=mpvd->size-8;video_header=8;lower=sefd->offset+8;
+   }
+   if(!lpb::protocols::observe_sef(full,lower,full.length,inventory,error)) {
+    if(io())return source.error;return reject(2,4,151,error.c_str());
+   }
+   if(heif&&inventory.begin!=lower)return reject(2,4,151,"SEFD contains bytes outside indexed tag ownership");
+   if(!lpb::protocols::read_sef_version(full,inventory,version)||version!=expected.target_version)return reject(2,4,152,"Samsung MotionPhoto_Version missing or expectation mismatch");
+   const auto* motion=inventory.find(0x0a30);
+   if(!motion)return reject(2,4,153,"Samsung MotionPhoto_Data owner missing");
+   if(heif) {
+    std::array<uint8_t,12> pointer{};
+    if(motion->data_size!=12||!full.read_exact(motion->data_offset,pointer)){if(io())return source.error;return reject(2,4,153,"Samsung HEIC pointer extent invalid");}
+    const auto be=[](const uint8_t* p){return (uint32_t(p[0])<<24)|(uint32_t(p[1])<<16)|(uint32_t(p[2])<<8)|uint32_t(p[3]);};
+    if(std::memcmp(pointer.data(),"mpv2",4)||be(pointer.data()+4)!=video_offset||be(pointer.data()+8)!=video_length)
+     return reject(2,4,153,"Samsung HEIC absolute video pointer/signature/size mismatch");
+   }else {
+    prefix_length=inventory.begin;video_offset=motion->data_offset;video_length=motion->data_size;
+    if(!video_length||video_offset<prefix_length||video_offset>=full.length)return reject(2,4,153,"Samsung JPEG video extent invalid");
+    samsung_padding=video_offset-prefix_length;
+    for(const auto& tag:inventory.tags) {
+     if(tag.marker==0x0a30)continue;
+     if(tag.marker==0x0a31) {if(tag.offset!=video_offset+video_length)return reject(2,4,154,"Samsung output version tag must follow the complete movie");}
+     else if(tag.offset+tag.size>motion->offset)return reject(2,4,154,"Samsung ordinary tag overlaps or follows movie ownership");
+    }
+   }
+   samsung_resource=full.length-video_offset;
+  }else if(huawei) {
    std::array<uint8_t,60> tail{};
    if(full.length<=60||!full.read_exact(full.length-60,tail)){if(io())return source.error;return reject(2,4,140,"Huawei fixed footer is missing");}
    if(!lpb::media::observe_huawei_footer(tail,footer)||footer.variant!=expected.target_version||footer.movie_length>=full.length-60)
@@ -154,7 +198,8 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
    if(std::memcmp(digest,compound->opaque_sha256,32))return reject(2,3,146,"Opaque source-prefix bytes were changed or lost");
   }
   const auto known=std::span<const uint8_t>(prefix).first(static_cast<size_t>(compound?compound->known_length:prefix_length));
-  const bool observed=!heif&&!v1&&!huawei?lpb::media::observe_target_jpeg_prefix(prefix,full.length,primary,error):lpb::media::observe_target_primary(known,primary,error,false,huawei?known.size():full.length);
+  const bool observed=samsung&&!heif?lpb::media::observe_samsung_jpeg_prefix(prefix,full.length,samsung_padding,primary,error):
+   !heif&&!v1&&!huawei?lpb::media::observe_target_jpeg_prefix(prefix,full.length,primary,error):lpb::media::observe_target_primary(known,primary,error,false,huawei?known.size():full.length);
   if(!observed)return reject(2,3,111,error.c_str());
   if(primary.container!=(heif?LPB_IMAGE_CONTAINER_HEIC:LPB_IMAGE_CONTAINER_JPEG)||!primary.width||!primary.height)
    return reject(2,3,112,"Primary representation does not match target MIME");
@@ -182,9 +227,14 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
    if(primaries!=1||videos!=1||x.items.empty()||x.items.front().semantic!="Primary"||x.items.back().semantic!="MotionPhoto")
     return reject(2,4,118,"V2 primary/video cardinality or order mismatch");
    const auto& p=x.items.front();const auto& v=x.items.back();
-   if(p.mime!=(heif?"image/heic":"image/jpeg")||(p.has_length&&p.length)||v.mime!=(expected.media_format==0?"video/mp4":"video/quicktime")||
-      !v.has_length||v.length!=video_length||v.padding||(heif&&p.padding!=video_header))return reject(2,4,119,"V2 MIME/extent/padding does not match actual placement");
-   if(heif&&x.items.size()!=2)return reject(2,4,119,"HEIF embedded auxiliaries belong to its item graph; external directory items would change placement");
+   if(p.mime!=(heif?"image/heic":"image/jpeg")||(p.has_length&&p.length)||v.mime!=(expected.media_format==0||samsung?"video/mp4":"video/quicktime")||
+      !v.has_length||v.length!=(samsung?samsung_resource:video_length)||v.padding||(heif&&p.padding!=video_header))return reject(2,4,119,"Target XMP MIME/extent/padding does not match actual placement");
+   if(heif&&x.items.size()!=2) {
+    const bool embedded_samsung=samsung&&x.items.size()==3&&x.items[1].semantic=="GainMap"&&x.items[1].mime=="image/heic"&&
+      x.items[1].has_length&&!x.items[1].length&&!x.items[1].padding&&
+      std::count_if(primary.auxiliaries.begin(),primary.auxiliaries.end(),[](const auto& a){return a.semantic=="GainMap";})==1;
+    if(!embedded_samsung)return reject(2,4,119,"HEIF embedded auxiliaries belong to its item graph; external directory items would change placement");
+   }
    if(expected.cover_timestamp_present) {
     if(!x.cover_present||x.cover_us!=expected.cover_timestamp_us)return reject(2,6,120,"Current cover expectation mismatch");
    }else if(x.cover_present&&x.cover_us!=-1)return reject(2,6,120,"Unknown cover must remain unset or absent");
@@ -227,12 +277,12 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
   output->auxiliary_count=static_cast<uint32_t>(primary.auxiliaries.size());result.observed_auxiliary_count=output->auxiliary_count;
   slice video{full,video_offset,video_length};lpb::media::target_video_observation media;lpb::media::target_video_diagnostic diagnostic;
   lpb::media::target_covertime_observation cover_properties;
-  if(!lpb::media::observe_target_video(video.view(),expected.media_format==0||huawei,media,diagnostic,huawei?&cover_properties:nullptr)) {
+  if(!lpb::media::observe_target_video(video.view(),expected.media_format==0||huawei||samsung,media,diagnostic,huawei?&cover_properties:nullptr)) {
    if(io())return source.error;const bool unsupported=diagnostic.failure==lpb::media::target_video_failure::unsupported;
    result.generic_media_status=unsupported?3:2;result.failure_byte_offset=diagnostic.offset==UINT64_MAX?UINT64_MAX:video_offset+diagnostic.offset;
    return reject(unsupported?4:2,5,126,diagnostic.reason.c_str(),unsupported);
   }
-  if(media.media.quicktime!=(!huawei&&expected.media_format!=0)||media.media.video_codec!=expected.expected_video_codec)
+  if(media.media.quicktime!=(!huawei&&!samsung&&expected.media_format!=0)||media.media.video_codec!=expected.expected_video_codec)
    return reject(2,5,127,"Observed video container/codec differs from target expectations");
   if(expected.cover_timestamp_present&&!selects(media.media.timeline,expected.cover_timestamp_us))return reject(2,6,128,"Current cover does not select an observed visible sample");
   if(oppo&&!selects(media.media.timeline,request->primary_timestamp_us))return reject(2,6,129,"Original timestamp does not select an observed visible sample");

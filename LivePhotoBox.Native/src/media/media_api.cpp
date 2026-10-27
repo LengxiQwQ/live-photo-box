@@ -9,6 +9,8 @@
 #include "media/media_cleaner.h"
 #include "metadata/jpeg.h"
 #include "protocols/clean/xmp_cleaner.h"
+#include "protocols/samsung_inventory.h"
+#include "media/xmp_observation.h"
 #include "foundation/internal.h"
 #include "foundation/sha256.h"
 #include "platform/windows_filesystem.h"
@@ -1769,9 +1771,23 @@ LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
             return LPB_RESULT_INVALID_ARGUMENT;
         }
 
+        // The original Samsung directory's padding includes the removed live
+        // tag header/table. Bind replacement padding to the actual retained
+        // ordinary SEF inventory, rather than retaining a stale number.
+        bool sef_padding_rebased=false;
+        if(primary_info.eoi_end<primary_bytes.size()) {
+            memory_random_access memory{primary_span};lpb::protocols::sef_inventory inventory;std::string error;
+            if(!lpb::protocols::observe_sef(memory.view(),primary_info.eoi_end,primary_bytes.size(),inventory,error)||
+               inventory.begin!=primary_info.eoi_end||!lpb::protocols::ordinary_sef(inventory)) {
+                set_error(context,"GainMap primary trailing metadata is not a complete ordinary SEF inventory.");return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            std::string adjusted;xmp_observation_failure why{};
+            if(!rewrite_target_primary_padding(owner_xmp,primary_bytes.size()-primary_info.eoi_end,adjusted,why))return LPB_RESULT_INVALID_ARGUMENT;
+            owner_xmp=std::move(adjusted);sef_padding_rebased=true;
+        }
         std::vector<uint8_t> canonical_primary_bytes;
         if (owner_xmp != source_xmp) {
-            if (owner_xmp.size() != source_xmp.size()) {
+            if (owner_xmp.size() != source_xmp.size()&&!sef_padding_rebased) {
                 set_error(context, "Neutral Container Directory normalization must preserve the XMP packet length.");
                 return LPB_RESULT_INVALID_ARGUMENT;
             }

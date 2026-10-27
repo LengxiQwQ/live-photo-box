@@ -13,6 +13,7 @@
 #include "foundation/residue_fingerprint.h"
 #include "protocols/apple.h"
 #include "protocols/samsung_sef.h"
+#include "protocols/samsung_inventory.h"
 #include "containers/mp4_strip.h"
 #include "containers/heif_internal.h"
 #include "binary/binary_io.h"
@@ -2955,7 +2956,26 @@ static bool publish_samsung_sef_preservation_carriers(
     lpb_source_media_facts* facts,
     const std::vector<uint8_t>& source_data,
     uint64_t trailer_offset,
-    bool reject_motion_entries) noexcept {
+    bool reject_motion_entries, lpb_image_container container=LPB_IMAGE_CONTAINER_JPEG) noexcept {
+    if(container==LPB_IMAGE_CONTAINER_HEIC) {
+        memory_random_access memory{source_data};lpb::protocols::sef_inventory inventory;std::string error;
+        if(!lpb::protocols::observe_sef(memory.view(),trailer_offset,source_data.size(),inventory,error)||inventory.begin!=trailer_offset||
+           (reject_motion_entries&&!lpb::protocols::ordinary_sef(inventory)))return false;
+        bool ordinary_present=false;
+        for(const auto& tag:inventory.tags) {
+            if(tag.marker==0x0a30||tag.marker==0x0a31)continue;
+            ordinary_present=true;
+            const std::string identity="samsung:sef:entry:"+std::to_string(tag.marker)+":"+tag.name;
+            const std::string relationship="SEFH/SEFT:"+tag.name;
+            if(identity.size()>=96||relationship.size()>=96||!publish_preservation_carrier(facts,source_data,LPB_PRESERVATION_CARRIER_SAMSUNG_SEF,
+                {tag.offset,tag.size},identity.c_str(),tag.name.c_str(),"primary:0",relationship.c_str(),0,container))return false;
+        }
+        // A directory indexing only removed live entries has no independent
+        // ordinary preservation role. Do not demand its retention as an asset.
+        if(!ordinary_present)return true;
+        return publish_preservation_carrier(facts,source_data,LPB_PRESERVATION_CARRIER_SAMSUNG_SEF,
+            {inventory.table,source_data.size()-inventory.table},"samsung:sef:index-trailer","SamsungSEFIndexTrailer","primary:0","SEFH/SEFT",0,container);
+    }
     size_t sefh = 0;
     std::vector<samsung_sef_preservation_entry> entries;
     if (!collect_samsung_sef_preservation_entries(
@@ -2971,7 +2991,7 @@ static bool publish_samsung_sef_preservation_carriers(
             !publish_preservation_carrier(
                 facts, source_data, LPB_PRESERVATION_CARRIER_SAMSUNG_SEF,
                 { entry.payload_offset, entry.payload_length }, identity.c_str(), entry.name.c_str(),
-                "primary:0", relationship.c_str(), 0, LPB_IMAGE_CONTAINER_JPEG,
+                "primary:0", relationship.c_str(), 0, container,
                 LPB_AUX_CODEC_UNKNOWN, LPB_ARTIFACT_PRIMARY_IMAGE)) {
             return false;
         }
@@ -2980,7 +3000,7 @@ static bool publish_samsung_sef_preservation_carriers(
     return publish_preservation_carrier(
         facts, source_data, LPB_PRESERVATION_CARRIER_SAMSUNG_SEF,
         { sefh, source_data.size() - sefh }, "samsung:sef:index-trailer", "SamsungSEFIndexTrailer",
-        "primary:0", "SEFH/SEFT", 0, LPB_IMAGE_CONTAINER_JPEG, LPB_AUX_CODEC_UNKNOWN,
+        "primary:0", "SEFH/SEFT", 0, container, LPB_AUX_CODEC_UNKNOWN,
         LPB_ARTIFACT_PRIMARY_IMAGE);
 }
 
@@ -3882,7 +3902,17 @@ lpb_result inspect_source(
             }
             bpos += bh.size;
         }
-        if (has_sefd_box || has_nested_sefd_box) {
+        bool retained_ordinary_sefd=false;
+        if(has_sefd_box&&!has_mpvd_box&&!has_nested_sefd_box) {
+            memory_random_access memory{primary_data};lpb::protocols::sef_inventory inventory;std::string error;
+            const auto top=scan_top_level_boxes(memory.view());size_t carriers=0;
+            for(const auto& box:top)if(!std::memcmp(box.type,"sefd",4))++carriers;
+            retained_ordinary_sefd=carriers==1&&sefd_box_hdr.start+sefd_box_hdr.size==primary_data.size()&&
+                lpb::protocols::observe_sef(memory.view(),sefd_box_hdr.start+sefd_box_hdr.header_size,primary_data.size(),inventory,error)&&
+                inventory.begin==sefd_box_hdr.start+sefd_box_hdr.header_size&&lpb::protocols::ordinary_sef(inventory)&&
+                publish_samsung_sef_preservation_carriers(out_facts,primary_data,inventory.begin,true,LPB_IMAGE_CONTAINER_HEIC);
+        }
+        if ((has_sefd_box || has_nested_sefd_box)&&!retained_ordinary_sefd) {
             uint64_t heic_vid_off = 0, heic_vid_len = 0;
             if (!check_samsung_sef_heic(primary_data, heic_vid_off, heic_vid_len, sefd_box_hdr)) {
                 set_error(context, "Samsung HEIC sefd box or SEF directory is malformed.");
@@ -3905,6 +3935,9 @@ lpb_result inspect_source(
             out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
             out_facts->motion_video.file_range.offset = heic_vid_off;
             out_facts->motion_video.file_range.length = heic_vid_len;
+            if(!publish_samsung_sef_preservation_carriers(out_facts,primary_data,sefd_box_hdr.start+sefd_box_hdr.header_size,false,LPB_IMAGE_CONTAINER_HEIC)) {
+                set_error(context,"Samsung HEIC ordinary SEF carriers cannot be bound.");return LPB_RESULT_INVALID_ARGUMENT;
+            }
 
             if (out_residues) {
                 if (has_mpvd_box) {
@@ -5091,6 +5124,10 @@ lpb_result inspect_source(
                         // Samsung image fail the post-clean live binding gate.
                         out_facts->protocol_tail_range.offset = 0;
                         out_facts->protocol_tail_range.length = 0;
+                        if(gainmap_offset>jpeg_end) {
+                            const std::vector<uint8_t> owner(primary_data.begin(),primary_data.begin()+static_cast<ptrdiff_t>(gainmap_offset));
+                            if(!publish_samsung_sef_preservation_carriers(out_facts,owner,jpeg_end,true))return LPB_RESULT_INVALID_ARGUMENT;
+                        }
                         if (!publish_gainmap_auxiliary(out_facts, primary_data, LPB_IMAGE_CONTAINER_JPEG,
                                 out_facts->gain_map.file_range)) {
                             set_error(context, "Neutral GainMap could not be bound to an auxiliary identity.");
@@ -6020,12 +6057,12 @@ bool observe_target_xmp(std::string_view xml,target_xmp_observation& output,
         failure=xmp_observation_failure::none;return true;
     }catch(...){return false;}
 }
-bool rewrite_target_primary_padding(std::string_view xml,uint64_t padding,std::string& output,xmp_observation_failure& failure) noexcept {
+bool rewrite_target_primary_padding(std::string_view xml,uint64_t padding,std::string& output,xmp_observation_failure& failure,bool generated_target) noexcept {
     output.clear();failure=xmp_observation_failure::malformed;
     try {
         target_xmp_observation observed;
         if(!observe_target_xmp(xml,observed,failure)||!observed.directory_present||observed.items.empty()||
-            observed.items[0].semantic!="Primary"||observed.live_claim||observed.micro_claim||observed.foreign_claim)return false;
+            observed.items[0].semantic!="Primary"||(!generated_target&&observed.live_claim)||observed.micro_claim||observed.foreign_claim)return false;
         std::vector<xmp_node> nodes;container_directory_info directory;
         if(!scan_xmp_tree(xml,nodes,true)||!find_container_directory(nodes,directory)||directory.items.empty())return false;
         const auto& primary=nodes[directory.items[0].node_index];

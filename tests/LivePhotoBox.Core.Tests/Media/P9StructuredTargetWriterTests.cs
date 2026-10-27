@@ -105,12 +105,13 @@ public sealed class P9StructuredTargetWriterTests
     }
 
     [Theory]
-    [InlineData(false)] [InlineData(true)]
-    public async Task RealDirectoryAclDenialBlocksNativeStageWithoutPublicationAndRestoresAcl(bool huawei)
+    [InlineData(2)] [InlineData(6)] [InlineData(5)]
+    public async Task RealDirectoryAclDenialBlocksNativeStageWithoutPublicationAndRestoresAcl(int target)
     {
-        using var folder = new P9TargetTestInputs.Folder(nameof(RealDirectoryAclDenialBlocksNativeStageWithoutPublicationAndRestoresAcl) + huawei);
-        var bundle = P9TargetTestInputs.Bundle(folder.Path, audio: huawei);
-        var selectedProfile = huawei ? OutputProfile.Create(TargetProtocol.HuaweiMovingPhoto, OutputMediaFormat.JpegMp4) : Profile;
+        using var folder = new P9TargetTestInputs.Folder(nameof(RealDirectoryAclDenialBlocksNativeStageWithoutPublicationAndRestoresAcl) + target);
+        var bundle = P9TargetTestInputs.Bundle(folder.Path, audio: target == 6);
+        var selectedProfile = target == 6 ? OutputProfile.Create(TargetProtocol.HuaweiMovingPhoto, OutputMediaFormat.JpegMp4) :
+            target == 5 ? OutputProfile.Create(TargetProtocol.SamsungMotionPhoto, OutputMediaFormat.JpegMp4) : Profile;
         string denied = Path.Combine(folder.Path, "denied-stage"); Directory.CreateDirectory(denied);
         var directory = new DirectoryInfo(denied);
         DirectorySecurity original = directory.GetAccessControl(AccessControlSections.Access);
@@ -141,7 +142,7 @@ public sealed class P9StructuredTargetWriterTests
             directory.SetAccessControl(restored);
             string after = directory.GetAccessControl(AccessControlSections.Access).GetSecurityDescriptorSddlForm(AccessControlSections.Access);
             Assert.Equal(before, after);
-            string? evidence = Environment.GetEnvironmentVariable(huawei ? "LIVEPHOTOBOX_P9_R4_OUTPUTS" : "LIVEPHOTOBOX_P9_R2_OUTPUTS");
+            string? evidence = Environment.GetEnvironmentVariable(target == 6 ? "LIVEPHOTOBOX_P9_R4_OUTPUTS" : target == 5 ? "LIVEPHOTOBOX_P9_R5_OUTPUTS" : "LIVEPHOTOBOX_P9_R2_OUTPUTS");
             if (!string.IsNullOrWhiteSpace(evidence))
             {
                 Directory.CreateDirectory(evidence);

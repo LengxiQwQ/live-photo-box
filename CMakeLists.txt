@@ -45,6 +45,7 @@ set(LPB_PORTABLE_SOURCES
   LivePhotoBox.Native/src/protocols/apple_mebx.cpp
   LivePhotoBox.Native/src/protocols/huawei.cpp
   LivePhotoBox.Native/src/protocols/samsung_sef.cpp
+  LivePhotoBox.Native/src/protocols/samsung_inventory.cpp
   LivePhotoBox.Native/src/protocols/vivo_legacy.cpp
   LivePhotoBox.Native/src/protocols/target_structure.cpp)
 set(LPB_PROTOCOL_METADATA_SOURCES
@@ -76,6 +77,7 @@ set(LPB_MEDIA_SOURCES
   LivePhotoBox.Native/src/media/target_primary_observation.cpp
   LivePhotoBox.Native/src/media/target_video_observation.cpp
   LivePhotoBox.Native/src/protocols/huawei_target.cpp
+  LivePhotoBox.Native/src/protocols/samsung_target.cpp
   LivePhotoBox.Native/src/media/huawei_conformance.cpp
   LivePhotoBox.Native/src/media/compound_primary.cpp
   LivePhotoBox.Native/src/media/jpeg_observation.cpp
@@ -244,6 +246,11 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
+  add_executable(lpb_samsung_inventory_tests tests/native/samsung_inventory_tests.cpp)
+  target_include_directories(lpb_samsung_inventory_tests PRIVATE LivePhotoBox.Native/include LivePhotoBox.Native/src)
+  target_compile_options(lpb_samsung_inventory_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+  target_link_libraries(lpb_samsung_inventory_tests PRIVATE livephotobox_portable_core)
+  add_test(NAME P9R5_SamsungInventory COMMAND lpb_samsung_inventory_tests)
   add_executable(lpb_target_validator_v2_tests tests/native/target_validator_v2_tests.cpp)
   target_include_directories(lpb_target_validator_v2_tests PRIVATE LivePhotoBox.Native/include)
   target_compile_options(lpb_target_validator_v2_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)

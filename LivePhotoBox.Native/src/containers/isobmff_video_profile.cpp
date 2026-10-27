@@ -1049,9 +1049,14 @@ bool parse_video_track(
         // this factual equivalence authorizes no byte patch or color convert.
         const bool equivalent_transfer=(output.transfer_characteristics==1&&output.bitstream_transfer_characteristics==6)||
             (output.transfer_characteristics==6&&output.bitstream_transfer_characteristics==1);
+        // H.273 table4: matrix5 and6 are functionally identical, both use
+        // KR=.299/KB=.114. Preserve both original codes; this authorizes no
+        // normalization or media rewrite. Other disagreements still reject.
+        const bool equivalent_matrix=(output.matrix_coefficients==5&&output.bitstream_matrix_coefficients==6)||
+            (output.matrix_coefficients==6&&output.bitstream_matrix_coefficients==5);
         if (!reconcile_color(output.color_primaries, output.bitstream_color_primaries) ||
             (!equivalent_transfer&&!reconcile_color(output.transfer_characteristics, output.bitstream_transfer_characteristics)) ||
-            !reconcile_color(output.matrix_coefficients, output.bitstream_matrix_coefficients)) {
+            (!equivalent_matrix&&!reconcile_color(output.matrix_coefficients, output.bitstream_matrix_coefficients))) {
             failure = video_profile_failure::ambiguous;
             return false;
         }
