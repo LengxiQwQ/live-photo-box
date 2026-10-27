@@ -4,6 +4,7 @@
 #include "media/media_inspector.h"
 #include "media/target_primary_observation.h"
 #include "media/jpeg_gainmap_mpf.h"
+#include "media/vivo_comment.h"
 #include "metadata/jpeg.h"
 #include "metadata/target_exif.h"
 #include "foundation/portable_internal.h"
@@ -15,23 +16,26 @@ std::string property(std::string_view name,std::string_view value,std::string_vi
  return "<lpbc:"+std::string(name)+" xmlns:lpbc=\""+std::string(ns)+"\">"+
   std::string(value)+"</lpbc:"+std::string(name)+">";
 }
-std::string resource(std::string_view semantic,std::string_view mime,uint64_t length,uint64_t padding=0) {
- return "<lpbrdf:li xmlns:lpbrdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" lpbrdf:parseType=\"Resource\">"
+std::string resource(std::string_view semantic,std::string_view mime,uint64_t length,uint64_t padding=0,bool vivo=false) {
+ std::string out="<lpbrdf:li xmlns:lpbrdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" lpbrdf:parseType=\"Resource\">"
   "<lpbcontainer:Item xmlns:lpbcontainer=\"http://ns.google.com/photos/1.0/container/\" xmlns:lpbi=\"http://ns.google.com/photos/1.0/container/item/\" lpbi:Mime=\""+
-  std::string(mime)+"\" lpbi:Semantic=\""+std::string(semantic)+"\" lpbi:Length=\""+std::to_string(length)+"\""+
-  (semantic=="Primary"?" lpbi:Padding=\""+std::to_string(padding)+"\"":"")+"/></lpbrdf:li>";
+  std::string(mime)+"\" lpbi:Semantic=\""+std::string(semantic)+"\"";
+ if(!(vivo&&semantic=="Primary"))out+=" lpbi:Length=\""+std::to_string(length)+"\"";
+ if((semantic=="Primary"&&!vivo)||(vivo&&semantic=="MotionPhoto"))out+=" lpbi:Padding=\""+std::to_string(padding)+"\"";
+ return out+"/></lpbrdf:li>";
 }
 }
 
 lpb_result build_google_xmp(std::string_view input,const google_xmp_request& request,std::string& output) noexcept {
  output.clear();
  try {
-  const bool samsung=request.target==5;
-  if((request.target<1||request.target>3)&&!samsung)return LPB_RESULT_UNSUPPORTED;
+  const bool samsung=request.target==5,vivo=request.target==4;
+  if((request.target<1||request.target>4)&&!samsung)return LPB_RESULT_UNSUPPORTED;
   if((request.format!=0&&request.format!=1&&request.format!=3&&!(samsung&&request.format==2))||!request.video_length)return LPB_RESULT_UNSUPPORTED;
   const bool heif=request.format==3||(samsung&&request.format==2);
   if(request.primary_mime!=(heif?"image/heic":"image/jpeg")||
      (heif&&(request.primary_padding!=8&&request.primary_padding!=16)))return LPB_RESULT_UNSUPPORTED;
+  if(vivo&&request.format!=0)return LPB_RESULT_UNSUPPORTED;
   if(request.target==1&&heif)return LPB_RESULT_UNSUPPORTED;
   if(request.target==3&&!request.primary_cover_present)return LPB_RESULT_UNSUPPORTED;
   if(request.primary_cover_present&&request.primary_cover_us<0)return LPB_RESULT_INVALID_ARGUMENT;
@@ -43,6 +47,7 @@ lpb_result build_google_xmp(std::string_view input,const google_xmp_request& req
    else if(item.semantic=="Original"){if(original)return LPB_RESULT_UNSUPPORTED;original=true;}
    else return LPB_RESULT_UNSUPPORTED;
   }
+  if(vivo&&(original||request.primary_padding))return LPB_RESULT_UNSUPPORTED;
   // V1 facts establish known nonnegative cover only; do not import V2's -1 rule.
   if(request.target==1&&!request.cover_present)return LPB_RESULT_UNSUPPORTED;
   if(request.cover_present&&request.cover_us<0)return LPB_RESULT_INVALID_ARGUMENT;
@@ -59,11 +64,13 @@ lpb_result build_google_xmp(std::string_view input,const google_xmp_request& req
     property("VideoLength",std::to_string(request.video_length),op)+
     property("MotionPhotoPrimaryPresentationTimestampUs",std::to_string(request.primary_cover_us),op);
   }
-  const std::string video=resource("MotionPhoto",request.format==0||samsung?"video/mp4":"video/quicktime",request.video_length);
+  if(vivo)properties+=property("VMotionPhotoVersion","1","http://ns.vivo.com/photos/1.0/camera/");
+  // No camera-direct source flag or proprietary media-kit version is invented.
+  const std::string video=resource("MotionPhoto",request.format==0||samsung?"video/mp4":"video/quicktime",request.video_length,0,vivo);
   std::string assets;for(const auto& item:request.auxiliary_items)assets+=resource(item.semantic,item.mime,item.length);
   const std::string directory=v1&&request.auxiliary_items.empty()?"":"<lpbcontainer:Directory xmlns:lpbcontainer=\"http://ns.google.com/photos/1.0/container/\">"
    "<lpbrdf:Seq xmlns:lpbrdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"+
-   resource("Primary",request.primary_mime,0,request.primary_padding)+assets+(v1?"":video)+"</lpbrdf:Seq></lpbcontainer:Directory>";
+   resource("Primary",request.primary_mime,0,request.primary_padding,vivo)+assets+(v1?"":video)+"</lpbrdf:Seq></lpbcontainer:Directory>";
   const std::string description="<lpbrdf:Description xmlns:lpbrdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" lpbrdf:about=\"\">"+
    properties+directory+"</lpbrdf:Description>";
   if(input.empty()) {
@@ -76,6 +83,11 @@ lpb_result build_google_xmp(std::string_view input,const google_xmp_request& req
    return why==lpb::media::xmp_observation_failure::unsupported?LPB_RESULT_UNSUPPORTED:LPB_RESULT_INVALID_ARGUMENT;
   if(observed.live_claim||observed.micro_claim||observed.foreign_claim||observed.oppo_claim||observed.vivo_claim||
      (observed.hdr_claim&&(!(gainmap||heif)||!request.hdr_relationship_validated)))return LPB_RESULT_UNSUPPORTED;
+  std::string vivo_adjusted;
+  if(vivo&&observed.directory_present) {
+   if(!lpb::media::rewrite_target_vivo_primary_shape(input,vivo_adjusted,why)||!lpb::media::observe_target_xmp(vivo_adjusted,observed,why))return LPB_RESULT_UNSUPPORTED;
+   input=vivo_adjusted;
+  }
   std::string adjusted;
   if(heif&&observed.directory_present&&observed.items[0].padding!=request.primary_padding){
    if(!lpb::media::rewrite_target_primary_padding(input,request.primary_padding,adjusted,why)||
@@ -173,10 +185,29 @@ lpb_result build_google_primary(lpb_context* context,std::span<const uint8_t> in
    if(!lpb::media::rebase_micamera_offsets(packet,request.video_length+(request.target==5?24:0),rebased))return LPB_RESULT_UNSUPPORTED;
    packet=rebased;
   }
+  if(request.target==4&&(request.primary_padding||std::any_of(request.auxiliary_items.begin(),request.auxiliary_items.end(),[](const auto& a){return a.semantic!="GainMap";}))) {
+   set_error(context,"Vivo directory cannot represent preserved primary-padding or non-GainMap assets.");return LPB_RESULT_UNSUPPORTED;
+  }
   const auto merged=build_google_xmp(packet,request,xml);
   if(merged!=LPB_RESULT_OK)return merged;
   if(xml.size()>65535-2-sizeof("http://ns.adobe.com/xap/1.0/"))return LPB_RESULT_UNSUPPORTED;
   std::vector<uint8_t> commented;
+  if(request.target==4){
+   if(jpeg.exif.has_user_comment){
+    std::map<std::string,std::string> fields;
+    if(!lpb::media::observe_raw_camera_comment(jpeg.exif.user_comment,fields)||
+       fields["multi-frame"]!="1"||fields["ispap"]!="1"||fields["module"]!="photo") {
+      set_error(context,"Existing UserComment conflicts with experimental vivo raw marker; original metadata is retained.");return LPB_RESULT_UNSUPPORTED;
+    }
+   }else{
+    // Finite experimental marker only. Do not fabricate weather, temperature,
+    // camera processing time, orientation or processing-engine history.
+    constexpr char raw[]="multi-frame: 1;\nispap:1;\nmodule: photo;";
+    const std::span<const uint8_t> marker(reinterpret_cast<const uint8_t*>(raw),sizeof(raw));
+    if(!lpb::metadata::add_target_user_comment(input,marker,commented,failure))return failure==lpb::media::jpeg_observation_failure::unsupported?LPB_RESULT_UNSUPPORTED:LPB_RESULT_INVALID_ARGUMENT;
+    input=commented;
+   }
+  }
   if(request.target==3){
    constexpr char raw[]="ASCII\0\0\0oplus_10485792";
    const std::span<const uint8_t> marker(reinterpret_cast<const uint8_t*>(raw),sizeof(raw)-1);

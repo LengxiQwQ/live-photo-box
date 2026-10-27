@@ -646,7 +646,7 @@ lpb_result LPB_CALL lpb_target_writer_stage_v1(lpb_context* context,lpb_target_w
         if(result==LPB_RESULT_OK)result=revalidate(context,*session);
         if(result==LPB_RESULT_OK) {
             if((session->request.target_profile!=LPB_TARGET_GOOGLE_V2&&session->request.target_profile!=LPB_TARGET_GOOGLE_V1&&
-                (!session->extended||(session->request.target_profile!=LPB_TARGET_OPPO&&session->request.target_profile!=LPB_TARGET_HUAWEI&&session->request.target_profile!=LPB_TARGET_SAMSUNG)))||
+                (!session->extended||(session->request.target_profile!=LPB_TARGET_OPPO&&session->request.target_profile!=LPB_TARGET_VIVO_MODERN&&session->request.target_profile!=LPB_TARGET_HUAWEI&&session->request.target_profile!=LPB_TARGET_SAMSUNG)))||
                 (session->request.media_format>1&&(!session->extended||!((session->request.target_profile==2&&session->request.media_format==3)||
                     (session->request.target_profile==LPB_TARGET_SAMSUNG&&session->request.media_format==2)||
                     (session->request.target_profile==LPB_TARGET_HUAWEI&&(session->request.media_format==2||session->request.media_format==4)))))) {

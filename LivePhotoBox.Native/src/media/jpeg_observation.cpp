@@ -45,11 +45,12 @@ bool observe_exif(std::span<const uint8_t> bytes,uint32_t& orientation,exif_obse
     if(entry.tag==0x927c||entry.tag==0x9286){
      // These tags are owned by the unique ExifIFD, never IFD0/GPS/Interop/thumbnail.
      if(!out.exif_ifd_offset||offset!=out.exif_ifd_offset||
-        (entry.tag==0x927c?entry.type!=7:(entry.type!=7&&entry.type!=2)))return false;
+        ((entry.tag==0x927c||entry.tag==0x9286)&&entry.type!=7&&entry.type!=2))return false;
      out.opaque_metadata=true;
      if(entry.tag==0x927c) {
       ++maker_count;const size_t at=n<=4?entry.absolute_pos+8:tiff+entry.value_offset;
-      if(n>=9&&std::memcmp(bytes.data()+at,"Apple iOS",9)==0)apple_maker=true;
+      if(entry.type==2&&bytes[at+static_cast<size_t>(n)-1]!=0)return false;
+      if(n>=9&&std::memcmp(bytes.data()+at,"Apple iOS",9)==0){if(entry.type!=7)return false;apple_maker=true;}
       if(maker_count>1&&apple_maker)return false;
      }
      if(entry.tag==0x9286){

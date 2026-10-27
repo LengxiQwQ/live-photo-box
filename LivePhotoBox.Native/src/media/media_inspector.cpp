@@ -11,6 +11,8 @@
 #include "foundation/internal.h"
 #include "foundation/sha256.h"
 #include "foundation/residue_fingerprint.h"
+#include "media/vivo_modern_inventory.h"
+#include "media/empty_audio_placeholder.h"
 #include "protocols/apple.h"
 #include "protocols/samsung_sef.h"
 #include "protocols/samsung_inventory.h"
@@ -4190,6 +4192,29 @@ lpb_result inspect_source(
                 out_facts->timing.cover_timestamp_us = cover_time;
             }
 
+            const auto modern_movie=std::span<const uint8_t>(primary_data).subspan(static_cast<size_t>(vid_off),static_cast<size_t>(vid_len));
+            vivo_modern_inventory modern;
+            if(!observe_vivo_modern(modern_movie,modern)) {
+                set_error(context,"Malformed, duplicate or shadowed modern vivo video mixed metadata ownership.");return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            empty_audio_placeholder placeholder;
+            if(modern.binding&&!observe_empty_audio_placeholder(modern_movie,placeholder)) {
+                set_error(context,"Ambiguous or unsupported empty-audio placeholder relationship.");return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            if(placeholder.found) {
+                const auto owned=modern_movie.subspan(placeholder.begin,placeholder.end-placeholder.begin);
+                const std::string fingerprint=lpb::crypto::compute_isobmff_box_fingerprint("trak",owned.size(),owned.data(),owned.size());
+                add_residue(out_residues,"vivo-modern-empty-audio",LPB_SOURCE_PROTOCOL_VIVO_X300,
+                    LPB_ARTIFACT_MOTION_VIDEO,LPB_RESIDUE_QUICKTIME_METADATA_TRACK,"soun:no-sample-table","EmptyAudioPlaceholder",fingerprint.c_str(),
+                    LPB_COORD_STRUCTURED_SELECTOR,LPB_REMOVAL_REBUILD_CONTAINER);
+            }
+            if(modern.found&&modern.binding) {
+                const auto owned=modern_movie.subspan(modern.box_begin,modern.box_end-modern.box_begin);
+                const std::string fingerprint=lpb::crypto::compute_isobmff_box_fingerprint("uuid",owned.size(),owned.data(),owned.size());
+                add_residue(out_residues,"vivo-modern-vid-binding",LPB_SOURCE_PROTOCOL_VIVO_X300,
+                    LPB_ARTIFACT_MOTION_VIDEO,LPB_RESIDUE_UUID_BOX,"vivoMediaExtInfo","vivoMediaExtInfo.live-fields",fingerprint.c_str(),
+                    LPB_COORD_STRUCTURED_SELECTOR,LPB_REMOVAL_REBUILD_CONTAINER);
+            }
             if (out_residues) {
                 if (has_attribute_name_in_nodes(nodes, google_camera_namespace, "MotionPhoto")) {
                     std::string val = get_attribute_value_in_nodes(nodes, google_camera_namespace, "MotionPhoto");
@@ -6016,6 +6041,18 @@ bool observe_target_xmp(std::string_view xml,target_xmp_observation& output,
         if(!output.live_claim&&!output.micro_claim&&!output.directory_present){failure=xmp_observation_failure::none;return true;}
         if(owner==k_no_parent||nodes[owner].parent_index!=rdf_index)return false;
         output.owner_close_offset=nodes[owner].close_start;
+        if(output.vivo_claim) {
+            const int version=get_global_attribute_u64(nodes,vivo_camera_namespace,"VMotionPhotoVersion",output.vivo_version);
+            const int source=get_global_attribute_u64(nodes,vivo_camera_namespace,"VMotionPhotoSource",output.vivo_source);
+            std::string_view kit;
+            const int media=get_global_attribute_string(nodes,vivo_camera_namespace,"VMediaKitVersion",kit);
+            std::string_view flags;
+            const int flag=get_global_attribute_string(nodes,vivo_camera_namespace,"VMotionPhotoFlags",flags);
+            if(version<0||source<0||media<0||flag<0){failure=xmp_observation_failure::ambiguous;return false;}
+            output.vivo_version_present=version==1;output.vivo_source_present=source==1;
+            output.vivo_mediakit_present=media==1;output.vivo_flags_present=flag==1;
+            if(media==1)output.vivo_mediakit=kit;
+        }
         if(output.oppo_claim) {
             std::string_view value;
             const int owner_value=get_global_attribute_string(nodes,oppo_camera_namespace,"MotionPhotoOwner",value);
@@ -6054,6 +6091,32 @@ bool observe_target_xmp(std::string_view xml,target_xmp_observation& output,
                 output.items.push_back({std::string(item.semantic),std::string(item.mime),item.length,item.padding,item.has_length,item.has_padding});
             }
         }
+        failure=xmp_observation_failure::none;return true;
+    }catch(...){return false;}
+}
+bool rewrite_target_vivo_primary_shape(std::string_view xml,std::string& output,xmp_observation_failure& failure) noexcept {
+    output.clear();failure=xmp_observation_failure::malformed;
+    try {
+        target_xmp_observation before;
+        if(!observe_target_xmp(xml,before,failure)||!before.directory_present||before.items.empty()||before.live_claim||before.micro_claim||before.foreign_claim||before.items[0].length||before.items[0].padding)return false;
+        std::vector<xmp_node> nodes;container_directory_info directory;
+        if(!scan_xmp_tree(xml,nodes,true)||!find_container_directory(nodes,directory)||directory.items.empty())return false;
+        const auto& primary=nodes[directory.items[0].node_index];std::vector<std::pair<size_t,size_t>> spans;
+        const auto inventory=[&](const xmp_node& node){
+            for(const auto& a:node.attributes)if(a.resolved_uri==google_item_namespace&&(local_name(a.name)=="Length"||local_name(a.name)=="Padding")) {
+                const size_t begin=static_cast<size_t>(a.name.data()-xml.data()),end=static_cast<size_t>(a.value.data()-xml.data())+a.value.size()+1;
+                if(begin>=end||end>xml.size())return false;spans.emplace_back(begin,end);
+            }
+            for(const auto i:node.children)if(node_is(nodes[i],google_item_namespace,"Length")||node_is(nodes[i],google_item_namespace,"Padding")) {
+                const auto& child=nodes[i];if(child.close_start==std::string::npos)return false;const size_t end=xml.find('>',child.close_start);if(end==xml.npos)return false;spans.emplace_back(child.tag_start,end+1);
+            }
+            return true;
+        };
+        if(!inventory(primary))return false;
+        if(primary.parent_index!=k_no_parent&&node_is(nodes[primary.parent_index],rdf_namespace,"li")&&!inventory(nodes[primary.parent_index]))return false;
+        std::sort(spans.begin(),spans.end());for(size_t i=1;i<spans.size();++i)if(spans[i-1].second>spans[i].first)return false;
+        output=xml;for(auto i=spans.rbegin();i!=spans.rend();++i)output.erase(i->first,i->second-i->first);
+        target_xmp_observation after;if(!observe_target_xmp(output,after,failure)||after.items.empty()||after.items[0].has_length||after.items[0].has_padding)return false;
         failure=xmp_observation_failure::none;return true;
     }catch(...){return false;}
 }

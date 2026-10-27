@@ -16,6 +16,9 @@ struct target_xmp_observation {
  bool hdr_claim{},oppo_claim{},vivo_claim{};
  bool oppo_version_present{},oppo_length_present{},primary_cover_present{},edit_flag_present{};
  uint64_t oppo_version{},oppo_video_length{};
+ bool vivo_version_present{},vivo_source_present{},vivo_mediakit_present{},vivo_flags_present{};
+ uint64_t vivo_version{},vivo_source{};
+ std::string vivo_mediakit;
  int64_t primary_cover_us{};
  std::string oppo_owner,edit_flag;
  uint64_t motion_photo{},motion_version{};
@@ -36,6 +39,7 @@ bool observe_target_xmp(std::string_view,target_xmp_observation&,xmp_observation
 // Changes only the uniquely owned Primary Padding property using parsed XML
 // ranges. All other bytes, including unknown item attributes, are retained.
 bool rewrite_target_primary_padding(std::string_view,uint64_t,std::string&,xmp_observation_failure&,bool generated_target=false) noexcept;
+bool rewrite_target_vivo_primary_shape(std::string_view,std::string&,xmp_observation_failure&) noexcept;
 // Extended transport GUID/coverage is established by the JPEG observer. This
 // layer checks the logical XML reference and cross-packet property ownership.
 bool observe_target_xmp_packets(std::string_view standard,std::string_view extension,

@@ -66,7 +66,7 @@ int main(){
   bytes comment{0,3,0,0,'a','b','c'};require(check(atom("moov",atom("udta",atom("\xa9" "cmt",comment))),F::none),"ordinary text atom");
   comment[1]=4;require(check(atom("moov",atom("udta",atom("\xa9" "cmt",comment))),F::malformed),"truncated ordinary text");
   bytes movie=atom("moov");bytes vivo=txt("vivoMediaExtInfo");vivo.resize(16);append(movie,atom("uuid",vivo));
-  require(check(movie,F::source_binding),"actual UUID usertype binding");
+  require(check(movie,F::unsupported),"truncated mixed UUID cannot be neutral");
   movie=atom("moov");append(movie,atom("uuid",bytes(16,0)));require(check(movie,F::none),"N9 unknown UUID stays opaque");
   bytes spherical{0xff,0xcc,0x82,0x63,0xf8,0x55,0x4a,0x93,0x88,0x14,0x58,0x7a,0x02,0x52,0x1f,0xdd};
   require(check(atom("moov",atom("trak",atom("uuid",spherical))),F::none),"ordinary track-owned spherical UUID");
@@ -81,6 +81,12 @@ int main(){
   ref.clear();put(ref,2);tr=atom("tkhd",tkhd);append(tr,atom("tref",atom("chap",ref)));
   require(check(atom("moov",atom("trak",tr)),F::malformed),"dangling track relationship");
   bytes damaged=atom("moov",atom("udta"));damaged.pop_back();require(check(damaged,F::malformed),"truncated box graph");
+  const std::string ordinary_json="{\"com.android.camera.xdr.meta\":[1,2],\"keep\":true}";
+  bytes mixed=txt("vivoMediaExtInfovivo");append(mixed,txt(ordinary_json.c_str()));put(mixed,uint32_t(ordinary_json.size()));append(mixed,txt("cameralbum!"));put(mixed,19);
+  append(mixed,{255,255,255,255,0x1b,0x2a,0x39,0x48,0x57,0x66,0x75,0x84,0x93,0xa2,0xb3});
+  movie=atom("moov");append(movie,atom("uuid",mixed));require(check(movie,F::none),"full bounded neutral mixedUUID");
+  append(movie,atom("uuid",mixed));require(check(movie,F::ambiguous),"duplicate top-level mixedUUID");
+  require(check(atom("moov",atom("udta",atom("uuid",mixed))),F::malformed),"nested mixedUUID is not top-level authority");
   std::cout<<"Target video metadata observation cases passed\n";return 0;
  }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
 }

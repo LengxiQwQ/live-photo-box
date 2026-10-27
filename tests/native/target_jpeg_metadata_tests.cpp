@@ -48,6 +48,13 @@ int main(){
   REQUIRE(observe(image({thumbnail}),out)&&out.orientation==1);
   put16(thumbnail,80,0,big);REQUIRE(!observe(image({thumbnail}),out));
  }
+ for(bool big:{false,true}) {
+  auto ascii=exif(big);put16(ascii,36,2,big);put32(ascii,38,2,big);ascii[42]='0';ascii[43]=0;
+  REQUIRE(observe(image({ascii}),out)&&out.exif_payload==ascii);
+  auto no_nul=ascii;no_nul[43]='X';REQUIRE(!observe(image({no_nul}),out));
+  auto apple=exif(big);put16(apple,36,2,big);put32(apple,38,10,big);apple.resize(66);std::copy_n("Apple iOS",9,apple.begin()+56);apple[65]=0;
+  REQUIRE(!observe(image({apple}),out));
+ }
  const bytes marker{'o','p','l','u','s','_','1','0','4','8','5','7','9','2',0};
  for(bool big:{false,true}) {
   bytes vendor(6+128,0);std::copy_n("Exif\0\0",6,vendor.begin());vendor[6]=vendor[7]=big?'M':'I';

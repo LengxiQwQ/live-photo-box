@@ -11,6 +11,8 @@
 #include "metadata/jpeg.h"
 #include "containers/isobmff.h"
 #include "containers/mp4_strip.h"
+#include "media/vivo_modern_inventory.h"
+#include "media/empty_audio_placeholder.h"
 
 #include <fstream>
 #include <filesystem>
@@ -614,6 +616,55 @@ static lpb_result clean_apple_video(
     return LPB_RESULT_OK;
 }
 
+static lpb_result clean_vivo_modern_video(lpb_context* context,const std::vector<uint8_t>& input,
+    const std::string& output,const lpb_cleanup_action* actions,size_t count,std::vector<lpb_removed_protocol_fact>& removed) {
+    vivo_modern_inventory facts;empty_audio_placeholder placeholder;
+    if(!observe_vivo_modern(input,facts)||(facts.binding&&!observe_empty_audio_placeholder(input,placeholder))) {
+        set_error(context,"Malformed modern vivo mixed video owner or placeholder graph.");return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const auto* action=find_authorized_action(actions,count,LPB_SOURCE_PROTOCOL_VIVO_X300,"vivo-modern-vid-binding",
+        LPB_ARTIFACT_MOTION_VIDEO,LPB_RESIDUE_UUID_BOX,"vivoMediaExtInfo","vivoMediaExtInfo.live-fields",
+        LPB_REMOVAL_REBUILD_CONTAINER,LPB_COORD_STRUCTURED_SELECTOR);
+    const auto* empty=find_authorized_action(actions,count,LPB_SOURCE_PROTOCOL_VIVO_X300,"vivo-modern-empty-audio",
+        LPB_ARTIFACT_MOTION_VIDEO,LPB_RESIDUE_QUICKTIME_METADATA_TRACK,"soun:no-sample-table","EmptyAudioPlaceholder",
+        LPB_REMOVAL_REBUILD_CONTAINER,LPB_COORD_STRUCTURED_SELECTOR);
+    if(bool(action)!=facts.binding||bool(empty)!=placeholder.found) {
+        set_error(context,"Modern vivo rewrite lacks exact complete mixed-owner and placeholder authority.");return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+    std::string fingerprint,empty_fingerprint;
+    if(facts.binding) {
+        const auto bytes=std::span<const uint8_t>(input).subspan(facts.box_begin,facts.box_end-facts.box_begin);
+        fingerprint=lpb::crypto::compute_isobmff_box_fingerprint("uuid",bytes.size(),bytes.data(),bytes.size());
+        if(fingerprint!=action->expected_fingerprint)return LPB_RESULT_SOURCE_CHANGED;
+    }
+    if(placeholder.found) {
+        const auto bytes=std::span<const uint8_t>(input).subspan(placeholder.begin,placeholder.end-placeholder.begin);
+        empty_fingerprint=lpb::crypto::compute_isobmff_box_fingerprint("trak",bytes.size(),bytes.data(),bytes.size());
+        if(empty_fingerprint!=empty->expected_fingerprint)return LPB_RESULT_SOURCE_CHANGED;
+    }
+    std::vector<uint8_t> result;
+    if(facts.binding) {
+        if(!rebuild_vivo_neutral_movie(input,facts,result)){set_error(context,"Modern vivo field-level rebuild failed closed.");return LPB_RESULT_INVALID_ARGUMENT;}
+    }else result=input;
+    if(placeholder.found) {
+        // Final identity/relationship check immediately before the sole 4-byte
+        // placeholder mutation. No media offsets or raw payload bytes move.
+        empty_audio_placeholder fresh;
+        if(!observe_empty_audio_placeholder(result,fresh)||!fresh.found||fresh.begin!=placeholder.begin||fresh.end!=placeholder.end||fresh.track_id!=placeholder.track_id)
+            return LPB_RESULT_AUTHORITY_VIOLATION;
+        std::memcpy(result.data()+fresh.begin+4,"free",4);
+    }
+    vivo_modern_inventory checked;empty_audio_placeholder checked_empty;
+    if(!observe_vivo_modern(result,checked)||checked.binding||(placeholder.found&&(!observe_empty_audio_placeholder(result,checked_empty)||checked_empty.found)))
+        return LPB_RESULT_INVALID_ARGUMENT;
+    if(!write_file_binary(context,LPB_ARTIFACT_MOTION_VIDEO,output,result))return LPB_RESULT_INTERNAL_ERROR;
+    if(action)add_fact(removed,"vivo","MP4 mixed UUID live fields","Removed exact live fields/footer pairing; retained ordinary raw metadata",
+        "vivo-modern-vid-binding",LPB_ARTIFACT_MOTION_VIDEO,LPB_RESIDUE_UUID_BOX,"Rebuilt","Removed",fingerprint.c_str());
+    if(empty)add_fact(removed,"vivo","Empty audio placeholder","User-authorized same-length free conversion; payload bytes preserved",
+        "vivo-modern-empty-audio",LPB_ARTIFACT_MOTION_VIDEO,LPB_RESIDUE_QUICKTIME_METADATA_TRACK,"Rebuilt","Removed",empty_fingerprint.c_str());
+    return LPB_RESULT_OK;
+}
+
 static lpb_result clean_vivo_legacy_video(
     lpb_context* context,
     const std::vector<uint8_t>& in_bytes,
@@ -1003,12 +1054,20 @@ lpb_result clean_source_protocol_with_plan(
         case LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1:
         case LPB_SOURCE_PROTOCOL_GOOGLE_MOTION_PHOTO_V2:
         case LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO:
-        case LPB_SOURCE_PROTOCOL_VIVO_X300:
             res = clean_jpeg_xmp(context, input_image_bytes, output_image_path,
                 static_cast<lpb_source_protocol>(facts->protocol), actions, action_count, true, removed_facts, facts);
             if (res == LPB_RESULT_OK && input_video_path && output_video_path) {
                 res = write_file_binary(context, LPB_ARTIFACT_MOTION_VIDEO, output_video_path, input_video_bytes) ? LPB_RESULT_OK : LPB_RESULT_INTERNAL_ERROR;
             }
+            break;
+
+        case LPB_SOURCE_PROTOCOL_VIVO_X300:
+            // The video carries the new mixed-owner/placeholder authority.
+            // Reject missing or hostile actions before creating any stage image.
+            if(input_video_path&&output_video_path)
+                res=clean_vivo_modern_video(context,input_video_bytes,output_video_path,actions,action_count,removed_facts);
+            if(res==LPB_RESULT_OK)
+                res=clean_jpeg_xmp(context,input_image_bytes,output_image_path,LPB_SOURCE_PROTOCOL_VIVO_X300,actions,action_count,true,removed_facts,facts);
             break;
 
         case LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL:

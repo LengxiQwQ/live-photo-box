@@ -39,6 +39,7 @@ internal static class StructuredTargetWriterService
             TargetProtocol.GoogleMicroVideoV1 => 1,
             TargetProtocol.GoogleMotionPhotoV2 => 2,
             TargetProtocol.OppoLivePhoto => 3,
+            TargetProtocol.VivoLivePhoto => 4,
             TargetProtocol.SamsungMotionPhoto => 5,
             TargetProtocol.HuaweiMovingPhoto => 6,
             _ => throw new NotSupportedException("This structured path does not implement the requested target family.")

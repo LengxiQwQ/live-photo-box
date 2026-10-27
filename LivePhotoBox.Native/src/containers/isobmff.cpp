@@ -1374,7 +1374,8 @@ bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool requir
                 if (!parse_media_header_timescale(data, ts, ts + mdhd.size, false, timescale)) return fail(isobmff_reader_failure::malformed, moov_offset + ts);
                 const bool video = std::memcmp(data.data() + hs + hdlr.header_size + 8, "vide", 4) == 0;
                 const bool audio = std::memcmp(data.data() + hs + hdlr.header_size + 8, "soun", 4) == 0;
-                if (!video && !audio) return fail(isobmff_reader_failure::unsupported, current_offset);
+                const bool metadata = std::memcmp(data.data()+hs+hdlr.header_size+8,"meta",4)==0;
+                if (!video && !audio && !metadata) return fail(isobmff_reader_failure::unsupported, current_offset);
                 if (video && ++video_count != 1) return fail(isobmff_reader_failure::unsupported, current_offset);
                 if (!direct_child(data.data(), ss + stbl.header_size, ss + stbl.size, "stz2", stz2, zs)) return fail(isobmff_reader_failure::malformed, current_offset);
                 if (stz2.size) return fail(isobmff_reader_failure::unsupported, moov_offset + zs);
@@ -1449,6 +1450,18 @@ bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool requir
                 isobmff_box_header entry{};
                 if (!try_read_box_header(data.data(), entry_start, ds + stsd.size, entry)) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start);
                 const size_t eb = entry_start + entry.header_size;
+                if(metadata) {
+                    // Explicit vendor mett syntax observed in actual >=X300
+                    // files. Preserve opaque timed samples; they grant no
+                    // target binding/timing authority. Table ranges, timing,
+                    // references and cross-track overlap are still verified.
+                    constexpr char mime[]="application/livePhoto-meta";
+                    if(!type_is(data.data(),entry_start,"mett")||entry_start+entry.size!=ds+stsd.size||
+                        entry.size-entry.header_size!=2*sizeof(mime)||std::memcmp(data.data()+eb,mime,sizeof(mime))||
+                        std::memcmp(data.data()+eb+sizeof(mime),mime,sizeof(mime)))
+                        return fail(isobmff_reader_failure::unsupported,moov_offset+entry_start);
+                    parsed.opaque_metadata=true;parsed.sample_tables.push_back(std::move(table));p+=trak.size;continue;
+                }
                 if (entry.size < entry.header_size + 8 || read_be16u(data.data() + eb + 6) != 1) return fail(isobmff_reader_failure::unsupported, moov_offset + entry_start);
                 if (video) {
                     if (entry.size < entry.header_size + 78) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start);

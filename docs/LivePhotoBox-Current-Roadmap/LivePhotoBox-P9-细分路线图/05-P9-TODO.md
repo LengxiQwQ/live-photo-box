@@ -4,7 +4,7 @@
 > 当前用户授权更新（2026-10-25）：连续自主推进整个P9，不再逐R请示。普通内部接口/ABI与工程选择由主代理处理；实际功能/支持能力变化、项目方向或重要工具/安全/生产依赖决定先说明并询问。Fusion继续延期。旧逐R等待及普通接口等待文字记录历史，被本条覆盖；真实验收、设备与独立门禁不豁免，不自动进入P10或发布Git。
 # P9 唯一进度 TODO
 
-2026-10-27，LOCAL_OWNER。**R0–R5有限实验技术 COMPLETE；当前停在R5，Fusion/R6延期，不进入R7/P10，不开后继施工聊天。** R5正式594managed+12Native、零跳过，freshReview与另一freshVerify通过；182条RealSamples执行行、243次独立解码、1508帧、60项成品反例。发布及远程身份以R5/publication/receipt.json为准。设备、产品切换和P9整体仍未完成；Samsung严格GoogleV2不满足，HEIC原封面越界限制明确，详见18。
+2026-10-27，LOCAL_OWNER。**R0–R5及R7有限实验技术 COMPLETE；R6 Fusion继续DEFERRED。下一完整主聊天接任R8设备验证/产品集成。** R7正式640managed+13Native零skip、212条RealSamples执行行；两份真实来源vivo目标正向、四项实际拒绝、独立9次解码与HDR/媒体/raw metadata保留，freshReview及另一freshVerify通过，详见[21](21-P9-R7-完成报告.md)。17原始文件/14语义组不等于17次target成功；≥X300设备接受、CLI/GUI切换和P9整体仍未完成，不进入P10。
 
 ## 本轮核查规划
 
@@ -45,7 +45,7 @@
 - [x] R4技术：Huawei/Honor合法JPEG/HEIC、H264/HEVC+AAC、完整MP4/60B尾部、typed毫秒封面与实际帧、MPF/VLDMAGIC/Honoropaque完整保留；ABI16/88导出；552managed+11Native、独立52解码及15字节变异+2错误预期通过；fresh Review/另一fresh Verify通过。设备/切换仍R8，不代签RELEASE-001。
 - [x] R5技术：SamsungJPEG/HEIC，显式mpv2/mpv3、H264/HEVC实验链，严格SEF/ownership/pointer和freshValidator；594managed+12Native零跳过，182RealSamples行；六条原始来源＋两条DerivedHEIC/H264，243独立解码1508帧，60负例（56字节变异＋4错误预期），freshReview/另一freshVerify通过。Samsung兼容XMP定位层独立通过，严格GoogleV2 Incompatible；原HEIC封面越界明确Unknown/-1，不称保留。详见18；完成后按用户要求停止，不开后继聊天。
 - **R6：DEFERRED_BY_CURRENT_USER**。Fusion暂不做、不计本轮交付、不勾成通过；Apple旧public utility实际旁路审查归R1，新Apple输出另行决定。
-- [ ] R7：vivoX300UserComment/HDR与GainMap唯一ownership，SDR决策；旧双文件边界，若纳入则独立完成生命周期。
+- [x] R7有限实验技术：新NativevivoWriter/freshValidator、真实X300Ultra/Xiaomi、HDR/GainMap唯一ownership、rawComment、混合UUID精确清理及用户授权空音轨修复、四项不可表示原图拒绝；640managed/13Native/0skip、独立保留/媒体、freshReview/另一freshVerify通过。SDR手机必要性和≥X300Gallery仍R8NotRun；旧双文件仅来源/边界、不新增目标。
 - [ ] 各族均有synthetic/mutation、实际RealSample、独立媒体/保留、适用真实失败与fresh技术复核；未测设备仍待R8。
 
 ## R8 逐目标设备与切换
@@ -63,3 +63,9 @@
 - [ ] 满足所有条件后P9complete，停P10之前；Git提交推送按现行逐R授权，tag/release不自动授权。
 
 如果新修改只影响某些证据，只回退对应复选项并写明原因/下一动作；不全表清零，不改旧失败为通过。详细命令/逐样本记录留同任务workspace/evidence。
+
+## 2026-10-27 当前用户恢复授权与 vivo 重点
+当前用户在核对测试层次后明确同意按建议继续，解除 R5 后停止；保留每 R 新主聊天接任。R6 Fusion 仍延期，下一 R7 vivo；先逐项核对17原始文件适用性和已有证据，按各族补真实样本，R8 真机/产品集成，R9 收口，不把缺失验证拖到 P10。用户特别指出 ≥X300 文档可能错误、历史输出未被手机识别，必须以项目真实原文件重新核实争议结构并测试；X200 单独记录，不能代签 ≥X300。新主完整接班和边界见 [19-P9-R7-完整交接.md](19-P9-R7-完整交接.md)。旧 STOP 文字保留历史，由本条覆盖。
+
+## R7独立完成与R8接任（2026-10-27）
+R7已完成实际正式验证及独立收口，结论21；下一主聊天按[22-P9-R8-完整交接.md](22-P9-R8-完整交接.md)接班。旧R5STOP、旧下一R5/R7未施工状态均为历史，已被当前恢复授权及本次实际结果覆盖。Fusion延期，P10不授权，设备与产品切换不冒充通过。

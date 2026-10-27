@@ -3,6 +3,7 @@
 #include "media/target_video_observation.h"
 #include "media/huawei_conformance.h"
 #include "media/target_writer.h"
+#include "media/vivo_comment.h"
 #include "media/heic_backend.h"
 #include "foundation/internal.h"
 #include "foundation/sha256_core.h"
@@ -85,10 +86,10 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
    expected.expected_video_codec<2||expected.expected_video_codec>3||expected.expected_auxiliary_count!=request->auxiliary_count) {
    reject(1,1,101,"Malformed target v2 base expectations");return LPB_RESULT_INVALID_ARGUMENT;
   }
-  const bool v1=expected.target_profile==1,v2=expected.target_profile==2,oppo=expected.target_profile==3,huawei=expected.target_profile==6,samsung=expected.target_profile==5;
+  const bool v1=expected.target_profile==1,v2=expected.target_profile==2,oppo=expected.target_profile==3,vivo=expected.target_profile==4,huawei=expected.target_profile==6,samsung=expected.target_profile==5;
   const bool heif=expected.media_format==3||((huawei||samsung)&&(expected.media_format==2||expected.media_format==4));
   if((samsung?(expected.target_version!=2&&expected.target_version!=3):(expected.target_version!=1&&!(huawei&&expected.target_version==2)))||expected.member_count!=1||expected.member_index||expected.artifact_role||
-   !(v1||v2||oppo||huawei||samsung)||!((v1&&expected.media_format<=1)||(v2&&(expected.media_format<=1||heif))||(oppo&&expected.media_format==0)||(samsung&&(expected.media_format==0||expected.media_format==2))||(huawei&&(expected.media_format==0||expected.media_format==2||expected.media_format==4))))
+   !(v1||v2||oppo||vivo||huawei||samsung)||!((v1&&expected.media_format<=1)||(v2&&(expected.media_format<=1||heif))||((oppo||vivo)&&expected.media_format==0)||(samsung&&(expected.media_format==0||expected.media_format==2))||(huawei&&(expected.media_format==0||expected.media_format==2||expected.media_format==4))))
    return reject(4,1,102,"Target/format combination is outside v2 validator rules",true);
   if(!oppo&&request->primary_timestamp_present)return reject(2,1,103,"Original timestamp expectation belongs to OPlus target only");
   if(compound&&(!huawei||expected.media_format!=0||compound->struct_size!=sizeof(*compound)||compound->version!=1||
@@ -220,7 +221,7 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
    result.observed_cover_timestamp_us=x.micro_cover_us;result.cover_encoding=1;
   }else {
    // Legacy MicroVideo fields are deliberately ignored as V2 location authority.
-   if(!x.live_claim||x.motion_photo!=1||x.motion_version!=1||x.vivo_claim||(!oppo&&x.oppo_claim))
+   if(!x.live_claim||x.motion_photo!=1||x.motion_version!=1||(!vivo&&x.vivo_claim)||(!oppo&&x.oppo_claim))
     return reject(2,4,117,"V2 identity/version or foreign ownership mismatch");
    size_t primaries=0,videos=0;
    for(const auto& item:x.items){if(item.semantic=="Primary")++primaries;if(item.semantic=="MotionPhoto")++videos;}
@@ -253,6 +254,20 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
    if(!equal(comment,sizeof(comment)-1)&&!equal(observed_oppo,sizeof(observed_oppo)-1)&&!equal(observed_edited,sizeof(observed_edited)-1))
     return reject(2,4,123,"OPlus UserComment raw signature mismatch");
    output->observed_primary_timestamp_us=x.primary_cover_us;output->primary_timestamp_encoding=1;
+  }
+  if(vivo) {
+   if(!x.vivo_claim||!x.vivo_version_present||x.vivo_version!=1||x.vivo_source_present||x.vivo_mediakit_present||x.vivo_flags_present||x.oppo_claim||x.micro_claim)
+    return reject(2,4,160,"Vivo experimental identity/version or fabricated camera history mismatch");
+   if(x.items.front().has_length||x.items.front().has_padding||!x.items.back().has_padding||x.items.back().padding||std::any_of(primary.auxiliaries.begin(),primary.auxiliaries.end(),[](const auto& a){return a.semantic!="GainMap";}))
+    return reject(2,4,161,"Vivo unsupported padding or non-GainMap auxiliary inventory");
+   std::map<std::string,std::string> observed_comment;
+   if(!primary.jpeg.exif.has_user_comment||!lpb::media::observe_raw_camera_comment(primary.jpeg.exif.user_comment,observed_comment))
+    return reject(2,4,162,"Vivo raw UTF8 NUL-terminated UserComment syntax mismatch");
+   const auto have=[&](const char* k,const char* v){const auto f=observed_comment.find(k);return f!=observed_comment.end()&&f->second==v;};
+   if(!have("multi-frame","1")||!have("ispap","1")||!have("module","photo"))
+    return reject(2,4,163,"Vivo experimental comment fields mismatch");
+   // SDR remains experimental: a GainMap is never manufactured to satisfy a
+   // camera-template assumption. Existing HDR ownership is checked below.
   }
   if(primary.auxiliaries.size()!=request->auxiliary_count)return reject(2,4,124,"Auxiliary cardinality differs from semantic expectations");
   std::set<uint32_t> actual_semantics;

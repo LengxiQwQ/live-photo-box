@@ -1,4 +1,5 @@
 #include "media/target_video_observation.h"
+#include "media/vivo_modern_inventory.h"
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -49,8 +50,14 @@ struct inspector {
         // The protocol's ASCII user type is shorter than 16 bytes; compare its
         // documented identifier at the actual UUID user-type field only.
         constexpr std::string_view vivo="vivoMediaExtInfo";
-        if(text(b.body,b.body+vivo.size())==vivo)
-            return fail(target_video_failure::source_binding,b.at,"vivo UUID live binding remains");
+        if(text(b.body,b.body+vivo.size())==vivo) {
+            if(!parent.empty())return fail(target_video_failure::malformed,b.at,"Modern vivo mixed UUID has no legal top-level owner");
+            vivo_modern_inventory mixed;
+            if(!observe_vivo_modern(data.subspan(b.at,b.end-b.at),mixed)||!mixed.found)
+                return fail(target_video_failure::unsupported,b.at,"Unclassified vivo mixed UUID ownership");
+            if(mixed.binding)return fail(target_video_failure::source_binding,b.at,"vivo UUID live binding remains");
+            return true;
+        }
         // Registered Google spherical-video v1 UUID owns projection metadata,
         // not a Live/Motion Photo binding. Preserve its opaque payload in place.
         constexpr std::array<uint8_t,16> spherical{0xff,0xcc,0x82,0x63,0xf8,0x55,0x4a,0x93,0x88,0x14,0x58,0x7a,0x02,0x52,0x1f,0xdd};
@@ -189,7 +196,7 @@ struct inspector {
                 if(parent!="mdia"&&parent!="minf")return fail(target_video_failure::malformed,b.at,"Media handler has no legal owner");
                 if(b.end-b.body<12)return fail(target_video_failure::malformed,b.at,"Truncated media handler");
                 const auto type=text(b.body+8,b.body+12);
-                if(parent=="mdia"&&type!="vide"&&type!="soun")
+                if(parent=="mdia"&&type!="vide"&&type!="soun"&&type!="meta")
                     return fail(target_video_failure::unsupported,b.at,"Non-audio/video metadata track requires explicit Neutral ownership: "+std::string(type));
                 if(parent=="minf"&&type!="vide"&&type!="soun"&&type!="alis"&&
                     !(text(b.body+4,b.body+8)=="dhlr"&&type=="url "))
@@ -220,7 +227,7 @@ struct inspector {
                 // QuickTime user-data text atoms are literal payloads. Unknown
                 // children are not implicitly parsed as safe ordinary data.
                 const bool text_atom=b.type==std::string("\xa9" "nam",4)||b.type==std::string("\xa9" "cmt",4)||
-                    b.type==std::string("\xa9" "cpy",4)||b.type==std::string("\xa9" "too",4)||b.type==std::string("\xa9" "ART",4);
+                    b.type==std::string("\xa9" "cpy",4)||b.type==std::string("\xa9" "too",4)||b.type==std::string("\xa9" "ART",4)||b.type==std::string("\xa9" "xyz",4);
                 if(!text_atom)return fail(target_video_failure::unsupported,b.at,"Unclassified udta child: "+b.type);
                 if(b.end-b.body<4)return fail(target_video_failure::malformed,b.at,"Truncated QuickTime text atom");
                 const size_t n=(size_t(data[b.body])<<8)|data[b.body+1];
@@ -237,7 +244,7 @@ bool observe_target_video_metadata(const lpb::random_access_reader& reader,targe
     try {
         const auto boxes=scan_top_level_boxes(reader);
         if(boxes.empty()){d={target_video_failure::malformed,target_video_stage::metadata,0,"Invalid top-level box graph"};return false;}
-        size_t moovs=0,top_metas=0,top_udtas=0;uint64_t end=0;
+        size_t moovs=0,top_metas=0,top_udtas=0,modern_uuids=0;uint64_t end=0;
         for(const auto& b:boxes) {
             end=b.offset+b.size;
             if(!std::memcmp(b.type,"mpvd",4)||!std::memcmp(b.type,"sefd",4)) {
@@ -254,7 +261,14 @@ bool observe_target_video_metadata(const lpb::random_access_reader& reader,targe
             }
             if(std::memcmp(b.type,"moov",4)&&std::memcmp(b.type,"uuid",4)&&!top_meta&&!top_udta)continue;
             if(!std::memcmp(b.type,"moov",4)&&++moovs!=1){d={target_video_failure::ambiguous,target_video_stage::metadata,b.offset,"Duplicate moov owner"};return false;}
-            const uint64_t size=!std::memcmp(b.type,"uuid",4)?std::min<uint64_t>(b.size,b.header_size+16):b.size;
+            uint64_t size=b.size;
+            if(!std::memcmp(b.type,"uuid",4)) {
+                std::array<uint8_t,16> user{};
+                if(b.size<b.header_size+16||!reader.read_exact(b.offset+b.header_size,user)){d={target_video_failure::malformed,target_video_stage::metadata,b.offset,"Truncated top-level UUID user type"};return false;}
+                const bool modern=!std::memcmp(user.data(),"vivoMediaExtInfo",16);
+                if(modern&&(++modern_uuids>1||b.size>1024*1024)){d={target_video_failure::ambiguous,target_video_stage::metadata,b.offset,"Duplicate or unbounded modern mixed UUID"};return false;}
+                if(!modern)size=b.header_size+16;
+            }
             if(size>64ULL*1024*1024){d={target_video_failure::unsupported,target_video_stage::metadata,b.offset,"Metadata owner exceeds 64MiB structural resource limit"};return false;}
             std::vector<uint8_t> bytes(static_cast<size_t>(size));
             if(!reader.read_exact(b.offset,bytes)){d={target_video_failure::io,target_video_stage::metadata,b.offset,"Metadata read failed"};return false;}
