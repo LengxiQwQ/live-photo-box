@@ -1352,8 +1352,8 @@ bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool requir
 {
     output = {}; diagnostic = {};
     uint64_t current_offset = 0;
-    const auto fail = [&](isobmff_reader_failure reason, uint64_t offset) {
-        diagnostic = {reason, offset}; output = {}; return false;
+    const auto fail = [&](isobmff_reader_failure reason, uint64_t offset, const char* msg = "") {
+        diagnostic = {reason, offset, msg}; output = {}; return false;
     };
     try {
         isobmff_reader_observation parsed{};
@@ -1361,17 +1361,17 @@ bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool requir
         bool have_moov = false, have_ftyp = false;
         while (position < reader.length) {
             current_offset = position;
-            if (reader.length - position < 8) return fail(isobmff_reader_failure::malformed, position);
+            if (reader.length - position < 8) return fail(isobmff_reader_failure::malformed, position, "tag_1364");
             uint8_t header[16]{};
-            if (!reader.read_exact(position, std::span<uint8_t>(header, 8))) return fail(isobmff_reader_failure::io, position);
+            if (!reader.read_exact(position, std::span<uint8_t>(header, 8))) return fail(isobmff_reader_failure::io, position, "tag_1366");
             uint64_t size = read_be32u(header);
             uint32_t header_size = 8;
             if (size == 1) {
-                if (reader.length - position < 16) return fail(isobmff_reader_failure::malformed, position);
-                if (!reader.read_exact(position + 8, std::span<uint8_t>(header + 8, 8))) return fail(isobmff_reader_failure::io, position + 8);
+                if (reader.length - position < 16) return fail(isobmff_reader_failure::malformed, position, "tag_1370");
+                if (!reader.read_exact(position + 8, std::span<uint8_t>(header + 8, 8))) return fail(isobmff_reader_failure::io, position + 8, "tag_1371");
                 size = read_be64u_local(header + 8); header_size = 16;
             } else if (size == 0) size = reader.length - position;
-            if (size < header_size || size > reader.length - position) return fail(isobmff_reader_failure::malformed, position);
+            if (size < header_size || size > reader.length - position) return fail(isobmff_reader_failure::malformed, position, "tag_1374");
             top_level_box box{position, size, {}, header_size};
             std::memcpy(box.type, header + 4, 4);
             parsed.top_level_boxes.push_back(box);
@@ -1379,29 +1379,29 @@ bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool requir
             if(type("uuid"))parsed.opaque_metadata=true;
             if (type("ftyp")) {
                 if (have_ftyp || (require_ftyp && position != 0) || size - header_size < 8 ||
-                    (size - header_size - 8) % 4 != 0) return fail(isobmff_reader_failure::malformed, position);
+                    (size - header_size - 8) % 4 != 0) return fail(isobmff_reader_failure::malformed, position, "tag_1382");
                 have_ftyp = true;
                 // Only brand bytes are read; no total-file or ftyp snapshot cap.
                 uint8_t brands[4096]{};
                 uint64_t cursor = position + header_size;
                 while (cursor < position + size) {
                     const size_t count = static_cast<size_t>(std::min<uint64_t>(sizeof(brands), position + size - cursor));
-                    if (!reader.read_exact(cursor, std::span<uint8_t>(brands, count))) return fail(isobmff_reader_failure::io, cursor);
+                    if (!reader.read_exact(cursor, std::span<uint8_t>(brands, count))) return fail(isobmff_reader_failure::io, cursor, "tag_1389");
                     for (size_t i = 0; i < count; i += 4) {
                         if (cursor + i != position + header_size + 4 && std::memcmp(brands + i, "qt  ", 4) == 0) parsed.quicktime = true;
                     }
                     cursor += count;
                 }
             } else if (type("moov")) {
-                if (have_moov) return fail(isobmff_reader_failure::malformed, position);
+                if (have_moov) return fail(isobmff_reader_failure::malformed, position, "tag_1396");
                 have_moov = true; moov_offset = position;
-                if (size > 64ULL * 1024 * 1024) return fail(isobmff_reader_failure::unsupported, position);
+                if (size > 64ULL * 1024 * 1024) return fail(isobmff_reader_failure::unsupported, position, "tag_1398");
                 parsed.moov_bytes.resize(static_cast<size_t>(size));
-                if (!reader.read_exact(position, parsed.moov_bytes)) return fail(isobmff_reader_failure::io, position);
+                if (!reader.read_exact(position, parsed.moov_bytes)) return fail(isobmff_reader_failure::io, position, "tag_1400");
             } else if (type("mdat")) {
                 parsed.mdats.push_back({position + header_size, position + size});
             } else if (type("moof") || type("mfra") || type("sidx")) {
-                return fail(isobmff_reader_failure::unsupported, position);
+                return fail(isobmff_reader_failure::unsupported, position, "tag_1404");
             } else if (!type("free") && !type("skip") && !type("wide") && !type("uuid")) {
                 // An unknown, completely bounded top-level box is opaque
                 // metadata, not a sample-data owner. Target-specific source
@@ -1410,7 +1410,7 @@ bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool requir
             }
             position += size;
         }
-        if (!have_moov || parsed.mdats.empty() || (require_ftyp && !have_ftyp)) return fail(isobmff_reader_failure::malformed, UINT64_MAX);
+        if (!have_moov || parsed.mdats.empty() || (require_ftyp && !have_ftyp)) return fail(isobmff_reader_failure::malformed, UINT64_MAX, "tag_1413");
         if (!have_ftyp) parsed.quicktime = true;
         const std::span<const uint8_t> data(parsed.moov_bytes);
         const auto metadata_graph=[&](auto&& self,size_t first,size_t last,unsigned depth)->bool {
@@ -1424,23 +1424,23 @@ bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool requir
                 at+=child.size;
             }return true;
         };
-        if(!metadata_graph(metadata_graph,0,data.size(),0))return fail(isobmff_reader_failure::malformed,moov_offset);
+        if(!metadata_graph(metadata_graph,0,data.size(),0))return fail(isobmff_reader_failure::malformed,moov_offset,"metadata_graph");
         isobmff_box_header moov{};
-        if (!try_read_box_header(data.data(), 0, data.size(), moov) || moov.size != data.size()) return fail(isobmff_reader_failure::malformed, moov_offset);
+        if (!try_read_box_header(data.data(), 0, data.size(), moov) || moov.size != data.size()) return fail(isobmff_reader_failure::malformed, moov_offset,"moov_header");
         current_offset = moov_offset;
         isobmff_box_header mvex{}; size_t mvex_s = 0;
-        if (!direct_child(data.data(), moov.header_size, data.size(), "mvex", mvex, mvex_s)) return fail(isobmff_reader_failure::malformed, moov_offset);
-        if (mvex.size) return fail(isobmff_reader_failure::unsupported, moov_offset + mvex_s);
+        if (!direct_child(data.data(), moov.header_size, data.size(), "mvex", mvex, mvex_s)) return fail(isobmff_reader_failure::malformed, moov_offset,"direct_child_mvex");
+        if (mvex.size) return fail(isobmff_reader_failure::unsupported, moov_offset + mvex_s, "tag_1433");
         lpb::media::isobmff_track_graph graph;
-        if(!lpb::media::inspect_isobmff_track_graph(data,graph))return fail(isobmff_reader_failure::malformed,moov_offset);
+        if(!lpb::media::inspect_isobmff_track_graph(data,graph))return fail(isobmff_reader_failure::malformed,moov_offset,"track_graph");
         if(graph.opaque_relationships)parsed.opaque_metadata=true;
         std::vector<lpb::media::isobmff_metadata_key_track> metadata_tracks;
-        if(!lpb::media::inspect_isobmff_metadata_keys(data,metadata_tracks))return fail(isobmff_reader_failure::malformed,moov_offset);
+        if(!lpb::media::inspect_isobmff_metadata_keys(data,metadata_tracks))return fail(isobmff_reader_failure::malformed,moov_offset,"metadata_keys");
         size_t video_count = 0;
         std::vector<std::pair<uint64_t, uint64_t>> chunks;
         for (size_t p = moov.header_size; p < data.size();) {
             isobmff_box_header trak{};
-            if (!try_read_box_header(data.data(), p, data.size(), trak)) return fail(isobmff_reader_failure::malformed, moov_offset + p);
+            if (!try_read_box_header(data.data(), p, data.size(), trak)) return fail(isobmff_reader_failure::malformed, moov_offset + p, "tag_1443");
             if (type_is(data.data(), p, "trak")) {
                 current_offset = moov_offset + p;
                 const size_t end = p + trak.size;
@@ -1450,44 +1450,44 @@ bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool requir
                     !direct_child(data.data(), ms + mdia.header_size, ms + mdia.size, "hdlr", hdlr, hs) || hdlr.size < hdlr.header_size + 12 ||
                     !direct_child(data.data(), ms + mdia.header_size, ms + mdia.size, "minf", minf, fs) || !minf.size ||
                     !direct_child(data.data(), fs + minf.header_size, fs + minf.size, "stbl", stbl, ss) || !stbl.size ||
-                    !direct_child(data.data(), ms + mdia.header_size, ms + mdia.size, "mdhd", mdhd, ts) || !mdhd.size) return fail(isobmff_reader_failure::malformed, current_offset);
+                    !direct_child(data.data(), ms + mdia.header_size, ms + mdia.size, "mdhd", mdhd, ts) || !mdhd.size) return fail(isobmff_reader_failure::malformed, current_offset,"trak_child");
                 uint32_t timescale = 0;
-                if (!parse_media_header_timescale(data, ts, ts + mdhd.size, false, timescale)) return fail(isobmff_reader_failure::malformed, moov_offset + ts);
+                if (!parse_media_header_timescale(data, ts, ts + mdhd.size, false, timescale)) return fail(isobmff_reader_failure::malformed, moov_offset + ts, "tag_1455");
                 const bool video = std::memcmp(data.data() + hs + hdlr.header_size + 8, "vide", 4) == 0;
                 const bool auxiliary = std::memcmp(data.data() + hs + hdlr.header_size + 8, "auxv", 4) == 0;
                 const bool audio = std::memcmp(data.data() + hs + hdlr.header_size + 8, "soun", 4) == 0;
                 const bool metadata = std::memcmp(data.data()+hs+hdlr.header_size+8,"meta",4)==0;
-                if (!video && !auxiliary && !audio && !metadata) return fail(isobmff_reader_failure::unsupported, current_offset);
-                if (video && ++video_count != 1) return fail(isobmff_reader_failure::unsupported, current_offset);
-                if (!direct_child(data.data(), ss + stbl.header_size, ss + stbl.size, "stz2", stz2, zs)) return fail(isobmff_reader_failure::malformed, current_offset);
-                if (stz2.size) return fail(isobmff_reader_failure::unsupported, moov_offset + zs);
+                if (!video && !auxiliary && !audio && !metadata) return fail(isobmff_reader_failure::unsupported, current_offset, "tag_1460");
+                if (video && ++video_count != 1) return fail(isobmff_reader_failure::unsupported, current_offset, "tag_1461");
+                if (!direct_child(data.data(), ss + stbl.header_size, ss + stbl.size, "stz2", stz2, zs)) return fail(isobmff_reader_failure::malformed, current_offset,"trak_child");
+                if (stz2.size) return fail(isobmff_reader_failure::unsupported, moov_offset + zs, "tag_1463");
                 isobmff_sample_table_layout table{};uint64_t table_bad{};
                 if(!inspect_isobmff_strict_sample_table(data,ss,ss+stbl.size,parsed.mdats,0,table,table_bad))
-                    return fail(isobmff_reader_failure::malformed,moov_offset+table_bad);
+                    return fail(isobmff_reader_failure::malformed,moov_offset+table_bad,"strict_sample_table");
                 for (const auto& chunk : table.chunks) chunks.emplace_back(chunk.offset, chunk.offset + chunk.size);
-                if (!direct_child(data.data(), ss + stbl.header_size, ss + stbl.size, "stsd", stsd, ds)) return fail(isobmff_reader_failure::malformed, current_offset);
-                if (table.sample_description_count != 1) return fail(isobmff_reader_failure::unsupported, moov_offset + ds);
+                if (!direct_child(data.data(), ss + stbl.header_size, ss + stbl.size, "stsd", stsd, ds)) return fail(isobmff_reader_failure::malformed, current_offset,"trak_child");
+                if (table.sample_description_count != 1) return fail(isobmff_reader_failure::unsupported, moov_offset + ds, "tag_1469");
                 // Resolve data_reference_index=1 to an actual self-contained URL.
                 isobmff_box_header dinf{}, dref{}; size_t di = 0, dr = 0;
                 if (!direct_child(data.data(), fs + minf.header_size, fs + minf.size, "dinf", dinf, di) || !dinf.size ||
                     !direct_child(data.data(), di + dinf.header_size, di + dinf.size, "dref", dref, dr) || dref.size < dref.header_size + 8)
-                    return fail(isobmff_reader_failure::malformed, current_offset);
+                    return fail(isobmff_reader_failure::malformed, current_offset,"trak_child");
                 const size_t db = dr + dref.header_size;
                 if (read_be32u(data.data() + db) != 0 || read_be32u(data.data() + db + 4) != 1)
-                    return fail(isobmff_reader_failure::unsupported, moov_offset + dr);
+                    return fail(isobmff_reader_failure::unsupported, moov_offset + dr, "tag_1477");
                 isobmff_box_header url{}; const size_t us = db + 8;
                 if (!try_read_box_header(data.data(), us, dr + dref.size, url) || us + url.size != dr + dref.size ||
                     (!type_is(data.data(), us, "url ")&&!type_is(data.data(),us,"alis")) || url.size != url.header_size + 4 ||
                     read_be32u(data.data() + us + url.header_size) != 1)
-                    return fail(isobmff_reader_failure::unsupported, moov_offset + us);
+                    return fail(isobmff_reader_failure::unsupported, moov_offset + us, "tag_1482");
                 const size_t entry_start = ds + stsd.header_size + 8;
                 isobmff_box_header entry{};
-                if (!try_read_box_header(data.data(), entry_start, ds + stsd.size, entry)) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start);
+                if (!try_read_box_header(data.data(), entry_start, ds + stsd.size, entry)) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start, "tag_1485");
                 const size_t eb = entry_start + entry.header_size;
                 if(metadata) {
                     if(type_is(data.data(),entry_start,"mebx")) {
                         const auto owner=std::find_if(metadata_tracks.begin(),metadata_tracks.end(),[&](const auto& track){return track.offset==p;});
-                        if(owner==metadata_tracks.end()||owner->keys.empty())return fail(isobmff_reader_failure::malformed,moov_offset+entry_start);
+                        if(owner==metadata_tracks.end()||owner->keys.empty())return fail(isobmff_reader_failure::malformed, moov_offset+entry_start, "tag_1490");
                         const auto scope=lpb::media::declared_metadata_sample_scope(owner->keys.front().name_space,owner->keys.front().name);
                         lpb::media::metadata_sample_diagnostic metadata_error;
                         if(!lpb::media::validate_isobmff_metadata_key_samples_reader(data,*owner,reader,scope,
@@ -1504,45 +1504,45 @@ bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool requir
                     if(!type_is(data.data(),entry_start,"mett")||entry_start+entry.size!=ds+stsd.size||
                         entry.size-entry.header_size!=2*sizeof(mime)||std::memcmp(data.data()+eb,mime,sizeof(mime))||
                         std::memcmp(data.data()+eb+sizeof(mime),mime,sizeof(mime)))
-                        return fail(isobmff_reader_failure::unsupported,moov_offset+entry_start);
+                        return fail(isobmff_reader_failure::unsupported, moov_offset+entry_start, "tag_1507");
                     parsed.opaque_metadata=true;parsed.sample_tables.push_back(std::move(table));p+=trak.size;continue;
                 }
-                if (entry.size < entry.header_size + 8 || read_be16u(data.data() + eb + 6) != 1) return fail(isobmff_reader_failure::unsupported, moov_offset + entry_start);
+                if (entry.size < entry.header_size + 8 || read_be16u(data.data() + eb + 6) != 1) return fail(isobmff_reader_failure::unsupported, moov_offset + entry_start, "tag_1510");
                 if (video||auxiliary) {
                     uint32_t width{},height{},orientation{},codec{};
-                    if (entry.size < entry.header_size + 78) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start);
+                    if (entry.size < entry.header_size + 78) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start, "tag_1513");
                     if (type_is(data.data(), entry_start, "avc1") || type_is(data.data(), entry_start, "avc3")) codec = 2;
                     else if (type_is(data.data(), entry_start, "hvc1") || type_is(data.data(), entry_start, "hev1")) codec = 3;
-                    else return fail(isobmff_reader_failure::unsupported, moov_offset + entry_start);
+                    else return fail(isobmff_reader_failure::unsupported, moov_offset + entry_start, "tag_1516");
                     width = read_be16u(data.data() + eb + 24);
                     height = read_be16u(data.data() + eb + 26);
-                    if (!width || !height) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start);
+                    if (!width || !height) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start, "tag_1519");
                     isobmff_box_header tkhd{}; size_t ks = 0;
-                    if (!direct_child(data.data(), p + trak.header_size, end, "tkhd", tkhd, ks) || !tkhd.size || tkhd.size < tkhd.header_size + 4) return fail(isobmff_reader_failure::malformed, current_offset);
+                    if (!direct_child(data.data(), p + trak.header_size, end, "tkhd", tkhd, ks) || !tkhd.size || tkhd.size < tkhd.header_size + 4) return fail(isobmff_reader_failure::malformed, current_offset,"trak_child");
                     const size_t kb = ks + tkhd.header_size;
                     const uint8_t version = data[kb];
-                    if (version > 1) return fail(isobmff_reader_failure::unsupported, moov_offset + ks);
+                    if (version > 1) return fail(isobmff_reader_failure::unsupported, moov_offset + ks, "tag_1524");
                     const size_t matrix = kb + (version == 0 ? 40 : 52);
-                    if (ks + tkhd.size - kb != (version == 0 ? 84U : 96U)) return fail(isobmff_reader_failure::malformed, moov_offset + ks);
+                    if (ks + tkhd.size - kb != (version == 0 ? 84U : 96U)) return fail(isobmff_reader_failure::malformed, moov_offset + ks, "tag_1526");
                     const int64_t a = sign_extend_be32(read_be32u(data.data() + matrix));
                     const int64_t b = sign_extend_be32(read_be32u(data.data() + matrix + 4));
                     const int64_t c = sign_extend_be32(read_be32u(data.data() + matrix + 12));
                     const int64_t d = sign_extend_be32(read_be32u(data.data() + matrix + 16));
-                    if (read_be32u(data.data() + matrix + 8) || read_be32u(data.data() + matrix + 20) || read_be32u(data.data() + matrix + 32) != 0x40000000U) return fail(isobmff_reader_failure::unsupported, moov_offset + matrix);
+                    if (read_be32u(data.data() + matrix + 8) || read_be32u(data.data() + matrix + 20) || read_be32u(data.data() + matrix + 32) != 0x40000000U) return fail(isobmff_reader_failure::unsupported, moov_offset + matrix, "tag_1531");
                     constexpr int32_t transforms[8][4] = {{1,0,0,1},{-1,0,0,1},{-1,0,0,-1},{1,0,0,-1},{0,1,1,0},{0,1,-1,0},{0,-1,-1,0},{0,-1,1,0}};
                     for (uint32_t i = 0; i < 8; ++i) if (a == transforms[i][0] * 65536LL && b == transforms[i][1] * 65536LL && c == transforms[i][2] * 65536LL && d == transforms[i][3] * 65536LL) orientation = i + 1;
-                    if (!orientation) return fail(isobmff_reader_failure::unsupported, moov_offset + matrix);
+                    if (!orientation) return fail(isobmff_reader_failure::unsupported, moov_offset + matrix, "tag_1534");
                     const uint32_t width_fixed = read_be32u(data.data() + matrix + 36);
                     const uint32_t height_fixed = read_be32u(data.data() + matrix + 40);
-                    if (width_fixed != (width << 16) || height_fixed != (height << 16)) return fail(isobmff_reader_failure::unsupported, moov_offset + matrix + 36);
+                    if (width_fixed != (width << 16) || height_fixed != (height << 16)) return fail(isobmff_reader_failure::unsupported, moov_offset + matrix + 36, "tag_1537");
                     if(video) {
                         parsed.video_width=width;parsed.video_height=height;parsed.video_orientation=orientation;parsed.video_codec=codec;
                     }else {
                         lpb::media::isobmff_video_profile auxiliary_profile;
                         if(!lpb::media::inspect_isobmff_visual_codec_configuration(data.subspan(entry_start,entry.size),auxiliary_profile))
-                            return fail(isobmff_reader_failure::malformed,moov_offset+entry_start);
+                            return fail(isobmff_reader_failure::malformed, moov_offset+entry_start, "tag_1543");
                         const auto owner=std::find_if(graph.tracks.begin(),graph.tracks.end(),[&](const auto& track){return track.offset==p;});
-                        if(owner==graph.tracks.end())return fail(isobmff_reader_failure::malformed,current_offset);
+                        if(owner==graph.tracks.end())return fail(isobmff_reader_failure::malformed, current_offset, "tag_1545");
                         parsed.auxiliary_video_tracks.push_back({owner->id,width,height,orientation,codec,table.sample_count});
                         parsed.opaque_metadata=true;
                     }
@@ -1550,36 +1550,53 @@ bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool requir
                     if(type_is(data.data(),entry_start,"lpcm")) {
                         lpb::media::lpcm_v2_layout pcm;
                         if(!lpb::media::inspect_lpcm_v2(data.subspan(eb,entry.size-entry.header_size),pcm)||pcm.rate!=timescale)
-                            return fail(isobmff_reader_failure::malformed,moov_offset+entry_start);
+                            return fail(isobmff_reader_failure::malformed, moov_offset+entry_start, "tag_1553");
                         for(size_t at=eb+pcm.extension_offset;at<entry_start+entry.size;) {
                             isobmff_box_header extension{};
                             if(!try_read_box_header(data.data(),at,entry_start+entry.size,extension)||extension.extends_to_end)
-                                return fail(isobmff_reader_failure::malformed,moov_offset+at);
+                                return fail(isobmff_reader_failure::malformed, moov_offset+at, "tag_1557");
                             parsed.opaque_metadata=true;at+=extension.size;
                         }
                         isobmff_box_header sizes{},timing{};size_t sz=0,tt=0;
                         if(!direct_child(data.data(),ss+stbl.header_size,ss+stbl.size,"stsz",sizes,sz)||!sizes.size||
                            !direct_child(data.data(),ss+stbl.header_size,ss+stbl.size,"stts",timing,tt)||!timing.size)
-                            return fail(isobmff_reader_failure::malformed,current_offset);
+                            return fail(isobmff_reader_failure::malformed, current_offset, "tag_1563");
                         const size_t sb=sz+sizes.header_size,tb=tt+timing.header_size;
                         const uint32_t fixed=read_be32u(data.data()+sb+4),count=read_be32u(data.data()+sb+8);
-                        if(fixed?fixed!=pcm.bytes_per_packet:false)return fail(isobmff_reader_failure::malformed,moov_offset+sz);
+                        if(fixed?fixed!=pcm.bytes_per_packet:false)return fail(isobmff_reader_failure::malformed, moov_offset+sz, "tag_1566");
                         if(!fixed)for(uint32_t i=0;i<count;++i)if(read_be32u(data.data()+sb+12+size_t(i)*4)!=pcm.bytes_per_packet)
-                            return fail(isobmff_reader_failure::malformed,moov_offset+sz);
+                            return fail(isobmff_reader_failure::malformed, moov_offset+sz, "tag_1568");
                         const uint32_t runs=read_be32u(data.data()+tb+4);
                         for(uint32_t i=0;i<runs;++i)if(read_be32u(data.data()+tb+12+size_t(i)*8)!=pcm.frames_per_packet)
-                            return fail(isobmff_reader_failure::malformed,moov_offset+tt);
+                            return fail(isobmff_reader_failure::malformed, moov_offset+tt, "tag_1571");
                         parsed.sample_tables.push_back(std::move(table));p+=trak.size;continue;
                     }
-                    // Version-0 AAC entry; its ASC is structurally validated
+                    if(type_is(data.data(),entry_start,"sowt")) {
+                        if (entry.size < entry.header_size + 28) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start, "tag_1575");
+                        const uint16_t sound_version = read_be16u(data.data() + eb + 8);
+                        if (sound_version != 0) return fail(isobmff_reader_failure::unsupported, moov_offset + entry_start, "tag_1577");
+                        if (!read_be16u(data.data() + eb + 16) || !read_be16u(data.data() + eb + 18) || !read_be32u(data.data() + eb + 24))
+                            return fail(isobmff_reader_failure::malformed, moov_offset + entry_start, "tag_1579");
+                        parsed.sample_tables.push_back(std::move(table));p+=trak.size;continue;
+                    }
+                    // Version-0 (MP4) or Version-1 (QuickTime MOV) AAC entry; its ASC is structurally validated
                     // for LC and explicit LC+SBR/PS without changing payloads.
-                    if (!type_is(data.data(), entry_start, "mp4a")) return fail(isobmff_reader_failure::unsupported, moov_offset + entry_start);
-                    if (entry.size < entry.header_size + 28) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start);
-                    if (read_be16u(data.data() + eb + 8) != 0) return fail(isobmff_reader_failure::unsupported, moov_offset + entry_start);
-                    if (!read_be16u(data.data() + eb + 16) || !read_be16u(data.data() + eb + 18) || !read_be32u(data.data() + eb + 24)) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start);
+                    if (!type_is(data.data(), entry_start, "mp4a")) return fail(isobmff_reader_failure::unsupported, moov_offset + entry_start, "tag_1584");
+                    if (entry.size < entry.header_size + 28) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start, "tag_1585");
+                    const uint16_t sound_version = read_be16u(data.data() + eb + 8);
+                    if (sound_version > 1) return fail(isobmff_reader_failure::unsupported, moov_offset + entry_start, "tag_1587");
+                    if (sound_version == 1 && entry.size < entry.header_size + 44) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start, "tag_1588");
+                    if (!read_be16u(data.data() + eb + 16) || !read_be16u(data.data() + eb + 18) || !read_be32u(data.data() + eb + 24)) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start, "tag_1589");
+                    const size_t children_start = eb + (sound_version == 1 ? 44 : 28);
                     isobmff_box_header esds{}; size_t es = 0;
-                    if (!direct_child(data.data(), eb + 28, entry_start + entry.size, "esds", esds, es) || esds.size < esds.header_size + 8) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start);
-                    if (read_be32u(data.data() + es + esds.header_size) != 0) return fail(isobmff_reader_failure::unsupported, moov_offset + es);
+                    if (!direct_child(data.data(), children_start, entry_start + entry.size, "esds", esds, es) || !esds.size) {
+                        isobmff_box_header wave{}; size_t wave_s = 0;
+                        if (!direct_child(data.data(), children_start, entry_start + entry.size, "wave", wave, wave_s) || !wave.size ||
+                            !direct_child(data.data(), wave_s + wave.header_size, wave_s + wave.size, "esds", esds, es) || !esds.size)
+                            return fail(isobmff_reader_failure::malformed, moov_offset + entry_start, "tag_1596");
+                    }
+                    if (esds.size < esds.header_size + 8) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start, "tag_1598");
+                    if (read_be32u(data.data() + es + esds.header_size) != 0) return fail(isobmff_reader_failure::unsupported, moov_offset + es, "tag_1599");
                     // Descriptor lengths are variable-length integers, never raw tag searches.
                     const auto descriptor = [&](size_t& cursor, size_t limit, uint8_t tag, size_t& payload_end) {
                         if (cursor >= limit || data[cursor++] != tag) return false;
@@ -1597,41 +1614,41 @@ bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool requir
                     };
                     size_t cursor = es + esds.header_size + 4, es_end = 0, config_end = 0, asc_end = 0;
                     if (!descriptor(cursor, es + esds.size, 3, es_end) || es_end - cursor < 3)
-                        return fail(isobmff_reader_failure::malformed, moov_offset + es);
+                        return fail(isobmff_reader_failure::malformed, moov_offset + es, "tag_1617");
                     cursor += 2; const uint8_t flags = data[cursor++];
-                    if (flags & 0xe0U) return fail(isobmff_reader_failure::unsupported, moov_offset + es);
+                    if (flags & 0xe0U) return fail(isobmff_reader_failure::unsupported, moov_offset + es, "tag_1619");
                     if (!descriptor(cursor, es_end, 4, config_end) || config_end - cursor < 13)
-                        return fail(isobmff_reader_failure::malformed, moov_offset + es);
+                        return fail(isobmff_reader_failure::malformed, moov_offset + es, "tag_1621");
                     if (data[cursor] != 0x40 || (data[cursor + 1] >> 2) != 5 || !(data[cursor + 1] & 1))
-                        return fail(isobmff_reader_failure::unsupported, moov_offset + es);
+                        return fail(isobmff_reader_failure::unsupported, moov_offset + es, "tag_1623");
                     cursor += 13;
                     if (!descriptor(cursor, config_end, 5, asc_end) || asc_end - cursor < 2)
-                        return fail(isobmff_reader_failure::malformed, moov_offset + es);
+                        return fail(isobmff_reader_failure::malformed, moov_offset + es, "tag_1626");
                     bool audio_header_mismatch=false;
                     if(!lpb::media::aac_config_matches_entry(data.subspan(cursor,asc_end-cursor),
                         read_be16u(data.data()+eb+16),read_be32u(data.data()+eb+24),&audio_header_mismatch))
                         return fail(audio_header_mismatch?isobmff_reader_failure::malformed:isobmff_reader_failure::unsupported,
                             moov_offset+(audio_header_mismatch?entry_start:es));
-                    if (asc_end != config_end) return fail(isobmff_reader_failure::unsupported, moov_offset + es);
+                    if (asc_end != config_end) return fail(isobmff_reader_failure::unsupported, moov_offset + es, "tag_1632");
                     cursor = config_end;
                     size_t sl_end = 0;
                     if (!descriptor(cursor, es_end, 6, sl_end) || sl_end - cursor != 1 || data[cursor] != 2 ||
                         sl_end != es_end || es_end != es + esds.size)
-                        return fail(isobmff_reader_failure::unsupported, moov_offset + es);
+                        return fail(isobmff_reader_failure::unsupported, moov_offset + es, "tag_1637");
                 }
                 parsed.sample_tables.push_back(std::move(table));
             }
             p += trak.size;
         }
-        if (video_count != 1) return fail(isobmff_reader_failure::malformed, moov_offset);
+        if (video_count != 1) return fail(isobmff_reader_failure::malformed, moov_offset,"video_count!=1");
         std::sort(chunks.begin(), chunks.end());
-        for (size_t i = 1; i < chunks.size(); ++i) if (chunks[i-1].second > chunks[i].first) return fail(isobmff_reader_failure::malformed, chunks[i].first);
+        for (size_t i = 1; i < chunks.size(); ++i) if (chunks[i-1].second > chunks[i].first) return fail(isobmff_reader_failure::malformed, chunks[i].first, "tag_1645");
         isobmff_reader_failure timing_failure = isobmff_reader_failure::malformed;
         if (!inspect_timeline_moov(data, moov, 0, data.size(), parsed.mdats, 0, parsed.quicktime,
-                parsed.timeline, &timing_failure)) return fail(timing_failure, moov_offset);
+                parsed.timeline, &timing_failure)) return fail(timing_failure, moov_offset, "tag_1648");
         output = std::move(parsed);
         return true;
     } catch (...) {
-        return fail(isobmff_reader_failure::unsupported, current_offset);
+        return fail(isobmff_reader_failure::unsupported, current_offset, "tag_1652");
     }
 }

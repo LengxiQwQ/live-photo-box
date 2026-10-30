@@ -22,12 +22,37 @@ public static class ImageConversionEligibility
         SourceMediaFacts sourceFacts,
         ImageContainer sourceContainer,
         ImageContainer targetContainer,
+        PreservationPolicy policy,
         out string? errorMessage)
     {
         ArgumentNullException.ThrowIfNull(sourceFacts);
 
         if (sourceFacts.GainMap is { IsPresent: true } ||
-            sourceFacts.AuxiliaryItems.Any(item => item.IsPresent))
+            (policy == PreservationPolicy.Strict && sourceFacts.AuxiliaryItems.Any(item => item.IsPresent)))
+        {
+            errorMessage = SemanticAuxiliaryBlockedMessage;
+            return false;
+        }
+
+        errorMessage = null;
+        return true;
+    }
+
+    public static bool IsAllowed(
+        SourceMediaFacts sourceFacts,
+        ImageContainer sourceContainer,
+        ImageContainer targetContainer,
+        out string? errorMessage) =>
+        IsAllowed(sourceFacts, sourceContainer, targetContainer, PreservationPolicy.Strict, out errorMessage);
+
+    public static bool IsAllowed(
+        ImageConversionSourceFacts sourceFacts,
+        ImageContainer targetContainer,
+        PreservationPolicy policy,
+        out string? errorMessage)
+    {
+        ArgumentNullException.ThrowIfNull(sourceFacts);
+        if (sourceFacts.HasGainMap || (sourceFacts.HasAuxiliaryMedia && policy == PreservationPolicy.Strict))
         {
             errorMessage = SemanticAuxiliaryBlockedMessage;
             return false;
@@ -40,18 +65,8 @@ public static class ImageConversionEligibility
     public static bool IsAllowed(
         ImageConversionSourceFacts sourceFacts,
         ImageContainer targetContainer,
-        out string? errorMessage)
-    {
-        ArgumentNullException.ThrowIfNull(sourceFacts);
-        if (sourceFacts.HasGainMap || sourceFacts.HasAuxiliaryMedia)
-        {
-            errorMessage = SemanticAuxiliaryBlockedMessage;
-            return false;
-        }
-
-        errorMessage = null;
-        return true;
-    }
+        out string? errorMessage) =>
+        IsAllowed(sourceFacts, targetContainer, PreservationPolicy.Strict, out errorMessage);
 
     public static ImageConversionSourceFacts ToConversionFacts(SourceMediaFacts facts) => new()
     {

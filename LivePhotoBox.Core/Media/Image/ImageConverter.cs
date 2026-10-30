@@ -230,7 +230,7 @@ public sealed class ImageConverter : IImageConverter
             };
         }
 
-        if (conversionFacts.HasGainMap || conversionFacts.HasAuxiliaryMedia)
+        if (conversionFacts.HasGainMap || (conversionFacts.HasAuxiliaryMedia && request.PreservationPolicy == PreservationPolicy.Strict))
         {
             sw.Stop();
             bool hasBinding = request.TrustedHdrGainMapBinding != null;
@@ -278,6 +278,7 @@ public sealed class ImageConverter : IImageConverter
         if (!ImageConversionEligibility.IsAllowed(
                 conversionFacts,
                 request.TargetContainer,
+                request.PreservationPolicy,
                 out string? semanticError))
         {
             sw.Stop();
@@ -301,7 +302,7 @@ public sealed class ImageConverter : IImageConverter
         // Inspect semantic scope before applying generic conversion policy so
         // GainMap inputs retain the R1 HdrGainMapConversion/Unsupported truth,
         // even when Strict independently prohibits this cross-container route.
-        bool boundOrdinaryConversion=request.SourceArtifact.Kind==MediaArtifactKind.PrimaryImage&&request.SourceArtifact.ImageContainer==ImageContainer.Jpeg&&request.TargetContainer==ImageContainer.Heic&&
+        bool boundOrdinaryConversion=!conversionFacts.HasAuxiliaryMedia&&request.SourceArtifact.Kind==MediaArtifactKind.PrimaryImage&&request.SourceArtifact.ImageContainer==ImageContainer.Jpeg&&request.TargetContainer==ImageContainer.Heic&&
             request.Transform==ImageTransformKind.None;
         if (!boundOrdinaryConversion&&request.PreservationPolicy == PreservationPolicy.Strict &&
             request.SourceArtifact.ImageContainer != request.TargetContainer &&
@@ -517,6 +518,10 @@ public sealed class ImageConverter : IImageConverter
             PreservationOutcome preservationOutcome = !reencoded
                 ? postValidation!.PreservationOutcome
                 : postValidation!.PreservationOutcome;
+            if (conversionFacts.HasAuxiliaryMedia)
+            {
+                preservationOutcome = PreservationOutcome.PartiallyPreserved;
+            }
 
             var outArtifact = new MediaArtifact
             {

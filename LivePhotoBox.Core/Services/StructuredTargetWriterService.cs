@@ -84,7 +84,7 @@ internal static class StructuredTargetWriterService
             throw new NotSupportedException("OPPO original capture time is unknown; current cover cannot invent that history.");
         var notCarried = new List<NotCarriedItem>();
         OrdinaryBinding[] ordinary = await BindOrdinaryMetadataAsync(bundle, finalPath, preservationPolicy, notCarried, token).ConfigureAwait(false);
-        AuxiliaryBinding[] auxiliaries = await BindAuxiliariesAsync(bundle, finalPath, preservationPolicy, notCarried, token).ConfigureAwait(false);
+        AuxiliaryBinding[] auxiliaries = await BindAuxiliariesAsync(bundle, finalPath, preservationPolicy, target, notCarried, token).ConfigureAwait(false);
         NativeCompoundPrimaryObservation? compound = bundle.PrimaryImage.CompoundPrimary?.Inspect(bundle.PrimaryImage.Path, token).Observation;
         if (compound.HasValue && (target != 6 || profile.Format != OutputMediaFormat.JpegMp4))
         {
@@ -184,7 +184,7 @@ internal static class StructuredTargetWriterService
     };
 
     private static async Task<AuxiliaryBinding[]> BindAuxiliariesAsync(NeutralMediaBundle bundle,
-        string finalPath, PreservationPolicy policy, List<NotCarriedItem> notCarried, CancellationToken token)
+        string finalPath, PreservationPolicy policy, uint target, List<NotCarriedItem> notCarried, CancellationToken token)
     {
         var semantics = bundle.Semantics.AuxiliaryMedia.ToList();
         if (bundle.Semantics.GainMap is { } gainMap) semantics.Add(gainMap);
@@ -347,29 +347,14 @@ internal static class StructuredTargetWriterService
         }
         catch { facts = null; }
 
-        bool hasCompositeAuxiliaries = semantics.Any(s => s.Semantic != "GainMap") || bundle.AuxiliaryMedia.Count > 0;
-        if (hasCompositeAuxiliaries)
-        {
-            foreach (var semantic in semantics)
-            {
-                notCarried.Add(new NotCarriedItem
-                {
-                    Item = semantic.Semantic,
-                    Reason = "Vendor composite MPF asset deferred to Stage B in compatible profile",
-                    Outcome = semantic.Semantic == "GainMap" ? PreservationOutcome.DegradedToSdr : PreservationOutcome.DiscardedNotApplicable
-                });
-            }
-            return Array.Empty<AuxiliaryBinding>();
-        }
-
         foreach (var semantic in semantics)
         {
-            if (semantic.Semantic != "GainMap")
+            if (target == 4 && semantic.Semantic != "GainMap")
             {
                 notCarried.Add(new NotCarriedItem
                 {
                     Item = semantic.Semantic,
-                    Reason = "Auxiliary asset not carried in compatible profile (deferred to Stage B)",
+                    Reason = "Vivo directory cannot represent preserved non-GainMap assets",
                     Outcome = PreservationOutcome.DiscardedNotApplicable
                 });
                 continue;
@@ -564,7 +549,7 @@ internal static class StructuredTargetWriterService
                     Reserved0 = (uint)preservationPolicy
                 };
                 EncodePath(stagingDirectory, request.StagingDirectoryUtf8, 1024);
-                NativeTargetAuxiliaryV2* auxiliaries = stackalloc NativeTargetAuxiliaryV2[2];
+                NativeTargetAuxiliaryV2* auxiliaries = stackalloc NativeTargetAuxiliaryV2[Math.Max(1, bindings.Length)];
                 for (int i = 0; i < bindings.Length; i++)
                 {
                     var binding = bindings[i]; var row = binding.Row;

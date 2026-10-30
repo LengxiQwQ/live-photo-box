@@ -449,7 +449,7 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
     if(best_effort && session.primary_facts.container==LPB_IMAGE_CONTAINER_JPEG) {
         lpb::media::jpeg_gainmap_mpf::jpeg_info info;
         if(lpb::media::jpeg_gainmap_mpf::parse_jpeg(primary, info) && info.mpf_status==lpb::media::jpeg_gainmap_mpf::status::present) {
-            if(info.mpf.image_count > (session.auxiliaries.empty() ? 1U : 2U) || session.auxiliaries.empty()) {
+            if(!lpb::media::jpeg_gainmap_mpf::singleton_primary(info) && (info.mpf.image_count > (session.auxiliaries.empty() ? 1U : 2U) || session.auxiliaries.empty())) {
                 if(encoding_boundary>0 && encoding_boundary<primary.size()) {
                     primary.resize(static_cast<size_t>(encoding_boundary));
                 }
@@ -821,9 +821,17 @@ lpb_result LPB_CALL lpb_target_writer_stage_v1(lpb_context* context,lpb_target_w
                     // JPEG target. Source bytes stay pinned and unchanged; only
                     // this derived field in the staged primary is normalized.
                     lpb::media::jpeg_gainmap_mpf::jpeg_info observed;
-                    if(!lpb::media::jpeg_gainmap_mpf::parse_jpeg(serialized,observed)||
-                       !lpb::media::jpeg_gainmap_mpf::singleton_primary(observed)||observed.eoi_end>UINT32_MAX) {
-                        set_error(context, "[Stage] Singleton MPF normalization failed.");
+                    const bool parsed = lpb::media::jpeg_gainmap_mpf::parse_jpeg(serialized, observed);
+                    const bool singleton = parsed && lpb::media::jpeg_gainmap_mpf::singleton_primary(observed);
+                    if(!parsed || !singleton || observed.eoi_end > UINT32_MAX) {
+                        const std::string diag = "[Stage] Singleton MPF normalization failed: parsed=" + std::to_string(parsed) +
+                            " singleton=" + std::to_string(singleton) +
+                            " mpf_status=" + std::to_string(static_cast<int>(observed.mpf_status)) +
+                            " count=" + (parsed ? std::to_string(observed.mpf.image_count) : "na") +
+                            " attr=" + (parsed && observed.mpf.image_count > 0 ? std::to_string(observed.mpf.entries[0].attributes) : "na") +
+                            " eoi=" + (parsed ? std::to_string(observed.eoi_end) : "na") +
+                            " ser_sz=" + std::to_string(serialized.size());
+                        set_error(context, diag.c_str());
                         result=LPB_RESULT_INVALID_ARGUMENT;
                     }
                     else lpb::media::jpeg_gainmap_mpf::write_u32(serialized,observed.mpf.entries[0].size_field_offset,

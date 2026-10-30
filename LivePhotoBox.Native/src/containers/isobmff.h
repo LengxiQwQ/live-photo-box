@@ -154,6 +154,7 @@ enum class isobmff_reader_failure { none, malformed, unsupported, io };
 struct isobmff_reader_diagnostic {
     isobmff_reader_failure failure{isobmff_reader_failure::none};
     uint64_t offset{UINT64_MAX};
+    const char* detail{""};
 };
 struct isobmff_auxiliary_video_observation {
     uint32_t track_id{},width{},height{},orientation{},codec{},sample_count{};

@@ -304,7 +304,7 @@ bool observe_target_video(const lpb::random_access_reader& reader,bool require_f
     isobmff_reader_diagnostic media;
     if(!inspect_isobmff_reader(reader,require_ftyp,out.media,media)) {
         const auto f=media.failure==isobmff_reader_failure::io?target_video_failure::io:media.failure==isobmff_reader_failure::unsupported?target_video_failure::unsupported:target_video_failure::malformed;
-        d={f,target_video_stage::generic_media,media.offset,"Independent generic media structure rejected at byte "+std::to_string(media.offset)};return false;
+        d={f,target_video_stage::generic_media,media.offset,"Independent generic media structure rejected at byte "+std::to_string(media.offset)+(media.detail&&media.detail[0]?std::string(" (")+media.detail+")":"")};return false;
     }
     video_profile_failure profile;video_profile_diagnostic why;
     if(!inspect_isobmff_video_profile(reader,out.profile,profile,&why)) {
