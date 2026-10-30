@@ -161,14 +161,16 @@ video_sidecar_bridge_result run_video_sidecar_transcode(
     lpb_video_codec target_codec,
     int32_t crf,
     bool native_transplants_mebx,
-    const isobmff_video_profile& source_profile) noexcept
+    const isobmff_video_profile& source_profile,
+    bool compatible_profile) noexcept
 {
     video_sidecar_bridge_result outcome{};
     const uint32_t expected_pixel_depth = source_profile.bit_depth_luma;
     if (context == nullptr || input.length == 0U || input.read_at == nullptr ||
         crf < 0 || crf > 51 || (expected_pixel_depth != 8U && expected_pixel_depth != 10U) ||
         (target_container != LPB_VIDEO_CONTAINER_MOV && target_container != LPB_VIDEO_CONTAINER_MP4) ||
-        (target_codec != LPB_VIDEO_CODEC_H264 && target_codec != LPB_VIDEO_CODEC_HEVC))
+        (target_codec != LPB_VIDEO_CODEC_H264 && target_codec != LPB_VIDEO_CODEC_HEVC &&
+         (!compatible_profile || target_codec != LPB_VIDEO_CODEC_COPY)))
     {
         outcome.native_result = LPB_RESULT_INVALID_ARGUMENT;
         set_reason(outcome, "The Native-to-sidecar request was invalid (status=%d, library_error=%d).", LPB_VIDEO_SIDECAR_INVALID_ARGUMENT, 0);
@@ -202,7 +204,7 @@ video_sidecar_bridge_result run_video_sidecar_transcode(
     request.struct_size = sizeof(request);
     request.target_codec = target_codec == LPB_VIDEO_CODEC_HEVC
         ? LPB_VIDEO_SIDECAR_CODEC_HEVC
-        : LPB_VIDEO_SIDECAR_CODEC_H264;
+        : (target_codec == LPB_VIDEO_CODEC_COPY ? LPB_VIDEO_SIDECAR_CODEC_COPY : LPB_VIDEO_SIDECAR_CODEC_H264);
     request.target_container = target_container == LPB_VIDEO_CONTAINER_MOV
         ? LPB_VIDEO_SIDECAR_CONTAINER_MOV
         : LPB_VIDEO_SIDECAR_CONTAINER_MP4;
@@ -211,6 +213,7 @@ video_sidecar_bridge_result run_video_sidecar_transcode(
         ? LPB_VIDEO_SIDECAR_REQUEST_NATIVE_TRANSPLANTS_MEBX
         : 0U;
     request.flags |= LPB_VIDEO_SIDECAR_REQUEST_NATIVE_SOURCE_PROFILE;
+    if (compatible_profile) request.flags |= LPB_VIDEO_SIDECAR_REQUEST_COMPATIBLE_PROFILE;
     request.source_color_range = source_profile.full_range != 0U ? 2 : 1;
     request.source_color_primaries = source_profile.color_primaries;
     request.source_color_transfer = source_profile.transfer_characteristics;
@@ -239,26 +242,48 @@ video_sidecar_bridge_result run_video_sidecar_transcode(
         return outcome;
     }
 
-    const uint32_t required_codec_capability = target_codec == LPB_VIDEO_CODEC_HEVC
-        ? LPB_VIDEO_SIDECAR_CAP_HEVC
-        : LPB_VIDEO_SIDECAR_CAP_H264;
-    const uint32_t required_depth_capability = expected_pixel_depth > 8U
-        ? (target_codec == LPB_VIDEO_CODEC_HEVC
-            ? LPB_VIDEO_SIDECAR_CAP_HEVC_10BIT : LPB_VIDEO_SIDECAR_CAP_H264_10BIT)
-        : 0U;
-    const auto* sidecar_info = sidecar.info();
     const bool reserved_zero = std::all_of(std::begin(outcome.sidecar_result.reserved),
         std::end(outcome.sidecar_result.reserved), [](uint32_t value) { return value == 0U; });
-    if (sidecar_info == nullptr ||
-        (sidecar_info->capability_flags & (required_codec_capability | required_depth_capability)) !=
-            (required_codec_capability | required_depth_capability) ||
-        outcome.sidecar_result.selected_capability != (required_codec_capability | required_depth_capability) ||
-        outcome.sidecar_result.target_codec != request.target_codec ||
-        outcome.sidecar_result.output_width == 0U || outcome.sidecar_result.output_height == 0U ||
+    if (!compatible_profile && !reserved_zero)
+    {
+        outcome.native_result = LPB_RESULT_INTERNAL_ERROR;
+        set_reason(outcome, "Minimal-libav sidecar returned non-zero reserved fields in strict mode (status=%d, library_error=%d).", outcome.sidecar_result.status, outcome.sidecar_result.library_error);
+        return outcome;
+    }
+    if (compatible_profile)
+    {
+        outcome.dropped_aux_video = outcome.sidecar_result.reserved[0];
+        outcome.dropped_mebx = outcome.sidecar_result.reserved[1];
+        outcome.dropped_other = outcome.sidecar_result.reserved[2];
+        outcome.stream_copied = (outcome.sidecar_result.reserved[3] != 0U);
+    }
+    const auto* sidecar_info = sidecar.info();
+    if (!compatible_profile)
+    {
+        const uint32_t required_codec_capability = target_codec == LPB_VIDEO_CODEC_HEVC
+            ? LPB_VIDEO_SIDECAR_CAP_HEVC
+            : LPB_VIDEO_SIDECAR_CAP_H264;
+        const uint32_t required_depth_capability = expected_pixel_depth > 8U
+            ? (target_codec == LPB_VIDEO_CODEC_HEVC
+                ? LPB_VIDEO_SIDECAR_CAP_HEVC_10BIT : LPB_VIDEO_SIDECAR_CAP_H264_10BIT)
+            : 0U;
+        if (sidecar_info == nullptr ||
+            (sidecar_info->capability_flags & (required_codec_capability | required_depth_capability)) !=
+                (required_codec_capability | required_depth_capability) ||
+            outcome.sidecar_result.selected_capability != (required_codec_capability | required_depth_capability) ||
+            outcome.sidecar_result.target_codec != request.target_codec)
+        {
+            outcome.native_result = LPB_RESULT_INTERNAL_ERROR;
+            set_reason(outcome, "Minimal-libav sidecar returned an inconsistent strict capability record (status=%d, library_error=%d).",
+                LPB_VIDEO_SIDECAR_INTERNAL_ERROR, outcome.sidecar_result.library_error);
+            return outcome;
+        }
+    }
+    if (outcome.sidecar_result.output_width == 0U || outcome.sidecar_result.output_height == 0U ||
         outcome.sidecar_result.output_pixel_depth != expected_pixel_depth || outcome.sidecar_result.video_frames == 0U ||
         outcome.sidecar_result.output_bytes == 0U ||
         outcome.sidecar_result.time_base_numerator <= 0 || outcome.sidecar_result.time_base_denominator <= 0 ||
-        !reserved_zero || !valid_string(outcome.sidecar_result.encoder_name, sizeof(outcome.sidecar_result.encoder_name)) ||
+        !valid_string(outcome.sidecar_result.encoder_name, sizeof(outcome.sidecar_result.encoder_name)) ||
         std::strncmp(outcome.sidecar_result.library_version, "9.0.1", sizeof(outcome.sidecar_result.library_version)) != 0)
     {
         outcome.native_result = LPB_RESULT_INTERNAL_ERROR;

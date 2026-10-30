@@ -1,172 +1,374 @@
 #include "media/image_converter.h"
 
+#include "containers/heif_internal.h"
+
+#include "media/image_exif_mapping.h"
+
+
+
 #include "foundation/internal.h"
+
 #include "media/heic_backend.h"
+
 #include "media/jpeg_backend.h"
+
 #include "media/media_inspector.h"
+
 #include "platform/windows_filesystem.h"
+
 #include "foundation/sha256_core.h"
 
+
+
 #include <algorithm>
+
 #include <array>
+
 #include <cstring>
+
 #include <filesystem>
+
+
 
 namespace fs = std::filesystem;
 
+
+
 namespace lpb::media {
+
 namespace {
+
 lpb_result fast_file_copy(lpb_context* context, const char* input_path, const char* output_path) noexcept {
+
     if (!context || !input_path || !output_path) return LPB_RESULT_INVALID_ARGUMENT;
+
     const fs::path source = utf8_to_path(input_path);
+
     const fs::path destination = utf8_to_path(output_path);
+
     windows_owned_output output;
+
     if (!output.create(destination, L"lpb-image-copy") || !output.copy_from_readonly(source)) {
+
         static_cast<void>(abort_owned_output_and_report(context, output,
+
             "Failed to stage image through an owned output."));
+
         return LPB_RESULT_INTERNAL_ERROR;
+
     }
+
     const lpb_result cancellation = lpb_context_check_cancelled(context);
+
     if (cancellation != LPB_RESULT_OK) {
+
         return abort_owned_output_and_report(context, output,
+
             "[Cancelled] Image copy was cancelled before publication.")
+
             ? cancellation : LPB_RESULT_INTERNAL_ERROR;
+
     }
+
     if (!output.publish_registered_no_replace(context, LPB_ARTIFACT_PRIMARY_IMAGE, destination)) {
+
         static_cast<void>(abort_owned_output_and_report(context, output,
+
             "Failed to copy image through an owned output."));
+
         return LPB_RESULT_INTERNAL_ERROR;
+
     }
+
     return LPB_RESULT_OK;
+
 }
+
+
 
 bool read_header(const windows_readonly_source& input, uint8_t (&header)[16]) noexcept {
+
     if (input.size() < 8) return false;
+
     const size_t to_read = static_cast<size_t>(std::min<uint64_t>(input.size(), sizeof(header)));
+
     return input.read_at(0, std::span<uint8_t>(header, to_read));
+
 }
+
+
 
 bool icc_profile_matches_observation(const lpb_preservation_observation& observation,
+
     std::span<const uint8_t> profile) noexcept {
+
     if (profile.empty() || observation.icc_sha256[0] == '\0') return false;
+
     uint8_t hash[32]{};
+
     lpb::crypto::sha256_buffer(profile.data(), profile.size(), hash);
+
     constexpr char digits[] = "0123456789ABCDEF";
+
     std::array<char, LPB_POBS_SHA256_LEN> actual{};
+
     for (size_t i = 0; i < 32; ++i) {
+
         actual[i * 2] = digits[hash[i] >> 4];
+
         actual[i * 2 + 1] = digits[hash[i] & 0x0F];
+
     }
+
     return std::memcmp(actual.data(), observation.icc_sha256, LPB_POBS_SHA256_LEN) == 0;
+
 }
+
 } // namespace
 
+
+
 lpb_result convert_image_file(lpb_context* context, const char* input_image_path, const char* output_image_path,
+
     lpb_image_container target_container, int32_t quality, int32_t* out_reencoded) noexcept {
+
     if (!context || !input_image_path || !output_image_path || paths_alias(input_image_path, output_image_path)) {
+
         if (context) set_error(context, "Image conversion requires distinct input and output paths.");
+
         return LPB_RESULT_INVALID_ARGUMENT;
+
     }
+
     if (out_reencoded) *out_reencoded = 0;
+
     const fs::path source_path = utf8_to_path(input_image_path);
+
     windows_readonly_source source_lease;
+
     uint8_t header[16]{};
+
     if (!source_lease.open(source_path) || !read_header(source_lease, header)) {
+
         set_error(context, "Cannot read the input image header.");
+
         return LPB_RESULT_INVALID_ARGUMENT;
+
     }
+
     const lpb_image_container source_container = detect_image_container(std::span<const uint8_t>(header, sizeof(header)));
+
     if (target_container != LPB_IMAGE_CONTAINER_JPEG && target_container != LPB_IMAGE_CONTAINER_HEIC) {
+
         set_error(context, "Only JPEG and HEIC targets are supported.");
+
         return LPB_RESULT_INVALID_ARGUMENT;
+
     }
+
     if (source_container == target_container && source_container != LPB_IMAGE_CONTAINER_UNKNOWN) {
+
         return fast_file_copy(context, input_image_path, output_image_path);
+
     }
+
+
 
     // The public ordinary codec entry point must enforce the same semantic
+
     // boundary as its managed caller. Decoding only the primary image would
+
     // otherwise silently discard a GainMap/auxiliary when called directly.
+
     // Exact same-container copies above retain every byte; cross-container
+
     // semantic conversion requires the separately bound HDR transaction API.
+
     lpb_preservation_observation source_facts{};
+
     source_facts.struct_size = sizeof(source_facts);
+
     const lpb_result inspected = lpb_capture_preservation_observation(context, input_image_path,
+
         LPB_SOURCE_PROTOCOL_UNKNOWN, source_container, &source_facts);
+
     if (inspected != LPB_RESULT_OK) return inspected;
+
     const lpb_result early_cancel = lpb_context_check_cancelled(context);
+
     if (early_cancel != LPB_RESULT_OK) return early_cancel;
+
     if ((source_facts.flags & (LPB_POBS_HAS_HEIC_AUX | LPB_POBS_HAS_GAINMAP_META |
+
         LPB_POBS_HAS_HEIC_GAINMAP_SEMANTIC | LPB_POBS_HEIC_AUX_AMBIGUOUS |
+
         LPB_POBS_CODESTREAM_ERROR)) != 0U) {
+
         set_error(context, "Ordinary image conversion cannot discard GainMap/auxiliary media; an explicit bound semantic conversion is required.");
+
         return LPB_RESULT_INVALID_ARGUMENT;
+
     }
+
+
 
     if (source_container == LPB_IMAGE_CONTAINER_JPEG && target_container == LPB_IMAGE_CONTAINER_HEIC) {
+
         jpeg_rgb_image jpeg;
+
         const lpb_result decoded = decode_jpeg_rgb_file(context, input_image_path, jpeg);
+
         if (decoded != LPB_RESULT_OK) return decoded;
+
         if (!source_lease.verify_same_identity(source_path)) {
+
             set_error(context, "Input JPEG identity changed during conversion.");
+
             return LPB_RESULT_INVALID_ARGUMENT;
+
         }
+
         pixel_surface pixels{};
+
         pixels.width = jpeg.width;
+
         pixels.height = jpeg.height;
+
         pixels.channels = 3;
+
         pixels.signal_bit_depth = 8;
+
         pixels.storage_bit_depth = 8;
+
         pixels.stride = static_cast<uint64_t>(jpeg.width) * 3;
+
         pixels.color.has_icc = !jpeg.icc_profile.empty();
+
         pixels.color.icc_profile = std::move(jpeg.icc_profile);
+
         pixels.pixels = std::move(jpeg.pixels);
+
         const lpb_result encoded = encode_heic_file(context, output_image_path, pixels, quality);
+
         if (encoded == LPB_RESULT_OK && out_reencoded) *out_reencoded = 1;
+
         return encoded;
+
     }
+
+
 
     if (source_container == LPB_IMAGE_CONTAINER_HEIC && target_container == LPB_IMAGE_CONTAINER_JPEG) {
+
         lpb_preservation_observation color_observation{};
+
         color_observation.struct_size = sizeof(color_observation);
+
         const lpb_result observation_result = lpb_media_capture_preservation_observation(
+
             context, input_image_path, LPB_SOURCE_PROTOCOL_UNKNOWN,
+
             LPB_IMAGE_CONTAINER_HEIC, &color_observation, true);
+
         if (observation_result != LPB_RESULT_OK) return observation_result;
+
         if ((color_observation.flags & LPB_POBS_ICC_PARSE_ERROR) != 0) {
+
             set_error(context, "HEIC primary color-property association is ambiguous or malformed.");
+
             return LPB_RESULT_INVALID_ARGUMENT;
+
         }
+
+
 
         pixel_surface pixels{};
+
         heic_image_facts facts{};
+
         const lpb_result decoded = decode_heic_primary_file(context, input_image_path, pixels, &facts);
+
         if (decoded != LPB_RESULT_OK) return decoded;
+
         if (!source_lease.verify_same_identity(source_path)) {
+
             set_error(context, "Input HEIC identity changed during conversion.");
+
             return LPB_RESULT_INVALID_ARGUMENT;
+
         }
+
         // JPEG is 8-bit SDR. P5 owns an explicit HDR/GainMap transform/degradation
+
         // policy; this generic converter must not silently quantize a 10-bit/HDR source.
+
         if (pixels.signal_bit_depth > 8 || pixels.storage_bit_depth > 8 || facts.hdr_relevant) {
+
             set_error(context, "HEIC source is 10-bit or HDR-relevant; explicit P5 degradation/transform policy is required.");
+
             return LPB_RESULT_INVALID_ARGUMENT;
+
         }
+
         const bool observed_icc = (color_observation.flags & LPB_POBS_HAS_ICC) != 0;
+
         if (facts.color.has_nclx || pixels.color.has_nclx ||
+
             facts.color.has_icc != observed_icc || pixels.color.has_icc != observed_icc ||
+
             (observed_icc && (!icc_profile_matches_observation(color_observation, facts.color.icc_profile) ||
+
                 facts.color.icc_profile != pixels.color.icc_profile))) {
+
             set_error(context, "HEIC primary has unsupported NCLX or inconsistent/ambiguous ICC color facts for JPEG.");
+
+            return LPB_RESULT_INVALID_ARGUMENT;
+
+        }
+
+        std::vector<uint8_t> source_bytes;
+        if (!source_lease.read_all_bounded(0, 100 * 1024 * 1024, source_bytes)) {
+            set_error(context, "Cannot read the pinned HEIC metadata; no JPEG was created.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
+        containers::heif_primary_properties primary_props{};
+        std::string heif_err;
+        if (!containers::observe_primary_item_properties(source_bytes, primary_props, heif_err)) {
+            set_error(context, "Cannot resolve the HEIC primary metadata; no JPEG was created.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        auto source_exif = std::move(primary_props.exif_payload);
+        if (!source_exif.empty()) {
+            target_primary_observation obs{};
+            obs.width = primary_props.width;
+            obs.height = primary_props.height;
+            obs.orientation = primary_props.orientation;
+            // The mapper can mutate its buffer before discovering an unsupported
+            // active tag. Never use a partially mapped payload as a fallback.
+            auto mapped_exif = source_exif;
+            if (!map_image_exif_orientation(mapped_exif, obs)) {
+                set_error(context, "HEIC EXIF cannot be safely mapped to the oriented JPEG; no output was created.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            source_exif = std::move(mapped_exif);
+        }
+
         const lpb_result encoded = encode_rgb_jpeg_file(context, output_image_path, pixels.width, pixels.height,
-            pixels.pixels, quality, pixels.color.icc_profile);
+
+            pixels.pixels, quality, pixels.color.icc_profile, source_exif);
+
         if (encoded == LPB_RESULT_OK && out_reencoded) *out_reencoded = 1;
+
         return encoded;
+
     }
 
+
+
     set_error(context, "Input is not a supported JPEG or HEIC image container.");
+
     return LPB_RESULT_INVALID_ARGUMENT;
+
 }
+
 } // namespace lpb::media

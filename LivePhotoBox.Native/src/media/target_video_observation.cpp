@@ -88,7 +88,7 @@ struct inspector {
         // Huawei's encoder owner uses manufacturer 'ohav'; preserve its ©too
         // bytes while independently inspecting any sibling movie mdta owner.
         if(handler&&!keys&&ilst&&handler->end-handler->body>=24&&text(handler->body+8,handler->body+12)=="mdir") {
-            if(text(handler->body+12,handler->body+16)!="appl"&&text(handler->body+12,handler->body+16)!="ohav")
+            const auto mfr=text(handler->body+12,handler->body+16);if(mfr!="appl"&&mfr!="ohav"&&mfr!=std::string_view("\0\0\0\0",4)&&mfr!="    ")
                 return fail(target_video_failure::unsupported,handler->at,"Unclassified iTunes metadata handler");
             if(!fullzero(*handler,24)||u32(data.data()+handler->body+4)||
                u32(data.data()+handler->body+16)||u32(data.data()+handler->body+20))
@@ -112,7 +112,7 @@ struct inspector {
         if(handler&&!keys&&ilst&&ilst->body==ilst->end) {
             if(!fullzero(*handler,24))return false;
             if(u32(data.data()+handler->body+4)||text(handler->body+8,handler->body+12)!="mdir"||
-               text(handler->body+12,handler->body+16)!="appl"||
+               (text(handler->body+12,handler->body+16)!="appl"&&text(handler->body+12,handler->body+16)!=std::string_view("\0\0\0\0",4)&&text(handler->body+12,handler->body+16)!="    ")||
                u32(data.data()+handler->body+16)||u32(data.data()+handler->body+20))
                 return fail(target_video_failure::unsupported,handler->at,"Unclassified empty metadata handler");
             for(size_t p=handler->body+24;p<handler->end;++p)if(data[p])

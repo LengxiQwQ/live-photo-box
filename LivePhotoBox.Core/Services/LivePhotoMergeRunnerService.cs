@@ -97,7 +97,8 @@ namespace LivePhotoBox.Services
         {
             ArgumentNullException.ThrowIfNull(options);
             ArgumentNullException.ThrowIfNull(options.OutputProfile);
-            if(options.UnspecifiedImageOrientationHandling!=UnspecifiedImageOrientationHandling.Reject)
+            if(options.StructuredOptions.PreservationPolicy == PreservationPolicy.Strict &&
+               options.UnspecifiedImageOrientationHandling != UnspecifiedImageOrientationHandling.Reject)
                 throw new ArgumentException("Unspecified image direction must be selected for one input, not applied to a batch.",nameof(options));
             if (options.TaskStartInterval < TimeSpan.Zero ||
                 options.TaskStartInterval.TotalMilliseconds > uint.MaxValue - 1)
@@ -215,8 +216,15 @@ namespace LivePhotoBox.Services
             {
                 token.ThrowIfCancellationRequested();
                 ArgumentNullException.ThrowIfNull(options.OutputProfile);
+                var orientationHandling = options.UnspecifiedImageOrientationHandling;
+                if (options.StructuredOptions.PreservationPolicy == PreservationPolicy.BestEffort &&
+                    orientationHandling == UnspecifiedImageOrientationHandling.Reject)
+                {
+                    orientationHandling = UnspecifiedImageOrientationHandling.UseStoredPixels;
+                }
                 MediaFormatRequirement requirement = options.OutputProfile.MediaRequirement with
-                    { UnspecifiedImageOrientationHandling=options.UnspecifiedImageOrientationHandling };
+                    { UnspecifiedImageOrientationHandling = orientationHandling };
+                var notCarried = new List<NotCarriedItem>();
 
                 // Keep original file objects read-only until publication completes.
                 // This also blocks hard-link/reparse aliases and late replacements
@@ -240,7 +248,9 @@ namespace LivePhotoBox.Services
 
                 long presentationTimestampUs = ResolveNeutralCoverTimestamp(
                     bundle.Semantics.Timing,
-                    options.KeyPhotoTimestampUs);
+                    options.KeyPhotoTimestampUs,
+                    options.StructuredOptions.PreservationPolicy,
+                    notCarried);
                 bundle = bundle with { Semantics = bundle.Semantics with
                 {
                     Timing = bundle.Semantics.Timing with { CoverTimestampUs = presentationTimestampUs }
@@ -288,6 +298,7 @@ namespace LivePhotoBox.Services
                 var published = await StructuredTargetWriterService.WriteAsync(
                     bundle, options.OutputProfile, finalOutputPath, workspace.RootDirectory,
                     options.OverwriteExisting, token,
+                    preservationPolicy: options.StructuredOptions.PreservationPolicy,
                     huaweiVariant: options.StructuredOptions.HuaweiVariant,
                     samsungVariant: options.StructuredOptions.SamsungVariant,
                     oppoInitialCoverPolicy: options.OutputProfile.TargetProtocol == TargetProtocol.OppoLivePhoto
@@ -296,6 +307,77 @@ namespace LivePhotoBox.Services
 
                 stopwatch.Stop();
                 LogService.Merge($"Rebuilt merge completed for {baseName}: {finalOutputPath} ({stopwatch.Elapsed.TotalSeconds:F2}s)");
+                notCarried.AddRange(published.NotCarried);
+                if (bundle.PreparationExecution is { } prepExec)
+                {
+                    if (prepExec.Image?.Truth.HdrGainMap == ConversionComponentOutcome.Degraded)
+                    {
+                        if (!notCarried.Any(x => x.Item == "GainMap"))
+                            notCarried.Add(new NotCarriedItem { Item = "GainMap", Reason = "Image HDR GainMap degraded to SDR during neutral preparation", Outcome = PreservationOutcome.DegradedToSdr });
+                    }
+                    foreach (var v in prepExec.Videos)
+                    {
+                        if (v.DroppedAuxVideoTracks > 0)
+                        {
+                            notCarried.Add(new NotCarriedItem
+                            {
+                                Item = $"AuxiliaryVideoTrack x{v.DroppedAuxVideoTracks}",
+                                Reason = "Auxiliary video stream(s) discarded for target compatibility",
+                                Outcome = PreservationOutcome.DiscardedNotApplicable
+                            });
+                        }
+                        if (v.DroppedMebxTracks > 0)
+                        {
+                            notCarried.Add(new NotCarriedItem
+                            {
+                                Item = $"MebxTrack x{v.DroppedMebxTracks}",
+                                Reason = "Apple QuickTime timed metadata (mebx) track(s) discarded for target compatibility",
+                                Outcome = PreservationOutcome.DiscardedNotApplicable
+                            });
+                        }
+                        if (v.DroppedOtherTracks > 0)
+                        {
+                            notCarried.Add(new NotCarriedItem
+                            {
+                                Item = $"OtherTrack x{v.DroppedOtherTracks}",
+                                Reason = "Non-primary stream(s) discarded for target compatibility",
+                                Outcome = PreservationOutcome.DiscardedNotApplicable
+                            });
+                        }
+                        if (v.AudioTranscodedToAac)
+                        {
+                            notCarried.Add(new NotCarriedItem
+                            {
+                                Item = "AudioCodec (Pcm->Aac)",
+                                Reason = "Source PCM audio transcoded to AAC for MP4 compatibility",
+                                Outcome = PreservationOutcome.Reencoded
+                            });
+                        }
+                        if (v.Truth.Metadata != ConversionComponentOutcome.Preserved)
+                        {
+                            if (!notCarried.Any(x => x.Item == "VideoMetadata"))
+                            {
+                                notCarried.Add(new NotCarriedItem
+                                {
+                                    Item = "VideoMetadata",
+                                    Reason = "Source container-specific video metadata degraded or omitted in compatible target",
+                                    Outcome = PreservationOutcome.PartiallyPreserved
+                                });
+                            }
+                        }
+                        if (v.Truth.PreservationOutcome != PreservationOutcome.Preserved && !v.StreamCopied)
+                        {
+                            if (!notCarried.Any(x => x.Item.StartsWith("VideoCodec", StringComparison.Ordinal)))
+                                notCarried.Add(new NotCarriedItem { Item = $"VideoCodec ({v.InputCodec}->{v.OutputCodec})", Reason = $"Video converted ({v.Truth.ActualOperationKind})", Outcome = v.Truth.PreservationOutcome });
+                        }
+                        var videoRot = bundle.Semantics.Orientation.MotionVideo?.ClockwiseRotationDegrees;
+                        if (videoRot.HasValue && videoRot.Value != 0 && !notCarried.Any(x => x.Item == "VideoRotation"))
+                        {
+                            notCarried.Add(new NotCarriedItem { Item = "VideoRotation", Reason = $"Source video rotation ({videoRot.Value}°) physically normalized to 0°", Outcome = PreservationOutcome.Reencoded });
+                        }
+                    }
+                }
+
                 terminal = baseline with
                 {
                     Status = ProductOperationStatus.Success,
@@ -304,6 +386,7 @@ namespace LivePhotoBox.Services
                     PreparationExecution = bundle.PreparationExecution,
                     CommittedOutputs = new[] { new ProductCommittedArtifact { Role = "TargetLivePhoto", Path = published.FinalPath,
                         Sha256 = published.Sha256, ByteLength = published.ByteLength } },
+                    NotCarried = notCarried,
                     Diagnostic = new() { Stage = ProductOperationStage.Publication, Message = ResourceService.GetString("Task_Success") }
                 };
             }
@@ -336,7 +419,9 @@ namespace LivePhotoBox.Services
 
         internal static long ResolveNeutralCoverTimestamp(
             NeutralTimingSemantics timing,
-            long? requestedTimestampUs)
+            long? requestedTimestampUs,
+            PreservationPolicy preservationPolicy = PreservationPolicy.BestEffort,
+            List<NotCarriedItem>? notCarried = null)
         {
             ArgumentNullException.ThrowIfNull(timing);
 
@@ -344,6 +429,17 @@ namespace LivePhotoBox.Services
             {
                 if (!IsLegalCoverTimestamp(requested, timing.DurationUs))
                 {
+                    if (preservationPolicy == PreservationPolicy.BestEffort && timing.DurationUs is long duration && duration > 0)
+                    {
+                        long clamped = Math.Clamp(requested, 0, Math.Max(0, duration - 1));
+                        notCarried?.Add(new NotCarriedItem
+                        {
+                            Item = "CoverTimestamp",
+                            Reason = $"Requested key-photo timestamp {requested}us clamped to video duration ({clamped}us)",
+                            Outcome = PreservationOutcome.PartiallyPreserved
+                        });
+                        return clamped;
+                    }
                     throw new InvalidDataException(
                         "The requested key-photo timestamp must be within the known final video duration.");
                 }
@@ -359,6 +455,18 @@ namespace LivePhotoBox.Services
                     if (timing.CoverTimestampUs is not long verifiedTimestamp ||
                         !IsLegalCoverTimestamp(verifiedTimestamp, timing.DurationUs))
                     {
+                        if (preservationPolicy == PreservationPolicy.BestEffort && timing.DurationUs is long duration && duration > 0)
+                        {
+                            long raw = timing.CoverTimestampUs ?? 0;
+                            long clamped = Math.Clamp(raw, 0, Math.Max(0, duration - 1));
+                            notCarried?.Add(new NotCarriedItem
+                            {
+                                Item = "CoverTimestamp",
+                                Reason = $"Source cover timestamp {raw}us clamped to video duration ({clamped}us)",
+                                Outcome = PreservationOutcome.PartiallyPreserved
+                            });
+                            return clamped;
+                        }
                         throw new InvalidDataException(
                             "Verified neutral cover timing must be within the known final video duration.");
                     }
@@ -366,14 +474,17 @@ namespace LivePhotoBox.Services
                     return verifiedTimestamp;
 
                 case NeutralEvidenceState.NotApplicable when timing.CoverTimestampUs is null && timing.DurationUs is > 0:
-                    // No source cover applies; retain the synthetic opening-frame default.
                     return 0;
 
                 case NeutralEvidenceState.NotApplicable:
+                    if (preservationPolicy == PreservationPolicy.BestEffort && timing.DurationUs is > 0)
+                        return 0;
                     throw new InvalidDataException(
                         "NotApplicable neutral timing cannot include a source cover timestamp.");
 
                 default:
+                    if (preservationPolicy == PreservationPolicy.BestEffort && timing.DurationUs is > 0)
+                        return 0;
                     throw new InvalidDataException(
                         "Neutral cover timing is unknown; an explicit in-range key-photo timestamp is required.");
             }

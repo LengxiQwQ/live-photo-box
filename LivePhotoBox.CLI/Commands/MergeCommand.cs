@@ -70,7 +70,7 @@ namespace LivePhotoBox.Cli.Commands
                 "Default: follow the source video's own timeline (Apple MOV / vivo metadata)." };
 
             var includeLiveOpt = new Option<bool>("--include-live") { Description = "In batch mode also process unmatched original live images. Ordinary unmatched images fail explicitly." };
-            var preservationOpt = new Option<string>("--preservation") { DefaultValueFactory = _ => "best-effort", Description = "Neutral media preservation: strict|best-effort. Loss/unknown remains reported; validation cannot be skipped." };
+            var preservationOpt = new Option<string>("--preservation") { DefaultValueFactory = _ => "best-effort", Description = "Output preservation profile: best-effort (compatible profile, default)|strict (full preservation profile)." };
             var targetVersionOpt = new Option<string?>("--target-version") { Description = "Explicit target version: samsung mpv2|mpv3; huawei v6|honor-v2. Candidate support; device acceptance pending." };
             var unspecifiedDirectionOpt = new Option<string>("--unspecified-image-orientation") { DefaultValueFactory=_=>"reject",
                 Description="Explicit choice for this input only: reject|keep-stored. keep-stored resolves an unspecified JPEG direction using current pixels, without rotating/reencoding. Original files remain unchanged. Single-input mode only." };
@@ -217,9 +217,9 @@ namespace LivePhotoBox.Cli.Commands
                 }
 
                 string policyText = parseResult.GetValue(preservationOpt)!;
-                if (policyText is not ("strict" or "best-effort"))
+                if (policyText is not ("strict" or "best-effort" or "compatible"))
                 {
-                    CliConsole.WriteErrorLine("Error: --preservation must be strict or best-effort.");
+                    CliConsole.WriteErrorLine("Error: --preservation must be compatible (default), best-effort, or strict.");
                     Environment.ExitCode = 1;
                     return;
                 }
@@ -899,7 +899,7 @@ namespace LivePhotoBox.Cli.Commands
                     task.Status = outcome.Status == ProductOperationStatus.Cancelled ? ProcessStatus.Cancelled : success ? ProcessStatus.Success : ProcessStatus.Failed;
                     task.Details = outcome.Details;
                     var entry = json ? jsonFiles[task.Index - 1] : null;
-                    if (entry != null) { entry.Outcome = outcome; entry.Output = CommittedPath(outcome); entry.HistoryWarning = outcome.HistoryWarning; }
+                    if (entry != null) { entry.Outcome = outcome; entry.Output = CommittedPath(outcome); entry.HistoryWarning = outcome.HistoryWarning; entry.NotCarried = outcome.NotCarried; }
                     if (!json) PrintOutcome(outcome);
                     if (outcome.Status == ProductOperationStatus.Cancelled)
                     {
@@ -1072,6 +1072,7 @@ namespace LivePhotoBox.Cli.Commands
             public string Output { get; set; } = "";
             public ProductOperationOutcome? Outcome { get; set; }
             public string? HistoryWarning { get; set; }
+            public IReadOnlyList<NotCarriedItem> NotCarried { get; set; } = [];
             public ProductCapabilityAssessment? Capability { get; set; }
         }
 
@@ -1079,7 +1080,7 @@ namespace LivePhotoBox.Cli.Commands
         private static string CommittedPath(ProductOperationOutcome outcome) => outcome.IsSuccess ? outcome.CommittedOutputs.FirstOrDefault()?.Path ?? "" : "";
         internal static object ProjectSingleOutcome(string image, string video, ProductOperationOutcome outcome, ProductCapabilityAssessment? capability = null) =>
             new { command = "merge", mode = "single", targetSupport = "experimental-device-acceptance-pending", image, video, output = CommittedPath(outcome), status = OutcomeStatus(outcome),
-                reason = outcome.IsSuccess ? "" : outcome.Details, outcome, capability, historyWarning = outcome.HistoryWarning };
+                reason = outcome.IsSuccess ? "" : outcome.Details, outcome, notCarried = outcome.NotCarried, capability, historyWarning = outcome.HistoryWarning };
 
         private static void PrintOutcome(ProductOperationOutcome outcome)
         {
@@ -1147,7 +1148,7 @@ namespace LivePhotoBox.Cli.Commands
                         imagePath, videoPath, c.BaseName, taskIndex: 0, options, tempDir, ct);
                     var entry = entries[index];
                     entry.Outcome = outcome; entry.Status = OutcomeStatus(outcome); entry.Output = CommittedPath(outcome);
-                    entry.Reason = outcome.IsSuccess ? "" : outcome.Details; entry.HistoryWarning = outcome.HistoryWarning;
+                    entry.Reason = outcome.IsSuccess ? "" : outcome.Details; entry.HistoryWarning = outcome.HistoryWarning; entry.NotCarried = outcome.NotCarried;
                     if (outcome.Status == ProductOperationStatus.Cancelled) throw new OperationCanceledException(ct);
                     if (outcome.IsSuccess) Interlocked.Increment(ref ok); else Interlocked.Increment(ref fail);
                     int count = Interlocked.Increment(ref completed);

@@ -61,6 +61,10 @@ bool validate_isobmff_mebx_transplants(std::span<const uint8_t> source,
 // movie, video-track and unique audio-track scope.
 // Unknown metadata graphs, duplicate keys/boxes and malformed aperture boxes
 // fail closed. Encoded sample tables remain target-owned and are relocated.
+// Compatible stream-copy only: preserve validated display geometry in the main
+// video sample entry, without inheriting source metadata or auxiliary tracks.
+bool preserve_isobmff_copy_display_geometry(std::span<const uint8_t> source,
+    std::span<const uint8_t> stage, std::vector<uint8_t>& output, bool& changed) noexcept;
 bool preserve_isobmff_static_metadata(std::span<const uint8_t> source,
     std::span<const uint8_t> stage, std::vector<uint8_t>& output,
     bool& changed) noexcept;

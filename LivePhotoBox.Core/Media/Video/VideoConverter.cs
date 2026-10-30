@@ -140,7 +140,7 @@ public sealed class VideoConverter : IVideoConverter
                     "Native video conversion did not return exact creating-handle output evidence: " +
                     (backendAttempt.OutputEvidenceFailure?.Message ?? "unknown evidence failure"));
             }
-            if (backendAttempt.MetadataPreservation is null)
+            if (request.PreservationPolicy == PreservationPolicy.Strict && backendAttempt.MetadataPreservation is null)
                 throw new InvalidDataException("Native video conversion did not return verified scoped metadata evidence.");
             NativeMediaService.NativeVideoTranscodeResult backendDiagnostics = backendAttempt.Diagnostics;
             backendCompleted = true;
@@ -198,7 +198,12 @@ public sealed class VideoConverter : IVideoConverter
             }
 
             bool audioPreserved = sourceFacts.HasAudio ? probed.HasAudio : true;
-            bool rotationPreserved = sourceFacts.RotationDegrees == probed.RotationDegrees;
+            bool dimensionsCorrect = (sourceFacts.RotationDegrees is 90 or 270)
+                ? (probed.Width == sourceFacts.Height && probed.Height == sourceFacts.Width)
+                : (probed.Width == sourceFacts.Width && probed.Height == sourceFacts.Height);
+            bool rotationPreserved = isRemux
+                ? (sourceFacts.RotationDegrees == probed.RotationDegrees && probed.Width == sourceFacts.Width && probed.Height == sourceFacts.Height)
+                : (probed.RotationDegrees == 0 && dimensionsCorrect);
             if (!audioPreserved)
             {
                 throw new InvalidOperationException("Output video lost a source audio stream.");
@@ -227,12 +232,12 @@ public sealed class VideoConverter : IVideoConverter
                 provedCopy = true;
             }
             ConversionOperationKind actualOperation = !isRemux
-                ? ConversionOperationKind.LossyReencode
+                ? (backendDiagnostics.StreamCopied ? ConversionOperationKind.ContainerRemux : ConversionOperationKind.LossyReencode)
                 : byteIdenticalPassthrough
                     ? ConversionOperationKind.Passthrough
                     : ConversionOperationKind.ContainerRemux;
             PreservationOutcome preservationOutcome = !isRemux
-                ? PreservationOutcome.Reencoded
+                ? (backendDiagnostics.StreamCopied ? PreservationOutcome.PartiallyPreserved : PreservationOutcome.Reencoded)
                 : byteIdenticalPassthrough || provedCopy
                     ? PreservationOutcome.Preserved
                     : PreservationOutcome.PartiallyPreserved;
@@ -261,7 +266,12 @@ public sealed class VideoConverter : IVideoConverter
                     RequestedCodec = request.TargetCodec,
                     OutputContainer = probed.Container,
                     OutputCodec = probed.Codec,
-                    RemuxUsed = isRemux,
+                    RemuxUsed = isRemux || backendDiagnostics.StreamCopied,
+                    DroppedAuxVideoTracks = backendDiagnostics.DroppedAuxVideo,
+                    DroppedMebxTracks = backendDiagnostics.DroppedMebx,
+                    DroppedOtherTracks = backendDiagnostics.DroppedOther,
+                    AudioTranscodedToAac = backendDiagnostics.AudioTranscodedToAac,
+                    StreamCopied = backendDiagnostics.StreamCopied,
                     Backend = backendDiagnostics.Backend,
                     HardwareMode = backendDiagnostics.HardwareMode,
                     SelectedEncoder = backendDiagnostics.SelectedEncoder,
@@ -288,7 +298,9 @@ public sealed class VideoConverter : IVideoConverter
                         FallbackOccurred = backendDiagnostics.HardwareFallbackOccurred,
                         FallbackReason = backendDiagnostics.HardwareFallbackReason,
                         Pixel = ConversionComponentOutcome.NotApplicable,
-                        Metadata = ConversionComponentOutcome.Preserved,
+                        Metadata = (request.PreservationPolicy == PreservationPolicy.Strict && backendAttempt.MetadataPreservation != null)
+                            ? ConversionComponentOutcome.Preserved
+                            : ConversionComponentOutcome.Degraded,
                         ColorIcc = provedCopy ? ConversionComponentOutcome.Preserved : ConversionComponentOutcome.NotEvaluated,
                         HdrGainMap = ConversionComponentOutcome.NotApplicable,
                         Auxiliary = ConversionComponentOutcome.NotApplicable,

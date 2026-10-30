@@ -2,7 +2,15 @@
 #include "media/target_primary_observation.h"
 #include "media/jpeg_marker.h"
 #include <algorithm>
+#include <cstdint>
+
+#include <limits>
+
 #include <set>
+
+#include <span>
+
+#include <vector>
 
 namespace lpb::media {
 // Private typed TIFF/thumbnail mapper shared by bound image proof producers.
@@ -89,5 +97,56 @@ inline bool map_image_exif_orientation(std::vector<uint8_t>& payload,const targe
     }
     uint32_t normalized{};exif_observation after;
     return observe_exif(payload,normalized,after,failure,true)&&normalized==1;
+}
+
+inline bool standalone_jpeg_codestream(std::span<const uint8_t> bytes) noexcept {
+    if (bytes.size() < 4 || bytes[0] != 0xFF || bytes[1] != 0xD8) return false;
+    size_t cursor = 2;
+    bool saw_scan = false;
+    while (cursor < bytes.size()) {
+        if (bytes[cursor] != 0xFF) return false;
+        while (cursor < bytes.size() && bytes[cursor] == 0xFF) ++cursor;
+        if (cursor >= bytes.size()) return false;
+        const uint8_t marker = bytes[cursor++];
+        if (marker == 0xD9) return !saw_scan && cursor == bytes.size();
+        if (marker == 0x00 || marker == 0xD8 || (marker >= 0xD0 && marker <= 0xD7) || marker == 0x01)
+            return false;
+        if (cursor + 2 > bytes.size()) return false;
+        const size_t segment_length = (static_cast<size_t>(bytes[cursor]) << 8) | bytes[cursor + 1];
+        if (segment_length < 2 || segment_length > bytes.size() - cursor) return false;
+        cursor += segment_length;
+        if (marker != 0xDA) continue;
+        if (saw_scan) return false;
+        saw_scan = true;
+        while (cursor + 1 < bytes.size()) {
+            if (bytes[cursor] != 0xFF) { ++cursor; continue; }
+            size_t marker_start = cursor++;
+            while (cursor < bytes.size() && bytes[cursor] == 0xFF) ++cursor;
+            if (cursor >= bytes.size()) return false;
+            const uint8_t scan_marker = bytes[cursor++];
+            if (scan_marker == 0x00 || (scan_marker >= 0xD0 && scan_marker <= 0xD7)) continue;
+            if (scan_marker == 0xD9) return cursor == bytes.size();
+            static_cast<void>(marker_start);
+            return false;
+        }
+        return false;
+    }
+    return false;
+}
+
+inline bool insert_exact_exif(std::span<const uint8_t> jpeg, std::span<const uint8_t> payload,
+    std::vector<uint8_t>& output, uint32_t expected_orientation = 1) {
+    if (payload.empty()) { output.assign(jpeg.begin(), jpeg.end()); return true; }
+    if (!standalone_jpeg_codestream(jpeg) || payload.size() > 65533U) return false;
+    uint32_t orientation = 0;
+    exif_observation observed;
+    jpeg_observation_failure failure{};
+    if (!observe_exif(payload, orientation, observed, failure, true) || orientation != expected_orientation) return false;
+    output.assign(jpeg.begin(), jpeg.begin() + 2);
+    const auto length = static_cast<uint16_t>(payload.size() + 2U);
+    output.insert(output.end(), { 0xff, 0xe1, static_cast<uint8_t>(length >> 8), static_cast<uint8_t>(length) });
+    output.insert(output.end(), payload.begin(), payload.end());
+    output.insert(output.end(), jpeg.begin() + 2, jpeg.end());
+    return standalone_jpeg_codestream(output);
 }
 }

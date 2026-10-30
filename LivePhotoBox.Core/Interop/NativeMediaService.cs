@@ -1097,8 +1097,10 @@ public static class NativeMediaService
                 }
 
                 VideoMetadataPreservationEvidence? metadata = null;
-                if (res == NativeResult.Ok && preservation.StructSize == 96 && preservation.ApiVersion == 1 &&
+                if (res == NativeResult.Ok && preservationPolicy == PreservationPolicy.Strict &&
+                    preservation.StructSize == 96 && preservation.ApiVersion == 1 &&
                     preservation.Policy == (uint)preservationPolicy && preservation.Status == 1 &&
+                    preservation.SourceBoxCount > 0 &&
                     preservation.SourceBoxCount == preservation.VerifiedBoxCount &&
                     new ReadOnlySpan<byte>(preservation.SourceSha256, 32).SequenceEqual(
                         new ReadOnlySpan<byte>(preservation.OutputSha256, 32)))
@@ -1504,6 +1506,32 @@ public static class NativeMediaService
                 : $"minimal-libav/P7-R4-HEVC-v2/{fields[2]}";
         }
 
+        uint droppedAuxVideo = 0;
+        uint droppedMebx = 0;
+        uint droppedOther = 0;
+        bool audioTranscodedToAac = false;
+        bool streamCopied = false;
+        if (fallbackReason.StartsWith("compat:", StringComparison.OrdinalIgnoreCase))
+        {
+            string body = fallbackReason[7..];
+            var pairs = body.Split(';');
+            foreach (var pair in pairs)
+            {
+                var kv = pair.Split('=');
+                if (kv.Length == 2)
+                {
+                    switch (kv[0])
+                    {
+                        case "aux_vid": uint.TryParse(kv[1], out droppedAuxVideo); break;
+                        case "mebx": uint.TryParse(kv[1], out droppedMebx); break;
+                        case "other": uint.TryParse(kv[1], out droppedOther); break;
+                        case "pcm_aac": audioTranscodedToAac = kv[1] == "1"; break;
+                        case "copied": streamCopied = kv[1] == "1"; break;
+                    }
+                }
+            }
+        }
+
         return new NativeVideoTranscodeResult(
             backend,
             hardwareMode,
@@ -1516,7 +1544,12 @@ public static class NativeMediaService
             minimalLibavSelected,
             outputCandidateObserved,
             identityValid,
-            inputRequiresHighPrecision);
+            inputRequiresHighPrecision,
+            droppedAuxVideo,
+            droppedMebx,
+            droppedOther,
+            audioTranscodedToAac,
+            streamCopied);
     }
 
     private static bool TryReadProfile(string field, char prefix, out string profile)
@@ -1562,7 +1595,12 @@ public static class NativeMediaService
         bool MinimalLibavSelected,
         bool OutputCandidateObserved,
         bool IdentityValid,
-        bool InputRequiresHighPrecision = false);
+        bool InputRequiresHighPrecision = false,
+        uint DroppedAuxVideo = 0,
+        uint DroppedMebx = 0,
+        uint DroppedOther = 0,
+        bool AudioTranscodedToAac = false,
+        bool StreamCopied = false);
 
     internal sealed record NativeRegisteredOutputEvidence(
         WindowsFileIdentity FileIdentity,

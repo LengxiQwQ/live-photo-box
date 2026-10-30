@@ -6457,6 +6457,31 @@ bool validate_stored_pixel_xmp_direction(std::string_view xml) noexcept {
         return true;
     }catch(...){return false;}
 }
+bool remove_target_container_directory(std::string_view xml,std::string& output,xmp_observation_failure& failure) noexcept {
+    output.clear();failure=xmp_observation_failure::malformed;
+    try {
+        std::vector<xmp_node> nodes;container_directory_info directory;
+        if(!scan_xmp_tree(xml,nodes,true)||!find_container_directory(nodes,directory))return false;
+        const auto& dir_node=nodes[directory.directory_node_index];
+        const auto start=dir_node.tag_start;
+        const auto close=dir_node.close_start;
+        if(start==std::string_view::npos)return false;
+        size_t end=std::string_view::npos;
+        if(close!=std::string_view::npos) {
+            end=xml.find('>',close);
+            if(end!=std::string_view::npos)++end;
+        }else {
+            end=xml.find('>',start);
+            if(end!=std::string_view::npos)++end;
+        }
+        if(end==std::string_view::npos||end<=start)return false;
+        std::string stripped(xml);
+        stripped.erase(start,end-start);
+        output=std::move(stripped);
+        failure=xmp_observation_failure::none;
+        return true;
+    }catch(...){output.clear();return false;}
+}
 bool reduce_embedded_heif_gainmap_layout(std::string_view xml,std::string& output,xmp_observation_failure& failure) noexcept {
     output.clear();failure=xmp_observation_failure::malformed;
     try {

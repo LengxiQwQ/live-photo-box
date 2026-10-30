@@ -28,7 +28,7 @@ std::string resource(std::string_view semantic,std::string_view mime,uint64_t le
 }
 }
 
-lpb_result build_google_xmp(std::string_view input,const google_xmp_request& request,std::string& output) noexcept {
+lpb_result build_google_xmp(std::string_view input,const google_xmp_request& request,std::string& output,std::string* error_out) noexcept {
  output.clear();
  try {
   const bool samsung=request.target==5,vivo=request.target==4;
@@ -83,8 +83,23 @@ lpb_result build_google_xmp(std::string_view input,const google_xmp_request& req
   lpb::media::target_xmp_observation observed;lpb::media::xmp_observation_failure why{};
   if(!lpb::media::observe_target_xmp(input,observed,why))
    return why==lpb::media::xmp_observation_failure::unsupported?LPB_RESULT_UNSUPPORTED:LPB_RESULT_INVALID_ARGUMENT;
+  const bool strict_hdr = !request.best_effort;
   if(observed.live_claim||observed.micro_claim||observed.foreign_claim||observed.oppo_claim||observed.vivo_claim||
-     (observed.hdr_claim&&(!(gainmap||heif)||!request.hdr_relationship_validated)))return LPB_RESULT_UNSUPPORTED;
+     (strict_hdr&&observed.hdr_claim&&(!(gainmap||heif)||!request.hdr_relationship_validated))) {
+   if(error_out)*error_out="claims: live=" + std::to_string(observed.live_claim) + " micro=" + std::to_string(observed.micro_claim) + " foreign=" + std::to_string(observed.foreign_claim) + " hdr=" + std::to_string(observed.hdr_claim) + " gm=" + std::to_string(gainmap) + " val=" + std::to_string(request.hdr_relationship_validated);
+   return LPB_RESULT_UNSUPPORTED;
+  }
+  std::string stripped_dir;
+  if(request.best_effort && observed.directory_present && (observed.items.size() > 1 + request.auxiliary_items.size())) {
+   lpb::media::xmp_observation_failure strip_fail{};
+   if(lpb::media::remove_target_container_directory(input, stripped_dir, strip_fail)) {
+    input = stripped_dir;
+    if(!lpb::media::observe_target_xmp(input, observed, why)) {
+     if(error_out)*error_out = "observe_target_xmp failed after strip directory";
+     return LPB_RESULT_INVALID_ARGUMENT;
+    }
+   }
+  }
   std::string vivo_adjusted;
   if(vivo&&observed.directory_present) {
    if(!lpb::media::rewrite_target_vivo_primary_shape(input,vivo_adjusted,why)||!lpb::media::observe_target_xmp(vivo_adjusted,observed,why))return LPB_RESULT_UNSUPPORTED;
@@ -99,9 +114,16 @@ lpb_result build_google_xmp(std::string_view input,const google_xmp_request& req
   if(observed.directory_present) {
    if(observed.items.size()>1+request.auxiliary_items.size()||observed.items[0].semantic!="Primary"||observed.items[0].mime!=request.primary_mime||
       observed.items[0].length||observed.items[0].padding!=request.primary_padding||observed.owner_close_offset==std::string::npos||
-      observed.sequence_close_offset==std::string::npos)return LPB_RESULT_UNSUPPORTED;
+      observed.sequence_close_offset==std::string::npos) {
+    if(error_out)*error_out="directory_present check failed: items=" + std::to_string(observed.items.size()) + " req=" + std::to_string(request.auxiliary_items.size());
+    return LPB_RESULT_UNSUPPORTED;
+   }
    for(size_t i=0;i+1<observed.items.size();++i){const auto& have=observed.items[i+1];const auto& want=request.auxiliary_items[i];
-    if(have.semantic!=want.semantic||have.mime!=want.mime||!have.has_length||have.length!=want.length||have.padding)return LPB_RESULT_UNSUPPORTED;}
+    if(have.semantic!=want.semantic||have.mime!=want.mime||!have.has_length||have.length!=want.length||have.padding) {
+     if(error_out)*error_out="directory item " + std::to_string(i) + " mismatch";
+     return LPB_RESULT_UNSUPPORTED;
+    }
+   }
    if(observed.sequence_close_offset>=observed.owner_close_offset)return LPB_RESULT_INVALID_ARGUMENT;
    output=input;
    output.insert(observed.owner_close_offset,properties);
@@ -175,18 +197,28 @@ lpb_result build_google_primary(lpb_context* context,std::span<const uint8_t> in
     lpb::media::observe_cross_target_mpf_primary(input,vendor,ownership_error);
    if(ordinary_mpf)ordinary_mpf_region.assign(input.begin()+static_cast<ptrdiff_t>(jpeg.eoi_end),input.end());
    if(!lpb::media::jpeg_gainmap_mpf::parse_jpeg(input,mpf)||
-      mpf.mpf.image_count!=(ordinary_mpf?2:request.auxiliary_items.size()+1))return LPB_RESULT_UNSUPPORTED;
+      mpf.mpf.image_count!=(ordinary_mpf?2:request.auxiliary_items.size()+1)) {
+    set_error(context, ("[Stage] mpf count mismatch: count=" + std::to_string(mpf.mpf.image_count) + " exp=" + std::to_string(ordinary_mpf?2:request.auxiliary_items.size()+1)).c_str());
+    return LPB_RESULT_UNSUPPORTED;
+   }
    // The approved singleton self-entry has no external image relationship.
    // Its redundant historical size may be stale (RELEASE-004); the complete
    // bounded JPEG, exact EOF and strict singleton identity authorize reflow.
    // Multi-image indexes retain strict original range/size validation.
    const bool singleton=lpb::media::jpeg_gainmap_mpf::singleton_primary(mpf)&&
     request.auxiliary_items.empty()&&!request.primary_padding&&jpeg.eoi_end==input.size();
-   if(!singleton&&mpf.mpf.entries[0].size!=jpeg.eoi_end)return LPB_RESULT_UNSUPPORTED;
+   if(!singleton&&mpf.mpf.entries[0].size!=jpeg.eoi_end) {
+    set_error(context, ("[Stage] mpf[0].size (" + std::to_string(mpf.mpf.entries[0].size) + ") != eoi_end (" + std::to_string(jpeg.eoi_end) + ")").c_str());
+    return LPB_RESULT_UNSUPPORTED;
+   }
    uint64_t offset=jpeg.eoi_end+request.primary_padding;
    for(size_t i=1;!ordinary_mpf&&i<mpf.mpf.image_count;++i){const auto& entry=mpf.mpf.entries[i];
     if(entry.absolute_offset!=offset||entry.size!=request.auxiliary_items[i-1].length||
-       entry.dependent_image_1>mpf.mpf.image_count||entry.dependent_image_2>mpf.mpf.image_count)return LPB_RESULT_INVALID_ARGUMENT;
+       entry.dependent_image_1>mpf.mpf.image_count||entry.dependent_image_2>mpf.mpf.image_count){
+     set_error(context, ("[Stage] MPF entry mismatch: abs=" + std::to_string(entry.absolute_offset) + " exp=" + std::to_string(offset) + " sz=" + std::to_string(entry.size) + " expSz=" + std::to_string(request.auxiliary_items[i-1].length)).c_str());
+     return LPB_RESULT_INVALID_ARGUMENT;
+    }
+
     offset+=entry.size;
    }
   }
@@ -194,14 +226,21 @@ lpb_result build_google_primary(lpb_context* context,std::span<const uint8_t> in
   std::string rebased;
   std::string_view packet=jpeg.xmp;
   if(packet.find("XMPMeta")!=std::string_view::npos){
-   if(!lpb::media::rebase_micamera_offsets(packet,request.video_length+(request.target==5?24:0),rebased))return LPB_RESULT_UNSUPPORTED;
+   if(!lpb::media::rebase_micamera_offsets(packet,request.video_length+(request.target==5?24:0),rebased)) {
+    set_error(context, "[Stage] rebase_micamera_offsets failed");
+    return LPB_RESULT_UNSUPPORTED;
+   }
    packet=rebased;
   }
   if(request.target==4&&(request.primary_padding||std::any_of(request.auxiliary_items.begin(),request.auxiliary_items.end(),[](const auto& a){return a.semantic!="GainMap";}))) {
    set_error(context,"Vivo directory cannot represent preserved primary-padding or non-GainMap assets.");return LPB_RESULT_UNSUPPORTED;
   }
-  const auto merged=build_google_xmp(packet,request,xml);
-  if(merged!=LPB_RESULT_OK)return merged;
+  std::string xmp_err;
+  const auto merged=build_google_xmp(packet,request,xml,&xmp_err);
+  if(merged!=LPB_RESULT_OK) {
+   set_error(context, ("[Stage] build_google_xmp failed (" + std::to_string(merged) + "): " + xmp_err).c_str());
+   return merged;
+  }
   std::vector<uint8_t> commented;
   lpb::media::user_comment_mapping mapped;
   std::span<const uint8_t> marker;
@@ -224,7 +263,10 @@ lpb_result build_google_primary(lpb_context* context,std::span<const uint8_t> in
     // A known foreign binding is not an ordinary comment eligible for mapping.
     if(!compatible&&(vivo_bound||oppo_bound))return LPB_RESULT_UNSUPPORTED;
     if(!compatible) {
-     if(logical.preserved_comment.present||lpb::media::observe_target_neutral_exif(jpeg.exif_payload)!=LPB_RESULT_OK)return LPB_RESULT_UNSUPPORTED;
+     if(logical.preserved_comment.present||lpb::media::observe_target_neutral_exif(jpeg.exif_payload)!=LPB_RESULT_OK) {
+      set_error(context, "[Stage] logical.preserved_comment or observe_target_neutral_exif failed");
+      return LPB_RESULT_UNSUPPORTED;
+     }
      mapped.original=lpb::media::comment_tuple(jpeg.exif.user_comment_type,jpeg.exif.user_comment_count,jpeg.exif.user_comment);
      mapped.destination="xmp:{urn:livephotobox:preserved-exif:1}ExifUserComment";
      mapped.input_compared=true;

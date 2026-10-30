@@ -216,10 +216,11 @@ lpb_result observe_extended_primary(lpb_context* context,lpb_target_writer_sessi
             }
         }
     }
-    if(selected.size()!=facts.auxiliaries.size()) {
+    const bool strict = (session.request.reserved0 == 0);
+    if(strict && selected.size()!=facts.auxiliaries.size()) {
         set_error(context,"Prepared auxiliary graph has unrepresented assets; Strict cannot discard them.");return LPB_RESULT_UNSUPPORTED;
     }
-    if(facts.xmp.hdr_claim&&std::none_of(session.auxiliaries.begin(),session.auxiliaries.end(),
+    if(strict && facts.xmp.hdr_claim&&std::none_of(session.auxiliaries.begin(),session.auxiliaries.end(),
         [](const auto& asset){return std::string_view(asset.semantic)=="GainMap";})) {
         set_error(context,"HDR metadata has no represented GainMap semantic asset.");return LPB_RESULT_UNSUPPORTED;
     }
@@ -375,6 +376,7 @@ bool expand_owned_mpf(std::vector<uint8_t>& primary,const std::vector<lpb::media
     if(!parse_jpeg(primary,before))return false;
     const bool need_gainmap=std::any_of(auxiliaries.begin(),auxiliaries.end(),[](const auto& a){return a.semantic=="GainMap";});
     if(before.mpf_status==status::absent&&!need_gainmap)return true;
+    if(auxiliaries.empty())return true;
     const size_t count=auxiliaries.size()+1;
     if(count>max_mpf_image_count)return false;
     if(before.mpf_status==status::present&&before.mpf.image_count==count)return true;
@@ -443,6 +445,28 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
     std::vector<uint8_t> primary;
     if(!session.inputs[0].read_all_bounded(4,32ULL*1024*1024,primary))return LPB_RESULT_UNSUPPORTED;
     uint64_t encoding_boundary=session.primary_facts.encoding_boundary;
+    const bool best_effort = (session.request.reserved0 == 1);
+    if(best_effort && session.primary_facts.container==LPB_IMAGE_CONTAINER_JPEG) {
+        lpb::media::jpeg_gainmap_mpf::jpeg_info info;
+        if(lpb::media::jpeg_gainmap_mpf::parse_jpeg(primary, info) && info.mpf_status==lpb::media::jpeg_gainmap_mpf::status::present) {
+            if(info.mpf.image_count > (session.auxiliaries.empty() ? 1U : 2U) || session.auxiliaries.empty()) {
+                if(encoding_boundary>0 && encoding_boundary<primary.size()) {
+                    primary.resize(static_cast<size_t>(encoding_boundary));
+                }
+                const auto tiff = info.mpf.tiff_header_offset;
+                if(tiff >= 8 && primary.size() >= tiff) {
+                    const size_t marker_start = tiff - 8;
+                    const size_t marker_length = 2 + (static_cast<size_t>(primary[tiff - 6]) << 8 | primary[tiff - 5]);
+                    if(marker_start + marker_length <= primary.size() && primary[marker_start] == 0xff && primary[marker_start + 1] == 0xe2) {
+                        primary.erase(primary.begin() + static_cast<ptrdiff_t>(marker_start), primary.begin() + static_cast<ptrdiff_t>(marker_start + marker_length));
+                        if(encoding_boundary >= marker_length) encoding_boundary -= marker_length;
+                    }
+                }
+                session.primary_facts.encoding_boundary = primary.size();
+                session.auxiliaries.clear();
+            }
+        }
+    }
     if(session.ordinary_present) {
         std::vector<uint8_t> raw,decorated;
         if(!session.inputs[session.ordinary_input_index].read_all_bounded(11,32ULL*1024*1024,raw))return LPB_RESULT_UNSUPPORTED;
@@ -461,6 +485,7 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
     request.primary_mime=session.primary_facts.container==LPB_IMAGE_CONTAINER_HEIC?"image/heic":"image/jpeg";
     request.hdr_relationship_validated=std::any_of(session.auxiliaries.begin(),session.auxiliaries.end(),
         [](const auto& asset){return std::string_view(asset.semantic)=="GainMap";});
+    request.best_effort = best_effort;
     if(session.primary_facts.container==LPB_IMAGE_CONTAINER_HEIC) {
         std::vector<uint32_t> resolved_ids;
         resolved_ids.reserve(session.auxiliaries.size());
@@ -558,7 +583,10 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
         }
         request.auxiliary_items.push_back({std::string(semantic),"image/jpeg",found->byte_length,0,true,false});
     }
-    if(!ordinary_mpf&&!expand_owned_mpf(primary,request.auxiliary_items,request.primary_padding))return LPB_RESULT_INVALID_ARGUMENT;
+    if(!ordinary_mpf&&!expand_owned_mpf(primary,request.auxiliary_items,request.primary_padding)) {
+        set_error(context, "[Stage] expand_owned_mpf failed.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
     return lpb::target::build_google_primary(context,primary,request,serialized,&session.comment_mapping);
 }
 lpb_result finish(lpb_context* context,const std::shared_ptr<lpb_target_writer_session>& session,lpb_result result) {
@@ -598,7 +626,7 @@ static lpb_result prepare_target_writer(lpb_context* context,const lpb_target_wr
     lpb_writer_frame frame(context);
     try {
         if(!request||!output||request->struct_size!=sizeof(*request)||request->version!=1||
-            request->artifact_count!=2||!request->artifacts||request->reserved0||request->reserved1||request->reserved2||
+            request->artifact_count!=2||!request->artifacts||request->reserved0>1||request->reserved1||request->reserved2||
             request->cover_timestamp_present>1||(!request->cover_timestamp_present&&request->cover_timestamp_us!=0)||
             !fixed_utf8(request->staging_directory_utf8,sizeof(request->staging_directory_utf8)))return LPB_RESULT_INVALID_ARGUMENT;
         const bool samsung=request->target_profile==LPB_TARGET_SAMSUNG;
@@ -794,8 +822,10 @@ lpb_result LPB_CALL lpb_target_writer_stage_v1(lpb_context* context,lpb_target_w
                     // this derived field in the staged primary is normalized.
                     lpb::media::jpeg_gainmap_mpf::jpeg_info observed;
                     if(!lpb::media::jpeg_gainmap_mpf::parse_jpeg(serialized,observed)||
-                       !lpb::media::jpeg_gainmap_mpf::singleton_primary(observed)||observed.eoi_end>UINT32_MAX)
+                       !lpb::media::jpeg_gainmap_mpf::singleton_primary(observed)||observed.eoi_end>UINT32_MAX) {
+                        set_error(context, "[Stage] Singleton MPF normalization failed.");
                         result=LPB_RESULT_INVALID_ARGUMENT;
+                    }
                     else lpb::media::jpeg_gainmap_mpf::write_u32(serialized,observed.mpf.entries[0].size_field_offset,
                         static_cast<uint32_t>(observed.eoi_end),observed.mpf.little_endian);
                 }

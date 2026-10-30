@@ -45,6 +45,11 @@ public sealed record VideoExecutionRecord
     public string HardwareFallbackReason { get; init; } = string.Empty;
     public bool AudioPreserved { get; init; }
     public bool RotationPreserved { get; init; }
+    public uint DroppedAuxVideoTracks { get; init; }
+    public uint DroppedMebxTracks { get; init; }
+    public uint DroppedOtherTracks { get; init; }
+    public bool AudioTranscodedToAac { get; init; }
+    public bool StreamCopied { get; init; }
     public TimeSpan Duration { get; init; }
     public VideoMetadataPreservationEvidence? MetadataPreservation { get; init; }
     public VideoCompleteRemuxEvidence? CompleteRemuxProof { get; init; }

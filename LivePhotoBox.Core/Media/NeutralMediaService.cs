@@ -364,18 +364,42 @@ public sealed class NeutralMediaService : INeutralMediaService
                 };
             }
 
-            // Convert Video if video exists and target differs
-            if (finalVideo != null && (
-                requirement.TargetFps is > 0 ||
-                (requirement.VideoContainer != VideoContainer.Unknown && requirement.VideoContainer != finalVideo.VideoContainer) ||
-                (requirement.VideoCodec != VideoCodec.Copy && requirement.VideoCodec != VideoCodec.Unknown && requirement.VideoCodec != finalVideo.VideoCodec)))
+            bool isCompatibleProfile = preservationPolicy == PreservationPolicy.BestEffort;
+            bool needsTranscodeForRotation = isCompatibleProfile &&
+                resolvedVideoFacts?.RotationDegrees != 0;
+            bool containerChanges = requirement.VideoContainer != VideoContainer.Unknown &&
+                requirement.VideoContainer != finalVideo?.VideoContainer;
+            bool targetDiffers = (requirement.TargetFps is > 0) ||
+                (requirement.VideoContainer != VideoContainer.Unknown && requirement.VideoContainer != finalVideo?.VideoContainer) ||
+                (requirement.VideoCodec != VideoCodec.Copy && requirement.VideoCodec != VideoCodec.Unknown && requirement.VideoCodec != finalVideo?.VideoCodec);
+
+            // In compatible profile (BestEffort), always convert to prune aux tracks, normalize audio to AAC,
+            // stream-copy primary video, or physically rotate pixels.
+            if (finalVideo != null && (isCompatibleProfile || targetDiffers || needsTranscodeForRotation))
             {
                 VideoFacts videoFacts = resolvedVideoFacts ??
                     throw new InvalidDataException("Neutral video facts were not resolved.");
-                VideoCodec converterTargetCodec = requirement.VideoCodec is VideoCodec.Unknown or VideoCodec.Copy ||
-                    requirement.VideoCodec == videoFacts.Codec
-                    ? VideoCodec.Copy
-                    : requirement.VideoCodec;
+                VideoCodec converterTargetCodec;
+                if (requirement.VideoCodec is not (VideoCodec.Unknown or VideoCodec.Copy) &&
+                    requirement.VideoCodec != videoFacts.Codec)
+                {
+                    converterTargetCodec = requirement.VideoCodec;
+                }
+                else if (needsTranscodeForRotation)
+                {
+                    // Physical rotation requires decoding and re-encoding with source/target codec
+                    converterTargetCodec = videoFacts.Codec;
+                }
+                else
+                {
+                    // Plan 01 §1.1: “编码能接受就复制，不能接受才转码”
+                    // Stream-copy video when rotation is 0
+                    converterTargetCodec = VideoCodec.Copy;
+                }
+
+
+
+
                 diagnosticStage = ProductOperationStage.VideoConversion;
                 var vidConv = await _videoConverter.ConvertAsync(new VideoConversionRequest
                 {

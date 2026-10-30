@@ -59,6 +59,13 @@ internal sealed record NeutralPreparationExecution
     public IReadOnlyList<VideoExecutionRecord> Videos { get; init; } = [];
 }
 
+internal sealed record NotCarriedItem
+{
+    public required string Item { get; init; }
+    public required string Reason { get; init; }
+    public required PreservationOutcome Outcome { get; init; }
+}
+
 internal sealed record ProductOperationOutcome
 {
     public int SchemaVersion { get; init; } = 1;
@@ -76,6 +83,7 @@ internal sealed record ProductOperationOutcome
     public IReadOnlyList<NeutralArtifactManifest> PreparationManifest { get; init; } = [];
     public NeutralPreparationExecution? PreparationExecution { get; init; }
     public ProductTargetPreservation FinalTargetPreservation { get; init; } = ProductTargetPreservation.Unknown;
+    public IReadOnlyList<NotCarriedItem> NotCarried { get; init; } = [];
     public ProductOperationDiagnostic Diagnostic { get; init; } = new();
     [JsonIgnore] public string? HistoryWarning { get; init; }
     [JsonIgnore] public bool IsSuccess => Status == ProductOperationStatus.Success;

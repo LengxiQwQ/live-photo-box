@@ -39,6 +39,7 @@ enum lpb_video_sidecar_capability_v1
 
 enum lpb_video_sidecar_codec_v1
 {
+    LPB_VIDEO_SIDECAR_CODEC_COPY = 0,
     LPB_VIDEO_SIDECAR_CODEC_H264 = 1,
     LPB_VIDEO_SIDECAR_CODEC_HEVC = 2
 };
@@ -49,7 +50,9 @@ enum lpb_video_sidecar_request_flag_v1
     // its exact MEBX bytes/timing into the separately staged final container.
     LPB_VIDEO_SIDECAR_REQUEST_NATIVE_TRANSPLANTS_MEBX = 1U << 0U,
     // Source facts came from Native's strict ISO-BMFF profile inspection.
-    LPB_VIDEO_SIDECAR_REQUEST_NATIVE_SOURCE_PROFILE = 1U << 1U
+    LPB_VIDEO_SIDECAR_REQUEST_NATIVE_SOURCE_PROFILE = 1U << 1U,
+    // Compatible profile: drop auxiliary video tracks/mebx, physically rotate pixels to 0
+    LPB_VIDEO_SIDECAR_REQUEST_COMPATIBLE_PROFILE = 1U << 2U
 };
 
 enum lpb_video_sidecar_container_v1

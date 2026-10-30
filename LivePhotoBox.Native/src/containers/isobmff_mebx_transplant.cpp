@@ -2133,6 +2133,45 @@ bool map_isobmff_handler_names(std::span<const uint8_t> source, std::span<const 
     } catch (...) { output.clear(); return false; }
 }
 
+bool preserve_isobmff_copy_display_geometry(std::span<const uint8_t> source,
+    std::span<const uint8_t> stage, std::vector<uint8_t>& output, bool& changed) noexcept {
+    output.clear(); changed = false;
+    try {
+        file_record input{}, target{};
+        if (!parse_file(source, input) || !parse_file(stage, target) || target.moov_header_size != 8U) return false;
+        const auto* original = unique_video(input);
+        const auto* actual = unique_video(target);
+        if (!original || !actual) return false;
+        std::vector<uint8_t> track, movie;
+        if (!preserve_visual_geometry(source, *original, stage, *actual, track) ||
+            !rewrite_static_parent(stage, {}, stage, target.moov_start, target.moov_end,
+                actual, &track, movie)) return false;
+        const int64_t delta = static_cast<int64_t>(movie.size()) -
+            static_cast<int64_t>(target.moov_end - target.moov_start);
+        if (delta != 0 && !shift_chunk_offsets(movie, 0U, target.moov_end, delta)) return false;
+        std::vector<uint8_t> result;
+        result.insert(result.end(), stage.begin(), stage.begin() + target.moov_start);
+        result.insert(result.end(), movie.begin(), movie.end());
+        result.insert(result.end(), stage.begin() + target.moov_end, stage.end());
+        file_record rebuilt{};
+        if (!parse_file(result, rebuilt)) return false;
+        const auto* final_video = unique_video(rebuilt);
+        static_boxes before, after;
+        if (!final_video || !hdr_static_inventory(source, *original, before) ||
+            !hdr_static_inventory(result, *final_video, after)) return false;
+        // Only the semantic geometry subset was mapped. HDR and other metadata
+        // retain their separate policy; this is not a whole-metadata proof.
+        before.erase(std::remove_if(before.begin(), before.end(), [&](const auto& b) {
+            return !geometry_box(source, b.start); }), before.end());
+        after.erase(std::remove_if(after.begin(), after.end(), [&](const auto& b) {
+            return !geometry_box(result, b.start); }), after.end());
+        if (before.size() != after.size() || !same_static(source, before, result, after)) return false;
+        changed = result.size() != stage.size() || !std::equal(result.begin(), result.end(), stage.begin());
+        output.swap(result);
+        return true;
+    } catch (...) { output.clear(); changed = false; return false; }
+}
+
 bool preserve_isobmff_static_metadata(std::span<const uint8_t> source,
     std::span<const uint8_t> stage, std::vector<uint8_t>& output, bool& changed) noexcept {
     output.clear(); changed = false;

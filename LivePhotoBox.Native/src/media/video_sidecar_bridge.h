@@ -18,6 +18,10 @@ struct video_sidecar_bridge_result
     lpb_result native_result{LPB_RESULT_INTERNAL_ERROR};
     lpb_video_sidecar_result_v1 sidecar_result{};
     std::array<char, 256> reason{};
+    uint32_t dropped_aux_video{};
+    uint32_t dropped_mebx{};
+    uint32_t dropped_other{};
+    bool stream_copied{};
 };
 
 video_sidecar_bridge_result run_video_sidecar_transcode(
@@ -28,6 +32,7 @@ video_sidecar_bridge_result run_video_sidecar_transcode(
     lpb_video_codec target_codec,
     int32_t crf,
     bool native_transplants_mebx,
-    const isobmff_video_profile& source_profile) noexcept;
+    const isobmff_video_profile& source_profile,
+    bool compatible_profile = false) noexcept;
 
 } // namespace lpb::media

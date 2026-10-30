@@ -5,6 +5,7 @@
 #include <vector>
 #include <string>
 #include <string_view>
+namespace lpb::media { struct user_comment_mapping; }
 namespace lpb::target {
 struct google_xmp_request {
  uint32_t target{2},format{};
@@ -18,8 +19,9 @@ struct google_xmp_request {
  // Validated Neutral assets, in final byte order; excludes Primary/MotionPhoto.
  std::vector<lpb::media::target_xmp_item> auxiliary_items;
  bool hdr_relationship_validated{};
+ bool best_effort{};
 };
-lpb_result build_google_xmp(std::string_view,const google_xmp_request&,std::string&) noexcept;
+lpb_result build_google_xmp(std::string_view,const google_xmp_request&,std::string&,std::string* error_out = nullptr) noexcept;
 lpb_result build_google_primary(lpb_context*,std::span<const uint8_t>,const google_xmp_request&,std::vector<uint8_t>&,
  lpb::media::user_comment_mapping* mapping=nullptr) noexcept;
 lpb_result build_google_v2_primary(lpb_context*,std::span<const uint8_t>,uint64_t video_length,

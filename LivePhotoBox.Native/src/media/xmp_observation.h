@@ -42,6 +42,7 @@ bool observe_target_xmp(std::string_view,target_xmp_observation&,xmp_observation
 // ranges. All other bytes, including unknown item attributes, are retained.
 bool rewrite_target_primary_padding(std::string_view,uint64_t,std::string&,xmp_observation_failure&,bool generated_target=false) noexcept;
 bool rewrite_target_vivo_primary_shape(std::string_view,std::string&,xmp_observation_failure&) noexcept;
+bool remove_target_container_directory(std::string_view,std::string&,xmp_observation_failure&) noexcept;
 // Bound image converter only: map an observed HEIC Primary+embedded GainMap
 // directory to the actual JPEG lengths. Ordinary XML bytes remain untouched.
 bool rewrite_heif_gainmap_directory_to_jpeg(std::string_view,uint64_t,uint64_t,std::string&,xmp_observation_failure&) noexcept;
