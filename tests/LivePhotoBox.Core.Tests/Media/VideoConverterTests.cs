@@ -12,6 +12,19 @@ namespace LivePhotoBox.Core.Tests.Media;
 
 public sealed class VideoConverterTests
 {
+    private static void AssertCompleteRemuxProof(string source, VideoConversionResult result)
+    {
+        string hash(string path) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(path)));
+        var proof=Assert.IsType<VideoCompleteRemuxEvidence>(result.ExecutionRecord.CompleteRemuxProof);
+        Assert.Equal(2,proof.ProofVersion);
+        Assert.Equal("OriginalCopyRemux",proof.ProofKind);
+        Assert.Equal((ulong)new FileInfo(source).Length,proof.SourceLength);
+        Assert.Equal(hash(source),proof.SourceSha256);
+        Assert.Equal((ulong)new FileInfo(result.OutputArtifact!.Path).Length,proof.OutputLength);
+        Assert.Equal(hash(result.OutputArtifact.Path),proof.OutputSha256);
+        Assert.Equal(ConversionComponentOutcome.Preserved,result.ExecutionRecord.Truth.Timing);
+        Assert.Equal(ConversionComponentOutcome.Preserved,result.ExecutionRecord.Truth.Orientation);
+    }
     private static string ResolveSample(string fileName) => TestSampleResolver.ResolveSample(fileName);
 
     [Theory]
@@ -154,7 +167,8 @@ public sealed class VideoConverterTests
 
         Assert.True(result.Success, result.ErrorMessage);
         Assert.Equal(ConversionOperationKind.ContainerRemux, result.ExecutionRecord.Truth.ActualOperationKind);
-        Assert.Equal(PreservationOutcome.PartiallyPreserved, result.ExecutionRecord.Truth.PreservationOutcome);
+        Assert.Equal(PreservationOutcome.Preserved, result.ExecutionRecord.Truth.PreservationOutcome);
+        AssertCompleteRemuxProof(sample, result);
         Assert.NotNull(result.OutputArtifact);
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.True(result.ExecutionRecord.RemuxUsed);
@@ -240,7 +254,8 @@ public sealed class VideoConverterTests
         Assert.False(sourceBytes.AsSpan().SequenceEqual(outputBytes));
         Assert.Equal(ConversionOperationKind.ContainerRemux, result.ExecutionRecord.Truth.RequestedOperationKind);
         Assert.Equal(ConversionOperationKind.ContainerRemux, result.ExecutionRecord.Truth.ActualOperationKind);
-        Assert.Equal(PreservationOutcome.PartiallyPreserved, result.ExecutionRecord.Truth.PreservationOutcome);
+        Assert.Equal(PreservationOutcome.Preserved, result.ExecutionRecord.Truth.PreservationOutcome);
+        AssertCompleteRemuxProof(sample, result);
         Assert.True(result.ExecutionRecord.RemuxUsed);
         Assert.Equal(VideoBackend.ProjectIsoBmffRemux, result.ExecutionRecord.Backend);
         Assert.Equal("ProjectIsoBmffStreamRemux", result.ExecutionRecord.SelectedEncoder);
@@ -315,6 +330,8 @@ public sealed class VideoConverterTests
         Assert.NotNull(result.OutputArtifact);
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.False(result.ExecutionRecord.RemuxUsed);
+        Assert.Null(result.ExecutionRecord.CompleteRemuxProof);
+        Assert.NotEqual(PreservationOutcome.Preserved, result.ExecutionRecord.Truth.PreservationOutcome);
         Assert.Equal(VideoBackend.MinimalLibav, result.ExecutionRecord.Backend);
         Assert.Equal(VideoHardwareMode.SoftwareForced, result.ExecutionRecord.HardwareMode);
         Assert.False(result.ExecutionRecord.HardwareFallbackOccurred);
@@ -368,6 +385,8 @@ public sealed class VideoConverterTests
         Assert.NotNull(result.OutputArtifact);
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.False(result.ExecutionRecord.RemuxUsed);
+        Assert.Null(result.ExecutionRecord.CompleteRemuxProof);
+        Assert.NotEqual(PreservationOutcome.Preserved, result.ExecutionRecord.Truth.PreservationOutcome);
         var facts = await converter.ProbeAsync(result.OutputArtifact.Path);
         Assert.Equal(VideoContainer.Mov, facts.Container);
         Assert.Equal(VideoCodec.H264, facts.Codec);
@@ -404,6 +423,8 @@ public sealed class VideoConverterTests
         Assert.NotNull(result.OutputArtifact);
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.False(result.ExecutionRecord.RemuxUsed);
+        Assert.Null(result.ExecutionRecord.CompleteRemuxProof);
+        Assert.NotEqual(PreservationOutcome.Preserved, result.ExecutionRecord.Truth.PreservationOutcome);
         Assert.Equal(ConversionOperationKind.LossyReencode, result.ExecutionRecord.Truth.ActualOperationKind);
         Assert.Equal(ConversionCapability.VideoTranscodeSdr, result.ExecutionRecord.Truth.SelectedCapability);
         Assert.Equal("minimal-libav", result.ExecutionRecord.Truth.BackendName);

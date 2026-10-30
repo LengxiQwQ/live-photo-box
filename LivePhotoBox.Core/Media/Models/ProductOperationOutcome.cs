@@ -23,7 +23,10 @@ internal sealed record ProductRequestedSelection
 {
     public TargetProtocol? TargetProtocol { get; init; }
     public OutputMediaFormat? OutputFormat { get; init; }
+    public PreservationPolicy? PreservationPolicy { get; init; }
+    public uint? TargetVersion { get; init; }
     public SplitMediaFormat? SplitFormat { get; init; }
+    public UnspecifiedImageOrientationHandling UnspecifiedImageOrientationHandling { get; init; }
 }
 
 internal sealed record ProductCommittedArtifact
@@ -52,6 +55,7 @@ internal sealed record ProductOperationDiagnostic
 internal sealed record NeutralPreparationExecution
 {
     public ImageExecutionRecord? Image { get; init; }
+    public ImageOrientationResolutionEvidence? OrientationResolution { get; init; }
     public IReadOnlyList<VideoExecutionRecord> Videos { get; init; } = [];
 }
 
@@ -69,6 +73,7 @@ internal sealed record ProductOperationOutcome
     public IReadOnlyList<ProductCommittedArtifact> CommittedOutputs { get; init; } = [];
     public string PreparationEvidenceScope { get; init; } = "PreparedNeutral";
     public NeutralMediaSemantics? PreparationSemantics { get; init; }
+    public IReadOnlyList<NeutralArtifactManifest> PreparationManifest { get; init; } = [];
     public NeutralPreparationExecution? PreparationExecution { get; init; }
     public ProductTargetPreservation FinalTargetPreservation { get; init; } = ProductTargetPreservation.Unknown;
     public ProductOperationDiagnostic Diagnostic { get; init; } = new();

@@ -95,6 +95,11 @@ bool inspect_isobmff_video_profile(
     isobmff_video_profile& output,
     video_profile_failure& failure,
     video_profile_diagnostic* diagnostic = nullptr) noexcept;
+// Private read-only auxiliary codec facts. Validate the actual visual entry's
+// configuration/SPS without promoting auxiliary color or timing to the primary
+// video's profile. Classification remains unknown; no conversion is authorized.
+bool inspect_isobmff_visual_codec_configuration(std::span<const uint8_t> entry,
+    isobmff_video_profile& output) noexcept;
 
 // Internal Native decision seam. This is not part of the exported C ABI.
 media_foundation_cicp_patch_mode select_media_foundation_cicp_patch_mode(

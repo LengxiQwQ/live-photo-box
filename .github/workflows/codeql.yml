@@ -51,21 +51,21 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: |
-            .ai-tmp/workspace/P5/R5/video-codecs-main10
-            .ai-tmp/workspace/P5/R5/r4-hevc-v2-codec-identity.json
-            .ai-tmp/workspace/P5/R5/cmake-build/vcpkg_installed
+            artifacts/deps
+            artifacts/cache
             ~/AppData/Local/vcpkg/downloads
-          key: native-deps-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'tools/p5-r5-video-validation/sidecar-dependencies/**', 'tools/p5-r5-video-validation/profiles/P5-R5-v1/backend-build.json') }}
+            ~/AppData/Local/vcpkg/archives
+          key: native-deps-v3-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'build/native/**', 'scripts/native/restore-*.ps1', 'scripts/native/build-hevc-codecs.py') }}
       - name: Cache pinned Native dependencies for C/C++ analysis / 缓存 Native 依赖（C/C++）
         if: matrix.language == 'c-cpp'
         uses: actions/cache@v4
         with:
           path: |
-            .ai-tmp/workspace/P5/R5/video-codecs-main10
-            .ai-tmp/workspace/P5/R5/r4-hevc-v2-codec-identity.json
-            .ai-tmp/workspace/P5/R5/cmake-build/vcpkg_installed
+            artifacts/deps
+            artifacts/cache
             ~/AppData/Local/vcpkg/downloads
-          key: native-deps-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'tools/p5-r5-video-validation/sidecar-dependencies/**', 'tools/p5-r5-video-validation/profiles/P5-R5-v1/backend-build.json') }}
+            ~/AppData/Local/vcpkg/archives
+          key: native-deps-v3-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'build/native/**', 'scripts/native/restore-*.ps1', 'scripts/native/build-hevc-codecs.py') }}
       - name: Check analysis storage / 检查分析存储
         shell: pwsh
         run: ./scripts/ci/check-codeql-storage.ps1
@@ -99,7 +99,9 @@ jobs:
         shell: pwsh
         run: |
           dotnet build "LivePhotoBox/LivePhotoBox.csproj" -c Debug -p:Platform=x64 -p:SkipNativeBuild=true
+          if ($LASTEXITCODE -ne 0) { throw "GUI dotnet build failed with exit code $LASTEXITCODE." }
           dotnet build "LivePhotoBox.CLI/LivePhotoBox.CLI.csproj" -c Debug -p:Platform=x64 -p:SkipNativeBuild=true
+          if ($LASTEXITCODE -ne 0) { throw "CLI dotnet build failed with exit code $LASTEXITCODE." }
       - name: Recheck analysis storage / 分析前复查存储
         shell: pwsh
         run: ./scripts/ci/check-codeql-storage.ps1

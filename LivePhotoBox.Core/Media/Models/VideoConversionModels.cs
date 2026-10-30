@@ -47,7 +47,17 @@ public sealed record VideoExecutionRecord
     public bool RotationPreserved { get; init; }
     public TimeSpan Duration { get; init; }
     public VideoMetadataPreservationEvidence? MetadataPreservation { get; init; }
+    public VideoCompleteRemuxEvidence? CompleteRemuxProof { get; init; }
     public ConversionExecutionTruth Truth { get; init; } = new();
+}
+
+/// <summary>Versioned original Copy-remux before/after transport proof.
+/// No codec transform; permitted container/address/name mappings only.</summary>
+public sealed record VideoCompleteRemuxEvidence(ulong SourceLength, ulong OutputLength,
+    string SourceSha256, string OutputSha256)
+{
+    public int ProofVersion => 2;
+    public string ProofKind => "OriginalCopyRemux";
 }
 
 /// <summary>Native pre-publication comparison of scoped static metadata assets.

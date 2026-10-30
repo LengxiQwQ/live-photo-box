@@ -2,6 +2,9 @@
 # Set default behavior to automatically normalize line endings.
 ###############################################################################
 * text=auto
+build/native/video/dependencies/overlay-ports/x265/** -text
+build/native/video/notices/** -text
+build/native/video/sources/** -text
 
 ###############################################################################
 # Set default behavior for command prompt diff.

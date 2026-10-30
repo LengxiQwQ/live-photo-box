@@ -3,6 +3,8 @@
 #include "foundation/internal.h"
 #include "platform/windows_filesystem.h"
 #include "containers/isobmff.h"
+#include "containers/isobmff_metadata_keys.h"
+#include "media/media_cleaner.h"
 #include <fstream>
 #include <filesystem>
 #include <algorithm>
@@ -311,6 +313,18 @@ extern "C" lpb_result LPB_CALL lpb_mp4_strip_uuid_box(
     return copy_output(context, result, output, output_size, out_written);
 }
 
+struct metadata_track_identity {std::string_view residue,semantic;};
+static metadata_track_identity source_track_identity(lpb_source_protocol protocol,std::string_view key) {
+    if(protocol==LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO) {
+        if(key=="com.apple.quicktime.live-photo-info")return {"apple-vid-track-livephoto-info","LivePhotoInfoTrack"};
+        if(key=="com.apple.quicktime.still-image-time")return {"apple-vid-track-still-image-time","StillImageTimeTrack"};
+        if(key=="com.apple.quicktime.live-photo-still-image-transform")return {"apple-vid-track-transform","StillImageTransformTrack"};
+        if(key=="com.apple.quicktime.live-photo-still-image-transform-reference-dimensions")return {"apple-vid-track-reference-dimensions","TransformReferenceDimensionsTrack"};
+    }
+    if((protocol==LPB_SOURCE_PROTOCOL_HUAWEI_MOVING_PHOTO||protocol==LPB_SOURCE_PROTOCOL_HONOR_MOVING_PHOTO)&&
+       key=="com.openharmony.timed_metadata.movingphoto")return {"huawei-vid-track-movingphoto",key};
+    return {};
+}
 static bool rebuild_moov_without_matching_tracks(
     lpb_context* context,
     std::span<const uint8_t> data,
@@ -322,117 +336,70 @@ static bool rebuild_moov_without_matching_tracks(
     std::vector<std::string>* out_fps = nullptr,
     const lpb_cleanup_action* actions = nullptr,
     size_t action_count = 0,
-    lpb_source_protocol expected_protocol = LPB_SOURCE_PROTOCOL_UNKNOWN)
+    lpb_source_protocol expected_protocol = LPB_SOURCE_PROTOCOL_UNKNOWN,
+    std::span<const uint8_t> original_source = {})
 {
     out_modified = false;
-    const size_t missing = std::numeric_limits<size_t>::max();
     if (data.size() < 8 || !is_type(data, 0, "moov")) return false;
     isobmff_box_header moov_header{};
-    if (!try_read_box_header(data.data(), 0, data.size(), moov_header) || moov_header.size != data.size()) {
+    if (!try_read_box_header(data.data(), 0, data.size(), moov_header) || moov_header.size != data.size() || moov_header.header_size!=8) {
         set_error(context, "Malformed moov box.");
         return false;
     }
     const size_t moov_size = moov_header.size;
     const size_t moov_end = moov_size;
 
+    std::vector<lpb::media::isobmff_metadata_key_track> tracks;
+    if(!lpb::media::inspect_isobmff_metadata_keys(data,tracks)) {
+        set_error(context,"Malformed metadata-track key hierarchy.");return false;
+    }
     std::vector<size_t> remove_pos;
-    size_t pos = 8;
-    while (pos + 8 <= moov_end)
-    {
-        isobmff_box_header child{};
-        if (!try_read_box_header(data.data(), pos, moov_end, child)) {
-            set_error(context, "Malformed moov child box.");
+    std::vector<bool> seen(fragment_count,false);
+    for(const auto& track:tracks) {
+        const bool selected=std::any_of(track.keys.begin(),track.keys.end(),[&](const auto& key){
+            if(key.name_space!="mdta")return false;
+            for(size_t i=0;i<fragment_count;++i)if(key_fragments[i]&&key.name==key_fragments[i])return true;
             return false;
-        }
-        const size_t size = child.size;
-
-        if (is_type(data, pos, "trak"))
-        {
-            const size_t trak_start = pos;
-            const size_t trak_end = pos + size;
-            const size_t mdia = find_child_box(data, trak_start + 8, trak_end, "mdia");
-            if (mdia != missing)
-            {
-                isobmff_box_header mdia_header{};
-                if (!try_read_box_header(data.data(), mdia, trak_end, mdia_header)) {
-                    set_error(context, "Malformed mdia box.");
-                    return false;
-                }
-                const size_t mdia_end = mdia + mdia_header.size;
-                const size_t hdlr = find_child_box(data, mdia + 8, mdia_end, "hdlr");
-                if (hdlr != missing && hdlr + 20 <= mdia_end)
-                {
-                    const bool meta_handler = data[hdlr + 16] == 'm' && data[hdlr + 17] == 'e'
-                        && data[hdlr + 18] == 't' && data[hdlr + 19] == 'a';
-                    if (meta_handler)
-                    {
-                        bool found = false;
-                        for (size_t i = 0; i < fragment_count; i++)
-                        {
-                            if (key_fragments[i] == nullptr) continue;
-                            size_t frag_len = std::strlen(key_fragments[i]);
-                            if (frag_len > 0)
-                            {
-                                auto it = std::search(data.begin() + trak_start, data.begin() + trak_end,
-                                    key_fragments[i], key_fragments[i] + frag_len);
-                                if (it != data.begin() + trak_end)
-                                {
-                                    std::string fp = lpb::crypto::compute_metadata_track_fingerprint("meta", key_fragments[i]);
-                                    if (actions && action_count > 0)
-                                    {
-                                        bool authorized = false;
-                                        for (size_t a = 0; a < action_count; ++a)
-                                        {
-                                            if (actions[a].artifact_role == LPB_ARTIFACT_MOTION_VIDEO &&
-                                                actions[a].structure_kind == LPB_RESIDUE_QUICKTIME_METADATA_TRACK &&
-                                                actions[a].selector == std::string_view(key_fragments[i]))
-                                            {
-                                                if (expected_protocol != LPB_SOURCE_PROTOCOL_UNKNOWN &&
-                                                    actions[a].owner_protocol != expected_protocol)
-                                                {
-                                                    set_error(context, "Residue owner protocol mismatch for metadata track.");
-                                                    return false;
-                                                }
-                                                if (actions[a].coordinate_space != LPB_COORD_STRUCTURED_SELECTOR)
-                                                {
-                                                    set_error(context, "Residue coordinate space mismatch for metadata track.");
-                                                    return false;
-                                                }
-                                                if (actions[a].expected_fingerprint[0] == '\0' || fp != actions[a].expected_fingerprint)
-                                                {
-                                                    set_error(context, "Residue fingerprint missing or mismatch for metadata track.");
-                                                    return false;
-                                                }
-                                                authorized = true;
-                                                break;
-                                            }
-                                        }
-                                        if (!authorized)
-                                        {
-                                            set_error(context, "Unauthorized removal of metadata track.");
-                                            return false;
-                                        }
-                                    }
-                                    else if (expected_protocol != LPB_SOURCE_PROTOCOL_UNKNOWN)
-                                    {
-                                        set_error(context, "Unauthorized removal of metadata track: missing action authority.");
-                                        return false;
-                                    }
-                                    found = true;
-                                    if (out_matched && i < out_matched->size()) (*out_matched)[i] = true;
-                                    if (out_fps && i < out_fps->size()) (*out_fps)[i] = fp;
-                                }
-                            }
-                        }
-                        if (found)
-                        {
-                            remove_pos.push_back(pos);
-                        }
-                    }
-                }
+        });
+        if(!selected)continue;
+        auto scope=lpb::media::metadata_sample_scope::keyed_atoms;
+        for(const auto& key:track.keys) {
+            size_t pattern=fragment_count;
+            for(size_t i=0;i<fragment_count;++i)if(key.name_space=="mdta"&&key_fragments[i]&&key.name==key_fragments[i]) {
+                if(pattern!=fragment_count)return false;pattern=i;
             }
+            // Unknown or ordinary keys cannot be collateral track deletion.
+            if(pattern==fragment_count||seen[pattern]) {
+                set_error(context,"Mixed ordinary, unapproved or duplicate metadata-track key; whole-track removal refused.");return false;
+            }
+            const auto identity=source_track_identity(expected_protocol,key.name);
+            const auto declared_scope=lpb::media::declared_metadata_sample_scope(key.name_space,key.name);
+            if(declared_scope==lpb::media::metadata_sample_scope::single_track_value) {
+                if(track.keys.size()!=1) {
+                    set_error(context,"Track-scoped metadata value requires a sole authorized key.");return false;
+                }
+                scope=declared_scope;
+            }
+            const auto fp=lpb::crypto::compute_metadata_track_fingerprint("meta",key.name);
+            if(identity.residue.empty()||!lpb::media::find_authorized_action(actions,action_count,expected_protocol,
+                identity.residue,LPB_ARTIFACT_MOTION_VIDEO,LPB_RESIDUE_QUICKTIME_METADATA_TRACK,
+                key.name,identity.semantic,LPB_REMOVAL_DELETE)) {
+                set_error(context,"Metadata track removal lacks complete source-key authority.");return false;
+            }
+            const auto* action=lpb::media::find_authorized_action(actions,action_count,expected_protocol,
+                identity.residue,LPB_ARTIFACT_MOTION_VIDEO,LPB_RESIDUE_QUICKTIME_METADATA_TRACK,
+                key.name,identity.semantic,LPB_REMOVAL_DELETE);
+            if(fp!=action->expected_fingerprint) {
+                set_error(context,"Metadata track source-key fingerprint mismatch.");return false;
+            }
+            seen[pattern]=true;
+            if(out_matched&&pattern<out_matched->size())(*out_matched)[pattern]=true;
+            if(out_fps&&pattern<out_fps->size())(*out_fps)[pattern]=fp;
         }
-        pos += size;
+        if(!lpb::media::validate_isobmff_metadata_key_samples(data,track,original_source,scope)) {
+            set_error(context,"Metadata track sample/description ownership is incomplete.");return false;
+        }
+        remove_pos.push_back(track.offset);
     }
 
     if (remove_pos.empty())
@@ -441,13 +408,60 @@ static bool rebuild_moov_without_matching_tracks(
         return true;
     }
 
+    // Keep every surviving track relationship valid. An ordinary owner that
+    // references a selected track cannot be silently detached by deletion.
+    std::set<uint32_t> all_ids,removed_ids;
+    struct track_reference_owner {size_t body,end;uint32_t id;bool removed;};
+    std::vector<track_reference_owner> owners;
+    for(size_t at=moov_header.header_size;at<moov_end;) {
+        isobmff_box_header track{};if(!try_read_box_header(data.data(),at,moov_end,track))return false;
+        if(is_type(data,at,"trak")) {
+            const size_t end=at+track.size,body=at+track.header_size;
+            const size_t header=find_child_box(data,body,end,"tkhd");
+            isobmff_box_header tkhd{};
+            if(header==SIZE_MAX||!try_read_box_header(data.data(),header,end,tkhd)||tkhd.size<tkhd.header_size+4)return false;
+            const size_t value=header+tkhd.header_size;
+            if(data[value]>1)return false;const size_t field=value+(data[value]?20:12);
+            if(field>header+tkhd.size||header+tkhd.size-field<4)return false;
+            const uint32_t id=read_be32u(data.data()+field);if(!id||!all_ids.insert(id).second)return false;
+            const bool removed=std::find(remove_pos.begin(),remove_pos.end(),at)!=remove_pos.end();
+            if(removed)removed_ids.insert(id);owners.push_back({body,end,id,removed});
+        }
+        at+=track.size;
+    }
+    for(const auto& owner:owners) {
+        unsigned reference_owners=0;
+        for(size_t at=owner.body;at<owner.end;) {
+            isobmff_box_header child{};if(!try_read_box_header(data.data(),at,owner.end,child))return false;
+            if(is_type(data,at,"tref")) {
+                if(++reference_owners>1)return false;std::set<std::string> kinds;
+                for(size_t r=at+child.header_size;r<at+child.size;) {
+                    isobmff_box_header ref{};if(!try_read_box_header(data.data(),r,at+child.size,ref))return false;
+                    const std::string kind(reinterpret_cast<const char*>(data.data()+r+4),4);
+                    if(!kinds.insert(kind).second||
+                       (kind!="chap"&&kind!="hint"&&kind!="cdsc"&&kind!="cdep"&&kind!="vmap")||
+                       ref.size==ref.header_size||(ref.size-ref.header_size)%4)return false;
+                    std::set<uint32_t> ids;
+                    for(size_t p=r+ref.header_size;p<r+ref.size;p+=4) {
+                        const uint32_t id=read_be32u(data.data()+p);
+                        if(!id||id==owner.id||!ids.insert(id).second||!all_ids.contains(id)||(!owner.removed&&removed_ids.contains(id))) {
+                            set_error(context,"Metadata track removal would leave a conflicting or dangling track relationship.");return false;
+                        }
+                    }
+                    r+=ref.size;
+                }
+            }
+            at+=child.size;
+        }
+    }
+
     out_modified = true;
     out_new_moov.clear();
     out_new_moov.reserve(moov_size);
     out_new_moov.insert(out_new_moov.end(), 4, 0); // size placeholder
     out_new_moov.insert(out_new_moov.end(), { 'm', 'o', 'o', 'v' });
 
-    pos = 8;
+    size_t pos = 8;
     while (pos < moov_end)
     {
         isobmff_box_header child{};
@@ -472,6 +486,13 @@ static bool rebuild_moov_without_matching_tracks(
     return true;
 }
 
+#if defined(LPB_NATIVE_TEST_HARNESS)
+bool lpb::containers::test_rebuild_moov_tracks(std::span<const uint8_t> metadata,std::span<const uint8_t> source,
+ const Mp4StripSpec& spec,std::vector<uint8_t>& output,bool& modified) {
+    return rebuild_moov_without_matching_tracks(nullptr,metadata,spec.track_patterns,spec.track_patterns_count,
+        output,modified,nullptr,nullptr,spec.actions,spec.action_count,spec.expected_protocol,source);
+}
+#endif
 static bool rebuild_one_moov_mdta_owner(
     lpb_context* context,
     std::span<const uint8_t> data,
@@ -1194,7 +1215,7 @@ lpb_result stream_clean_mp4_bytes(
             if (!rebuild_moov_without_matching_tracks(context, moov_data,
                     spec.track_patterns, spec.track_patterns_count,
                     new_moov, modified, &outcome.track_patterns_matched,
-                    &outcome.track_fingerprints, spec.actions, spec.action_count, spec.expected_protocol)) {
+                    &outcome.track_fingerprints, spec.actions, spec.action_count, spec.expected_protocol,in_bytes)) {
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
             if (modified) {

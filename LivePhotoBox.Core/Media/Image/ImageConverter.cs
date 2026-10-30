@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Models;
+using LivePhotoBox.Media.Workspace;
 
 namespace LivePhotoBox.Media.Image;
 
@@ -300,7 +301,9 @@ public sealed class ImageConverter : IImageConverter
         // Inspect semantic scope before applying generic conversion policy so
         // GainMap inputs retain the R1 HdrGainMapConversion/Unsupported truth,
         // even when Strict independently prohibits this cross-container route.
-        if (request.PreservationPolicy == PreservationPolicy.Strict &&
+        bool boundOrdinaryConversion=request.SourceArtifact.Kind==MediaArtifactKind.PrimaryImage&&request.SourceArtifact.ImageContainer==ImageContainer.Jpeg&&request.TargetContainer==ImageContainer.Heic&&
+            request.Transform==ImageTransformKind.None;
+        if (!boundOrdinaryConversion&&request.PreservationPolicy == PreservationPolicy.Strict &&
             request.SourceArtifact.ImageContainer != request.TargetContainer &&
             request.SourceArtifact.ImageContainer != ImageContainer.Unknown)
         {
@@ -407,6 +410,7 @@ public sealed class ImageConverter : IImageConverter
         string outPath = Path.Combine(request.TargetDirectory, $"img-conv-{Guid.NewGuid():N}{ext}");
         bool backendCompleted = false;
         NativeMediaService.NativeRegisteredOutputEvidence? registeredOutputEvidence = null;
+        NativeBoundImageAttempt? boundAttempt=null;
 
         try
         {
@@ -430,8 +434,11 @@ public sealed class ImageConverter : IImageConverter
             }
             else
             {
-                NativeMediaService.NativeImageConversionAttempt nativeAttempt =
-                    await NativeMediaService.ConvertImageWithOutputEvidenceAsync(
+                NativeMediaService.NativeImageConversionAttempt nativeAttempt;
+                if(boundOrdinaryConversion) {
+                    boundAttempt=await NativeBoundImageConverter.ConvertAsync(request.SourceArtifact,outPath,request.Quality,cancellationToken).ConfigureAwait(false);
+                    nativeAttempt=boundAttempt.Attempt;
+                }else nativeAttempt=await NativeMediaService.ConvertImageWithOutputEvidenceAsync(
                     request.SourceArtifact.Path,
                     outPath,
                     request.TargetContainer,
@@ -443,6 +450,8 @@ public sealed class ImageConverter : IImageConverter
                     throw new InvalidDataException(
                         "Native image conversion did not return exact creating-handle output evidence: " +
                         (nativeAttempt.OutputEvidenceFailure?.Message ?? "unknown evidence failure"));
+                if(boundOrdinaryConversion&&boundAttempt?.Proof is null)
+                    throw new InvalidDataException("Bound ordinary image conversion has no complete validated proof: "+nativeAttempt.OutputEvidenceFailure?.Message);
                 reencoded = nativeAttempt.Reencoded;
             }
 
@@ -481,7 +490,11 @@ public sealed class ImageConverter : IImageConverter
                 }
             }
 
-            ImagePostValidation? postValidation = reencoded
+            ImagePostValidation? postValidation = boundAttempt?.Proof is { } ordinaryProof
+                ?new ImagePostValidation(ordinaryProof.MetadataCount==0?ConversionComponentOutcome.NotApplicable:ConversionComponentOutcome.Preserved,
+                    ConversionComponentOutcome.Preserved,ordinaryProof.HasIcc?ConversionComponentOutcome.Preserved:ConversionComponentOutcome.NotApplicable,
+                    PreservationOutcome.Preserved)
+                : reencoded
                 ? await ImagePostValidator.VerifyLossyReencodeAsync(
                     request.SourceArtifact.Path,
                     request.SourceArtifact.ImageContainer,
@@ -493,7 +506,7 @@ public sealed class ImageConverter : IImageConverter
                         request.SourceArtifact.Path, outPath, cancellationToken).ConfigureAwait(false)
                     : await ImagePostValidator.VerifyExactPassthroughAsync(
                         request.SourceArtifact.Path, outPath, actualContainer, cancellationToken).ConfigureAwait(false);
-            if (!reencoded && request.PreservationPolicy == PreservationPolicy.Strict &&
+            if ((!reencoded||boundOrdinaryConversion) && request.PreservationPolicy == PreservationPolicy.Strict &&
                 postValidation!.PreservationOutcome != PreservationOutcome.Preserved)
             {
                 throw new InvalidOperationException(
@@ -528,6 +541,7 @@ public sealed class ImageConverter : IImageConverter
                     PixelReencoded = reencoded,
                     MetadataCopied = metadataCopied,
                     PreservationOutcome = preservationOutcome,
+                    OrdinaryConversionEvidence=boundAttempt?.Proof,
                     Truth = new ConversionExecutionTruth
                     {
                         RequestedOperationKind = requestedOperation,
@@ -555,6 +569,7 @@ public sealed class ImageConverter : IImageConverter
         }
         catch (OperationCanceledException ex)
         {
+            boundAttempt?.Dispose();
             sw.Stop();
             if (!TryDeleteOutput(outPath, registeredOutputEvidence))
             {
@@ -566,12 +581,15 @@ public sealed class ImageConverter : IImageConverter
         }
         catch (Exception ex)
         {
+            boundAttempt?.Dispose();
             sw.Stop();
             bool cleanupSucceeded = TryDeleteOutput(outPath, registeredOutputEvidence);
             ConversionFailureCategory category = !cleanupSucceeded
                 ? ConversionFailureCategory.CleanupFailure
                 : IsBackendUnavailable(ex)
                     ? ConversionFailureCategory.BackendUnavailable
+                : boundOrdinaryConversion&&ex is NotSupportedException
+                    ? ConversionFailureCategory.Unsupported
                 : backendCompleted && ex is FileNotFoundException
                     ? ConversionFailureCategory.OutputMissing
                     : backendCompleted && ex is InvalidOperationException
@@ -582,6 +600,7 @@ public sealed class ImageConverter : IImageConverter
                 ConversionFailureCategory.CleanupFailure => ConversionFailureStage.Cleanup,
                 ConversionFailureCategory.OutputMissing or ConversionFailureCategory.OutputValidation => ConversionFailureStage.OutputValidation,
                 ConversionFailureCategory.BackendUnavailable => ConversionFailureStage.BackendUnavailable,
+                ConversionFailureCategory.Unsupported => ConversionFailureStage.PolicyRejection,
                 _ => ConversionFailureStage.BackendExecution
             };
 
@@ -601,6 +620,7 @@ public sealed class ImageConverter : IImageConverter
                 }
             };
         }
+        finally { boundAttempt?.Dispose(); }
     }
 
     private static bool TryDeleteOutput(
@@ -691,6 +711,8 @@ public sealed class ImageConverter : IImageConverter
         string outputPath = Path.Combine(request.TargetDirectory, $"img-hdr-conv-{Guid.NewGuid():N}{extension}");
         NativeHdrGainMapConversionTransaction? transaction = null;
         bool stageCreated = false;
+        NeutralArtifactReadLeaseSet? hdrOutputLease=null;
+        NativeMediaService.NativeRegisteredOutputEvidence? committedHdrOutput=null;
         try
         {
             transaction = heicToJpeg
@@ -719,7 +741,9 @@ public sealed class ImageConverter : IImageConverter
                 !IsFullyPreserved(post.Preservation.ColorIcc))
             {
                 throw new InvalidDataException(
-                    "Strict HDR/GainMap conversion could not prove every applicable metadata, orientation, and ICC component before commit.");
+                    "Strict HDR/GainMap conversion could not prove every applicable metadata, orientation, and ICC component before commit. " +
+                    $"Metadata={post.Preservation.Metadata}; Orientation={post.Preservation.Orientation}; ICC={post.Preservation.ColorIcc}; " +
+                    $"ChangedFields={post.Preservation.DifferenceDetails}.");
             }
 
             FileInfo stagedFile = new(transaction.StagingPath);
@@ -727,8 +751,20 @@ public sealed class ImageConverter : IImageConverter
                 throw new FileNotFoundException("Native HDR/GainMap stage disappeared before commit.", transaction.StagingPath);
             cancellationToken.ThrowIfCancellationRequested();
             transaction.Commit();
+            if(post.CreatingOutputIdentity is { } created)
+                committedHdrOutput=new(created,stagedFile.Length,post.OutputSha256);
             NativeMediaService.NativeRegisteredOutputEvidence outputEvidence =
                 transaction.CaptureCommittedOutputEvidence(outputPath);
+            if(post.HdrConversionEvidence is { } complete)
+            {
+                if(post.CreatingOutputIdentity is not { } identity||!identity.Matches(outputEvidence.FileIdentity)||
+                    outputEvidence.Sha256!=complete.OutputSha256)
+                    throw new InvalidDataException("Committed HDR image is not the proof producer's creating object and bytes.");
+                hdrOutputLease=new NeutralArtifactReadLeaseSet();
+                hdrOutputLease.Pin(new MediaArtifact{Path=outputPath,Kind=MediaArtifactKind.PrimaryImage,
+                    ImageContainer=request.TargetContainer,ByteLength=outputEvidence.ByteLength,
+                    Sha256=outputEvidence.Sha256,FileIdentity=outputEvidence.FileIdentity});
+            }
             transaction.Dispose();
             transaction = null;
 
@@ -755,7 +791,9 @@ public sealed class ImageConverter : IImageConverter
                     InputContainer = binding.SourceContainer,
                     OutputContainer = request.TargetContainer,
                     PixelReencoded = true,
-                    MetadataCopied = false,
+                    MetadataCopied = post.Preservation.Metadata == ConversionComponentOutcome.Preserved,
+                    MetadataMapping = post.MetadataMapping,
+                    HdrConversionEvidence = post.HdrConversionEvidence,
                     PreservationOutcome = preservation,
                     Truth = new ConversionExecutionTruth
                     {
@@ -786,6 +824,9 @@ public sealed class ImageConverter : IImageConverter
         catch (OperationCanceledException)
         {
             sw.Stop();
+            hdrOutputLease?.Dispose();hdrOutputLease=null;
+            if(committedHdrOutput is not null&&!TryDeleteOutput(outputPath,committedHdrOutput))
+                throw new IOException("HDR conversion cancellation could not confirm cleanup of its exact published output.");
             if (transaction is not null && !AbortTransaction(transaction))
                 throw new IOException("HDR/GainMap conversion was cancelled, but Native could not confirm stage cleanup.");
             transaction = null;
@@ -794,7 +835,9 @@ public sealed class ImageConverter : IImageConverter
         catch (Exception ex)
         {
             sw.Stop();
+            hdrOutputLease?.Dispose();hdrOutputLease=null;
             bool cleanupSucceeded = transaction is null || AbortTransaction(transaction);
+            if(committedHdrOutput is not null)cleanupSucceeded&=TryDeleteOutput(outputPath,committedHdrOutput);
             transaction = null;
             ConversionFailureStage stage = !cleanupSucceeded
                 ? ConversionFailureStage.Cleanup
@@ -808,6 +851,7 @@ public sealed class ImageConverter : IImageConverter
         }
         finally
         {
+            hdrOutputLease?.Dispose();
             transaction?.Dispose();
         }
     }

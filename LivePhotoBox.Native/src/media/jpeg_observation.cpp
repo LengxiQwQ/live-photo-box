@@ -3,6 +3,7 @@
 #include "metadata/exif.h"
 #include "foundation/md5_core.h"
 #include "media/jpeg_gainmap_mpf.h"
+#include "media/jpeg_mpf_vendor.h"
 #include <cstring>
 #include <set>
 namespace lpb::media {
@@ -55,6 +56,7 @@ bool observe_exif(std::span<const uint8_t> bytes,uint32_t& orientation,exif_obse
      }
      if(entry.tag==0x9286){
       if(out.has_user_comment)return false;out.has_user_comment=true;
+      out.user_comment_type=entry.type;out.user_comment_count=entry.count;
       out.user_comment_entry=entry.absolute_pos-tiff;
       out.user_comment_offset=n<=4?entry.absolute_pos+8-tiff:entry.value_offset;
       out.user_comment.assign(bytes.begin()+tiff+out.user_comment_offset,bytes.begin()+tiff+out.user_comment_offset+static_cast<size_t>(n));
@@ -81,6 +83,7 @@ bool observe_exif(std::span<const uint8_t> bytes,uint32_t& orientation,exif_obse
    if(directory.next_ifd_offset&&image_ifds.count(offset))image_ifds.insert(directory.next_ifd_offset);
    pending.push_back(directory.next_ifd_offset);
   }
+  out.occupied_tiff_ranges=std::move(occupied);
   failure=jpeg_observation_failure::none;return true;
  }catch(...){return false;}
 }
@@ -164,7 +167,8 @@ bool observe_jpeg(const lpb::random_access_reader& source,jpeg_observation& out,
    if(m.marker==0xe2&&payload.size()>=3&&!std::memcmp(payload.data(),"MPF",3)){
     if(out.mpf)return false;out.mpf=true;
     jpeg_gainmap_mpf::relationship index{};bool indexed=false;
-    if(!jpeg_gainmap_mpf::detail::parse_mpf_segment(payload,0,payload.size(),index,indexed))return false;
+    if(!jpeg_gainmap_mpf::detail::parse_mpf_segment(payload,0,payload.size(),index,indexed)&&
+       !(options.allow_mpf_attribute_only_secondary&&valid_mpf_attribute_only_segment(payload)))return false;
     out.mpf_index=indexed;
     if(indexed&&index.image_count==1){
      out.singleton_mpf=true;out.mpf_primary_size=index.entries[0].size;

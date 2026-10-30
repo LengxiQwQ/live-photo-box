@@ -77,6 +77,11 @@ bool inspect_isobmff_sample_table(
     std::span<const isobmff_media_data_range> mdats,
     uint64_t coordinate_origin,
     isobmff_sample_table_layout& output) noexcept;
+// Strict gate shared by standalone reading and destructive metadata cleanup.
+// stbl_start is the actual box header (unlike the permissive child-layout seam).
+bool inspect_isobmff_strict_sample_table(std::span<const uint8_t> data,
+    size_t stbl_start,size_t stbl_end,std::span<const isobmff_media_data_range> mdats,
+    uint64_t coordinate_origin,isobmff_sample_table_layout& output,uint64_t& failure_byte_offset) noexcept;
 
 // Private Native conversion facts. Entries are in presentation order, with
 // source timing retained in mdhd ticks and the normalized schedule expressed
@@ -106,7 +111,8 @@ struct isobmff_video_presentation_timeline {
 // arithmetic overflow fail closed.
 bool inspect_isobmff_video_presentation_timeline(
     std::span<const uint8_t> data,
-    isobmff_video_presentation_timeline& output) noexcept;
+    isobmff_video_presentation_timeline& output,
+    std::span<const isobmff_media_data_range> pinned_media_ranges = {}) noexcept;
 
 // Observe the structurally owned Apple still-image-time metadata track's
 // leading empty edit. Returns false for malformed/ambiguous supported graphs.
@@ -149,11 +155,15 @@ struct isobmff_reader_diagnostic {
     isobmff_reader_failure failure{isobmff_reader_failure::none};
     uint64_t offset{UINT64_MAX};
 };
+struct isobmff_auxiliary_video_observation {
+    uint32_t track_id{},width{},height{},orientation{},codec{},sample_count{};
+};
 struct isobmff_reader_observation {
     std::vector<top_level_box> top_level_boxes;
     std::vector<uint8_t> moov_bytes;
     std::vector<isobmff_media_data_range> mdats;
     std::vector<isobmff_sample_table_layout> sample_tables;
+    std::vector<isobmff_auxiliary_video_observation> auxiliary_video_tracks;
     isobmff_video_presentation_timeline timeline;
     uint32_t video_width{}, video_height{}, video_orientation{}, video_codec{};
     bool quicktime{};

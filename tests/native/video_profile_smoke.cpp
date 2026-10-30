@@ -270,6 +270,7 @@ struct video_timing_boxes {
     test_box stts{};
     test_box ctts{};
     test_box elst{};
+    std::vector<test_box> sample_table_ancestors;
 };
 
 bool find_video_timing_boxes(const std::vector<uint8_t>& bytes, video_timing_boxes& output) {
@@ -310,6 +311,7 @@ bool find_video_timing_boxes(const std::vector<uint8_t>& bytes, video_timing_box
         test_box stbl{};
         if (!child_boxes(bytes, minf.start + minf.header_size, minf.start + minf.size, minf_children) ||
             !unique_child(bytes, minf_children, "stbl", stbl)) return false;
+        output.sample_table_ancestors = {moov, trak, mdia, minf, stbl};
         std::vector<test_box> stbl_children;
         if (!child_boxes(bytes, stbl.start + stbl.header_size, stbl.start + stbl.size, stbl_children) ||
             !unique_child(bytes, stbl_children, "stts", output.stts)) return false;
@@ -395,6 +397,21 @@ void verify_source_presentation_timeline(const char* apple_path, const char* viv
     write_be32(bad_ctts_coverage.data() + ctts_first_count,
         read_be32_value(bad_ctts_coverage.data() + ctts_first_count) + 1U);
     assert(!inspect_isobmff_video_presentation_timeline(bad_ctts_coverage, rejected));
+
+    auto duplicate_ctts = apple_bytes;
+    std::vector<uint8_t> duplicate(apple_bytes.begin() + boxes.ctts.start,
+        apple_bytes.begin() + boxes.ctts.start + boxes.ctts.size);
+    for (const auto& owner : boxes.sample_table_ancestors) {
+        assert(owner.header_size == 8 && owner.size + duplicate.size() <= UINT32_MAX);
+        write_be32(duplicate_ctts.data() + owner.start, static_cast<uint32_t>(owner.size + duplicate.size()));
+    }
+    duplicate_ctts.insert(duplicate_ctts.begin() + boxes.ctts.start + boxes.ctts.size,
+        duplicate.begin(), duplicate.end());
+    assert(!inspect_isobmff_video_presentation_timeline(duplicate_ctts, rejected));
+
+    auto reserved_ctts_flags = apple_bytes;
+    reserved_ctts_flags[boxes.ctts.start + boxes.ctts.header_size + 1] = 1;
+    assert(!inspect_isobmff_video_presentation_timeline(reserved_ctts_flags, rejected));
 
     auto unsupported_rate = apple_bytes;
     const size_t elst_rate = boxes.elst.start + boxes.elst.header_size + 16;

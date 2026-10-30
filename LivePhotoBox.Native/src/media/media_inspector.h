@@ -46,7 +46,8 @@ lpb_video_container detect_video_container(std::span<const uint8_t> header) noex
 
 // Observe the unique, namespace-owned MiCamera XMPMeta pair against actual
 // JPEG/PNG payloads. full_length may include a separately streamed video tail.
-// 0 absent, 1 complete pair, -1 malformed/shadowed/out-of-range claim.
+// 0 absent or documented zero-range camera description, 1 complete pair,
+// -1 malformed/shadowed/out-of-range claim.
 int observe_micamera_assets(const std::vector<uint8_t>& prefix,
     std::string_view packet, uint64_t full_length,
     lpb_media_range& subimage, lpb_media_range& watermark) noexcept;

@@ -145,7 +145,7 @@ struct heif_nclx_owner {
 };
 
 lpb_result decode_image_handle(lpb_context* context, const heif_image_handle* handle,
-    lpb::media::pixel_surface& output) noexcept {
+    lpb::media::pixel_surface& output,bool stored_geometry = false) noexcept {
     output = {};
     if (!context || !handle) return LPB_RESULT_INVALID_ARGUMENT;
     const int source_bits = heif_image_handle_get_luma_bits_per_pixel(handle);
@@ -160,6 +160,7 @@ lpb_result decode_image_handle(lpb_context* context, const heif_image_handle* ha
         return LPB_RESULT_INTERNAL_ERROR;
     }
     options.value->strict_decoding = 1;
+    options.value->ignore_transformations = stored_geometry ? 1 : 0;
     options.value->convert_hdr_to_8bit = 0;
     options.value->output_image_nclx_profile_passthrough = 1;
     options.value->num_library_threads = 1;
@@ -250,6 +251,18 @@ lpb_result validate_heic_bytes(lpb_context* context,std::span<const uint8_t> byt
     }catch(...){set_error(context,"HEIF bounded-byte decoder failed at exception boundary.");return LPB_RESULT_INTERNAL_ERROR;}
 }
 
+lpb_result inspect_heic_bytes(lpb_context* context,std::span<const uint8_t> bytes,heic_image_facts& facts) noexcept {
+    facts={};
+    try {
+        heif_context_owner file;heif_handle_owner primary;
+        if(!context||bytes.empty()||!file.value||
+            !okay(heif_context_read_from_memory_without_copy(file.value,bytes.data(),bytes.size(),nullptr))||
+            !okay(heif_context_get_primary_image_handle(file.value,&primary.value))||!primary.value||!fill_facts(primary.value,facts))
+            return LPB_RESULT_INVALID_ARGUMENT;
+        return LPB_RESULT_OK;
+    }catch(...){facts={};return LPB_RESULT_INTERNAL_ERROR;}
+}
+
 lpb_result inspect_heic_file(lpb_context* context, const char* input_path, heic_image_facts& output) noexcept {
     output = {};
     if (!context || !input_path) return LPB_RESULT_INVALID_ARGUMENT;
@@ -270,7 +283,7 @@ lpb_result inspect_heic_file(lpb_context* context, const char* input_path, heic_
 }
 
 lpb_result decode_heic_primary_file(lpb_context* context, const char* input_path, pixel_surface& output,
-    heic_image_facts* out_facts) noexcept {
+    heic_image_facts* out_facts,bool stored_geometry) noexcept {
     output = {};
     heic_image_facts facts{};
     if (!context || !input_path) return LPB_RESULT_INVALID_ARGUMENT;
@@ -288,14 +301,14 @@ lpb_result decode_heic_primary_file(lpb_context* context, const char* input_path
         set_error(context, "libheif rejected the HEIC primary image or its auxiliary graph.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
-    const lpb_result decoded = decode_image_handle(context, primary.value, output);
+    const lpb_result decoded = decode_image_handle(context, primary.value, output,stored_geometry);
     if (decoded != LPB_RESULT_OK) return decoded;
     if (out_facts) *out_facts = std::move(facts);
     return LPB_RESULT_OK;
 }
 
 lpb_result decode_heic_auxiliary_file(lpb_context* context, const char* input_path,
-    uint32_t auxiliary_item_id, pixel_surface& output, heic_auxiliary_facts* out_facts) noexcept {
+    uint32_t auxiliary_item_id, pixel_surface& output, heic_auxiliary_facts* out_facts,bool stored_geometry) noexcept {
     output = {};
     if (out_facts) *out_facts = {};
     if (!context || !input_path || auxiliary_item_id == 0) return LPB_RESULT_INVALID_ARGUMENT;
@@ -319,7 +332,7 @@ lpb_result decode_heic_auxiliary_file(lpb_context* context, const char* input_pa
         set_error(context, "HEIC auxiliary item has invalid pixel or color facts.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
-    const lpb_result decoded = decode_image_handle(context, auxiliary.value, output);
+    const lpb_result decoded = decode_image_handle(context, auxiliary.value, output,stored_geometry);
     if (decoded != LPB_RESULT_OK) return decoded;
     if (out_facts) *out_facts = std::move(facts);
     return LPB_RESULT_OK;
@@ -465,14 +478,24 @@ lpb_result encoded_primary_color_matches(lpb_context* context, windows_owned_out
 
 lpb_result encode_heic_images(lpb_context* context, const char* output_path, const pixel_surface& primary,
     const pixel_surface* secondary, int32_t quality, heic_encoded_image_facts* facts,
-    std::span<const uint8_t> secondary_xmp = {}, std::vector<uint8_t>* output_bytes = nullptr) noexcept {
+    std::span<const uint8_t> secondary_xmp = {}, std::vector<uint8_t>* output_bytes = nullptr,
+    std::span<const uint8_t> primary_exif = {},std::span<const uint8_t> primary_xmp = {},
+    std::span<const uint8_t> secondary_exif = {},bool preserve_unmapped_color = false) noexcept {
     if (facts) *facts = {};
     if (output_bytes) output_bytes->clear();
+    // A mapped HEIF Exif item may retain the old TIFF thumbnail and append its
+    // normalized replacement. The JPEG APP1 segment limit is not an HEIF item
+    // limit. Keep the old ordinary seam's bound; complete HDR has the same
+    // explicit16MiB metadata ceiling as its owner-specific re-reader.
+    const size_t exif_limit=preserve_unmapped_color?16U*1024U*1024U:65527U;
     if (!context || (!output_path && !output_bytes) || !is_encodable_sdr_surface(primary) ||
         (secondary && !is_encodable_sdr_surface(*secondary)) || quality < 1 || quality > 100 ||
         !heif_have_encoder_for_format(heif_compression_HEVC) ||
         (!secondary_xmp.empty() && (!output_bytes || !secondary ||
-            secondary_xmp.size() > static_cast<size_t>(std::numeric_limits<int>::max())))) {
+            secondary_xmp.size() > static_cast<size_t>(std::numeric_limits<int>::max())))||
+        ((!primary_exif.empty()||!primary_xmp.empty()||!secondary_exif.empty())&&!output_bytes)||
+        (!secondary_exif.empty()&&!secondary)||
+        primary_exif.size()>exif_limit||primary_xmp.size()>65533U||secondary_exif.size()>exif_limit) {
         if (context) set_error(context, "HEIC encode requires 8-bit RGB project-owned surfaces and the libheif x265 HEVC encoder.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
@@ -494,9 +517,11 @@ lpb_result encode_heic_images(lpb_context* context, const char* output_path, con
     // defaults when no source NCLX exists. For ordinary single-image R4 output,
     // those defaults are not an authorized ICC-to-CICP mapping. Keep the HEIF
     // item free of NCLX and make the HEVC bitstream say that these facts are
-    // unknown as well. Multi-image R3 GainMap encoding stays on its existing
-    // path, and a trusted explicit NCLX is left to the encoder unchanged.
-    if (!secondary && !primary.color.has_nclx &&
+    // unknown as well. Existing codec-only multi-image calls retain their
+    // behavior; complete metadata calls explicitly request this for both
+    // images. A trusted explicit NCLX is left to the encoder unchanged.
+    if ((!secondary||preserve_unmapped_color) && !primary.color.has_nclx &&
+        (!secondary||!secondary->color.has_nclx) &&
         (!okay(heif_encoder_set_parameter_string(encoder.value, "x265:colorprim", "unknown")) ||
             !okay(heif_encoder_set_parameter_string(encoder.value, "x265:transfer", "unknown")) ||
         !okay(heif_encoder_set_parameter_string(encoder.value, "x265:colormatrix", "unknown")))) {
@@ -517,6 +542,13 @@ lpb_result encode_heic_images(lpb_context* context, const char* output_path, con
         set_error(context, "libheif could not select the encoded HEIC primary image.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
+    if((!primary_exif.empty()&&!okay(heif_context_add_exif_metadata(file.value,primary_handle.value,
+            primary_exif.data(),static_cast<int>(primary_exif.size()))))||
+        (!primary_xmp.empty()&&!okay(heif_context_add_XMP_metadata(file.value,primary_handle.value,
+            primary_xmp.data(),static_cast<int>(primary_xmp.size()))))) {
+        set_error(context,"libheif could not attach the complete primary Exif/XMP to its exact image owner.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
     if (facts) {
         facts->primary_item_id = heif_image_handle_get_item_id(primary_handle.value);
         facts->primary_width = primary.width;
@@ -535,6 +567,12 @@ lpb_result encode_heic_images(lpb_context* context, const char* output_path, con
         !okay(heif_context_add_XMP_metadata(file.value, secondary_handle.value,
             secondary_xmp.data(), static_cast<int>(secondary_xmp.size())))) {
         set_error(context, "libheif could not attach the complete GainMap XMP to the exact secondary item.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    if (!secondary_exif.empty() &&
+        !okay(heif_context_add_exif_metadata(file.value, secondary_handle.value,
+            secondary_exif.data(), static_cast<int>(secondary_exif.size())))) {
+        set_error(context, "libheif could not attach auxiliary Exif to its exact secondary image owner.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
     if (output_bytes) {
@@ -594,6 +632,11 @@ lpb_result encode_heic_file(lpb_context* context, const char* output_path, const
     return encode_heic_images(context, output_path, input, nullptr, quality, nullptr);
 }
 
+lpb_result encode_heic_primary_metadata_bytes(lpb_context* context,const pixel_surface& input,int32_t quality,
+    std::span<const uint8_t> exif_tiff,std::span<const uint8_t> xmp,std::vector<uint8_t>& output) noexcept {
+    return encode_heic_images(context,nullptr,input,nullptr,quality,nullptr,{},&output,exif_tiff,xmp);
+}
+
 lpb_result encode_heic_primary_and_secondary_file(lpb_context* context, const char* output_path,
     const pixel_surface& primary, const pixel_surface& secondary, int32_t quality,
     heic_encoded_image_facts& output) noexcept {
@@ -611,5 +654,19 @@ lpb_result encode_heic_primary_and_gainmap_bytes(lpb_context* context,
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     return encode_heic_images(context, nullptr, primary, &gainmap, quality, &facts, gainmap_xmp, &output);
+}
+
+lpb_result encode_heic_primary_and_gainmap_metadata_bytes(lpb_context* context,
+    const pixel_surface& primary,const pixel_surface& gainmap,int32_t quality,
+    std::span<const uint8_t> primary_exif,std::span<const uint8_t> primary_xmp,
+    std::span<const uint8_t> gainmap_exif,std::span<const uint8_t> gainmap_xmp,
+    std::vector<uint8_t>& output,heic_encoded_image_facts& facts) noexcept {
+    if(gainmap_xmp.empty()) {
+        output.clear();facts={};
+        if(context)set_error(context,"HEIF GainMap metadata encoding requires complete XMP bound to the auxiliary owner.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    return encode_heic_images(context,nullptr,primary,&gainmap,quality,&facts,gainmap_xmp,&output,
+        primary_exif,primary_xmp,gainmap_exif,true);
 }
 } // namespace lpb::media

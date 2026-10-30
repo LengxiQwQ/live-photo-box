@@ -15,6 +15,7 @@ public sealed record MediaFormatRequirement
     public VideoCodec VideoCodec { get; init; } = VideoCodec.Copy;
     public int? TargetFps { get; init; }
     public bool KeepSourceIfSame { get; init; } = true;
+    public UnspecifiedImageOrientationHandling UnspecifiedImageOrientationHandling { get; init; }
 }
 
 /// <summary>

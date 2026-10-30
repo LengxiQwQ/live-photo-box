@@ -104,6 +104,24 @@ internal unsafe struct NativeVideoPreservationResultV1
     public fixed byte OutputSha256[32];
 }
 
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeVideoPreservationResultV2
+{
+    public uint StructSize, ApiVersion, ProofKind, ProofFlags;
+    public NativeVideoPreservationResultV1 Metadata;
+    public ulong SourceLength, OutputLength;
+    public fixed byte SourceFileSha256[32];
+    public fixed byte OutputFileSha256[32];
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeHdrMetadataProofV2
+{
+    public uint StructSize, ApiVersion, ProofKind, ProofFlags;
+    public fixed byte SourceFileSha256[32];
+    public fixed byte OutputFileSha256[32];
+}
+
 [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
 internal unsafe struct NativePreservationCarrierFacts
 {
@@ -171,6 +189,13 @@ internal struct NativeExtractionOutput
 {
     public uint StructSize;
     public uint AuxiliaryIndex;
+    public nint OutputPath;
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal struct NativeCarrierExtractionOutputV1
+{
+    public uint StructSize, Version, CarrierIndex, Reserved;
     public nint OutputPath;
 }
 

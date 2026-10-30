@@ -86,6 +86,11 @@ internal struct NativeTargetValidationResultV2
 
 internal static partial class NativeMethods
 {
+    [LibraryImport(LibraryName, EntryPoint = "lpb_target_validate_v4")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static unsafe partial NativeResult TargetValidateV4(nint context,NativeTargetValidationRequestV4* request,
+        NativeTargetReaderV1* reader,NativeTargetValidationResultV3* result);
     [LibraryImport(LibraryName, EntryPoint = "lpb_target_validate_v3")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -112,5 +117,40 @@ internal struct NativeTargetValidationRequestV3
     public uint StructSize, Version;
     public NativeTargetValidationRequestV2 Base;
     public NativeCompoundPrimaryObservation Compound;
+    public ulong Reserved;
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal unsafe struct NativeTargetOrdinaryMetadataExpectationV1
+{
+    public uint StructSize,Version,Kind,OwnerIndex,Flags,Reserved;
+    public ulong ByteLength;
+    public fixed byte Sha256[32];
+}
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal struct NativeTargetValidationRequestV4
+{
+    public uint StructSize,Version;
+    public NativeTargetValidationRequestV3 Base;
+    public uint MetadataCount,Reserved;
+    public nint Metadata;
+    public ulong ReservedTail;
+}
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal unsafe struct NativeTargetOrdinaryMetadataObservedV1
+{
+    public uint Kind,OwnerIndex;
+    public ulong ByteLength;
+    public fixed byte Sha256[32];
+    public uint ChunkCount,Container;
+    internal string GetSha256(){fixed(byte* hash=Sha256)return Convert.ToHexString(new ReadOnlySpan<byte>(hash,32));}
+}
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal struct NativeTargetValidationResultV3
+{
+    public uint StructSize,Version;
+    public NativeTargetValidationResultV2 Base;
+    public uint MetadataPreservationStatus,MetadataCount;
+    public NativeTargetOrdinaryMetadataObservedV1 Metadata;
     public ulong Reserved;
 }

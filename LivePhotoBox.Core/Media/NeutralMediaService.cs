@@ -51,13 +51,17 @@ public sealed class NeutralMediaService : INeutralMediaService
     {
         ArgumentNullException.ThrowIfNull(primaryPath);
         ArgumentNullException.ThrowIfNull(workspace);
+        if(requirement?.UnspecifiedImageOrientationHandling is not (null or UnspecifiedImageOrientationHandling.Reject or UnspecifiedImageOrientationHandling.UseStoredPixels))
+            throw new ArgumentOutOfRangeException(nameof(requirement));
 
         ImageExecutionRecord? imageExecution = null;
+        ImageOrientationResolutionEvidence? orientationResolution=null;
         var videoExecutions = new List<VideoExecutionRecord>();
         ProductOperationStage diagnosticStage = ProductOperationStage.Inspection;
         NeutralPreparationExecution SnapshotExecution() => new()
         {
             Image = imageExecution,
+            OrientationResolution=orientationResolution,
             Videos = videoExecutions.ToArray()
         };
         try
@@ -148,6 +152,9 @@ public sealed class NeutralMediaService : INeutralMediaService
         foreach (AuxiliaryMediaDescriptor item in cleanResult.AuxiliaryMedia.Count > 0
             ? cleanResult.AuxiliaryMedia : extracted.AuxiliaryMedia)
             finalReadLeases.Pin(item.MaterializedArtifact);
+        foreach(var carrier in cleanResult.PreservationCarriers.Count>0
+            ?cleanResult.PreservationCarriers:extracted.PreservationCarriers)
+            finalReadLeases.Pin(carrier.MaterializedArtifact);
 
         // A cleaned JPEG and verified GainMap bytes are first tested as a
         // possible compound neutral image. Only the final Native Inspector
@@ -197,6 +204,24 @@ public sealed class NeutralMediaService : INeutralMediaService
             }
         }
 
+        // Resolve only the complete neutral owner, after any GainMap mirror has
+        // been reassembled and re-inspected. A split primary is not the whole
+        // byte inventory required by the metadata-only Native proof.
+        if(requirement?.UnspecifiedImageOrientationHandling==UnspecifiedImageOrientationHandling.UseStoredPixels&&finalImage.ImageContainer==ImageContainer.Jpeg)
+        {
+            var direction=await NativeMediaService.ObserveImageOrientationAsync(finalImage.Path,ImageContainer.Jpeg,cancellationToken,allowUnknown:true).ConfigureAwait(false);
+            if(direction.Status==NativeImageOrientationStatus.Unknown)
+            {
+                diagnosticStage=ProductOperationStage.ImageConversion;
+                using var resolved=await NativeStoredOrientationResolver.ResolveAsync(finalImage,workspace.AllocateFilePath("stored-direction",".jpg"),
+                    UnspecifiedImageOrientationHandling.UseStoredPixels,cancellationToken).ConfigureAwait(false);
+                finalReadLeases.Pin(resolved.Output);finalImage=resolved.Output;orientationResolution=resolved.Evidence;
+                neutralInputFacts=await InspectPrimaryAsync(finalImage,cancellationToken).ConfigureAwait(false);
+                if(!IsVerifiedNeutralPrimary(neutralInputFacts)||neutralInputFacts.PrimarySha256!=orientationResolution.OutputSha256)
+                    throw new InvalidDataException("Resolved direction artifact did not retain its exact neutral source identity.");
+            }
+        }
+
         // Bind R3 authority to the actual cleaned neutral artifact (not the
         // pre-clean source facts). This is also the identity handed to an
         // explicit cross-container semantic conversion below.
@@ -222,6 +247,7 @@ public sealed class NeutralMediaService : INeutralMediaService
         VideoFacts? resolvedVideoFacts = null;
         NativeImageOrientationObservationV1? preConversionImageOrientation = null;
         bool imageWasConverted = false;
+        VerifiedImageOrientationMapping? physicalImageMapping=null;
         bool videoWasConverted = videoConversionTruth is not null &&
             videoConversionTruth.ActualOperationKind != ConversionOperationKind.Passthrough;
 
@@ -265,6 +291,11 @@ public sealed class NeutralMediaService : INeutralMediaService
                 }
 
                 imageConversionTruth = imgConv.ExecutionRecord.Truth;
+                physicalImageMapping=GetVerifiedPhysicalMapping(imgConv.ExecutionRecord);
+                if(physicalImageMapping is { } mapping&&
+                    (!string.Equals(mapping.SourceSha256,neutralInputFacts.PrimarySha256,StringComparison.OrdinalIgnoreCase)||
+                     !string.Equals(mapping.OutputSha256,imgConv.OutputArtifact.Sha256,StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidDataException("Verified physical direction mapping does not bind the actual conversion input and output.");
                 imageWasConverted = imageConversionTruth.ActualOperationKind != ConversionOperationKind.Passthrough;
 
                 if (preservationPolicy == PreservationPolicy.Strict &&
@@ -501,6 +532,19 @@ public sealed class NeutralMediaService : INeutralMediaService
             workspace,
             cancellationToken).ConfigureAwait(false);
         List<NeutralArtifactManifest> manifest = manifestProjection.Manifest;
+        foreach(var carrier in preservationCarriers.Where(OrdinaryMetadataPreservation.IsRecordCarrier))
+        {
+            var artifact=await OrdinaryMetadataPreservation.VerifyAsync(carrier,cancellationToken).ConfigureAwait(false);
+            manifest.Add(new NeutralArtifactManifest
+            {
+                Role="OrdinaryMetadata",Path=artifact.Path,Sha256=artifact.Sha256!,StableIdentity=carrier.StableIdentity,
+                Semantic=carrier.Semantic,OwnerIdentity=carrier.OwnerIdentity,Relationship=carrier.Relationship,
+                SourceOffset=0,SourceLength=artifact.ByteLength,SourceSha256=artifact.Sha256!,ByteLength=artifact.ByteLength,
+                Representation=AuxiliaryRepresentation.Materialized,SemanticRepresentation=NeutralAuxiliaryRepresentation.Materialized,
+                Ownership=AuxiliaryOwnership.Primary,AuxiliaryCodec=AuxiliaryCodec.Copy,PreservationOutcome=PreservationOutcome.Preserved
+            });
+        }
+        ValidateFinalManifest(manifest,new FileInfo(finalImage.Path).Length);
         GainMapRepresentation gainMapRep = manifestProjection.GainMapRepresentation;
 
         NativeGainMapMetadataV1? finalGainMapMetadata = null;
@@ -548,7 +592,7 @@ public sealed class NeutralMediaService : INeutralMediaService
             finalGainMapMetadata,
             imageWasConverted,
             videoWasConverted,
-            gainMapRep);
+            gainMapRep,physicalImageMapping);
 
         return new NeutralMediaBundle
         {
@@ -1106,6 +1150,14 @@ public sealed class NeutralMediaService : INeutralMediaService
                      string.IsNullOrWhiteSpace(item.OwnerIdentity)))
                     throw new InvalidDataException("Motion video manifest row is missing applicable format or owner facts.");
             }
+            else if(item.Role=="OrdinaryMetadata")
+            {
+                if(item.Semantic!=OrdinaryMetadataPreservation.Semantic||item.Relationship!=OrdinaryMetadataPreservation.Relationship||
+                    item.OwnerIdentity!="primary:0"||item.SemanticRepresentation!=NeutralAuxiliaryRepresentation.Materialized||
+                    item.Ownership!=AuxiliaryOwnership.Primary||item.AuxiliaryCodec!=AuxiliaryCodec.Copy||
+                    item.ImageContainer!=ImageContainer.Unknown||item.VideoContainer!=VideoContainer.Unknown||item.OwnerByteOffset is not null)
+                    throw new InvalidDataException("Ordinary metadata manifest row has incompatible ownership, representation or byte semantics.");
+            }
             else
             {
                 if (item.ImageContainer == ImageContainer.Unknown || item.AuxiliaryCodec == AuxiliaryCodec.Unknown ||
@@ -1137,7 +1189,8 @@ public sealed class NeutralMediaService : INeutralMediaService
         NativeGainMapMetadataV1? finalGainMapMetadata,
         bool imageWasConverted,
         bool videoWasConverted,
-        GainMapRepresentation gainMapRepresentation)
+        GainMapRepresentation gainMapRepresentation,
+        VerifiedImageOrientationMapping? physicalImageMapping=null)
     {
         NeutralArtifactManifest primaryManifest = manifest.Single(item => item.Role == "PrimaryImage");
         NeutralArtifactSemantics primary = new()
@@ -1176,6 +1229,12 @@ public sealed class NeutralMediaService : INeutralMediaService
 
         NeutralAuxiliarySemantics? gainMap = ProjectFinalGainMap(manifest);
         var auxiliarySemantics = ProjectOtherAuxiliaryMedia(manifest);
+        var ordinarySemantics=manifest.Where(x=>x.Role=="OrdinaryMetadata").Select(x=>new NeutralOrdinaryMetadataSemantics
+        {
+            StableIdentity=x.StableIdentity,Semantic=x.Semantic,OwnerIdentity=x.OwnerIdentity,Relationship=x.Relationship,
+            Sha256=x.Sha256,ByteLength=x.ByteLength,Representation=x.SemanticRepresentation,
+            PreservationOutcome=x.PreservationOutcome,EvidenceState=NeutralEvidenceState.VerifiedPreserved
+        }).ToArray();
 
         NeutralOrientationSemantics orientation = ProjectOrientation(
             preConversionImageOrientation,
@@ -1185,7 +1244,7 @@ public sealed class NeutralMediaService : INeutralMediaService
             imageWasConverted,
             resolvedVideoFacts,
             videoConversionTruth,
-            videoWasConverted);
+            videoWasConverted,physicalImageMapping,finalImage.Sha256);
 
         bool finalImageInspected = finalFacts.PrimaryImage.IsPresent;
         if (finalImageObservation.HasIcc && !IsValidSha256(finalImageObservation.IccSha256))
@@ -1279,6 +1338,7 @@ public sealed class NeutralMediaService : INeutralMediaService
             MotionVideo = motion,
             GainMap = gainMap,
             AuxiliaryMedia = auxiliarySemantics,
+            OrdinaryMetadata = ordinarySemantics,
             Timing = finalTiming,
             Orientation = orientation,
             ColorHdr = colorHdr,
@@ -1287,7 +1347,9 @@ public sealed class NeutralMediaService : INeutralMediaService
                 PrimaryImage = primaryPreservation,
                 MotionVideo = motionPreservation,
                 GainMap = gainMapPreservation,
-                AuxiliaryMedia = auxiliaryPreservation
+                AuxiliaryMedia = auxiliaryPreservation,
+                OrdinaryMetadata=ordinarySemantics.Select(x=>new NeutralArtifactPreservation{SemanticIdentity=x.StableIdentity,
+                    Outcome=x.PreservationOutcome,EvidenceState=x.EvidenceState}).ToArray()
             }
         };
     }
@@ -1362,6 +1424,27 @@ public sealed class NeutralMediaService : INeutralMediaService
         return matches.SingleOrDefault();
     }
 
+    internal static VerifiedImageOrientationMapping? GetVerifiedPhysicalMapping(ImageExecutionRecord execution)
+    {
+        if(execution.HdrConversionEvidence is { } hdr&&execution.OrdinaryConversionEvidence is not null)
+            throw new InvalidDataException("Image direction cannot be certified by two different proof scopes.");
+        if(execution.HdrConversionEvidence is { NativeVerifiedOrientation: { } bound } h)
+        {
+            if(h.SourceSha256!=bound.SourceSha256||h.OutputSha256!=bound.OutputSha256||
+                h.SourceOrientation!=bound.SourceOrientation||h.OutputOrientation!=bound.OutputOrientation)
+                throw new InvalidDataException("Public HDR image evidence differs from its Native-verified direction binding.");
+            return bound;
+        }
+        if(execution.OrdinaryConversionEvidence is { NativeVerifiedOrientation: { } ordinary } o)
+        {
+            if(o.SourceSha256!=ordinary.SourceSha256||o.OutputSha256!=ordinary.OutputSha256||
+                o.SourceOrientation!=ordinary.SourceOrientation||o.OutputOrientation!=ordinary.OutputOrientation)
+                throw new InvalidDataException("Public ordinary image evidence differs from its Native-verified direction binding.");
+            return ordinary;
+        }
+        return null;
+    }
+
     private static NeutralOrientationSemantics ProjectOrientation(
         NativeImageOrientationObservationV1? preConversionImageOrientation,
         NativeImageOrientationObservationV1 finalImageOrientation,
@@ -1370,7 +1453,8 @@ public sealed class NeutralMediaService : INeutralMediaService
         bool imageWasConverted,
         VideoFacts? resolvedVideoFacts,
         ConversionExecutionTruth? videoConversionTruth,
-        bool videoWasConverted)
+        bool videoWasConverted,
+        VerifiedImageOrientationMapping? physicalImageMapping=null,string? finalImageHash=null)
     {
         if (imageWasConverted && !preConversionImageOrientation.HasValue)
             throw new InvalidDataException("Image orientation preservation cannot be evaluated without a verified pre-conversion observation.");
@@ -1378,7 +1462,21 @@ public sealed class NeutralMediaService : INeutralMediaService
         ConversionComponentOutcome imageOrientationPreservation = imageWasConverted
             ? imageConversionTruth?.Orientation ?? ConversionComponentOutcome.NotEvaluated
             : ComponentOutcomeFromTruthOrReport(null, preservationReport, "Orientation");
-        if (imageWasConverted &&
+        bool verifiedPhysicalNormalization=false;
+        if(physicalImageMapping is { } mapped&&preConversionImageOrientation is { } before&&
+            mapped.OutputOrientation==1&&string.Equals(mapped.OutputSha256,finalImageHash,StringComparison.OrdinalIgnoreCase)&&
+            before.Status==NativeImageOrientationStatus.Verified&&finalImageOrientation.Status==NativeImageOrientationStatus.Verified&&
+            finalImageOrientation.ClockwiseRotationDegrees==0&&finalImageOrientation.Reflection==NativeImageOrientationReflection.None)
+        {
+            var direction=mapped.SourceOrientation switch
+            {
+                1U=>(0,false),2U=>(0,true),3U=>(180,false),4U=>(180,true),
+                5U=>(90,true),6U=>(90,false),7U=>(270,true),8U=>(270,false),_ =>(-1,false)
+            };
+            verifiedPhysicalNormalization=before.ClockwiseRotationDegrees==direction.Item1&&
+                before.Reflection==(direction.Item2?NativeImageOrientationReflection.Horizontal:NativeImageOrientationReflection.None);
+        }
+        if (imageWasConverted && !verifiedPhysicalNormalization &&
             imageOrientationPreservation == ConversionComponentOutcome.Preserved &&
             (preConversionImageOrientation!.Value.ClockwiseRotationDegrees != finalImageOrientation.ClockwiseRotationDegrees ||
              preConversionImageOrientation.Value.Reflection != finalImageOrientation.Reflection))

@@ -3,10 +3,11 @@
     Runs the repository's repeatable verification gates without packaging release artifacts.
 
 .DESCRIPTION
-    Build   restores and builds Native + GUI + CLI, including Native ABI smoke tests.
-    Fast    restores, builds Native + GUI + CLI, and runs Core/CLI tests.
-    Full    adds a complete solution build through Visual Studio MSBuild.
-    Release adds the real-sample CLI integration workflow after the Full gate.
+    Build   restores and builds the public solution with Visual Studio MSBuild (Native + GUI + CLI + test assemblies; no test execution).
+    Fast    is a historical broad-check name: builds Native + GUI + CLI and runs Core/CLI tests.
+    Full    currently runs the same checks as Fast; neither is a targeted development check or whole-product acceptance.
+    Release adds the existing split-only real-sample CLI integration workflow after those checks; it does not prove P9 conversion/device acceptance.
+    Build is the safe default. Select test scopes explicitly; use targeted build/CLI commands for a completed development unit.
 
     This script never calls build-release.ps1 and never deletes publish/. The CLI
     integration test owns and cleans only its ignored .ai-tmp/workspace/CLI/integration/ workspace.
@@ -14,7 +15,7 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Build', 'Fast', 'Full', 'Release')]
-    [string]$Scope = 'Fast',
+    [string]$Scope = 'Build',
 
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Debug'
@@ -71,20 +72,16 @@ try {
     Write-Host "Scope: $Scope | Configuration: $Configuration" -ForegroundColor Gray
     Write-Host "SDK:   $(& dotnet --version)" -ForegroundColor Gray
 
-    Invoke-VerificationStep -Name 'Restore tracked projects' -Action {
-        if ($env:CI -eq 'true') {
-            # The local solution intentionally includes private stress/benchmark projects that
-            # are Git-ignored. GitHub must restore only projects present in a clean checkout.
-            foreach ($project in $ciTrackedProjects) {
-                & dotnet restore $project --nologo
-                if ($LASTEXITCODE -ne 0) { return }
-            }
-        }
-        else {
-            & dotnet restore $solutionPath --nologo
-        }
+    if (-not (Test-Path -LiteralPath $vswhere)) { throw 'Visual Studio Installer (vswhere.exe) is required.' }
+    $visualStudioPath = (& $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1).Trim()
+    $desktopMsbuild = Join-Path $visualStudioPath 'MSBuild\Current\Bin\MSBuild.exe'
+    Invoke-VerificationStep -Name "Build public solution with Visual Studio MSBuild ($Configuration x64)" -Action {
+        & $desktopMsbuild $solutionPath /nologo /m /restore /t:Build "/p:Configuration=$Configuration" /p:Platform=x64 /v:minimal
     }
-
+    if ($Scope -eq 'Build') {
+        Write-Host "Verification gate passed: solution Build ($Configuration x64)."
+        return
+    }
     Invoke-VerificationStep -Name "Build Native ($Configuration x64) and run ABI smoke tests" -Action {
         & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $nativeBuildScript `
             -Configuration $Configuration `
@@ -145,50 +142,6 @@ try {
             $arguments += @('--filter', $realSampleTestFilter)
         }
         & dotnet @arguments
-    }
-
-    if ($Scope -in @('Full', 'Release')) {
-        if (-not (Test-Path -LiteralPath $vswhere)) {
-            throw 'Visual Studio Installer (vswhere.exe) is required for the Full gate.'
-        }
-
-        $visualStudioPath = (& $vswhere -latest -products * `
-            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
-            -property installationPath | Select-Object -First 1).Trim()
-        $desktopMsbuild = Join-Path $visualStudioPath 'MSBuild\Current\Bin\MSBuild.exe'
-        if ([string]::IsNullOrWhiteSpace($visualStudioPath) -or -not (Test-Path -LiteralPath $desktopMsbuild)) {
-            throw 'Visual Studio MSBuild with the C++ workload is required for the Full gate.'
-        }
-
-        # dotnet test cannot import the solution's .vcxproj. Core and CLI tests
-        # have already run above. A clean CI checkout excludes local-only stress projects,
-        # so it verifies the tracked desktop product projects individually instead.
-        if ($env:CI -eq 'true') {
-            foreach ($project in @('LivePhotoBox\LivePhotoBox.csproj', 'LivePhotoBox.CLI\LivePhotoBox.CLI.csproj')) {
-                Invoke-VerificationStep -Name "Build tracked project with Visual Studio MSBuild: $project ($Configuration x64)" -Action {
-                    & $desktopMsbuild $project `
-                        /nologo `
-                        /m `
-                        /t:Build `
-                        "/p:Configuration=$Configuration" `
-                        /p:Platform=x64 `
-                        /p:SkipNativeBuild=true `
-                        /v:minimal
-                }
-            }
-        }
-        else {
-            Invoke-VerificationStep -Name "Build complete solution with Visual Studio MSBuild ($Configuration x64)" -Action {
-                & $desktopMsbuild $solutionPath `
-                    /nologo `
-                    /m `
-                    /t:Build `
-                    "/p:Configuration=$Configuration" `
-                    /p:Platform=x64 `
-                    /p:SkipNativeBuild=true `
-                    /v:minimal
-            }
-        }
     }
 
     if ($Scope -eq 'Release') {

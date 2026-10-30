@@ -1,150 +1,103 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
-    <ProjectConfiguration Include="Debug|x64">
-      <Configuration>Debug</Configuration>
-      <Platform>x64</Platform>
-    </ProjectConfiguration>
-    <ProjectConfiguration Include="Release|x64">
-      <Configuration>Release</Configuration>
-      <Platform>x64</Platform>
-    </ProjectConfiguration>
+    <ProjectConfiguration Include="Debug|x64"><Configuration>Debug</Configuration><Platform>x64</Platform></ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64"><Configuration>Release</Configuration><Platform>x64</Platform></ProjectConfiguration>
   </ItemGroup>
-
   <PropertyGroup Label="Globals">
-    <VCProjectVersion>17.0</VCProjectVersion>
-    <Keyword>Win32Proj</Keyword>
+    <VCProjectVersion>17.0</VCProjectVersion><Keyword>MakeFileProj</Keyword>
     <ProjectGuid>{8E2FB569-3F86-40C4-87BD-DFE33F607785}</ProjectGuid>
-    <RootNamespace>LivePhotoBoxNative</RootNamespace>
-    <ProjectName>LivePhotoBox.Native</ProjectName>
+    <RootNamespace>LivePhotoBoxNative</RootNamespace><ProjectName>LivePhotoBox.Native</ProjectName>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
-    <PreferredToolArchitecture>x64</PreferredToolArchitecture>
   </PropertyGroup>
-
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
-
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
-    <ConfigurationType>DynamicLibrary</ConfigurationType>
-    <UseDebugLibraries>true</UseDebugLibraries>
+  <PropertyGroup Label="Configuration">
+    <ConfigurationType>Makefile</ConfigurationType>
     <PlatformToolset Condition="'$(VisualStudioVersion)' == '18.0'">v145</PlatformToolset>
     <PlatformToolset Condition="'$(PlatformToolset)' == ''">v143</PlatformToolset>
-    <CharacterSet>Unicode</CharacterSet>
   </PropertyGroup>
-
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
-    <ConfigurationType>DynamicLibrary</ConfigurationType>
-    <UseDebugLibraries>false</UseDebugLibraries>
-    <PlatformToolset Condition="'$(VisualStudioVersion)' == '18.0'">v145</PlatformToolset>
-    <PlatformToolset Condition="'$(PlatformToolset)' == ''">v143</PlatformToolset>
-    <WholeProgramOptimization>true</WholeProgramOptimization>
-    <CharacterSet>Unicode</CharacterSet>
-  </PropertyGroup>
-
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
-
-  <ImportGroup Label="ExtensionSettings" />
-  <ImportGroup Label="Shared" />
-  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props"
-            Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')"
-            Label="LocalAppDataPlatform" />
-  </ImportGroup>
-  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props"
-            Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')"
-            Label="LocalAppDataPlatform" />
-  </ImportGroup>
-
-  <PropertyGroup Label="Vcpkg">
-    <VcpkgEnableManifest>true</VcpkgEnableManifest>
-    <VcpkgManifestInstall>true</VcpkgManifestInstall>
-    <VcpkgUseStatic>true</VcpkgUseStatic>
-    <VcpkgTriplet>x64-windows-static</VcpkgTriplet>
-    <VcpkgManifestDirectory>$(MSBuildThisFileDirectory)..</VcpkgManifestDirectory>
-  </PropertyGroup>
-
-  <PropertyGroup Label="UserMacros" />
   <PropertyGroup>
-    <OutDir>$(MSBuildThisFileDirectory)..\artifacts\native\compat\$(Configuration)\win-x64\</OutDir>
-    <IntDir>$(MSBuildThisFileDirectory)..\artifacts\native\obj\$(Platform)-$(Configuration)\</IntDir>
-    <TargetName>LivePhotoBox.Native</TargetName>
-    <TargetExt>.dll</TargetExt>
+    <VcpkgEnabled>false</VcpkgEnabled><VcpkgEnableManifest>false</VcpkgEnableManifest>
+    <OutDir>$(MSBuildThisFileDirectory)..\artifacts\native\$(Configuration)\win-x64\</OutDir>
+    <IntDir>$(MSBuildThisFileDirectory)..\artifacts\build\native\ide-$(Configuration)\</IntDir>
+    <NMakeBuildCommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\scripts\native\build-native.ps1&quot; -Configuration $(Configuration) -Architecture x64</NMakeBuildCommandLine>
+    <NMakeReBuildCommandLine>$(NMakeBuildCommandLine) -Clean</NMakeReBuildCommandLine>
+    <NMakeCleanCommandLine>$(NMakeBuildCommandLine) -CleanOnly</NMakeCleanCommandLine>
+    <NMakeOutput>$(OutDir)LivePhotoBox.Native.dll</NMakeOutput>
+    <NMakePreprocessorDefinitions>LPB_NATIVE_BUILD;_WINDOWS</NMakePreprocessorDefinitions>
+    <NMakeIncludeSearchPath>$(ProjectDir)include;$(ProjectDir)src;$(ProjectDir)..\artifacts\deps\images\x64-windows-static\include;$(ProjectDir)..\artifacts\build\native\$(Configuration)-production\cmake\generated</NMakeIncludeSearchPath>
+    <AdditionalOptions>/std:c++20 /utf-8 %(AdditionalOptions)</AdditionalOptions>
   </PropertyGroup>
-
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <ClCompile>
-      <WarningLevel>Level4</WarningLevel>
-      <TreatWarningAsError>true</TreatWarningAsError>
-      <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>LPB_NATIVE_BUILD;$(LPB_NATIVE_EXTRA_DEFINITIONS);_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <ConformanceMode>true</ConformanceMode>
-      <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)src;$(IntDir);$(MSBuildThisFileDirectory)..\.ai-tmp\workspace\P4\R3\cmake-build\vcpkg_installed\x64-windows-static\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
-      <RuntimeLibrary>MultiThreadedDebug</RuntimeLibrary>
-      <ExceptionHandling>Sync</ExceptionHandling>
-      <ControlFlowGuard>Guard</ControlFlowGuard>
-      <DebugInformationFormat>OldStyle</DebugInformationFormat>
-    </ClCompile>
-    <Link>
-      <SubSystem>Windows</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
-      <ProgramDatabaseFile>$(OutDir)$(TargetName).pdb</ProgramDatabaseFile>
-      <ControlFlowGuard>Guard</ControlFlowGuard>
-      <AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)..\.ai-tmp\workspace\P4\R3\cmake-build\vcpkg_installed\x64-windows-static\debug\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>bcrypt.lib;ole32.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;heif.lib;libde265.lib;x265-static.lib;turbojpeg.lib;jpeg.lib;%(AdditionalDependencies)</AdditionalDependencies>
-    </Link>
-  </ItemDefinitionGroup>
-
-  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <ClCompile>
-      <WarningLevel>Level4</WarningLevel>
-      <TreatWarningAsError>true</TreatWarningAsError>
-      <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>LPB_NATIVE_BUILD;$(LPB_NATIVE_EXTRA_DEFINITIONS);NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <ConformanceMode>true</ConformanceMode>
-      <LanguageStandard>stdcpp20</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;$(ProjectDir)src;$(IntDir);$(MSBuildThisFileDirectory)..\.ai-tmp\workspace\P4\R3\cmake-build\vcpkg_installed\x64-windows-static\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
-      <RuntimeLibrary>MultiThreaded</RuntimeLibrary>
-      <ExceptionHandling>Sync</ExceptionHandling>
-      <ControlFlowGuard>Guard</ControlFlowGuard>
-      <FunctionLevelLinking>true</FunctionLevelLinking>
-      <IntrinsicFunctions>true</IntrinsicFunctions>
-    </ClCompile>
-    <Link>
-      <SubSystem>Windows</SubSystem>
-      <EnableCOMDATFolding>true</EnableCOMDATFolding>
-      <OptimizeReferences>true</OptimizeReferences>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
-      <ProgramDatabaseFile>$(OutDir)$(TargetName).pdb</ProgramDatabaseFile>
-      <ControlFlowGuard>Guard</ControlFlowGuard>
-      <AdditionalLibraryDirectories>$(MSBuildThisFileDirectory)..\.ai-tmp\workspace\P4\R3\cmake-build\vcpkg_installed\x64-windows-static\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>bcrypt.lib;ole32.lib;mfplat.lib;mfreadwrite.lib;mfuuid.lib;heif.lib;libde265.lib;x265-static.lib;turbojpeg.lib;jpeg.lib;%(AdditionalDependencies)</AdditionalDependencies>
-    </Link>
-  </ItemDefinitionGroup>
-
+  <!-- IDE items only. CMakeLists.txt is the sole compilation/link graph. -->
   <ItemGroup>
     <ClInclude Include="include\livephotobox_native.h" />
     <ClInclude Include="src\binary\binary_io.h" />
     <ClInclude Include="src\binary\endian.h" />
     <ClInclude Include="src\binary\portable_io.h" />
+    <ClInclude Include="src\containers\aac_config.h" />
+    <ClInclude Include="src\containers\heif_internal.h" />
+    <ClInclude Include="src\containers\inline_scene_metadata.h" />
+    <ClInclude Include="src\containers\inline_transform_metadata.h" />
+    <ClInclude Include="src\containers\isobmff_mebx_transplant.h" />
+    <ClInclude Include="src\containers\isobmff_metadata_keys.h" />
+    <ClInclude Include="src\containers\isobmff_track_graph.h" />
+    <ClInclude Include="src\containers\isobmff_video_profile.h" />
     <ClInclude Include="src\containers\isobmff.h" />
     <ClInclude Include="src\containers\mp4_strip.h" />
+    <ClInclude Include="src\containers\original_jpeg_metadata.h" />
+    <ClInclude Include="src\containers\original_jpeg_padding.h" />
+    <ClInclude Include="src\containers\pcm_config.h" />
+    <ClInclude Include="src\containers\remux_byte_proof.h" />
     <ClInclude Include="src\foundation\internal.h" />
+    <ClInclude Include="src\foundation\md5_core.h" />
+    <ClInclude Include="src\foundation\portable_internal.h" />
     <ClInclude Include="src\foundation\residue_fingerprint.h" />
+    <ClInclude Include="src\foundation\sha256_core.h" />
     <ClInclude Include="src\foundation\sha256.h" />
+    <ClInclude Include="src\media\compound_primary.h" />
+    <ClInclude Include="src\media\empty_audio_placeholder.h" />
+    <ClInclude Include="src\media\gainmap_math.h" />
+    <ClInclude Include="src\media\h264_order_proof.h" />
+    <ClInclude Include="src\media\hdr_image_exif_mapping.h" />
+    <ClInclude Include="src\media\hdr_image_metadata.h" />
     <ClInclude Include="src\media\heic_backend.h" />
+    <ClInclude Include="src\media\huawei_conformance.h" />
+    <ClInclude Include="src\media\icc_profile_validation.h" />
     <ClInclude Include="src\media\image_converter.h" />
-    <ClInclude Include="src\media\jpeg_gainmap_mpf.h" />
+    <ClInclude Include="src\media\image_exif_mapping.h" />
     <ClInclude Include="src\media\jpeg_backend.h" />
+    <ClInclude Include="src\media\jpeg_gainmap_mpf.h" />
+    <ClInclude Include="src\media\jpeg_marker.h" />
+    <ClInclude Include="src\media\jpeg_mpf_vendor.h" />
+    <ClInclude Include="src\media\jpeg_observation.h" />
     <ClInclude Include="src\media\media_cleaner.h" />
     <ClInclude Include="src\media\media_extractor.h" />
     <ClInclude Include="src\media\media_inspector.h" />
+    <ClInclude Include="src\media\neutral_timing.h" />
+    <ClInclude Include="src\media\opaque_camera_records.h" />
+    <ClInclude Include="src\media\ordinary_metadata_capsule.h" />
+    <ClInclude Include="src\media\ordinary_metadata_container.h" />
+    <ClInclude Include="src\media\pixel_orientation.h" />
+    <ClInclude Include="src\media\preserved_exif.h" />
+    <ClInclude Include="src\media\target_primary_observation.h" />
+    <ClInclude Include="src\media\target_validator_v2.h" />
+    <ClInclude Include="src\media\target_validator.h" />
+    <ClInclude Include="src\media\target_video_observation.h" />
+    <ClInclude Include="src\media\target_writer.h" />
     <ClInclude Include="src\media\video_converter.h" />
+    <ClInclude Include="src\media\video_presentation_timing.h" />
+    <ClInclude Include="src\media\video_sei_preservation.h" />
+    <ClInclude Include="src\media\video_sidecar_abi.h" />
+    <ClInclude Include="src\media\video_sidecar_bridge.h" />
+    <ClInclude Include="src\media\video_sidecar_loader.h" />
+    <ClInclude Include="src\media\vivo_comment.h" />
+    <ClInclude Include="src\media\vivo_modern_inventory.h" />
+    <ClInclude Include="src\media\xmp_observation.h" />
     <ClInclude Include="src\metadata\exif_rewrite.h" />
     <ClInclude Include="src\metadata\exif.h" />
     <ClInclude Include="src\metadata\jpeg.h" />
+    <ClInclude Include="src\metadata\target_exif.h" />
     <ClInclude Include="src\platform\windows_filesystem.h" />
     <ClInclude Include="src\protocols\apple_mebx_templates.h" />
     <ClInclude Include="src\protocols\apple.h" />
@@ -152,30 +105,53 @@
     <ClInclude Include="src\protocols\clean\jpeg_structure_cleaner.h" />
     <ClInclude Include="src\protocols\clean\samsung_sef_cleaner.h" />
     <ClInclude Include="src\protocols\clean\xmp_cleaner.h" />
+    <ClInclude Include="src\protocols\google_v2_writer.h" />
+    <ClInclude Include="src\protocols\huawei_target.h" />
+    <ClInclude Include="src\protocols\samsung_inventory.h" />
     <ClInclude Include="src\protocols\samsung_sef.h" />
+    <ClInclude Include="src\protocols\samsung_target.h" />
+    <ClInclude Include="src\protocols\target_structure.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\containers\heif.cpp" />
+    <ClCompile Include="src\containers\isobmff_mebx_transplant.cpp" />
+    <ClCompile Include="src\containers\isobmff_metadata_keys.cpp" />
+    <ClCompile Include="src\containers\isobmff_track_graph.cpp" />
+    <ClCompile Include="src\containers\isobmff_video_profile.cpp" />
     <ClCompile Include="src\containers\isobmff.cpp" />
     <ClCompile Include="src\containers\mp4_strip.cpp" />
     <ClCompile Include="src\foundation\context.cpp" />
     <ClCompile Include="src\foundation\residue_fingerprint.cpp" />
-    <ClCompile Include="src\foundation\sha256.cpp" />
     <ClCompile Include="src\foundation\sha256_core.cpp" />
-    <ClCompile Include="src\media\heic_backend.cpp" />
+    <ClCompile Include="src\foundation\sha256.cpp" />
+    <ClCompile Include="src\media\compound_primary.cpp" />
     <ClCompile Include="src\media\gainmap_math.cpp" />
     <ClCompile Include="src\media\hdr_gainmap_conversion.cpp" />
+    <ClCompile Include="src\media\heic_backend.cpp" />
+    <ClCompile Include="src\media\huawei_conformance.cpp" />
+    <ClCompile Include="src\media\image_converter_v2.cpp" />
     <ClCompile Include="src\media\image_converter.cpp" />
     <ClCompile Include="src\media\jpeg_backend.cpp" />
+    <ClCompile Include="src\media\jpeg_observation.cpp" />
     <ClCompile Include="src\media\media_api.cpp" />
     <ClCompile Include="src\media\media_cleaner.cpp" />
     <ClCompile Include="src\media\media_extractor.cpp" />
     <ClCompile Include="src\media\media_inspector.cpp" />
+    <ClCompile Include="src\media\neutral_timing.cpp" />
     <ClCompile Include="src\media\preservation_observation.cpp" />
+    <ClCompile Include="src\media\target_primary_observation.cpp" />
+    <ClCompile Include="src\media\target_validator_v2.cpp" />
+    <ClCompile Include="src\media\target_validator.cpp" />
+    <ClCompile Include="src\media\target_video_observation.cpp" />
+    <ClCompile Include="src\media\target_writer.cpp" />
     <ClCompile Include="src\media\video_converter.cpp" />
+    <ClCompile Include="src\media\video_sidecar_bridge.cpp" />
+    <ClCompile Include="src\media\video_sidecar_loader.cpp" />
+    <ClCompile Include="src\media\video_sidecar.cpp" />
     <ClCompile Include="src\metadata\exif_rewrite.cpp" />
     <ClCompile Include="src\metadata\exif.cpp" />
     <ClCompile Include="src\metadata\jpeg.cpp" />
+    <ClCompile Include="src\metadata\target_exif.cpp" />
     <ClCompile Include="src\platform\windows_filesystem.cpp" />
     <ClCompile Include="src\protocols\apple_mebx.cpp" />
     <ClCompile Include="src\protocols\apple.cpp" />
@@ -183,35 +159,15 @@
     <ClCompile Include="src\protocols\clean\jpeg_structure_cleaner.cpp" />
     <ClCompile Include="src\protocols\clean\samsung_sef_cleaner.cpp" />
     <ClCompile Include="src\protocols\clean\xmp_cleaner.cpp" />
+    <ClCompile Include="src\protocols\google_v2_writer.cpp" />
+    <ClCompile Include="src\protocols\huawei_target.cpp" />
     <ClCompile Include="src\protocols\huawei.cpp" />
+    <ClCompile Include="src\protocols\samsung_inventory.cpp" />
     <ClCompile Include="src\protocols\samsung_sef.cpp" />
+    <ClCompile Include="src\protocols\samsung_target.cpp" />
+    <ClCompile Include="src\protocols\target_structure.cpp" />
     <ClCompile Include="src\protocols\vivo_legacy.cpp" />
   </ItemGroup>
 
-  <Target Name="GenerateNativeVersionHeader"
-          BeforeTargets="ClCompile"
-          Inputs="$(ProjectDir)..\LivePhotoBox\Package.appxmanifest"
-          Outputs="$(IntDir)livephotobox_native_version.h">
-    <XmlPeek XmlInputPath="$(ProjectDir)..\LivePhotoBox\Package.appxmanifest"
-             Query="/x:Package/x:Identity/@Version"
-             Namespaces="&lt;Namespace Prefix='x' Uri='http://schemas.microsoft.com/appx/manifest/foundation/windows10'/&gt;">
-      <Output TaskParameter="Result" PropertyName="_ManifestVersion" />
-    </XmlPeek>
-    <Error Condition="'$(_ManifestVersion)' == ''"
-           Text="Unable to read the Native product version from LivePhotoBox/Package.appxmanifest." />
-    <MakeDir Directories="$(IntDir)" />
-    <ItemGroup>
-      <_NativeVersionHeaderLine Include="#pragma once" />
-      <_NativeVersionHeaderLine Include="#define LPB_PRODUCT_VERSION &quot;$(_ManifestVersion)&quot;" />
-    </ItemGroup>
-    <WriteLinesToFile File="$(IntDir)livephotobox_native_version.h"
-                      Lines="@(_NativeVersionHeaderLine)"
-                      Overwrite="true"
-                      Encoding="UTF-8" />
-    <Message Importance="high" Text="Native version synced from Package.appxmanifest: $(_ManifestVersion)" />
-  </Target>
-
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
-  <ImportGroup Label="ExtensionTargets" />
 </Project>
-

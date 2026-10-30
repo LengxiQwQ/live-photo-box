@@ -7,6 +7,7 @@
 #include <vector>
 
 namespace lpb::media {
+struct mpf_vendor_primary;
 struct target_primary_auxiliary {
     std::string selector, owner_selector, semantic, mime, relationship, item_type;
     uint32_t selector_kind{}, selector_id{}, item_id{}; // 1=Directory ordinal, 2=HEIF item ID
@@ -51,4 +52,7 @@ bool target_primary_has_live_binding(const target_primary_observation&) noexcept
 // bytes still require a complete bounded JPEG/MPF/directory relationship.
 bool observe_original_jpeg_asset(std::span<const uint8_t> input,std::string& error) noexcept;
 bool observe_gainmap_jpeg_asset(std::span<const uint8_t> input,std::string& error) noexcept;
+// Strict cross-target subset: an outer two-entry MP Index is the sole owner;
+// its secondary image has no live binding or independently nested image graph.
+bool observe_cross_target_mpf_primary(std::span<const uint8_t>,mpf_vendor_primary&,std::string&) noexcept;
 } // namespace lpb::media

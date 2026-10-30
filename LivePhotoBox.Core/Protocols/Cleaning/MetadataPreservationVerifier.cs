@@ -215,6 +215,21 @@ public static class MetadataPreservationVerifier
         bool carriersPassed = true;
         foreach (PreservationCarrier carrier in baseline.PreservationCarriers)
         {
+            if(LivePhotoBox.Media.OrdinaryMetadataPreservation.IsRecordCarrier(carrier))
+            {
+                try
+                {
+                    await LivePhotoBox.Media.OrdinaryMetadataPreservation.VerifyAsync(carrier,cancellationToken).ConfigureAwait(false);
+                    items.Add(new PreservationReportItem{Name=$"Carrier:{carrier.StableIdentity}",Status=PreservationCheckStatus.VerifiedPreserved,
+                        Details="Complete materialized ordinary record bytes match the original source hash and Native-created artifact identity."});
+                }
+                catch(OperationCanceledException) when(cancellationToken.IsCancellationRequested){throw;}
+                catch(Exception failure)
+                {
+                    carriersPassed=false;items.Add(new PreservationReportItem{Name=$"Carrier:{carrier.StableIdentity}",Status=PreservationCheckStatus.Failed,Details=failure.Message});
+                }
+                continue;
+            }
             if (carrier.Kind == PreservationCarrierKind.SamsungSef)
             {
                 var matchingPostCarriers = postCarrierFacts?.PreservationCarriers

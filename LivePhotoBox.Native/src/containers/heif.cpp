@@ -78,6 +78,7 @@ namespace {
         uint32_t id{};
         uint32_t type{};
         std::string content_type;
+        std::string name,uri_type;
     };
 
     struct auxiliary_property {
@@ -241,7 +242,7 @@ namespace {
 
             std::string item_name;
             if (!read_c_string(data, q, child_end, item_name)) return fail("infe item_name unterminated");
-            std::string content_type;
+            std::string content_type,item_uri_type;
             if (item_type == 0x6D696D65u) { // mime
                 // Both layouts occur in the corpus: the canonical form has an
                 // empty item_name before content_type, while some producers
@@ -264,13 +265,12 @@ namespace {
                 // ISO/IEC 14496-12 item_uri_type is a required
                 // NUL-terminated field following item_name.  Apple uses
                 // this for auxiliary style metadata in otherwise valid HEIF.
-                std::string item_uri_type;
                 if (!read_c_string(data, q, child_end, item_uri_type) || item_uri_type.empty()) {
                     return fail("infe item_uri_type missing or unterminated");
                 }
             }
             if (q != child_end) return fail("infe trailing bytes");
-            out_items.push_back({ item_id, item_type, std::move(content_type) });
+            out_items.push_back({ item_id,item_type,std::move(content_type),std::move(item_name),std::move(item_uri_type) });
         }
         return true;
     }
@@ -1579,7 +1579,7 @@ bool enumerate_xmp_ranges_describing_item(std::span<const uint8_t> input,
             error = "Malformed HEIF iref children during XMP relationship inspection.";
             return false;
         }
-        std::set<uint32_t> described_xmp_ids;
+        std::set<uint32_t> described_xmp_ids, described_exif_ids;
         for (const auto& reference : references) {
             if (!is_type(reference, "cdsc")) continue;
             size_t position = reference.body_start;
@@ -1608,6 +1608,19 @@ bool enumerate_xmp_ranges_describing_item(std::span<const uint8_t> input,
                 return false;
             }
             if (!describes_target) continue;
+            // Exif and XMP may independently describe the same image. Exif is
+            // not an XMP candidate, but its ownership must still be unique.
+            if (item_by_id(from_id)->type == 0x45786966u) {
+                const auto* owner = item_by_id(described_item_id);
+                if (target_count != 1 || !owner ||
+                    (owner->type != 0x68766331u && owner->type != 0x68657631u &&
+                     owner->type != 0x67726964u && owner->type != 0x746d6170u) ||
+                    !described_exif_ids.insert(from_id).second) {
+                    error = "HEIF Exif metadata relationship to the image is ambiguous or duplicated.";
+                    return false;
+                }
+                continue;
+            }
             if (target_count != 1 || std::find(xmp_ids.begin(), xmp_ids.end(), from_id) == xmp_ids.end() ||
                 !described_xmp_ids.insert(from_id).second) {
                 error = "HEIF XMP metadata relationship to the GainMap is ambiguous or duplicated.";
@@ -1884,6 +1897,9 @@ struct xmp_rewrite_graph {
     std::vector<locator_item> items;
     std::vector<xmp_rewrite_location> locations;
     std::map<uint32_t, std::vector<uint32_t>> derived_dependencies;
+    std::map<uint32_t, std::vector<uint32_t>> metadata_owners;
+    std::vector<heif_reference> references;
+    std::map<uint32_t,uint16_t> item_protection;
 };
 
 bool parse_xmp_rewrite_graph(std::span<const uint8_t> input,
@@ -2000,6 +2016,8 @@ bool parse_xmp_rewrite_graph(std::span<const uint8_t> input,
             if (is_type(ref, "cdsc")) xmp_owners.emplace(from, std::move(targets));
         }
     }
+    graph.metadata_owners = xmp_owners;
+    graph.references = all_references;
     std::map<uint32_t, std::vector<uint32_t>> dependencies;
     for (const auto& ref : all_references) if (ref.type == "dimg") dependencies.emplace(ref.from, ref.targets);
     graph.derived_dependencies = dependencies;
@@ -2053,6 +2071,7 @@ bool parse_xmp_rewrite_graph(std::span<const uint8_t> input,
         const uint32_t id = width == 2 ? read_be16u(input.data() + p) : read_be32u(input.data() + p);
         p += width;
         const auto* item = find_item(graph.items, id);
+        graph.item_protection.emplace(id,read_be16u(input.data()+p));
         if (!item || item->type != 0x6d696d65u || item->content_type != "application/rdf+xml") continue;
         if (read_be16u(input.data() + p) != 0)
             return fail("HEIF XMP rewrite: protected XMP item is unsupported.");
@@ -2147,32 +2166,40 @@ void append_u64_xmp(std::vector<uint8_t>& output, uint64_t value) {
 } // namespace
 
 namespace lpb::containers {
-bool observe_primary_item_properties(std::span<const uint8_t> input,
+bool observe_item_properties(std::span<const uint8_t> input, uint32_t item_id,
     heif_primary_properties& output, std::string& error) noexcept {
     output = {}; error.clear();
     try {
         xmp_rewrite_graph graph;
         if (!parse_xmp_rewrite_graph(input, graph, error)) return false;
+        const uint32_t selected = item_id ? item_id : graph.primary;
         heif_primary_properties result;
-        result.item_id = graph.primary;
-        const auto* item = find_item(graph.items, graph.primary);
+        result.item_id = selected;
+        for(const auto& box:graph.top) if(is_type(box,"sefd"))
+            result.ordinary_sef_range={box.body_start,box.body_size};
+        const auto* item = find_item(graph.items, selected);
         // A generic HEIF brand alone does not establish HEVC encoding. Follow
         // the actual primary derived-image graph, never unrelated item types.
+        std::set<uint32_t> selected_closure;
         std::function<bool(uint32_t, size_t)> hevc_primary = [&](uint32_t id, size_t depth) {
             if (depth > 256) return false;
             const auto* encoded = find_item(graph.items, id);
-            if (!encoded) return false;
+            const auto protection=graph.item_protection.find(id);
+            if (!encoded || protection==graph.item_protection.end() || protection->second!=0) return false;
+            // The parsed dependency graph is acyclic; memoize its shared DAG
+            // nodes instead of re-expanding them along every incoming edge.
+            if (!selected_closure.insert(id).second) return true;
             const auto children = graph.derived_dependencies.find(id);
             if (encoded->type == 0x68766331u) return children == graph.derived_dependencies.end(); // hvc1
             if (encoded->type != 0x67726964u || children == graph.derived_dependencies.end() || children->second.empty()) return false; // grid
             return std::all_of(children->second.begin(), children->second.end(),
                 [&](uint32_t child) { return hevc_primary(child, depth + 1); });
         };
-        if (!hevc_primary(graph.primary, 0)) {
+        if (!hevc_primary(selected, 0)) {
             error = "Target HEIC primary must be HEVC or an HEVC-backed grid."; return false;
         }
         result.item_type = item_type_string(item->type);
-        for (const auto& location : graph.locations) if (location.id == graph.primary)
+        for (const auto& location : graph.locations) if (location.id == selected)
             for (const auto& extent : location.extents)
                 result.encoding_extents.push_back({extent.offset + (location.method == 1 ? graph.idat.body_start : 0), extent.length});
         const locator_box* iprp = nullptr;
@@ -2192,14 +2219,23 @@ bool observe_primary_item_properties(std::span<const uint8_t> input,
         std::vector<ipma_entry> entries;
         if (!parse_ipma(raw, *ipma, entries, error)) return false;
         bool saw_size = false, saw_rotation = false, saw_mirror = false, saw_clap = false;
+        bool stored_geometry_compatible=true;
         std::array<uint32_t,8> aperture{};
         struct matrix { int a,b,c,d; } accumulated{1,0,0,1};
         for (const auto& entry : entries) {
-            if (entry.item_id != graph.primary) continue;
+            if (!selected_closure.contains(entry.item_id)) continue;
             for (const auto association : entry.associations) {
                 const size_t index = association & 0x7fffu;
                 if (!index || index > properties.size()) { error = "HEIF primary property index is invalid."; return false; }
                 const auto& property = properties[index - 1];
+                const bool geometry=is_type(property,"irot")||is_type(property,"imir")||is_type(property,"clap");
+                const bool known=is_type(property,"ispe")||geometry||is_type(property,"hvcC")||
+                    is_type(property,"colr")||is_type(property,"pixi")||is_type(property,"auxC");
+                if((association&0x8000U)&&!known)stored_geometry_compatible=false;
+                if(entry.item_id!=selected) {
+                    if(geometry)stored_geometry_compatible=false;
+                    continue;
+                }
                 if (is_type(property, "ispe")) {
                     if (saw_size || property.body_size != 12 || read_be32u(input.data() + property.body_start)) {
                         error = "HEIF primary has malformed or duplicate ispe authority."; return false;
@@ -2237,6 +2273,8 @@ bool observe_primary_item_properties(std::span<const uint8_t> input,
             }
         }
         if (!saw_size) { error = "HEIF primary has no owned ispe dimensions."; return false; }
+        result.has_clean_aperture = saw_clap;
+        result.stored_geometry_compatible=stored_geometry_compatible&&!saw_clap;
         if (saw_clap) {
             // This observer admits exactly integral pixel crops. Signed offset
             // numerators are relative to the centre of the encoded image;
@@ -2266,24 +2304,115 @@ bool observe_primary_item_properties(std::span<const uint8_t> input,
             if (accumulated.a==exif[i].a && accumulated.b==exif[i].b && accumulated.c==exif[i].c && accumulated.d==exif[i].d)
                 result.orientation = i + 1;
         if (!result.orientation) { error = "HEIF primary transform cannot be normalized."; return false; }
-        uint64_t exif_offset = 0, exif_length = 0;
-        const auto located = locate_item(input.data(), input.size(), 0x45786966u, "Exif", &exif_offset, &exif_length, error);
-        if (located == locator_result::malformed) return false;
-        if (located == locator_result::present) {
-            if (exif_length < 4 || exif_offset > input.size() || exif_length > input.size() - exif_offset) {
-                error = "HEIF Exif item range is invalid."; return false;
-            }
-            const uint32_t tiff_offset = read_be32u(input.data() + static_cast<size_t>(exif_offset));
-            if (tiff_offset > exif_length - 4 || exif_length - 4 - tiff_offset < 8) {
-                error = "HEIF Exif encoded TIFF offset is invalid."; return false;
-            }
-            const auto tiff = input.subspan(static_cast<size_t>(exif_offset) + 4 + tiff_offset,
-                static_cast<size_t>(exif_length) - 4 - tiff_offset);
-            result.exif_payload = {'E','x','i','f',0,0};
-            result.exif_payload.insert(result.exif_payload.end(), tiff.begin(), tiff.end());
-        }
+        std::string owned_xml;
+        if(!read_image_item_metadata(input,selected,result.exif_payload,owned_xml,error))return false;
         error.clear(); output = std::move(result); return true;
     } catch (...) { output={}; error="HEIF primary property observation could not allocate or complete."; return false; }
+}
+
+bool observe_primary_item_properties(std::span<const uint8_t> input,
+    heif_primary_properties& output,std::string& error) noexcept {
+    return observe_item_properties(input,0,output,error);
+}
+
+bool read_image_item_metadata(std::span<const uint8_t> input,uint32_t image_item_id,
+    std::vector<uint8_t>& exif_payload,std::string& xmp,std::string& error) noexcept {
+    exif_payload.clear();xmp.clear();error.clear();
+    try {
+        xmp_rewrite_graph graph;if(!parse_xmp_rewrite_graph(input,graph,error))return false;
+        const uint32_t selected=image_item_id?image_item_id:graph.primary;
+        const auto image=[&](const locator_item* item){
+            if(!item)return false;
+            const auto protection=graph.item_protection.find(item->id);
+            return protection!=graph.item_protection.end()&&protection->second==0&&
+                (item->type==0x68766331u||item->type==0x68657631u||item->type==0x67726964u||item->type==0x746d6170u);
+        };
+        if(!image(find_item(graph.items,selected))){error="HEIF metadata owner is not an observed image item.";return false;}
+        std::map<uint32_t,unsigned> exif_counts,xmp_counts;
+        std::vector<uint8_t> selected_exif;std::string selected_xmp;
+        for(const auto& item:graph.items) {
+            const bool exif=item.type==0x45786966u;
+            const bool xml=item.type==0x6d696d65u&&item.content_type=="application/rdf+xml";
+            if(!exif&&!xml)continue;
+            const auto owner=graph.metadata_owners.find(item.id);
+            const auto protection=graph.item_protection.find(item.id);
+            if(owner==graph.metadata_owners.end()||owner->second.size()!=1||!image(find_item(graph.items,owner->second.front()))||
+                protection==graph.item_protection.end()||protection->second!=0) {
+                error="HEIF ordinary metadata has no unique, unprotected image owner.";return false;
+            }
+            auto& counts=exif?exif_counts:xmp_counts;
+            if(++counts[owner->second.front()]!=1){error="HEIF ordinary metadata has duplicate entries for one image owner.";return false;}
+            for(const auto& ref:graph.references)if((ref.from==item.id&&(ref.type!="cdsc"||ref.targets!=owner->second))||
+                std::find(ref.targets.begin(),ref.targets.end(),item.id)!=ref.targets.end()) {
+                error="HEIF ordinary metadata participates in a shared or non-owner relation.";return false;
+            }
+            if(owner->second.front()!=selected)continue;
+            const auto location=std::find_if(graph.locations.begin(),graph.locations.end(),[&](const auto& entry){return entry.id==item.id;});
+            if(location==graph.locations.end()){error="HEIF ordinary metadata storage is absent.";return false;}
+            std::vector<uint8_t> bytes;
+            for(const auto& extent:location->extents) {
+                if(extent.length>16ULL*1024*1024-bytes.size()){error="HEIF owned metadata exceeds its explicit resource bound.";return false;}
+                const uint64_t at=extent.offset+(location->method==1?graph.idat.body_start:0);
+                if(at>input.size()||extent.length>input.size()-at){error="HEIF ordinary metadata extent is outside its owner.";return false;}
+                bytes.insert(bytes.end(),input.begin()+static_cast<ptrdiff_t>(at),input.begin()+static_cast<ptrdiff_t>(at+extent.length));
+            }
+            if(exif) {
+                if(bytes.size()<12){error="HEIF Exif item is too short.";return false;}
+                const auto offset=read_be32u(bytes.data());
+                if(offset>bytes.size()-12 || (offset!=0 && (offset!=6 ||
+                    std::memcmp(bytes.data()+4,"Exif\0\0",6)!=0))) {
+                    error="HEIF Exif TIFF offset or its structured prefix is unsupported.";return false;
+                }
+                selected_exif={'E','x','i','f',0,0};selected_exif.insert(selected_exif.end(),bytes.begin()+4+offset,bytes.end());
+            }else selected_xmp.assign(reinterpret_cast<const char*>(bytes.data()),bytes.size());
+        }
+        exif_payload=std::move(selected_exif);xmp=std::move(selected_xmp);return true;
+    }catch(...){exif_payload.clear();xmp.clear();error="HEIF owner-specific metadata read failed.";return false;}
+}
+
+bool observe_original_file_resource(std::span<const uint8_t> input,heif_original_file_resource& output,
+    std::string& error) noexcept {
+    output={};error.clear();
+    try {
+        xmp_rewrite_graph graph;if(!parse_xmp_rewrite_graph(input,graph,error))return false;
+        heif_original_file_resource found;
+        constexpr std::string_view family="urn:livephotobox:asset:original-jpeg:";
+        for(const auto& item:graph.items) {
+            if(item.type!=0x75726920u||!item.uri_type.starts_with(family))continue;
+            const auto fail=[&](const char* why){error=why;return false;};
+            if(item.uri_type!=original_jpeg_resource_uri||item.name!=original_jpeg_resource_name||found.present)
+                return fail("HEIF Original file resource has an unknown type/version, name or duplicate owner.");
+            const auto protection=graph.item_protection.find(item.id),primary_protection=graph.item_protection.find(graph.primary);
+            const auto owner=graph.metadata_owners.find(item.id);
+            if(item.id==graph.primary||protection==graph.item_protection.end()||protection->second||
+                primary_protection==graph.item_protection.end()||primary_protection->second||
+                owner==graph.metadata_owners.end()||owner->second!=std::vector<uint32_t>{graph.primary})
+                return fail("HEIF Original file resource requires one unprotected primary and a unique cdsc owner.");
+            for(const auto& ref:graph.references)if((ref.from==item.id&&(ref.type!="cdsc"||ref.targets!=owner->second))||
+                std::find(ref.targets.begin(),ref.targets.end(),item.id)!=ref.targets.end())
+                return fail("HEIF Original file resource has a shared, reverse or non-owner relationship.");
+            const auto at=std::find_if(graph.locations.begin(),graph.locations.end(),[&](const auto& location){return location.id==item.id;});
+            if(at==graph.locations.end()||at->method||at->extents.size()!=1||at->extents[0].length<4||
+                at->extents[0].length>32ULL*1024*1024)
+                return fail("HEIF Original file resource does not own one bounded internal file extent.");
+            const auto* primary=find_item(graph.items,graph.primary);
+            if(!primary||(primary->type!=0x68766331u&&primary->type!=0x67726964u&&primary->type!=0x746d6170u))
+                return fail("HEIF Original file resource owner is not a supported current image.");
+            const locator_box* iprp=nullptr;
+            for(const auto& child:graph.children)if(is_type(child,"iprp"))iprp=&child;
+            if(iprp) {
+                std::vector<locator_box> children;if(!parse_children_strict(input.data(),iprp->body_start,iprp->start+iprp->size,children))return false;
+                const std::vector<uint8_t> raw(input.begin(),input.end());
+                for(const auto& child:children)if(is_type(child,"ipma")) {
+                    std::vector<ipma_entry> entries;if(!parse_ipma(raw,child,entries,error))return false;
+                    for(const auto& entry:entries)if(entry.item_id==item.id&&!entry.associations.empty())
+                        return fail("HEIF Original file resource cannot be a transformed or coded auxiliary image.");
+                }
+            }
+            found={true,item.id,graph.primary,{at->extents[0].offset,at->extents[0].length}};
+        }
+        output=found;return true;
+    }catch(...){output={};error="HEIF Original file resource observation failed.";return false;}
 }
 
 bool read_primary_xmp(std::span<const uint8_t> input, uint32_t& primary_item_id,
@@ -2304,6 +2433,116 @@ bool read_primary_xmp(std::span<const uint8_t> input, uint32_t& primary_item_id,
         primary_item_id = graph.primary;
         return true;
     } catch (...) { xml.clear(); error = "HEIF primary XMP graph read could not allocate or complete."; return false; }
+}
+
+bool append_original_file_resource(std::span<const uint8_t> input,std::span<const uint8_t> original,
+    std::vector<uint8_t>& output,uint32_t& item_id,std::string& error) noexcept {
+    output.clear();item_id=0;error.clear();
+    const auto fail=[&](const char* why){output.clear();item_id=0;error=why;return false;};
+    try {
+        if(original.size()<4||original.size()>32u*1024u*1024u||original[0]!=0xff||original[1]!=0xd8)
+            return fail("HEIF Original transport requires a bounded whole JPEG file.");
+        heif_original_file_resource previous;
+        if(!observe_original_file_resource(input,previous,error))return false;
+        if(previous.present)return fail("HEIF Original transport cannot duplicate an existing resource.");
+        xmp_rewrite_graph graph;
+        if(!parse_xmp_rewrite_graph(input,graph,error))return false;
+        std::set<uint32_t> ids;for(const auto& item:graph.items)ids.insert(item.id);
+        uint32_t added=1;while(ids.count(added)&&added<UINT32_MAX)++added;
+        if(ids.count(added)||graph.items.size()>=65535||
+            (graph.has_iref&&input[graph.iref.body_start]==0&&(added>65535||graph.primary>65535)))
+            return fail("HEIF Original transport has no supported free item identity.");
+        std::vector<uint8_t> infe_payload{3,0,0,0};
+        append_u32(infe_payload,added);append_u16(infe_payload,0);
+        infe_payload.insert(infe_payload.end(),{'u','r','i',' '});
+        infe_payload.insert(infe_payload.end(),original_jpeg_resource_name.begin(),original_jpeg_resource_name.end());infe_payload.push_back(0);
+        infe_payload.insert(infe_payload.end(),original_jpeg_resource_uri.begin(),original_jpeg_resource_uri.end());infe_payload.push_back(0);
+        std::vector<uint8_t> infe,new_iinf,new_iref;
+        if(!make_box("infe",infe_payload,infe))return fail("HEIF Original infe overflow.");
+        const size_t count_width=input[graph.iinf.body_start]==0?2:4;
+        std::vector<uint8_t> iinf_payload{1,0,0,0};append_u32(iinf_payload,static_cast<uint32_t>(graph.items.size()+1));
+        iinf_payload.insert(iinf_payload.end(),input.begin()+static_cast<ptrdiff_t>(graph.iinf.body_start+4+count_width),
+            input.begin()+static_cast<ptrdiff_t>(graph.iinf.start+graph.iinf.size));
+        iinf_payload.insert(iinf_payload.end(),infe.begin(),infe.end());
+        if(!make_box("iinf",iinf_payload,new_iinf))return fail("HEIF Original iinf overflow.");
+        const bool wide=!graph.has_iref||input[graph.iref.body_start]==1;
+        std::vector<uint8_t> cdsc_payload;
+        if(wide)append_u32(cdsc_payload,added);else append_u16(cdsc_payload,static_cast<uint16_t>(added));
+        append_u16(cdsc_payload,1);
+        if(wide)append_u32(cdsc_payload,graph.primary);else append_u16(cdsc_payload,static_cast<uint16_t>(graph.primary));
+        std::vector<uint8_t> cdsc,iref_payload{static_cast<uint8_t>(wide?1:0),0,0,0};
+        if(!make_box("cdsc",cdsc_payload,cdsc))return fail("HEIF Original reference overflow.");
+        if(graph.has_iref)iref_payload.insert(iref_payload.end(),input.begin()+static_cast<ptrdiff_t>(graph.iref.body_start+4),
+            input.begin()+static_cast<ptrdiff_t>(graph.iref.start+graph.iref.size));
+        iref_payload.insert(iref_payload.end(),cdsc.begin(),cdsc.end());
+        if(!make_box("iref",iref_payload,new_iref))return fail("HEIF Original iref overflow.");
+        const auto old_locations=graph.locations;
+        graph.locations.push_back({added,0,{{0,original.size(),0}}});
+        const auto build_iloc=[&](std::vector<uint8_t>& bytes) {
+            std::vector<uint8_t> payload{2,0,0,0,0x88,0x08};append_u32(payload,static_cast<uint32_t>(graph.locations.size()));
+            for(const auto& location:graph.locations) {
+                if(location.extents.size()>UINT16_MAX)return false;
+                append_u32(payload,location.id);append_u16(payload,location.method);append_u16(payload,0);
+                append_u16(payload,static_cast<uint16_t>(location.extents.size()));
+                for(const auto& extent:location.extents) {
+                    append_u64_xmp(payload,extent.index);append_u64_xmp(payload,extent.offset);append_u64_xmp(payload,extent.length);
+                }
+            }
+            return make_box("iloc",payload,bytes);
+        };
+        std::vector<uint8_t> new_iloc,new_meta;size_t new_idat_body=0;
+        const auto build_meta=[&]() {
+            std::vector<uint8_t> payload(4,0);
+            for(const auto& child:graph.children) {
+                const auto* replacement=is_type(child,"iinf")?&new_iinf:is_type(child,"iloc")?&new_iloc:is_type(child,"iref")?&new_iref:nullptr;
+                if(is_type(child,"idat"))new_idat_body=graph.meta.start+8+payload.size()+child.header_size;
+                if(replacement)payload.insert(payload.end(),replacement->begin(),replacement->end());
+                else payload.insert(payload.end(),input.begin()+static_cast<ptrdiff_t>(child.start),input.begin()+static_cast<ptrdiff_t>(child.start+child.size));
+            }
+            if(!graph.has_iref)payload.insert(payload.end(),new_iref.begin(),new_iref.end());
+            return payload.size()<=64u*1024u*1024u-8u&&make_box("meta",payload,new_meta);
+        };
+        if(!build_iloc(new_iloc)||!build_meta())return fail("HEIF Original rebuilt metadata exceeds its structural bound.");
+        const uint64_t old_end=graph.meta.start+graph.meta.size,new_end=graph.meta.start+new_meta.size();
+        const auto relocate=[&](uint64_t offset)->uint64_t {
+            if(graph.has_idat&&offset>=graph.idat.body_start&&offset<graph.idat.start+graph.idat.size)
+                return new_idat_body+(offset-graph.idat.body_start);
+            return offset>=old_end?new_end+(offset-old_end):offset;
+        };
+        const size_t tail_begin=!graph.top.empty()&&is_type(graph.top.back(),"sefd")?graph.top.back().start:input.size();
+        if(input.size()-graph.meta.size>SIZE_MAX-new_meta.size()-8-original.size())return fail("HEIF Original output size overflow.");
+        const uint64_t original_offset=tail_begin-graph.meta.size+new_meta.size()+8;
+        for(auto& location:graph.locations) {
+            if(location.id==added)location.extents.front().offset=original_offset;
+            else if(location.method==0)for(auto& extent:location.extents)extent.offset=relocate(extent.offset);
+        }
+        if(!build_iloc(new_iloc)||!build_meta())return fail("HEIF Original final location assembly failed.");
+        std::vector<uint8_t> result;result.reserve(input.size()-graph.meta.size+new_meta.size()+8+original.size());
+        result.insert(result.end(),input.begin(),input.begin()+static_cast<ptrdiff_t>(graph.meta.start));
+        result.insert(result.end(),new_meta.begin(),new_meta.end());
+        result.insert(result.end(),input.begin()+static_cast<ptrdiff_t>(old_end),input.begin()+static_cast<ptrdiff_t>(tail_begin));
+        append_u32(result,static_cast<uint32_t>(original.size()+8));result.insert(result.end(),{'m','d','a','t'});
+        result.insert(result.end(),original.begin(),original.end());result.insert(result.end(),input.begin()+static_cast<ptrdiff_t>(tail_begin),input.end());
+        heif_original_file_resource actual;xmp_rewrite_graph verified;
+        if(!observe_original_file_resource(result,actual,error)||!actual.present||actual.item_id!=added||
+            actual.owner_item_id!=graph.primary||actual.range.offset!=original_offset||actual.range.length!=original.size()||
+            !std::equal(original.begin(),original.end(),result.begin()+static_cast<ptrdiff_t>(actual.range.offset))||
+            !parse_xmp_rewrite_graph(result,verified,error)||verified.items.size()!=graph.items.size()+1||verified.primary!=graph.primary)
+            return fail("HEIF Original actual resource differs from the bound file and graph.");
+        for(const auto& before:old_locations) {
+            const auto at=std::find_if(verified.locations.begin(),verified.locations.end(),[&](const auto& location){return location.id==before.id;});
+            if(at==verified.locations.end()||at->extents.size()!=before.extents.size())return fail("HEIF Original transport lost an existing item.");
+            for(size_t i=0;i<before.extents.size();++i) {
+                const auto& a=before.extents[i];const auto& b=at->extents[i];
+                const uint64_t a_offset=a.offset+(before.method==1?graph.idat.body_start:0);
+                const uint64_t b_offset=b.offset+(at->method==1?verified.idat.body_start:0);
+                if(a.length!=b.length||a.index!=b.index||!std::equal(input.begin()+static_cast<ptrdiff_t>(a_offset),
+                    input.begin()+static_cast<ptrdiff_t>(a_offset+a.length),result.begin()+static_cast<ptrdiff_t>(b_offset)))
+                    return fail("HEIF Original transport changed existing item payload bytes.");
+            }
+        }
+        output=std::move(result);item_id=added;return true;
+    }catch(...){return fail("HEIF Original transport could not allocate or complete.");}
 }
 
 bool rewrite_primary_xmp(std::span<const uint8_t> input, std::string_view replacement_xml,
@@ -2407,7 +2646,11 @@ bool rewrite_primary_xmp(std::span<const uint8_t> input, std::string_view replac
         };
         if (input.size() - graph.meta.size > std::numeric_limits<size_t>::max() - new_meta.size() - 8 - replacement_xml.size())
             return fail("HEIF XMP rewrite: output size overflow.");
-        const uint64_t xmp_offset = input.size() - graph.meta.size + new_meta.size() + 8;
+        // A legal ordinary SEF block remains the final image-prefix box. Its
+        // self-relative bytes must follow newly appended XMP storage as well;
+        // no HEIF item extent can own bytes inside that non-mdat tail.
+        const size_t tail_begin=!graph.top.empty()&&is_type(graph.top.back(),"sefd")?graph.top.back().start:raw.size();
+        const uint64_t xmp_offset = tail_begin - graph.meta.size + new_meta.size() + 8;
         for (auto& location : graph.locations) {
             if (location.id == graph.xmp) location.extents.front().offset = xmp_offset;
             else if (location.method == 0) for (auto& extent : location.extents) extent.offset = relocate(extent.offset);
@@ -2417,10 +2660,14 @@ bool rewrite_primary_xmp(std::span<const uint8_t> input, std::string_view replac
         result.reserve(static_cast<size_t>(xmp_offset) + replacement_xml.size());
         result.insert(result.end(), raw.begin(), raw.begin() + static_cast<std::ptrdiff_t>(graph.meta.start));
         result.insert(result.end(), new_meta.begin(), new_meta.end());
-        result.insert(result.end(), raw.begin() + static_cast<std::ptrdiff_t>(old_end), raw.end());
+        result.insert(result.end(), raw.begin() + static_cast<std::ptrdiff_t>(old_end),raw.begin()+static_cast<std::ptrdiff_t>(tail_begin));
         append_u32(result, static_cast<uint32_t>(replacement_xml.size() + 8));
         result.insert(result.end(), {'m','d','a','t'});
         result.insert(result.end(), replacement_xml.begin(), replacement_xml.end());
+        result.insert(result.end(),raw.begin()+static_cast<std::ptrdiff_t>(tail_begin),raw.end());
+        xmp_rewrite_graph verified;
+        if(!parse_xmp_rewrite_graph(result,verified,error)||verified.primary!=graph.primary||verified.xmp!=graph.xmp)
+            return fail("HEIF XMP rewrite: actual rewritten item graph did not retain its metadata authority.");
         output = std::move(result);
         return true;
     } catch (const std::exception& ex) { output.clear(); error = ex.what(); return false; }

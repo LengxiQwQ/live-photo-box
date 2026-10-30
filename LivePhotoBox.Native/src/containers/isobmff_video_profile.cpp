@@ -1103,6 +1103,26 @@ bool parse_video_track(
 
 } // namespace
 
+bool inspect_isobmff_visual_codec_configuration(std::span<const uint8_t> bytes,
+    isobmff_video_profile& output) noexcept {
+    output={};try {
+        std::vector<box_ref> entries;
+        if(!read_children(bytes,0,bytes.size(),entries)||entries.size()!=1)return false;
+        const auto& entry=entries[0];
+        const bool avc=entry.is("avc1")||entry.is("avc3"),hevc=entry.is("hvc1")||entry.is("hev1");
+        if((!avc&&!hevc)||entry.size<entry.header_size+78)return false;
+        std::vector<box_ref> fields;
+        if(!read_children(bytes,entry.payload_start()+78,entry.end(),fields,true))return false;
+        video_profile_failure failure{};box_ref config{},wrong{};
+        if(!unique_child(fields,avc?"avcC":"hvcC",config,true,failure)||
+           !unique_child(fields,avc?"hvcC":"avcC",wrong,false,failure)||wrong.size)return false;
+        isobmff_video_profile value;value.codec_fourcc=read_be32(reinterpret_cast<const uint8_t*>(entry.type.data()));
+        const auto payload=bytes.subspan(config.payload_start(),config.end()-config.payload_start());
+        if(!(avc?parse_avcc(payload,value,failure,nullptr):parse_hvcc(payload,value,failure,nullptr)))return false;
+        output=value;return true;
+    }catch(...){output={};return false;}
+}
+
 static bool inspect_isobmff_video_profile_impl(
     const lpb::random_access_reader& source,
     isobmff_video_profile& output,

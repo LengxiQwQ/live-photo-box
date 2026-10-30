@@ -1,5 +1,7 @@
 #include "media/jpeg_backend.h"
 #include "media/icc_profile_validation.h"
+#include "media/jpeg_marker.h"
+#include "media/jpeg_observation.h"
 #include "foundation/internal.h"
 #include "platform/windows_filesystem.h"
 
@@ -112,6 +114,60 @@ bool valid_rgb_layout(uint32_t width, uint32_t height, std::span<const uint8_t> 
     if (width == 0 || height == 0 || static_cast<uint64_t>(width) * height > kMaxPixels) return false;
     const uint64_t bytes = static_cast<uint64_t>(width) * height * 3;
     return bytes <= std::numeric_limits<size_t>::max() && rgb.size() == static_cast<size_t>(bytes);
+}
+
+// This primitive preserves complete ordinary markers. A physical DCT transform
+// must also keep active EXIF dimensions consistent with the actual SOF raster.
+// It does not grant a complete metadata/thumbnail mapping proof to old callers.
+bool map_dct_dimensions(std::span<const uint8_t> source,std::span<uint8_t> output,bool swap) noexcept {
+    try {
+        struct image { uint32_t width{},height{};size_t exif_offset{};std::vector<uint8_t> exif; } before,after;
+        const auto observe=[](std::span<const uint8_t> bytes,image& facts) {
+            lpb::memory_random_access input{bytes};uint64_t eoi{};bool sof=false,exif=false;
+            const bool valid=lpb::media::walk_jpeg_markers(input.view(),eoi,[&](const lpb::media::jpeg_marker_range& marker) {
+                const auto payload=bytes.subspan(static_cast<size_t>(marker.payload),static_cast<size_t>(marker.length));
+                if(marker.marker==0xc0||marker.marker==0xc1||marker.marker==0xc2) {
+                    if(sof||payload.size()<6)return false;sof=true;
+                    facts.height=(uint32_t(payload[1])<<8)|payload[2];facts.width=(uint32_t(payload[3])<<8)|payload[4];
+                }
+                if(marker.marker==0xe1&&payload.size()>=6&&!std::memcmp(payload.data(),"Exif\0\0",6)) {
+                    if(exif||marker.after_scan)return false;exif=true;facts.exif_offset=static_cast<size_t>(marker.payload);
+                    facts.exif.assign(payload.begin(),payload.end());
+                }
+                return true;
+            });
+            return valid&&eoi==bytes.size()&&sof&&facts.width&&facts.height;
+        };
+        if(!observe(source,before)||!observe(output,after)||
+            after.width!=(swap?before.height:before.width)||after.height!=(swap?before.width:before.height))return false;
+        if(before.exif.empty())return after.exif.empty();
+        uint32_t orientation{};lpb::media::exif_observation exif;lpb::media::jpeg_observation_failure why{};
+        if(!lpb::media::observe_exif(before.exif,orientation,exif,why,true)||orientation>1)return false;
+        auto mapped=before.exif;auto tiff=std::span<uint8_t>(mapped).subspan(6);const bool be=exif.big_endian;
+        const auto read=[&](size_t at,size_t length) {uint32_t n{};for(size_t i=0;i<length;++i)n|=uint32_t(tiff[at+i])<<((be?length-i-1:i)*8);return n;};
+        const auto patch=[&](uint32_t offset,bool root) {
+            if(!offset||offset>tiff.size()||tiff.size()-offset<6)return false;
+            const auto count=read(offset,2);if(count>(tiff.size()-offset-6)/12)return false;
+            bool width=false,height=false;
+            for(size_t i=0;i<count;++i) {
+                const size_t at=offset+2+i*12;const auto tag=read(at,2);
+                const bool horizontal=tag==(root?0x100U:0xa002U),vertical=tag==(root?0x101U:0xa003U);
+                if(!horizontal&&!vertical)continue;
+                if((horizontal&&width)||(vertical&&height))return false;width|=horizontal;height|=vertical;
+                const auto type=read(at+2,2);if((type!=3&&type!=4)||read(at+4,4)!=1)return false;
+                const size_t size=type==3?2:4;const auto old=read(at+8,size);
+                if(old&&old!=(horizontal?before.width:before.height))return false;
+                if(!old)continue;const auto value=horizontal?after.width:after.height;
+                for(size_t j=0;j<size;++j)tiff[at+8+j]=static_cast<uint8_t>(value>>((be?size-j-1:j)*8));
+            }
+            return true;
+        };
+        if(!patch(exif.ifd0_offset,true)||(exif.exif_ifd_offset&&!patch(exif.exif_ifd_offset,false)))return false;
+        if(after.exif!=before.exif&&after.exif!=mapped)return false;
+        if(after.exif_offset>output.size()||mapped.size()>output.size()-after.exif_offset)return false;
+        std::copy(mapped.begin(),mapped.end(),output.begin()+static_cast<ptrdiff_t>(after.exif_offset));
+        return true;
+    }catch(...){return false;}
 }
 
 int to_turbo_transform(int32_t value) noexcept {
@@ -388,6 +444,12 @@ lpb_result transform_jpeg_losslessly(lpb_context* context, const char* input_pat
     if (result != 0 || !transformed || transformed_size == 0) {
         if (transformed) tjFree(transformed);
         set_error(context, "libjpeg-turbo could not perform a perfect DCT-domain transform for this JPEG.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const bool swaps_dimensions=operation==TJXOP_ROT90||operation==TJXOP_ROT270||operation==TJXOP_TRANSPOSE||operation==TJXOP_TRANSVERSE;
+    if(!map_dct_dimensions(source,std::span<uint8_t>(transformed,static_cast<size_t>(transformed_size)),swaps_dimensions)) {
+        tjFree(transformed);
+        set_error(context,"JPEG DCT output has inconsistent or unverifiable active EXIF dimensions; no output was published.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     windows_owned_output output;

@@ -21,7 +21,8 @@ namespace LivePhotoBox.Services
             try
             {
                 var resourceContext = ResourceManager.CreateResourceContext();
-                string? value = ResourceManager.MainResourceMap.GetValue($"Resources/{key}", resourceContext)?.ValueAsString;
+                // PRI stores resw property keys (e.g. Label.Text) as Label/Text.
+                string? value = ResourceManager.MainResourceMap.TryGetValue($"Resources/{key.Replace('.', '/')}", resourceContext)?.ValueAsString;
                 return string.IsNullOrWhiteSpace(value) ? key : value;
             }
             catch (COMException)
@@ -36,7 +37,7 @@ namespace LivePhotoBox.Services
             {
                 var resourceContext = ResourceManager.CreateResourceContext();
                 resourceContext.QualifierValues["Language"] = languageTag;
-                string? value = ResourceManager.MainResourceMap.GetValue($"Resources/{key}", resourceContext)?.ValueAsString;
+                string? value = ResourceManager.MainResourceMap.TryGetValue($"Resources/{key.Replace('.', '/')}", resourceContext)?.ValueAsString;
                 return string.IsNullOrWhiteSpace(value) ? key : value;
             }
             catch (COMException)

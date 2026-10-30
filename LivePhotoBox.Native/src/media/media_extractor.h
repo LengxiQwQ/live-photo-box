@@ -14,7 +14,9 @@ lpb_result extract_source_with_plan(
     const char* output_gainmap_path,
     const char* cleanup_source_path = nullptr,
     const lpb_extraction_output* auxiliary_outputs = nullptr,
-    size_t auxiliary_output_count = 0) noexcept;
+    size_t auxiliary_output_count = 0,
+    const lpb_carrier_extraction_output_v1* carrier_outputs = nullptr,
+    size_t carrier_output_count = 0) noexcept;
 
 lpb_result extract_source_internal(
     lpb_context* context,
@@ -29,7 +31,9 @@ lpb_result extract_source_internal(
     const lpb_extraction_output* auxiliary_outputs = nullptr,
     size_t auxiliary_output_count = 0,
     const char* cleanup_source_path = nullptr,
-    std::vector<lpb_published_artifact_record>* out_published_artifacts = nullptr) noexcept;
+    std::vector<lpb_published_artifact_record>* out_published_artifacts = nullptr,
+    const lpb_carrier_extraction_output_v1* carrier_outputs = nullptr,
+    size_t carrier_output_count = 0) noexcept;
 
 lpb_result rollback_extraction_outputs_with_plan(
     lpb_context* context,

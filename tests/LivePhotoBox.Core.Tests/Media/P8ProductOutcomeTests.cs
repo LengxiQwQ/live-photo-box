@@ -107,8 +107,7 @@ public sealed class P8ProductOutcomeTests
     public async Task SplitSuccess_ReportsActualTwoOutputsAndNoInventedConverter()
     {
         using var workspace = new TestFixtureWorkspace();
-        // R5 verifies cached Split outcomes. Newly written target conformance
-        // is separately recorded by the strict-rejection regression below.
+        // Original-source Split coverage is separate from the structured target round trip below.
         string source = Environment.GetEnvironmentVariable("LIVEPHOTOBOX_P8_SPLIT_LIVE_SAMPLE")
             ?? throw new InvalidOperationException("The frozen cached Honor Split input must be provided; no sample skip.");
         Assert.True(File.Exists(source));
@@ -131,7 +130,7 @@ public sealed class P8ProductOutcomeTests
 
     [Fact]
     [Trait("Category", "DerivedRealSamples")]
-    public async Task ExistingWriterDuplicateXmp_SplitRejectsStrictlyAndRetainsAlreadyCommittedMergeArtifact()
+    public async Task StructuredWriterKeepsUniqueXmpAndSplitStillRejectsAnExplicitDuplicate()
     {
         using var workspace = new TestFixtureWorkspace();
         string imageHash = Hash(Image()), videoHash = Hash(Video());
@@ -141,12 +140,22 @@ public sealed class P8ProductOutcomeTests
         Assert.True(merge.IsSuccess, merge.Details);
         string committedMerge = Assert.Single(merge.CommittedOutputs).Path;
         Assert.True(File.Exists(committedMerge));
-        Assert.Equal(2, CountStandardXmpPackets(committedMerge));
+        Assert.Equal(1, CountStandardXmpPackets(committedMerge));
         Assert.Equal(ProductTargetPreservation.Unknown, merge.FinalTargetPreservation);
         string committedHash = Hash(committedMerge);
+        var roundTrip = await LivePhotoSplitService.SplitWithOutcomeAsync(committedMerge,
+            Path.Combine(workspace.RootDirectory, "round-trip"), SplitMediaFormat.KeepSource, CancellationToken.None);
+        Assert.True(roundTrip.IsSuccess, roundTrip.Details);
+        Assert.Equal(2, roundTrip.CommittedOutputs.Count);
+        Assert.Equal(committedHash, Hash(committedMerge));
+
+        string malformed = Path.Combine(workspace.RootDirectory, "explicit-duplicate.jpg");
+        File.WriteAllBytes(malformed, P9TargetTestInputs.AddXmp(File.ReadAllBytes(committedMerge),
+            "<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\"><rdf:Description rdf:about=\"\"/></rdf:RDF></x:xmpmeta>"));
+        Assert.Equal(2, CountStandardXmpPackets(malformed));
         string splitOutput = Path.Combine(workspace.RootDirectory, "must-not-publish-split");
 
-        var split = await LivePhotoSplitService.SplitWithOutcomeAsync(committedMerge, splitOutput,
+        var split = await LivePhotoSplitService.SplitWithOutcomeAsync(malformed, splitOutput,
             SplitMediaFormat.KeepSource, CancellationToken.None, outputBaseName: "rejected");
         Assert.Equal(ProductOperationStatus.Failed, split.Status);
         Assert.Equal(ProductOperationStage.Inspection, split.Diagnostic.Stage);

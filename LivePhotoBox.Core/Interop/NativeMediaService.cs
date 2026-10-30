@@ -369,6 +369,21 @@ public static class NativeMediaService
         }, cancellationToken);
     }
 
+    private static void RequireCompleteHeifFileInventory(NativeContext context,in NativeSourceMediaFacts facts)
+    {
+        if(facts.PrimaryImage.Container != (int)ImageContainer.Heic)return;
+        var info=new NativeRuntimeInfoData { StructSize=(uint)Marshal.SizeOf<NativeRuntimeInfoData>() };
+        context.ThrowIfFailed(NativeMethods.GetRuntimeInfo(context.Handle,ref info));
+        ValidateHeifFileInventoryCapability(info.Capabilities);
+    }
+
+    internal static void ValidateHeifFileInventoryCapability(ulong capabilities)
+    {
+        if((capabilities&NativeRuntime.HeifOriginalFileResourceCapability)==0)
+            throw new SourceInspectionException(SourceInspectionFailureCategory.Unsupported,SourceInspectionStage.Container,
+                NativeRuntime.HeifOriginalFileResourceCapability,"The loaded Native runtime cannot prove complete HEIF Original file resource inventory.");
+    }
+
     public static Task<SourceMediaFacts> InspectMediaAsync(
         string primaryPath,
         string? secondaryPath = null,
@@ -414,6 +429,8 @@ public static class NativeMediaService
                         (nuint)residuesBuf.Length,
                         out nuint outResiduesCount);
                     ctx.ThrowIfFailed(res);
+
+                    RequireCompleteHeifFileInventory(ctx,nativeFacts);
 
                     var residuesList = new List<ConfirmedProtocolResidue>();
                     int count = Math.Min((int)outResiduesCount, residuesBuf.Length);
@@ -499,6 +516,8 @@ public static class NativeMediaService
                             out nuint outResiduesCount,
                             out ulong planGeneration);
                         ctx.ThrowIfFailed(res);
+
+                        RequireCompleteHeifFileInventory(ctx,nativeFacts);
 
                         var residuesList = new List<ConfirmedProtocolResidue>();
                         int count = Math.Min((int)outResiduesCount, residuesBuf.Length);
@@ -785,6 +804,45 @@ public static class NativeMediaService
 
     internal sealed record NativeAuxiliaryOutputBinding(uint AuxiliaryIndex, string Path);
 
+    internal sealed record NativeCarrierOutputBinding(uint CarrierIndex,string Path);
+
+    internal static unsafe Task ExtractMediaWithCarrierOutputsAsync(
+        ExtractionPlanAttempt attempt,string primaryPath,string? secondaryPath,
+        string? outputImagePath,string? outputVideoPath,string? outputGainmapPath,string? cleanupSourcePath,
+        IReadOnlyList<NativeAuxiliaryOutputBinding> auxiliaryOutputs,IReadOnlyList<NativeCarrierOutputBinding> carrierOutputs,
+        Action<NativeContext>? configureContext,CancellationToken cancellationToken=default)
+    {
+        ArgumentNullException.ThrowIfNull(attempt);ArgumentNullException.ThrowIfNull(auxiliaryOutputs);ArgumentNullException.ThrowIfNull(carrierOutputs);
+        if(auxiliaryOutputs.Count>8||carrierOutputs.Count>8)throw new ArgumentOutOfRangeException(nameof(carrierOutputs));
+        return Task.Run(()=>
+        {
+            configureContext?.Invoke(attempt.Context);cancellationToken.ThrowIfCancellationRequested();
+            NativeExtractionOutput* auxiliary=stackalloc NativeExtractionOutput[auxiliaryOutputs.Count];
+            NativeCarrierExtractionOutputV1* carriers=stackalloc NativeCarrierExtractionOutputV1[carrierOutputs.Count];
+            var paths=new List<nint>(auxiliaryOutputs.Count+carrierOutputs.Count);
+            try
+            {
+                for(int i=0;i<auxiliaryOutputs.Count;i++)
+                {
+                    var binding=auxiliaryOutputs[i]??throw new ArgumentException("Missing auxiliary output binding.");
+                    ArgumentException.ThrowIfNullOrWhiteSpace(binding.Path);nint path=Marshal.StringToCoTaskMemUTF8(binding.Path);paths.Add(path);
+                    auxiliary[i]=new(){StructSize=(uint)sizeof(NativeExtractionOutput),AuxiliaryIndex=binding.AuxiliaryIndex,OutputPath=path};
+                }
+                for(int i=0;i<carrierOutputs.Count;i++)
+                {
+                    var binding=carrierOutputs[i]??throw new ArgumentException("Missing ordinary metadata output binding.");
+                    ArgumentException.ThrowIfNullOrWhiteSpace(binding.Path);nint path=Marshal.StringToCoTaskMemUTF8(binding.Path);paths.Add(path);
+                    carriers[i]=new(){StructSize=(uint)sizeof(NativeCarrierExtractionOutputV1),Version=1,CarrierIndex=binding.CarrierIndex,OutputPath=path};
+                }
+                var result=NativeMethods.ExtractMediaWithPlanOutputsV3(attempt.ContextLease.Handle,attempt.NativeHandle,
+                    primaryPath,secondaryPath,outputImagePath,outputVideoPath,outputGainmapPath,cleanupSourcePath,
+                    auxiliary,(nuint)auxiliaryOutputs.Count,carriers,(nuint)carrierOutputs.Count);
+                attempt.Context.ThrowIfFailed(result);
+            }
+            finally{foreach(nint path in paths)Marshal.FreeCoTaskMem(path);}
+        },CancellationToken.None);
+    }
+
     public static Task<VideoFacts> ProbeVideoAsync(
         string videoPath,
         CancellationToken cancellationToken = default)
@@ -991,15 +1049,18 @@ public static class NativeMediaService
                 {
                     StructSize = 16, ApiVersion = 1, Policy = (uint)preservationPolicy
                 };
-                var preservation = new NativeVideoPreservationResultV1 { StructSize = 96 };
-                NativeResult res = NativeMethods.TranscodeVideoV3(
+                if (sizeof(NativeVideoPreservationResultV2) != 192)
+                    throw new InvalidDataException("Complete video proof ABI layout mismatch.");
+                var complete = new NativeVideoPreservationResultV2 { StructSize = 192, ApiVersion = 2 };
+                NativeResult res = NativeMethods.TranscodeVideoV4(
                     ctx.Handle,
                     inputVideoPath,
                     outputVideoPath,
                     (int)targetContainer,
                     (int)targetCodec,
                     crf,
-                    in preservationRequest, ref native, ref preservation);
+                    in preservationRequest, ref native, ref complete);
+                var preservation = complete.Metadata;
                 var diagnostics = ProjectVideoDiagnostics(
                     (VideoBackend)native.Backend,
                     (VideoHardwareMode)native.HardwareMode,
@@ -1051,8 +1112,18 @@ public static class NativeMediaService
                         OutputSha256 = Convert.ToHexString(new ReadOnlySpan<byte>(preservation.OutputSha256, 32))
                     };
                 }
+                VideoCompleteRemuxEvidence? proof = null;
+                if (res == NativeResult.Ok && complete.StructSize == 192 && complete.ApiVersion == 2 &&
+                    complete.ProofKind == 1 && complete.ProofFlags == 1 && targetCodec == VideoCodec.Copy &&
+                    metadata is not null && outputEvidence is not null && complete.SourceLength > 0 &&
+                    complete.OutputLength == (ulong)outputEvidence.ByteLength &&
+                    string.Equals(Convert.ToHexString(new ReadOnlySpan<byte>(complete.OutputFileSha256,32)),
+                        outputEvidence.Sha256,StringComparison.OrdinalIgnoreCase))
+                    proof = new(complete.SourceLength,complete.OutputLength,
+                        Convert.ToHexString(new ReadOnlySpan<byte>(complete.SourceFileSha256,32)),outputEvidence.Sha256);
                 return new NativeVideoTranscodeAttempt(
-                    res, diagnostics, lastError, failureException, outputEvidence, outputEvidenceFailure, metadata);
+                    res, diagnostics, lastError, failureException, outputEvidence, outputEvidenceFailure, metadata)
+                    { CompleteRemuxProof = proof };
             }
         }, cancellationToken);
     }
@@ -1525,6 +1596,7 @@ public static class NativeMediaService
         Exception? OutputEvidenceFailure,
         VideoMetadataPreservationEvidence? MetadataPreservation)
     {
+        public VideoCompleteRemuxEvidence? CompleteRemuxProof { get; init; }
         public bool Succeeded => ResultCode == NativeResult.Ok;
     }
 

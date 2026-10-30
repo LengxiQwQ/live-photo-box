@@ -45,31 +45,112 @@
     <ClInclude Include="src\binary\portable_io.h">
       <Filter>src\binary</Filter>
     </ClInclude>
+    <ClInclude Include="src\containers\aac_config.h">
+      <Filter>src\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="src\containers\heif_internal.h">
+      <Filter>src\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="src\containers\inline_scene_metadata.h">
+      <Filter>src\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="src\containers\inline_transform_metadata.h">
+      <Filter>src\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="src\containers\isobmff_mebx_transplant.h">
+      <Filter>src\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="src\containers\isobmff_metadata_keys.h">
+      <Filter>src\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="src\containers\isobmff_track_graph.h">
+      <Filter>src\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="src\containers\isobmff_video_profile.h">
+      <Filter>src\containers</Filter>
+    </ClInclude>
     <ClInclude Include="src\containers\isobmff.h">
       <Filter>src\containers</Filter>
     </ClInclude>
     <ClInclude Include="src\containers\mp4_strip.h">
       <Filter>src\containers</Filter>
     </ClInclude>
+    <ClInclude Include="src\containers\original_jpeg_metadata.h">
+      <Filter>src\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="src\containers\original_jpeg_padding.h">
+      <Filter>src\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="src\containers\pcm_config.h">
+      <Filter>src\containers</Filter>
+    </ClInclude>
+    <ClInclude Include="src\containers\remux_byte_proof.h">
+      <Filter>src\containers</Filter>
+    </ClInclude>
     <ClInclude Include="src\foundation\internal.h">
+      <Filter>src\foundation</Filter>
+    </ClInclude>
+    <ClInclude Include="src\foundation\md5_core.h">
+      <Filter>src\foundation</Filter>
+    </ClInclude>
+    <ClInclude Include="src\foundation\portable_internal.h">
       <Filter>src\foundation</Filter>
     </ClInclude>
     <ClInclude Include="src\foundation\residue_fingerprint.h">
       <Filter>src\foundation</Filter>
     </ClInclude>
+    <ClInclude Include="src\foundation\sha256_core.h">
+      <Filter>src\foundation</Filter>
+    </ClInclude>
     <ClInclude Include="src\foundation\sha256.h">
       <Filter>src\foundation</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\compound_primary.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\empty_audio_placeholder.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\gainmap_math.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\h264_order_proof.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\hdr_image_exif_mapping.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\hdr_image_metadata.h">
+      <Filter>src\media</Filter>
     </ClInclude>
     <ClInclude Include="src\media\heic_backend.h">
       <Filter>src\media</Filter>
     </ClInclude>
-    <ClInclude Include="src\media\jpeg_gainmap_mpf.h">
+    <ClInclude Include="src\media\huawei_conformance.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\icc_profile_validation.h">
       <Filter>src\media</Filter>
     </ClInclude>
     <ClInclude Include="src\media\image_converter.h">
       <Filter>src\media</Filter>
     </ClInclude>
+    <ClInclude Include="src\media\image_exif_mapping.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
     <ClInclude Include="src\media\jpeg_backend.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\jpeg_gainmap_mpf.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\jpeg_marker.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\jpeg_mpf_vendor.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\jpeg_observation.h">
       <Filter>src\media</Filter>
     </ClInclude>
     <ClInclude Include="src\media\media_cleaner.h">
@@ -81,7 +162,64 @@
     <ClInclude Include="src\media\media_inspector.h">
       <Filter>src\media</Filter>
     </ClInclude>
+    <ClInclude Include="src\media\neutral_timing.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\opaque_camera_records.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\ordinary_metadata_capsule.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\ordinary_metadata_container.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\pixel_orientation.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\preserved_exif.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\target_primary_observation.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\target_validator_v2.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\target_validator.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\target_video_observation.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\target_writer.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
     <ClInclude Include="src\media\video_converter.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\video_presentation_timing.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\video_sei_preservation.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\video_sidecar_abi.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\video_sidecar_bridge.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\video_sidecar_loader.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\vivo_comment.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\vivo_modern_inventory.h">
+      <Filter>src\media</Filter>
+    </ClInclude>
+    <ClInclude Include="src\media\xmp_observation.h">
       <Filter>src\media</Filter>
     </ClInclude>
     <ClInclude Include="src\metadata\exif_rewrite.h">
@@ -91,6 +229,9 @@
       <Filter>src\metadata</Filter>
     </ClInclude>
     <ClInclude Include="src\metadata\jpeg.h">
+      <Filter>src\metadata</Filter>
+    </ClInclude>
+    <ClInclude Include="src\metadata\target_exif.h">
       <Filter>src\metadata</Filter>
     </ClInclude>
     <ClInclude Include="src\platform\windows_filesystem.h">
@@ -114,12 +255,39 @@
     <ClInclude Include="src\protocols\clean\xmp_cleaner.h">
       <Filter>src\protocols\clean</Filter>
     </ClInclude>
+    <ClInclude Include="src\protocols\google_v2_writer.h">
+      <Filter>src\protocols</Filter>
+    </ClInclude>
+    <ClInclude Include="src\protocols\huawei_target.h">
+      <Filter>src\protocols</Filter>
+    </ClInclude>
+    <ClInclude Include="src\protocols\samsung_inventory.h">
+      <Filter>src\protocols</Filter>
+    </ClInclude>
     <ClInclude Include="src\protocols\samsung_sef.h">
+      <Filter>src\protocols</Filter>
+    </ClInclude>
+    <ClInclude Include="src\protocols\samsung_target.h">
+      <Filter>src\protocols</Filter>
+    </ClInclude>
+    <ClInclude Include="src\protocols\target_structure.h">
       <Filter>src\protocols</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="src\containers\heif.cpp">
+      <Filter>src\containers</Filter>
+    </ClCompile>
+    <ClCompile Include="src\containers\isobmff_mebx_transplant.cpp">
+      <Filter>src\containers</Filter>
+    </ClCompile>
+    <ClCompile Include="src\containers\isobmff_metadata_keys.cpp">
+      <Filter>src\containers</Filter>
+    </ClCompile>
+    <ClCompile Include="src\containers\isobmff_track_graph.cpp">
+      <Filter>src\containers</Filter>
+    </ClCompile>
+    <ClCompile Include="src\containers\isobmff_video_profile.cpp">
       <Filter>src\containers</Filter>
     </ClCompile>
     <ClCompile Include="src\containers\isobmff.cpp">
@@ -134,13 +302,28 @@
     <ClCompile Include="src\foundation\residue_fingerprint.cpp">
       <Filter>src\foundation</Filter>
     </ClCompile>
+    <ClCompile Include="src\foundation\sha256_core.cpp">
+      <Filter>src\foundation</Filter>
+    </ClCompile>
     <ClCompile Include="src\foundation\sha256.cpp">
       <Filter>src\foundation</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\compound_primary.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\gainmap_math.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\hdr_gainmap_conversion.cpp">
+      <Filter>src\media</Filter>
     </ClCompile>
     <ClCompile Include="src\media\heic_backend.cpp">
       <Filter>src\media</Filter>
     </ClCompile>
-    <ClCompile Include="src\media\gainmap_math.cpp">
+    <ClCompile Include="src\media\huawei_conformance.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\image_converter_v2.cpp">
       <Filter>src\media</Filter>
     </ClCompile>
     <ClCompile Include="src\media\image_converter.cpp">
@@ -149,13 +332,13 @@
     <ClCompile Include="src\media\jpeg_backend.cpp">
       <Filter>src\media</Filter>
     </ClCompile>
+    <ClCompile Include="src\media\jpeg_observation.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
     <ClCompile Include="src\media\media_api.cpp">
       <Filter>src\media</Filter>
     </ClCompile>
     <ClCompile Include="src\media\media_cleaner.cpp">
-      <Filter>src\media</Filter>
-    </ClCompile>
-    <ClCompile Include="src\media\hdr_gainmap_conversion.cpp">
       <Filter>src\media</Filter>
     </ClCompile>
     <ClCompile Include="src\media\media_extractor.cpp">
@@ -164,10 +347,37 @@
     <ClCompile Include="src\media\media_inspector.cpp">
       <Filter>src\media</Filter>
     </ClCompile>
+    <ClCompile Include="src\media\neutral_timing.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
     <ClCompile Include="src\media\preservation_observation.cpp">
       <Filter>src\media</Filter>
     </ClCompile>
+    <ClCompile Include="src\media\target_primary_observation.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\target_validator_v2.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\target_validator.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\target_video_observation.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\target_writer.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
     <ClCompile Include="src\media\video_converter.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\video_sidecar_bridge.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\video_sidecar_loader.cpp">
+      <Filter>src\media</Filter>
+    </ClCompile>
+    <ClCompile Include="src\media\video_sidecar.cpp">
       <Filter>src\media</Filter>
     </ClCompile>
     <ClCompile Include="src\metadata\exif_rewrite.cpp">
@@ -177,6 +387,9 @@
       <Filter>src\metadata</Filter>
     </ClCompile>
     <ClCompile Include="src\metadata\jpeg.cpp">
+      <Filter>src\metadata</Filter>
+    </ClCompile>
+    <ClCompile Include="src\metadata\target_exif.cpp">
       <Filter>src\metadata</Filter>
     </ClCompile>
     <ClCompile Include="src\platform\windows_filesystem.cpp">
@@ -200,10 +413,25 @@
     <ClCompile Include="src\protocols\clean\xmp_cleaner.cpp">
       <Filter>src\protocols\clean</Filter>
     </ClCompile>
+    <ClCompile Include="src\protocols\google_v2_writer.cpp">
+      <Filter>src\protocols</Filter>
+    </ClCompile>
+    <ClCompile Include="src\protocols\huawei_target.cpp">
+      <Filter>src\protocols</Filter>
+    </ClCompile>
     <ClCompile Include="src\protocols\huawei.cpp">
       <Filter>src\protocols</Filter>
     </ClCompile>
+    <ClCompile Include="src\protocols\samsung_inventory.cpp">
+      <Filter>src\protocols</Filter>
+    </ClCompile>
     <ClCompile Include="src\protocols\samsung_sef.cpp">
+      <Filter>src\protocols</Filter>
+    </ClCompile>
+    <ClCompile Include="src\protocols\samsung_target.cpp">
+      <Filter>src\protocols</Filter>
+    </ClCompile>
+    <ClCompile Include="src\protocols\target_structure.cpp">
       <Filter>src\protocols</Filter>
     </ClCompile>
     <ClCompile Include="src\protocols\vivo_legacy.cpp">

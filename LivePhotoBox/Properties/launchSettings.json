@@ -1,10 +1,12 @@
 {
   "profiles": {
-    "Live Photo Box (Package)": {
-      "commandName": "MsixPackage"
-    },
     "Live Photo Box (Unpackaged)": {
-      "commandName": "Project"
+      "commandName": "Project",
+      "nativeDebugging": true
+    },
+    "Live Photo Box (Package)": {
+      "commandName": "MsixPackage",
+      "nativeDebugging": true
     }
   }
 }

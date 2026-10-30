@@ -177,7 +177,10 @@ enum lpb_capability
     LPB_CAPABILITY_HDR_PIXEL_SURFACE = 1ull << 21,
     /* R5 closeout: libheif/x265 can stage a primary and a second coded image
      * for project-owned auxiliary structural assembly. */
-    LPB_CAPABILITY_HEIC_SECONDARY_IMAGE_ENCODER = 1ull << 22
+    LPB_CAPABILITY_HEIC_SECONDARY_IMAGE_ENCODER = 1ull << 22,
+    /* Complete typed historical Original JPEG file inventory and guarded
+     * transport. This low-level fact is not product/device protocol support. */
+    LPB_CAPABILITY_HEIF_ORIGINAL_FILE_RESOURCE = 1ull << 23
 };
 
 LPB_API uint32_t LPB_CALL lpb_get_abi_version(void);
@@ -825,6 +828,28 @@ typedef struct lpb_video_preservation_result_v1 {
     uint8_t output_sha256[32];
 } lpb_video_preservation_result_v1;
 
+/* Additive v2 proof. Existing v1 scoped-metadata semantics are unchanged.
+ * kind=1/flags=1: successful original Copy remux, complete actual source/output
+ * transport compared before publication. Only structurally derived ftyp,
+ * relocated chunk addresses, equivalent handler-name encoding and ctts signed
+ * version representation may differ. The exact presentation schedule must match.
+ * Every other byte, including media/config/timing/ordinary metadata, is exact.
+ * Never emitted for codec transforms or their final-container staging.
+ * SHA256 values identify the complete pinned source and owned output objects.
+ * kind/flags=0: no complete Copy proof; metadata may still be independently valid.
+ * Unknown version/kind/flags must not authorize a preservation-success claim. */
+typedef struct lpb_video_preservation_result_v2 {
+    uint32_t struct_size;
+    uint32_t api_version;
+    uint32_t proof_kind;
+    uint32_t proof_flags;
+    lpb_video_preservation_result_v1 metadata;
+    uint64_t source_length;
+    uint64_t output_length;
+    uint8_t source_file_sha256[32];
+    uint8_t output_file_sha256[32];
+} lpb_video_preservation_result_v2;
+
 typedef struct lpb_gainmap_item_facts
 {
     uint32_t struct_size;
@@ -1050,6 +1075,20 @@ LPB_API lpb_result LPB_CALL lpb_extract_media_with_plan_outputs_v2(
     const char* cleanup_source_path,
     const lpb_extraction_output* auxiliary_outputs,
     size_t auxiliary_output_count);
+
+/* Additive ordinary metadata handoff. Binds an existing Inspector-owned
+ * preservation carrier, never caller ranges. Old extraction entrypoints
+ * reject unrepresented ordinary records. All outputs share the same
+ * source leases, one-shot plan, creator identities and rollback transaction. */
+typedef struct lpb_carrier_extraction_output_v1 {
+    uint32_t struct_size,version,carrier_index,reserved;
+    const char* output_path;
+} lpb_carrier_extraction_output_v1;
+LPB_API lpb_result LPB_CALL lpb_extract_media_with_plan_outputs_v3(
+    lpb_context*,lpb_extraction_plan*,const char* primary_path,const char* secondary_path,
+    const char* output_image_path,const char* output_video_path,const char* output_gainmap_path,
+    const char* cleanup_source_path,const lpb_extraction_output*,size_t auxiliary_output_count,
+    const lpb_carrier_extraction_output_v1*,size_t carrier_output_count);
 
 /* Rolls back only file objects whose identity was captured by Native while
  * the extraction transaction still owned their handles.  A different object
@@ -1292,6 +1331,13 @@ LPB_API lpb_result LPB_CALL lpb_transcode_video_v3(
     lpb_video_backend_diagnostics* out_diagnostics,
     lpb_video_preservation_result_v1* out_preservation);
 
+LPB_API lpb_result LPB_CALL lpb_transcode_video_v4(
+    lpb_context* context, const char* input_video_path, const char* output_video_path,
+    lpb_video_container target_container, lpb_video_codec target_codec, int32_t crf,
+    const lpb_video_preservation_request_v1* preservation_request,
+    lpb_video_backend_diagnostics* out_diagnostics,
+    lpb_video_preservation_result_v2* out_preservation);
+
 /// Reassemble a JPEG primary image with an appended GainMap JPEG into a single
 /// multi-picture JPEG file. Validates JPEG magic bytes on both inputs before
 /// writing. Fails closed if either input is invalid or output cannot be written.
@@ -1308,7 +1354,8 @@ typedef enum lpb_media_artifact_kind
     LPB_ARTIFACT_MOTION_VIDEO = 1,
     LPB_ARTIFACT_GAIN_MAP = 2,
     LPB_ARTIFACT_AUXILIARY_ITEM = 3,
-    LPB_ARTIFACT_SOURCE_CONTAINER = 4
+    LPB_ARTIFACT_SOURCE_CONTAINER = 4,
+    LPB_ARTIFACT_METADATA_CARRIER = 5
 } lpb_media_artifact_kind;
 
 typedef enum lpb_residue_structure_kind
@@ -1714,6 +1761,52 @@ typedef struct lpb_target_validation_request_v3 {
 LPB_API lpb_result LPB_CALL lpb_target_validate_v3(lpb_context*,
     const lpb_target_validation_request_v3*,const lpb_target_reader_v1*,lpb_target_validation_result_v2*);
 
+/* Ordinary self-relative metadata is a separate actual artifact, not an
+ * auxiliary media append instruction. Version one supports one primary-owned
+ * complete record block. Existing Writer/Validator versions keep their scope. */
+typedef struct lpb_target_ordinary_metadata_v1 {
+    uint32_t struct_size,version,kind,owner_index,flags,reserved;
+    char stable_identity[128],owner_identity[128],semantic[32],relationship[96];
+    lpb_target_writer_artifact_v1 materialized;
+} lpb_target_ordinary_metadata_v1;
+typedef struct lpb_target_writer_request_v4 {
+    uint32_t struct_size,version;
+    lpb_target_writer_request_v3 base;
+    uint32_t metadata_count,reserved;
+    const lpb_target_ordinary_metadata_v1* metadata;
+    uint64_t reserved_tail;
+} lpb_target_writer_request_v4;
+LPB_API lpb_result LPB_CALL lpb_target_writer_prepare_v4(lpb_context*,
+    const lpb_target_writer_request_v4*,lpb_target_writer_plan**);
+
+typedef struct lpb_target_ordinary_metadata_expectation_v1 {
+    uint32_t struct_size,version,kind,owner_index,flags,reserved;
+    uint64_t byte_length;
+    uint8_t sha256[32];
+} lpb_target_ordinary_metadata_expectation_v1;
+typedef struct lpb_target_validation_request_v4 {
+    uint32_t struct_size,version;
+    lpb_target_validation_request_v3 base;
+    uint32_t metadata_count,reserved;
+    const lpb_target_ordinary_metadata_expectation_v1* metadata;
+    uint64_t reserved_tail;
+} lpb_target_validation_request_v4;
+typedef struct lpb_target_ordinary_metadata_observed_v1 {
+    uint32_t kind,owner_index;
+    uint64_t byte_length;
+    uint8_t sha256[32];
+    uint32_t chunk_count,container;
+} lpb_target_ordinary_metadata_observed_v1;
+typedef struct lpb_target_validation_result_v3 {
+    uint32_t struct_size,version;
+    lpb_target_validation_result_v2 base;
+    uint32_t metadata_preservation_status,metadata_count; /* 0 unknown, 1 verified */
+    lpb_target_ordinary_metadata_observed_v1 metadata;
+    uint64_t reserved;
+} lpb_target_validation_result_v3;
+LPB_API lpb_result LPB_CALL lpb_target_validate_v4(lpb_context*,
+    const lpb_target_validation_request_v4*,const lpb_target_reader_v1*,lpb_target_validation_result_v3*);
+
 /* Returns the cleaner-owned staged output records this context recorded while
  * the last plan-authorized clean ran (successful or failed).  Each record is
  * captured from the creating handle at publish time; managed code uses these
@@ -1908,6 +2001,76 @@ typedef struct lpb_neutral_timing_observation_v1 {
 LPB_API lpb_result LPB_CALL lpb_observe_neutral_timing_v1(
     lpb_context* context, const char* primary_path, const char* secondary_path,
     const char* final_video_path, lpb_neutral_timing_observation_v1* out_observation);
+
+/* Versioned proof of ordinary-primary XMP carriage through a bound HDR stage.
+ * kind2/flags1 permits only the verified target GainMap description addition;
+ * original ordinary XML is retained. Not an Exif/pixel/ICC preservation claim.
+ * kind3/flags1 instead permits only an already bound HEIC Primary+GainMap
+ * directory's two Mime values, Primary Padding and GainMap Length to map to
+ * the actual JPEG layout. All other XML bytes remain exact; kind2 is unchanged.
+ * Source and exact stage hashes must match the consuming transaction. */
+typedef struct lpb_hdr_gainmap_metadata_proof_v2 {
+    uint32_t struct_size, api_version, proof_kind, proof_flags;
+    uint8_t source_file_sha256[32], output_file_sha256[32];
+} lpb_hdr_gainmap_metadata_proof_v2;
+LPB_API lpb_result LPB_CALL lpb_get_hdr_gainmap_metadata_proof_v2(
+    lpb_context* context, uint64_t transaction_token, lpb_hdr_gainmap_metadata_proof_v2* proof);
+
+/* Additive bound image transaction. Existing lpb_convert_image and HDR proof
+ * kinds retain their meanings. orientation_policy1 means physical pixel
+ * normalization; the output never relies on an active orientation transform.
+ * No public raw metadata rewrite authority is supplied by the caller. */
+typedef struct lpb_image_conversion_request_v2 {
+    uint32_t struct_size, api_version, source_container, target_container;
+    int32_t quality;
+    uint32_t orientation_policy;
+    lpb_file_identity expected_identity;
+    uint8_t source_sha256[32];
+    uint32_t reserved0, reserved1;
+} lpb_image_conversion_request_v2;
+/* kind1/flags1 proves the complete supported ordinary metadata inventory,
+ * exact/absent ICC, and normal physical output orientation. It is not an HDR
+ * or auxiliary graph proof. operation1 exact copy,2 lossless DCT,3 reencode.
+ * The mapped-source digest includes only authorized orientation/dimension
+ * normalization; source_sha256 always hashes the actual original source.
+ * status1 verified applicable,2 proven absent. A non-null proof must point to
+ * at least its4-byte size header. Failures clear min(supplied capacity,240)
+ * bytes, preserving size/version only when those headers fit. No fields beyond
+ * declared capacity are touched; only exact240B/version1 can ever succeed. */
+typedef struct lpb_image_conversion_proof_v1 {
+    uint32_t struct_size, api_version, proof_kind, proof_flags;
+    uint8_t source_sha256[32], output_sha256[32];
+    uint8_t mapped_source_metadata_sha256[32], output_metadata_sha256[32];
+    uint64_t source_length, output_length;
+    uint32_t source_orientation, output_orientation, operation;
+    uint32_t metadata_status, icc_status, orientation_status;
+    uint32_t source_width, source_height, output_width, output_height;
+    uint32_t metadata_count, reserved;
+    lpb_file_identity output_identity;
+} lpb_image_conversion_proof_v1;
+LPB_API lpb_result LPB_CALL lpb_convert_image_v2(lpb_context*,
+    const char* input_path, const char* output_path,
+    const lpb_image_conversion_request_v2*, lpb_image_conversion_proof_v1*);
+/* Explicit user choice only: keep stored pixels of a neutral JPEG with one
+ * IFD0 SHORT/LONG Orientation=count1/value0. No pixel transform or reencode;
+ * all bytes outside that typed field are exact. Existing entry points/kinds
+ * retain their semantics. Request80B/v1 handling1/reserved0; proof240B/v1
+ * kind3/flags1/operation4 (metadata-only), sourceOrientation0/output1. The
+ * metadata digests hash the mapped and re-observed complete Exif payload.
+ * No missing, already valid, malformed or other unknown value is accepted. */
+typedef struct lpb_unspecified_jpeg_orientation_request_v1 {
+    uint32_t struct_size,api_version,handling,reserved;
+    lpb_file_identity expected_identity;
+    uint8_t source_sha256[32];
+} lpb_unspecified_jpeg_orientation_request_v1;
+LPB_API lpb_result LPB_CALL lpb_resolve_unspecified_jpeg_orientation_v1(lpb_context*,
+    const char*,const char*,const lpb_unspecified_jpeg_orientation_request_v1*,lpb_image_conversion_proof_v1*);
+/* Compatible HDR-stage metadata proof: this getter's kind2 is the complete
+ * eight-carrier mapped image inventory and physical direction scope. It is
+ * independent of ordinary image kind1 and the old 80B HDR XMP proof kinds2/3.
+ * Only a live, uncommitted owned stage with exact v1/240B layout can succeed. */
+LPB_API lpb_result LPB_CALL lpb_get_hdr_image_conversion_proof_v1(
+    lpb_context*, uint64_t transaction_token, lpb_image_conversion_proof_v1*);
 
 LPB_API lpb_result LPB_CALL lpb_inspect_hdr_gainmap_stage_v1(
     lpb_context* context,

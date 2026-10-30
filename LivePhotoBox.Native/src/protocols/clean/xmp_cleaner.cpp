@@ -1,6 +1,7 @@
 #include "xmp_cleaner.h"
 #include "media/media_cleaner.h"
 #include "foundation/residue_fingerprint.h"
+#include "media/xmp_observation.h"
 
 #include <algorithm>
 #include <cctype>
@@ -1043,6 +1044,40 @@ bool clean_xmp_metadata_with_plan(
 
     for (const auto& element : elements)
     {
+        // A protocol property may be represented as a direct RDF Description
+        // attribute or as a scalar child element. Both carry the same exact
+        // expanded-name/value fingerprint; never remove an enclosing owner.
+        if (element.start < p) continue;
+        const auto element_uri=namespace_uri_for_name(element.name,element.bindings,false);
+        const auto* element_action=find_xmp_attribute_action(element.name,element_uri,protocol,actions,action_count);
+        if(element_action) {
+            lpb::media::target_xmp_observation inventory;lpb::media::xmp_observation_failure why{};
+            if(!lpb::media::observe_target_xmp(xml,inventory,why))return false;
+            const size_t index=static_cast<size_t>(&element-elements.data());
+            const size_t owner=direct_parent_index(elements,index);
+            if(owner==static_cast<size_t>(-1)||!is_element(elements[owner],rdf_namespace,"Description"))return false;
+            const size_t rdf=direct_parent_index(elements,owner);
+            if(rdf==static_cast<size_t>(-1)||!is_element(elements[rdf],rdf_namespace,"RDF"))return false;
+            for(const auto& attribute:element.attributes)if(attribute.name!="xmlns"&&!attribute.name.starts_with("xmlns:"))return false;
+            for(size_t child=0;child<elements.size();++child)if(direct_parent_index(elements,child)==index)return false;
+            const size_t close=xml.find('<',element.start_tag_end);
+            if(close==std::string_view::npos||close>=element.end||xml.substr(close,2)!="</")return false;
+            auto value=xml.substr(element.start_tag_end,close-element.start_tag_end);
+            while(!value.empty()&&std::isspace(static_cast<unsigned char>(value.front())))value.remove_prefix(1);
+            while(!value.empty()&&std::isspace(static_cast<unsigned char>(value.back())))value.remove_suffix(1);
+            const auto fp=lpb::crypto::compute_xmp_property_fingerprint(element_uri,local_name(element.name),value);
+            if(element_action->expected_fingerprint[0]=='\0'||fp!=element_action->expected_fingerprint)return false;
+            cleaned.append(xml.substr(p,element.start-p));p=element.end;removed_attribute=true;
+            lpb_removed_protocol_fact fact{};fact.struct_size=sizeof(fact);
+            strncpy_s(fact.protocol_name,protocol_name_str(protocol),_TRUNCATE);
+            strncpy_s(fact.component,"XMP scalar property",_TRUNCATE);
+            strncpy_s(fact.description,"Removed authorized scalar protocol property",_TRUNCATE);
+            strncpy_s(fact.residue_id,element_action->residue_id,_TRUNCATE);
+            fact.artifact_role=element_action->artifact_role;fact.structure_kind=element_action->structure_kind;
+            strncpy_s(fact.operation,"Removed",_TRUNCATE);strncpy_s(fact.after_status,"Removed",_TRUNCATE);
+            strncpy_s(fact.before_fingerprint,fp.c_str(),_TRUNCATE);attr_facts.push_back(fact);
+            continue;
+        }
         cleaned.append(xml.substr(p, element.start - p));
         size_t cursor = element.start;
         for (const auto& attr : element.attributes)

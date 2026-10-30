@@ -3,6 +3,7 @@ using LivePhotoBox.Media;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Workspace;
 using LivePhotoBox.Services.Protocols;
+using LivePhotoBox.Interop;
 using NeutralMediaBundle = LivePhotoBox.Protocols.Cleaning.NeutralMediaBundle;
 using System;
 using System.Collections.Concurrent;
@@ -15,9 +16,18 @@ using System.Threading.Tasks;
 
 namespace LivePhotoBox.Services
 {
+    internal sealed record StructuredMergeOptions
+    {
+        internal PreservationPolicy PreservationPolicy { get; init; } = PreservationPolicy.BestEffort;
+        internal HuaweiTargetVariant HuaweiVariant { get; init; } = HuaweiTargetVariant.HuaweiV6;
+        internal SamsungTargetVariant SamsungVariant { get; init; } = SamsungTargetVariant.Mpv3;
+        internal UnspecifiedImageOrientationHandling UnspecifiedImageOrientationHandling { get; init; }
+    }
+
     // 合并任务的运行配置项。
     public sealed class LivePhotoMergeRunOptions
     {
+        internal StructuredMergeOptions StructuredOptions { get; init; } = new();
         // 输出目录路径。
         public required string OutputDirectory { get; init; }
         public required OutputProfile OutputProfile { get; init; }
@@ -42,6 +52,8 @@ namespace LivePhotoBox.Services
         // 0   = 封面就是静止图片本身（视频起始帧）。
         // GUI 编辑页后续“选帧设为封面”也走此选项，无需改协议字节格式。
         public long? KeyPhotoTimestampUs { get; init; }
+        /// <summary>Explicit choice for this input only; batch invocation rejects it.</summary>
+        public UnspecifiedImageOrientationHandling UnspecifiedImageOrientationHandling { get; init; }
     }
 
     // 实况照片合并运行器。
@@ -85,6 +97,8 @@ namespace LivePhotoBox.Services
         {
             ArgumentNullException.ThrowIfNull(options);
             ArgumentNullException.ThrowIfNull(options.OutputProfile);
+            if(options.UnspecifiedImageOrientationHandling!=UnspecifiedImageOrientationHandling.Reject)
+                throw new ArgumentException("Unspecified image direction must be selected for one input, not applied to a batch.",nameof(options));
             if (options.TaskStartInterval < TimeSpan.Zero ||
                 options.TaskStartInterval.TotalMilliseconds > uint.MaxValue - 1)
                 throw new ArgumentOutOfRangeException(nameof(options.TaskStartInterval),
@@ -102,6 +116,7 @@ namespace LivePhotoBox.Services
             Action<IMergeTaskInfo>? onTaskStarted,
             Action<IMergeTaskInfo, ProductOperationOutcome, int>? onTaskCompleted)
         {
+            using var inputProtection = new BatchInputProtection(tasks);
             Directory.CreateDirectory(options.OutputDirectory);
             int completedCount = 0;
             int batchSize = Math.Max(1, options.MaxDegreeOfParallelism);
@@ -140,6 +155,29 @@ namespace LivePhotoBox.Services
             }
         }
 
+        // Protect future queue members too: an earlier output must never be
+        // allowed to overwrite another task's not-yet-started original.
+        private sealed class BatchInputProtection : IDisposable
+        {
+            private readonly List<FileStream> leases = new();
+            internal BatchInputProtection(IReadOnlyCollection<IMergeTaskInfo> tasks)
+            {
+                try
+                {
+                    foreach (string path in tasks.SelectMany(task => new[] { task.ImagePath, task.VideoPath })
+                        .Where(path => !string.IsNullOrEmpty(path)).Select(Path.GetFullPath)
+                        .Distinct(StringComparer.OrdinalIgnoreCase))
+                    {
+                        // Missing inputs still receive their normal per-item failure.
+                        // Existing objects must be protected before any writer starts.
+                        if (File.Exists(path)) leases.Add(File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read));
+                    }
+                }
+                catch { Dispose(); throw; }
+            }
+            public void Dispose() { foreach (var lease in leases) lease.Dispose(); }
+        }
+
         private static async Task<ProductOperationOutcome> ProcessSinglePairRebuiltAsync(
             string imagePath,
             string videoPath,
@@ -158,8 +196,16 @@ namespace LivePhotoBox.Services
                 OperationId = Guid.NewGuid(), StartedUtc = DateTimeOffset.UtcNow,
                 Operation = ProductOperationKind.Merge,
                 RequestedSelection = new() { TargetProtocol = options.OutputProfile?.TargetProtocol,
-                    OutputFormat = options.OutputProfile?.Format },
-                Inputs = new[] { imagePath, videoPath },
+                    OutputFormat = options.OutputProfile?.Format,
+                    PreservationPolicy = options.StructuredOptions.PreservationPolicy,
+                    UnspecifiedImageOrientationHandling=options.UnspecifiedImageOrientationHandling,
+                    TargetVersion = options.OutputProfile?.TargetProtocol switch
+                    {
+                        TargetProtocol.SamsungMotionPhoto => (uint)options.StructuredOptions.SamsungVariant,
+                        TargetProtocol.HuaweiMovingPhoto => (uint)options.StructuredOptions.HuaweiVariant,
+                        _ => 1
+                    } },
+                Inputs = string.IsNullOrEmpty(videoPath) ? new[] { imagePath } : new[] { imagePath, videoPath },
                 RequestedDestination = options.OutputFilePath ?? options.OutputDirectory
             };
             NeutralMediaBundle? prepared = null;
@@ -169,16 +215,23 @@ namespace LivePhotoBox.Services
             {
                 token.ThrowIfCancellationRequested();
                 ArgumentNullException.ThrowIfNull(options.OutputProfile);
-                MediaFormatRequirement requirement = options.OutputProfile.MediaRequirement;
+                MediaFormatRequirement requirement = options.OutputProfile.MediaRequirement with
+                    { UnspecifiedImageOrientationHandling=options.UnspecifiedImageOrientationHandling };
 
+                // Keep original file objects read-only until publication completes.
+                // This also blocks hard-link/reparse aliases and late replacements
+                // at the actual mutation boundary, not just during path selection.
+                using var imageLease = File.Open(imagePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                using var videoLease = string.IsNullOrEmpty(videoPath) ? null :
+                    File.Open(videoPath, FileMode.Open, FileAccess.Read, FileShare.Read);
                 using var workspace = new MediaWorkspace();
                 stage = ProductOperationStage.Inspection;
                 NeutralMediaBundle bundle = await new NeutralMediaService().CreateNeutralBundleAsync(
                     imagePath,
-                    videoPath,
+                    string.IsNullOrEmpty(videoPath) ? null : videoPath,
                     workspace,
                     requirement,
-                    PreservationPolicy.BestEffort,
+                    options.StructuredOptions.PreservationPolicy,
                     token).ConfigureAwait(false);
                 prepared = bundle;
 
@@ -188,6 +241,10 @@ namespace LivePhotoBox.Services
                 long presentationTimestampUs = ResolveNeutralCoverTimestamp(
                     bundle.Semantics.Timing,
                     options.KeyPhotoTimestampUs);
+                bundle = bundle with { Semantics = bundle.Semantics with
+                {
+                    Timing = bundle.Semantics.Timing with { CoverTimestampUs = presentationTimestampUs }
+                } };
 
                 stage = ProductOperationStage.Selection;
                 string outputName = ExistingTargetWriterAdapter.CreateOutputFileName(
@@ -223,16 +280,19 @@ namespace LivePhotoBox.Services
                     }
                 }
 
-                // Adapter owns its writer/publisher transaction. A generic
-                // exception cannot authoritatively identify a finer substage.
+                if (string.Equals(Path.GetFullPath(finalOutputPath), Path.GetFullPath(imagePath), StringComparison.OrdinalIgnoreCase) ||
+                    (!string.IsNullOrEmpty(videoPath) && string.Equals(Path.GetFullPath(finalOutputPath), Path.GetFullPath(videoPath), StringComparison.OrdinalIgnoreCase)))
+                    throw new IOException("Target publication cannot overwrite an original input.");
+
                 stage = ProductOperationStage.Writer;
-                await ExistingTargetWriterAdapter.WriteAsync(
-                    bundle,
-                    options.OutputProfile,
-                    finalOutputPath,
-                    token,
-                    presentationTimestampUs,
-                    overwriteExisting: options.OverwriteExisting).ConfigureAwait(false);
+                var published = await StructuredTargetWriterService.WriteAsync(
+                    bundle, options.OutputProfile, finalOutputPath, workspace.RootDirectory,
+                    options.OverwriteExisting, token,
+                    huaweiVariant: options.StructuredOptions.HuaweiVariant,
+                    samsungVariant: options.StructuredOptions.SamsungVariant,
+                    oppoInitialCoverPolicy: options.OutputProfile.TargetProtocol == TargetProtocol.OppoLivePhoto
+                        ? OppoInitialCoverPolicy.InitializeNewTargetAtCurrentCover
+                        : OppoInitialCoverPolicy.RequireKnownOriginal).ConfigureAwait(false);
 
                 stopwatch.Stop();
                 LogService.Merge($"Rebuilt merge completed for {baseName}: {finalOutputPath} ({stopwatch.Elapsed.TotalSeconds:F2}s)");
@@ -240,8 +300,10 @@ namespace LivePhotoBox.Services
                 {
                     Status = ProductOperationStatus.Success,
                     PreparationSemantics = bundle.Semantics,
+                    PreparationManifest = bundle.Manifest,
                     PreparationExecution = bundle.PreparationExecution,
-                    CommittedOutputs = new[] { new ProductCommittedArtifact { Role = "TargetLivePhoto", Path = finalOutputPath } },
+                    CommittedOutputs = new[] { new ProductCommittedArtifact { Role = "TargetLivePhoto", Path = published.FinalPath,
+                        Sha256 = published.Sha256, ByteLength = published.ByteLength } },
                     Diagnostic = new() { Stage = ProductOperationStage.Publication, Message = ResourceService.GetString("Task_Success") }
                 };
             }
@@ -257,6 +319,7 @@ namespace LivePhotoBox.Services
                 {
                     Status = ProductOutcomeCompletion.Status(ex, diagnostic),
                     PreparationSemantics = prepared?.Semantics,
+                    PreparationManifest = prepared?.Manifest ?? [],
                     PreparationExecution = execution,
                     Diagnostic = diagnostic with { Message = ex is OperationCanceledException ? ex.Message : ResourceService.Format("Task_Error", ex.Message) }
                 };

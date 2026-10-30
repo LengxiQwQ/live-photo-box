@@ -1,19 +1,26 @@
 #include "metadata/target_exif.h"
 #include "metadata/exif.h"
+#include "media/xmp_observation.h"
 #include <algorithm>
 #include <array>
 #include <limits>
 
 namespace lpb::metadata {
-bool add_target_user_comment(std::span<const uint8_t> jpeg,std::span<const uint8_t> comment,
- std::vector<uint8_t>& output,media::jpeg_observation_failure& failure) noexcept {
+namespace {
+bool write_comment(std::span<const uint8_t> jpeg,std::span<const uint8_t> comment,
+ const media::preserved_user_comment* expected,std::vector<uint8_t>& output,media::jpeg_observation_failure& failure) noexcept {
  output.clear();failure=media::jpeg_observation_failure::malformed;
  try {
   if(comment.empty()||comment.size()>65500){failure=media::jpeg_observation_failure::unsupported;return false;}
   lpb::memory_random_access memory{jpeg};media::jpeg_observation observed;uint64_t bad{};
   if(!media::observe_jpeg(memory.view(),observed,failure,bad,{true,true,true,true}))return false;
   failure=media::jpeg_observation_failure::malformed;
-  if(observed.exif.has_user_comment){failure=media::jpeg_observation_failure::unsupported;return false;}
+  if(expected) {
+   if(!expected->present||!observed.exif.has_user_comment||
+      media::comment_tuple(observed.exif.user_comment_type,observed.exif.user_comment_count,observed.exif.user_comment)!=*expected)return false;
+   media::target_xmp_observation record;media::xmp_observation_failure why{};
+   if(!media::observe_target_xmp_packets(observed.xmp,observed.extended_xmp,observed.extended_guid,record,why)||record.preserved_comment!=*expected)return false;
+  }else if(observed.exif.has_user_comment){failure=media::jpeg_observation_failure::unsupported;return false;}
   std::vector<uint8_t> payload=observed.exif_payload;
   if(payload.empty())payload={'E','x','i','f',0,0,'I','I',42,0,8,0,0,0,0,0,0,0,0,0};
   const bool big=observed.exif.big_endian;const size_t tiff=6;
@@ -32,6 +39,10 @@ bool add_target_user_comment(std::span<const uint8_t> jpeg,std::span<const uint8
    for(const auto& entry:directory.entries){std::array<uint8_t,12> bytes{};std::copy_n(payload.data()+entry.absolute_pos,12,bytes.data());entries.push_back(bytes);}return entries;
   };
   auto exif_entries=copy_entries(exif),root_entries=copy_entries(root);
+  if(expected) {
+   std::erase_if(exif_entries,[&](const auto& entry){return (big?uint16_t((entry[0]<<8)|entry[1]):uint16_t(entry[0]|(entry[1]<<8)))==0x9286;});
+   if(exif_entries.size()+1!=exif.entries.size())return false;
+  }
   align();uint32_t comment_offset=0;
   if(comment.size()>4){comment_offset=static_cast<uint32_t>(payload.size()-tiff);payload.insert(payload.end(),comment.begin(),comment.end());align();}
   const auto new_exif_offset=static_cast<uint32_t>(payload.size()-tiff);
@@ -60,7 +71,24 @@ bool add_target_user_comment(std::span<const uint8_t> jpeg,std::span<const uint8
   candidate.insert(candidate.end(),jpeg.begin(),jpeg.begin()+start);const size_t length=payload.size()+2;
   candidate.insert(candidate.end(),{0xff,0xe1,static_cast<uint8_t>(length>>8),static_cast<uint8_t>(length)});
   candidate.insert(candidate.end(),payload.begin(),payload.end());candidate.insert(candidate.end(),jpeg.begin()+end,jpeg.end());
+  if(expected) {
+   lpb::memory_random_access verified{candidate};media::jpeg_observation final;uint64_t final_bad{};
+   media::target_xmp_observation record;media::xmp_observation_failure why{};
+   if(!media::observe_jpeg(verified.view(),final,failure,final_bad,{true,true,true,true})||
+      final.exif.user_comment_type!=7||final.exif.user_comment_count!=comment.size()||
+      final.exif.user_comment!=std::vector<uint8_t>(comment.begin(),comment.end())||
+      !media::observe_target_xmp_packets(final.xmp,final.extended_xmp,final.extended_guid,record,why)||record.preserved_comment!=*expected)return false;
+  }
   output=std::move(candidate);failure=media::jpeg_observation_failure::none;return true;
  }catch(...){output.clear();return false;}
+}
+}
+bool add_target_user_comment(std::span<const uint8_t> jpeg,std::span<const uint8_t> comment,
+ std::vector<uint8_t>& output,media::jpeg_observation_failure& failure) noexcept {
+ return write_comment(jpeg,comment,nullptr,output,failure);
+}
+bool map_target_user_comment(std::span<const uint8_t> jpeg,std::span<const uint8_t> comment,
+ const media::preserved_user_comment& expected,std::vector<uint8_t>& output,media::jpeg_observation_failure& failure) noexcept {
+ return write_comment(jpeg,comment,&expected,output,failure);
 }
 }

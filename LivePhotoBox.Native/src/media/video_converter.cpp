@@ -1,9 +1,11 @@
 #include "media/video_converter.h"
 #include "media/media_inspector.h"
 #include "foundation/internal.h"
+#include "foundation/sha256_core.h"
 #include "binary/binary_io.h"
 #include "containers/isobmff.h"
 #include "containers/isobmff_mebx_transplant.h"
+#include "containers/remux_byte_proof.h"
 #include "containers/isobmff_video_profile.h"
 #include "media/video_sidecar_bridge.h"
 #include "media/video_sidecar_loader.h"
@@ -596,9 +598,9 @@ static bool read_metadata_bytes(const lpb::random_access_reader& reader,
 static bool record_static_preservation(std::span<const uint8_t> source,
     std::span<const uint8_t> output, lpb_video_preservation_result_v1* result,
     std::span<const isobmff_media_data_range> source_mdats = {},
-    std::span<const isobmff_media_data_range> output_mdats = {}) noexcept {
+    std::span<const isobmff_media_data_range> output_mdats = {}, bool auxiliary_copy = false) noexcept {
     isobmff_static_metadata_evidence evidence{};
-    if (!capture_isobmff_static_metadata_evidence(source, output, evidence, source_mdats, output_mdats)) return false;
+    if (!capture_isobmff_static_metadata_evidence(source, output, evidence, source_mdats, output_mdats,nullptr,auxiliary_copy)) return false;
     if (result != nullptr) {
         result->source_box_count = evidence.box_count;
         result->verified_box_count = evidence.box_count;
@@ -620,7 +622,8 @@ static lpb_result remux_video_reader(
     std::span<const uint8_t> preservation_source = {},
     const std::vector<isobmff_mebx_track_facts>* preserved_mebx = nullptr,
     const isobmff_video_presentation_timeline* expected_timeline = nullptr,
-    lpb_video_preservation_result_v1* out_preservation = nullptr) noexcept
+    lpb_video_preservation_result_v1* out_preservation = nullptr,
+    lpb_video_preservation_result_v2* out_complete_proof = nullptr) noexcept
 {
     auto boxes = ::scan_top_level_boxes(source);
     if (boxes.empty()) {
@@ -685,6 +688,15 @@ static lpb_result remux_video_reader(
     }
 
     int64_t delta = static_cast<int64_t>(new_ftyp.size()) - static_cast<int64_t>(old_ftyp_size);
+    bool source_quicktime=false;
+    for(uint64_t position=boxes.front().offset+boxes.front().header_size;
+        position+4<=boxes.front().offset+boxes.front().size;position+=4) {
+        // ftyp minor-version is not a brand.
+        if(position==boxes.front().offset+boxes.front().header_size+4)continue;
+        std::array<uint8_t,4> brand{};if(!source.read_exact(position,brand))return LPB_RESULT_INVALID_ARGUMENT;
+        if(std::memcmp(brand.data(),"qt  ",4)==0)source_quicktime=true;
+    }
+    const bool target_quicktime=target_container==LPB_VIDEO_CONTAINER_MOV;
 
     auto p_out = utf8_to_path(output_video_path);
     windows_owned_output output;
@@ -728,6 +740,8 @@ static lpb_result remux_video_reader(
                     return fail_remux(LPB_RESULT_INTERNAL_ERROR, "ISO-BMFF chunk offset shift failed (underflow or corrupted table).");
                 }
             }
+            if(!map_remux_composition_versions(moov_data,source_quicktime,target_quicktime))
+                return fail_remux(LPB_RESULT_INVALID_ARGUMENT,"Remux cannot represent composition offsets in the target container without changing time.");
 
             if (!output.write_all(moov_data))
                 return fail_remux(LPB_RESULT_INTERNAL_ERROR, "Failed to write remuxed moov.");
@@ -792,12 +806,58 @@ static lpb_result remux_video_reader(
     }
     if (!patched_movie || !output.ready_to_consume())
         return fail_remux(LPB_RESULT_INTERNAL_ERROR, "Remux handler-name staging could not be flushed.");
+    // Derive expected metadata from the pinned source independently of the
+    // staged result. Only ftyp, structurally owned chunk addresses and handler
+    // name representation are permitted to differ; every other byte is proved.
+    try {
+    std::vector<uint8_t> expected_metadata;
+    size_t expected_position = 0U;
+    while (expected_position < metadata_source.size()) {
+        isobmff_box_header box{};
+        if (!try_read_box_header(metadata_source.data(), expected_position, metadata_source.size(), box))
+            return fail_remux(LPB_RESULT_INVALID_ARGUMENT, "Remux source metadata is malformed during byte proof.");
+        const auto bytes = std::span<const uint8_t>(metadata_source).subspan(expected_position, box.size);
+        if (std::memcmp(bytes.data()+4U,"ftyp",4U)==0)
+            expected_metadata.insert(expected_metadata.end(),new_ftyp.begin(),new_ftyp.end());
+        else {
+            std::vector<uint8_t> changed(bytes.begin(),bytes.end());
+            if (std::memcmp(bytes.data()+4U,"moov",4U)==0 && delta!=0 &&
+                !shift_chunk_offsets(changed,0U,old_ftyp_size,delta))
+                return fail_remux(LPB_RESULT_INVALID_ARGUMENT, "Remux expected chunk-address mapping failed.");
+            if(std::memcmp(bytes.data()+4U,"moov",4U)==0&&
+                !map_remux_composition_versions(changed,source_quicktime,target_quicktime))
+                return fail_remux(LPB_RESULT_INVALID_ARGUMENT,"Remux expected composition-time mapping failed.");
+            expected_metadata.insert(expected_metadata.end(),changed.begin(),changed.end());
+        }
+        expected_position+=box.size;
+    }
+    std::vector<uint8_t> expected_named;
+    if (!map_isobmff_handler_names(metadata_source,expected_metadata,expected_named,source_mdats,output_mdats))
+        return fail_remux(LPB_RESULT_INVALID_ARGUMENT, "Remux expected handler-name mapping failed.");
+    std::span<const uint8_t> expected_movie;
+    expected_position=0U;
+    while (expected_position<expected_named.size()) {
+        isobmff_box_header box{};
+        if (!try_read_box_header(expected_named.data(),expected_position,expected_named.size(),box))
+            return fail_remux(LPB_RESULT_INVALID_ARGUMENT, "Remux expected metadata is malformed.");
+        if (std::memcmp(expected_named.data()+expected_position+4U,"moov",4U)==0)
+            expected_movie=std::span<const uint8_t>(expected_named).subspan(expected_position,box.size);
+        expected_position+=box.size;
+    }
+    if (!prove_remux_bytes(source,output.reader(),new_ftyp,expected_movie,[](void* state) {
+            return lpb_context_check_cancelled(static_cast<lpb_context*>(state))!=LPB_RESULT_OK;
+        },context))
+        return fail_remux(lpb_context_check_cancelled(context)==LPB_RESULT_CANCELLED ? LPB_RESULT_CANCELLED : LPB_RESULT_INVALID_ARGUMENT,
+            "Remux complete before/after byte proof failed; no publication.");
+    } catch (...) {
+        return fail_remux(LPB_RESULT_INTERNAL_ERROR,"Remux complete proof could not allocate its bounded metadata workspace.");
+    }
     if (!read_metadata_bytes(source, metadata_source, source_mdats) ||
         !read_metadata_bytes(output.reader(), metadata_output, output_mdats) ||
         !record_static_preservation(preservation_source.empty() ? std::span<const uint8_t>(metadata_source) : preservation_source,
             metadata_output, out_preservation,
             preservation_source.empty() ? std::span<const isobmff_media_data_range>(source_mdats) : std::span<const isobmff_media_data_range>{},
-            output_mdats) ||
+            output_mdats,consumed_stage==nullptr) ||
         !validate_isobmff_mebx_stream_remux(metadata_source, source_mdats, source, metadata_output,
             output_mdats, output.reader(), [](void* state) {
                 return lpb_context_check_cancelled(static_cast<lpb_context*>(state)) != LPB_RESULT_OK;
@@ -805,6 +865,24 @@ static lpb_result remux_video_reader(
         const lpb_result cancelled = lpb_context_check_cancelled(context);
         return fail_remux(cancelled == LPB_RESULT_OK ? LPB_RESULT_INVALID_ARGUMENT : cancelled,
             "Unsupported: remux metadata graph/payload cannot be proven preserved before publication.");
+    }
+    if (consumed_stage == nullptr) {
+        isobmff_video_presentation_timeline before{},after{};
+        if(!inspect_isobmff_video_presentation_timeline(metadata_source,before,source_mdats)||
+            !inspect_isobmff_video_presentation_timeline(metadata_output,after,output_mdats)||
+            before.movie_timescale!=after.movie_timescale||before.media_timescale!=after.media_timescale||
+            before.sample_count!=after.sample_count||before.visible_sample_count!=after.visible_sample_count||
+            before.media_edit_start_ticks!=after.media_edit_start_ticks||
+            before.leading_empty_duration_ticks!=after.leading_empty_duration_ticks||
+            before.presentation_order.size()!=after.presentation_order.size())
+            return fail_remux(LPB_RESULT_INVALID_ARGUMENT,"Copy remux could not prove the exact source/final presentation schedule.");
+        for(size_t i=0;i<before.presentation_order.size();++i) {
+            const auto& a=before.presentation_order[i];const auto& b=after.presentation_order[i];
+            if(a.sample_index!=b.sample_index||a.presentation_time_ticks!=b.presentation_time_ticks||
+                a.presentation_duration_ticks!=b.presentation_duration_ticks||a.visible!=b.visible||
+                a.normalized_time_100ns!=b.normalized_time_100ns||a.duration_100ns!=b.duration_100ns)
+                return fail_remux(LPB_RESULT_INVALID_ARGUMENT,"Copy remux changed a sample presentation time or duration.");
+        }
     }
     if (consumed_stage != nullptr) {
         std::vector<uint8_t> remuxed_bytes;
@@ -831,9 +909,37 @@ static lpb_result remux_video_reader(
     const lpb_result metadata_cancel = lpb_context_check_cancelled(context);
     if (metadata_cancel != LPB_RESULT_OK) return fail_remux(metadata_cancel,
         "Video remux was cancelled after metadata verification and before publication.");
+    uint8_t source_digest[32]{},output_digest[32]{};
+    if (out_complete_proof != nullptr) {
+        if (consumed_stage != nullptr)
+            return fail_remux(LPB_RESULT_INVALID_ARGUMENT,"A transcode staging cannot issue an original Copy proof.");
+        const auto hash_reader = [&](const lpb::random_access_reader& reader,uint8_t* digest) {
+            lpb::crypto::sha256_ctx hash; std::array<uint8_t,65536> buffer{};
+            uint64_t position=0;
+            while(position<reader.length) {
+                if(lpb_context_check_cancelled(context)!=LPB_RESULT_OK)return false;
+                const size_t count=static_cast<size_t>(std::min<uint64_t>(buffer.size(),reader.length-position));
+                if(!reader.read_exact(position,std::span<uint8_t>(buffer).first(count)))return false;
+                hash.update(buffer.data(),count);position+=count;
+            }
+            hash.finalize(digest);return true;
+        };
+        if(!hash_reader(source,source_digest)||!hash_reader(output.reader(),output_digest))
+            return fail_remux(lpb_context_check_cancelled(context)==LPB_RESULT_CANCELLED?LPB_RESULT_CANCELLED:LPB_RESULT_INVALID_ARGUMENT,
+                "Complete remux proof could not fingerprint its pinned source and staged output.");
+    }
+    const uint64_t complete_output_length=output.reader().length;
+    if(lpb_context_check_cancelled(context)!=LPB_RESULT_OK)
+        return fail_remux(LPB_RESULT_CANCELLED,"Video remux was cancelled after complete proof and before publication.");
     if (!output.publish_registered_no_replace(context, LPB_ARTIFACT_MOTION_VIDEO, p_out)) {
         return fail_remux(LPB_RESULT_INTERNAL_ERROR,
             "Failed to publish the owned remuxed video without replacing an existing artifact.");
+    }
+    if(out_complete_proof!=nullptr) {
+        out_complete_proof->proof_kind=1;out_complete_proof->proof_flags=1;
+        out_complete_proof->source_length=source.length;out_complete_proof->output_length=complete_output_length;
+        std::memcpy(out_complete_proof->source_file_sha256,source_digest,32);
+        std::memcpy(out_complete_proof->output_file_sha256,output_digest,32);
     }
     return LPB_RESULT_OK;
 }
@@ -843,7 +949,8 @@ lpb_result remux_video_file(
     const char* input_video_path,
     const char* output_video_path,
     lpb_video_container target_container,
-    lpb_video_preservation_result_v1* out_preservation) noexcept
+    lpb_video_preservation_result_v1* out_preservation,
+    lpb_video_preservation_result_v2* out_complete_proof) noexcept
 {
     if (!input_video_path || !output_video_path) {
         set_error(context, "Invalid arguments for video remux.");
@@ -866,7 +973,7 @@ lpb_result remux_video_file(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    return remux_video_reader(context, in.reader(), output_video_path, target_container, nullptr, {}, nullptr, nullptr, out_preservation);
+    return remux_video_reader(context, in.reader(), output_video_path, target_container, nullptr, {}, nullptr, nullptr, out_preservation,out_complete_proof);
 }
 
 template <typename T>
@@ -2513,7 +2620,8 @@ lpb_result transcode_video_file(
     char* out_encoder_used,
     size_t encoder_buf_len,
     lpb_video_backend_diagnostics* out_diagnostics,
-    lpb_video_preservation_result_v1* out_preservation) noexcept
+    lpb_video_preservation_result_v1* out_preservation,
+    lpb_video_preservation_result_v2* out_complete_proof) noexcept
 {
     set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_UNKNOWN, LPB_VIDEO_HARDWARE_UNKNOWN,
         false, "", "No backend selected.");
@@ -2589,7 +2697,8 @@ lpb_result transcode_video_file(
         isobmff_static_metadata_evidence evidence{};
         const char* rejection_reason = "metadata read";
         if (!read_metadata_bytes(semantic_reader, metadata, mdats) ||
-            !capture_isobmff_static_metadata_evidence(metadata, metadata, evidence, mdats, mdats, &rejection_reason)) {
+            !capture_isobmff_static_metadata_evidence(metadata, metadata, evidence, mdats, mdats, &rejection_reason,
+                target_codec==LPB_VIDEO_CODEC_COPY)) {
             char message[256]{};
             std::snprintf(message, sizeof(message), "Unsupported: source metadata/track graph has no safe preservation mapping (%s); no output was created.",
                 rejection_reason != nullptr ? rejection_reason : "metadata validation");
@@ -2653,7 +2762,7 @@ lpb_result transcode_video_file(
         if (out_encoder_used && encoder_buf_len > 0) {
             strncpy_s(out_encoder_used, encoder_buf_len, "ProjectIsoBmffStreamRemux", _TRUNCATE);
         }
-        lpb_result remux_result = remux_video_file(context, input_video_path, output_video_path, target_container, out_preservation);
+        lpb_result remux_result = remux_video_file(context, input_video_path, output_video_path, target_container, out_preservation,out_complete_proof);
         return remux_result;
     }
 

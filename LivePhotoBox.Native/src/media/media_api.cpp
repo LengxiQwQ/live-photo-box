@@ -813,6 +813,17 @@ LPB_API lpb_result LPB_CALL lpb_extract_media_with_plan_outputs_v2(
         cleanup_source_path, auxiliary_outputs, auxiliary_output_count);
 }
 
+LPB_API lpb_result LPB_CALL lpb_extract_media_with_plan_outputs_v3(
+    lpb_context* context,lpb_extraction_plan* plan,const char* primary_path,const char* secondary_path,
+    const char* output_image_path,const char* output_video_path,const char* output_gainmap_path,
+    const char* cleanup_source_path,const lpb_extraction_output* auxiliary_outputs,size_t auxiliary_output_count,
+    const lpb_carrier_extraction_output_v1* carrier_outputs,size_t carrier_output_count)
+{
+    return extract_source_with_plan(context,plan,primary_path,secondary_path,output_image_path,
+        output_video_path,output_gainmap_path,cleanup_source_path,auxiliary_outputs,auxiliary_output_count,
+        carrier_outputs,carrier_output_count);
+}
+
 LPB_API lpb_result LPB_CALL lpb_rollback_extraction_outputs(
     lpb_context* context,
     lpb_extraction_plan* plan,
@@ -1585,6 +1596,16 @@ LPB_API lpb_result LPB_CALL lpb_convert_image(
     return convert_image_file(context, input_image_path, output_image_path, target_container, quality, out_reencoded);
 }
 
+LPB_API lpb_result LPB_CALL lpb_convert_image_v2(lpb_context* context,const char* input_path,const char* output_path,
+    const lpb_image_conversion_request_v2* request,lpb_image_conversion_proof_v1* proof) {
+    return convert_image_file_v2(context,input_path,output_path,request,proof);
+}
+
+LPB_API lpb_result LPB_CALL lpb_resolve_unspecified_jpeg_orientation_v1(lpb_context* context,const char* input_path,const char* output_path,
+    const lpb_unspecified_jpeg_orientation_request_v1* request,lpb_image_conversion_proof_v1* proof) {
+    return resolve_unspecified_jpeg_orientation_file(context,input_path,output_path,request,proof);
+}
+
 LPB_API lpb_result LPB_CALL lpb_transform_jpeg_losslessly(
     lpb_context* context,
     const char* input_image_path,
@@ -1649,6 +1670,31 @@ LPB_API lpb_result LPB_CALL lpb_transcode_video_v3(
         target_container, target_codec, crf, nullptr, 0U, diagnostics, preservation);
     // A failed attempt must never expose a preservation-success receipt.
     if (result != LPB_RESULT_OK) preservation->status = 0U;
+    return result;
+}
+
+LPB_API lpb_result LPB_CALL lpb_transcode_video_v4(
+    lpb_context* context,const char* input,const char* output,
+    lpb_video_container container,lpb_video_codec codec,int32_t crf,
+    const lpb_video_preservation_request_v1* request,
+    lpb_video_backend_diagnostics* diagnostics,lpb_video_preservation_result_v2* proof)
+{
+    static_assert(sizeof(lpb_video_preservation_result_v2)==192);
+    const bool valid=proof && proof->struct_size==sizeof(*proof) && proof->api_version==2;
+    if(proof && proof->struct_size==sizeof(*proof)) {
+        *proof={};proof->struct_size=sizeof(*proof);proof->api_version=2;
+    }
+    if(!context||!valid||!request||request->struct_size!=sizeof(*request)||request->api_version!=1||
+        request->policy>2||request->reserved!=0||!diagnostics||diagnostics->struct_size!=sizeof(*diagnostics)) {
+        if(context)set_error(context,"Complete video proof request/result has an incompatible size, version, policy or reserved field.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    proof->metadata.struct_size=sizeof(proof->metadata);proof->metadata.api_version=1;proof->metadata.policy=request->policy;
+    const auto result=transcode_video_file(context,input,output,container,codec,crf,nullptr,0,diagnostics,
+        &proof->metadata,codec==LPB_VIDEO_CODEC_COPY?proof:nullptr);
+    if(result!=LPB_RESULT_OK) {
+        *proof={};proof->struct_size=sizeof(*proof);proof->api_version=2;
+    }
     return result;
 }
 

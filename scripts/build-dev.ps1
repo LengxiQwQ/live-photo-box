@@ -41,12 +41,13 @@ $publishArgs = @(
     '-p:Platform=x64',
     '-p:WindowsAppSDKSelfContained=true',
     '-p:EnableMsixTooling=false',
+    '-p:SkipNativeBuild=true',
     '-o', $outDir
 )
 dotnet @publishArgs
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "       dotnet publish exited with code $LASTEXITCODE" -ForegroundColor DarkYellow
+    throw "GUI dotnet publish failed with exit code $LASTEXITCODE."
 }
 
 if (-not (Test-Path "$outDir\Live Photo Box.exe")) {
@@ -68,21 +69,20 @@ $cliPublishArgs = @(
     '-r', 'win-x64',
     '--self-contained', 'true',
     '-p:Platform=x64',
+    '-p:SkipNativeBuild=true',
     '-o', 'publish\cli_multi'
 )
 dotnet @cliPublishArgs
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "       CLI publish warning: exit code $LASTEXITCODE" -ForegroundColor DarkYellow
+    throw "CLI dotnet publish failed with exit code $LASTEXITCODE."
 }
 
 if (-not (Test-Path 'publish\cli_multi\livephotobox-boot.exe')) {
-    Write-Host '       CLI build FAILED - exe not found, skipping merge' -ForegroundColor DarkYellow
+    throw 'CLI build failed: livephotobox-boot.exe was not produced.'
 } else {
     if (-not (Test-Path 'publish\cli_multi\LivePhotoBox.Native.dll')) {
-        Write-Host 'BUILD FAILED - LivePhotoBox.Native.dll not found in CLI output' -ForegroundColor Red
-        if (-not $CI) { pause }
-        exit 1
+        throw 'CLI build failed: LivePhotoBox.Native.dll was not produced.'
     }
     # 只复制 GUI 目录中不存在的文件，避免 CLI 的 SDK 投影 DLL 覆盖 GUI 版本
     Get-ChildItem 'publish\cli_multi' -Recurse | ForEach-Object {
@@ -120,6 +120,9 @@ if (-not (Test-Path 'publish\cli_multi\livephotobox-boot.exe')) {
     $cliDir = 'publish\cli_standalone'
     if (Test-Path $cliDir) { Remove-Item -Recurse -Force $cliDir }
     Copy-Item 'publish\cli_multi' $cliDir -Recurse -Force
+    if (-not (Test-Path "$cliDir\livephotobox-boot.exe")) {
+        throw 'CLI standalone output is missing livephotobox-boot.exe.'
+    }
 
     # Strip all locale satellite dirs (CLI English-only)
     foreach ($dir in (Get-ChildItem $cliDir -Directory -ErrorAction SilentlyContinue)) {

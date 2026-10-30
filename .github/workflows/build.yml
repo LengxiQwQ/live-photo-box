@@ -48,11 +48,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            .ai-tmp/workspace/P5/R5/video-codecs-main10
-            .ai-tmp/workspace/P5/R5/r4-hevc-v2-codec-identity.json
-            .ai-tmp/workspace/P5/R5/cmake-build/vcpkg_installed
+            artifacts/deps
+            artifacts/cache
             ~/AppData/Local/vcpkg/downloads
-          key: native-deps-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'tools/p5-r5-video-validation/sidecar-dependencies/**', 'tools/p5-r5-video-validation/profiles/P5-R5-v1/backend-build.json') }}
+          key: native-deps-v3-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'build/native/**', 'scripts/native/restore-*.ps1', 'scripts/native/build-hevc-codecs.py') }}
       - name: Verify build and tests / 构建与测试门禁
         shell: pwsh
         run: >-
@@ -89,11 +88,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            .ai-tmp/workspace/P5/R5/video-codecs-main10
-            .ai-tmp/workspace/P5/R5/r4-hevc-v2-codec-identity.json
-            .ai-tmp/workspace/P5/R5/cmake-build/vcpkg_installed
+            artifacts/deps
+            artifacts/cache
             ~/AppData/Local/vcpkg/downloads
-          key: native-deps-v2-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'tools/p5-r5-video-validation/sidecar-dependencies/**', 'tools/p5-r5-video-validation/profiles/P5-R5-v1/backend-build.json') }}
+          key: native-deps-v3-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'build/native/**', 'scripts/native/restore-*.ps1', 'scripts/native/build-hevc-codecs.py') }}
       - name: Setup Go / 安装 Go
         uses: actions/setup-go@v5
         with:

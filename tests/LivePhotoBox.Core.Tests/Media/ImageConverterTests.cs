@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -95,15 +96,16 @@ public sealed class ImageConverterTests
         string sourceHashBefore = await ComputeSha256Async(sample);
         using var workspace = new TestFixtureWorkspace();
         using var outputWorkspace = new MediaWorkspace();
+        string neutral = await CreateNeutralOrdinaryJpegPrimaryAsync(workspace, "ordinary-for-makernote.jpg");
         var result = await new ImageConverter().ConvertAsync(new ImageConversionRequest
         {
             SourceArtifact = new MediaArtifact
             {
-                Path = sample,
+                Path = neutral,
                 Kind = MediaArtifactKind.PrimaryImage,
                 MimeType = "image/jpeg",
                 ImageContainer = ImageContainer.Jpeg,
-                ByteLength = new FileInfo(sample).Length
+                ByteLength = new FileInfo(neutral).Length
             },
             TargetContainer = ImageContainer.Heic,
             TargetDirectory = outputWorkspace.RootDirectory
@@ -156,15 +158,25 @@ public sealed class ImageConverterTests
 
     private static string ResolveSample(string fileName) => TestSampleResolver.ResolveSample(fileName);
 
-    private static async Task<string> CreateNeutralHuaweiJpegPrimaryAsync(IMediaWorkspace workspace, string fileName)
+    private static async Task<string> CreateNeutralOrdinaryJpegPrimaryAsync(IMediaWorkspace workspace, string fileName)
     {
-        string source = ResolveSample("华为-Mate80.jpg");
-        SourceMediaFacts facts = await NativeMediaService.InspectMediaAsync(source);
+        // The Huawei JPEG primary is a compound MPF image. Ordinary codec
+        // fixtures must instead use an actual source-to-Neutral singleton.
+        string source = ResolveSample("oppo.jpg");
+        string sourceHash = await ComputeSha256Async(source);
+        NeutralMediaBundle bundle = await new NeutralMediaService().CreateNeutralBundleAsync(source, null, workspace);
+        Assert.Null(bundle.GainMap);
+        Assert.Empty(bundle.AuxiliaryMedia);
+        SourceMediaFacts facts = await NativeMediaService.InspectMediaAsync(bundle.PrimaryImage.Path);
         Assert.Equal(ImageContainer.Jpeg, facts.PrimaryImage.Container);
         Assert.Null(facts.GainMap);
         Assert.DoesNotContain(facts.AuxiliaryItems, item => item.IsPresent);
+        Assert.Equal(SourceProtocol.NonLive, facts.Protocol);
+        Assert.Null(facts.MotionVideo);
+        Assert.Equal(new FileInfo(bundle.PrimaryImage.Path).Length, facts.PrimaryImage.ByteLength);
         string neutralPath = Path.Combine(workspace.RootDirectory, fileName);
-        await CopyRangeAsync(source, neutralPath, facts.PrimaryImage.ByteOffset, facts.PrimaryImage.ByteLength);
+        await CopyRangeAsync(bundle.PrimaryImage.Path, neutralPath, 0, facts.PrimaryImage.ByteLength);
+        Assert.Equal(sourceHash, await ComputeSha256Async(source));
         return neutralPath;
     }
 
@@ -178,6 +190,132 @@ public sealed class ImageConverterTests
         string neutralPath = Path.Combine(workspace.RootDirectory, fileName);
         await CopyRangeAsync(source, neutralPath, facts.PrimaryImage.ByteOffset, facts.PrimaryImage.ByteLength);
         return neutralPath;
+    }
+
+    private static async Task<string> CreateDimensionedOrdinaryJpegPrimaryAsync(IMediaWorkspace workspace, bool conflictWidth = false, bool conflictHeight = false)
+    {
+        string source = await CreateNeutralOrdinaryJpegPrimaryAsync(workspace, "ordinary-dimension-source.jpg");
+        var (rasterWidth, rasterHeight) = await ReadDimensionsWithExifToolAsync(source);
+        Assert.InRange(rasterWidth, 1U, 65535U); Assert.InRange(rasterHeight, 1U, 65535U);
+        byte[] bytes = await File.ReadAllBytesAsync(source);
+        string sourceHash = await ComputeSha256Async(source);
+        int position = 2, patched = 0;
+        while (position < bytes.Length)
+        {
+            Assert.Equal(0xff, bytes[position++]);
+            int marker = bytes[position++];
+            if (marker == 0xda) break;
+            int length = BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(position));
+            Assert.InRange(length, 2, bytes.Length - position);
+            int payload = position + 2, end = position + length;
+            if (marker == 0xe1 && bytes.AsSpan(payload, Math.Min(6, end - payload)).SequenceEqual("Exif\0\0"u8))
+            {
+                int tiff = payload + 6;
+                bool little = bytes[tiff] == (byte)'I';
+                ushort U16(int at) => little ? BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(at)) : BinaryPrimitives.ReadUInt16BigEndian(bytes.AsSpan(at));
+                uint U32(int at) => little ? BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(at)) : BinaryPrimitives.ReadUInt32BigEndian(bytes.AsSpan(at));
+                int root = checked(tiff + (int)U32(tiff + 4)), exif = 0;
+                for (int i = 0; i < U16(root); i++)
+                {
+                    int at = root + 2 + i * 12;
+                    Assert.InRange(at, tiff, end - 12);
+                    if (U16(at) == 0x8769) { Assert.Equal(4, U16(at + 2)); Assert.Equal(1U, U32(at + 4)); exif = checked(tiff + (int)U32(at + 8)); }
+                }
+                Assert.InRange(exif, tiff, end - 2);
+                for (int i = 0; i < U16(exif); i++)
+                {
+                    int at = exif + 2 + i * 12;
+                    Assert.InRange(at, tiff, end - 12);
+                    ushort tag = U16(at);
+                    if (tag is not (0xa002 or 0xa003)) continue;
+                    Assert.Equal(4, U16(at + 2)); Assert.Equal(1U, U32(at + 4));
+                    uint value = tag == 0xa002 ? rasterWidth + (conflictWidth ? 1U : 0U) : rasterHeight + (conflictHeight ? 1U : 0U);
+                    if (little) BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(at + 8), value);
+                    else BinaryPrimitives.WriteUInt32BigEndian(bytes.AsSpan(at + 8), value);
+                    patched++;
+                }
+            }
+            position = end;
+        }
+        Assert.Equal(2, patched);
+        string result = Path.Combine(workspace.RootDirectory, "derived-ordinary-explicit-dimensions.jpg");
+        Assert.False(File.Exists(result)); await File.WriteAllBytesAsync(result, bytes);
+        Assert.Equal(sourceHash, await ComputeSha256Async(source));
+        Assert.Equal((rasterWidth + (conflictWidth ? 1U : 0U)).ToString(), await ReadExifToolTextTagAsync(result, "-ExifImageWidth"));
+        Assert.Equal((rasterHeight + (conflictHeight ? 1U : 0U)).ToString(), await ReadExifToolTextTagAsync(result, "-ExifImageHeight"));
+        return result;
+    }
+
+    [Theory]
+    [Trait("Category", "RealSamplesAndDerived")]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task NativeDctTransform_ConflictingActiveExifDimensionsFailBeforePublication(bool width, bool height)
+    {
+        using var workspace = new TestFixtureWorkspace();
+        string source = await CreateDimensionedOrdinaryJpegPrimaryAsync(workspace, width, height);
+        string before = await ComputeSha256Async(source), output = Path.Combine(workspace.RootDirectory, "refused-dct.jpg");
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            NativeMediaService.TransformJpegLosslesslyAsync(source, output, transform: 0));
+        Assert.Contains("EXIF dimensions", error.Message, StringComparison.Ordinal);
+        Assert.False(File.Exists(output));
+        Assert.Equal(before, await ComputeSha256Async(source));
+    }
+
+    [Theory]
+    [Trait("Category", "RealSamplesAndDerived")]
+    [InlineData(0, true)]
+    [InlineData(1, false)]
+    [InlineData(2, true)]
+    [InlineData(3, false)]
+    [InlineData(4, false)]
+    [InlineData(5, true)]
+    [InlineData(6, true)]
+    public async Task NativeDctTransform_DeclaredDimensionsMatchRasterAndEveryOtherExifByteIsExact(int transform, bool swaps)
+    {
+        using var workspace = new TestFixtureWorkspace();
+        string source = await CreateDimensionedOrdinaryJpegPrimaryAsync(workspace);
+        string before = await ComputeSha256Async(source), output = Path.Combine(workspace.RootDirectory, "mapped-dct.jpg");
+        var (width, height) = await ReadDimensionsWithExifToolAsync(source);
+        uint targetWidth = swaps ? height : width, targetHeight = swaps ? width : height;
+        byte[] expected = await ReadExifToolBinaryTagAsync(source, "-EXIF");
+        bool little = expected[0] == (byte)'I';
+        ushort U16(int at) => little ? BinaryPrimitives.ReadUInt16LittleEndian(expected.AsSpan(at)) : BinaryPrimitives.ReadUInt16BigEndian(expected.AsSpan(at));
+        uint U32(int at) => little ? BinaryPrimitives.ReadUInt32LittleEndian(expected.AsSpan(at)) : BinaryPrimitives.ReadUInt32BigEndian(expected.AsSpan(at));
+        int root = checked((int)U32(4)), exif = 0, mapped = 0;
+        void Map(int offset, bool primary)
+        {
+            for (int i = 0; i < U16(offset); i++)
+            {
+                int at = offset + 2 + i * 12; ushort tag = U16(at);
+                if (primary && tag == 0x8769) exif = checked((int)U32(at + 8));
+                bool horizontal = tag == (primary ? 0x100 : 0xa002), vertical = tag == (primary ? 0x101 : 0xa003);
+                if (!horizontal && !vertical) continue;
+                Assert.Equal(1U, U32(at + 4)); ushort type = U16(at + 2); Assert.True(type is 3 or 4);
+                Assert.Equal(horizontal ? width : height, type == 3 ? U16(at + 8) : U32(at + 8));
+                uint value = horizontal ? targetWidth : targetHeight;
+                if (type == 3) { if (little) BinaryPrimitives.WriteUInt16LittleEndian(expected.AsSpan(at + 8), checked((ushort)value)); else BinaryPrimitives.WriteUInt16BigEndian(expected.AsSpan(at + 8), checked((ushort)value)); }
+                else { if (little) BinaryPrimitives.WriteUInt32LittleEndian(expected.AsSpan(at + 8), value); else BinaryPrimitives.WriteUInt32BigEndian(expected.AsSpan(at + 8), value); }
+                mapped++;
+            }
+        }
+        Map(root, true); Assert.True(exif > 0); Map(exif, false); Assert.Equal(4, mapped);
+        await NativeMediaService.TransformJpegLosslesslyAsync(source, output, transform);
+        Assert.Equal((targetWidth, targetHeight), await ReadDimensionsWithExifToolAsync(output));
+        Assert.Equal(targetWidth.ToString(), await ReadExifToolTextTagAsync(output, "-ExifImageWidth"));
+        Assert.Equal(targetHeight.ToString(), await ReadExifToolTextTagAsync(output, "-ExifImageHeight"));
+        Assert.Equal(expected, await ReadExifToolBinaryTagAsync(output, "-EXIF"));
+        Assert.Equal(await ReadExifToolBinaryTagAsync(source, "-icc_profile"), await ReadExifToolBinaryTagAsync(output, "-icc_profile"));
+        Assert.Equal(await ReadExifToolBinaryTagAsync(source, "-XMP"), await ReadExifToolBinaryTagAsync(output, "-XMP"));
+        Assert.Equal(before, await ComputeSha256Async(source));
+        if (Environment.GetEnvironmentVariable("LIVEPHOTOBOX_P9_DCT_GEOMETRY_SNAPSHOTS") is { Length: > 0 } snapshots)
+        {
+            string folder = Path.Combine(snapshots, "operation-" + transform); Assert.False(Directory.Exists(folder)); Directory.CreateDirectory(folder);
+            File.Copy(source, Path.Combine(folder, "source.jpg")); File.Copy(output, Path.Combine(folder, "output.jpg"));
+            var native = Assert.Single(Process.GetCurrentProcess().Modules.Cast<ProcessModule>(), m => m.ModuleName == "LivePhotoBox.Native.dll");
+            await File.WriteAllTextAsync(Path.Combine(folder, "identity.json"), JsonSerializer.Serialize(new { transform, swaps, sourceSha256 = before,
+                outputSha256 = await ComputeSha256Async(output), nativeSha256 = await ComputeSha256Async(native.FileName) }));
+        }
     }
 
     [Fact]
@@ -285,7 +423,8 @@ public sealed class ImageConverterTests
     private static async Task AssertExifToolOutcomesMatchAsync(
         string sourcePath,
         string outputPath,
-        ConversionExecutionTruth truth)
+        ConversionExecutionTruth truth,
+        bool mapOrdinaryJpegPrimaryMime = false)
     {
         await AssertReadableByExifToolAsync(outputPath);
 
@@ -303,6 +442,26 @@ public sealed class ImageConverterTests
 
         string[] sourceMetadata = await ReadExifToolMetadataTagsAsync(sourcePath);
         string[] outputMetadata = await ReadExifToolMetadataTagsAsync(outputPath);
+        if (mapOrdinaryJpegPrimaryMime)
+        {
+            // Contract28 permits only the actual Primary MIME mapping here.
+            // Preserve every other independently decoded tag and whole packet.
+            Assert.Equal(ImageContainer.Jpeg, sourceContainer);
+            Assert.Equal(".heic", Path.GetExtension(outputPath));
+            const string beforeMime = "XMP-GContainer:DirectoryItemMime=\"image/jpeg\"";
+            const string afterMime = "XMP-GContainer:DirectoryItemMime=\"image/heic\"";
+            Assert.Single(sourceMetadata, tag => tag == beforeMime);
+            Assert.Single(outputMetadata, tag => tag == afterMime);
+            sourceMetadata = sourceMetadata.Select(tag => tag == beforeMime ? afterMime : tag)
+                .OrderBy(tag => tag, StringComparer.Ordinal).ToArray();
+            Assert.Equal(await ReadExifToolBinaryTagAsync(sourcePath, "-EXIF"),
+                await ReadExifToolBinaryTagAsync(outputPath, "-EXIF"));
+            byte[] sourceXml = await ReadExifToolBinaryTagAsync(sourcePath, "-XMP");
+            string xml = Encoding.UTF8.GetString(sourceXml);
+            Assert.Equal(1, xml.Split("image/jpeg", StringSplitOptions.None).Length - 1);
+            byte[] expectedXml = Encoding.UTF8.GetBytes(xml.Replace("image/jpeg", "image/heic", StringComparison.Ordinal));
+            Assert.Equal(expectedXml, await ReadExifToolBinaryTagAsync(outputPath, "-XMP"));
+        }
         ConversionComponentOutcome metadataOutcome = sourceMetadata.Length == 0
             ? ConversionComponentOutcome.NotApplicable
             : sourceMetadata.SequenceEqual(outputMetadata, StringComparer.Ordinal)
@@ -438,7 +597,7 @@ public sealed class ImageConverterTests
     {
         using var workspace = new TestFixtureWorkspace();
         using var outputWorkspace = new MediaWorkspace();
-        string sample = await CreateNeutralHuaweiJpegPrimaryAsync(workspace, "neutral-source.jpg");
+        string sample = await CreateNeutralOrdinaryJpegPrimaryAsync(workspace, "neutral-source.jpg");
         string sourceHash = await ComputeSha256Async(sample);
 
         var artifact = new MediaArtifact
@@ -481,7 +640,7 @@ public sealed class ImageConverterTests
     {
         using var workspace = new TestFixtureWorkspace();
         using var outputWorkspace = new MediaWorkspace();
-        string neutralJpeg = await CreateNeutralHuaweiJpegPrimaryAsync(workspace, "neutral-source.jpg");
+        string neutralJpeg = await CreateNeutralOrdinaryJpegPrimaryAsync(workspace, "neutral-source.jpg");
         ImageConversionResult neutralHeic = await new ImageConverter().ConvertAsync(new ImageConversionRequest
         {
             SourceArtifact = new MediaArtifact
@@ -524,13 +683,13 @@ public sealed class ImageConverterTests
         Assert.NotNull(result.OutputArtifact);
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.False(result.ExecutionRecord.PixelReencoded);
-        Assert.False(result.ExecutionRecord.MetadataCopied);
+        Assert.True(result.ExecutionRecord.MetadataCopied);
         Assert.Equal(PreservationOutcome.Preserved, result.ExecutionRecord.PreservationOutcome);
         Assert.Equal(ImageContainer.Heic, result.ExecutionRecord.InputContainer);
         Assert.Equal(ImageContainer.Heic, result.ExecutionRecord.OutputContainer);
         Assert.Equal(ConversionOperationKind.Passthrough, result.ExecutionRecord.Truth.ActualOperationKind);
-        Assert.Equal(ConversionComponentOutcome.NotApplicable, result.ExecutionRecord.Truth.Metadata);
-        Assert.Equal(ConversionComponentOutcome.NotApplicable, result.ExecutionRecord.Truth.Orientation);
+        Assert.Equal(ConversionComponentOutcome.Preserved, result.ExecutionRecord.Truth.Metadata);
+        Assert.Equal(ConversionComponentOutcome.Preserved, result.ExecutionRecord.Truth.Orientation);
         Assert.Equal(ConversionComponentOutcome.Preserved, result.ExecutionRecord.Truth.ColorIcc);
         Assert.Equal(sourceHash, await ComputeSha256Async(result.OutputArtifact.Path));
         await AssertReadableByExifToolAsync(result.OutputArtifact.Path);
@@ -568,15 +727,14 @@ public sealed class ImageConverterTests
     [Trait("Category", "RealSamples")]
     public async Task Convert_JpegToJpeg_Rotate90_UsesPerfectDctAndPreservesObservedComponents()
     {
-        string liveSource = ResolveSample("华为-Mate80.jpg");
+        string liveSource = ResolveSample("oppo.jpg");
         string liveSourceHash = await ComputeSha256Async(liveSource);
         SourceMediaFacts facts = await NativeMediaService.InspectMediaAsync(liveSource);
         Assert.Equal(ImageContainer.Jpeg, facts.PrimaryImage.Container);
 
         using var workspace = new TestFixtureWorkspace();
         using var outputWorkspace = new MediaWorkspace();
-        string neutralPrimary = Path.Combine(workspace.RootDirectory, "huawei-primary.jpg");
-        await CopyRangeAsync(liveSource, neutralPrimary, facts.PrimaryImage.ByteOffset, facts.PrimaryImage.ByteLength);
+        string neutralPrimary = await CreateNeutralOrdinaryJpegPrimaryAsync(workspace, "ordinary-primary.jpg");
         (uint sourceWidth, uint sourceHeight) = await ReadDimensionsWithExifToolAsync(neutralPrimary);
 
         ImageConversionResult result = await new ImageConverter().ConvertAsync(new ImageConversionRequest
@@ -626,12 +784,35 @@ public sealed class ImageConverterTests
     [Trait("Category", "RealSamples")]
     public async Task Convert_JpegLosslessTransform_StrictFailsClosedWhenObservationFindsMetadataDegradation()
     {
-        string liveSource = ResolveSample("华为-Mate80.jpg");
-        SourceMediaFacts facts = await NativeMediaService.InspectMediaAsync(liveSource);
         using var workspace = new TestFixtureWorkspace();
         using var outputWorkspace = new MediaWorkspace();
-        string neutralPrimary = Path.Combine(workspace.RootDirectory, "huawei-primary.jpg");
-        await CopyRangeAsync(liveSource, neutralPrimary, facts.PrimaryImage.ByteOffset, facts.PrimaryImage.ByteLength);
+        // A real codec transform rewrites these explicit EXIF dimensions.
+        // Keep this negative distinct from the zero-dimension ordinary positive.
+        string neutralPrimary = await CreateDimensionedOrdinaryJpegPrimaryAsync(workspace);
+
+        string observedTransform = Path.Combine(workspace.RootDirectory, "dimension-diagnostic-transform.jpg");
+        await NativeMediaService.TransformJpegLosslesslyAsync(neutralPrimary, observedTransform, transform: 0);
+        var sourceDimensions = await ReadDimensionsWithExifToolAsync(neutralPrimary);
+        var outputDimensions = await ReadDimensionsWithExifToolAsync(observedTransform);
+        string sourceExifWidth = await ReadExifToolTextTagAsync(neutralPrimary, "-ExifImageWidth");
+        string sourceExifHeight = await ReadExifToolTextTagAsync(neutralPrimary, "-ExifImageHeight");
+        string outputExifWidth = await ReadExifToolTextTagAsync(observedTransform, "-ExifImageWidth");
+        string outputExifHeight = await ReadExifToolTextTagAsync(observedTransform, "-ExifImageHeight");
+        Assert.Equal(sourceDimensions.Item1, outputDimensions.Item2);
+        Assert.Equal(sourceDimensions.Item2, outputDimensions.Item1);
+        Assert.Equal(outputDimensions.Item1.ToString(), outputExifWidth);
+        Assert.Equal(outputDimensions.Item2.ToString(), outputExifHeight);
+        var beforeObservation = await NativeMediaService.CapturePreservationObservationAsync(neutralPrimary, SourceProtocol.Unknown, ImageContainer.Jpeg);
+        var afterObservation = await NativeMediaService.CapturePreservationObservationAsync(observedTransform, SourceProtocol.Unknown, ImageContainer.Jpeg);
+        Assert.NotEqual(beforeObservation.ExifExifIfdSha256, afterObservation.ExifExifIfdSha256);
+        Assert.NotEqual(beforeObservation.ExifIfd0NonPtrSha256, afterObservation.ExifIfd0NonPtrSha256);
+        Assert.Equal(beforeObservation.IccSha256, afterObservation.IccSha256);
+        Assert.Equal(beforeObservation.XmpNonprotocolSha256, afterObservation.XmpNonprotocolSha256);
+        Assert.Equal(beforeObservation.MakernoteNonliveSha256, afterObservation.MakernoteNonliveSha256);
+        _output.WriteLine(JsonSerializer.Serialize(new { sourceDimensions, outputDimensions, sourceExifWidth, sourceExifHeight, outputExifWidth, outputExifHeight,
+            beforeObservation.ExifExifIfdSha256, afterExifHash = afterObservation.ExifExifIfdSha256,
+            wholeSourceExifHash = Convert.ToHexString(SHA256.HashData(await ReadExifToolBinaryTagAsync(neutralPrimary, "-EXIF"))),
+            wholeOutputExifHash = Convert.ToHexString(SHA256.HashData(await ReadExifToolBinaryTagAsync(observedTransform, "-EXIF"))) }, new JsonSerializerOptions { IncludeFields = true }));
 
         ImageConversionResult result = await new ImageConverter().ConvertAsync(new ImageConversionRequest
         {
@@ -1585,13 +1766,15 @@ public sealed class ImageConverterTests
             $"R1A_REAL_SAMPLE_DERIVED|sourcePath={sourceFullPath}|sourceBytes={sourceLength}|sourceSha256Before={sourceHashBefore}|sourceSha256After={sourceHashAfter}|derivedBytes=1024|derivedSha256={derivedHash}|operation=NativeMediaService.ConvertImageAsync|result=throws|exceptionType={exception.GetType().FullName}|outputExists=false|workspaceFiles={string.Join(",", workspaceFiles)}");
     }
 
-    [Fact]
+    [Theory]
     [Trait("Category", "RealSamples")]
-    public async Task Convert_JpegToHeic_ConvertsPixelsAndEmitsTruthfulRecord()
+    [InlineData(PreservationPolicy.BestEffort)]
+    [InlineData(PreservationPolicy.Strict)]
+    public async Task Convert_JpegToHeic_ConvertsPixelsAndEmitsTruthfulRecord(PreservationPolicy policy)
     {
         using var workspace = new TestFixtureWorkspace();
         using var outputWorkspace = new MediaWorkspace();
-        string sample = await CreateNeutralHuaweiJpegPrimaryAsync(workspace, "neutral-jpeg-to-heic.jpg");
+        string sample = await CreateNeutralOrdinaryJpegPrimaryAsync(workspace, "neutral-jpeg-to-heic.jpg");
         string sourceHash = await ComputeSha256Async(sample);
 
         var artifact = new MediaArtifact
@@ -1609,24 +1792,32 @@ public sealed class ImageConverterTests
             SourceArtifact = artifact,
             TargetContainer = ImageContainer.Heic,
             TargetDirectory = outputWorkspace.RootDirectory,
-            PreservationPolicy = PreservationPolicy.BestEffort
+            PreservationPolicy = policy
         });
 
         Assert.True(result.Success, result.ErrorMessage);
         Assert.NotNull(result.OutputArtifact);
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.True(result.ExecutionRecord.PixelReencoded);
-        Assert.False(result.ExecutionRecord.MetadataCopied);
-        Assert.Equal(PreservationOutcome.PartiallyPreserved, result.ExecutionRecord.PreservationOutcome);
+        Assert.True(result.ExecutionRecord.MetadataCopied);
+        Assert.Equal(PreservationOutcome.Preserved, result.ExecutionRecord.PreservationOutcome);
+        var proof = Assert.IsType<ImageOrdinaryConversionEvidence>(result.ExecutionRecord.OrdinaryConversionEvidence);
+        Assert.Equal(sourceHash, proof.SourceSha256);
+        Assert.Equal(await ComputeSha256Async(result.OutputArtifact.Path), proof.OutputSha256);
+        Assert.Equal(proof.MappedSourceMetadataSha256, proof.OutputMetadataSha256);
+        Assert.Equal(1U, proof.OutputOrientation);
+        Assert.Equal(policy, result.ExecutionRecord.Truth.PreservationPolicy);
+        Assert.False(result.ExecutionRecord.Truth.FallbackOccurred);
         Assert.Equal(ImageContainer.Jpeg, result.ExecutionRecord.InputContainer);
         Assert.Equal(ImageContainer.Heic, result.ExecutionRecord.OutputContainer);
         Assert.Equal(ConversionFactsOrigin.CompatibilityInspectionOrProbe, result.ExecutionRecord.Truth.FactsOrigin);
         Assert.Equal(ConversionOperationKind.LossyReencode, result.ExecutionRecord.Truth.ActualOperationKind);
         Assert.Equal(ConversionComponentOutcome.Reencoded, result.ExecutionRecord.Truth.Pixel);
-        Assert.NotEqual(ConversionComponentOutcome.NotEvaluated, result.ExecutionRecord.Truth.Metadata);
-        Assert.NotEqual(ConversionComponentOutcome.NotEvaluated, result.ExecutionRecord.Truth.Orientation);
-        Assert.NotEqual(ConversionComponentOutcome.NotEvaluated, result.ExecutionRecord.Truth.ColorIcc);
-        await AssertExifToolOutcomesMatchAsync(sample, result.OutputArtifact.Path, result.ExecutionRecord.Truth);
+        Assert.Equal(ConversionComponentOutcome.Preserved, result.ExecutionRecord.Truth.Metadata);
+        Assert.Equal(ConversionComponentOutcome.Preserved, result.ExecutionRecord.Truth.Orientation);
+        Assert.Equal(ConversionComponentOutcome.Preserved, result.ExecutionRecord.Truth.ColorIcc);
+        await AssertExifToolOutcomesMatchAsync(sample, result.OutputArtifact.Path, result.ExecutionRecord.Truth,
+            mapOrdinaryJpegPrimaryMime: true);
 
         using var context = NativeContext.Create();
         var facts = new NativeHeicImageInfo
@@ -1769,7 +1960,7 @@ public sealed class ImageConverterTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task Convert_CrossContainerStrictPolicy_FailsExplicitly()
+    public async Task Convert_RawLiveJpegStrictCrossContainer_RequiresNeutralPreparation()
     {
         string sample = ResolveSample("oppo.jpg");
         using var workspace = new MediaWorkspace();
@@ -1793,7 +1984,9 @@ public sealed class ImageConverterTests
         });
 
         Assert.False(result.Success);
-        Assert.Contains("Strict", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(ConversionFailureStage.PolicyRejection, result.ExecutionRecord.Truth.FailureStage);
+        Assert.Equal(ConversionFailureCategory.Unsupported, result.ExecutionRecord.Truth.FailureCategory);
+        Assert.Null(result.ExecutionRecord.OrdinaryConversionEvidence);
         Assert.Equal(PreservationOutcome.PartiallyPreserved, result.ExecutionRecord.PreservationOutcome);
         Assert.Empty(Directory.EnumerateFiles(workspace.RootDirectory));
     }

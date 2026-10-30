@@ -15,21 +15,46 @@ function Invoke-ReliableZip {
         [switch]$CI
     )
     Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $attempts = 0
-    do {
-        $attempts++
-        Compress-Archive -Path "$SourceDir\*" -DestinationPath $ZipPath -Force
-        $z = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path $ZipPath))
-        $names = @($z.Entries | ForEach-Object { $_.Name })
-        $z.Dispose()
-        $missing = @($RequiredNames | Where-Object { $_ -notin $names })
-        if ($missing.Count -eq 0) { return }
-        Write-Host "       WARN: zip 缺失必需文件 ($($missing -join ', '))，第 $attempts 次重试..." -ForegroundColor DarkYellow
-        Start-Sleep -Milliseconds 500
-    } while ($attempts -lt 3)
-    Write-Host "BUILD FAILED - 重试 3 次后 zip 仍缺失: $($missing -join ', ')" -ForegroundColor Red
-    if (-not $CI) { pause }
-    exit 1
+    $zipDirectory = Split-Path -Parent $ZipPath
+    $zipBaseName = [System.IO.Path]::GetFileNameWithoutExtension($ZipPath)
+    $temporaryZipPath = Join-Path $zipDirectory ('.{0}.{1}.{2}.tmp.zip' -f $zipBaseName, $PID, [guid]::NewGuid().ToString('N'))
+    try {
+        $attempts = 0
+        do {
+            $attempts++
+            Compress-Archive -Path "$SourceDir\*" -DestinationPath $temporaryZipPath -Force -ErrorAction Stop
+            if (-not (Test-Path -LiteralPath $temporaryZipPath -PathType Leaf)) {
+                throw "Compress-Archive did not produce the temporary ZIP: $temporaryZipPath"
+            }
+            $z = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $temporaryZipPath).Path)
+            try {
+                $names = @($z.Entries | ForEach-Object { $_.Name })
+            }
+            finally {
+                $z.Dispose()
+            }
+            $missing = @($RequiredNames | Where-Object { $_ -notin $names })
+            if ($missing.Count -eq 0) {
+                Move-Item -LiteralPath $temporaryZipPath -Destination $ZipPath -Force -ErrorAction Stop
+                if (-not (Test-Path -LiteralPath $ZipPath -PathType Leaf)) {
+                    throw "Verified ZIP was not installed at the requested path: $ZipPath"
+                }
+                return
+            }
+            Write-Host "       WARN: zip 缺失必需文件 ($($missing -join ', '))，第 $attempts 次重试..." -ForegroundColor DarkYellow
+            Start-Sleep -Milliseconds 500
+        } while ($attempts -lt 3)
+        throw "BUILD FAILED - 重试 3 次后 zip 仍缺失: $($missing -join ', ')"
+    }
+    catch {
+        if (-not $CI) { pause }
+        throw
+    }
+    finally {
+        if (Test-Path -LiteralPath $temporaryZipPath -PathType Leaf) {
+            Remove-Item -LiteralPath $temporaryZipPath -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
@@ -73,12 +98,13 @@ $publishArgs = @(
     '-p:Platform=x64',
     '-p:WindowsAppSDKSelfContained=true',
     '-p:EnableMsixTooling=false',
+    '-p:SkipNativeBuild=true',
     '-o', $outDir
 )
 dotnet @publishArgs
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "       dotnet publish exited with code $LASTEXITCODE" -ForegroundColor DarkYellow
+    throw "GUI dotnet publish failed with exit code $LASTEXITCODE."
 }
 
 if (-not (Test-Path "$outDir\Live Photo Box.exe")) {
@@ -100,10 +126,10 @@ Write-Host ''
 Write-Host '[2/7] Building CLI x64 (SelfContained, multi-file)...' -ForegroundColor Yellow
 
 # 多文件 CLI：别名 exe 为 apphost 副本（几百 KB），依赖同目录 DLL 运行 → merge 时 GUI 已有 DLL 被跳过，增量仅 2~3MB
-dotnet publish 'LivePhotoBox.CLI\LivePhotoBox.CLI.csproj' -c Release -r win-x64 --self-contained true -p:Platform=x64 -o publish\cli_multi
+dotnet publish 'LivePhotoBox.CLI\LivePhotoBox.CLI.csproj' -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:SkipNativeBuild=true -o publish\cli_multi
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "       CLI publish warning: exit code $LASTEXITCODE" -ForegroundColor DarkYellow
+    throw "CLI multi-file dotnet publish failed with exit code $LASTEXITCODE."
 }
 
 if (Test-Path 'publish\cli_multi\livephotobox-boot.exe') {
@@ -116,11 +142,13 @@ if (Test-Path 'publish\cli_multi\livephotobox-boot.exe') {
             if (-not (Test-Path $target)) { Copy-Item $_.FullName $target }
         }
     }
+    if (-not (Test-Path "$outDir\livephotobox-boot.exe")) {
+        throw 'Portable output is missing livephotobox-boot.exe after the CLI merge.'
+    }
     Write-Host '       CLI merged into portable' -ForegroundColor Green
     Remove-Item -Recurse -Force 'publish\cli_multi' -ErrorAction SilentlyContinue
 } else {
-    Write-Host '       CLI build FAILED - skipping merge' -ForegroundColor DarkYellow
-    Remove-Item -Recurse -Force 'publish\cli_multi' -ErrorAction SilentlyContinue
+    throw 'CLI multi-file publish is missing livephotobox-boot.exe.'
 }
 
 # ═══════════════════════════════════════════════════════════════
@@ -130,17 +158,15 @@ Write-Host ''
 Write-Host '[3/7] Building CLI single-file & packaging standalone...' -ForegroundColor Yellow
 
 # 单文件 CLI：托管核心打进 boot exe，原生库（Magick.Native / heif）外置 → 启动零解压
-dotnet publish 'LivePhotoBox.CLI\LivePhotoBox.CLI.csproj' -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:PublishSingleFile=true -o publish\cli_single
+dotnet publish 'LivePhotoBox.CLI\LivePhotoBox.CLI.csproj' -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:PublishSingleFile=true -p:SkipNativeBuild=true -o publish\cli_single
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "       CLI single-file publish warning: exit code $LASTEXITCODE" -ForegroundColor DarkYellow
+    throw "CLI single-file dotnet publish failed with exit code $LASTEXITCODE."
 }
 
 if (Test-Path 'publish\cli_single\livephotobox-boot.exe') {
     if (-not (Test-Path 'publish\cli_single\LivePhotoBox.Native.dll')) {
-        Write-Host 'BUILD FAILED - LivePhotoBox.Native.dll not found in CLI output' -ForegroundColor Red
-        if (-not $CI) { pause }
-        exit 1
+        throw 'CLI single-file publish is missing LivePhotoBox.Native.dll.'
     }
     # Replace alias copies with Go symlink-safe launchers
     $goCmd = (Get-Command go -ErrorAction SilentlyContinue).Source
@@ -197,15 +223,14 @@ if (Test-Path 'publish\cli_single\livephotobox-boot.exe') {
     # 打包 CLI zip
     $cliZipName = "Live-Photo-Box-v$version-x64-cli.zip"
     $cliZipPath = "publish\$cliZipName"
-    Invoke-ReliableZip -SourceDir $cliDir -ZipPath $cliZipPath -RequiredNames @('LivePhotoBox.Native.dll','README.md','README.zh-CN.md','LICENSE','CLI-User-Guide.md','CLI-User-Guide.zh-CN.md','add-to-path.cmd','remove-from-path.cmd') -CI:$CI
+    Invoke-ReliableZip -SourceDir $cliDir -ZipPath $cliZipPath -RequiredNames @('livephotobox-boot.exe','LivePhotoBox.Native.dll','LivePhotoBox.Video.Libav.dll','FFmpeg-COPYING.GPLv3','x264-copyright.txt','x265-copyright.txt','README.md','README.zh-CN.md','LICENSE','CLI-User-Guide.md','CLI-User-Guide.zh-CN.md','add-to-path.cmd','remove-from-path.cmd') -CI:$CI
     $cliZipSize = '{0:N1} MB' -f ((Get-Item $cliZipPath).Length / 1MB)
     Write-Host "       $cliZipName  ($cliZipSize)" -ForegroundColor Green
 
     Remove-Item -Recurse -Force $cliDir -ErrorAction SilentlyContinue
     Remove-Item -Recurse -Force 'publish\cli_single' -ErrorAction SilentlyContinue
 } else {
-    Write-Host '       CLI not built, skipping standalone package' -ForegroundColor DarkYellow
-    Remove-Item -Recurse -Force 'publish\cli_single' -ErrorAction SilentlyContinue
+    throw 'CLI single-file publish is missing livephotobox-boot.exe.'
 }
 
 # ═══════════════════════════════════════════════════════════════
@@ -292,7 +317,7 @@ Copy-Item 'scripts\install\remove-from-path.cmd' "$outDir\remove-from-path.cmd" 
 
 $zipName = "Live-Photo-Box-v$version-x64-portable.zip"
 $zipPath = "publish\$zipName"
-Invoke-ReliableZip -SourceDir $outDir -ZipPath $zipPath -RequiredNames @('README.md','README.zh-CN.md','LICENSE','CLI-User-Guide.md','CLI-User-Guide.zh-CN.md','add-to-path.cmd','remove-from-path.cmd') -CI:$CI
+Invoke-ReliableZip -SourceDir $outDir -ZipPath $zipPath -RequiredNames @('Live Photo Box.exe','livephotobox-boot.exe','LivePhotoBox.Native.dll','LivePhotoBox.Video.Libav.dll','FFmpeg-COPYING.GPLv3','x264-copyright.txt','x265-copyright.txt','README.md','README.zh-CN.md','LICENSE','CLI-User-Guide.md','CLI-User-Guide.zh-CN.md','add-to-path.cmd','remove-from-path.cmd') -CI:$CI
 $zipSize = '{0:N1} MB' -f ((Get-Item $zipPath).Length / 1MB)
 Write-Host "       $zipName  ($zipSize)" -ForegroundColor Green
 
@@ -305,18 +330,19 @@ Write-Host '[7/7] Creating installer...' -ForegroundColor Yellow
 $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
 if (Test-Path $iscc) {
     & $iscc /Qp "/dVERSION=$versionFull" "/dVERSION_SHORT=$version" 'scripts\install\setup.iss'
-    if ($LASTEXITCODE -eq 0) {
-        $setupName = "Live-Photo-Box-v$version-x64-setup.exe"
-        $setupPath = "publish\$setupName"
-        $setupSize = '{0:N1} MB' -f ((Get-Item $setupPath).Length / 1MB)
-        Write-Host "       $setupName  ($setupSize)" -ForegroundColor Green
+    if ($LASTEXITCODE -ne 0) {
+        throw "Inno Setup failed with exit code $LASTEXITCODE."
     }
-    else {
-        Write-Host '       Inno Setup failed' -ForegroundColor Red
+    $setupName = "Live-Photo-Box-v$version-x64-setup.exe"
+    $setupPath = "publish\$setupName"
+    if (-not (Test-Path -LiteralPath $setupPath -PathType Leaf)) {
+        throw "Inno Setup completed without producing the declared installer: $setupPath"
     }
+    $setupSize = '{0:N1} MB' -f ((Get-Item $setupPath).Length / 1MB)
+    Write-Host "       $setupName  ($setupSize)" -ForegroundColor Green
 }
 else {
-    Write-Host '       Inno Setup not installed, skipping' -ForegroundColor DarkYellow
+    throw "Inno Setup compiler was not found: $iscc"
 }
 
 Remove-Item -Recurse -Force $outDir -ErrorAction SilentlyContinue

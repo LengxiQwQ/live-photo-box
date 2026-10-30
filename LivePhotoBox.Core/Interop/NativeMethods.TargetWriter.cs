@@ -71,6 +71,10 @@ internal unsafe struct NativeTargetWriterRequestV2
 
 internal static partial class NativeMethods
 {
+    [LibraryImport(LibraryName, EntryPoint = "lpb_target_writer_prepare_v4")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static unsafe partial NativeResult TargetWriterPrepareV4(nint context,NativeTargetWriterRequestV4* request,out nint plan);
     [LibraryImport(LibraryName, EntryPoint = "lpb_target_writer_prepare_v3")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -117,4 +121,21 @@ internal struct NativeTargetWriterRequestV3
     public uint StructSize, Version;
     public NativeTargetWriterRequestV2 Base;
     public ulong CompoundPrimaryToken, Reserved;
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal unsafe struct NativeTargetOrdinaryMetadataV1
+{
+    public uint StructSize,Version,Kind,OwnerIndex,Flags,Reserved;
+    public fixed byte StableIdentity[128],OwnerIdentity[128],Semantic[32],Relationship[96];
+    public NativeTargetWriterArtifactV1 Materialized;
+}
+[StructLayout(LayoutKind.Sequential, Pack = 8)]
+internal struct NativeTargetWriterRequestV4
+{
+    public uint StructSize,Version;
+    public NativeTargetWriterRequestV3 Base;
+    public uint MetadataCount,Reserved;
+    public nint Metadata;
+    public ulong ReservedTail;
 }

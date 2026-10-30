@@ -13,6 +13,7 @@ using System.Text.RegularExpressions;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Threading;
 
 namespace LivePhotoBox.Cli
 {
@@ -20,6 +21,13 @@ namespace LivePhotoBox.Cli
     {
         static async Task<int> Main(string[] args)
         {
+            using var cancellation = new CancellationTokenSource();
+            ConsoleCancelEventHandler cancelHandler = (_, signal) =>
+            {
+                signal.Cancel = true;
+                cancellation.Cancel();
+            };
+            Console.CancelKeyPress += cancelHandler;
             // UTF-8 console output
             Console.OutputEncoding = Encoding.UTF8;
 
@@ -95,7 +103,7 @@ namespace LivePhotoBox.Cli
                     {
                         try
                         {
-                            int invocationExitCode = await parseResult.InvokeAsync();
+                            int invocationExitCode = await parseResult.InvokeAsync(cancellationToken: cancellation.Token);
                             // Command actions in System.CommandLine return 0 even when
                             // they set Environment.ExitCode themselves.
                             exitCode = invocationExitCode != 0
@@ -112,6 +120,7 @@ namespace LivePhotoBox.Cli
             }
             finally
             {
+                Console.CancelKeyPress -= cancelHandler;
                 // 收尾 flush：命令级退出信息写盘 + CLEAN SHUTDOWN 标记。--version 快路径未初始化日志，此处无副作用。
                 LogService.Info($"CLI exit code: {exitCode}, elapsed: {stopwatch.Elapsed.TotalSeconds:F2}s", LogSource.System);
                 LogService.MarkCleanShutdown();

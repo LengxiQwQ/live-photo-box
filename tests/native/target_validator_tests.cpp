@@ -5,6 +5,7 @@
 #include "livephotobox_native.h"
 #include "binary/portable_io.h"
 #include "containers/isobmff.h"
+#include "containers/aac_config.h"
 #include <array>
 #include <filesystem>
 #include <fstream>
@@ -372,6 +373,35 @@ void raw_destroy_cleans_successful_native_stage(const fs::path& inputs){
  std::cout<<"raw_destroy_cleans_successful_native_stage PASS\n";
 }
 int main(int argc,char** argv){try{
+ using lpb::media::aac_config_matches_entry;
+ const std::array<uint8_t,2> lc{0x12,0x10};
+ const std::array<uint8_t,5> lc_no_sbr{0x12,0x10,0x56,0xe5,0};
+ const std::array<uint8_t,4> sbr{0x2d,0x8c,0x08,0};
+ const std::array<uint8_t,4> ps{0xed,0x8c,0x08,0};
+ REQUIRE(aac_config_matches_entry(lc,2,44100U<<16));
+ REQUIRE(aac_config_matches_entry(lc_no_sbr,2,44100U<<16));
+ REQUIRE(aac_config_matches_entry(sbr,1,16000U<<16));
+ REQUIRE(aac_config_matches_entry(sbr,2,16000U<<16));
+ REQUIRE(aac_config_matches_entry(ps,2,16000U<<16));
+ REQUIRE(!aac_config_matches_entry(ps,1,16000U<<16));
+ REQUIRE(!aac_config_matches_entry(sbr,2,8000U<<16));
+ REQUIRE(!aac_config_matches_entry(sbr,4,16000U<<16));
+ REQUIRE(!aac_config_matches_entry(std::span<const uint8_t>(sbr).first(3),2,16000U<<16));
+ for(const size_t at:{size_t{2},size_t{3}}){auto invalid=sbr;invalid[at]^=1;REQUIRE(!aac_config_matches_entry(invalid,2,16000U<<16));}
+ const auto audio_config=[](std::initializer_list<std::pair<unsigned,uint32_t>> fields){
+  std::vector<uint8_t> result;size_t bit=0;
+  for(const auto& [width,value]:fields)for(unsigned i=width;i>0;--i,++bit){
+   if(bit%8==0)result.push_back(0);
+   result[bit/8]|=static_cast<uint8_t>(((value>>(i-1))&1U)<<(7-bit%8));
+  }return result;
+ };
+ bool mismatch=false;
+ const auto sbr96=audio_config({{5,5},{4,3},{4,2},{4,0},{5,2},{3,0}});
+ REQUIRE(!aac_config_matches_entry(sbr96,2,30464U<<16,&mismatch)&&mismatch);
+ const std::array<uint8_t,2> lc96{0x10,0x10};
+ REQUIRE(!aac_config_matches_entry(lc96,2,30464U<<16,&mismatch)&&mismatch);
+ const auto sbr_explicit=audio_config({{5,5},{4,15},{24,40000},{4,2},{4,15},{24,80000},{5,2},{3,0}});
+ REQUIRE(!aac_config_matches_entry(sbr_explicit,2,14464U<<16,&mismatch)&&mismatch);
  REQUIRE(argc==2);const std::string arg=argv[1];const fs::path directory=std::u8string(reinterpret_cast<const char8_t*>(arg.data()),arg.size());
  const auto jpeg=load(directory/L"neutral.jpg"),video=load(directory/L"neutral.mp4");auto* context=make_context();
  REQUIRE(sizeof(lpb_target_reader_v1)==48&&sizeof(lpb_target_validation_request_v1)==64&&sizeof(lpb_target_validation_result_v1)==176);

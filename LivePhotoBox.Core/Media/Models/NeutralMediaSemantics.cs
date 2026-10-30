@@ -64,6 +64,7 @@ public sealed record NeutralMediaSemantics
     public NeutralArtifactSemantics? MotionVideo { get; init; }
     public NeutralAuxiliarySemantics? GainMap { get; init; }
     public IReadOnlyList<NeutralAuxiliarySemantics> AuxiliaryMedia { get; init; } = [];
+    public IReadOnlyList<NeutralOrdinaryMetadataSemantics> OrdinaryMetadata { get; init; } = [];
     public NeutralTimingSemantics Timing { get; init; } = new();
     public NeutralOrientationSemantics Orientation { get; init; } = new();
     public NeutralColorHdrSemantics ColorHdr { get; init; } = new();
@@ -120,6 +121,21 @@ public sealed record NeutralAuxiliarySemantics
     public AuxiliaryCodec Codec { get; init; } = AuxiliaryCodec.Unknown;
     public NeutralAuxiliaryRepresentation Representation { get; init; } = NeutralAuxiliaryRepresentation.Unknown;
     public AuxiliaryOwnership Ownership { get; init; }
+    public PreservationOutcome? PreservationOutcome { get; init; }
+    public NeutralEvidenceState EvidenceState { get; init; } = NeutralEvidenceState.Unknown;
+}
+
+/// <summary>Ordinary byte records, distinct from semantic image/video auxiliary assets.
+/// No transport path, source brand or platform object is semantic authority.</summary>
+public sealed record NeutralOrdinaryMetadataSemantics
+{
+    public string StableIdentity { get; init; } = string.Empty;
+    public string Semantic { get; init; } = string.Empty;
+    public string OwnerIdentity { get; init; } = string.Empty;
+    public string Relationship { get; init; } = string.Empty;
+    public string Sha256 { get; init; } = string.Empty;
+    public long ByteLength { get; init; }
+    public NeutralAuxiliaryRepresentation Representation { get; init; } = NeutralAuxiliaryRepresentation.Unknown;
     public PreservationOutcome? PreservationOutcome { get; init; }
     public NeutralEvidenceState EvidenceState { get; init; } = NeutralEvidenceState.Unknown;
 }
@@ -197,6 +213,7 @@ public sealed record NeutralPreservationSemantics
     public NeutralArtifactPreservation? MotionVideo { get; init; }
     public NeutralArtifactPreservation? GainMap { get; init; }
     public IReadOnlyList<NeutralArtifactPreservation> AuxiliaryMedia { get; init; } = [];
+    public IReadOnlyList<NeutralArtifactPreservation> OrdinaryMetadata { get; init; } = [];
 
     public static NeutralPreservationSemantics Unknown { get; } = new();
 }

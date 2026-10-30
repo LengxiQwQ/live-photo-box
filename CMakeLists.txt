@@ -32,6 +32,8 @@ configure_file("${CMAKE_SOURCE_DIR}/LivePhotoBox.Native/src/foundation/native_ve
 # Explicit groups are the build authority; adding a production source requires editing this graph.
 set(LPB_PORTABLE_SOURCES
   LivePhotoBox.Native/src/containers/isobmff.cpp
+  LivePhotoBox.Native/src/containers/isobmff_metadata_keys.cpp
+  LivePhotoBox.Native/src/containers/isobmff_track_graph.cpp
   LivePhotoBox.Native/src/containers/isobmff_mebx_transplant.cpp
   LivePhotoBox.Native/src/containers/isobmff_video_profile.cpp
   LivePhotoBox.Native/src/containers/heif.cpp
@@ -65,6 +67,7 @@ set(LPB_MEDIA_SOURCES
   LivePhotoBox.Native/src/media/hdr_gainmap_conversion.cpp
   LivePhotoBox.Native/src/media/jpeg_backend.cpp
   LivePhotoBox.Native/src/media/image_converter.cpp
+  LivePhotoBox.Native/src/media/image_converter_v2.cpp
   LivePhotoBox.Native/src/media/media_api.cpp
   LivePhotoBox.Native/src/media/media_cleaner.cpp
   LivePhotoBox.Native/src/media/media_extractor.cpp
@@ -158,6 +161,9 @@ if(LPB_BUILD_VIDEO_SIDECAR)
     "${LPB_P5_R5_CODEC_PREFIX}/lib/x265-static.lib"
     secur32 ncrypt crypt32 ws2_32 advapi32 ole32 user32 bcrypt)
   set_target_properties(LivePhotoBoxVideoLibav PROPERTIES
+    # The pinned codec archives use /MT in both product configurations. The
+    # sidecar owns its allocations behind C ABI, independently of Native /MTd.
+    MSVC_RUNTIME_LIBRARY "MultiThreaded"
     OUTPUT_NAME "LivePhotoBox.Video.Libav"
     RUNTIME_OUTPUT_DIRECTORY "${LPB_NATIVE_OUTPUT_ROOT}/$<CONFIG>/win-x64"
     LIBRARY_OUTPUT_DIRECTORY "${LPB_NATIVE_OUTPUT_ROOT}/$<CONFIG>/win-x64"
@@ -194,7 +200,8 @@ function(lpb_native_target target_name output_name harness)
   if(harness)
     target_compile_definitions(${target_name} PRIVATE LPB_NATIVE_TEST_HARNESS)
     target_sources(${target_name} PRIVATE tests/native/target_primary_observation_tests.cpp
-      tests/native/target_google_xmp_tests.cpp)
+      tests/native/target_google_xmp_tests.cpp tests/native/target_jpeg_metadata_tests.cpp
+      tests/native/metadata_key_inventory_tests.cpp tests/native/track_graph_tests.cpp)
     # MSVC 19.51 intermittently crashes in its shared type-server PDB for this
     # large test-only target; /Z7 retains symbols without that compiler server.
     set_property(TARGET ${target_name} PROPERTY MSVC_DEBUG_INFORMATION_FORMAT
@@ -271,6 +278,12 @@ if(BUILD_TESTING)
       "$<TARGET_FILE:LivePhotoBoxNativeTestHarness>" lpb_test_p9_primary_observation)
     add_test(NAME P9R3_GoogleXmpModel COMMAND lpb_target_structural_v2_host
       "$<TARGET_FILE:LivePhotoBoxNativeTestHarness>" lpb_test_p9_google_xmp)
+    add_test(NAME P9R3_JpegMetadata COMMAND lpb_target_structural_v2_host
+      "$<TARGET_FILE:LivePhotoBoxNativeTestHarness>" lpb_test_p9_jpeg_metadata)
+    add_test(NAME P9R8_MetadataKeyOwnership COMMAND lpb_target_structural_v2_host
+      "$<TARGET_FILE:LivePhotoBoxNativeTestHarness>" lpb_test_p9_metadata_keys)
+    add_test(NAME P9R8_TrackGraphMedia COMMAND lpb_target_structural_v2_host
+      "$<TARGET_FILE:LivePhotoBoxNativeTestHarness>" lpb_test_p9_track_graph)
   endif()
   add_executable(lpb_target_video_observation_tests tests/native/target_video_observation_tests.cpp
     LivePhotoBox.Native/src/media/target_video_observation.cpp)
@@ -278,6 +291,43 @@ if(BUILD_TESTING)
   target_compile_options(lpb_target_video_observation_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
   target_link_libraries(lpb_target_video_observation_tests PRIVATE livephotobox_portable_core)
   add_test(NAME P9R3_VideoMetadata COMMAND lpb_target_video_observation_tests)
+  add_executable(lpb_copy_track_preservation_tests tests/native/copy_track_preservation_tests.cpp)
+  add_executable(lpb_pixel_orientation_tests tests/native/pixel_orientation_tests.cpp)
+  target_include_directories(lpb_pixel_orientation_tests PRIVATE LivePhotoBox.Native/src LivePhotoBox.Native/include)
+  target_compile_options(lpb_pixel_orientation_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+  add_test(NAME P9R8_PhysicalPixelOrientation COMMAND lpb_pixel_orientation_tests)
+  add_executable(lpb_original_jpeg_metadata_tests tests/native/original_jpeg_metadata_tests.cpp)
+  target_include_directories(lpb_original_jpeg_metadata_tests PRIVATE LivePhotoBox.Native/src LivePhotoBox.Native/include)
+  target_compile_options(lpb_original_jpeg_metadata_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+  target_link_libraries(lpb_original_jpeg_metadata_tests PRIVATE livephotobox_portable_core)
+  target_include_directories(lpb_copy_track_preservation_tests PRIVATE LivePhotoBox.Native/src)
+  target_compile_options(lpb_copy_track_preservation_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+  target_link_libraries(lpb_copy_track_preservation_tests PRIVATE livephotobox_portable_core)
+  add_test(NAME P9R8_CopyTrackRealSamples COMMAND lpb_copy_track_preservation_tests
+    "${CMAKE_SOURCE_DIR}/.ai-tmp/cache/samples/苹果-双文件.MOV")
+  set_tests_properties(P9R8_CopyTrackRealSamples PROPERTIES LABELS "RealSamples;P9R8")
+  add_executable(lpb_opaque_camera_records_tests tests/native/opaque_camera_records_tests.cpp)
+  target_include_directories(lpb_opaque_camera_records_tests PRIVATE LivePhotoBox.Native/src)
+  target_compile_options(lpb_opaque_camera_records_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+  target_link_libraries(lpb_opaque_camera_records_tests PRIVATE livephotobox_portable_core)
+  add_test(NAME P9R8_OpaqueCameraRecords COMMAND lpb_opaque_camera_records_tests
+    "${CMAKE_SOURCE_DIR}/.ai-tmp/cache/samples/一加.jpg"
+    "${CMAKE_SOURCE_DIR}/.ai-tmp/cache/samples/一加-改了封面照片.jpg"
+    "${CMAKE_SOURCE_DIR}/.ai-tmp/cache/samples/oppo.jpg")
+  set_tests_properties(P9R8_OpaqueCameraRecords PROPERTIES LABELS "RealSamples;P9R8")
+  add_executable(lpb_ordinary_metadata_capsule_tests tests/native/ordinary_metadata_capsule_tests.cpp)
+  target_include_directories(lpb_ordinary_metadata_capsule_tests PRIVATE LivePhotoBox.Native/src)
+  target_compile_options(lpb_ordinary_metadata_capsule_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+  target_link_libraries(lpb_ordinary_metadata_capsule_tests PRIVATE livephotobox_portable_core)
+  add_test(NAME P9R8_OrdinaryMetadataCapsule COMMAND lpb_ordinary_metadata_capsule_tests
+    "${CMAKE_SOURCE_DIR}/.ai-tmp/cache/samples/一加.jpg"
+    "${CMAKE_SOURCE_DIR}/.ai-tmp/cache/samples/一加-改了封面照片.jpg"
+    "${CMAKE_SOURCE_DIR}/.ai-tmp/cache/samples/oppo.jpg")
+  set_tests_properties(P9R8_OrdinaryMetadataCapsule PROPERTIES LABELS "RealSamples;P9R8")
+  add_executable(lpb_ordinary_metadata_container_tests tests/native/ordinary_metadata_container_tests.cpp)
+  target_include_directories(lpb_ordinary_metadata_container_tests PRIVATE LivePhotoBox.Native/src)
+  target_compile_options(lpb_ordinary_metadata_container_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
+  target_link_libraries(lpb_ordinary_metadata_container_tests PRIVATE livephotobox_portable_core)
   add_executable(lpb_huawei_target_movie_tests tests/native/huawei_target_movie_tests.cpp
     LivePhotoBox.Native/src/protocols/huawei_target.cpp
     LivePhotoBox.Native/src/media/huawei_conformance.cpp
@@ -292,12 +342,6 @@ if(BUILD_TESTING)
   target_compile_options(lpb_target_heif_xmp_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
   target_link_libraries(lpb_target_heif_xmp_tests PRIVATE livephotobox_portable_core)
   add_test(NAME P9R3_HeifXmpGraph COMMAND lpb_target_heif_xmp_tests)
-  add_executable(lpb_target_jpeg_metadata_tests tests/native/target_jpeg_metadata_tests.cpp
-    LivePhotoBox.Native/src/media/jpeg_observation.cpp LivePhotoBox.Native/src/metadata/target_exif.cpp)
-  target_include_directories(lpb_target_jpeg_metadata_tests PRIVATE LivePhotoBox.Native/include LivePhotoBox.Native/src)
-  target_compile_options(lpb_target_jpeg_metadata_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)
-  target_link_libraries(lpb_target_jpeg_metadata_tests PRIVATE livephotobox_portable_core)
-  add_test(NAME P9R3_JpegMetadata COMMAND lpb_target_jpeg_metadata_tests)
   add_executable(lpb_target_validator_tests tests/native/target_validator_tests.cpp)
   target_include_directories(lpb_target_validator_tests PRIVATE LivePhotoBox.Native/include LivePhotoBox.Native/src)
   target_compile_options(lpb_target_validator_tests PRIVATE /W4 /WX /permissive- /utf-8 /EHsc)

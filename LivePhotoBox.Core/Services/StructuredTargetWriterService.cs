@@ -10,6 +10,7 @@ using System.Collections.Generic;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Models;
+using LivePhotoBox.Media;
 using LivePhotoBox.Protocols.Cleaning;
 using NativeFileIdentity = LivePhotoBox.Interop.NativeCleanService.NativeFileIdentity;
 
@@ -19,6 +20,9 @@ namespace LivePhotoBox.Services;
 // Make, or an ordinary stabilization UUID. Product choices still await R8.
 internal enum HuaweiTargetVariant : uint { HuaweiV6 = 1, HonorV2 = 2 }
 internal enum SamsungTargetVariant : uint { Mpv2 = 2, Mpv3 = 3 }
+// A newly created target may establish its initial cover at the known current
+// cover. This describes the new file, never an inferred source capture history.
+internal enum OppoInitialCoverPolicy { RequireKnownOriginal = 0, InitializeNewTargetAtCurrentCover = 1 }
 
 /// <summary>
 /// Experimental structured Native target path. Product adapters migrate only after
@@ -30,7 +34,8 @@ internal static class StructuredTargetWriterService
         OutputProfile profile, string finalPath, string stagingDirectory,
         bool overwriteExisting, CancellationToken token,
         HuaweiTargetVariant huaweiVariant = HuaweiTargetVariant.HuaweiV6,
-        SamsungTargetVariant samsungVariant = SamsungTargetVariant.Mpv3)
+        SamsungTargetVariant samsungVariant = SamsungTargetVariant.Mpv3,
+        OppoInitialCoverPolicy oppoInitialCoverPolicy = OppoInitialCoverPolicy.RequireKnownOriginal)
     {
         ArgumentNullException.ThrowIfNull(bundle);
         ArgumentNullException.ThrowIfNull(profile);
@@ -49,6 +54,8 @@ internal static class StructuredTargetWriterService
             throw new ArgumentException("The explicit Huawei/Honor variant does not apply to this target.", nameof(huaweiVariant));
         if (!Enum.IsDefined(samsungVariant) || (target != 5 && samsungVariant != SamsungTargetVariant.Mpv3))
             throw new ArgumentException("Samsung variant does not apply to the selected target.", nameof(samsungVariant));
+        if (!Enum.IsDefined(oppoInitialCoverPolicy) || (target != 3 && oppoInitialCoverPolicy != OppoInitialCoverPolicy.RequireKnownOriginal))
+            throw new ArgumentException("OPPO initial cover policy does not apply to the selected target.", nameof(oppoInitialCoverPolicy));
         uint targetVersion = target == 6 ? (uint)huaweiVariant : target == 5 ? (uint)samsungVariant : 1u;
         if (target == 6 && profile.Format == OutputMediaFormat.HeicMp4Hevc && video.VideoCodec != VideoCodec.Hevc)
             throw new NotSupportedException("The explicit Huawei HEVC profile requires prepared HEVC video.");
@@ -63,8 +70,11 @@ internal static class StructuredTargetWriterService
         RejectSourceAlias(finalPath, video);
         long? cover = bundle.Semantics.Timing.CoverTimestampUs;
         long? primaryTime = target == 3 ? bundle.Semantics.Timing.PrimaryTimestampUs : null;
+        if (target == 3 && !primaryTime.HasValue && oppoInitialCoverPolicy == OppoInitialCoverPolicy.InitializeNewTargetAtCurrentCover)
+            primaryTime = cover;
         if (target == 3 && !primaryTime.HasValue)
             throw new NotSupportedException("OPPO original capture time is unknown; current cover cannot invent that history.");
+        OrdinaryBinding[] ordinary=await BindOrdinaryMetadataAsync(bundle,finalPath,token).ConfigureAwait(false);
         AuxiliaryBinding[] auxiliaries = await BindAuxiliariesAsync(bundle, finalPath, token).ConfigureAwait(false);
         NativeCompoundPrimaryObservation? compound = bundle.PrimaryImage.CompoundPrimary?.Inspect(bundle.PrimaryImage.Path, token).Observation;
         if (compound.HasValue && (target != 6 || profile.Format != OutputMediaFormat.JpegMp4))
@@ -75,19 +85,51 @@ internal static class StructuredTargetWriterService
             Auxiliaries = auxiliaries.Select(row => new TargetAuxiliaryExpectation(
                 AuxiliarySemanticCode(row.Row.Semantic), (uint)row.Row.ImageContainer,
                 checked((ulong)row.Row.ByteLength), row.Row.Sha256)).ToArray(),
+            OrdinaryMetadata=ordinary.Select(x=>new TargetOrdinaryMetadataExpectation(checked((ulong)x.Row.ByteLength),x.Row.Sha256,(uint)bundle.PrimaryImage.ImageContainer)).ToArray(),
             ImageRotationDegrees = KnownRotation(bundle.Semantics.Orientation.PrimaryImage),
             ImageReflection = KnownReflection(bundle.Semantics.Orientation.PrimaryImage),
             VideoRotationDegrees = KnownRotation(bundle.Semantics.Orientation.MotionVideo),
             VideoReflection = KnownReflection(bundle.Semantics.Orientation.MotionVideo)
         };
         using var session = new Session(bundle.PrimaryImage, video, profile, target, targetVersion, cover, primaryTime,
-            auxiliaries, stagingDirectory, token);
+            auxiliaries, ordinary, stagingDirectory, token);
         return await WindowsSplitOutputPublisher.PublishTargetAsync(finalPath, overwriteExisting,
             session.CopyToAsync, expected, token).ConfigureAwait(false);
     }
 
     private sealed record AuxiliaryBinding(NeutralArtifactManifest Row, uint Representation,
         uint SelectorKind, uint SelectorId, MediaArtifact? Materialized);
+    private sealed record OrdinaryBinding(NeutralArtifactManifest Row,MediaArtifact Artifact);
+
+    private static async Task<OrdinaryBinding[]> BindOrdinaryMetadataAsync(NeutralMediaBundle bundle,string finalPath,CancellationToken token)
+    {
+        var semantics=bundle.Semantics.OrdinaryMetadata;var rows=bundle.Manifest.Where(x=>x.Role=="OrdinaryMetadata").ToArray();
+        var declared=bundle.PreservationCarriers.Where(x=>x.Semantic==OrdinaryMetadataPreservation.Semantic||x.MaterializedArtifact?.Kind==MediaArtifactKind.MetadataCarrier).ToArray();
+        if(semantics.Count>1||rows.Length!=semantics.Count||declared.Length!=semantics.Count||
+            semantics.Select(x=>x.StableIdentity).Distinct(StringComparer.Ordinal).Count()!=semantics.Count)
+            throw new NotSupportedException("Every ordinary metadata artifact requires one unique represented semantic owner.");
+        var bindings=new List<OrdinaryBinding>();
+        foreach(var semantic in semantics)
+        {
+            if(semantic.Semantic!=OrdinaryMetadataPreservation.Semantic||semantic.Relationship!=OrdinaryMetadataPreservation.Relationship||
+                semantic.OwnerIdentity!="primary:0"||semantic.Representation!=NeutralAuxiliaryRepresentation.Materialized||
+                semantic.EvidenceState!=NeutralEvidenceState.VerifiedPreserved||semantic.PreservationOutcome!=PreservationOutcome.Preserved)
+                throw new NotSupportedException("Ordinary metadata semantics are not verified complete materialized records.");
+            var matching=rows.Where(x=>x.StableIdentity==semantic.StableIdentity&&x.Semantic==semantic.Semantic&&
+                x.OwnerIdentity==semantic.OwnerIdentity&&x.Relationship==semantic.Relationship&&x.ByteLength==semantic.ByteLength&&x.Sha256==semantic.Sha256&&
+                x.SemanticRepresentation==semantic.Representation&&x.Ownership==AuxiliaryOwnership.Primary&&x.SourceOffset==0&&x.OwnerByteOffset is null&&
+                x.ImageContainer==ImageContainer.Unknown&&x.VideoContainer==VideoContainer.Unknown&&x.AuxiliaryCodec==AuxiliaryCodec.Copy&&
+                x.PreservationOutcome==PreservationOutcome.Preserved).ToArray();
+            if(matching.Length!=1)throw new InvalidDataException("Ordinary metadata does not match its final Neutral manifest.");
+            var row=matching[0];var artifacts=declared.Where(x=>x.StableIdentity==semantic.StableIdentity&&x.Semantic==semantic.Semantic&&
+                x.OwnerIdentity==semantic.OwnerIdentity&&x.Relationship==semantic.Relationship&&x.MaterializedArtifact is not null)
+                .Select(x=>x.MaterializedArtifact!).Where(x=>Path.GetFullPath(x.Path)==Path.GetFullPath(row.Path)).ToArray();
+            if(artifacts.Length!=1)throw new InvalidDataException("Ordinary metadata has no unique actual final artifact.");
+            var artifact=await OrdinaryMetadataPreservation.VerifyArtifactAsync(artifacts[0],row.ByteLength,row.Sha256,token).ConfigureAwait(false);
+            RejectSourceAlias(finalPath,artifact);bindings.Add(new(row,artifact));
+        }
+        return bindings.ToArray();
+    }
 
     private static uint AuxiliarySemanticCode(string semantic) => semantic switch
     {
@@ -111,7 +153,7 @@ internal static class StructuredTargetWriterService
                 descriptor.Semantic == semantic.Semantic && descriptor.OwnerIdentity == semantic.OwnerIdentity &&
                 descriptor.Relationship == semantic.Relationship)))
             throw new InvalidDataException("Auxiliary descriptors do not map uniquely to the final semantic inventory.");
-        var rows = bundle.Manifest.Where(row => row.Role is not ("PrimaryImage" or "MotionVideo")).ToArray();
+        var rows = bundle.Manifest.Where(row => row.Role is not ("PrimaryImage" or "MotionVideo" or "OrdinaryMetadata")).ToArray();
         if (rows.Length != semantics.Count ||
             (bundle.GainMap is not null && !semantics.Any(row => row.Semantic == "GainMap")) ||
             (bundle.GainMapRepresentation != GainMapRepresentation.None && !semantics.Any(row => row.Semantic == "GainMap")))
@@ -132,14 +174,15 @@ internal static class StructuredTargetWriterService
             if (facts.Protocol != SourceProtocol.NonLive)
                 throw new InvalidDataException("Prepared primary still contains source live binding.");
         }
-        if (bundle.PreservationCarriers.Count != 0)
+        var embeddedCarriers=bundle.PreservationCarriers.Where(x=>!OrdinaryMetadataPreservation.IsRecordCarrier(x)).ToArray();
+        if (embeddedCarriers.Length != 0)
         {
             facts ??= bundle.PrimaryImage.CompoundPrimary is { } compoundPrimary
                 ? compoundPrimary.Inspect(bundle.PrimaryImage.Path, token).Facts
                 : await new SourceInspector().InspectAsync(bundle.PrimaryImage.Path, cancellationToken: token).ConfigureAwait(false);
             if (facts.Protocol != SourceProtocol.NonLive)
                 throw new InvalidDataException("Prepared carrier owner retains a source live binding.");
-            foreach (var carrier in bundle.PreservationCarriers)
+            foreach (var carrier in embeddedCarriers)
             {
                 // Descriptive evidence never authorizes an append. Only an
                 // actually observed embedded ordinary camera region is copied
@@ -286,7 +329,7 @@ internal static class StructuredTargetWriterService
         private bool _compoundRetained;
 
         internal unsafe Session(MediaArtifact image, MediaArtifact video, OutputProfile profile, uint target, uint targetVersion,
-            long? cover, long? primaryTime, AuxiliaryBinding[] bindings, string stagingDirectory, CancellationToken token)
+            long? cover, long? primaryTime, AuxiliaryBinding[] bindings, OrdinaryBinding[] ordinary, string stagingDirectory, CancellationToken token)
         {
             _context = NativeContext.Create(token);
             _operation = _context.AcquireOperationLease();
@@ -332,7 +375,19 @@ internal static class StructuredTargetWriterService
                 };
                 EncodeText("primary:0", requestV2.PrimaryIdentity, 128);
                 _compound = image.CompoundPrimary;
-                if (_compound is not null)
+                if(ordinary.Length!=0)
+                {
+                    if(ordinary.Length!=1||_compound is not null)throw new NotSupportedException("Ordinary metadata cannot be combined with an unrepresented compound primary.");
+                    var binding=ordinary[0];var metadata=new NativeTargetOrdinaryMetadataV1
+                    {StructSize=(uint)sizeof(NativeTargetOrdinaryMetadataV1),Version=1,Kind=1,Materialized=Bind(binding.Artifact,5)};
+                    EncodeText(binding.Row.StableIdentity,metadata.StableIdentity,128);EncodeText(binding.Row.OwnerIdentity,metadata.OwnerIdentity,128);
+                    EncodeText(binding.Row.Semantic,metadata.Semantic,32);EncodeText(binding.Row.Relationship,metadata.Relationship,96);
+                    var requestV4=new NativeTargetWriterRequestV4{StructSize=(uint)sizeof(NativeTargetWriterRequestV4),Version=4,
+                        Base=new NativeTargetWriterRequestV3{StructSize=(uint)sizeof(NativeTargetWriterRequestV3),Version=3,Base=requestV2},
+                        MetadataCount=1,Metadata=(nint)(&metadata)};
+                    Require(NativeMethods.TargetWriterPrepareV4(_operation.Handle,&requestV4,out _plan),"prepare ordinary metadata");
+                }
+                else if (_compound is not null)
                 {
                     _compound.DangerousAddRef(ref _compoundRetained);
                     var requestV3 = new NativeTargetWriterRequestV3 { StructSize = (uint)sizeof(NativeTargetWriterRequestV3),

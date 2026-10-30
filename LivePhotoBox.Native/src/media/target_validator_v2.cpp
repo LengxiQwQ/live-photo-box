@@ -1,10 +1,12 @@
 #include "media/target_validator_v2.h"
 #include "media/target_primary_observation.h"
+#include "media/jpeg_mpf_vendor.h"
 #include "media/target_video_observation.h"
 #include "media/huawei_conformance.h"
 #include "media/target_writer.h"
 #include "media/vivo_comment.h"
 #include "media/heic_backend.h"
+#include "media/ordinary_metadata_container.h"
 #include "foundation/internal.h"
 #include "foundation/sha256_core.h"
 #include "protocols/samsung_inventory.h"
@@ -61,7 +63,8 @@ bool selects(const isobmff_video_presentation_timeline& timeline,int64_t us) {
 }
 }
 static lpb_result validate_target_extended(lpb_context* context,const lpb_target_validation_request_v2* request,
- const lpb_target_reader_v1* reader,lpb_target_validation_result_v2* output,const lpb_compound_primary_observation_v1* compound) {
+ const lpb_target_reader_v1* reader,lpb_target_validation_result_v2* output,const lpb_compound_primary_observation_v1* compound,
+ const lpb_target_ordinary_metadata_expectation_v1* metadata=nullptr,lpb_target_ordinary_metadata_observed_v1* metadata_observed=nullptr) {
  if(!context||lpb_writer_callback_active(context))return LPB_RESULT_AUTHORITY_VIOLATION;
  lpb_context_operation operation(context);if(!operation.acquired())return LPB_RESULT_AUTHORITY_VIOLATION;
  lpb_writer_frame frame(context);
@@ -190,6 +193,22 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
   if(prefix_length>primary_resource_limit)return reject(4,3,110,"Primary/auxiliary structural snapshot exceeds 64MiB resource bound",true);
   std::vector<uint8_t> prefix(static_cast<size_t>(prefix_length));
   if(!full.read_exact(0,prefix)){io();return source.error;}
+  if(metadata) {
+   if(!metadata_observed||metadata->struct_size!=sizeof(*metadata)||metadata->version!=1||metadata->kind!=1||
+      metadata->owner_index||metadata->flags||metadata->reserved||!metadata->byte_length||metadata->byte_length>32ULL*1024*1024||
+      std::all_of(std::begin(metadata->sha256),std::end(metadata->sha256),[](uint8_t b){return b==0;}))
+    return reject(1,1,154,"Malformed ordinary metadata expectations");
+   lpb::media::ordinary_metadata::observed_capsule actual;
+   const auto presence=heif?lpb::media::ordinary_metadata::observe_heif_capsule(prefix,actual)
+    :lpb::media::ordinary_metadata::observe_jpeg_capsule(prefix,actual);
+   if(presence!=lpb::media::ordinary_metadata::observation::present||actual.raw.size()!=metadata->byte_length)
+    return reject(3,4,154,"Ordinary metadata owner is missing, duplicate, malformed or has the wrong length");
+   const auto hash=lpb::media::ordinary_metadata::digest(actual.raw);
+   if(std::memcmp(hash.data(),metadata->sha256,32))return reject(3,4,154,"Ordinary metadata raw bytes differ from the expected artifact");
+   metadata_observed->kind=1;metadata_observed->owner_index=0;metadata_observed->byte_length=actual.raw.size();
+   std::copy(hash.begin(),hash.end(),metadata_observed->sha256);metadata_observed->chunk_count=actual.chunks;
+   metadata_observed->container=heif?2U:1U;
+  }
   lpb::media::target_primary_observation primary;std::string error;
   if(compound) {
    if(compound->known_length>=prefix_length||compound->opaque_length!=prefix_length-compound->known_length)
@@ -202,6 +221,12 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
   const bool observed=samsung&&!heif?lpb::media::observe_samsung_jpeg_prefix(prefix,full.length,samsung_padding,primary,error):
    !heif&&!v1&&!huawei?lpb::media::observe_target_jpeg_prefix(prefix,full.length,primary,error):lpb::media::observe_target_primary(known,primary,error,false,huawei?known.size():full.length);
   if(!observed)return reject(2,3,111,error.c_str());
+  if(expected.target_profile>=LPB_TARGET_GOOGLE_V1&&expected.target_profile<=LPB_TARGET_OPPO&&
+     std::any_of(primary.auxiliaries.begin(),primary.auxiliaries.end(),[](const auto& a){return a.semantic=="MpfAuxiliaryImage";})) {
+   lpb::media::mpf_vendor_primary vendor;
+   if(primary.auxiliaries.size()!=1||!lpb::media::observe_cross_target_mpf_primary(prefix,vendor,error))
+    return reject(2,3,111,("Cross-target MPF secondary ownership: "+error).c_str());
+  }
   if(primary.container!=(heif?LPB_IMAGE_CONTAINER_HEIC:LPB_IMAGE_CONTAINER_JPEG)||!primary.width||!primary.height)
    return reject(2,3,112,"Primary representation does not match target MIME");
   if(primary.singleton_mpf&&!primary.singleton_size_matches)return reject(2,3,113,"MPF singleton size does not match actual primary encoding");
@@ -335,4 +360,28 @@ lpb_result LPB_CALL lpb_target_validate_v3(lpb_context* context,const lpb_target
  const lpb_target_reader_v1* reader,lpb_target_validation_result_v2* output) {
  if(!request||request->struct_size!=sizeof(*request)||request->version!=3||request->reserved)return LPB_RESULT_INVALID_ARGUMENT;
  return validate_target_extended(context,&request->base,reader,output,&request->compound);
+}
+lpb_result LPB_CALL lpb_target_validate_v4(lpb_context* context,const lpb_target_validation_request_v4* request,
+ const lpb_target_reader_v1* reader,lpb_target_validation_result_v3* output) {
+ if(!output||output->struct_size!=sizeof(*output)||output->version!=3)return LPB_RESULT_INVALID_ARGUMENT;
+ *output={};output->struct_size=sizeof(*output);output->version=3;
+ output->base.struct_size=sizeof(output->base);output->base.version=2;
+ if(!request||request->struct_size!=sizeof(*request)||request->version!=4||request->reserved||request->reserved_tail||
+    request->metadata_count!=1||!request->metadata||request->base.struct_size!=sizeof(request->base)||request->base.version!=3||
+    request->base.reserved||request->base.compound.struct_size||request->base.compound.version||
+    request->base.compound.known_length||request->base.compound.opaque_length||
+    std::any_of(std::begin(request->base.compound.opaque_sha256),std::end(request->base.compound.opaque_sha256),[](uint8_t b){return b!=0;}))
+  return LPB_RESULT_INVALID_ARGUMENT;
+ const auto target=request->base.base.base.target_profile;
+ if(target<LPB_TARGET_GOOGLE_V1||target>LPB_TARGET_OPPO)return LPB_RESULT_UNSUPPORTED;
+ lpb_target_ordinary_metadata_observed_v1 observed{};
+ const auto result=validate_target_extended(context,&request->base.base,reader,&output->base,nullptr,request->metadata,&observed);
+ // Rule rejection deliberately returns OK with a failing base verdict. A
+ // successful call is not a complete preservation proof.
+ if(result==LPB_RESULT_OK&&output->base.base.structural_status==1&&output->base.base.generic_media_status==1&&
+    observed.kind==1&&observed.owner_index==0&&observed.byte_length==request->metadata->byte_length&&observed.chunk_count&&
+    !std::memcmp(observed.sha256,request->metadata->sha256,32)) {
+  output->metadata=observed;output->metadata_count=1;output->metadata_preservation_status=1;
+ }
+ return result;
 }

@@ -10,6 +10,11 @@ namespace LivePhotoBox.Interop;
 
 internal static partial class NativeMethods
 {
+    [LibraryImport(LibraryName, EntryPoint = "lpb_get_hdr_gainmap_metadata_proof_v2")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult GetHdrMetadataProofV2(nint context,ulong transactionToken,ref NativeHdrMetadataProofV2 proof);
+
     [LibraryImport(LibraryName, EntryPoint = "lpb_inspect_gainmap_metadata_v1", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -165,6 +170,15 @@ internal static partial class NativeMethods
         NativeExtractionOutput* auxiliaryOutputs,
         nuint auxiliaryOutputCount);
 
+    [LibraryImport(LibraryName, EntryPoint = "lpb_extract_media_with_plan_outputs_v3", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static unsafe partial NativeResult ExtractMediaWithPlanOutputsV3(
+        nint context,nint extractionPlan,string primaryPath,string? secondaryPath,
+        string? outputImagePath,string? outputVideoPath,string? outputGainmapPath,string? cleanupSourcePath,
+        NativeExtractionOutput* auxiliaryOutputs,nuint auxiliaryOutputCount,
+        NativeCarrierExtractionOutputV1* carrierOutputs,nuint carrierOutputCount);
+
     [LibraryImport(LibraryName, EntryPoint = "lpb_rollback_extraction_outputs")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -260,6 +274,16 @@ internal static partial class NativeMethods
         in NativeVideoPreservationRequestV1 request,
         ref NativeVideoBackendDiagnostics outDiagnostics,
         ref NativeVideoPreservationResultV1 outPreservation);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_transcode_video_v4", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult TranscodeVideoV4(
+        nint context, string inputVideoPath, string outputVideoPath,
+        int targetContainer, int targetCodec, int crf,
+        in NativeVideoPreservationRequestV1 request,
+        ref NativeVideoBackendDiagnostics outDiagnostics,
+        ref NativeVideoPreservationResultV2 outPreservation);
 
     [LibraryImport(LibraryName, EntryPoint = "lpb_reassemble_jpeg_gainmap", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
@@ -611,6 +635,32 @@ internal sealed class NativeHdrGainMapConversionTransaction : IDisposable
             NativeMediaService.MapFromNativeFacts(facts),
             metadata,
             PreservationObservation.FromNative(in preservation));
+    }
+
+    internal unsafe (string SourceSha256,string OutputSha256,uint Kind)? GetOrdinaryXmpProof()
+    {
+        NativeContext context=_context??throw new ObjectDisposedException(nameof(NativeHdrGainMapConversionTransaction));
+        if(_completed)throw new InvalidOperationException("HDR/GainMap conversion transaction is already finalized.");
+        if(sizeof(NativeHdrMetadataProofV2)!=80)throw new InvalidDataException("HDR metadata proof ABI layout mismatch.");
+        var proof=new NativeHdrMetadataProofV2{StructSize=80,ApiVersion=2};
+        using NativeContextLease lease=context.AcquireOperationLease();
+        context.ThrowIfFailed(NativeMethods.GetHdrMetadataProofV2(lease.Handle,Result.TransactionToken,ref proof));
+        if(proof.StructSize!=80||proof.ApiVersion!=2)throw new InvalidDataException("Unsupported HDR metadata proof version.");
+        if(proof.ProofKind==0&&proof.ProofFlags==0)return null;
+        if(proof.ProofKind is not (2 or 3)||proof.ProofFlags!=1)throw new InvalidDataException("Unsupported HDR metadata proof scope.");
+        return(Convert.ToHexString(new ReadOnlySpan<byte>(proof.SourceFileSha256,32)),
+            Convert.ToHexString(new ReadOnlySpan<byte>(proof.OutputFileSha256,32)),proof.ProofKind);
+    }
+
+    internal unsafe NativeImageConversionProofV1 GetCompleteHdrImageProof()
+    {
+        NativeContext context=_context??throw new ObjectDisposedException(nameof(NativeHdrGainMapConversionTransaction));
+        if(_completed)throw new InvalidOperationException("HDR/GainMap conversion transaction is already finalized.");
+        if(sizeof(NativeImageConversionProofV1)!=240)throw new InvalidDataException("Complete HDR image proof ABI layout mismatch.");
+        var proof=new NativeImageConversionProofV1{StructSize=240,ApiVersion=1};
+        using NativeContextLease lease=context.AcquireOperationLease();
+        context.ThrowIfFailed(NativeMethods.GetHdrImageConversionProofV1(lease.Handle,Result.TransactionToken,ref proof));
+        return proof;
     }
 
     internal void Commit()

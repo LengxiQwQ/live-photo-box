@@ -20,6 +20,7 @@ internal sealed record TargetValidationExpectations(
     internal NativeCompoundPrimaryObservation? Compound { get; init; }
     internal long? PrimaryTimestampUs { get; init; }
     internal IReadOnlyList<TargetAuxiliaryExpectation> Auxiliaries { get; init; } = [];
+    internal IReadOnlyList<TargetOrdinaryMetadataExpectation> OrdinaryMetadata {get;init;}=[];
     internal uint? ImageWidth { get; init; }
     internal uint? ImageHeight { get; init; }
     internal uint? ImageOrientation { get; init; }
@@ -33,6 +34,7 @@ internal sealed record TargetValidationExpectations(
 }
 
 internal sealed record TargetAuxiliaryExpectation(uint Semantic, uint Container, ulong ByteLength, string Sha256);
+internal sealed record TargetOrdinaryMetadataExpectation(ulong ByteLength,string Sha256,uint Container);
 
 internal sealed class TargetValidationException(string message) : IOException(message);
 
@@ -40,9 +42,11 @@ internal sealed record TargetValidationReport(NativeResult InvocationResult,
     NativeTargetValidationResultV1 Observed, string Sha256)
 {
     internal NativeTargetValidationResultV2? ObservedV2 { get; init; }
+    internal NativeTargetValidationResultV3? ObservedV3 {get;init;}
     internal bool CanPublish => InvocationResult == NativeResult.Ok &&
         Observed.StructuralStatus == 1 && Observed.GenericMediaStatus == 1 &&
-        Observed.PreservationStatus == 0 && Observed.DeviceStatus == 0;
+        Observed.PreservationStatus == 0 && Observed.DeviceStatus == 0&&
+        (!ObservedV3.HasValue||(ObservedV3.Value.MetadataPreservationStatus==1&&ObservedV3.Value.MetadataCount==1));
 }
 
 internal static class NativeTargetValidator
@@ -102,6 +106,7 @@ internal static class NativeTargetValidator
             var observed = new NativeTargetValidationResultV1
             { StructSize = (uint)sizeof(NativeTargetValidationResultV1), Version = 1 };
             NativeTargetValidationResultV2? actualV2 = null;
+            NativeTargetValidationResultV3? actualV3=null;
             NativeResult result;
             if (expected.UseV2)
             {
@@ -131,7 +136,20 @@ internal static class NativeTargetValidator
                 };
                 var observedV2 = new NativeTargetValidationResultV2
                 { StructSize = (uint)sizeof(NativeTargetValidationResultV2), Version = 2 };
-                if (expected.Compound is { } compound)
+                if(expected.OrdinaryMetadata.Count!=0)
+                {
+                    if(expected.OrdinaryMetadata.Count!=1||expected.Compound.HasValue)throw new InvalidDataException("Ordinary metadata expectations require one unambiguous primary owner.");
+                    var row=expected.OrdinaryMetadata[0];byte[] hash=Convert.FromHexString(row.Sha256);
+                    if(hash.Length!=32||row.ByteLength==0||row.ByteLength>32UL*1024*1024)throw new InvalidDataException("Ordinary metadata expectation is incomplete.");
+                    var metadata=new NativeTargetOrdinaryMetadataExpectationV1{StructSize=(uint)sizeof(NativeTargetOrdinaryMetadataExpectationV1),Version=1,Kind=1,ByteLength=row.ByteLength};
+                    for(int j=0;j<32;j++)metadata.Sha256[j]=hash[j];
+                    var requestV4=new NativeTargetValidationRequestV4{StructSize=(uint)sizeof(NativeTargetValidationRequestV4),Version=4,
+                        Base=new NativeTargetValidationRequestV3{StructSize=(uint)sizeof(NativeTargetValidationRequestV3),Version=3,Base=requestV2},MetadataCount=1,Metadata=(nint)(&metadata)};
+                    var observedV3=new NativeTargetValidationResultV3{StructSize=(uint)sizeof(NativeTargetValidationResultV3),Version=3};
+                    result=NativeMethods.TargetValidateV4(operation.Handle,&requestV4,&source,&observedV3);
+                    observedV2=observedV3.Base;actualV3=observedV3;
+                }
+                else if (expected.Compound is { } compound)
                 {
                     var requestV3 = new NativeTargetValidationRequestV3
                     { StructSize = (uint)sizeof(NativeTargetValidationRequestV3), Version = 3, Base = requestV2, Compound = compound };
@@ -143,7 +161,7 @@ internal static class NativeTargetValidator
             }
             else
             {
-                if (expected.PrimaryTimestampUs.HasValue || expected.Auxiliaries.Count != 0)
+                if (expected.PrimaryTimestampUs.HasValue || expected.Auxiliaries.Count != 0||expected.OrdinaryMetadata.Count!=0)
                     throw new InvalidDataException("Version one cannot drop version two semantic expectations.");
                 result = NativeMethods.TargetValidate(operation.Handle, &request, &source, &observed);
             }
@@ -153,7 +171,7 @@ internal static class NativeTargetValidator
                 throw new IOException("Reading the fresh target artifact failed.", state.Failure);
             if (result == NativeResult.Cancelled)
                 throw new OperationCanceledException("Native target validation was cancelled.", token);
-            return new TargetValidationReport(result, observed, observed.GetSha256()) { ObservedV2 = actualV2 };
+            return new TargetValidationReport(result, observed, observed.GetSha256()) { ObservedV2 = actualV2,ObservedV3=actualV3 };
         }
         finally
         {
@@ -203,6 +221,18 @@ internal static class NativeTargetValidator
         }
         else if (report.ObservedV2.HasValue)
             throw new TargetValidationException("Unexpected version two observation for a version one request.");
+        if(expected.OrdinaryMetadata.Count!=0)
+        {
+            if(expected.OrdinaryMetadata.Count!=1||report.ObservedV3 is not {} ordinary||
+                ordinary.StructSize!=Marshal.SizeOf<NativeTargetValidationResultV3>()||ordinary.Version!=3||ordinary.Reserved!=0||
+                ordinary.MetadataPreservationStatus!=1||ordinary.MetadataCount!=1||ordinary.Metadata.Kind!=1||ordinary.Metadata.OwnerIndex!=0||
+                ordinary.Metadata.ChunkCount==0||ordinary.Metadata.ByteLength!=expected.OrdinaryMetadata[0].ByteLength||
+                ordinary.Metadata.Container!=expected.OrdinaryMetadata[0].Container||
+                !string.Equals(ordinary.Metadata.GetSha256(),expected.OrdinaryMetadata[0].Sha256,StringComparison.OrdinalIgnoreCase))
+                throw new TargetValidationException("Fresh ordinary metadata bytes or ownership differ from their final Neutral semantic artifact.");
+        }
+        else if(report.ObservedV3.HasValue)
+            throw new TargetValidationException("Unexpected ordinary metadata proof for a request without its semantic artifact.");
     }
 
     private static bool Matches(uint? expected, uint actual) => !expected.HasValue || expected.Value == actual;

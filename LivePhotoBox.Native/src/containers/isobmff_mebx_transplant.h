@@ -81,13 +81,16 @@ struct isobmff_static_metadata_evidence {
 };
 // Exact scoped source inventory versus actual staged output, including top,
 // movie, unique video/audio metadata. Digests cover scope + complete box bytes.
+// auxiliary_copy permits additional locally validated auxv / opaque mett tracks only for
+// original Copy callers. It never extends public v1 digest scopes or counts;
+// full additional track/payload transport remains a separate required publication gate.
 bool capture_isobmff_static_metadata_evidence(std::span<const uint8_t> source,
     std::span<const uint8_t> output, isobmff_static_metadata_evidence& evidence,
     std::span<const isobmff_media_data_range> source_mdats = {},
     std::span<const isobmff_media_data_range> output_mdats = {},
-    const char** rejection_reason = nullptr) noexcept;
+    const char** rejection_reason = nullptr, bool auxiliary_copy = false) noexcept;
 
-// Streaming Copy proof: validate actual MEBX tables/references against original
+// Streaming Copy proof: validate actual MEBX/auxv/opaque mett tables/references against original
 // file mdat ranges, normalize only relocated chunk offsets, compare complete
 // tracks and referenced payload with bounded buffers before publication.
 bool validate_isobmff_mebx_stream_remux(std::span<const uint8_t> source_metadata,

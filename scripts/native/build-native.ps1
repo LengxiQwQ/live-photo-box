@@ -4,11 +4,15 @@ param(
     [switch]$RunTests,
     [switch]$Clean,
     [switch]$TestHarness,
+    [switch]$ValidateOnly,
+    [switch]$CleanOnly,
+    [string]$ArtifactDirectory = '',
     [ValidatePattern('^[a-z0-9][a-z0-9-]{0,23}$')][string]$VideoSidecarBuildId = 'r4-hevc-v2',
     [ValidatePattern('^[a-z0-9][a-z0-9-]{0,31}$')][string]$ExecutionRecordId = 'r4-native-hevc-v1'
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'build-environment.ps1')
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 $env:VSLANG = '1033'
@@ -39,31 +43,70 @@ $vcpkgRoot = if ($env:VCPKG_ROOT) { $env:VCPKG_ROOT } else { Join-Path $vsPath '
 $toolchain = Join-Path $vcpkgRoot 'scripts\buildsystems\vcpkg.cmake'
 if (-not (Test-Path -LiteralPath $toolchain)) { throw "vcpkg toolchain was not found: $toolchain" }
 
-$workspaceRoot = Join-Path $projectRoot '.ai-tmp\workspace\P5\R5'
-$buildDir = Join-Path $workspaceRoot 'cmake-build'
+$variant = if ($TestHarness) { 'harness' } else { 'production' }
+$workspaceRoot = Join-Path $projectRoot "artifacts\build\native\$Configuration-$variant"
+$buildDir = Join-Path $workspaceRoot 'cmake'
 $artifactRoot = Join-Path $projectRoot 'artifacts\native'
-$defaultExecutionRecordLog = Join-Path $workspaceRoot "$ExecutionRecordId-native-$Configuration-build.log"
-if (-not $PSBoundParameters.ContainsKey('ExecutionRecordId') -and
-    (Test-Path -LiteralPath $defaultExecutionRecordLog -PathType Leaf) -and
-    $ExecutionRecordId -match '^(?<prefix>.+)-v(?<version>[0-9]+)$') {
-    $recordPrefix = $Matches.prefix
-    $recordVersion = [int]$Matches.version
-    do {
-        $recordVersion++
-        $candidateRecordId = "$recordPrefix-v$recordVersion"
-        $candidateLog = Join-Path $workspaceRoot "$candidateRecordId-native-$Configuration-build.log"
-    } while (Test-Path -LiteralPath $candidateLog -PathType Leaf)
-    $ExecutionRecordId = $candidateRecordId
+$artifactDir = if ($TestHarness) { Join-Path $artifactRoot "TestHarness\$Configuration\win-x64" } else { Join-Path $artifactRoot "$Configuration\win-x64" }
+if ($ArtifactDirectory) {
+    if (-not $ValidateOnly) { throw 'ArtifactDirectory is only supported for validating an explicitly prepared build.' }
+    $artifactDir = [IO.Path]::GetFullPath($ArtifactDirectory)
 }
-$sidecarBuildEnabled = $Configuration -eq 'Release' -and -not $TestHarness
+. (Join-Path $PSScriptRoot 'native-build-state.ps1')
+$toolchainIdentity = "$vsPath|$vsVersion|$toolchain|$((Get-FileHash -LiteralPath $cmake).Hash)"
+New-Item -ItemType Directory -Force -Path $workspaceRoot | Out-Null
+# One shared output/dependency graph per checkout; process death releases the lock.
+$lockPath = Join-Path $artifactRoot 'native-build.lock'
+New-Item -ItemType Directory -Force $artifactRoot | Out-Null
+$lockStream = $null
+$deadline = [DateTime]::UtcNow.AddMinutes(30)
+while (-not $lockStream) {
+    try { $lockStream = [IO.File]::Open($lockPath,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None) }
+    catch [IO.IOException] { if ([DateTime]::UtcNow -ge $deadline) { throw 'Timed out waiting for another Native build.' }; Start-Sleep -Milliseconds 250 }
+}
+try {
+$fingerprint = Get-NativeBuildFingerprint $projectRoot $Configuration $variant $toolchainIdentity
+if ($ValidateOnly) {
+    if (-not (Test-NativeBuildReceipt $artifactDir $fingerprint $Configuration $variant)) { throw "Native build is missing, stale, or modified: $artifactDir. Build without SkipNativeBuild first." }
+    Write-Host "[Native CMake] Verified current build: $artifactDir"
+    return
+}
+$cachePath = Join-Path $buildDir 'CMakeCache.txt'
+if (Test-Path -LiteralPath $cachePath) {
+    $cacheText = Get-Content -LiteralPath $cachePath -Raw
+    $expectedRoot = $projectRoot.Replace('\','/')
+    $expectedBuild = $buildDir.Replace('\','/')
+    if ($cacheText -notmatch ('(?im)^CMAKE_HOME_DIRECTORY:INTERNAL=' + [regex]::Escape($expectedRoot) + '\r?$') -or
+        $cacheText -notmatch ('(?im)^CMAKE_CACHEFILE_DIR:INTERNAL=' + [regex]::Escape($expectedBuild) + '\r?$') -or
+        $cacheText -notmatch ('(?im)^CMAKE_GENERATOR:INTERNAL=' + [regex]::Escape($generator) + '\r?$')) {
+        $resolvedBuild = [IO.Path]::GetFullPath($buildDir)
+        if (-not $resolvedBuild.StartsWith([IO.Path]::GetFullPath($workspaceRoot) + [IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)) { throw 'Unsafe stale-cache relocation target.' }
+        $stale = "$buildDir-stale-1"; $counter = 1
+        while (Test-Path -LiteralPath $stale) { $counter++; $stale = "$buildDir-stale-$counter" }
+        Move-Item -LiteralPath $resolvedBuild -Destination $stale
+    }
+}
+if ($CleanOnly) {
+    if (Test-Path -LiteralPath (Join-Path $buildDir 'CMakeCache.txt')) {
+        & $cmake --build $buildDir --config $Configuration --target clean
+        if ($LASTEXITCODE -ne 0) { throw 'Native clean failed.' }
+    }
+    $receiptPath = Join-Path $artifactDir 'native-build.json'
+    if (Test-Path -LiteralPath $receiptPath) { Remove-Item -LiteralPath $receiptPath }
+    return
+}
+# Reuse only an exact source/toolchain/configuration and artifact identity.
+$alreadyCurrent = -not $Clean -and (Test-NativeBuildReceipt $artifactDir $fingerprint $Configuration $variant)
+if (-not $alreadyCurrent) {
+$sidecarBuildEnabled = -not $TestHarness
 $ffmpegPrefix = ''
 $codecPrefix = ''
 $dumpbinPath = ''
 if ($sidecarBuildEnabled) {
-    $prerequisiteScript = Join-Path $PSScriptRoot 'build-p7-r4-hevc-prerequisites.ps1'
+    $prerequisiteScript = Join-Path $PSScriptRoot 'restore-video-dependencies.ps1'
     & $prerequisiteScript -BuildId $VideoSidecarBuildId
     if (-not $?) { throw 'Pinned P5-R5 video sidecar prerequisite build failed.' }
-    $prerequisiteRecord = Join-Path $projectRoot ".ai-tmp\workspace\P7\R4-large-batch-soak\hevc-migration\$VideoSidecarBuildId-libav-prerequisites.json"
+    $prerequisiteRecord = Join-Path $projectRoot "artifacts\deps\video\$VideoSidecarBuildId-libav-prerequisites.json"
     if (-not (Test-Path -LiteralPath $prerequisiteRecord -PathType Leaf)) {
         throw "Pinned P5-R5 prerequisite record was not written: $prerequisiteRecord"
     }
@@ -81,13 +124,16 @@ if ($sidecarBuildEnabled) {
 }
 New-Item -ItemType Directory -Force -Path $workspaceRoot | Out-Null
 $buildLog = Join-Path $workspaceRoot "$ExecutionRecordId-native-$Configuration-build.log"
-if (Test-Path -LiteralPath $buildLog) { throw "Create-only native build log already exists: $buildLog" }
+$attempt = 1
+while (Test-Path -LiteralPath $buildLog) { $buildLog = Join-Path $workspaceRoot "$ExecutionRecordId-native-$Configuration-attempt-$attempt.log"; $attempt++ }
 $configureArgs = @(
     '-S', $projectRoot, '-B', $buildDir, '-G', $generator, '-A', 'x64',
     "-DCMAKE_TOOLCHAIN_FILE=$toolchain",
     '-DVCPKG_TARGET_TRIPLET=x64-windows-static',
     "-DLPB_NATIVE_OUTPUT_ROOT=$artifactRoot",
-    '-DLPB_BUILD_TEST_HARNESS=ON',
+    "-DLPB_BUILD_TEST_HARNESS=$($TestHarness.ToString().ToUpperInvariant())",
+    '-DBUILD_TESTING=OFF',
+    "-DVCPKG_INSTALLED_DIR=$(Join-Path $projectRoot 'artifacts\deps\images')",
     "-DLPB_BUILD_VIDEO_SIDECAR=$($sidecarBuildEnabled.ToString().ToUpperInvariant())",
     "-DLPB_P5_R5_FFMPEG_PREFIX=$ffmpegPrefix",
     "-DLPB_P5_R5_CODEC_PREFIX=$codecPrefix",
@@ -131,31 +177,20 @@ if ($sidecarBuildEnabled) {
     }
 }
 
+$required = @($dllName, [IO.Path]::GetFileName($pdb))
+if ((Get-NativeBuildFingerprint $projectRoot $Configuration $variant $toolchainIdentity) -ne $fingerprint) {
+    throw 'Build inputs changed while compiling; no current-build receipt will be issued. Build again after edits stop.'
+}
+if ($sidecarBuildEnabled) { $required += @('LivePhotoBox.Video.Libav.dll','LivePhotoBox.Video.Libav.pdb') }
+$record = [ordered]@{ schemaVersion=1; fingerprint=$fingerprint; configuration=$Configuration; variant=$variant;
+    toolchain=$toolchainIdentity; files=@($required | ForEach-Object { @{name=$_; sha256=(Get-FileHash -LiteralPath (Join-Path $artifactDir $_)).Hash} }) }
+$record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $artifactDir 'native-build.json') -Encoding UTF8
+} else { Write-Host "[Native CMake] Up to date: $artifactDir" }
+} finally { $lockStream.Dispose() }
 if ($RunTests -and -not $TestHarness) {
-    $smokeTargets = @(
-        'lpb_portable_io_smoke',
-        'lpb_video_profile_smoke',
-        'lpb_mf_vfr_encoder_smoke')
-    if ($sidecarBuildEnabled) { $smokeTargets += 'lpb_video_sidecar_runtime_smoke' }
-    $smokeBuildArgs = @('--build', $buildDir, '--config', $Configuration, '--target') +
-        $smokeTargets + @('--', '/m:1', '/p:CL_MPCount=1', '/p:UseMultiToolTask=false', '/v:minimal')
-    & $cmake @smokeBuildArgs
-    if ($LASTEXITCODE -ne 0) { throw 'Registered native CTest executable build failed.' }
-    $ctest = Join-Path (Split-Path -Parent $cmake) 'ctest.exe'
-    $ctestArgs = @('--test-dir', $buildDir, '-C', $Configuration, '--output-on-failure')
-    $isGenericCi = [string]::Equals([string]$env:CI, 'true', [System.StringComparison]::OrdinalIgnoreCase)
-    if ($isGenericCi) {
-        $ctestArgs += @('-R', '^portable_io_smoke$')
-        Write-Host '[Native CMake] Generic CI runs the self-contained portable smoke; provisioned R5 RealSample filters remain a separate required gate.'
-    }
-    & $ctest @ctestArgs
-    if ($LASTEXITCODE -ne 0) { throw 'Native CTest verification failed.' }
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'build-native-test-harness.ps1') `
-        -Configuration $Configuration -Architecture x64
-    if ($LASTEXITCODE -ne 0) { throw 'CMake test harness build failed.' }
-    & dotnet test (Join-Path $projectRoot 'tests\LivePhotoBox.Core.Tests\LivePhotoBox.Core.Tests.csproj') `
-        -c $Configuration -p:Platform=x64 -p:SkipNativeBuild=true `
-        --filter 'FullyQualifiedName~NativeRuntimeTests' -nologo -v minimal
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'build-native.ps1') -Configuration $Configuration -TestHarness
+    if ($LASTEXITCODE -ne 0) { throw 'Native test harness build failed.' }
+    & dotnet test (Join-Path $projectRoot 'tests\LivePhotoBox.Core.Tests\LivePhotoBox.Core.Tests.csproj') -c $Configuration -p:Platform=x64 -p:SkipNativeBuild=true --filter 'FullyQualifiedName~NativeRuntimeTests' -nologo -v minimal
     if ($LASTEXITCODE -ne 0) { throw 'Native ABI/runtime smoke tests failed.' }
 }
-Write-Host "[Native CMake] Ready: $dll" -ForegroundColor Green
+Write-Host "[Native CMake] Ready: $artifactDir" -ForegroundColor Green

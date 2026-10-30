@@ -70,11 +70,16 @@ struct heic_encoded_image_facts {
 lpb_result inspect_heic_file(lpb_context* context, const char* input_path,
     heic_image_facts& output) noexcept;
 lpb_result decode_heic_primary_file(lpb_context* context, const char* input_path,
-    pixel_surface& output, heic_image_facts* out_facts = nullptr) noexcept;
+    pixel_surface& output, heic_image_facts* out_facts = nullptr, bool stored_geometry = false) noexcept;
 lpb_result decode_heic_auxiliary_file(lpb_context* context, const char* input_path,
-    uint32_t auxiliary_item_id, pixel_surface& output, heic_auxiliary_facts* out_facts = nullptr) noexcept;
+    uint32_t auxiliary_item_id, pixel_surface& output, heic_auxiliary_facts* out_facts = nullptr, bool stored_geometry = false) noexcept;
 lpb_result encode_heic_file(lpb_context* context, const char* output_path,
     const pixel_surface& input, int32_t quality) noexcept;
+// Private codec output only. The caller owns complete metadata applicability,
+// structural proof, physical orientation and transaction/publication checks.
+lpb_result encode_heic_primary_metadata_bytes(lpb_context*,const pixel_surface&,int32_t,
+    std::span<const uint8_t> exif_tiff,std::span<const uint8_t> xmp,std::vector<uint8_t>&) noexcept;
+lpb_result inspect_heic_bytes(lpb_context*,std::span<const uint8_t>,heic_image_facts&) noexcept;
 lpb_result encode_heic_primary_and_secondary_file(lpb_context* context, const char* output_path,
     const pixel_surface& primary, const pixel_surface& secondary, int32_t quality,
     heic_encoded_image_facts& output) noexcept;
@@ -82,6 +87,13 @@ lpb_result encode_heic_primary_and_gainmap_bytes(lpb_context* context,
     const pixel_surface& primary, const pixel_surface& gainmap, int32_t quality,
     std::span<const uint8_t> gainmap_xmp, std::vector<uint8_t>& output,
     heic_encoded_image_facts& facts) noexcept;
+// Private codec-only owner attachment. Caller must validate the complete
+// source inventory, geometry, target graph and exact metadata after assembly.
+lpb_result encode_heic_primary_and_gainmap_metadata_bytes(lpb_context*,
+    const pixel_surface&,const pixel_surface&,int32_t,
+    std::span<const uint8_t> primary_exif_tiff,std::span<const uint8_t> primary_xmp,
+    std::span<const uint8_t> gainmap_exif_tiff,std::span<const uint8_t> gainmap_xmp,
+    std::vector<uint8_t>&,heic_encoded_image_facts&) noexcept;
 const char* heic_backend_version() noexcept;
 // Codec validity for already bounded primary bytes. Does not serialize target
 // metadata or decide target conformance; decoding preserves HDR signal depth.

@@ -22,4 +22,7 @@ public sealed record PreservationCarrier
     public AuxiliaryRepresentation Representation { get; init; } = AuxiliaryRepresentation.Embedded;
     public AuxiliaryOwnership Ownership { get; init; } = AuxiliaryOwnership.Primary;
     public PreservationOutcome Outcome { get; init; } = PreservationOutcome.Preserved;
+    /// <summary>Actual transaction-owned bytes for an explicitly materialized ordinary carrier.
+    /// Descriptive source facts alone never authorize a target append.</summary>
+    public MediaArtifact? MaterializedArtifact { get; init; }
 }

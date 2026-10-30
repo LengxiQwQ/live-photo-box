@@ -1,4 +1,9 @@
 #include "containers/isobmff_mebx_transplant.h"
+#include "containers/remux_byte_proof.h"
+#include "containers/isobmff_track_graph.h"
+#include "containers/isobmff_video_profile.h"
+#include "containers/inline_transform_metadata.h"
+#include "containers/inline_scene_metadata.h"
 
 #include "containers/isobmff.h"
 #include "foundation/sha256_core.h"
@@ -65,6 +70,7 @@ struct track_record {
     size_t start{};
     size_t end{};
     size_t stbl_start{};
+    size_t stbl_box_start{};
     size_t stbl_end{};
     size_t sample_entry_offset{};
     uint32_t track_id{};
@@ -74,6 +80,7 @@ struct track_record {
     bool is_mebx{};
     isobmff_sample_table_layout sample_table{};
     size_t reference_id_offset{};
+    size_t dependency_id_offset{};
 };
 
 struct file_record {
@@ -98,6 +105,19 @@ bool quicktime_file(std::span<const uint8_t> data, bool& quicktime) {
         position += box.size;
     }
     return found;
+}
+
+// Composition offsets follow the same major-or-compatible QT predicate as
+// the strict timeline parser. Handler string representation remains separate.
+bool quicktime_composition_file(std::span<const uint8_t> data,bool& quicktime) {
+    bool major=false;if(!quicktime_file(data,major))return false;quicktime=major;
+    for(size_t p=0;p<data.size();) {
+        isobmff_box_header box{};if(!try_read_box_header(data.data(),p,data.size(),box))return false;
+        if(box_type(data,p,"ftyp"))for(size_t at=p+box.header_size+8U;at<p+box.size;at+=4U)
+            if(std::memcmp(data.data()+at,"qt  ",4U)==0)quicktime=true;
+        p+=box.size;
+    }
+    return true;
 }
 
 // The container's authoritative ftyp chooses Pascal (QuickTime) or NUL (ISO),
@@ -387,17 +407,13 @@ bool parse_sample_descriptions(std::span<const uint8_t> data, size_t stbl_start,
     return position == end;
 }
 
-bool self_contained_reference(std::span<const uint8_t> data, const isobmff_box_header& minf,
-    const isobmff_box_header& codec, bool allow_implicit_local_metadata = false) {
+bool local_data_reference(std::span<const uint8_t> data,const isobmff_box_header& minf,bool explicit_sizes=false) {
     isobmff_box_header dinf{}, dref{};
     size_t ds = 0U, rs = 0U;
-    if (codec.size < codec.header_size + 8U || data[codec.start + codec.header_size + 6U] != 0U ||
-        (data[codec.start + codec.header_size + 7U] != 1U &&
-            !(allow_implicit_local_metadata && box_type(data, codec.start, "mebx") &&
-                data[codec.start + codec.header_size + 7U] == 0U)) ||
-        !unique_child(data, minf.start + minf.header_size, minf.start + minf.size, "dinf", dinf, ds) ||
+    if (!unique_child(data, minf.start + minf.header_size, minf.start + minf.size, "dinf", dinf, ds) ||
         !unique_child(data, ds + dinf.header_size, ds + dinf.size, "dref", dref, rs) ||
         dinf.size != dinf.header_size + dref.size || dref.size < dref.header_size + 8U) return false;
+    if(explicit_sizes&&(read_u32(data.data()+dinf.start)==0U||read_u32(data.data()+dref.start)==0U))return false;
     const size_t body = rs + dref.header_size;
     if (read_u32(data.data() + body) != 0U || read_u32(data.data() + body + 4U) != 1U) return false;
     const size_t start = body + 8U;
@@ -405,7 +421,16 @@ bool self_contained_reference(std::span<const uint8_t> data, const isobmff_box_h
     return try_read_box_header(data.data(), start, rs + dref.size, entry) &&
         (box_type(data, start, "url ") || box_type(data, start, "alis")) &&
         entry.size == entry.header_size + 4U && start + entry.size == rs + dref.size &&
+        (!explicit_sizes||read_u32(data.data()+entry.start)!=0U)&&
         read_u32(data.data() + start + entry.header_size) == 1U;
+}
+
+bool self_contained_reference(std::span<const uint8_t> data, const isobmff_box_header& minf,
+    const isobmff_box_header& codec, bool allow_implicit_local_metadata = false) {
+    return codec.size>=codec.header_size+8U&&data[codec.start+codec.header_size+6U]==0U&&
+        (data[codec.start+codec.header_size+7U]==1U||
+            (allow_implicit_local_metadata&&box_type(data,codec.start,"mebx")&&data[codec.start+codec.header_size+7U]==0U))&&
+        local_data_reference(data,minf);
 }
 
 bool parse_track(std::span<const uint8_t> data, size_t trak_start, size_t trak_end,
@@ -437,6 +462,7 @@ bool parse_track(std::span<const uint8_t> data, size_t trak_start, size_t trak_e
     size_t stbl_start = 0;
     if (!unique_child(data, minf_start + minf.header_size, minf_end, "stbl", stbl, stbl_start)) return false;
     output.stbl_start = stbl_start + stbl.header_size;
+    output.stbl_box_start = stbl_start;
     output.stbl_end = stbl_start + stbl.size;
 
     uint32_t description_count = 0;
@@ -466,10 +492,18 @@ bool parse_track(std::span<const uint8_t> data, size_t trak_start, size_t trak_e
     const size_t tref_end = tref_start + tref.size;
     isobmff_box_header cdsc{};
     size_t cdsc_start = 0;
+    isobmff_box_header cdep{};
+    size_t cdep_start=0;
     if (!unique_child(data, tref_start + tref.header_size, tref_end, "cdsc", cdsc, cdsc_start) ||
         cdsc.size != cdsc.header_size + 4U ||
-        tref.size != tref.header_size + cdsc.size) return false;
+        !unique_child(data,tref_start+tref.header_size,tref_end,"cdep",cdep,cdep_start,false) ||
+        tref.size != tref.header_size + cdsc.size + cdep.size) return false;
     output.reference_id_offset = cdsc_start + cdsc.header_size;
+    if(cdep.size) {
+        if(cdep.size!=cdep.header_size+4U||read_u32(data.data()+cdep_start+cdep.header_size)!=
+            read_u32(data.data()+output.reference_id_offset))return false;
+        output.dependency_id_offset=cdep_start+cdep.header_size;
+    }
     return true;
 }
 
@@ -523,16 +557,37 @@ bool parse_file(std::span<const uint8_t> data, file_record& output,
     }
 }
 
+bool same_copy_track_graph(std::span<const uint8_t> source,const file_record& a,
+    std::span<const uint8_t> output,const file_record& b) {
+    isobmff_track_graph x{},y{};
+    if(!inspect_isobmff_track_graph(source.subspan(a.moov_start,a.moov_end-a.moov_start),x)||
+        !inspect_isobmff_track_graph(output.subspan(b.moov_start,b.moov_end-b.moov_start),y)||
+        x.tracks.size()!=y.tracks.size())return false;
+    for(size_t i=0;i<x.tracks.size();++i) {
+        const auto& s=x.tracks[i];const auto& t=y.tracks[i];
+        if(s.id!=t.id||s.handler!=t.handler||s.references.size()!=t.references.size())return false;
+        for(size_t j=0;j<s.references.size();++j)
+            if(s.references[j].kind!=t.references[j].kind||s.references[j].targets!=t.references[j].targets)return false;
+    }
+    return true;
+}
+
 bool patch_handler_names(std::span<const uint8_t> source, const file_record& original,
-    std::vector<uint8_t>& output, const file_record& actual, bool metadata_only) {
+    std::vector<uint8_t>& output, const file_record& actual, bool metadata_only, bool same_track_ids=false) {
     bool source_qt = false, target_qt = false;
     if (!quicktime_file(source, source_qt) || !quicktime_file(output, target_qt)) return false;
+    if(same_track_ids) {
+        if(original.tracks.size()!=actual.tracks.size()||!same_copy_track_graph(source,original,output,actual))return false;
+        for(size_t i=0;i<original.tracks.size();++i)
+            if(original.tracks[i].track_id!=actual.tracks[i].track_id||
+                std::memcmp(original.tracks[i].handler,actual.tracks[i].handler,4U)!=0)return false;
+    }
     for (const auto& track : actual.tracks) {
         if (metadata_only && !track.is_mebx) continue;
         const track_record* before = nullptr;
         for (const auto& candidate : original.tracks) {
             if (std::memcmp(candidate.handler, track.handler, 4U) != 0 ||
-                (track.is_mebx && candidate.track_id != track.track_id)) continue;
+                ((track.is_mebx||same_track_ids) && candidate.track_id != track.track_id)) continue;
             if (before != nullptr) return false;
             before = &candidate;
         }
@@ -664,6 +719,9 @@ static bool transplant_mebx_selected(std::span<const uint8_t> source,
     try {
         file_record source_file{}, target_file{};
         if (!parse_file(source, source_file) || !parse_file(stage_a, target_file)) return false;
+        const auto opaque=[](const auto& track){return !track.is_mebx&&std::memcmp(track.handler,"meta",4U)==0;};
+        if(std::any_of(source_file.tracks.begin(),source_file.tracks.end(),opaque)||
+            std::any_of(target_file.tracks.begin(),target_file.tracks.end(),opaque))return false;
         track_record* source_mebx = nullptr;
         track_record* source_video = nullptr;
         track_record* target_video = nullptr;
@@ -672,7 +730,9 @@ static bool transplant_mebx_selected(std::span<const uint8_t> source,
             !inspect_mebx_tracks(stage_a, target_file, target_tracks, target_video) ||
             source_video == nullptr || target_video == nullptr) return false;
         for (auto* track : source_tracks) if (track->track_id == track_id) source_mebx = track;
-        if (source_mebx == nullptr) return false;
+        // A codec-transformed target does not inherit a source dependency by
+        // copying its numeric ID. Only same-identity Copy remux supports cdep.
+        if (source_mebx == nullptr || source_mebx->dependency_id_offset != 0U) return false;
 
         const uint32_t inserted_track_id = source_mebx->track_id;
         uint32_t maximum_track_id = 0U;
@@ -838,6 +898,9 @@ static bool validate_mebx_selected(std::span<const uint8_t> source,
     try {
         file_record source_file{}, output_file{};
         if (!parse_file(source, source_file) || !parse_file(output, output_file)) return false;
+        const auto opaque=[](const auto& track){return !track.is_mebx&&std::memcmp(track.handler,"meta",4U)==0;};
+        if(std::any_of(source_file.tracks.begin(),source_file.tracks.end(),opaque)||
+            std::any_of(output_file.tracks.begin(),output_file.tracks.end(),opaque))return false;
         track_record* source_mebx = nullptr;
         track_record* source_video = nullptr;
         track_record* output_mebx = nullptr;
@@ -849,6 +912,7 @@ static bool validate_mebx_selected(std::span<const uint8_t> source,
         for (auto* track : output_tracks) if (track->track_id == expected.track_id) output_mebx = track;
         if (
             source_mebx == nullptr || output_mebx == nullptr || source_video == nullptr || output_video == nullptr ||
+            source_mebx->dependency_id_offset != 0U || output_mebx->dependency_id_offset != 0U ||
             source_mebx->track_id != output_mebx->track_id ||
             source_mebx->time_scale != output_mebx->time_scale ||
             source_mebx->media_duration != output_mebx->media_duration ||
@@ -1002,6 +1066,10 @@ bool offset_free_meta(std::span<const uint8_t> data, const isobmff_box_header& m
         if (box_type(data, box.start, "hdlr") && handler == nullptr) handler = &box;
         else if (box_type(data, box.start, "keys") && keys == nullptr) keys = &box;
         else if (box_type(data, box.start, "ilst") && items == nullptr) items = &box;
+        else if((box_type(data,box.start,"free")||box_type(data,box.start,"skip"))&&
+            read_u32(data.data()+box.start)!=0U&&
+            std::all_of(data.begin()+box.start+box.header_size,data.begin()+box.start+box.size,
+                [](uint8_t value){return value==0U;}))continue;
         else return false; // Includes iloc/iinf/external references and shadows.
     }
     if (handler == nullptr || items == nullptr || handler->size < handler->header_size + 24U) return false;
@@ -1049,13 +1117,35 @@ bool offset_free_meta(std::span<const uint8_t> data, const isobmff_box_header& m
     return true;
 }
 
-bool offset_free_static(std::span<const uint8_t> data, const isobmff_box_header& box) {
+bool copy_inline_user_data(std::span<const uint8_t> data,const isobmff_box_header& box) {
+    if(read_u32(data.data()+box.start)==0U)return false;
+    const size_t begin=box.start+box.header_size,end=box.start+box.size;
+    if(box_type(data,box.start,"SDLN"))
+        return end-begin==8U&&std::memcmp(data.data()+begin,"SEQ_PLAY",8U)==0;
+    if(box_type(data,box.start,"smrd"))
+        return end-begin==8U&&std::memcmp(data.data()+begin,"TRUEBLUE",8U)==0;
+    if(!box_type(data,box.start,"smta")||end-begin<12U||read_u32(data.data()+begin)!=0U)return false;
+    static_boxes fields;
+    if(!children_of(data,begin+4U,end,fields)||fields.size()!=1U)return false;
+    const auto& model=fields.front();
+    if(!box_type(data,model.start,"mdln")||read_u32(data.data()+model.start)==0U||
+        model.size<=model.header_size||model.size-model.header_size>256U)return false;
+    return std::all_of(data.begin()+model.start+model.header_size,data.begin()+model.start+model.size,
+        [](uint8_t value){return value>=0x20U&&value<=0x7eU;});
+}
+
+bool offset_free_static(std::span<const uint8_t> data, const isobmff_box_header& box,bool original_copy=false) {
+    if(box_type(data,box.start,"gnre")) {
+        return original_copy&&read_u32(data.data()+box.start)!=0U&&
+            copy_inline_scene_metadata(data.subspan(box.start+box.header_size,box.size-box.header_size));
+    }
     if (box_type(data, box.start, "lpex")) {
         // Observed OPPO inline extension with no matrix/reference payload.
         // Only this closed grammar is mapped, byte-for-byte; richer versions,
         // duplicate fields, unknown JSON or transformation matrices fail closed.
         const std::string_view text(reinterpret_cast<const char*>(data.data() + box.start + box.header_size),
             box.size - box.header_size);
+        if(original_copy&&read_u32(data.data()+box.start)!=0U&&copy_inline_transform_metadata(text))return true;
         constexpr std::string_view prefix = "LivePhotoExtension{\"coverFramePts\":";
         constexpr std::string_view suffix = ",\"desc\":\"OppoMotionVideoExt\",\"matrixCount\":0,\"version\":0,\"videoOrientation\":0}";
         if (!text.starts_with(prefix) || !text.ends_with(suffix) || text.size() <= prefix.size() + suffix.size()) return false;
@@ -1111,7 +1201,7 @@ bool offset_free_static(std::span<const uint8_t> data, const isobmff_box_header&
             // A populated Xtra graph remains unsupported; do not infer that
             // arbitrary vendor payloads are offset-free from their box type.
             if (child.size != child.header_size) return false;
-        } else if ((type >> 24U) != 0xA9U) return false;
+        } else if ((type >> 24U) != 0xA9U&&!(original_copy&&copy_inline_user_data(data,child))) return false;
     }
     return true;
 }
@@ -1125,7 +1215,7 @@ bool same_metadata_key(std::span<const uint8_t> a, const isobmff_box_header& x,
 }
 
 bool static_inventory(std::span<const uint8_t> data, size_t begin, size_t end,
-    bool video, static_boxes& inventory, bool top = false, bool movie = false) {
+    bool video, static_boxes& inventory, bool top = false, bool movie = false,bool original_copy=false) {
     static_boxes children;
     inventory.clear();
     if (!children_of(data, begin, end, children)) return false;
@@ -1139,7 +1229,7 @@ bool static_inventory(std::span<const uint8_t> data, size_t begin, size_t end,
                 !box_type(data, box.start, "skip") && !box_type(data, box.start, "wide")) return false;
             continue;
         }
-        if (!uuid && !(movie && box_type(data, box.start, "lpex")) && !box_type(data, box.start, "meta") && !box_type(data, box.start, "udta") &&
+        if (!uuid && !(movie && (box_type(data, box.start, "lpex")||box_type(data,box.start,"gnre"))) && !box_type(data, box.start, "meta") && !box_type(data, box.start, "udta") &&
             !(video && box_type(data, box.start, "tapt"))) {
             const bool scaffold = box_type(data, box.start, "free") || box_type(data, box.start, "skip") ||
                 (movie ? box_type(data, box.start, "mvhd") || box_type(data, box.start, "trak") :
@@ -1150,7 +1240,7 @@ bool static_inventory(std::span<const uint8_t> data, size_t begin, size_t end,
             if (!scaffold) return false;
             continue;
         }
-        if (uuid ? box.size < box.header_size + 16U : !offset_free_static(data, box)) return false;
+        if (uuid ? box.size < box.header_size + 16U : !offset_free_static(data, box,original_copy)) return false;
         // An implicit-to-EOF box cannot be safely relocated/appended.
         if (read_u32(data.data() + box.start) == 0U) return false;
         for (const auto& prior : inventory) {
@@ -1354,7 +1444,7 @@ const track_record* unique_audio(const file_record& file, bool& valid) {
 }
 
 bool classified_children(std::span<const uint8_t> data, size_t begin, size_t end,
-    std::initializer_list<std::string_view> allowed, bool padding = false) {
+    std::initializer_list<std::string_view> allowed, bool padding = false, bool copy_groups=false) {
     static_boxes children;
     size_t position = begin;
     while (position < end) {
@@ -1368,10 +1458,18 @@ bool classified_children(std::span<const uint8_t> data, size_t begin, size_t end
         const std::string_view type(reinterpret_cast<const char*>(data.data() + box.start + 4U), 4U);
         if (std::find(allowed.begin(), allowed.end(), type) == allowed.end()) return false;
         const uint32_t value = read_u32(data.data() + box.start + 4U);
-        if (std::find(seen.begin(), seen.end(), value) != seen.end()) return false;
+        if (std::find(seen.begin(), seen.end(), value) != seen.end() &&
+            !(copy_groups&&(type=="sgpd"||type=="sbgp"))) return false;
         seen.push_back(value);
     }
     return true;
+}
+
+bool explicit_copy_children(std::span<const uint8_t> data,size_t begin,size_t end,
+    std::initializer_list<std::string_view> allowed) {
+    if(!classified_children(data,begin,end,allowed))return false;
+    static_boxes children;if(!children_of(data,begin,end,children))return false;
+    return std::all_of(children.begin(),children.end(),[&](const auto& box){return read_u32(data.data()+box.start)!=0U;});
 }
 
 bool classified_edit_list(std::span<const uint8_t> data, const track_record& track) {
@@ -1454,11 +1552,74 @@ bool classified_sample_groups(std::span<const uint8_t> data, const track_record&
     return true;
 }
 
+// Copy carries both HEVC temporal-layer descriptions ('tscl') and sync groups
+// without regenerating them. These are inline codec descriptions/sample indices,
+// not file addresses. Default transcode classification below remains unchanged.
+bool classified_copy_groups(std::span<const uint8_t> data,const track_record& track,uint32_t sample_count) {
+    static_boxes rows;if(!children_of(data,track.stbl_start,track.stbl_end,rows))return false;
+    struct group {uint32_t type{},count{};bool mapped{};};std::vector<group> groups;
+    for(const auto& box:rows)if(box_type(data,box.start,"sgpd")) {
+        const size_t p=box.start+box.header_size;
+        if(box.size<box.header_size+16U||read_u32(data.data()+p)!=0x01000000U)return false;
+        const uint32_t type=read_u32(data.data()+p+4U),width=read_u32(data.data()+p+8U),count=read_u32(data.data()+p+12U);
+        const bool sync=std::memcmp(data.data()+p+4U,"sync",4U)==0;
+        const bool temporal=std::memcmp(data.data()+p+4U,"tscl",4U)==0;
+        const bool roll=std::memcmp(data.data()+p+4U,"roll",4U)==0||std::memcmp(data.data()+p+4U,"prol",4U)==0;
+        if((!sync&&!temporal&&!roll)||!count||!width||count>(box.size-box.header_size-16U)/width||
+            box.size!=box.header_size+16U+static_cast<size_t>(count)*width)return false;
+        if(sync||temporal) {
+            isobmff_box_header stsd{},codec{};size_t s=0;
+            if((std::memcmp(track.handler,"vide",4U)!=0&&std::memcmp(track.handler,"auxv",4U)!=0)||
+                !unique_child(data,track.stbl_start,track.stbl_end,"stsd",stsd,s)||
+                !try_read_box_header(data.data(),s+stsd.header_size+8U,s+stsd.size,codec)||
+                (!box_type(data,codec.start,"hvc1")&&!box_type(data,codec.start,"hev1"))||
+                width!=(sync?1U:20U))return false;
+            if(sync)for(size_t i=0;i<count;++i)if(data[p+16U+i]>63U)return false;
+        } else {
+            if(std::memcmp(track.handler,"soun",4U)!=0||width!=2U)return false;
+            isobmff_box_header stsd{},codec{};size_t s=0;
+            if(!unique_child(data,track.stbl_start,track.stbl_end,"stsd",stsd,s)||
+                !try_read_box_header(data.data(),s+stsd.header_size+8U,s+stsd.size,codec)||
+                !box_type(data,codec.start,"mp4a"))return false;
+            for(size_t i=0;i<count;++i)if((data[p+16U+i*2U]&0x80U)==0U&&
+                (data[p+16U+i*2U]!=0U||data[p+17U+i*2U]!=0U))return false;
+        }
+        if(std::any_of(groups.begin(),groups.end(),[&](const auto& g){return g.type==type;}))return false;
+        groups.push_back({type,count,false});
+    }
+    for(const auto& box:rows)if(box_type(data,box.start,"sbgp")) {
+        const size_t p=box.start+box.header_size;
+        if(box.size<box.header_size+12U||read_u32(data.data()+p)!=0U)return false;
+        const uint32_t type=read_u32(data.data()+p+4U),count=read_u32(data.data()+p+8U);
+        auto found=std::find_if(groups.begin(),groups.end(),[&](const auto& g){return g.type==type;});
+        if(found==groups.end()||found->mapped||count>(box.size-box.header_size-12U)/8U||
+            box.size!=box.header_size+12U+static_cast<size_t>(count)*8U)return false;
+        uint64_t covered=0;
+        for(size_t i=0;i<count;++i) {
+            const auto n=read_u32(data.data()+p+12U+i*8U),index=read_u32(data.data()+p+16U+i*8U);
+            if(!n||index>found->count)return false;covered+=n;
+        }
+        if(covered!=sample_count)return false;found->mapped=true;
+    }
+    for(const auto& g:groups)if(!g.mapped&&g.type!=0x7473636cU)return false;
+    isobmff_box_header cslg{};size_t p=0;
+    if(!unique_child(data,track.stbl_start,track.stbl_end,"cslg",cslg,p,false))return false;
+    if(cslg.size) {
+        if(cslg.size<cslg.header_size+4U)return false;
+        const auto version=read_u32(data.data()+p+cslg.header_size);
+        if((version!=0U||cslg.size!=cslg.header_size+24U)&&
+            (version!=0x01000000U||cslg.size!=cslg.header_size+44U))return false;
+    }
+    return true;
+}
+
 bool classified_media_tree(std::span<const uint8_t> data, const track_record& track, bool video,
-    std::span<const isobmff_media_data_range> mdats) {
+    std::span<const isobmff_media_data_range> mdats,bool copy=false,const char** reason=nullptr) {
+    const auto fail=[&](const char* value){if(reason)*reason=value;return false;};
     isobmff_sample_table_layout layout{};
-    if (!inspect_isobmff_sample_table(data, track.stbl_start, track.stbl_end, mdats, 0U, layout)) return false;
-    if (!classified_edit_list(data, track) || !classified_sample_groups(data, track)) return false;
+    if (!inspect_isobmff_sample_table(data, track.stbl_start, track.stbl_end, mdats, 0U, layout)) return fail("actual local sample table");
+    if(!classified_edit_list(data,track))return fail("media edit list");
+    if(!(copy?classified_copy_groups(data,track,layout.sample_count):classified_sample_groups(data,track)))return fail("codec sample group descriptions/mapping");
     isobmff_box_header mdia{}, minf{}, stsd{};
     size_t ms = 0U, ns = 0U, ss = 0U;
     if (!unique_child(data, track.start + 8U, track.end, "mdia", mdia, ms) || mdia.size == 0U ||
@@ -1466,13 +1627,13 @@ bool classified_media_tree(std::span<const uint8_t> data, const track_record& tr
         !unique_child(data, ms + mdia.header_size, ms + mdia.size, "minf", minf, ns) || minf.size == 0U ||
         !classified_children(data, ns + minf.header_size, ns + minf.size, video ?
             std::initializer_list<std::string_view>{"vmhd", "hdlr", "dinf", "stbl"} :
-            std::initializer_list<std::string_view>{"smhd", "hdlr", "dinf", "stbl"})) return false;
+            std::initializer_list<std::string_view>{"smhd", "hdlr", "dinf", "stbl"})) return fail("media hierarchy children");
     size_t entry = 0U;
     if (!classified_children(data, track.stbl_start, track.stbl_end,
             {"stsd", "stts", "ctts", "stsc", "stsz", "stz2", "stco", "co64", "stss", "sdtp",
-             "sbgp", "sgpd", "cslg"}) ||
+             "sbgp", "sgpd", "cslg"},false,copy) ||
         !unique_child(data, track.stbl_start, track.stbl_end, "stsd", stsd, ss) ||
-        stsd.size < stsd.header_size + 8U) return false;
+        stsd.size < stsd.header_size + 8U) return fail("sample table child classification");
     entry = ss + stsd.header_size;
     if (read_u32(data.data() + entry) != 0U || read_u32(data.data() + entry + 4U) != 1U) return false;
     entry += 8U;
@@ -1491,6 +1652,21 @@ bool classified_media_tree(std::span<const uint8_t> data, const track_record& tr
     }
     if (codec.size < codec.header_size + prefix) return false;
     const size_t end = entry + codec.size;
+    if(copy&&video) {
+        size_t p=body+prefix;
+        while(p<end) {
+            if(end-p==4U&&read_u32(data.data()+p)==0U)break;
+            isobmff_box_header child{};if(!try_read_box_header(data.data(),p,end,child))return false;
+            if(box_type(data,p,"logs")) {
+                const std::string_view identifier(reinterpret_cast<const char*>(data.data()+p+child.header_size),
+                    child.size-child.header_size);
+                // Inline log transfer-function identifier, carried exactly;
+                // no conversion or transfer-function interpretation is inferred.
+                if(identifier!="com.apple.rec2020.apple-log"&&identifier!="com.apple.apple-wide-gamut.apple-log")return false;
+            }
+            p+=child.size;
+        }
+    }
     if (!video) {
         const uint32_t channels = prefix == 64U ? read_u32(data.data() + body + 40U) :
             static_cast<uint32_t>((data[body + 16U] << 8U) | data[body + 17U]);
@@ -1518,9 +1694,11 @@ bool classified_media_tree(std::span<const uint8_t> data, const track_record& tr
         }
         if (box_type(data, entry, "ipcm") != pcm_configuration) return false;
     }
-    return classified_children(data, body + prefix, end, video ?
-        std::initializer_list<std::string_view>{"avcC", "hvcC", "colr", "clap", "pasp", "btrt", "fiel", "mdcv", "clli", "cuvv"} :
+    const bool codec_children=classified_children(data, body + prefix, end, video ? (copy?
+        std::initializer_list<std::string_view>{"avcC", "hvcC", "colr", "clap", "pasp", "btrt", "fiel", "mdcv", "clli", "cuvv", "logs"}:
+        std::initializer_list<std::string_view>{"avcC", "hvcC", "colr", "clap", "pasp", "btrt", "fiel", "mdcv", "clli", "cuvv"}) :
         std::initializer_list<std::string_view>{"esds", "btrt", "pcmC", "chan"}, video);
+    return codec_children?true:fail("codec extension children");
 }
 
 // Metadata projection for timed headers. Canonical v1 layout keeps every
@@ -1649,28 +1827,142 @@ bool capture_header_metadata(std::span<const uint8_t> data, const file_record& f
     return true;
 }
 
+// Already recognized opaque timed syntax. Its bytes grant no target binding or
+// cover authority. Only original Copy may carry it, with full stream proof.
+bool copy_opaque_timed_track(std::span<const uint8_t> data,track_record& track,
+    std::span<const isobmff_media_data_range> mdats) {
+    if(track.is_mebx||std::memcmp(track.handler,"meta",4U)!=0||read_u32(data.data()+track.start)==0U||
+        !explicit_copy_children(data,track.start+8U,track.end,{"tkhd","edts","mdia"})||
+        !classified_edit_list(data,track))return false;
+    isobmff_box_header edits{};size_t edit_at=0;
+    if(!unique_child(data,track.start+8U,track.end,"edts",edits,edit_at,false)||
+        (edits.size&&!explicit_copy_children(data,edit_at+edits.header_size,edit_at+edits.size,{"elst"})))return false;
+    isobmff_box_header tkhd{},mdia{},mdhd{},handler{},minf{},nmhd{},stsd{};size_t k=0,m=0,d=0,h=0,n=0,u=0,s=0;
+    if(!unique_child(data,track.start+8U,track.end,"tkhd",tkhd,k)||
+        !unique_child(data,track.start+8U,track.end,"mdia",mdia,m)||
+        !explicit_copy_children(data,m+mdia.header_size,m+mdia.size,{"mdhd","hdlr","minf"})||
+        !unique_child(data,m+mdia.header_size,m+mdia.size,"mdhd",mdhd,d)||
+        !unique_child(data,m+mdia.header_size,m+mdia.size,"hdlr",handler,h)||!valid_handler(data,handler)||
+        !unique_child(data,m+mdia.header_size,m+mdia.size,"minf",minf,n)||
+        !explicit_copy_children(data,n+minf.header_size,n+minf.size,{"nmhd","dinf","stbl"})||
+        !unique_child(data,n+minf.header_size,n+minf.size,"nmhd",nmhd,u)||
+        nmhd.size!=nmhd.header_size+4U||read_u32(data.data()+u+nmhd.header_size)||
+        !local_data_reference(data,minf,true)||
+        !explicit_copy_children(data,track.stbl_start,track.stbl_end,{"stsd","stts","ctts","stsc","stsz","stz2","stco","co64","stss","sdtp"})||
+        !unique_child(data,track.stbl_start,track.stbl_end,"stsd",stsd,s)||stsd.size<stsd.header_size+8U)return false;
+    const size_t sb=s+stsd.header_size,entry=sb+8U;
+    isobmff_box_header mett{};constexpr char mime[]="application/livePhoto-meta";
+    if(read_u32(data.data()+sb)||read_u32(data.data()+sb+4U)!=1U||
+        !try_read_box_header(data.data(),entry,s+stsd.size,mett)||read_u32(data.data()+entry)==0U||
+        !box_type(data,entry,"mett")||entry+mett.size!=s+stsd.size||mett.size-mett.header_size!=2U*sizeof(mime)||
+        std::memcmp(data.data()+entry+mett.header_size,mime,sizeof(mime))||
+        std::memcmp(data.data()+entry+mett.header_size+sizeof(mime),mime,sizeof(mime)))return false;
+    if(tkhd.size<tkhd.header_size+4U||mdhd.size<mdhd.header_size+4U)return false;
+    const size_t kb=k+tkhd.header_size,db=d+mdhd.header_size;
+    const auto version=data[kb],media_version=data[db];
+    if(version>1U||(read_u32(data.data()+kb)&0x00FFFFF0U)||tkhd.size-tkhd.header_size!=(version?96U:84U)||
+        media_version>1U||(read_u32(data.data()+db)&0x00FFFFFFU)||mdhd.size-mdhd.header_size!=(media_version?36U:24U)||
+        !read_media_timing(data,mdhd,track.time_scale,track.media_duration))return false;
+    const size_t matrix=kb+(version?52U:40U);
+    constexpr uint32_t identity[]={0x00010000U,0,0,0,0x00010000U,0,0,0,0x40000000U,0,0};
+    for(size_t i=0;i<std::size(identity);++i)if(read_u32(data.data()+matrix+i*4U)!=identity[i])return false;
+    uint64_t bad=0;
+    return inspect_isobmff_strict_sample_table(data,track.stbl_box_start,track.stbl_end,mdats,0U,track.sample_table,bad)&&
+        track.sample_table.sample_count>0U;
+}
+
 bool scoped_inventory(std::span<const uint8_t> data, const file_record& file,
-    std::array<static_boxes, 4>& scopes) {
+    std::array<static_boxes, 4>& scopes, bool auxiliary_copy=false,const char** reason=nullptr) {
     const auto* video = unique_video(file);
     bool valid = false;
     const auto* audio = unique_audio(file, valid);
     if (!valid || video == nullptr) return false;
     for (const auto& track : file.tracks) {
+        if(auxiliary_copy&&!track.is_mebx&&std::memcmp(track.handler,"meta",4U)==0) {
+            if(read_u32(data.data()+file.moov_start)==0U)return false;
+            auto observed=track;if(!copy_opaque_timed_track(data,observed,file.mdats))return false;
+            continue;
+        }
         if (std::memcmp(track.handler, "vide", 4U) != 0 && std::memcmp(track.handler, "soun", 4U) != 0 &&
-            !(track.is_mebx && std::memcmp(track.handler, "meta", 4U) == 0)) return false;
+            !(track.is_mebx && std::memcmp(track.handler, "meta", 4U) == 0) &&
+            !(auxiliary_copy && std::memcmp(track.handler,"auxv",4U)==0)) return false;
     }
-    if (!classified_media_tree(data, *video, true, file.mdats) || (audio != nullptr && !classified_media_tree(data, *audio, false, file.mdats))) return false;
-    return static_inventory(data, 0U, data.size(), false, scopes[0], true) &&
-        static_inventory(data, file.moov_start + file.moov_header_size, file.moov_end, false, scopes[1], false, true) &&
-        static_inventory(data, video->start + 8U, video->end, true, scopes[2]) &&
-        (audio == nullptr || static_inventory(data, audio->start + 8U, audio->end, false, scopes[3]));
+    if (!classified_media_tree(data, *video, true, file.mdats,auxiliary_copy,reason) ||
+        (audio != nullptr && !classified_media_tree(data, *audio, false, file.mdats,auxiliary_copy,reason))) return false;
+    const auto check=[&](bool ok,const char* value){if(!ok&&reason)*reason=value;return ok;};
+    return check(static_inventory(data, 0U, data.size(), false, scopes[0], true),"top static metadata") &&
+        check(static_inventory(data, file.moov_start + file.moov_header_size, file.moov_end, false, scopes[1], false, true,auxiliary_copy),"movie static metadata") &&
+        check(static_inventory(data, video->start + 8U, video->end, true, scopes[2]),"primary track static metadata") &&
+        (audio == nullptr || check(static_inventory(data, audio->start + 8U, audio->end, false, scopes[3]),"audio static metadata"));
+}
+
+// Copy-only structural gate. Auxiliary bytes are NOT inserted into the public
+// v1 digest scopes (0..13). Complete track/payload comparison below and the v2
+// whole-file transport proof bind the additional media domain independently.
+bool copy_additional_tracks(std::span<const uint8_t> data,file_record& file,
+    std::vector<track_record*>& tracks) {
+    tracks.clear();
+    const auto* video=unique_video(file);if(!video)return false;
+    for(auto& track:file.tracks) {
+        if(!track.is_mebx&&std::memcmp(track.handler,"meta",4U)==0) {
+            if(read_u32(data.data()+file.moov_start)==0U)return false;
+            if(!copy_opaque_timed_track(data,track,file.mdats))return false;
+            tracks.push_back(&track);continue;
+        }
+        if(std::memcmp(track.handler,"auxv",4U)!=0)continue;
+        static_boxes geometry;
+        if(!classified_media_tree(data,track,true,file.mdats,true)||!hdr_static_inventory(data,track,geometry))return false;
+        isobmff_box_header tref{},vmap{},stsd{};size_t p=0,q=0,s=0;
+        if(!unique_child(data,track.start+8U,track.end,"tref",tref,p)||
+            !unique_child(data,p+tref.header_size,p+tref.size,"vmap",vmap,q)||
+            vmap.size!=vmap.header_size+4U||tref.size!=tref.header_size+vmap.size||
+            read_u32(data.data()+q+vmap.header_size)!=video->track_id||
+            !unique_child(data,track.stbl_start,track.stbl_end,"stsd",stsd,s))return false;
+        const size_t entry=s+stsd.header_size+8U;
+        if(!box_type(data,entry,"hvc1")&&!box_type(data,entry,"hev1")&&
+            !box_type(data,entry,"avc1")&&!box_type(data,entry,"avc3"))return false;
+        isobmff_box_header visual{};
+        if(!try_read_box_header(data.data(),entry,s+stsd.size,visual))return false;
+        isobmff_video_profile codec;
+        if(!inspect_isobmff_visual_codec_configuration(data.subspan(entry,visual.size),codec))return false;
+        const size_t eb=entry+visual.header_size;
+        const uint32_t width=(uint32_t(data[eb+24])<<8)|data[eb+25],height=(uint32_t(data[eb+26])<<8)|data[eb+27];
+        if(!width||!height)return false;
+        isobmff_box_header tkhd{},mdia{},mdhd{};size_t k=0,m=0,d=0;
+        if(!unique_child(data,track.start+8U,track.end,"tkhd",tkhd,k)||tkhd.size<tkhd.header_size+4U||
+            !unique_child(data,track.start+8U,track.end,"mdia",mdia,m)||
+            !unique_child(data,m+mdia.header_size,m+mdia.size,"mdhd",mdhd,d)||mdhd.size<mdhd.header_size+4U)return false;
+        const size_t kb=k+tkhd.header_size,db=d+mdhd.header_size;
+        const auto version=data[kb];const auto media_version=data[db];
+        if(version>1U||(read_u32(data.data()+kb)&0x00FFFFF0U)||
+            tkhd.size-tkhd.header_size!=(version?96U:84U)||media_version>1U||
+            (read_u32(data.data()+db)&0x00FFFFFFU)||mdhd.size-mdhd.header_size!=(media_version?36U:24U)||
+            !read_media_timing(data,mdhd,track.time_scale,track.media_duration))return false;
+        const size_t matrix=kb+(version?52U:40U);
+        if(read_u32(data.data()+matrix+8U)||read_u32(data.data()+matrix+20U)||
+            read_u32(data.data()+matrix+32U)!=0x40000000U||
+            read_u32(data.data()+matrix+36U)!=(width<<16)||read_u32(data.data()+matrix+40U)!=(height<<16))return false;
+        constexpr int32_t transforms[8][4]={{1,0,0,1},{-1,0,0,1},{-1,0,0,-1},{1,0,0,-1},{0,1,1,0},{0,1,-1,0},{0,-1,-1,0},{0,-1,1,0}};
+        bool orientation=false;
+        for(const auto& transform:transforms)
+            if(read_u32(data.data()+matrix)==static_cast<uint32_t>(int64_t(transform[0])*65536)&&
+                read_u32(data.data()+matrix+4U)==static_cast<uint32_t>(int64_t(transform[1])*65536)&&
+                read_u32(data.data()+matrix+12U)==static_cast<uint32_t>(int64_t(transform[2])*65536)&&
+                read_u32(data.data()+matrix+16U)==static_cast<uint32_t>(int64_t(transform[3])*65536))orientation=true;
+        if(!orientation)return false;
+        uint64_t bad=0;
+        if(!inspect_isobmff_strict_sample_table(data,track.stbl_box_start,track.stbl_end,file.mdats,0U,track.sample_table,bad))return false;
+        tracks.push_back(&track);
+    }
+    return true;
 }
 }
 
 bool capture_isobmff_static_metadata_evidence(std::span<const uint8_t> source,
     std::span<const uint8_t> output, isobmff_static_metadata_evidence& evidence,
     std::span<const isobmff_media_data_range> source_mdats,
-    std::span<const isobmff_media_data_range> output_mdats, const char** rejection_reason) noexcept {
+    std::span<const isobmff_media_data_range> output_mdats, const char** rejection_reason,
+    bool auxiliary_copy) noexcept {
     evidence = {};
     const auto reason = [&](const char* value) { if (rejection_reason != nullptr) *rejection_reason = value; };
     reason("container hierarchy/sample tables");
@@ -1690,7 +1982,16 @@ bool capture_isobmff_static_metadata_evidence(std::span<const uint8_t> source,
         std::array<static_boxes, 4> s{}, t{};
         static_boxes sh, th;
         reason("scoped static metadata/media-tree classification");
-        if (!scoped_inventory(source, input, s) || !scoped_inventory(output, target, t)) return false;
+        if (!scoped_inventory(source, input, s,auxiliary_copy,rejection_reason) ||
+            !scoped_inventory(output, target, t,auxiliary_copy,rejection_reason)) return false;
+        if(auxiliary_copy) {
+            std::vector<track_record*> sa,ta;
+            if(!copy_additional_tracks(source,input,sa)||!copy_additional_tracks(output,target,ta)||sa.size()!=ta.size()||
+                input.tracks.size()!=target.tracks.size()||!same_copy_track_graph(source,input,output,target))return false;
+            for(size_t i=0;i<input.tracks.size();++i)
+                if(input.tracks[i].track_id!=target.tracks[i].track_id||
+                    std::memcmp(input.tracks[i].handler,target.tracks[i].handler,4U)!=0)return false;
+        }
         reason("visual geometry/HDR descriptor classification");
         if (!hdr_static_inventory(source, *a, sh) || !hdr_static_inventory(output, *b, th) ||
             sh.size() != th.size() || !same_static(source, sh, output, th)) return false;
@@ -1738,6 +2039,10 @@ bool validate_isobmff_mebx_stream_remux(std::span<const uint8_t> source_metadata
     std::span<const uint8_t> output_metadata, std::span<const isobmff_media_data_range> output_mdats,
     const lpb::random_access_reader& output, bool (*cancelled)(void*), void* state) noexcept {
     try {
+        isobmff_reader_observation strict_source{},strict_output{};
+        isobmff_reader_diagnostic strict_error{};
+        if((cancelled&&cancelled(state))||!inspect_isobmff_reader(source,true,strict_source,strict_error)||
+            !inspect_isobmff_reader(output,true,strict_output,strict_error)||(cancelled&&cancelled(state)))return false;
         file_record a{}, b{};
         std::vector<track_record*> original, actual;
         track_record *av = nullptr, *bv = nullptr;
@@ -1745,10 +2050,22 @@ bool validate_isobmff_mebx_stream_remux(std::span<const uint8_t> source_metadata
             !inspect_mebx_tracks(source_metadata, a, original, av) ||
             !inspect_mebx_tracks(output_metadata, b, actual, bv) || original.size() != actual.size() ||
             a.movie_time_scale != b.movie_time_scale || a.movie_duration != b.movie_duration) return false;
+        if(a.tracks.size()!=b.tracks.size()||!same_copy_track_graph(source_metadata,a,output_metadata,b))return false;
+        for(size_t i=0;i<a.tracks.size();++i)
+            if(a.tracks[i].track_id!=b.tracks[i].track_id||std::memcmp(a.tracks[i].handler,b.tracks[i].handler,4U)!=0)return false;
+        std::vector<track_record*> source_aux,output_aux;
+        if(!copy_additional_tracks(source_metadata,a,source_aux)||!copy_additional_tracks(output_metadata,b,output_aux)||
+            source_aux.size()!=output_aux.size())return false;
+        original.insert(original.end(),source_aux.begin(),source_aux.end());
+        actual.insert(actual.end(),output_aux.begin(),output_aux.end());
         if (original.empty()) return true;
-        if (av == nullptr || bv == nullptr || av->track_id != bv->track_id) return false;
+        const auto* primary_a=unique_video(a);const auto* primary_b=unique_video(b);
+        if(primary_a==nullptr||primary_b==nullptr||primary_a->track_id!=primary_b->track_id)return false;
         bool source_qt = false, output_qt = false;
         if (!quicktime_file(source_metadata, source_qt) || !quicktime_file(output_metadata, output_qt)) return false;
+        bool source_composition_qt=false,output_composition_qt=false;
+        if(!quicktime_composition_file(source_metadata,source_composition_qt)||
+            !quicktime_composition_file(output_metadata,output_composition_qt))return false;
         std::array<uint8_t, 64U * 1024U> x{}, y{};
         for (size_t i = 0U; i < original.size(); ++i) {
             const auto& s = *original[i]; const auto& t = *actual[i];
@@ -1756,15 +2073,29 @@ bool validate_isobmff_mebx_stream_remux(std::span<const uint8_t> source_metadata
                 s.sample_table.chunk_offset_width != t.sample_table.chunk_offset_width ||
                 s.sample_table.chunks.size() != t.sample_table.chunks.size()) return false;
             std::vector<uint8_t> normalized(output_metadata.begin() + t.start, output_metadata.begin() + t.end);
+            std::vector<uint8_t> expected(source_metadata.begin()+s.start,source_metadata.begin()+s.end);
             for (size_t j = 0U; j < s.sample_table.chunks.size(); ++j) {
                 const size_t sf = s.sample_table.chunk_offsets_entries_start + j * s.sample_table.chunk_offset_width;
                 const size_t tf = t.sample_table.chunk_offsets_entries_start + j * t.sample_table.chunk_offset_width;
                 const size_t width = t.sample_table.chunk_offset_width;
                 if (sf < s.start || tf < t.start || sf - s.start != tf - t.start ||
                     tf - t.start > normalized.size() || width > normalized.size() - (tf - t.start)) return false;
-                std::memcpy(normalized.data() + tf - t.start, source_metadata.data() + sf, width);
                 const auto& sc = s.sample_table.chunks[j]; const auto& tc = t.sample_table.chunks[j];
                 if (sc.size != tc.size || sc.first_sample != tc.first_sample || sc.sample_count != tc.sample_count) return false;
+                // Never erase an address merely because it falls in some mdat.
+                // Both chunks must denote the same ordered mdat and exact
+                // payload-relative offset before the address is normalized.
+                const auto locate=[](const auto& ranges,const auto& chunk,size_t& owner,uint64_t& relative) {
+                    size_t count=0;
+                    for(size_t k=0;k<ranges.size();++k)if(chunk.offset>=ranges[k].start&&chunk.offset<ranges[k].end&&
+                        chunk.size<=ranges[k].end-chunk.offset) {
+                        ++count;owner=k;relative=chunk.offset-ranges[k].start;
+                    }
+                    return count==1;
+                };
+                size_t so=0,to=0;uint64_t sr=0,tr=0;
+                if(!locate(a.mdats,sc,so,sr)||!locate(b.mdats,tc,to,tr)||so!=to||sr!=tr)return false;
+                std::memcpy(normalized.data() + tf - t.start, source_metadata.data() + sf, width);
                 uint64_t offset = 0U;
                 while (offset < sc.size) {
                     if (cancelled != nullptr && cancelled(state)) return false;
@@ -1776,7 +2107,8 @@ bool validate_isobmff_mebx_stream_remux(std::span<const uint8_t> source_metadata
                 }
             }
             if (!normalize_track_handler_names(output_metadata, t, output_qt, source_qt, normalized) ||
-                std::memcmp(normalized.data(), source_metadata.data() + s.start, normalized.size()) != 0) return false;
+                !map_remux_composition_versions(expected,source_composition_qt,false)||
+                !map_remux_composition_versions(normalized,output_composition_qt,false)||normalized!=expected) return false;
         }
         return true;
     } catch (...) { return false; }
@@ -1796,7 +2128,7 @@ bool map_isobmff_handler_names(std::span<const uint8_t> source, std::span<const 
         file_record before{}, after{};
         if (!parse_file(source, before, source_mdats) || !parse_file(target, after, target_mdats)) return false;
         output.assign(target.begin(), target.end());
-        if (!patch_handler_names(source, before, output, after, false)) { output.clear(); return false; }
+        if (!patch_handler_names(source, before, output, after, false,true)) { output.clear(); return false; }
         return true;
     } catch (...) { output.clear(); return false; }
 }

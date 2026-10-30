@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using LivePhotoBox.Interop;
@@ -212,6 +213,19 @@ public sealed class VideoConverter : IVideoConverter
                 request.SourceArtifact.Path,
                 outPath,
                 cancellationToken).ConfigureAwait(false);
+            var completeProof = backendAttempt.CompleteRemuxProof;
+            bool provedCopy = false;
+            if (completeProof is not null)
+            {
+                await using var input = File.OpenRead(request.SourceArtifact.Path);
+                string actualInputHash = Convert.ToHexString(await SHA256.HashDataAsync(input,cancellationToken).ConfigureAwait(false));
+                if (!isRemux || request.TargetCodec != VideoCodec.Copy ||
+                    completeProof.SourceLength != (ulong)input.Length ||
+                    !string.Equals(completeProof.SourceSha256,actualInputHash,StringComparison.OrdinalIgnoreCase) ||
+                    (request.SourceArtifact.Sha256 is { } declared && !string.Equals(declared,actualInputHash,StringComparison.OrdinalIgnoreCase)))
+                    throw new InvalidDataException("Complete remux proof does not bind the actual original Copy input.");
+                provedCopy = true;
+            }
             ConversionOperationKind actualOperation = !isRemux
                 ? ConversionOperationKind.LossyReencode
                 : byteIdenticalPassthrough
@@ -219,7 +233,7 @@ public sealed class VideoConverter : IVideoConverter
                     : ConversionOperationKind.ContainerRemux;
             PreservationOutcome preservationOutcome = !isRemux
                 ? PreservationOutcome.Reencoded
-                : byteIdenticalPassthrough
+                : byteIdenticalPassthrough || provedCopy
                     ? PreservationOutcome.Preserved
                     : PreservationOutcome.PartiallyPreserved;
 
@@ -254,6 +268,7 @@ public sealed class VideoConverter : IVideoConverter
                     HardwareFallbackOccurred = backendDiagnostics.HardwareFallbackOccurred,
                     HardwareFallbackReason = backendDiagnostics.HardwareFallbackReason,
                     MetadataPreservation = backendAttempt.MetadataPreservation,
+                    CompleteRemuxProof = completeProof,
                     AudioPreserved = audioPreserved,
                     RotationPreserved = rotationPreserved,
                     Truth = new ConversionExecutionTruth
@@ -274,16 +289,17 @@ public sealed class VideoConverter : IVideoConverter
                         FallbackReason = backendDiagnostics.HardwareFallbackReason,
                         Pixel = ConversionComponentOutcome.NotApplicable,
                         Metadata = ConversionComponentOutcome.Preserved,
-                        ColorIcc = ConversionComponentOutcome.NotEvaluated,
+                        ColorIcc = provedCopy ? ConversionComponentOutcome.Preserved : ConversionComponentOutcome.NotEvaluated,
                         HdrGainMap = ConversionComponentOutcome.NotApplicable,
                         Auxiliary = ConversionComponentOutcome.NotApplicable,
                         // Existing probe checks remain compatibility diagnostics; R1 does not
                         // promote them into component-preservation evidence.
-                        Audio = ConversionComponentOutcome.NotEvaluated,
-                        Timing = ConversionComponentOutcome.NotEvaluated,
-                        Orientation = ConversionComponentOutcome.NotEvaluated,
-                        // Exact whole-file identity is direct before/after preservation evidence.
-                        // A non-identical remux remains partial until independent R5 evidence.
+                        Audio = provedCopy ? sourceFacts.HasAudio ? ConversionComponentOutcome.Preserved : ConversionComponentOutcome.NotApplicable : ConversionComponentOutcome.NotEvaluated,
+                        Timing = provedCopy ? ConversionComponentOutcome.Preserved : ConversionComponentOutcome.NotEvaluated,
+                        Orientation = provedCopy ? ConversionComponentOutcome.Preserved : ConversionComponentOutcome.NotEvaluated,
+                        // Whole-file identity or the versioned, input/output-bound
+                        // original Copy proof is required; static-only evidence
+                        // and a backend name never promote a partial remux.
                         PreservationOutcome = preservationOutcome
                     },
                     Duration = sw.Elapsed

@@ -53,14 +53,21 @@ bool jpeg_facts(std::span<const uint8_t> input, target_primary_observation& out,
         }
     }
     uint64_t cursor = out.encoding_boundary;
-    if(out.xmp.items.empty()&&mpf.mpf_status==jpeg_gainmap_mpf::status::present&&mpf.mpf.image_count==2) {
+    const bool ordinary_mpf_directory=out.xmp.directory_present&&mpf.mpf_status==jpeg_gainmap_mpf::status::present&&mpf.mpf.image_count==2&&
+        (out.xmp.items.size()==1||(out.xmp.items.size()==2&&out.xmp.items[1].semantic=="MotionPhoto"))&&out.xmp.items[0].padding;
+    if((out.xmp.items.empty()||ordinary_mpf_directory)&&mpf.mpf_status==jpeg_gainmap_mpf::status::present&&mpf.mpf.image_count==2) {
         mpf_vendor_primary vendor;
-        if(!observe_mpf_vendor_primary(input,vendor)) {error="MPF auxiliary/ordinary metadata inventory is incomplete.";return false;}
+        if(ordinary_mpf_directory) {
+            if(micamera||out.xmp.hdr_claim||out.xmp.items[0].padding!=input.size()-out.encoding_boundary||
+                !observe_cross_target_mpf_primary(input,vendor,error)) {
+                error="MPF ordinary primary padding has a conflicting or incomplete owner: "+error;return false;
+            }
+        }else if(!observe_mpf_vendor_primary(input,vendor)) {error="MPF auxiliary/ordinary metadata inventory is incomplete.";return false;}
         target_primary_auxiliary aux;
         aux.selector="jpeg:mpf:2";aux.owner_selector=out.primary_selector;aux.selector_kind=4;aux.selector_id=2;
         aux.semantic="MpfAuxiliaryImage";aux.mime="image/jpeg";aux.item_type="jpeg";aux.relationship="mpf-image";
         aux.range={vendor.auxiliary_offset,vendor.auxiliary_length};out.auxiliaries.push_back(std::move(aux));
-        cursor=input.size();
+        if(!ordinary_mpf_directory)cursor=input.size();
     }
     const uint64_t samsung_embedded_padding=micamera==1?watermark.offset+watermark.length-out.encoding_boundary:0;
     if(samsung_padding!=UINT64_MAX&&(out.xmp.items.empty()||out.xmp.items.front().padding!=samsung_padding+samsung_embedded_padding)) {
@@ -192,9 +199,17 @@ bool heif_facts(std::span<const uint8_t> input, target_primary_observation& out,
             out.video_offset=p+box.header_size; out.video_length=box.size-box.header_size;
         }
         if(!std::memcmp(input.data()+p+4,"sefd",4)) {
+            const size_t image_limit=p+box.size;
+            bool final_image_box=image_limit==input.size();
+            if(!final_image_box&&allow_video) {
+                isobmff_box_header video{};
+                final_image_box=try_read_box_header(input.data(),image_limit,input.size(),video)&&!video.extends_to_end&&
+                    video.size>video.header_size&&video.size==input.size()-image_limit&&
+                    !std::memcmp(input.data()+image_limit+4,"mpvd",4);
+            }
             memory_random_access memory{input};lpb::protocols::sef_inventory inventory;
-            if(out.samsung_metadata.length||p+box.size!=input.size()||
-               !lpb::protocols::observe_sef(memory.view(),p+box.header_size,input.size(),inventory,error)||
+            if(out.samsung_metadata.length||!final_image_box||
+               !lpb::protocols::observe_sef(memory.view(),p+box.header_size,image_limit,inventory,error)||
                inventory.begin!=p+box.header_size||!lpb::protocols::ordinary_sef(inventory))return false;
             out.samsung_metadata={p,box.size};
         }
@@ -227,6 +242,20 @@ bool heif_facts(std::span<const uint8_t> input, target_primary_observation& out,
             aux.dependency_ids.push_back(fact.dependency_item_ids[i]);
             aux.dependency_ranges.push_back({fact.dependency_offsets[i],fact.dependency_lengths[i]});
         }
+        out.auxiliaries.push_back(std::move(aux));
+    }
+    // A typed Original file resource is counted separately from coded image
+    // auxiliaries. Its JPEG codec describes the whole payload file, not uri .
+    containers::heif_original_file_resource original;
+    if(!containers::observe_original_file_resource(image,original,error))return false;
+    if(original.present) {
+        if(!observe_original_jpeg_asset(image.subspan(static_cast<size_t>(original.range.offset),
+            static_cast<size_t>(original.range.length)),error))return false;
+        target_primary_auxiliary aux;
+        aux.item_id=original.item_id;aux.selector="heif:item:"+std::to_string(original.item_id);
+        aux.owner_selector=out.primary_selector;aux.selector_kind=2;aux.selector_id=original.item_id;
+        aux.semantic="Original";aux.relationship="Original";aux.range=original.range;
+        aux.item_type="uri ";aux.mime="image/jpeg";
         out.auxiliaries.push_back(std::move(aux));
     }
     return true;
@@ -333,6 +362,39 @@ bool observe_original_jpeg_asset(std::span<const uint8_t> input,std::string& err
         }
         return true;
     }catch(...){error="Original image asset observation could not complete.";return false;}
+}
+bool observe_cross_target_mpf_primary(std::span<const uint8_t> input,mpf_vendor_primary& out,std::string& error) noexcept {
+    out={};error.clear();
+    try {
+        if(!observe_mpf_vendor_primary(input,out)) {error="Outer MPF does not uniquely own a complete adjacent secondary JPEG and bounded camera suffix.";return false;}
+        const auto secondary=input.subspan(static_cast<size_t>(out.auxiliary_offset),static_cast<size_t>(out.auxiliary_length));
+        memory_random_access memory{secondary};jpeg_observation jpeg;jpeg_observation_failure failure{};uint64_t bad{};
+        if(!observe_jpeg(memory.view(),jpeg,failure,bad,{true,true,true,true,true})||jpeg.eoi_end!=secondary.size()||jpeg.metadata_after_scan||
+            jpeg.mpf_index||(jpeg.mpf&&!valid_mpf_attribute_only_secondary(secondary))) {
+            error="Secondary JPEG has invalid metadata or an independently nested MP Index.";return false;
+        }
+        target_primary_observation facts;facts.jpeg=jpeg;facts.exif_payload=jpeg.exif_payload;
+        if((!jpeg.xmp.empty()||!jpeg.extended_xmp.empty())) {
+            xmp_observation_failure why{};
+            if(!observe_target_xmp_packets(jpeg.xmp,jpeg.extended_xmp,jpeg.extended_guid,facts.xmp,why)) {
+                error="Secondary logical XMP is malformed or shadowed.";return false;
+            }
+            // Ordinary camera descriptions are preserved, but an embedded
+            // asset graph must not hide inside an otherwise opaque secondary.
+            const std::vector<uint8_t> secondary_bytes(secondary.begin(),secondary.end());
+            for(const auto& packet:{jpeg.xmp,jpeg.extended_xmp}) {
+                lpb_media_range subimage{},watermark{};
+                if(!packet.empty()&&observe_micamera_assets(secondary_bytes,packet,secondary.size(),subimage,watermark)!=0) {
+                    error="Secondary XMP contains malformed or unrepresented nested image ownership.";return false;
+                }
+            }
+        }
+        if(target_primary_has_live_binding(facts)||facts.xmp.directory_present||facts.xmp.hdr_claim||facts.xmp.foreign_claim||
+            facts.xmp.oppo_claim||facts.xmp.vivo_claim||(!jpeg.exif_payload.empty()&&observe_target_neutral_exif(jpeg.exif_payload)!=LPB_RESULT_OK)) {
+            error="Secondary image retains live, HDR, or unrepresented nested ownership.";return false;
+        }
+        return true;
+    }catch(...){out={};error="Cross-target MPF observation could not complete.";return false;}
 }
 bool observe_gainmap_jpeg_asset(std::span<const uint8_t> input,std::string& error) noexcept {
     error.clear();

@@ -1,5 +1,7 @@
 #include "media/target_video_observation.h"
 #include "media/vivo_modern_inventory.h"
+#include "containers/isobmff_metadata_keys.h"
+#include "containers/isobmff_track_graph.h"
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -17,6 +19,7 @@ struct inspector {
     std::span<const uint8_t> data;
     std::set<uint32_t> tracks;
     std::vector<uint32_t> references;
+    bool complete_graph_required{};
     target_covertime_observation* covertime{};
     bool fail(target_video_failure f,size_t at,std::string why) {
         d={f,target_video_stage::metadata,origin+at,std::move(why)};return false;
@@ -40,10 +43,7 @@ struct inspector {
         return true;
     }
     static bool live(std::string_view key) {
-        return key=="com.apple.quicktime.content.identifier"||key=="com.apple.quicktime.still-image-time"||
-            key=="com.apple.quicktime.live-photo-info"||key=="com.openharmony.covertime"||
-            key=="com.openharmony.movingphoto"||key=="com.huawei.movingphoto"||
-            key=="com.openharmony.timed_metadata.movingphoto";
+        return is_source_live_metadata_key("mdta",key);
     }
     bool uuid(const box& b,std::string_view parent={}) {
         if(b.end-b.body<16)return fail(target_video_failure::malformed,b.at,"Truncated UUID user type");
@@ -75,6 +75,9 @@ struct inspector {
         std::vector<box> list;if(!children(start,b.end,list))return false;
         const box *handler=nullptr,*keys=nullptr,*ilst=nullptr;
         for(const auto& c:list) {
+            // Padding is legal container scaffolding, including repeated free
+            // space. Its bounded opaque bytes do not declare metadata keys.
+            if(c.type=="free"||c.type=="skip")continue;
             const box** slot=c.type=="hdlr"?&handler:c.type=="keys"?&keys:c.type=="ilst"?&ilst:nullptr;
             if(!slot)return fail(target_video_failure::unsupported,c.at,"Unknown meta child ownership: "+c.type);
             if(*slot)return fail(target_video_failure::ambiguous,c.at,"Duplicate meta child: "+c.type);
@@ -180,7 +183,7 @@ struct inspector {
                 std::set<std::string> kinds;
                 for(const auto& r:refs) {
                     if(!kinds.insert(r.type).second)return fail(target_video_failure::ambiguous,r.at,"Duplicate track reference owner");
-                    if(r.type!="chap"&&r.type!="hint")return fail(target_video_failure::unsupported,r.at,"Unclassified track relationship: "+r.type);
+                    if(r.type!="chap"&&r.type!="hint")complete_graph_required=true;
                     if(r.end==r.body||(r.end-r.body)%4)return fail(target_video_failure::malformed,r.at,"Invalid track reference list");
                     std::set<uint32_t> ids;
                     for(size_t p=r.body;p<r.end;p+=4){const uint32_t id=u32(data.data()+p);if(!id||!ids.insert(id).second)return fail(target_video_failure::ambiguous,p,"Duplicate or zero track reference");references.push_back(id);}
@@ -196,7 +199,8 @@ struct inspector {
                 if(parent!="mdia"&&parent!="minf")return fail(target_video_failure::malformed,b.at,"Media handler has no legal owner");
                 if(b.end-b.body<12)return fail(target_video_failure::malformed,b.at,"Truncated media handler");
                 const auto type=text(b.body+8,b.body+12);
-                if(parent=="mdia"&&type!="vide"&&type!="soun"&&type!="meta")
+                if(parent=="mdia"&&type=="auxv")complete_graph_required=true;
+                if(parent=="mdia"&&type!="vide"&&type!="soun"&&type!="meta"&&type!="auxv")
                     return fail(target_video_failure::unsupported,b.at,"Non-audio/video metadata track requires explicit Neutral ownership: "+std::string(type));
                 if(parent=="minf"&&type!="vide"&&type!="soun"&&type!="alis"&&
                     !(text(b.body+4,b.body+8)=="dhlr"&&type=="url "))
@@ -224,11 +228,12 @@ struct inspector {
                         return fail(target_video_failure::unsupported,b.at,"Samsung smta ordinary child ownership unsupported");
                     continue;
                 }
-                // QuickTime user-data text atoms are literal payloads. Unknown
-                // children are not implicitly parsed as safe ordinary data.
+                // QuickTime text atoms have a known literal layout. Other
+                // bounded user-data children remain opaque under N9: their
+                // bytes are preserved and grant no binding or media authority.
                 const bool text_atom=b.type==std::string("\xa9" "nam",4)||b.type==std::string("\xa9" "cmt",4)||
                     b.type==std::string("\xa9" "cpy",4)||b.type==std::string("\xa9" "too",4)||b.type==std::string("\xa9" "ART",4)||b.type==std::string("\xa9" "xyz",4);
-                if(!text_atom)return fail(target_video_failure::unsupported,b.at,"Unclassified udta child: "+b.type);
+                if(!text_atom)continue;
                 if(b.end-b.body<4)return fail(target_video_failure::malformed,b.at,"Truncated QuickTime text atom");
                 const size_t n=(size_t(data[b.body])<<8)|data[b.body+1];
                 if(n!=b.end-b.body-4)return fail(target_video_failure::malformed,b.at,"QuickTime text length mismatch");
@@ -278,8 +283,16 @@ bool observe_target_video_metadata(const lpb::random_access_reader& reader,targe
             else if(top_meta) {if(!inspect.meta({0,bytes.size(),b.header_size,"meta"},"top"))return false;}
             else if(top_udta) {if(!inspect.walk(b.header_size,bytes.size(),0,"udta","top/udta"))return false;}
             else {
+                std::vector<isobmff_metadata_key_track> key_tracks;
+                if(!inspect_isobmff_metadata_keys(bytes,key_tracks))return inspect.fail(target_video_failure::malformed,0,"Malformed metadata-track key hierarchy");
+                for(const auto& track:key_tracks)for(const auto& key:track.keys)
+                    if(is_source_live_metadata_key(key.name_space,key.name))return inspect.fail(target_video_failure::source_binding,key.keyd_offset,"Known live binding in an actual MEBX key declaration");
                 if(!inspect.walk(b.header_size,bytes.size(),0,"moov"))return false;
                 for(const auto id:inspect.references)if(!inspect.tracks.contains(id))return inspect.fail(target_video_failure::malformed,0,"Dangling track reference");
+                if(inspect.complete_graph_required) {
+                    isobmff_track_graph graph;
+                    if(!inspect_isobmff_track_graph(bytes,graph))return inspect.fail(target_video_failure::malformed,0,"Invalid complete track identity/relationship graph");
+                }
             }
         }
         if(end!=reader.length||moovs!=1){d={target_video_failure::malformed,target_video_stage::metadata,end,"Incomplete or missing movie ownership"};return false;}

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
@@ -18,38 +18,39 @@
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
     <Content Include="$(NativeArtifactsDir)\LivePhotoBox.Native.dll">
       <Link>LivePhotoBox.Native.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
 
   <!-- SkipNativeBuild skips compilation only; consumers still need the built
        sidecar and its license notices alongside the Native runtime. -->
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(Configuration)' == 'Release'">
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
     <Content Include="$(NativeArtifactsDir)\LivePhotoBox.Video.Libav.dll">
       <Link>LivePhotoBox.Video.Libav.dll</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
 
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(Configuration)' == 'Release'">
-    <Content Include="..\tools\p5-r5-video-validation\notices\*">
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+    <Content Include="..\build\native\video\notices\*">
       <Link>licenses\LivePhotoBox.Video.Libav\%(Filename)%(Extension)</Link>
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      <CopyToPublishDirectory>Always</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
 
   <!--
     CMake is the canonical Native build. For standalone managed
     builds, invoke CMake through build-native.ps1. Full solution builds
-    retain the vcxproj as a compatibility project.
+    the solution's Native project forwards to this same CMake build.
   -->
   <Target Name="BuildLivePhotoBoxNative"
           BeforeTargets="PrepareForBuild"
-          Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(SkipNativeBuild)' != 'true' and '$(DesignTimeBuild)' != 'true'">
-    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\scripts\native\build-native.ps1&quot; -Configuration $(Configuration) -Architecture x64 -VideoSidecarBuildId $(VideoSidecarBuildId)" />
+          Condition="$([MSBuild]::IsOSPlatform('Windows')) and '$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup><_NativeBuildMode Condition="'$(SkipNativeBuild)' == 'true'">-ValidateOnly -ArtifactDirectory &quot;$(NativeArtifactsDir)&quot;</_NativeBuildMode></PropertyGroup>
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildThisFileDirectory)..\scripts\native\build-native.ps1&quot; -Configuration $(Configuration) -Architecture x64 -VideoSidecarBuildId $(VideoSidecarBuildId) $(_NativeBuildMode)" />
   </Target>
 
   <ItemGroup>

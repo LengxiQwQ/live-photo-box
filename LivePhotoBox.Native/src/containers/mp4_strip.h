@@ -39,6 +39,12 @@ struct Mp4StripOutcome {
     std::vector<std::string> track_fingerprints;
     std::string uuid_fingerprint;
 };
+#if defined(LPB_NATIVE_TEST_HARNESS)
+// Test-only memory entry into the exact production selection/rebuild helper;
+// no filesystem mutation and no export in the production DLL.
+bool test_rebuild_moov_tracks(std::span<const uint8_t> metadata,std::span<const uint8_t> source,
+ const Mp4StripSpec&,std::vector<uint8_t>& output,bool& modified);
+#endif
 
 bool mp4_get_mdta_key_fingerprint(
     std::span<const uint8_t> data,

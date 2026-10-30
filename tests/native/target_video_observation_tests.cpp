@@ -1,4 +1,5 @@
 #include "media/target_video_observation.h"
+#include "containers/remux_byte_proof.h"
 #include <cstring>
 #include <iostream>
 #include <stdexcept>
@@ -27,7 +28,68 @@ bool check(bytes b,lpb::media::target_video_failure expected){
 int main(){
  using F=lpb::media::target_video_failure;
  try {
+  {
+   bytes table(8);table[7]=1;put(table,2);put(table,0xfffffffdU);
+   auto movie=atom("moov",atom("trak",atom("mdia",atom("minf",atom("stbl",atom("ctts",table))))));
+   auto unchanged=movie;
+   require(lpb::media::map_remux_composition_versions(movie,true,false),"QT signed-v0 to ISO signed-v1");
+   // Six nested 8-byte headers: ctts fullbox version follows them.
+   require(movie[48]==1,"ISO signed ctts v1 emitted");
+   unchanged[48]=1;require(movie==unchanged,"only semantic representation version changes");
+   movie[48]=0;require(!lpb::media::map_remux_composition_versions(movie,false,true),"unrepresentable ISO positive offset rejects");
+   movie=unchanged;require(lpb::media::map_remux_composition_versions(movie,false,true)&&movie==unchanged,"signed v1 remains exact");
+   movie=unchanged;movie[48]=0;movie[60]=0;movie[61]=0;movie[62]=0;movie[63]=3;
+   auto positive=movie;
+   require(lpb::media::map_remux_composition_versions(movie,true,false)&&movie==positive,"positive v0 stays exact across brands");
+   movie=unchanged;movie[48]=2;
+   require(!lpb::media::map_remux_composition_versions(movie,true,false),"unknown ctts version rejected");
+   movie=unchanged;movie[49]=1;
+   require(!lpb::media::map_remux_composition_versions(movie,true,false),"ctts reserved flags rejected");
+   movie=unchanged;movie[55]=2;
+   require(!lpb::media::map_remux_composition_versions(movie,true,false),"ctts entry count beyond table rejected");
+   movie=unchanged;movie[55]=0;
+   require(!lpb::media::map_remux_composition_versions(movie,true,false),"empty ctts table rejected");
+  }
+  {
+   auto ftyp=atom("ftyp",txt("isom0000")), movie=atom("moov",atom("free",{1,2,3}));
+   auto source=ftyp;append(source,movie);append(source,atom("mdat",{10,20,30,40}));append(source,atom("free",{9}));
+   auto target=source;
+   auto proof=[&](){lpb::memory_random_access a{source},b{target};return lpb::media::prove_remux_bytes(a.view(),b.view(),ftyp,movie);};
+   require(proof(),"exact whole stream proof");
+   target[target.size()-10]^=1; require(!proof(),"media payload corruption rejected");target=source;
+   target.back()^=1;require(!proof(),"opaque/free payload corruption rejected");target=source;
+   target[ftyp.size()+movie.size()-1]^=1;require(!proof(),"unexpected movie byte rejected");target=source;
+   append(target,atom("free"));require(!proof(),"extra trailing box rejected");target=source;
+   target.pop_back();require(!proof(),"truncated output rejected");target=source;
+   lpb::memory_random_access a{source},b{target};
+   require(!lpb::media::prove_remux_bytes(a.view(),b.view(),ftyp,movie,[](void*){return true;}),"cancelled proof rejected");
+  }
+  // Expected relocation/name bytes are constructed here, without calling
+  // shift_chunk_offsets or the production handler mapper.
+  for (bool wide:{false,true}) for (bool movie_first:{false,true}) for (bool grow:{false,true}) {
+   const auto short_ftyp=atom("ftyp",txt("qt  0000qt  "));
+   const auto long_ftyp=atom("ftyp",txt("mp420000mp42isom"));
+   auto sf=grow?short_ftyp:long_ftyp, tf=grow?long_ftyp:short_ftyp;
+   bytes st(8),tt(8);st[7]=1;tt[7]=1;
+   const uint32_t source_address=movie_first?256U:128U;
+   const uint32_t target_address=grow?source_address+4U:source_address-4U;
+   if(wide){put(st,0);put(tt,0);}put(st,source_address);put(tt,target_address);
+   auto sm=atom("moov",atom("trak",atom("mdia",atom("minf",atom("stbl",atom(wide?"co64":"stco",st))))));
+   auto tm=atom("moov",atom("trak",atom("mdia",atom("minf",atom("stbl",atom(wide?"co64":"stco",tt))))));
+   auto data=atom("mdat",{1,2,3,4,5});auto s=sf,t=tf;
+   if(movie_first){append(s,sm);append(t,tm);append(s,data);append(t,data);}
+   else{append(s,data);append(t,data);append(s,sm);append(t,tm);}
+   lpb::memory_random_access a{s},b{t};
+   require(lpb::media::prove_remux_bytes(a.view(),b.view(),tf,tm),"explicit positive/negative-delta expected transport");
+   const size_t moov_start=movie_first?tf.size():tf.size()+data.size();
+   t[moov_start+tm.size()-1]^=1;
+   require(!lpb::media::prove_remux_bytes(a.view(),b.view(),tf,tm),"wrong stco/co64 relocation byte rejected");
+  }
   require(check(atom("moov",atom("udta")),F::none),"empty ordinary udta");
+  require(check(atom("moov",atom("trak",atom("udta",atom("tagc",txt("com.example.ordinary"))))),F::none),"bounded ordinary track label stays opaque");
+  require(check(atom("moov",atom("udta",atom("xxxx",txt("com.apple.quicktime.content.identifier")))),F::none),"opaque value text grants no binding authority");
+  auto broken_opaque=atom("moov",atom("udta",atom("xxxx",{1,2,3})));broken_opaque.pop_back();
+  require(check(broken_opaque,F::malformed),"truncated opaque user data is still malformed");
   auto opaque_top=atom("moov");append(opaque_top,atom("comm",{1,2,3,4}));
   require(check(opaque_top,F::none),"unknown bounded vendor data remains opaque");
   for(const char* binding:{"mpvd","sefd"}) {
@@ -60,6 +122,11 @@ int main(){
   for(const char* key:{"com.apple.quicktime.content.identifier","com.apple.quicktime.still-image-time","com.apple.quicktime.live-photo-info","com.openharmony.covertime","com.openharmony.timed_metadata.movingphoto","com.huawei.movingphoto"})
    require(check(atom("moov",mdta(key)),F::source_binding),"known source binding key");
   require(check(atom("moov",mdta("com.example.unknown")),F::none),"N9 unknown owned mdta stays opaque");
+  auto padded_meta=mdta("com.example.ordinary");
+  bytes padded_body(padded_meta.begin()+8,padded_meta.end());append(padded_body,atom("free",txt("com.apple.quicktime.content.identifier")));append(padded_body,atom("free"));append(padded_body,atom("skip",{1,2,3}));
+  require(check(atom("moov",atom("meta",padded_body)),F::none),"bounded metadata padding has no key authority");
+  auto truncated_padding=atom("moov",atom("meta",padded_body));truncated_padding.pop_back();
+  require(check(truncated_padding,F::malformed),"metadata padding must still be completely bounded");
   require(check(atom("moov",mdta("com.xiaomi.product.marketname")),F::none),"ordinary vendor model name stays opaque");
   require(check(atom("moov",mdta("copyright",true)),F::ambiguous),"duplicate metadata key");
   bytes two=mdta("copyright");append(two,mdta("comment"));require(check(atom("moov",two),F::ambiguous),"shadow meta");

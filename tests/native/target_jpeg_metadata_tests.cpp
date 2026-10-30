@@ -1,3 +1,4 @@
+#include "livephotobox_native.h"
 #include "media/jpeg_observation.h"
 #include "metadata/target_exif.h"
 #include "foundation/md5_core.h"
@@ -34,7 +35,12 @@ bytes extension(std::string_view xml,std::string_view guid,uint32_t offset,uint3
 }
 std::string md5(std::string_view s){return lpb::md5_hex_upper({reinterpret_cast<const uint8_t*>(s.data()),s.size()});}
 }
+#ifdef LPB_NATIVE_TEST_HARNESS
+extern "C" LPB_API int LPB_CALL lpb_test_p9_jpeg_metadata() {
+#else
 int main(){
+#endif
+ try {
  using namespace lpb::media;using lpb::metadata::add_target_user_comment;
  REQUIRE(md5("")=="D41D8CD98F00B204E9800998ECF8427E");REQUIRE(md5("abc")=="900150983CD24FB0D6963F7D28E17F72");
  REQUIRE(md5(std::string(1000,'a'))=="CABE45DCC9AE5B66BA86600CCA6B8BA8");
@@ -104,4 +110,7 @@ int main(){
  auto bad_guid=guid;bad_guid[0]=bad_guid[0]=='A'?'B':'A';REQUIRE(!observe(image({standard(),extension(xml,bad_guid,0,static_cast<uint32_t>(xml.size()))}),out));
  auto mixed=last;mixed[sizeof("http://ns.adobe.com/xmp/extension/")]=bad_guid[0];REQUIRE(!observe(image({standard(),first,mixed}),out));
  std::cout<<"P9R3_JpegMetadata: opaque Exif append preservation, conflict/graph rejection, Extended XMP coverage/MD5 transport PASS\n";
+ return 0;
+ }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}
+ catch(...){return 1;}
 }

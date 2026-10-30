@@ -3,7 +3,9 @@
 #include "media/xmp_observation.h"
 #include "media/media_inspector.h"
 #include "media/target_primary_observation.h"
+#include "media/target_writer.h"
 #include "media/jpeg_gainmap_mpf.h"
+#include "media/jpeg_mpf_vendor.h"
 #include "media/vivo_comment.h"
 #include "metadata/jpeg.h"
 #include "metadata/target_exif.h"
@@ -126,8 +128,9 @@ lpb_result build_google_xmp(std::string_view input,const google_xmp_request& req
 }
 
 lpb_result build_google_primary(lpb_context* context,std::span<const uint8_t> input,
- const google_xmp_request& request,std::vector<uint8_t>& output) noexcept {
+ const google_xmp_request& request,std::vector<uint8_t>& output,lpb::media::user_comment_mapping* mapping) noexcept {
  output.clear();
+ if(mapping)*mapping={};
  try {
   lpb::memory_random_access memory{input};lpb::media::jpeg_observation jpeg;
   lpb::media::jpeg_observation_failure failure{};uint64_t bad=0;
@@ -156,14 +159,23 @@ lpb_result build_google_primary(lpb_context* context,std::span<const uint8_t> in
    expected+=item.length;
   }
   if(expected!=input.size())return LPB_RESULT_INVALID_ARGUMENT;
+  lpb::media::target_xmp_observation logical;
   if(!jpeg.xmp.empty()) {
-   lpb::media::target_xmp_observation logical;lpb::media::xmp_observation_failure why{};
+   lpb::media::xmp_observation_failure why{};
    if(!lpb::media::observe_target_xmp_packets(jpeg.xmp,jpeg.extended_xmp,jpeg.extended_guid,logical,why))
     return why==lpb::media::xmp_observation_failure::unsupported?LPB_RESULT_UNSUPPORTED:LPB_RESULT_INVALID_ARGUMENT;
   }
   lpb::media::jpeg_gainmap_mpf::jpeg_info mpf;
+  bool ordinary_mpf=false;
+  std::vector<uint8_t> ordinary_mpf_region;
   if(jpeg.mpf_index){
-   if(!lpb::media::jpeg_gainmap_mpf::parse_jpeg(input,mpf)||mpf.mpf.image_count!=request.auxiliary_items.size()+1)return LPB_RESULT_UNSUPPORTED;
+   lpb::media::mpf_vendor_primary vendor;std::string ownership_error;
+   ordinary_mpf=request.target>=1&&request.target<=3&&request.auxiliary_items.empty()&&
+    request.primary_padding==input.size()-jpeg.eoi_end&&request.primary_padding&&
+    lpb::media::observe_cross_target_mpf_primary(input,vendor,ownership_error);
+   if(ordinary_mpf)ordinary_mpf_region.assign(input.begin()+static_cast<ptrdiff_t>(jpeg.eoi_end),input.end());
+   if(!lpb::media::jpeg_gainmap_mpf::parse_jpeg(input,mpf)||
+      mpf.mpf.image_count!=(ordinary_mpf?2:request.auxiliary_items.size()+1))return LPB_RESULT_UNSUPPORTED;
    // The approved singleton self-entry has no external image relationship.
    // Its redundant historical size may be stale (RELEASE-004); the complete
    // bounded JPEG, exact EOF and strict singleton identity authorize reflow.
@@ -172,7 +184,7 @@ lpb_result build_google_primary(lpb_context* context,std::span<const uint8_t> in
     request.auxiliary_items.empty()&&!request.primary_padding&&jpeg.eoi_end==input.size();
    if(!singleton&&mpf.mpf.entries[0].size!=jpeg.eoi_end)return LPB_RESULT_UNSUPPORTED;
    uint64_t offset=jpeg.eoi_end+request.primary_padding;
-   for(size_t i=1;i<mpf.mpf.image_count;++i){const auto& entry=mpf.mpf.entries[i];
+   for(size_t i=1;!ordinary_mpf&&i<mpf.mpf.image_count;++i){const auto& entry=mpf.mpf.entries[i];
     if(entry.absolute_offset!=offset||entry.size!=request.auxiliary_items[i-1].length||
        entry.dependent_image_1>mpf.mpf.image_count||entry.dependent_image_2>mpf.mpf.image_count)return LPB_RESULT_INVALID_ARGUMENT;
     offset+=entry.size;
@@ -190,46 +202,74 @@ lpb_result build_google_primary(lpb_context* context,std::span<const uint8_t> in
   }
   const auto merged=build_google_xmp(packet,request,xml);
   if(merged!=LPB_RESULT_OK)return merged;
-  if(xml.size()>65535-2-sizeof("http://ns.adobe.com/xap/1.0/"))return LPB_RESULT_UNSUPPORTED;
   std::vector<uint8_t> commented;
-  if(request.target==4){
-   if(jpeg.exif.has_user_comment){
+  lpb::media::user_comment_mapping mapped;
+  std::span<const uint8_t> marker;
+  constexpr char vivo_marker[]="multi-frame: 1;\nispap:1;\nmodule: photo;";
+  constexpr char oppo_marker[]="ASCII\0\0\0oplus_10485792";
+  bool compatible=false;
+  if(request.target==4||request.target==3) {
+   marker=request.target==4?std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(vivo_marker),sizeof(vivo_marker)):
+    std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(oppo_marker),sizeof(oppo_marker)-1);
+   if(jpeg.exif.has_user_comment) {
     std::map<std::string,std::string> fields;
-    if(!lpb::media::observe_raw_camera_comment(jpeg.exif.user_comment,fields)||
-       fields["multi-frame"]!="1"||fields["ispap"]!="1"||fields["module"]!="photo") {
-      set_error(context,"Existing UserComment conflicts with experimental vivo raw marker; original metadata is retained.");return LPB_RESULT_UNSUPPORTED;
-    }
-   }else{
-    // Finite experimental marker only. Do not fabricate weather, temperature,
-    // camera processing time, orientation or processing-engine history.
-    constexpr char raw[]="multi-frame: 1;\nispap:1;\nmodule: photo;";
-    const std::span<const uint8_t> marker(reinterpret_cast<const uint8_t*>(raw),sizeof(raw));
-    if(!lpb::metadata::add_target_user_comment(input,marker,commented,failure))return failure==lpb::media::jpeg_observation_failure::unsupported?LPB_RESULT_UNSUPPORTED:LPB_RESULT_INVALID_ARGUMENT;
-    input=commented;
-   }
-  }
-  if(request.target==3){
-   constexpr char raw[]="ASCII\0\0\0oplus_10485792";
-   const std::span<const uint8_t> marker(reinterpret_cast<const uint8_t*>(raw),sizeof(raw)-1);
-   if(jpeg.exif.has_user_comment){
-    // Existing compatible marker bytes are retained, never overwritten to
-    // force one camera's capacity literal. These exact variants were observed
-    // in the retained OPlus corpus; no integer/capacity rule is inferred.
+    const bool vivo_bound=lpb::media::observe_raw_camera_comment(jpeg.exif.user_comment,fields)&&
+     fields["multi-frame"]=="1"&&fields["ispap"]=="1"&&fields["module"]=="photo";
     constexpr char observed_oppo[]="ASCII\0\0\0oplus_8388640";
     constexpr char observed_edited[]="oplus_27263008\0";
     const auto equal=[&](const char* raw,size_t count){return jpeg.exif.user_comment.size()==count&&
         std::memcmp(jpeg.exif.user_comment.data(),raw,count)==0;};
-    if(!equal(raw,sizeof(raw)-1)&&!equal(observed_oppo,sizeof(observed_oppo)-1)&&
-       !equal(observed_edited,sizeof(observed_edited)-1))return LPB_RESULT_UNSUPPORTED;
-   }else{
-    if(!lpb::metadata::add_target_user_comment(input,marker,commented,failure))return failure==lpb::media::jpeg_observation_failure::unsupported?LPB_RESULT_UNSUPPORTED:LPB_RESULT_INVALID_ARGUMENT;
-    input=commented;
+    const bool oppo_bound=equal(oppo_marker,sizeof(oppo_marker)-1)||equal(observed_oppo,sizeof(observed_oppo)-1)||equal(observed_edited,sizeof(observed_edited)-1);
+    compatible=request.target==4?vivo_bound:oppo_bound;
+    // A known foreign binding is not an ordinary comment eligible for mapping.
+    if(!compatible&&(vivo_bound||oppo_bound))return LPB_RESULT_UNSUPPORTED;
+    if(!compatible) {
+     if(logical.preserved_comment.present||lpb::media::observe_target_neutral_exif(jpeg.exif_payload)!=LPB_RESULT_OK)return LPB_RESULT_UNSUPPORTED;
+     mapped.original=lpb::media::comment_tuple(jpeg.exif.user_comment_type,jpeg.exif.user_comment_count,jpeg.exif.user_comment);
+     mapped.destination="xmp:{urn:livephotobox:preserved-exif:1}ExifUserComment";
+     mapped.input_compared=true;
+     const auto field=[](std::string_view key,const std::string& value){return "<p:"+std::string(key)+">"+value+"</p:"+std::string(key)+">";};
+     const auto& original=mapped.original;
+     const std::string record="<r:Description xmlns:r=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" r:about=\"\"><p:ExifUserComment xmlns:p=\""+
+      std::string(lpb::media::preserved_exif_namespace)+"\" r:parseType=\"Resource\">"+
+      field("schemaVersion","1")+field("owner","ExifIFD")+field("tag","37510")+
+      field("tiffType",std::to_string(original.tiff_type))+field("count",std::to_string(original.count))+
+      field("byteLength",std::to_string(original.raw.size()))+
+      field("rawSha256",lpb::media::upper_hex(original.sha256.data(),original.sha256.size()))+
+      field("rawHex",lpb::media::upper_hex(original.raw.data(),original.raw.size()))+"</p:ExifUserComment></r:Description>";
+     lpb::media::target_xmp_observation generated;lpb::media::xmp_observation_failure why{};
+     if(!lpb::media::observe_target_xmp(xml,generated,why)||generated.rdf_close_offset==std::string::npos)return LPB_RESULT_INVALID_ARGUMENT;
+     xml.insert(generated.rdf_close_offset,record);
+     if(!lpb::media::observe_target_xmp_packets(xml,jpeg.extended_xmp,jpeg.extended_guid,generated,why)||generated.preserved_comment!=original)return LPB_RESULT_INVALID_ARGUMENT;
+     lpb::crypto::sha256_buffer(reinterpret_cast<const uint8_t*>(xml.data()),xml.size(),mapped.destination_packet_sha256.data());
+     mapped.scope=lpb::media::user_comment_mapping::verification_scope::formal_input_tuple_to_unique_output_xmp_record;
+    }
    }
   }
+  if(xml.size()>65535-2-sizeof("http://ns.adobe.com/xap/1.0/"))return LPB_RESULT_UNSUPPORTED;
   std::string error;
-  const auto result=lpb::metadata::replace_standard_jpeg_xmp_unchecked(input,
+  auto result=lpb::metadata::replace_standard_jpeg_xmp_unchecked(input,
    std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(xml.data()),xml.size()),output,error);
   if(result!=LPB_RESULT_OK)set_error(context,error.c_str());
+  if(result==LPB_RESULT_OK&&!marker.empty()&&!compatible) {
+   const bool written=mapped.input_compared?
+    lpb::metadata::map_target_user_comment(output,marker,mapped.original,commented,failure):
+    lpb::metadata::add_target_user_comment(output,marker,commented,failure);
+   if(!written){output.clear();return failure==lpb::media::jpeg_observation_failure::unsupported?LPB_RESULT_UNSUPPORTED:LPB_RESULT_INVALID_ARGUMENT;}
+   output=std::move(commented);
+   lpb::memory_random_access candidate{output};lpb::media::jpeg_observation final;
+   lpb::media::target_xmp_observation final_xml;lpb::media::xmp_observation_failure why{};
+   if(!lpb::media::observe_jpeg(candidate.view(),final,failure,bad,{true,true,true,true})||
+      final.exif.user_comment!=std::vector<uint8_t>(marker.begin(),marker.end())||
+      !lpb::media::observe_target_xmp_packets(final.xmp,final.extended_xmp,final.extended_guid,final_xml,why)||
+      (mapped.input_compared&&final_xml.preserved_comment!=mapped.original)) {output.clear();return LPB_RESULT_INVALID_ARGUMENT;}
+   if(mapped.input_compared){
+    std::array<uint8_t,32> final_packet_hash{};
+    lpb::crypto::sha256_buffer(reinterpret_cast<const uint8_t*>(final.xmp.data()),final.xmp.size(),final_packet_hash.data());
+    if(final_packet_hash!=mapped.destination_packet_sha256){output.clear();return LPB_RESULT_INVALID_ARGUMENT;}
+    mapped.mapped=true;mapped.output_compared=true;
+   }
+  }
   if(result==LPB_RESULT_OK&&jpeg.mpf_index) {
    lpb::media::jpeg_gainmap_mpf::jpeg_info changed;
    if(!lpb::media::jpeg_gainmap_mpf::parse_jpeg(output,changed)||changed.mpf.image_count!=mpf.mpf.image_count||changed.eoi_end>UINT32_MAX){
@@ -245,7 +285,16 @@ lpb_result build_google_primary(lpb_context* context,std::span<const uint8_t> in
     if(location<after.tiff_header_offset||location-after.tiff_header_offset>UINT32_MAX||location>output.size()||old.size>output.size()-location){output.clear();return LPB_RESULT_UNSUPPORTED;}
     lpb::media::jpeg_gainmap_mpf::write_u32(output,current.offset_field_offset,static_cast<uint32_t>(location-after.tiff_header_offset),after.little_endian);
    }
+   if(ordinary_mpf) {
+    lpb::media::mpf_vendor_primary vendor;std::string ownership_error;
+    if(!lpb::media::observe_cross_target_mpf_primary(output,vendor,ownership_error)||
+       output.size()-vendor.image_end!=ordinary_mpf_region.size()||ordinary_mpf_region.size()!=request.primary_padding||
+       !std::equal(ordinary_mpf_region.begin(),ordinary_mpf_region.end(),output.begin()+static_cast<ptrdiff_t>(vendor.image_end))) {
+     output.clear();set_error(context,"MPF secondary image or ordinary camera suffix changed during target serialization.");return LPB_RESULT_INVALID_ARGUMENT;
+    }
+   }
   }
+  if(result==LPB_RESULT_OK&&mapping)*mapping=std::move(mapped);
   return result;
  }catch(...){output.clear();set_error(context,"Google primary serialization failed.");return LPB_RESULT_INTERNAL_ERROR;}
 }

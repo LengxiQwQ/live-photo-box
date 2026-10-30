@@ -447,6 +447,19 @@ public sealed class SourceExtractor : ISourceExtractor
             });
         }
 
+        var carrierOutputBindings=new List<NativeMediaService.NativeCarrierOutputBinding>();
+        for(int i=0;i<facts.PreservationCarriers.Count;i++)
+        {
+            var carrier=facts.PreservationCarriers[i];
+            if(!OrdinaryMetadataPreservation.IsRecordCarrier(carrier))continue;
+            if(carrier.Kind!=PreservationCarrierKind.OpaqueFragment||carrier.SourceIndex!=0||
+                carrier.ArtifactRole!=MediaArtifactKind.PrimaryImage||carrier.OwnerIdentity!="primary:0"||
+                carrier.Relationship!=OrdinaryMetadataPreservation.Relationship)
+                throw new ExtractionException(ExtractionFailureCategory.InvalidFacts,"Ordinary metadata source ownership is incomplete.");
+            ValidateRange(carrier.SourceOffset,carrier.SourceLength,primaryFileLength,"ordinary metadata",primaryPath,MediaArtifactKind.MetadataCarrier);
+            carrierOutputBindings.Add(new((uint)i,workspace.AllocateFilePath($"ordinary-metadata-{i}",".bin")));
+        }
+
         // Keep a pre-publish expectation for every artifact that this managed
         // layer may later clean up.  The expectation is derived from a real
         // source read handle, not from a path-only post-publish read.  Native
@@ -459,7 +472,11 @@ public sealed class SourceExtractor : ISourceExtractor
         IReadOnlyList<NativeMediaService.NativeExtractionOutputEvidence>? extractionOutputReceipts = null;
         try
         {
-            await NativeMediaService.ExtractMediaAsync(
+            if(carrierOutputBindings.Count!=0)
+                await NativeMediaService.ExtractMediaWithCarrierOutputsAsync(attempt,primaryPath,secondaryPath,
+                    outputImagePath,outputVideoPath,outputGainmapPath,cleanupSourcePath,auxiliaryOutputBindings,
+                    carrierOutputBindings,configureContext,cancellationToken).ConfigureAwait(false);
+            else await NativeMediaService.ExtractMediaAsync(
                 attempt,
                 primaryPath,
                 secondaryPath,
@@ -495,6 +512,8 @@ public sealed class SourceExtractor : ISourceExtractor
                 expectedOutputs.Add(new(MediaArtifactKind.SourceContainer, uint.MaxValue, cleanupSourcePath));
             foreach (NativeMediaService.NativeAuxiliaryOutputBinding auxiliary in auxiliaryOutputBindings)
                 expectedOutputs.Add(new(MediaArtifactKind.AuxiliaryItem, auxiliary.AuxiliaryIndex, auxiliary.Path));
+            foreach(var carrier in carrierOutputBindings)
+                expectedOutputs.Add(new(MediaArtifactKind.MetadataCarrier,carrier.CarrierIndex,carrier.Path));
             IReadOnlyList<NativeMediaService.NativeExtractionOutputEvidence> ownedOutputs;
             try
             {
@@ -672,6 +691,21 @@ public sealed class SourceExtractor : ISourceExtractor
                 finalizedAuxiliaryDescriptors.Add(descriptor with { MaterializedArtifact = materializedArtifact });
             }
 
+            var finalizedCarriers=facts.PreservationCarriers.ToArray();
+            foreach(var binding in carrierOutputBindings)
+            {
+                var carrier=finalizedCarriers[binding.CarrierIndex];
+                var receipt=ownedOutputs.Single(x=>x.ArtifactRole==MediaArtifactKind.MetadataCarrier&&x.AuxiliaryIndex==binding.CarrierIndex);
+                if(receipt.Sha256!=carrier.SourceSha256||receipt.ByteLength!=carrier.SourceLength)
+                    throw new ExtractionException(ExtractionFailureCategory.SourceChanged,"Ordinary metadata capture differs from its Inspector-owned source bytes.");
+                finalizedCarriers[binding.CarrierIndex]=carrier with
+                {
+                    Representation=AuxiliaryRepresentation.Materialized,
+                    MaterializedArtifact=new MediaArtifact{Path=binding.Path,Kind=MediaArtifactKind.MetadataCarrier,
+                        MimeType="application/x-lpb-opaque-camera-records",ByteLength=receipt.ByteLength,
+                        SourceOffset=carrier.SourceOffset,Sha256=receipt.Sha256,FileIdentity=receipt.FileIdentity}
+                };
+            }
             var extractedFacts = new List<RemovedProtocolFact>();
             if (facts.MotionVideo is { IsPresent: true, SourceIndex: 0 })
             {
@@ -698,8 +732,10 @@ public sealed class SourceExtractor : ISourceExtractor
                 extractedFacts.Add(new RemovedProtocolFact
                 {
                     ProtocolName = facts.Protocol.ToString(),
-                    Component = "Protocol trailer",
-                    Description = "Excluded from the primary artifact using the Inspector-validated range.",
+                    Component = carrierOutputBindings.Count!=0?"Ordinary metadata carrier":"Protocol trailer",
+                    Description = carrierOutputBindings.Count!=0
+                        ? "Complete ordinary record block materialized with Native creator identity and exact source SHA-256."
+                        : "Excluded from the primary artifact using the Inspector-validated range.",
                     Kind = ProtocolFactKind.Extracted
                 });
             }
@@ -726,7 +762,7 @@ public sealed class SourceExtractor : ISourceExtractor
                     SourceFacts = facts,
                     ExtractedProtocolFacts = extractedFacts,
                     AuxiliaryMedia = finalizedAuxiliaryDescriptors,
-                    PreservationCarriers = facts.PreservationCarriers,
+                    PreservationCarriers = finalizedCarriers,
                     CleanupPlan = owner
                 };
                 BeforeCleanupPlanIssueTestHook.Value?.Invoke();

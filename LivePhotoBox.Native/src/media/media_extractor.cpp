@@ -536,7 +536,9 @@ lpb_result extract_source_internal(
     const lpb_extraction_output* auxiliary_outputs,
     size_t auxiliary_output_count,
     const char* cleanup_source_path,
-    std::vector<lpb_published_artifact_record>* out_published_artifacts) noexcept
+    std::vector<lpb_published_artifact_record>* out_published_artifacts,
+    const lpb_carrier_extraction_output_v1* carrier_outputs,
+    size_t carrier_output_count) noexcept
 {
     if (out_published_artifacts != nullptr) out_published_artifacts->clear();
     if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
@@ -619,6 +621,41 @@ lpb_result extract_source_internal(
         return LPB_RESULT_AUTHORITY_VIOLATION;
     }
 
+    static_assert(sizeof(lpb_carrier_extraction_output_v1)==24);
+    static_assert(offsetof(lpb_carrier_extraction_output_v1,output_path)==16);
+    if(facts->preservation_carrier_count>8||carrier_output_count>8||
+        (carrier_output_count&&!carrier_outputs)) {
+        set_error(context,"[AuthorityViolation] Ordinary metadata output descriptors are incompatible.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+    size_t required_carriers=0;
+    for(uint32_t i=0;i<facts->preservation_carrier_count;++i) {
+        const auto& c=facts->preservation_carriers[i];
+        if(!bounded_equals_literal(c.semantic,sizeof(c.semantic),"OpaqueCameraRecords"))continue;
+        if(c.struct_size!=sizeof(c)||c.is_present!=1||c.kind!=LPB_PRESERVATION_CARRIER_OPAQUE_FRAGMENT||
+            c.source_index!=0||c.artifact_role!=LPB_ARTIFACT_PRIMARY_IMAGE||
+            !c.file_range.length||!hash_is_nonzero(c.sha256)||
+            !bounded_equals_literal(c.owner_identity,sizeof(c.owner_identity),"primary:0")||
+            !bounded_equals_literal(c.relationship,sizeof(c.relationship),"self-relative-record-directory-v1")) {
+            set_error(context,"[AuthorityViolation] Inspector ordinary metadata ownership is incomplete.");return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+        ++required_carriers;
+    }
+    for(size_t i=0;i<carrier_output_count;++i) {
+        const auto& d=carrier_outputs[i];
+        if(d.struct_size!=sizeof(d)||d.version!=1||d.reserved||d.carrier_index>=facts->preservation_carrier_count||
+            !d.output_path||!d.output_path[0]||!bounded_equals_literal(
+                facts->preservation_carriers[d.carrier_index].semantic,96,"OpaqueCameraRecords")) {
+            set_error(context,"[AuthorityViolation] Ordinary metadata output must bind one Inspector-owned carrier.");return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+        for(size_t j=0;j<i;++j)if(carrier_outputs[j].carrier_index==d.carrier_index) {
+            set_error(context,"[AuthorityViolation] Duplicate ordinary metadata output identity.");return LPB_RESULT_AUTHORITY_VIOLATION;
+        }
+    }
+    if(carrier_output_count && carrier_output_count!=required_carriers) {
+        set_error(context,"[AuthorityViolation] Ordinary metadata output coverage is incomplete.");return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
     const lpb_extraction_output* gainmap_binding = facts->gain_map.is_present
         ? find_auxiliary_output(auxiliary_outputs, auxiliary_output_count, facts->gain_map.auxiliary_index)
         : nullptr;
@@ -653,6 +690,7 @@ lpb_result extract_source_internal(
     for (size_t i = 0; i < auxiliary_output_count; ++i) {
         auxiliary_output_paths.push_back(auxiliary_outputs[i].output_path);
     }
+    for(size_t i=0;i<carrier_output_count;++i)auxiliary_output_paths.push_back(carrier_outputs[i].output_path);
 
     // Path alias verification across all sources and destinations
     const char* outputs[] = { output_image_path, output_video_path, output_gainmap_path, cleanup_source_path };
@@ -877,9 +915,31 @@ lpb_result extract_source_internal(
         }
     }
 
+    // This source's private record directory can span the end of the movie.
+    // A length difference is not removal authority for ordinary camera data.
+    // Until a separately authorized carrier output is bound, reject before
+    // creating any transaction task (including for old extraction entrypoints).
+    if ((facts->protocol == LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO &&
+        facts->protocol_tail_range.length != 0 && !required_carriers) ||
+        required_carriers!=carrier_output_count) {
+        set_error(context, "[UnsupportedLayout] Ordinary source trailer has no authorized preservation handoff; extraction would discard unclassified camera metadata.");
+        return LPB_RESULT_UNSUPPORTED;
+    }
+
     // Plan tasks
     std::vector<slice_task> tasks;
-    tasks.reserve(4 + facts->auxiliary_count);
+    tasks.reserve(4 + facts->auxiliary_count + carrier_output_count);
+
+    // Ordinary carriers are actual transaction-owned outputs, not descriptive
+    // permission to append later. They use the same retained source handle.
+    for(size_t i=0;i<carrier_output_count;++i) {
+        const auto& d=carrier_outputs[i];const auto& c=facts->preservation_carriers[d.carrier_index];
+        slice_task t{};t.src_handle=primary_guard.h;t.src_path=primary_path;
+        t.offset=c.file_range.offset;t.length=c.file_range.length;t.dst_path=d.output_path;
+        t.target_artifact=16+static_cast<int32_t>(d.carrier_index);
+        t.artifact_role=LPB_ARTIFACT_METADATA_CARRIER;t.auxiliary_index=d.carrier_index;t.artifact_name="OrdinaryMetadata";
+        tasks.push_back(t);
+    }
 
     // 1. Primary Image
     if (output_image_path && output_image_path[0] != '\0') {
@@ -1375,7 +1435,9 @@ lpb_result extract_source_with_plan(
     const char* output_gainmap_path,
     const char* cleanup_source_path,
     const lpb_extraction_output* auxiliary_outputs,
-    size_t auxiliary_output_count) noexcept
+    size_t auxiliary_output_count,
+    const lpb_carrier_extraction_output_v1* carrier_outputs,
+    size_t carrier_output_count) noexcept
 {
 
     if (context == nullptr)
@@ -1464,7 +1526,8 @@ lpb_result extract_source_with_plan(
             auxiliary_outputs,
             auxiliary_output_count,
             cleanup_source_path,
-            &published_artifacts);
+            &published_artifacts,
+            carrier_outputs,carrier_output_count);
         if (extraction_result != LPB_RESULT_OK)
         {
             return extraction_result;
@@ -1493,7 +1556,8 @@ lpb_result extract_source_with_plan(
                 lpb_published_artifact_record receipt = artifact;
                 receipt.rollback_handle = nullptr;
                 receipt.output_receipt_owner_token = owner_token;
-                if (receipt.artifact_role != LPB_ARTIFACT_AUXILIARY_ITEM)
+                if (receipt.artifact_role != LPB_ARTIFACT_AUXILIARY_ITEM &&
+                    receipt.artifact_role != LPB_ARTIFACT_METADATA_CARRIER)
                 {
                     receipt.auxiliary_index = UINT32_MAX;
                 }

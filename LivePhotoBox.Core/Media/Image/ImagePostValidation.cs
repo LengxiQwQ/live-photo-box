@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Collections.Generic;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,13 +19,21 @@ internal sealed record ImagePostValidation(
     ConversionComponentOutcome Metadata,
     ConversionComponentOutcome Orientation,
     ConversionComponentOutcome ColorIcc,
-    PreservationOutcome PreservationOutcome);
+    PreservationOutcome PreservationOutcome)
+{
+    internal string DifferenceDetails { get; init; } = string.Empty;
+}
 
 internal sealed record ImageHdrGainMapPostValidation(
     ImagePostValidation Preservation,
     string OutputSha256,
     string GainMapSha256,
-    SourceMediaFacts OutputFacts);
+    SourceMediaFacts OutputFacts)
+{
+    internal ImageMetadataMappingEvidence? MetadataMapping { get; init; }
+    internal ImageHdrConversionEvidence? HdrConversionEvidence { get; init; }
+    internal WindowsFileIdentity? CreatingOutputIdentity { get; init; }
+}
 
 internal static class ImagePostValidator
 {
@@ -165,11 +174,39 @@ internal static class ImagePostValidator
         PreservationObservation beforePreservation = await NativeMediaService
             .CapturePreservationObservationAsync(sourcePath, SourceProtocol.Unknown,
                 sourceContainer, cancellationToken).ConfigureAwait(false);
-        ImagePostValidation preservation = ComparePreservationObservations(beforePreservation, afterPreservation)
+        if(sourceContainer==ImageContainer.Jpeg&&targetContainer==ImageContainer.Heic)
+        {
+            var completeProof=transaction.GetCompleteHdrImageProof();
+            string sourceSha=await ComputeSha256Async(sourcePath,cancellationToken).ConfigureAwait(false);
+            using var staged=new FileStream(outputPath,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
+            var actualIdentity=WindowsFileIdentity.Capture(staged.SafeFileHandle);
+            var actual=new NativeMediaService.NativeRegisteredOutputEvidence(actualIdentity,staged.Length,outputSha);
+            var complete=NativeHdrImageProofValidator.Validate(completeProof,sourceSha,(ulong)new FileInfo(sourcePath).Length,
+                checked((uint)beforePreservation.Orientation),actual);
+            if(complete.OutputWidth!=nativeResult.PrimaryWidth||complete.OutputHeight!=nativeResult.PrimaryHeight||
+                outputFacts.PrimaryImage.Width!=complete.OutputWidth||outputFacts.PrimaryImage.Height!=complete.OutputHeight)
+                throw new InvalidDataException("Complete HDR image proof disagrees with the actual staged image geometry.");
+            return new ImageHdrGainMapPostValidation(new ImagePostValidation(ConversionComponentOutcome.Preserved,
+                ConversionComponentOutcome.Preserved,complete.HasIcc?ConversionComponentOutcome.Preserved:ConversionComponentOutcome.NotApplicable,
+                PreservationOutcome.PartiallyPreserved),outputSha,mapSha,outputFacts)
+                {HdrConversionEvidence=complete,CreatingOutputIdentity=actualIdentity};
+        }
+        bool mappedOrdinaryXmp=false;
+        var mappingProof=transaction.GetOrdinaryXmpProof();
+        if(mappingProof is { } proof)
+        {
+            string currentSourceHash=await ComputeSha256Async(sourcePath,cancellationToken).ConfigureAwait(false);
+            if(!string.Equals(proof.SourceSha256,currentSourceHash,StringComparison.OrdinalIgnoreCase)||
+                !string.Equals(proof.OutputSha256,outputSha,StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("HDR ordinary XMP proof does not bind the actual source and exact owned stage.");
+            mappedOrdinaryXmp=true;
+        }
+        ImagePostValidation preservation = ComparePreservationObservations(beforePreservation, afterPreservation,mappedOrdinaryXmp)
             with { PreservationOutcome = PreservationOutcome.PartiallyPreserved };
         if (preservation.ColorIcc is not (ConversionComponentOutcome.Preserved or ConversionComponentOutcome.NotApplicable))
             throw new InvalidDataException($"Converted {targetContainer} did not preserve the source ICC profile with traceable before/after evidence.");
-        return new ImageHdrGainMapPostValidation(preservation, outputSha, mapSha, outputFacts);
+        return new ImageHdrGainMapPostValidation(preservation, outputSha, mapSha, outputFacts)
+            { MetadataMapping = mappingProof is { } mapped ? new(mapped.SourceSha256,mapped.OutputSha256) { MappingKind = mapped.Kind } : null };
     }
 
     private static Task<ImagePostValidation> VerifyPreservationAsync(
@@ -198,9 +235,9 @@ internal static class ImagePostValidator
 
     private static ImagePostValidation ComparePreservationObservations(
         PreservationObservation before,
-        PreservationObservation after)
+        PreservationObservation after,bool mappedOrdinaryXmp=false)
     {
-        ConversionComponentOutcome metadata = MetadataOutcome(before, after);
+        ConversionComponentOutcome metadata = MetadataOutcome(before, after,mappedOrdinaryXmp);
         ConversionComponentOutcome orientation = OrientationOutcome(before, after);
         ConversionComponentOutcome icc = IccOutcome(before, after);
         PreservationOutcome aggregate = metadata is ConversionComponentOutcome.NotEvaluated or ConversionComponentOutcome.Degraded or ConversionComponentOutcome.Lost ||
@@ -209,10 +246,24 @@ internal static class ImagePostValidator
             ? PreservationOutcome.PartiallyPreserved
             : PreservationOutcome.Preserved;
 
-        return new ImagePostValidation(metadata, orientation, icc, aggregate);
+        var differences = new List<string>();
+        if (before.HasExif != after.HasExif) differences.Add("ExifPresence");
+        if (before.HasXmp != after.HasXmp) differences.Add("XmpPresence");
+        if (before.HasExtendedXmp != after.HasExtendedXmp) differences.Add("ExtendedXmpPresence");
+        if (before.HasMakerNote != after.HasMakerNote) differences.Add("MakerNotePresence");
+        if (before.HasGps != after.HasGps) differences.Add("GpsPresence");
+        if (before.ExifIfd0NonPtrSha256 != after.ExifIfd0NonPtrSha256) differences.Add("ExifIfd0");
+        if (before.ExifExifIfdSha256 != after.ExifExifIfdSha256) differences.Add("ExifIfd");
+        if (before.DateTimeOriginal != after.DateTimeOriginal) differences.Add("DateTimeOriginal");
+        if (before.GpsSha256 != after.GpsSha256) differences.Add("Gps");
+        if (before.MakernoteNonliveSha256 != after.MakernoteNonliveSha256) differences.Add("MakerNote");
+        if (before.XmpNonprotocolSha256 != after.XmpNonprotocolSha256) differences.Add("OrdinaryXmp");
+        if (before.ExtendedXmpSha256 != after.ExtendedXmpSha256) differences.Add("ExtendedXmp");
+        return new ImagePostValidation(metadata, orientation, icc, aggregate)
+            { DifferenceDetails = string.Join(",",differences) };
     }
 
-    private static ConversionComponentOutcome MetadataOutcome(PreservationObservation before, PreservationObservation after)
+    private static ConversionComponentOutcome MetadataOutcome(PreservationObservation before, PreservationObservation after,bool mappedOrdinaryXmp=false)
     {
         bool present = before.HasExif || before.HasXmp || before.HasExtendedXmp || before.HasMakerNote || before.HasGps ||
                        !string.IsNullOrEmpty(before.DateTimeOriginal);
@@ -222,7 +273,7 @@ internal static class ImagePostValidator
             return ConversionComponentOutcome.NotEvaluated;
 
         bool equivalent = before.HasExif == after.HasExif &&
-                          before.HasXmp == after.HasXmp &&
+                          (mappedOrdinaryXmp || before.HasXmp == after.HasXmp) &&
                           before.HasExtendedXmp == after.HasExtendedXmp &&
                           before.HasMakerNote == after.HasMakerNote &&
                           before.HasGps == after.HasGps &&
@@ -231,7 +282,7 @@ internal static class ImagePostValidator
                           string.Equals(before.DateTimeOriginal, after.DateTimeOriginal, StringComparison.Ordinal) &&
                           string.Equals(before.GpsSha256, after.GpsSha256, StringComparison.Ordinal) &&
                           string.Equals(before.MakernoteNonliveSha256, after.MakernoteNonliveSha256, StringComparison.Ordinal) &&
-                          string.Equals(before.XmpNonprotocolSha256, after.XmpNonprotocolSha256, StringComparison.Ordinal) &&
+                          (mappedOrdinaryXmp || string.Equals(before.XmpNonprotocolSha256, after.XmpNonprotocolSha256, StringComparison.Ordinal)) &&
                           string.Equals(before.ExtendedXmpSha256, after.ExtendedXmpSha256, StringComparison.Ordinal);
         if (equivalent) return ConversionComponentOutcome.Preserved;
 
