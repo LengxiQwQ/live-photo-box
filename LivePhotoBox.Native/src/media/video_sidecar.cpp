@@ -56,47 +56,52 @@ void rotate_plane_cw(const T* src, int src_stride, int src_w, int src_h,
 {
     if (rot_cw == 90) {
         for (int y = 0; y < src_h; ++y) {
-            const T* src_row = src + y * src_stride;
+            const T* src_row = src + static_cast<ptrdiff_t>(y) * src_stride;
             for (int x = 0; x < src_w; ++x) {
-                dst[x * dst_stride + (src_h - 1 - y)] = src_row[x];
+                dst[static_cast<ptrdiff_t>(x) * dst_stride + (src_h - 1 - y)] = src_row[x];
             }
         }
     } else if (rot_cw == 180) {
         for (int y = 0; y < src_h; ++y) {
-            const T* src_row = src + y * src_stride;
-            T* dst_row = dst + (src_h - 1 - y) * dst_stride;
+            const T* src_row = src + static_cast<ptrdiff_t>(y) * src_stride;
+            T* dst_row = dst + static_cast<ptrdiff_t>(src_h - 1 - y) * dst_stride;
             for (int x = 0; x < src_w; ++x) {
                 dst_row[src_w - 1 - x] = src_row[x];
             }
         }
     } else if (rot_cw == 270) {
         for (int y = 0; y < src_h; ++y) {
-            const T* src_row = src + y * src_stride;
+            const T* src_row = src + static_cast<ptrdiff_t>(y) * src_stride;
             for (int x = 0; x < src_w; ++x) {
-                dst[(src_w - 1 - x) * dst_stride + y] = src_row[x];
+                dst[static_cast<ptrdiff_t>(src_w - 1 - x) * dst_stride + y] = src_row[x];
             }
         }
     }
 }
 
-void rotate_frame(const AVFrame* src, AVFrame* dst, int rot_cw, unsigned int pixel_depth)
+bool rotate_frame(const AVFrame* src, AVFrame* dst, int rot_cw, unsigned int depth)
 {
-    const int num_planes = (src->format == AV_PIX_FMT_YUV420P || src->format == AV_PIX_FMT_YUV420P10LE) ? 3 : 1;
-    for (int p = 0; p < num_planes; ++p) {
-        const int w = (p == 0) ? src->width : (src->width / 2);
-        const int h = (p == 0) ? src->height : (src->height / 2);
-        if (pixel_depth > 8U) {
-            const int src_stride = src->linesize[p] / static_cast<int>(sizeof(uint16_t));
-            const int dst_stride = dst->linesize[p] / static_cast<int>(sizeof(uint16_t));
-            rotate_plane_cw(reinterpret_cast<const uint16_t*>(src->data[p]), src_stride, w, h,
-                            reinterpret_cast<uint16_t*>(dst->data[p]), dst_stride, rot_cw);
-        } else {
-            const int src_stride = src->linesize[p];
-            const int dst_stride = dst->linesize[p];
-            rotate_plane_cw(src->data[p], src_stride, w, h,
-                            dst->data[p], dst_stride, rot_cw);
-        }
+    const auto* descriptor = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(src->format));
+    if (!descriptor || !(descriptor->flags & AV_PIX_FMT_FLAG_PLANAR) ||
+        (descriptor->flags & (AV_PIX_FMT_FLAG_RGB | AV_PIX_FMT_FLAG_PAL | AV_PIX_FMT_FLAG_HWACCEL)) ||
+        descriptor->nb_components != 3 || src->format != dst->format ||
+        (rot_cw != 90 && rot_cw != 180 && rot_cw != 270)) return false;
+    for (int p = 0; p < 3; ++p) {
+        if (descriptor->comp[p].plane != p || !src->data[p] || !dst->data[p]) return false;
+        const int w = p == 0 ? src->width : AV_CEIL_RSHIFT(src->width, descriptor->log2_chroma_w);
+        const int h = p == 0 ? src->height : AV_CEIL_RSHIFT(src->height, descriptor->log2_chroma_h);
+        const int dw = p == 0 ? dst->width : AV_CEIL_RSHIFT(dst->width, descriptor->log2_chroma_w);
+        const int dh = p == 0 ? dst->height : AV_CEIL_RSHIFT(dst->height, descriptor->log2_chroma_h);
+        if (dw != (rot_cw == 180 ? w : h) || dh != (rot_cw == 180 ? h : w)) return false;
+        const int unit = depth > 8U ? 2 : 1;
+        if (descriptor->comp[p].step != unit || src->linesize[p] % unit || dst->linesize[p] % unit ||
+            std::abs(int64_t(src->linesize[p])) < int64_t(w)*unit ||
+            std::abs(int64_t(dst->linesize[p])) < int64_t(dw)*unit) return false;
+        if (unit == 2) rotate_plane_cw(reinterpret_cast<const uint16_t*>(src->data[p]),src->linesize[p]/2,w,h,
+            reinterpret_cast<uint16_t*>(dst->data[p]),dst->linesize[p]/2,rot_cw);
+        else rotate_plane_cw(src->data[p],src->linesize[p],w,h,dst->data[p],dst->linesize[p],rot_cw);
     }
+    return true;
 }
 
 bool frame_hdr_matches_container(const AVFrame* frame, const AVCodecParameters* source,
@@ -801,6 +806,7 @@ int transcode_impl(
     OutputFormat output(output_raw, free_output);
     output->pb = output_io.get();
     output->flags |= AVFMT_FLAG_CUSTOM_IO;
+    output->avoid_negative_ts = AVFMT_AVOID_NEG_TS_DISABLED;
     if (!compatible_profile)
     {
         operation_result = av_dict_copy(&output->metadata, input->metadata, 0);
@@ -847,6 +853,17 @@ int transcode_impl(
         output_video->avg_frame_rate = input_video->avg_frame_rate;
         output_video->sample_aspect_ratio = input_video->codecpar->sample_aspect_ratio;
         output_video->codecpar->codec_tag = 0;
+        if (native_profile)
+        {
+            if (output_video->codecpar->color_range == AVCOL_RANGE_UNSPECIFIED && request->source_color_range != 0)
+                output_video->codecpar->color_range = static_cast<AVColorRange>(request->source_color_range);
+            if (output_video->codecpar->color_primaries == AVCOL_PRI_UNSPECIFIED && request->source_color_primaries != 0)
+                output_video->codecpar->color_primaries = static_cast<AVColorPrimaries>(request->source_color_primaries);
+            if (output_video->codecpar->color_trc == AVCOL_TRC_UNSPECIFIED && request->source_color_transfer != 0)
+                output_video->codecpar->color_trc = static_cast<AVColorTransferCharacteristic>(request->source_color_transfer);
+            if (output_video->codecpar->color_space == AVCOL_SPC_UNSPECIFIED && request->source_color_matrix != 0)
+                output_video->codecpar->color_space = static_cast<AVColorSpace>(request->source_color_matrix);
+        }
     }
     else
     {
@@ -865,6 +882,8 @@ int transcode_impl(
         encoder_context->time_base = input_video->time_base;
         encoder_context->framerate = av_guess_frame_rate(input.get(), input_video, nullptr);
         encoder_context->sample_aspect_ratio = input_video->codecpar->sample_aspect_ratio;
+        if ((rot_cw == 90 || rot_cw == 270) && encoder_context->sample_aspect_ratio.num > 0 && encoder_context->sample_aspect_ratio.den > 0)
+            encoder_context->sample_aspect_ratio = av_inv_q(encoder_context->sample_aspect_ratio);
         encoder_context->gop_size = 60;
         encoder_context->max_b_frames = 0;
         encoder_context->color_range = input_video->codecpar->color_range;
@@ -934,6 +953,8 @@ int transcode_impl(
         output_video->time_base = encoder_context->time_base;
         output_video->avg_frame_rate = input_video->avg_frame_rate;
         output_video->sample_aspect_ratio = input_video->sample_aspect_ratio;
+        if ((rot_cw == 90 || rot_cw == 270) && output_video->sample_aspect_ratio.num > 0 && output_video->sample_aspect_ratio.den > 0)
+            output_video->sample_aspect_ratio = av_inv_q(output_video->sample_aspect_ratio);
         output_video->codecpar->codec_tag = 0;
     }
     if (!compatible_profile)
@@ -974,6 +995,14 @@ int transcode_impl(
     uint32_t dropped_aux_video = 0U;
     uint32_t dropped_mebx = 0U;
     uint32_t dropped_other = 0U;
+    int primary_audio_index = -1;
+    for(unsigned int i=0;i<input->nb_streams;++i) {
+        const auto* stream=input->streams[i];
+        if(stream && stream->codecpar && stream->codecpar->codec_type==AVMEDIA_TYPE_AUDIO &&
+            stream->codecpar->ch_layout.nb_channels>0 && stream->codecpar->codec_id!=AV_CODEC_ID_NONE) {
+            primary_audio_index=static_cast<int>(i);break;
+        }
+    }
     for (unsigned int index = 0; index < input->nb_streams; ++index)
     {
         if (static_cast<int>(index) == video_index)
@@ -1008,7 +1037,7 @@ int transcode_impl(
                 stream_map[index] = -2;
                 continue;
             }
-            if (mapped_audio)
+            if (static_cast<int>(index) != primary_audio_index)
             {
                 ++dropped_other;
                 stream_map[index] = -2;
@@ -1017,6 +1046,12 @@ int transcode_impl(
             if (request->target_container == LPB_VIDEO_SIDECAR_CONTAINER_MP4 &&
                 input_stream->codecpar->codec_id != AV_CODEC_ID_AAC)
             {
+                stream_map[index] = -2;
+                continue;
+            }
+            if (mapped_audio)
+            {
+                ++dropped_other;
                 stream_map[index] = -2;
                 continue;
             }
@@ -1034,6 +1069,10 @@ int transcode_impl(
             {
                 return LPB_VIDEO_SIDECAR_UNSUPPORTED;
             }
+            if (static_cast<int>(index) != primary_audio_index)
+            {
+                return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+            }
         }
         AVStream* output_stream = avformat_new_stream(output.get(), nullptr);
         if (output_stream == nullptr)
@@ -1048,7 +1087,7 @@ int transcode_impl(
         }
         output_stream->codecpar->codec_tag = 0;
         output_stream->time_base = input_stream->time_base;
-        if (!compatible_profile)
+        output_stream->disposition = input_stream->disposition;
         {
             operation_result = av_dict_copy(&output_stream->metadata, input_stream->metadata, 0);
             if (operation_result < 0)
@@ -1110,6 +1149,7 @@ int transcode_impl(
         converted->format = encoder_context->pix_fmt;
         converted->width = encoder_context->width;
         converted->height = encoder_context->height;
+        converted->sample_aspect_ratio = encoder_context->sample_aspect_ratio;
         converted->color_range = encoder_context->color_range;
         converted->color_primaries = encoder_context->color_primaries;
         converted->color_trc = encoder_context->color_trc;
@@ -1146,10 +1186,10 @@ int transcode_impl(
         result_info->output_width = static_cast<uint32_t>(input_video->codecpar->width);
         result_info->output_height = static_cast<uint32_t>(input_video->codecpar->height);
         result_info->output_pixel_depth = source_depth;
-        result_info->color_range = input_video->codecpar->color_range;
-        result_info->color_primaries = input_video->codecpar->color_primaries;
-        result_info->color_transfer = input_video->codecpar->color_trc;
-        result_info->color_matrix = input_video->codecpar->color_space;
+        result_info->color_range = output_video->codecpar->color_range;
+        result_info->color_primaries = output_video->codecpar->color_primaries;
+        result_info->color_transfer = output_video->codecpar->color_trc;
+        result_info->color_matrix = output_video->codecpar->color_space;
         result_info->time_base_numerator = input_video->time_base.num;
         result_info->time_base_denominator = input_video->time_base.den;
     }
@@ -1178,7 +1218,11 @@ int transcode_impl(
     copy_fixed_string(result_info->encoder_name, selected_encoder_name);
     copy_fixed_string(result_info->library_version, LPB_VIDEO_SIDECAR_BUILD_VERSION);
 
-    operation_result = avformat_write_header(output.get(), nullptr);
+    AVDictionary* muxer_opts = nullptr;
+    (void)av_dict_set(&muxer_opts, "movflags", "write_colr", 0);
+    (void)av_dict_set(&muxer_opts, "avoid_negative_ts", "disabled", 0);
+    operation_result = avformat_write_header(output.get(), &muxer_opts);
+    av_dict_free(&muxer_opts);
     if (operation_result < 0)
     {
         result_info->library_error = operation_result;
@@ -1346,7 +1390,7 @@ int transcode_impl(
                 }
                 if (rot_cw != 0)
                 {
-                    rotate_frame(pre_rotated.get(), converted.get(), rot_cw, source_depth);
+                    if (!rotate_frame(pre_rotated.get(), converted.get(), rot_cw, source_depth)) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
                 }
                 const int64_t frame_timestamp = decoded->pts != AV_NOPTS_VALUE ? decoded->pts : decoded->best_effort_timestamp;
                 converted->pts = frame_timestamp == AV_NOPTS_VALUE
@@ -1456,7 +1500,7 @@ int transcode_impl(
             }
             if (rot_cw != 0)
             {
-                rotate_frame(pre_rotated.get(), converted.get(), rot_cw, source_depth);
+                if (!rotate_frame(pre_rotated.get(), converted.get(), rot_cw, source_depth)) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
             }
             const int64_t frame_timestamp = decoded->pts != AV_NOPTS_VALUE ? decoded->pts : decoded->best_effort_timestamp;
             converted->pts = frame_timestamp == AV_NOPTS_VALUE

@@ -176,5 +176,11 @@ namespace LivePhotoBox.Interop
             nint context,
             byte* data,
             nuint dataSize);
+        [LibraryImport(LibraryName, EntryPoint = "lpb_inspect_video_inventory_v1", StringMarshalling = StringMarshalling.Utf8)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+        internal static unsafe partial NativeResult InspectVideoInventory(nint context, string path,
+            byte* buffer, nuint capacity, out nuint required);
+
     }
 }

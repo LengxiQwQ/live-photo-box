@@ -1737,6 +1737,11 @@ typedef struct lpb_compound_primary_observation_v1 {
 } lpb_compound_primary_observation_v1;
 LPB_API lpb_result LPB_CALL lpb_compound_primary_from_cleanup_v1(lpb_context*,lpb_cleanup_plan*,
     uint64_t generation,const char* stage_path,uint64_t* proof_token);
+// Additive v1 entry: materialize the proof-bound opaque suffix into a closed
+// self-relative ordinary-record wrapper. The registered output evidence binds
+// its exact file identity/length/hash; no old ABI structure layout changes.
+LPB_API lpb_result LPB_CALL lpb_compound_primary_materialize_records_v1(lpb_context*,uint64_t proof_token,
+    const char* source_path,const char* output_path);
 LPB_API lpb_result LPB_CALL lpb_compound_primary_inspect_v1(lpb_context*,uint64_t proof_token,
     const char* path,lpb_source_media_facts*,lpb_compound_primary_observation_v1*);
 LPB_API lpb_result LPB_CALL lpb_compound_primary_release_v1(uint64_t proof_token);
@@ -2136,6 +2141,11 @@ LPB_API lpb_result LPB_CALL lpb_verify_preservation(
     size_t max_verdicts,
     size_t* out_count,
     uint8_t* out_overall_passed);
+
+/* Read-only UTF-8 JSON evidence. Query required byte count with NULL/0,
+ * then copy into caller-owned memory. No terminator is included. */
+LPB_API lpb_result LPB_CALL lpb_inspect_video_inventory_v1(lpb_context* context,
+    const char* path, uint8_t* buffer, size_t capacity, size_t* required);
 
 #ifdef __cplusplus
 }

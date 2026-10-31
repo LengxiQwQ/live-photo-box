@@ -121,7 +121,7 @@ lpb_result LPB_CALL lpb_target_validate_v1(lpb_context* context,const lpb_target
   const auto& primary=xmp.items[0];const auto& video=xmp.items[1];
   if(primary.semantic!="Primary"||primary.mime!="image/jpeg"||(primary.has_length&&primary.length)||
    video.semantic!="MotionPhoto"||video.mime!=(request->media_format==0?"video/mp4":"video/quicktime")||
-   !video.has_length||!video.length||(video.has_padding&&video.padding))return reject(2,4,7);
+   !video.has_length||!video.length||video.has_padding)return reject(2,4,7);
   if(video.length>full.length||jpeg.eoi_end>full.length-video.length||
    primary.padding!=full.length-video.length-jpeg.eoi_end)return reject(2,4,8);
   video_length=video.length;

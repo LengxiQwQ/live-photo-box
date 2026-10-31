@@ -1,3 +1,4 @@
+#include "containers/isobmff_mebx_transplant.h"
 #include "media/media_inspector.h"
 #include "media/compound_primary.h"
 #include "media/jpeg_gainmap_mpf.h"
@@ -1960,3 +1961,43 @@ LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
 
 }
 
+
+// Additive read-only v1 evidence endpoint; existing conversion ABI is unchanged.
+LPB_API lpb_result LPB_CALL lpb_inspect_video_inventory_v1(lpb_context* context,
+    const char* path, uint8_t* buffer, size_t capacity, size_t* required) {
+    if (!context || !path || !required || (!buffer && capacity)) return LPB_RESULT_INVALID_ARGUMENT;
+    *required=0;
+    if(lpb_writer_callback_active(context))return LPB_RESULT_AUTHORITY_VIOLATION;
+    lpb_context_operation operation(context);if(!operation.acquired())return LPB_RESULT_AUTHORITY_VIOLATION;
+    try {
+        if(lpb_context_check_cancelled(context)!=LPB_RESULT_OK)return LPB_RESULT_CANCELLED;
+        windows_readonly_source source;
+        if(!source.open(utf8_to_path(path)))return LPB_RESULT_INVALID_ARGUMENT;
+        std::string json;
+        auto reader=source.reader();
+        std::array<uint8_t,32> header{};
+        const size_t prefix=static_cast<size_t>(std::min<uint64_t>(header.size(),reader.length));
+        if(!reader.read_exact(0,std::span<uint8_t>(header).first(prefix)))return LPB_RESULT_INVALID_ARGUMENT;
+        struct range_reader { lpb::random_access_reader file; uint64_t offset;lpb_context* context;
+            static bool read(void* user,uint64_t at,std::span<uint8_t> bytes) noexcept {
+                auto& r=*static_cast<range_reader*>(user);
+                return lpb_context_check_cancelled(r.context)==LPB_RESULT_OK&&at<=UINT64_MAX-r.offset&&r.file.read_exact(r.offset+at,bytes);
+            }
+        } range{reader,0,context};
+        reader={reader.length,&range,range_reader::read};
+        if(detect_image_container(std::span<const uint8_t>(header).first(prefix))!=LPB_IMAGE_CONTAINER_UNKNOWN) {
+            lpb_source_media_facts facts{};facts.struct_size=sizeof(facts);
+            const auto status=inspect_source(context,path,nullptr,&facts);
+            if(status!=LPB_RESULT_OK || !facts.motion_video.is_present || facts.motion_video.source_index!=0 ||
+                facts.motion_video.file_range.offset>reader.length ||
+                facts.motion_video.file_range.length>reader.length-facts.motion_video.file_range.offset)return LPB_RESULT_UNSUPPORTED;
+            range.offset=facts.motion_video.file_range.offset;
+            reader={facts.motion_video.file_range.length,&range,range_reader::read};
+        }
+        if(!inspect_isobmff_asset_inventory(reader,json))return lpb_context_check_cancelled(context)==LPB_RESULT_CANCELLED?LPB_RESULT_CANCELLED:LPB_RESULT_UNSUPPORTED;
+        *required=json.size();
+        if(capacity<json.size())return LPB_RESULT_BUFFER_TOO_SMALL;
+        if(!json.empty())std::memcpy(buffer,json.data(),json.size());
+        return LPB_RESULT_OK;
+    }catch(...){return LPB_RESULT_INTERNAL_ERROR;}
+}

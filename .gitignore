@@ -433,3 +433,4 @@ docs/实况照片协议分析文档
 
 # Test evidence belongs in ignored .ai-tmp/evidence; also guard the retired path.
 /docs/测试证据/
+.zed/

@@ -731,9 +731,11 @@ public sealed class ImageConverter : IImageConverter
 
             ImageHdrGainMapPostValidation post = heicToJpeg
                 ? await ImagePostValidator.VerifyHeicToJpegUltraHdrAsync(
-                    request.SourceArtifact.Path, transaction, transaction.Result, cancellationToken).ConfigureAwait(false)
+                    request.SourceArtifact.Path, transaction, transaction.Result, cancellationToken,
+                    request.PreservationPolicy == PreservationPolicy.BestEffort).ConfigureAwait(false)
                 : await ImagePostValidator.VerifyJpegToHeicGainMapAsync(
-                    request.SourceArtifact.Path, transaction, transaction.Result, cancellationToken).ConfigureAwait(false);
+                    request.SourceArtifact.Path, transaction, transaction.Result, cancellationToken,
+                    request.PreservationPolicy == PreservationPolicy.BestEffort).ConfigureAwait(false);
             // Rebind the source after post-validation and before commit so a
             // changed source cannot be reported as the input of this result.
             await VerifyHdrGainMapBindingAsync(request, binding, cancellationToken).ConfigureAwait(false);

@@ -6242,6 +6242,73 @@ bool rewrite_target_vivo_primary_shape(std::string_view xml,std::string& output,
         failure=xmp_observation_failure::none;return true;
     }catch(...){return false;}
 }
+bool normalize_bound_primary_subject(std::string_view xml,std::string& output,xmp_observation_failure& failure) noexcept {
+    output.clear();failure=xmp_observation_failure::malformed;
+    try {
+        std::vector<xmp_node> nodes;if(!scan_xmp_tree(xml,nodes,true))return false;
+        const xmp_node* subject=nullptr;
+        for(const auto& node:nodes)if(node_is(node,rdf_namespace,"Description")&&node.parent_index!=k_no_parent&&node_is(nodes[node.parent_index],rdf_namespace,"RDF")) {
+            if(subject)return false;subject=&node;
+        }
+        if(!subject)return false;
+        std::string_view about;
+        const auto status=get_node_property_value_checked(nodes,*subject,rdf_namespace,"about",about);
+        if(status==node_property_result::malformed|| (status==node_property_result::present&&!about.empty()))return false;
+        output=xml;
+        if(status==node_property_result::absent) {
+            if(!subject->content_start||subject->content_start>xml.size())return false;
+            std::string prefix="lpbSubject";
+            for(unsigned n=0;;++n){bool collision=false;for(const auto& a:subject->attributes)
+                if(a.name=="xmlns:"+prefix||a.name.starts_with(prefix+":")){collision=true;break;}
+                if(!collision)break;prefix="lpbSubject"+std::to_string(n);
+            }
+            size_t at=subject->content_start-1U;if(at&&xml[at-1U]=='/')--at;
+            output.insert(at," xmlns:"+prefix+"=\""+std::string(rdf_namespace)+"\" "+prefix+":about=\"\"");
+        }
+        target_xmp_observation checked;if(!observe_target_xmp(output,checked,failure))return false;
+        failure=xmp_observation_failure::none;return true;
+    }catch(...){output.clear();return false;}
+}
+
+bool normalize_secondary_item_padding(std::string_view xml,std::string& output,xmp_observation_failure& failure) noexcept {
+    output.clear();failure=xmp_observation_failure::malformed;
+    try {
+        target_xmp_observation observed;
+        if(!observe_target_xmp(xml,observed,failure)||!observed.directory_present||observed.items.empty())return false;
+        std::vector<xmp_node> nodes;container_directory_info directory;
+        if(!scan_xmp_tree(xml,nodes,true)||!find_container_directory(nodes,directory)||directory.items.size()!=observed.items.size())return false;
+        std::vector<std::pair<size_t,size_t>> spans;
+        const auto collect=[&](const xmp_node& node){
+            for(const auto& a:node.attributes)if(a.resolved_uri==google_item_namespace&&local_name(a.name)=="Padding") {
+                const size_t begin=size_t(a.name.data()-xml.data()),end=size_t(a.value.data()-xml.data())+a.value.size()+1U;
+                if(begin>=end||end>xml.size())return false;
+                spans.emplace_back(begin,end);
+            }
+            for(const auto i:node.children)if(node_is(nodes[i],google_item_namespace,"Padding")) {
+                const auto& child=nodes[i];if(child.close_start==std::string::npos)return false;
+                const size_t end=xml.find('>',child.close_start);if(end==xml.npos)return false;
+                spans.emplace_back(child.tag_start,end+1U);
+            }
+            return true;
+        };
+        for(size_t i=1;i<directory.items.size();++i) {
+            if(observed.items[i].padding!=0U)return false;
+            const auto& node=nodes[directory.items[i].node_index];
+            if(!collect(node))return false;
+            if(node.parent_index!=k_no_parent&&node_is(nodes[node.parent_index],rdf_namespace,"li")&&!collect(nodes[node.parent_index]))return false;
+        }
+        std::sort(spans.begin(),spans.end());
+        for(size_t i=1;i<spans.size();++i)if(spans[i-1].second>spans[i].first)return false;
+        output=xml;for(auto i=spans.rbegin();i!=spans.rend();++i)output.erase(i->first,i->second-i->first);
+        target_xmp_observation after;
+        if(!observe_target_xmp(output,after,failure)||after.items.size()!=observed.items.size())return false;
+        for(size_t i=1;i<after.items.size();++i)
+            if(after.items[i].has_padding||after.items[i].semantic!=observed.items[i].semantic||
+                after.items[i].mime!=observed.items[i].mime||after.items[i].length!=observed.items[i].length)return false;
+        failure=xmp_observation_failure::none;return true;
+    }catch(...){output.clear();return false;}
+}
+
 bool rewrite_target_primary_padding(std::string_view xml,uint64_t padding,std::string& output,xmp_observation_failure& failure,bool generated_target) noexcept {
     output.clear();failure=xmp_observation_failure::malformed;
     try {

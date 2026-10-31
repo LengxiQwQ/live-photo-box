@@ -40,6 +40,12 @@ struct target_xmp_observation {
 bool observe_target_xmp(std::string_view,target_xmp_observation&,xmp_observation_failure&) noexcept;
 // Changes only the uniquely owned Primary Padding property using parsed XML
 // ranges. All other bytes, including unknown item attributes, are retained.
+// Remove only zero-valued Padding properties on actual secondary directory
+// items. Nonzero padding is not silently discarded; unrelated XML is retained.
+// A bound primary XMP packet may have one anonymous RDF description. Add
+// the current-image subject only in that uniquely owned structural case.
+bool normalize_bound_primary_subject(std::string_view,std::string&,xmp_observation_failure&) noexcept;
+bool normalize_secondary_item_padding(std::string_view,std::string&,xmp_observation_failure&) noexcept;
 bool rewrite_target_primary_padding(std::string_view,uint64_t,std::string&,xmp_observation_failure&,bool generated_target=false) noexcept;
 bool rewrite_target_vivo_primary_shape(std::string_view,std::string&,xmp_observation_failure&) noexcept;
 bool remove_target_container_directory(std::string_view,std::string&,xmp_observation_failure&) noexcept;

@@ -254,10 +254,11 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
     return reject(2,4,118,"V2 primary/video cardinality or order mismatch");
    const auto& p=x.items.front();const auto& v=x.items.back();
    if(p.mime!=(heif?"image/heic":"image/jpeg")||(p.has_length&&p.length)||v.mime!=(expected.media_format==0||samsung?"video/mp4":"video/quicktime")||
-      !v.has_length||v.length!=(samsung?samsung_resource:video_length)||v.padding||(heif&&p.padding!=video_header))return reject(2,4,119,"Target XMP MIME/extent/padding does not match actual placement");
-   if(heif&&x.items.size()!=2) {
+      !v.has_length||v.length!=(samsung?samsung_resource:video_length)||(vivo?v.padding:v.has_padding)||(heif&&p.padding!=video_header))return reject(2,4,119,"Target XMP MIME/extent/padding does not match actual placement");
+   if(!vivo) { for(size_t i=1;i+1<x.items.size();++i) if(x.items[i].has_padding) return reject(2,4,119,"Target XMP secondary item cannot contain Padding attribute"); }
+    if(heif&&x.items.size()!=2) {
     const bool embedded_samsung=samsung&&x.items.size()==3&&x.items[1].semantic=="GainMap"&&x.items[1].mime=="image/heic"&&
-      x.items[1].has_length&&!x.items[1].length&&!x.items[1].padding&&
+      x.items[1].has_length&&!x.items[1].length&&!x.items[1].has_padding&&
       std::count_if(primary.auxiliaries.begin(),primary.auxiliaries.end(),[](const auto& a){return a.semantic=="GainMap";})==1;
     if(!embedded_samsung)return reject(2,4,119,"HEIF embedded auxiliaries belong to its item graph; external directory items would change placement");
    }

@@ -1957,8 +1957,11 @@ lpb_result convert_jpeg_gainmap_to_heic_auxiliary(lpb_context* context,
         return fail(context,"[Unsupported] JPEG HDR GainMap Exif or thumbnail cannot be physically normalized.",LPB_RESULT_UNSUPPORTED);
 
     std::string mapped_primary_xml;xmp_observation_failure xml_failure{};
+    std::string primary_xmp_normalized;
+    if(!normalize_bound_primary_subject(mapped_metadata.primary_xmp,primary_xmp_normalized,xml_failure))
+        return fail(context,"[Unsupported] Bound primary XMP subject is ambiguous or malformed.",LPB_RESULT_UNSUPPORTED);
 
-    if(!rewrite_jpeg_gainmap_primary_xmp_to_heif(mapped_metadata.primary_xmp,request.source_range.length,
+    if(!rewrite_jpeg_gainmap_primary_xmp_to_heif(primary_xmp_normalized,request.source_range.length,
 
         primary_observation.xmp.items[0].padding,primary_observation.orientation,primary_observation.width,
 

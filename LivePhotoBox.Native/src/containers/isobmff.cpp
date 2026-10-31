@@ -1534,7 +1534,25 @@ bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool requir
                     if (!orientation) return fail(isobmff_reader_failure::unsupported, moov_offset + matrix, "tag_1534");
                     const uint32_t width_fixed = read_be32u(data.data() + matrix + 36);
                     const uint32_t height_fixed = read_be32u(data.data() + matrix + 40);
-                    if (width_fixed != (width << 16) || height_fixed != (height << 16)) return fail(isobmff_reader_failure::unsupported, moov_offset + matrix + 36, "tag_1537");
+                    if (width_fixed != (width << 16) || height_fixed != (height << 16)) {
+                        // tkhd is a display size; VisualSampleEntry is coded
+                        // raster size. A bounded positive pasp may explain the
+                        // horizontal display scale without changing raster data.
+                        isobmff_box_header pasp{};size_t ps=0;
+                        if(!direct_child(data.data(),eb+78U,entry_start+entry.size,"pasp",pasp,ps)||
+                            !pasp.size||pasp.size!=pasp.header_size+8U)
+                            return fail(isobmff_reader_failure::unsupported,moov_offset+matrix+36,"tag_1537");
+                        const uint32_t horizontal=read_be32u(data.data()+ps+pasp.header_size);
+                        const uint32_t vertical=read_be32u(data.data()+ps+pasp.header_size+4U);
+                        if(!horizontal||!vertical||!width_fixed||height_fixed!=(height<<16))
+                            return fail(isobmff_reader_failure::unsupported,moov_offset+matrix+36,"tag_1537");
+                        const uint64_t exact_fixed=(uint64_t(width<<16)*horizontal)/vertical;
+                        const uint64_t integer_fixed=((uint64_t(width)*horizontal)/vertical)<<16;
+                        // Some muxers quantize the display width to whole
+                        // pixels; both forms derive from the same explicit pasp.
+                        if(uint64_t(width_fixed)!=exact_fixed&&uint64_t(width_fixed)!=integer_fixed)
+                            return fail(isobmff_reader_failure::unsupported,moov_offset+matrix+36,"tag_1537");
+                    }
                     if(video) {
                         parsed.video_width=width;parsed.video_height=height;parsed.video_orientation=orientation;parsed.video_codec=codec;
                     }else {
@@ -1571,7 +1589,7 @@ bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool requir
                             return fail(isobmff_reader_failure::malformed, moov_offset+tt, "tag_1571");
                         parsed.sample_tables.push_back(std::move(table));p+=trak.size;continue;
                     }
-                    if(type_is(data.data(),entry_start,"sowt")) {
+                    if(type_is(data.data(),entry_start,"sowt") || type_is(data.data(),entry_start,"ipcm") || type_is(data.data(),entry_start,"twos")) {
                         if (entry.size < entry.header_size + 28) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start, "tag_1575");
                         const uint16_t sound_version = read_be16u(data.data() + eb + 8);
                         if (sound_version != 0) return fail(isobmff_reader_failure::unsupported, moov_offset + entry_start, "tag_1577");

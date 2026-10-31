@@ -84,6 +84,7 @@ internal sealed record ProductOperationOutcome
     public NeutralPreparationExecution? PreparationExecution { get; init; }
     public ProductTargetPreservation FinalTargetPreservation { get; init; } = ProductTargetPreservation.Unknown;
     public IReadOnlyList<NotCarriedItem> NotCarried { get; init; } = [];
+    public MediaChangeReport? MediaChanges { get; init; }
     public ProductOperationDiagnostic Diagnostic { get; init; } = new();
     [JsonIgnore] public string? HistoryWarning { get; init; }
     [JsonIgnore] public bool IsSuccess => Status == ProductOperationStatus.Success;

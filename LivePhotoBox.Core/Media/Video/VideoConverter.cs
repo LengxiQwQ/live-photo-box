@@ -279,7 +279,7 @@ public sealed class VideoConverter : IVideoConverter
                     HardwareFallbackReason = backendDiagnostics.HardwareFallbackReason,
                     MetadataPreservation = backendAttempt.MetadataPreservation,
                     CompleteRemuxProof = completeProof,
-                    AudioPreserved = audioPreserved,
+                    AudioPreserved = audioPreserved && !backendDiagnostics.AudioTranscodedToAac,
                     RotationPreserved = rotationPreserved,
                     Truth = new ConversionExecutionTruth
                     {

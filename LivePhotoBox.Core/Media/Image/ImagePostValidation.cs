@@ -87,19 +87,19 @@ internal static class ImagePostValidator
         string sourcePath,
         NativeHdrGainMapConversionTransaction transaction,
         NativeHdrGainMapConversionResultV1 nativeResult,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken, bool allowUnspecifiedOrientation = false) =>
         await VerifyHdrGainMapAsync(sourcePath, transaction, nativeResult,
             ImageContainer.Heic, ImageContainer.Jpeg, ImageHdrGainMapTargetSemantic.JpegIsoGainMap,
-            expectedRelationship: null, cancellationToken).ConfigureAwait(false);
+            expectedRelationship: null, cancellationToken, allowUnspecifiedOrientation).ConfigureAwait(false);
 
     internal static async Task<ImageHdrGainMapPostValidation> VerifyJpegToHeicGainMapAsync(
         string sourcePath,
         NativeHdrGainMapConversionTransaction transaction,
         NativeHdrGainMapConversionResultV1 nativeResult,
-        CancellationToken cancellationToken) =>
+        CancellationToken cancellationToken, bool allowUnspecifiedOrientation = false) =>
         await VerifyHdrGainMapAsync(sourcePath, transaction, nativeResult,
             ImageContainer.Jpeg, ImageContainer.Heic, ImageHdrGainMapTargetSemantic.HeicGainMapAuxiliary,
-            "urn:com:photo:aux:hdrgainmap", cancellationToken).ConfigureAwait(false);
+            "urn:com:photo:aux:hdrgainmap", cancellationToken, allowUnspecifiedOrientation).ConfigureAwait(false);
 
     private static async Task<ImageHdrGainMapPostValidation> VerifyHdrGainMapAsync(
         string sourcePath,
@@ -109,7 +109,7 @@ internal static class ImagePostValidator
         ImageContainer targetContainer,
         ImageHdrGainMapTargetSemantic targetSemantic,
         string? expectedRelationship,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool allowUnspecifiedOrientation)
     {
         if (nativeResult.TargetSemantic != (int)targetSemantic ||
             nativeResult.ActualContainer != (int)targetContainer ||
@@ -181,8 +181,9 @@ internal static class ImagePostValidator
             using var staged=new FileStream(outputPath,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
             var actualIdentity=WindowsFileIdentity.Capture(staged.SafeFileHandle);
             var actual=new NativeMediaService.NativeRegisteredOutputEvidence(actualIdentity,staged.Length,outputSha);
+            uint expectedOrientation = beforePreservation.Orientation == 0 && allowUnspecifiedOrientation ? 1 : checked((uint)beforePreservation.Orientation);
             var complete=NativeHdrImageProofValidator.Validate(completeProof,sourceSha,(ulong)new FileInfo(sourcePath).Length,
-                checked((uint)beforePreservation.Orientation),actual);
+                expectedOrientation,actual);
             if(complete.OutputWidth!=nativeResult.PrimaryWidth||complete.OutputHeight!=nativeResult.PrimaryHeight||
                 outputFacts.PrimaryImage.Width!=complete.OutputWidth||outputFacts.PrimaryImage.Height!=complete.OutputHeight)
                 throw new InvalidDataException("Complete HDR image proof disagrees with the actual staged image geometry.");

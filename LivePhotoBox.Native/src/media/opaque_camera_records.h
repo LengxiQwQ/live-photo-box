@@ -89,11 +89,14 @@ inline bool observe_opaque_camera_records(std::span<const uint8_t> bytes,
             (uint32_t(bytes[n-2])<<16)|(uint32_t(bytes[n-1])<<24);
         if(directory_length<11 || directory_length>65536 || directory_length>n || bytes[n-9]!=0)return false;
         const std::string_view marker(reinterpret_cast<const char*>(bytes.data()+n-8),4);
-        if(marker!="jxrs"&&marker!="wtmk")return false;
+        if(marker!="jxrs"&&marker!="wtmk"&&marker!="lpbr")return false;
         const size_t directory=n-directory_length;
         std::vector<opaque_camera_record> records;
         if(!opaque_record_detail::directory_reader(std::string_view(
             reinterpret_cast<const char*>(bytes.data()+directory),directory_length-9)).read(records))return false;
+        // LPB's versioned transport wrapper carries one bounded source-prefix
+        // fragment as inert data. Its name never grants external access.
+        if(marker=="lpbr"&&(records.size()!=1U||records[0].name!="SourcePrefixFragment"))return false;
         uint64_t area_length=0;
         for(const auto& record:records)area_length=std::max(area_length,record.offset);
         if(!area_length || area_length>directory || area_length>32ULL*1024*1024-directory_length)return false;

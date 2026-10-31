@@ -3,9 +3,12 @@
 #include <cstdint>
 #include <span>
 #include <vector>
+#include <string>
 #include "containers/isobmff.h"
 
 namespace lpb::media {
+
+bool inspect_isobmff_asset_inventory(const lpb::random_access_reader& reader, std::string& json) noexcept;
 
 struct isobmff_mebx_track_facts {
     uint32_t track_id{};
@@ -65,6 +68,18 @@ bool validate_isobmff_mebx_transplants(std::span<const uint8_t> source,
 // video sample entry, without inheriting source metadata or auxiliary tracks.
 bool preserve_isobmff_copy_display_geometry(std::span<const uint8_t> source,
     std::span<const uint8_t> stage, std::vector<uint8_t>& output, bool& changed) noexcept;
+bool preserve_isobmff_copy_timing(std::span<const uint8_t> source,
+    std::span<const uint8_t> stage, std::vector<uint8_t>& output, bool& changed, const char** failure = nullptr) noexcept;
+// Internal audio-only staging and identity-bound replacement. Originals and
+// unrelated sample tables/payloads remain source-owned.
+bool isobmff_audio_tracks_requiring_aac(std::span<const uint8_t> source, std::vector<uint32_t>& ids) noexcept;
+bool extract_isobmff_audio_track(std::span<const uint8_t> source, uint32_t id, std::vector<uint8_t>& output) noexcept;
+bool replace_isobmff_audio_track(std::span<const uint8_t> source, uint32_t id,
+    std::span<const uint8_t> encoded, std::vector<uint8_t>& output) noexcept;
+bool combine_isobmff_video_audio(std::span<const uint8_t> video,
+    std::span<const uint8_t> audio, std::vector<uint8_t>& output) noexcept;
+bool preserve_isobmff_additional_tracks(std::span<const uint8_t> source,
+    std::span<const uint8_t> stage, std::vector<uint8_t>& output, uint32_t rotation = 0U) noexcept;
 bool preserve_isobmff_static_metadata(std::span<const uint8_t> source,
     std::span<const uint8_t> stage, std::vector<uint8_t>& output,
     bool& changed) noexcept;

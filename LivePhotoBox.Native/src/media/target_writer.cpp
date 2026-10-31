@@ -446,27 +446,8 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
     if(!session.inputs[0].read_all_bounded(4,32ULL*1024*1024,primary))return LPB_RESULT_UNSUPPORTED;
     uint64_t encoding_boundary=session.primary_facts.encoding_boundary;
     const bool best_effort = (session.request.reserved0 == 1);
-    if(best_effort && session.primary_facts.container==LPB_IMAGE_CONTAINER_JPEG) {
-        lpb::media::jpeg_gainmap_mpf::jpeg_info info;
-        if(lpb::media::jpeg_gainmap_mpf::parse_jpeg(primary, info) && info.mpf_status==lpb::media::jpeg_gainmap_mpf::status::present) {
-            if(!lpb::media::jpeg_gainmap_mpf::singleton_primary(info) && (info.mpf.image_count > (session.auxiliaries.empty() ? 1U : 2U) || session.auxiliaries.empty())) {
-                if(encoding_boundary>0 && encoding_boundary<primary.size()) {
-                    primary.resize(static_cast<size_t>(encoding_boundary));
-                }
-                const auto tiff = info.mpf.tiff_header_offset;
-                if(tiff >= 8 && primary.size() >= tiff) {
-                    const size_t marker_start = tiff - 8;
-                    const size_t marker_length = 2 + (static_cast<size_t>(primary[tiff - 6]) << 8 | primary[tiff - 5]);
-                    if(marker_start + marker_length <= primary.size() && primary[marker_start] == 0xff && primary[marker_start + 1] == 0xe2) {
-                        primary.erase(primary.begin() + static_cast<ptrdiff_t>(marker_start), primary.begin() + static_cast<ptrdiff_t>(marker_start + marker_length));
-                        if(encoding_boundary >= marker_length) encoding_boundary -= marker_length;
-                    }
-                }
-                session.primary_facts.encoding_boundary = primary.size();
-                session.auxiliaries.clear();
-            }
-        }
-    }
+    // Never trim the bound compound prefix or clear its MPF/auxiliary graph.
+    // A missing representation is an explicit failure, not permission to erase.
     if(session.ordinary_present) {
         std::vector<uint8_t> raw,decorated;
         if(!session.inputs[session.ordinary_input_index].read_all_bounded(11,32ULL*1024*1024,raw))return LPB_RESULT_UNSUPPORTED;
@@ -555,7 +536,12 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
         if(header==16)for(int i=7;i>=0;--i)serialized.push_back(static_cast<uint8_t>(total>>(i*8)));
         return LPB_RESULT_OK;
     }
-    if(session.primary_facts.xmp.directory_present)request.primary_padding=session.primary_facts.xmp.items[0].padding;
+    if(session.primary_facts.xmp.directory_present) {
+        request.primary_padding=session.primary_facts.xmp.items[0].padding;
+        if(best_effort && session.auxiliaries.empty()) {
+            request.primary_padding = primary.size() - encoding_boundary;
+        }
+    }
     const bool ordinary_mpf=std::any_of(session.primary_facts.auxiliaries.begin(),session.primary_facts.auxiliaries.end(),
         [](const auto& a){return a.semantic=="MpfAuxiliaryImage";});
     if(ordinary_mpf||std::any_of(session.primary_facts.auxiliaries.begin(),session.primary_facts.auxiliaries.end(),
@@ -583,7 +569,7 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
         }
         request.auxiliary_items.push_back({std::string(semantic),"image/jpeg",found->byte_length,0,true,false});
     }
-    if(!ordinary_mpf&&!expand_owned_mpf(primary,request.auxiliary_items,request.primary_padding)) {
+    if(!ordinary_mpf&&!request.auxiliary_items.empty()&&!expand_owned_mpf(primary,request.auxiliary_items,request.primary_padding)) {
         set_error(context, "[Stage] expand_owned_mpf failed.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
@@ -634,8 +620,9 @@ static lpb_result prepare_target_writer(lpb_context* context,const lpb_target_wr
             !lpb::target::profile_accepts(request->target_profile,request->media_format))return LPB_RESULT_UNSUPPORTED;
         auto session=std::make_shared<lpb_target_writer_session>();
         session->owner=context;session->request=*request;session->request.artifacts=nullptr;
+        const bool best_effort = (request->reserved0 == 1);
         if(compound_token) {
-            if(!extended||request->target_profile!=LPB_TARGET_HUAWEI||request->media_format!=0)return LPB_RESULT_UNSUPPORTED;
+            if(!extended || (!best_effort && (request->target_profile!=LPB_TARGET_HUAWEI || request->media_format!=0)))return LPB_RESULT_UNSUPPORTED;
             session->compound=lpb::media::find_compound_primary(compound_token);
             if(!session->compound||session->compound->revoked)return LPB_RESULT_AUTHORITY_VIOLATION;
         }

@@ -1,5 +1,7 @@
 #include "media/compound_primary.h"
 #include "media/target_writer.h"
+#include "media/ordinary_metadata_capsule.h"
+#include "platform/windows_filesystem.h"
 #include "foundation/sha256_core.h"
 #include <map>
 #include <mutex>
@@ -113,6 +115,42 @@ lpb_result LPB_CALL lpb_compound_primary_from_cleanup_v1(lpb_context* context,lp
   *output=proof->token;return LPB_RESULT_OK;
  }catch(...){return LPB_RESULT_INTERNAL_ERROR;}
 }
+lpb_result LPB_CALL lpb_compound_primary_materialize_records_v1(lpb_context* context,uint64_t token,
+ const char* source_path,const char* output_path) {
+ if(!context||!source_path||!output_path||lpb_writer_callback_active(context))return LPB_RESULT_INVALID_ARGUMENT;
+ lpb_context_operation operation(context);if(!operation.acquired())return LPB_RESULT_AUTHORITY_VIOLATION;
+ windows_owned_output stage;
+ const auto fail=[&](lpb_result code,const char* error){return abort_owned_output_and_report(context,stage,error)?code:LPB_RESULT_INTERNAL_ERROR;};
+ try {
+  const auto proof=lpb::media::find_compound_primary(token);
+  if(!proof||proof->revoked)return fail(LPB_RESULT_AUTHORITY_VIOLATION,"Opaque prefix requires a live Native lineage token.");
+  std::vector<uint8_t> source;lpb::media::target_primary_observation primary;std::string error;
+  if(!read_registered(context,source_path,proof->identity,source)||!lpb::media::validate_compound_primary(source,*proof,primary,error))
+   return fail(lpb_context_check_cancelled(context)==LPB_RESULT_CANCELLED?LPB_RESULT_CANCELLED:LPB_RESULT_SOURCE_CHANGED,"Opaque prefix source no longer matches its lineage.");
+  const std::string length=std::to_string(proof->opaque_length);
+  const std::string directory="[{\"name\":\"SourcePrefixFragment\",\"offset\":"+length+",\"length\":"+length+",\"version\":1}]";
+  if(proof->opaque_length>lpb::media::ordinary_metadata::maximum_raw-directory.size()-9U)
+   return fail(LPB_RESULT_UNSUPPORTED,"ImplementationUnsupported: opaque record wrapper exceeds the bounded metadata capacity.");
+  std::vector<uint8_t> raw(source.begin()+size_t(proof->known_length),source.end());
+  raw.insert(raw.end(),directory.begin(),directory.end());raw.insert(raw.end(),{0,'l','p','b','r'});
+  const auto n=uint32_t(directory.size()+9U);
+  for(size_t i=0;i<4U;++i)raw.push_back(uint8_t(n>>(i*8U)));
+  if(!lpb::media::ordinary_metadata::complete_record_block(raw)||proof->revoked)
+   return fail(LPB_RESULT_AUTHORITY_VIOLATION,"Opaque prefix record wrapper did not validate.");
+  const auto cancelled=lpb_context_check_cancelled(context);
+  if(cancelled!=LPB_RESULT_OK)return fail(cancelled,"Cancelled before ordinary-prefix materialization.");
+  const auto destination=utf8_to_path(output_path);
+  if(!stage.create(destination,L"lpb-prefix-records",L".tmp",true)||!stage.write_all(raw)||!stage.ready_to_consume())
+   return fail(LPB_RESULT_INTERNAL_ERROR,"Cannot stage the registered ordinary-prefix record artifact.");
+  if(proof->revoked)return fail(LPB_RESULT_AUTHORITY_VIOLATION,"Opaque prefix lineage was revoked before publication.");
+  const auto final_cancel=lpb_context_check_cancelled(context);
+  if(final_cancel!=LPB_RESULT_OK)return fail(final_cancel,"Cancelled before ordinary-prefix publication.");
+  if(!stage.publish_registered_no_replace(context,LPB_ARTIFACT_METADATA_CARRIER,destination))
+   return fail(LPB_RESULT_INTERNAL_ERROR,"Cannot publish the registered ordinary-prefix record artifact.");
+  return LPB_RESULT_OK;
+ }catch(...){return fail(LPB_RESULT_INTERNAL_ERROR,"Opaque prefix materialization failed.");}
+}
+
 lpb_result LPB_CALL lpb_compound_primary_release_v1(uint64_t token) {
  try{std::scoped_lock lock(registry_mutex);const auto found=registry.find(token);if(found==registry.end())return LPB_RESULT_AUTHORITY_VIOLATION;
   found->second->revoked=true;registry.erase(found);return LPB_RESULT_OK;}catch(...){return LPB_RESULT_INTERNAL_ERROR;}

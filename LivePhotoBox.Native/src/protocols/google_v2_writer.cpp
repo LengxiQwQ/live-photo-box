@@ -18,13 +18,12 @@ std::string property(std::string_view name,std::string_view value,std::string_vi
  return "<lpbc:"+std::string(name)+" xmlns:lpbc=\""+std::string(ns)+"\">"+
   std::string(value)+"</lpbc:"+std::string(name)+">";
 }
-std::string resource(std::string_view semantic,std::string_view mime,uint64_t length,uint64_t padding=0,bool vivo=false,bool emit_zero_padding=false) {
+std::string resource(std::string_view semantic,std::string_view mime,uint64_t length,uint64_t padding=0,bool vivo=false) {
  std::string out="<lpbrdf:li xmlns:lpbrdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" lpbrdf:parseType=\"Resource\">"
   "<lpbcontainer:Item xmlns:lpbcontainer=\"http://ns.google.com/photos/1.0/container/\" xmlns:lpbi=\"http://ns.google.com/photos/1.0/container/item/\" lpbi:Mime=\""+
   std::string(mime)+"\" lpbi:Semantic=\""+std::string(semantic)+"\"";
  if(!(vivo&&semantic=="Primary"))out+=" lpbi:Length=\""+std::to_string(length)+"\"";
  if((semantic=="Primary"&&!vivo)||(vivo&&semantic=="MotionPhoto"))out+=" lpbi:Padding=\""+std::to_string(padding)+"\"";
- else if(emit_zero_padding)out+=" lpbi:Padding=\"0\"";
  return out+"/></lpbrdf:li>";
 }
 }
@@ -69,8 +68,8 @@ lpb_result build_google_xmp(std::string_view input,const google_xmp_request& req
   }
   if(vivo)properties+=property("VMotionPhotoVersion","1","http://ns.vivo.com/photos/1.0/camera/");
   // No camera-direct source flag or proprietary media-kit version is invented.
-  const std::string video=resource("MotionPhoto",request.format==0||samsung?"video/mp4":"video/quicktime",request.video_length,0,vivo,request.primary_padding!=0);
-  std::string assets;for(const auto& item:request.auxiliary_items)assets+=resource(item.semantic,item.mime,item.length);
+  const std::string video=resource("MotionPhoto",request.format==0||samsung?"video/mp4":"video/quicktime",request.video_length,0,vivo);
+  std::string assets;for(const auto& item:request.auxiliary_items)assets+=resource(item.semantic,item.mime,item.length,0,false);
   const std::string directory=v1&&request.auxiliary_items.empty()?"":"<lpbcontainer:Directory xmlns:lpbcontainer=\"http://ns.google.com/photos/1.0/container/\">"
    "<lpbrdf:Seq xmlns:lpbrdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"+
    resource("Primary",request.primary_mime,0,request.primary_padding,vivo)+assets+(v1?"":video)+"</lpbrdf:Seq></lpbcontainer:Directory>";
@@ -90,16 +89,11 @@ lpb_result build_google_xmp(std::string_view input,const google_xmp_request& req
    if(error_out)*error_out="claims: live=" + std::to_string(observed.live_claim) + " micro=" + std::to_string(observed.micro_claim) + " foreign=" + std::to_string(observed.foreign_claim) + " hdr=" + std::to_string(observed.hdr_claim) + " gm=" + std::to_string(gainmap) + " val=" + std::to_string(request.hdr_relationship_validated);
    return LPB_RESULT_UNSUPPORTED;
   }
-  std::string stripped_dir;
-  if(request.best_effort && observed.directory_present && (observed.items.size() > 1 + request.auxiliary_items.size())) {
-   lpb::media::xmp_observation_failure strip_fail{};
-   if(lpb::media::remove_target_container_directory(input, stripped_dir, strip_fail)) {
-    input = stripped_dir;
-    if(!lpb::media::observe_target_xmp(input, observed, why)) {
-     if(error_out)*error_out = "observe_target_xmp failed after strip directory";
-     return LPB_RESULT_INVALID_ARGUMENT;
-    }
-   }
+  std::string normalized;
+  if(observed.directory_present&&!vivo) {
+   if(!lpb::media::normalize_secondary_item_padding(input,normalized,why)||
+      !lpb::media::observe_target_xmp(normalized,observed,why))return LPB_RESULT_INVALID_ARGUMENT;
+   input=normalized;
   }
   std::string vivo_adjusted;
   if(vivo&&observed.directory_present) {
@@ -120,7 +114,7 @@ lpb_result build_google_xmp(std::string_view input,const google_xmp_request& req
     return LPB_RESULT_UNSUPPORTED;
    }
    for(size_t i=0;i+1<observed.items.size();++i){const auto& have=observed.items[i+1];const auto& want=request.auxiliary_items[i];
-    if(have.semantic!=want.semantic||have.mime!=want.mime||!have.has_length||have.length!=want.length||have.padding) {
+    if(have.semantic!=want.semantic||have.mime!=want.mime||!have.has_length||have.length!=want.length||have.has_padding) {
      if(error_out)*error_out="directory item " + std::to_string(i) + " mismatch";
      return LPB_RESULT_UNSUPPORTED;
     }
@@ -128,7 +122,7 @@ lpb_result build_google_xmp(std::string_view input,const google_xmp_request& req
    if(observed.sequence_close_offset>=observed.owner_close_offset)return LPB_RESULT_INVALID_ARGUMENT;
    output=input;
    output.insert(observed.owner_close_offset,properties);
-   std::string missing;for(size_t i=observed.items.size()-1;i<request.auxiliary_items.size();++i){const auto& item=request.auxiliary_items[i];missing+=resource(item.semantic,item.mime,item.length);}
+   std::string missing;for(size_t i=observed.items.size()-1;i<request.auxiliary_items.size();++i){const auto& item=request.auxiliary_items[i];missing+=resource(item.semantic,item.mime,item.length,0,false);}
    output.insert(observed.sequence_close_offset,missing+(v1?"":video));
   }else if(!observed.micamera_owner_name.empty()) {
    output=input;

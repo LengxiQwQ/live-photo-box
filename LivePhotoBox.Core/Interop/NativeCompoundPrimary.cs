@@ -54,6 +54,35 @@ internal sealed class NativeCompoundPrimary : SafeHandleZeroOrMinusOneIsInvalid
         }
         finally { if (retained) DangerousRelease(); }
     }
+    internal static unsafe string OpaqueHash(NativeCompoundPrimaryObservation observation) =>
+        Convert.ToHexString(new ReadOnlySpan<byte>(observation.OpaqueSha256, 32));
+    internal MediaArtifact MaterializeOpaqueRecords(string source, string output, CancellationToken token)
+    {
+        using var context = NativeContext.Create(token);
+        using var operation = context.AcquireOperationLease();
+        bool retained = false;
+        NativeMediaService.NativeRegisteredOutputEvidence? actual = null;
+        bool published = false;
+        try
+        {
+            DangerousAddRef(ref retained);
+            NativeResult result = NativeMethods.CompoundMaterializeRecords(operation.Handle,
+                unchecked((ulong)DangerousGetHandle()), source, output);
+            context.ThrowIfFailed(result);
+            published = true;
+            actual = NativeMediaService.CaptureRegisteredOutputEvidence(context, output, MediaArtifactKind.MetadataCarrier);
+            token.ThrowIfCancellationRequested();
+            return new MediaArtifact { Path = output, Kind = MediaArtifactKind.MetadataCarrier,
+                ByteLength = actual.ByteLength, Sha256 = actual.Sha256, FileIdentity = actual.FileIdentity };
+        }
+        catch
+        {
+            if (published && !NativeMediaService.TryDeleteRegisteredOutput(output, actual))
+                throw new IOException("Cannot clean the failed identity-bound opaque record artifact.");
+            throw;
+        }
+        finally { if (retained) DangerousRelease(); }
+    }
     protected override bool ReleaseHandle()
     {
         try { return NativeMethods.CompoundRelease(unchecked((ulong)handle)) == NativeResult.Ok; }
@@ -78,6 +107,10 @@ internal sealed class NativeCompoundPrimary : SafeHandleZeroOrMinusOneIsInvalid
 
 internal static partial class NativeMethods
 {
+    [LibraryImport(LibraryName, EntryPoint = "lpb_compound_primary_materialize_records_v1", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult CompoundMaterializeRecords(nint context, ulong proof, string source, string output);
     [LibraryImport(LibraryName, EntryPoint = "lpb_compound_primary_gainmap_v1", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]

@@ -315,78 +315,20 @@ namespace LivePhotoBox.Services
                         if (!notCarried.Any(x => x.Item == "GainMap"))
                             notCarried.Add(new NotCarriedItem { Item = "GainMap", Reason = "Image HDR GainMap degraded to SDR during neutral preparation", Outcome = PreservationOutcome.DegradedToSdr });
                     }
-                    foreach (var v in prepExec.Videos)
-                    {
-                        if (v.DroppedAuxVideoTracks > 0)
-                        {
-                            notCarried.Add(new NotCarriedItem
-                            {
-                                Item = $"AuxiliaryVideoTrack x{v.DroppedAuxVideoTracks}",
-                                Reason = "Auxiliary video stream(s) discarded for target compatibility",
-                                Outcome = PreservationOutcome.DiscardedNotApplicable
-                            });
-                        }
-                        if (v.DroppedMebxTracks > 0)
-                        {
-                            notCarried.Add(new NotCarriedItem
-                            {
-                                Item = $"MebxTrack x{v.DroppedMebxTracks}",
-                                Reason = "Apple QuickTime timed metadata (mebx) track(s) discarded for target compatibility",
-                                Outcome = PreservationOutcome.DiscardedNotApplicable
-                            });
-                        }
-                        if (v.DroppedOtherTracks > 0)
-                        {
-                            notCarried.Add(new NotCarriedItem
-                            {
-                                Item = $"OtherTrack x{v.DroppedOtherTracks}",
-                                Reason = "Non-primary stream(s) discarded for target compatibility",
-                                Outcome = PreservationOutcome.DiscardedNotApplicable
-                            });
-                        }
-                        if (v.AudioTranscodedToAac)
-                        {
-                            notCarried.Add(new NotCarriedItem
-                            {
-                                Item = "AudioCodec (Pcm->Aac)",
-                                Reason = "Source PCM audio transcoded to AAC for MP4 compatibility",
-                                Outcome = PreservationOutcome.Reencoded
-                            });
-                        }
-                        if (v.Truth.Metadata != ConversionComponentOutcome.Preserved)
-                        {
-                            if (!notCarried.Any(x => x.Item == "VideoMetadata"))
-                            {
-                                notCarried.Add(new NotCarriedItem
-                                {
-                                    Item = "VideoMetadata",
-                                    Reason = "Source container-specific video metadata degraded or omitted in compatible target",
-                                    Outcome = PreservationOutcome.PartiallyPreserved
-                                });
-                            }
-                        }
-                        if (v.Truth.PreservationOutcome != PreservationOutcome.Preserved && !v.StreamCopied)
-                        {
-                            if (!notCarried.Any(x => x.Item.StartsWith("VideoCodec", StringComparison.Ordinal)))
-                                notCarried.Add(new NotCarriedItem { Item = $"VideoCodec ({v.InputCodec}->{v.OutputCodec})", Reason = $"Video converted ({v.Truth.ActualOperationKind})", Outcome = v.Truth.PreservationOutcome });
-                        }
-                        var videoRot = bundle.Semantics.Orientation.MotionVideo?.ClockwiseRotationDegrees;
-                        if (videoRot.HasValue && videoRot.Value != 0 && !notCarried.Any(x => x.Item == "VideoRotation"))
-                        {
-                            notCarried.Add(new NotCarriedItem { Item = "VideoRotation", Reason = $"Source video rotation ({videoRot.Value}°) physically normalized to 0°", Outcome = PreservationOutcome.Reencoded });
-                        }
-                    }
                 }
 
+                var outputs = new[] { new ProductCommittedArtifact { Role = "TargetLivePhoto", Path = published.FinalPath,
+                    Sha256 = published.Sha256, ByteLength = published.ByteLength } };
+                var mediaReport = MediaChangeReports.Finish(bundle.MediaChanges, notCarried, outputs, bundle.RemovedProtocolFacts);
                 terminal = baseline with
                 {
                     Status = ProductOperationStatus.Success,
+                    MediaChanges = mediaReport,
                     PreparationSemantics = bundle.Semantics,
                     PreparationManifest = bundle.Manifest,
                     PreparationExecution = bundle.PreparationExecution,
-                    CommittedOutputs = new[] { new ProductCommittedArtifact { Role = "TargetLivePhoto", Path = published.FinalPath,
-                        Sha256 = published.Sha256, ByteLength = published.ByteLength } },
-                    NotCarried = notCarried,
+                    CommittedOutputs = outputs,
+                    NotCarried = mediaReport.ToNotCarried(),
                     Diagnostic = new() { Stage = ProductOperationStage.Publication, Message = ResourceService.GetString("Task_Success") }
                 };
             }

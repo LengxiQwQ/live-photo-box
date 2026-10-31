@@ -1,3 +1,4 @@
+#include "containers/isobmff_track_graph.h"
 #include "media/video_converter.h"
 #include "media/media_inspector.h"
 #include "foundation/internal.h"
@@ -2282,7 +2283,8 @@ static lpb_result mux_retained_software_samples(
     const std::vector<mf_retained_video_sample>& video_samples,
     const std::vector<mf_retained_audio_sample>& audio_samples)
 {
-    if (video_type == nullptr || video_samples.empty() ||
+    const bool has_video = video_type != nullptr;
+    if ((has_video != !video_samples.empty()) || (!has_video && !has_audio) ||
         (has_audio && (pcm_type == nullptr || audio_samples.empty()))) {
         set_error(context, "OutputValidation: retained software video/audio mux inputs are incomplete.");
         return LPB_RESULT_INTERNAL_ERROR;
@@ -2318,8 +2320,10 @@ static lpb_result mux_retained_software_samples(
     }
 
     DWORD video_stream = 0U;
-    hr = writer->AddStream(video_type, &video_stream);
-    if (SUCCEEDED(hr)) hr = writer->SetInputMediaType(video_stream, video_type, nullptr);
+    if(has_video) {
+        hr = writer->AddStream(video_type, &video_stream);
+        if (SUCCEEDED(hr)) hr = writer->SetInputMediaType(video_stream, video_type, nullptr);
+    }
     DWORD audio_stream = 0U;
     mf_owned_ptr<IMFMediaType> aac_type;
     if (SUCCEEDED(hr) && has_audio) {
@@ -2358,7 +2362,7 @@ static lpb_result mux_retained_software_samples(
         set_error(context, "Media Foundation SinkWriter transform ownership could not be queried.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
-    if (!prove_sink_writer_has_no_video_transform(context, writer_ex.get(), video_stream) ||
+    if ((has_video && !prove_sink_writer_has_no_video_transform(context, writer_ex.get(), video_stream)) ||
         (has_audio && !prove_sink_writer_has_audio_transform(context, writer_ex.get(), audio_stream))) {
         return LPB_RESULT_INTERNAL_ERROR;
     }
@@ -2751,8 +2755,27 @@ lpb_result transcode_video_file(
     // Only an explicit Copy request selects the project-owned stream remux.
     // An explicit codec request always requests a codec transform, even when
     // the selected codec happens to match the source codec.
-    if (owner == video_conversion_owner::project_remux && compatible_profile) {
-        owner = video_conversion_owner::minimal_libav_sidecar;
+    if (owner == video_conversion_owner::project_remux && compatible_profile &&
+        target_container == LPB_VIDEO_CONTAINER_MP4 && src_facts.has_audio != 0) {
+        // Decide from the actual sample entry, never from a source brand.
+        isobmff_reader_observation observed{}; isobmff_reader_diagnostic diagnostic{};
+        if (!inspect_isobmff_reader(semantic_reader, false, observed, diagnostic)) {
+            set_error(context, "SourceInspection: cannot inspect source audio representation.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        isobmff_track_graph graph{};
+        if (!inspect_isobmff_track_graph(observed.moov_bytes, graph)) return LPB_RESULT_INVALID_ARGUMENT;
+        for (const auto& track : graph.tracks) if (track.handler == "soun") {
+            const auto& bytes=observed.moov_bytes;
+            const auto mdia=find_child_box(bytes,track.offset+8U,track.offset+track.length,"mdia");
+            const auto minf=mdia==SIZE_MAX?SIZE_MAX:find_child_box(bytes,mdia+8U,mdia+((uint32_t(bytes[mdia])<<24)|(uint32_t(bytes[mdia+1])<<16)|(uint32_t(bytes[mdia+2])<<8)|bytes[mdia+3]),"minf");
+            const auto stbl=minf==SIZE_MAX?SIZE_MAX:find_child_box(bytes,minf+8U,minf+((uint32_t(bytes[minf])<<24)|(uint32_t(bytes[minf+1])<<16)|(uint32_t(bytes[minf+2])<<8)|bytes[minf+3]),"stbl");
+            const auto stsd=stbl==SIZE_MAX?SIZE_MAX:find_child_box(bytes,stbl+8U,stbl+((uint32_t(bytes[stbl])<<24)|(uint32_t(bytes[stbl+1])<<16)|(uint32_t(bytes[stbl+2])<<8)|bytes[stbl+3]),"stsd");
+            if(stsd==SIZE_MAX || stsd+24U>bytes.size())return LPB_RESULT_INVALID_ARGUMENT;
+            if(std::memcmp(bytes.data()+stsd+20U,"mp4a",4U)!=0)owner=video_conversion_owner::minimal_libav_sidecar;
+            // Every nonempty sound track must satisfy the target container.
+            // An AAC primary does not authorize copying a PCM sibling to MP4.
+        }
     }
 
     if (owner == video_conversion_owner::project_remux) {
@@ -2825,6 +2848,7 @@ lpb_result transcode_video_file(
         windows_owned_output stage_a;
         windows_owned_output stage_b;
         windows_owned_output stage_c;
+        windows_owned_output stage_audio;
         bool stage_a_cleanup_attempted = false;
         bool stage_a_cleanup_confirmed = false;
         DWORD stage_a_cleanup_error = ERROR_SUCCESS;
@@ -2850,9 +2874,10 @@ lpb_result transcode_video_file(
             const bool stage_b_identity_captured = stage_b.capture_cleanup_identity(
                 stage_b_identity, stage_b_staging_path, stage_b_owned_handle_path);
             const bool stage_c_cleaned = stage_c.abort_and_confirm();
+            const bool stage_audio_cleaned = stage_audio.abort_and_confirm();
             const bool stage_b_cleaned = stage_b.abort_and_confirm();
             const DWORD stage_b_cleanup_error = stage_b_cleaned ? ERROR_SUCCESS : GetLastError();
-            if (stage_a_cleaned && stage_b_cleaned && stage_c_cleaned) {
+            if (stage_a_cleaned && stage_b_cleaned && stage_c_cleaned && stage_audio_cleaned) {
                 // A nested operation (owned MOV remux) already supplied the
                 // precise failure. Null means preserve it, not replace it with
                 // set_error's generic "Unknown native error" fallback.
@@ -3049,52 +3074,36 @@ lpb_result transcode_video_file(
                 UINT32 audio_channels = 0U;
                 mf_owned_ptr<IMFMediaType> verified_pcm_type;
                 std::vector<mf_retained_audio_sample> decoded_audio;
+                // MF's FIRST_AUDIO_STREAM can resolve to a different same-codec
+                // track. Decode an isolated movie selected by Native identity.
+                std::vector<uint8_t> isolated_primary;
+                windows_owned_output primary_audio_source;
+                if(!extract_isobmff_audio_track(source_bytes,0U,isolated_primary)||
+                    !primary_audio_source.create(p_out,L"lpb-main-audio-source",L".mov",true)||
+                    !primary_audio_source.write_all(isolated_primary)||!primary_audio_source.ready_to_consume())
+                    return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot isolate the primary audio identity before decoding.");
                 lpb_result audio_res = read_software_pcm_audio(
-                    context, p_in.c_str(), audio_rate, audio_channels, verified_pcm_type, decoded_audio);
+                    context, primary_audio_source.path(), audio_rate, audio_channels, verified_pcm_type, decoded_audio);
+                if(!primary_audio_source.abort_and_confirm())
+                    return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot retire primary audio source staging.");
                 if (audio_res != LPB_RESULT_OK) {
                     return fail_sidecar(audio_res, "Failed to decode PCM audio from source for AAC transcode.");
                 }
-                if (!decoded_audio.empty()) {
-                    mf_owned_ptr<IMFSourceReader> stage_a_reader_mf;
-                    const std::wstring stage_a_url = stage_a.path().wstring();
-                    HRESULT hr_mf = MFCreateSourceReaderFromURL(stage_a_url.c_str(), nullptr, stage_a_reader_mf.put());
-                    if (SUCCEEDED(hr_mf) && stage_a_reader_mf) {
-                        hr_mf = stage_a_reader_mf->SetStreamSelection(static_cast<DWORD>(MF_SOURCE_READER_ALL_STREAMS), FALSE);
-                        if (SUCCEEDED(hr_mf)) hr_mf = stage_a_reader_mf->SetStreamSelection(static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM), TRUE);
-                        mf_owned_ptr<IMFMediaType> v_type;
-                        if (SUCCEEDED(hr_mf)) hr_mf = stage_a_reader_mf->GetNativeMediaType(static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM), 0U, v_type.put());
-                        std::vector<mf_retained_video_sample> retained_video;
-                        while (SUCCEEDED(hr_mf)) {
-                            DWORD stream_idx = 0;
-                            DWORD flags = 0;
-                            LONGLONG timestamp = 0;
-                            mf_owned_ptr<IMFSample> smp;
-                            hr_mf = stage_a_reader_mf->ReadSample(static_cast<DWORD>(MF_SOURCE_READER_FIRST_VIDEO_STREAM), 0, &stream_idx, &flags, &timestamp, smp.put());
-                            if (FAILED(hr_mf) || (flags & MF_SOURCE_READERF_ENDOFSTREAM) != 0) break;
-                            if (smp) {
-                                mf_retained_video_sample v_entry{};
-                                if (snapshot_mf_video_sample(smp.get(), v_entry)) {
-                                    v_entry.sample = std::move(smp);
-                                    retained_video.push_back(std::move(v_entry));
-                                }
-                            }
-                        }
-                        if (SUCCEEDED(hr_mf) && !retained_video.empty()) {
-                            if (!stage_b.create(p_out, L"lpb-video-stage-b", L".mp4")) {
-                                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR, "Cannot create Stage B output for AAC audio muxing.");
-                            }
-                            const std::wstring stage_b_url = stage_b.path().wstring();
-                            lpb_result mux_res = mux_retained_software_samples(
-                                context, stage_b_url.c_str(), v_type.get(), true, verified_pcm_type.get(),
-                                audio_rate, audio_channels, retained_video, decoded_audio);
-                            if (mux_res != LPB_RESULT_OK || !stage_b.ready_to_consume()) {
-                                return fail_sidecar(mux_res != LPB_RESULT_OK ? mux_res : LPB_RESULT_INTERNAL_ERROR, nullptr);
-                            }
-                            publish_stage = &stage_b;
-                            final_staged_reader = stage_b.reader();
-                        }
-                    }
-                }
+                if (decoded_audio.empty()) return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"PCM decoder returned no source audio samples.");
+                if (!stage_audio.create(p_out,L"lpb-aac-audio",L".mp4"))
+                    return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot create owned AAC audio staging.");
+                const lpb_result mux_res=mux_retained_software_samples(context,stage_audio.path(),nullptr,true,
+                    verified_pcm_type.get(),audio_rate,audio_channels,{},decoded_audio);
+                if(mux_res!=LPB_RESULT_OK||!stage_audio.ready_to_consume())
+                    return fail_sidecar(mux_res!=LPB_RESULT_OK?mux_res:LPB_RESULT_INTERNAL_ERROR,nullptr);
+                std::vector<uint8_t> aac_bytes,combined;
+                if(!read_all_bytes(stage_audio.reader(),aac_bytes)||
+                    !combine_isobmff_video_audio(bridge.stream_copied?std::span<const uint8_t>(source_bytes):std::span<const uint8_t>(stage_a_bytes),aac_bytes,combined))
+                    return fail_sidecar(LPB_RESULT_UNSUPPORTED,"Cannot bind encoded AAC to the unchanged source video schedule.");
+                if(!stage_b.create(p_out,L"lpb-video-aac",L".mp4",true)||!stage_b.write_all(combined)||!stage_b.ready_to_consume())
+                    return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot stage video plus encoded AAC.");
+                if(!stage_audio.abort_and_confirm())return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot retire AAC audio staging.");
+                publish_stage=&stage_b;final_staged_reader=stage_b.reader();
             }
         } else {
             if (has_mebx) {
@@ -3138,6 +3147,14 @@ lpb_result transcode_video_file(
                 return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                     "Cannot preserve the copied video's validated display aperture/aspect ratio.");
             }
+            std::vector<uint8_t> timed;
+            bool timing_changed=false;
+            const char* timing_failure=nullptr;
+            if (!preserve_isobmff_copy_timing(source_bytes,with_geometry,timed,timing_changed,&timing_failure)) {
+                const std::string reason="Copied video timeline cannot be safely mapped: "+std::string(timing_failure?timing_failure:"unknown");
+                return fail_sidecar(LPB_RESULT_UNSUPPORTED,reason.c_str());
+            }
+            with_geometry.swap(timed);geometry_changed=geometry_changed||timing_changed;
             if (geometry_changed) {
                 if (!stage_c.create(p_out, L"lpb-video-display-stage", L".tmp", true) ||
                     !stage_c.write_all(with_geometry) || !stage_c.ready_to_consume())
@@ -3145,6 +3162,55 @@ lpb_result transcode_video_file(
                 publish_stage = &stage_c;
                 final_staged_reader = stage_c.reader();
             }
+        }
+
+        bool sibling_audio_transcoded = false;
+        if (compatible_profile) {
+            std::vector<uint8_t> current, retained;
+            if (!read_all_bytes(final_staged_reader, current) ||
+                !preserve_isobmff_additional_tracks(source_bytes, current, retained, bridge.stream_copied?0U:static_cast<uint32_t>(src_facts.rotation_degrees)))
+                return fail_sidecar(LPB_RESULT_UNSUPPORTED, "Untouched Neutral tracks/ordinary metadata could not be safely retained; no output published.");
+            if (sidecar_container == LPB_VIDEO_CONTAINER_MP4) {
+                std::vector<uint32_t> ids;
+                if (!isobmff_audio_tracks_requiring_aac(retained, ids))
+                    return fail_sidecar(LPB_RESULT_INTERNAL_ERROR, "Cannot inventory final audio codec requirements.");
+                if (!ids.empty()) {
+                    mf_runtime_guard guard;
+                    if (!guard.start(context)) return fail_sidecar(LPB_RESULT_INTERNAL_ERROR, "Cannot initialize per-track AAC encoding.");
+                    for (const auto id : ids) {
+                        const auto cancelled = lpb_context_check_cancelled(context);
+                        if (cancelled != LPB_RESULT_OK) return fail_sidecar(cancelled, "Cancelled before additional audio encoding.");
+                        std::vector<uint8_t> isolated, encoded, replaced;
+                        windows_owned_output isolated_audio, encoded_audio;
+                        if (!extract_isobmff_audio_track(source_bytes, id, isolated) ||
+                            !isolated_audio.create(p_out,L"lpb-audio-source",L".mov",true) ||
+                            !isolated_audio.write_all(isolated) || !isolated_audio.ready_to_consume())
+                            return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot isolate the identity-bound source audio track.");
+                        UINT32 rate=0U,channels=0U;
+                        mf_owned_ptr<IMFMediaType> pcm;
+                        std::vector<mf_retained_audio_sample> samples;
+                        const auto decoded=read_software_pcm_audio(context,isolated_audio.path(),rate,channels,pcm,samples);
+                        if(decoded!=LPB_RESULT_OK||samples.empty())
+                            return fail_sidecar(decoded!=LPB_RESULT_OK?decoded:LPB_RESULT_INTERNAL_ERROR,"Additional source audio could not be decoded without dropping it.");
+                        if(!encoded_audio.create(p_out,L"lpb-audio-aac",L".mp4"))
+                            return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot create additional AAC staging.");
+                        const auto muxed=mux_retained_software_samples(context,encoded_audio.path(),nullptr,true,pcm.get(),rate,channels,{},samples);
+                        if(muxed!=LPB_RESULT_OK||!encoded_audio.ready_to_consume()||!read_all_bytes(encoded_audio.reader(),encoded)||
+                            !replace_isobmff_audio_track(retained,id,encoded,replaced))
+                            return fail_sidecar(muxed!=LPB_RESULT_OK?muxed:LPB_RESULT_INTERNAL_ERROR,"Additional AAC track could not be bound to its source identity.");
+                        if(!isolated_audio.abort_and_confirm()||!encoded_audio.abort_and_confirm())
+                            return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot retire additional audio staging.");
+                        retained.swap(replaced);sibling_audio_transcoded=true;
+                    }
+                }
+            }
+            if (!stage_c.path().empty()) {
+                if (!stage_c.abort_and_confirm()) return fail_sidecar(LPB_RESULT_INTERNAL_ERROR, "Cannot retire previous display staging.");
+            }
+            if (!stage_c.create(p_out,L"lpb-retained-tracks",L".tmp",true) ||
+                !stage_c.write_all(retained) || !stage_c.ready_to_consume())
+                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot stage retained Neutral tracks.");
+            publish_stage=&stage_c;final_staged_reader=stage_c.reader();
         }
 
         lpb_video_item_facts output_facts{};
@@ -3254,6 +3320,15 @@ lpb_result transcode_video_file(
                 return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                     "OutputValidation: controlled H264 final staging failed exact source-frame interval timing; no retry.");
         }
+        if (compatible_profile && !bridge.stream_copied) {
+            isobmff_video_presentation_timeline source_timeline{}, final_timeline{};
+            uint32_t failed_frame = 0U;
+            if (!inspect_isobmff_video_presentation_timeline(source_bytes, source_timeline) ||
+                !inspect_isobmff_video_presentation_timeline(metadata_readback, final_timeline) ||
+                !presentation_timing_within_source_frame_intervals(source_timeline, final_timeline, failed_frame))
+                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
+                    "OutputValidation: compatible transcode changed visible sample correspondence or presentation intervals.");
+        }
         const lpb_result metadata_cancel = lpb_context_check_cancelled(context);
         if (metadata_cancel != LPB_RESULT_OK) return fail_sidecar(metadata_cancel,
             "Video conversion was cancelled after metadata verification and before publication.");
@@ -3289,8 +3364,8 @@ lpb_result transcode_video_file(
             char compat_diag[128]{};
             std::snprintf(compat_diag, sizeof(compat_diag),
                 "compat:aux_vid=%u;mebx=%u;other=%u;pcm_aac=%d;copied=%d",
-                bridge.dropped_aux_video, bridge.dropped_mebx, bridge.dropped_other,
-                pcm_to_aac ? 1 : 0, bridge.stream_copied ? 1 : 0);
+                0U, 0U, 0U,
+                (pcm_to_aac || sibling_audio_transcoded) ? 1 : 0, bridge.stream_copied ? 1 : 0);
             strncpy_s(out_diagnostics->fallback_reason, sizeof(out_diagnostics->fallback_reason),
                 compat_diag, _TRUNCATE);
         }
