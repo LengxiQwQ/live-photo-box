@@ -11,6 +11,7 @@ using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media;
+using LivePhotoBox.Media.Workspace;
 using LivePhotoBox.Protocols.Cleaning;
 
 namespace LivePhotoBox.Services;
@@ -316,7 +317,9 @@ internal static class StructuredTargetWriterService
     }
     else
     {
-        // BestEffort: carry all valid supported auxiliary assets, record unsupported to notCarried
+        // Give the existing B-level GainMap capability priority over optional
+        // history/private assets. Strict keeps its original complete inventory.
+        semantics = semantics.OrderBy(item => item.Semantic == "GainMap" ? 0 : 1).ToList();
         var result = new List<AuxiliaryBinding>();
         SourceMediaFacts? facts = null;
         try
@@ -339,30 +342,10 @@ internal static class StructuredTargetWriterService
 
         foreach (var semantic in semantics)
         {
-            if (target == 4 && semantic.Semantic != "GainMap")
-            {
-                notCarried.Add(new NotCarriedItem
-                {
-                    Item = semantic.Semantic,
-                    Reason = target == 4 ? "Vivo directory cannot represent preserved non-GainMap assets" : "Samsung directory cannot represent preserved non-GainMap assets",
-                    Outcome = PreservationOutcome.DiscardedNotApplicable
-                });
-                continue;
-            }
-            if (target == 6 && (semantic.Semantic == "MiCameraSubimage" || semantic.Semantic == "MiCameraLensWatermark"))
-            {
-                notCarried.Add(new NotCarriedItem
-                {
-                    Item = semantic.Semantic,
-                    Reason = "Huawei directory cannot represent preserved Xiaomi camera assets",
-                    Outcome = PreservationOutcome.DiscardedNotApplicable
-                });
-                continue;
-            }
+            token.ThrowIfCancellationRequested();
             try
             {
                 _ = AuxiliarySemanticCode(semantic.Semantic);
-                if (result.Count >= 2) throw new NotSupportedException("ImplementationUnsupported: auxiliary binding capacity must be extended; this is not a format limitation.");
                 if (semantic.EvidenceState is NeutralEvidenceState.Unknown or NeutralEvidenceState.NotApplicable ||
                     semantic.OwnerIdentity != "primary:0" || semantic.Ownership != AuxiliaryOwnership.Primary)
                 {
@@ -423,7 +406,7 @@ internal static class StructuredTargetWriterService
                 MediaArtifact? materialized = null;
                 if (representation != 1)
                 {
-                    var candidates = bundle.AuxiliaryMedia.Where(item => item.Semantic == row.Semantic &&
+                    var candidates = bundle.AuxiliaryMedia.Where(item => item.StableIdentity == row.StableIdentity && item.Semantic == row.Semantic &&
                         item.OwnerIdentity == row.OwnerIdentity && item.Relationship == row.Relationship &&
                         item.MaterializedArtifact is not null).Select(item => item.MaterializedArtifact!).ToList();
                     if (row.Semantic == "GainMap" && bundle.GainMap is { } image) candidates.Add(image);
@@ -447,6 +430,38 @@ internal static class StructuredTargetWriterService
                     RejectSourceAlias(finalPath, materialized);
                 }
 
+                bool targetCannotCarry = (target == 4 && row.Semantic != "GainMap") ||
+                    (target == 6 && row.Semantic is "MiCameraSubimage" or "MiCameraLensWatermark");
+                if (targetCannotCarry || result.Count >= 2 || result.Any(item => item.Row.Semantic == row.Semantic))
+                {
+                    // This is a transport limit, not a reason to extend the
+                    // public ABI for C-level assets or to fail ordinary A media.
+                    // Unknown semantics and ambiguous ownership still fail closed.
+                    bool optionalPrivateAsset = (row.Semantic, row.Relationship) is
+                        ("Original", "Original") or
+                        ("MiCameraSubimage", "micamera-xmpmeta-subimage") or
+                        ("MiCameraLensWatermark", "micamera-xmpmeta-lenswatermark");
+                    if (!optionalPrivateAsset)
+                        throw new NotSupportedException("Auxiliary transport capacity cannot safely omit this semantic asset.");
+                    if (materialized is not null)
+                    {
+                        using var leases = new NeutralArtifactReadLeaseSet();
+                        leases.Pin(materialized);
+                        await using var input = File.OpenRead(materialized.Path);
+                        string actualHash = Convert.ToHexString(await SHA256.HashDataAsync(input, token).ConfigureAwait(false));
+                        if (!string.Equals(actualHash, row.Sha256, StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidDataException("Optional auxiliary bytes changed before the loss decision.");
+                    }
+                    notCarried.Add(new NotCarriedItem
+                    {
+                        Item = row.Semantic,
+                        Reason = targetCannotCarry
+                            ? "Selected target cannot transport this optional history/private asset; no separate preservation is claimed"
+                            : "Optional history/private asset exceeds existing unique target transport capacity; no separate preservation is claimed",
+                        Outcome = PreservationOutcome.DiscardedNotApplicable
+                    });
+                    continue;
+                }
                 result.Add(new AuxiliaryBinding(row, representation, selectorKind, selectorId, materialized));
             }
             catch (OperationCanceledException) { throw; }
@@ -613,6 +628,10 @@ internal static class StructuredTargetWriterService
             }
             if (!CryptographicOperations.FixedTimeEquals(hash.GetHashAndReset(), OutputHash()))
                 throw new IOException("Transported target bytes do not match the Native sealed artifact.");
+            // Retire Native staging before the publisher can commit the target.
+            // A cleanup failure must not turn an already committed output into
+            // a reported failure with no committed-artifact receipt.
+            ReleasePlan();
         }
 
         private unsafe void Read(ulong offset, Span<byte> buffer)
@@ -679,22 +698,24 @@ internal static class StructuredTargetWriterService
             bytes.CopyTo(new Span<byte>(output, bytes.Length));
         }
 
+        private void ReleasePlan()
+        {
+            if (_plan == 0) return;
+            nint plan = _plan;
+            _plan = 0;
+            NativeResult release = NativeMethods.TargetWriterRelease(_operation.Handle, plan);
+            if (release != NativeResult.Ok)
+                throw new IOException("Native target stage cleanup did not complete: " + release);
+        }
+
         public void Dispose()
         {
             if (_compoundRetained) { _compoundRetained = false; _compound!.DangerousRelease(); }
-            NativeResult release = NativeResult.Ok;
             try
             {
-                if (_plan != 0)
-                {
-                    nint plan = _plan;
-                    _plan = 0;
-                    release = NativeMethods.TargetWriterRelease(_operation.Handle, plan);
-                }
+                ReleasePlan();
             }
             finally { _operation.Dispose(); _context.Dispose(); }
-            if (release != NativeResult.Ok)
-                throw new IOException("Native target stage cleanup did not complete: " + release);
         }
     }
 }

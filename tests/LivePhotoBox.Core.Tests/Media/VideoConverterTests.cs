@@ -28,6 +28,27 @@ public sealed class VideoConverterTests
     private static string ResolveSample(string fileName) => TestSampleResolver.ResolveSample(fileName);
 
     [Theory]
+    [Trait("Category", "RealSamples")]
+    [InlineData(VideoCodec.Hevc)]
+    [InlineData(VideoCodec.H264)]
+    public async Task CompatibleAudioAndCopyFlagsSurviveBackendDescription(VideoCodec targetCodec)
+    {
+        using var workspace = new MediaWorkspace();
+        string source = ResolveSample("苹果双文件.MOV");
+        string output = Path.Combine(workspace.RootDirectory, "compatible.mp4");
+        var attempt = await NativeMediaService.TranscodeVideoAttemptAsync(source,
+            output, VideoContainer.Mp4, targetCodec, 23,
+            preservationPolicy: PreservationPolicy.BestEffort);
+        Assert.True(attempt.Succeeded, attempt.FailureException?.Message);
+        Assert.NotNull(attempt.OutputEvidence);
+        Assert.True(attempt.Diagnostics.AudioTranscodedToAac, attempt.Diagnostics.HardwareFallbackReason);
+        Assert.StartsWith("compat:", attempt.Diagnostics.HardwareFallbackReason);
+        Assert.Contains("pcm_aac=1;copied=0", attempt.Diagnostics.HardwareFallbackReason);
+        Assert.False(attempt.Diagnostics.StreamCopied);
+        await AudioOutputAssertions.AssertPcmToAacAsync(source, output);
+    }
+
+    [Theory]
     [InlineData("vivo双文件.mp4")]
     [InlineData("苹果双文件.MOV")]
     [Trait("Category", "RealSamples")]

@@ -15,6 +15,33 @@ public sealed class P9StructuredTargetWriterTests
     private static OutputProfile Profile => OutputProfile.Create(TargetProtocol.GoogleMotionPhotoV2, OutputMediaFormat.JpegMp4);
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NativeStagingIsRetiredBeforePublicationValidation(bool rejectValidation)
+    {
+        using var folder = new P9TargetTestInputs.Folder(nameof(NativeStagingIsRetiredBeforePublicationValidation) + rejectValidation);
+        var bundle = P9TargetTestInputs.Bundle(folder.Path);
+        string staging = Path.Combine(folder.Path, "native-stage");
+        Directory.CreateDirectory(staging);
+        string final = Path.Combine(folder.Path, "target.jpg");
+        bool observed = false;
+        using var hook = new P9TargetPublicationTests.ReaderHook((_, _) =>
+        {
+            observed = true;
+            Assert.False(File.Exists(final));
+            Assert.Empty(Directory.GetFiles(staging));
+            if (rejectValidation) throw new InvalidDataException("Rejected before publication");
+        });
+        var operation = StructuredTargetWriterService.WriteAsync(bundle, Profile, final, staging, false, CancellationToken.None);
+        if (rejectValidation) await Assert.ThrowsAsync<InvalidDataException>(() => operation);
+        else await operation;
+        Assert.True(observed);
+        Assert.Equal(!rejectValidation, File.Exists(final));
+        Assert.Empty(Directory.GetFiles(staging));
+        Directory.Delete(staging);
+    }
+
+    [Theory]
     [InlineData(0L, false)] [InlineData(599999L, false)] [InlineData(null, false)] [InlineData(0L, true)]
     public async Task NativeWriterFreshValidatorAndGuardedPublicationCompleteRealLoop(long? cover, bool ordinaryXmp)
     {

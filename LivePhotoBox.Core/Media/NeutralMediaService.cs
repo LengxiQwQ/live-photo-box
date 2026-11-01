@@ -422,9 +422,6 @@ public sealed class NeutralMediaService : INeutralMediaService
                 };
             }
 
-            bool isCompatibleProfile = preservationPolicy == PreservationPolicy.BestEffort;
-                        bool containerChanges = requirement.VideoContainer != VideoContainer.Unknown &&
-                requirement.VideoContainer != finalVideo?.VideoContainer;
             bool targetDiffers = (requirement.TargetFps is > 0) ||
                 (requirement.VideoContainer != VideoContainer.Unknown && requirement.VideoContainer != finalVideo?.VideoContainer) ||
                 (requirement.VideoCodec != VideoCodec.Copy && requirement.VideoCodec != VideoCodec.Unknown && requirement.VideoCodec != finalVideo?.VideoCodec);

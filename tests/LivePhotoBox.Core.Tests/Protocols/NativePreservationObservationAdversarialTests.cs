@@ -54,6 +54,55 @@ public sealed class NativePreservationObservationAdversarialTests
         throw new InvalidOperationException($"iloc item {targetItemId} not found.");
     }
 
+    private static (int Start, int End) FindFirstMainJpegScan(byte[] data)
+    {
+        Assert.True(data.Length >= 4 && data[0] == 0xFF && data[1] == 0xD8);
+        int p = 2;
+        while (p < data.Length)
+        {
+            Assert.Equal(0xFF, data[p++]);
+            while (p < data.Length && data[p] == 0xFF) p++;
+            Assert.True(p < data.Length);
+            byte marker = data[p++];
+            Assert.True(marker != 0 && marker != 0xD9 && marker != 0xD8);
+            Assert.True(p + 2 <= data.Length);
+            int length = BinaryPrimitives.ReadUInt16BigEndian(data.AsSpan(p, 2));
+            Assert.True(length >= 2 && length <= data.Length - p);
+            int end = p + length;
+            if (marker == 0xDA)
+            {
+                for (int q = end; q + 1 < data.Length; q++)
+                {
+                    if (data[q] != 0xFF) continue;
+                    int next = q + 1;
+                    while (next < data.Length && data[next] == 0xFF) next++;
+                    Assert.True(next < data.Length);
+                    byte code = data[next];
+                    if (code == 0 || code is >= 0xD0 and <= 0xD7) { q = next; continue; }
+                    return (end, q);
+                }
+                throw new InvalidDataException("Main JPEG scan has no terminating marker.");
+            }
+            p = end;
+        }
+        throw new InvalidDataException("Main JPEG SOS was not found.");
+    }
+
+    private static System.Collections.Generic.List<(int Offset, int Size, string Type)> ReadTestBoxes(byte[] data, int start, int end)
+    {
+        var boxes = new System.Collections.Generic.List<(int Offset, int Size, string Type)>();
+        Assert.True(start >= 0 && end <= data.Length && start <= end);
+        for (int p = start; p < end;)
+        {
+            Assert.True(end - p >= 8, "Truncated box header in test fixture.");
+            uint size = BinaryPrimitives.ReadUInt32BigEndian(data.AsSpan(p, 4));
+            Assert.True(size >= 8 && size <= end - p, "Invalid box bounds in test fixture.");
+            boxes.Add((p, checked((int)size), Encoding.ASCII.GetString(data, p + 4, 4)));
+            p += checked((int)size);
+        }
+        return boxes;
+    }
+
     [Fact]
     public async Task Observation_FakeExifInEntropyCodestream_IsIgnoredByNative()
     {
@@ -70,26 +119,16 @@ public sealed class NativePreservationObservationAdversarialTests
             validPath, SourceProtocol.GoogleMicroVideoV1, ImageContainer.Jpeg);
         Assert.True(baselineObs.HasExif);
 
-        // Append a fake APP1 Exif signature in entropy codestream (after SOS)
-        // Find SOS (0xFF, 0xDA)
-        int sosIdx = -1;
-        for (int i = 0; i < rawBytes.Length - 1; i++)
-        {
-            if (rawBytes[i] == 0xFF && rawBytes[i + 1] == 0xDA)
-            {
-                sosIdx = i;
-                break;
-            }
-        }
-        Assert.True(sosIdx > 0);
-
+        // Walk the main JPEG marker hierarchy: embedded thumbnails can contain SOS too.
+        var (entropyStart, entropyEnd) = FindFirstMainJpegScan(rawBytes);
         byte[] adversarialBytes = (byte[])rawBytes.Clone();
         byte[] fakeExif = Encoding.ASCII.GetBytes("Exif\0\0II*\0\x08\0\0\0\x01\0\x12\x01\x03\0\x01\0\0\0\x06\0\0\0\0\0\0\0");
-        int injectPos = sosIdx + 50;
-        if (injectPos + fakeExif.Length < adversarialBytes.Length - 2)
-        {
-            Buffer.BlockCopy(fakeExif, 0, adversarialBytes, injectPos, fakeExif.Length);
-        }
+        int injectPos = entropyStart + 32;
+        Assert.True(injectPos + fakeExif.Length <= entropyEnd, "The fake signature must fit wholly inside the first main-image scan.");
+        Assert.False(rawBytes.AsSpan(injectPos, fakeExif.Length).SequenceEqual(fakeExif));
+        fakeExif.CopyTo(adversarialBytes, injectPos);
+        Assert.True(adversarialBytes.AsSpan(injectPos, fakeExif.Length).SequenceEqual(fakeExif));
+        Assert.True(rawBytes.AsSpan(0, entropyStart).SequenceEqual(adversarialBytes.AsSpan(0, entropyStart)));
 
         string advPath = workspace.AllocateFilePath("adv-exif", ".jpg");
         await File.WriteAllBytesAsync(advPath, adversarialBytes);
@@ -171,41 +210,33 @@ public sealed class NativePreservationObservationAdversarialTests
         byte[] rawBytes = await File.ReadAllBytesAsync(samplePath);
         using var workspace = new MediaWorkspace();
 
-        // Tamper rawBytes by injecting a duplicate auxl box into iref
+        string baselinePath = workspace.AllocateFilePath("samsung-valid-aux", ".heic");
+        await File.WriteAllBytesAsync(baselinePath, rawBytes);
+        var baseline = await NativeMediaService.CapturePreservationObservationAsync(
+            baselinePath, SourceProtocol.SamsungMotionPhotoHeic, ImageContainer.Heic);
+        Assert.False(baseline.CodestreamError);
+        Assert.False(baseline.HeicAuxAmbiguous);
+        Assert.NotEmpty(baseline.ImageCodestreamSha256);
+
+        var meta = Assert.Single(ReadTestBoxes(rawBytes, 0, rawBytes.Length), b => b.Type == "meta");
+        var iref = Assert.Single(ReadTestBoxes(rawBytes, meta.Offset + 12, meta.Offset + meta.Size), b => b.Type == "iref");
+        Assert.Equal(0, rawBytes[iref.Offset + 8]); // This fixture uses 16-bit reference IDs.
+        var references = ReadTestBoxes(rawBytes, iref.Offset + 12, iref.Offset + iref.Size);
+        var auxl = Assert.Single(references, b => b.Type == "auxl");
+        Assert.Equal(14, auxl.Size);
+        Assert.Equal(1, BinaryPrimitives.ReadUInt16BigEndian(rawBytes.AsSpan(auxl.Offset + 10, 2)));
+        // Replace one equal-sized metadata reference with an exact duplicate auxl.
+        // No insertion, changed lengths or shifted iloc offsets are needed.
+        var replacement = references.First(b => b.Type == "cdsc" && b.Size == auxl.Size);
         byte[] tamperedBytes = (byte[])rawBytes.Clone();
-        int irefPos = -1;
-        for (int i = 0; i <= tamperedBytes.Length - 8; i++)
-        {
-            if (tamperedBytes[i + 4] == 'i' && tamperedBytes[i + 5] == 'r' && tamperedBytes[i + 6] == 'e' && tamperedBytes[i + 7] == 'f')
-            {
-                irefPos = i;
-                break;
-            }
-        }
-        Assert.True(irefPos > 0);
-
-        int auxlPos = -1;
-        for (int i = irefPos; i <= tamperedBytes.Length - 14; i++)
-        {
-            if (tamperedBytes[i + 4] == 'a' && tamperedBytes[i + 5] == 'u' && tamperedBytes[i + 6] == 'x' && tamperedBytes[i + 7] == 'l')
-            {
-                auxlPos = i;
-                break;
-            }
-        }
-        Assert.True(auxlPos > 0);
-
-        // Expand ref_count by 1 and write duplicate reference
-        ushort origRefCount = BinaryPrimitives.ReadUInt16BigEndian(tamperedBytes.AsSpan(auxlPos + 10, 2));
-        BinaryPrimitives.WriteUInt16BigEndian(tamperedBytes.AsSpan(auxlPos + 10, 2), (ushort)(origRefCount + 1));
-        uint origToId = BinaryPrimitives.ReadUInt16BigEndian(tamperedBytes.AsSpan(auxlPos + 12, 2));
-        BinaryPrimitives.WriteUInt16BigEndian(tamperedBytes.AsSpan(auxlPos + 14, 2), (ushort)origToId);
-
-        uint auxlSize = BinaryPrimitives.ReadUInt32BigEndian(tamperedBytes.AsSpan(auxlPos, 4));
-        BinaryPrimitives.WriteUInt32BigEndian(tamperedBytes.AsSpan(auxlPos, 4), auxlSize + 2);
-
-        uint irefSize = BinaryPrimitives.ReadUInt32BigEndian(tamperedBytes.AsSpan(irefPos, 4));
-        BinaryPrimitives.WriteUInt32BigEndian(tamperedBytes.AsSpan(irefPos, 4), irefSize + 2);
+        rawBytes.AsSpan(auxl.Offset, auxl.Size).CopyTo(tamperedBytes.AsSpan(replacement.Offset, replacement.Size));
+        var mutatedReferences = ReadTestBoxes(tamperedBytes, iref.Offset + 12, iref.Offset + iref.Size);
+        Assert.Equal(2, mutatedReferences.Count(b => b.Type == "auxl"));
+        Assert.True(tamperedBytes.AsSpan(auxl.Offset, auxl.Size).SequenceEqual(
+            tamperedBytes.AsSpan(replacement.Offset, replacement.Size)));
+        Assert.Equal(rawBytes.Length, tamperedBytes.Length);
+        Assert.Equal(ReadTestBoxes(rawBytes, meta.Offset + 12, meta.Offset + meta.Size),
+            ReadTestBoxes(tamperedBytes, meta.Offset + 12, meta.Offset + meta.Size));
 
         string tamperedPath = workspace.AllocateFilePath("samsung-ambig-aux", ".heic");
         await File.WriteAllBytesAsync(tamperedPath, tamperedBytes);
@@ -213,7 +244,9 @@ public sealed class NativePreservationObservationAdversarialTests
         var obs = await NativeMediaService.CapturePreservationObservationAsync(
             tamperedPath, SourceProtocol.SamsungMotionPhotoHeic, ImageContainer.Heic);
 
-        // Duplicate auxl relation must set the ambiguous error flag
+        // The primary codestream was still parsed: a broken meta cannot satisfy this test.
+        Assert.False(obs.CodestreamError);
+        Assert.Equal(baseline.ImageCodestreamSha256, obs.ImageCodestreamSha256);
         Assert.True(obs.HeicAuxAmbiguous, "Ambiguous HEIC aux relation must set HeicAuxAmbiguous flag.");
     }
 

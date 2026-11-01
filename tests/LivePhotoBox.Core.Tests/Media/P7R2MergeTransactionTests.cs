@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Buffers.Binary;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
@@ -54,7 +55,13 @@ public sealed class P7R2MergeTransactionTests
         Assert.True(beforePublish.StageLength > videoBytes.Length);
         Assert.False(string.IsNullOrWhiteSpace(beforePublish.StageSha256));
         byte[] output = await File.ReadAllBytesAsync(outputPath);
-        Assert.True(output.AsSpan(output.Length - videoBytes.Length).SequenceEqual(videoBytes));
+        using (var reader = File.OpenRead(outputPath))
+        {
+            var report = NativeTargetValidator.Observe(reader, new TargetValidationExpectations(2, 0, 2, 0) { UseV2 = true }, CancellationToken.None);
+            Assert.True(report.CanPublish, report.ErrorDetail);
+            var media = output.AsSpan(checked((int)report.Observed.VideoOffset), checked((int)report.Observed.VideoLength));
+            Assert.Equal(Mp4MediaPayload(videoBytes), Mp4MediaPayload(media));
+        }
         Assert.Equal(beforePublish.StageLength, output.LongLength);
         Assert.Equal(beforePublish.StageSha256, Convert.ToHexString(SHA256.HashData(output)));
         AssertNoTransactionArtifacts(directory.Path);
@@ -784,7 +791,9 @@ public sealed class P7R2MergeTransactionTests
         byte[] output = await File.ReadAllBytesAsync(outputPath);
         Assert.True(output.Length > new FileInfo(split.ImageOutputPath).Length);
         Assert.True(output.AsSpan(0, 2).SequenceEqual(new byte[] { 0xFF, 0xD8 }));
-        Assert.True(ContainsBytes(output, Encoding.ASCII.GetBytes(expectedMarker)));
+        var observed = await new LivePhotoBox.Media.Inspection.SourceInspector().InspectAsync(outputPath);
+        Assert.Equal(protocolIndex switch { 2 => SourceProtocol.GoogleMotionPhotoV2, 5 => SourceProtocol.SamsungMotionPhotoJpeg, 6 => SourceProtocol.HuaweiMovingPhoto, _ => throw new InvalidOperationException() }, observed.Protocol);
+        if (protocolIndex != 2) Assert.True(ContainsBytes(output, Encoding.ASCII.GetBytes(expectedMarker)));
         FileSnapshot sampleAfter = CaptureFile(samplePath);
         Assert.Equal(sampleBefore.Sha256, sampleAfter.Sha256);
         Assert.Equal(sampleBefore.Identity, sampleAfter.Identity);
@@ -792,8 +801,10 @@ public sealed class P7R2MergeTransactionTests
         if (protocolIndex == 6)
         {
             byte[] tail = output.AsSpan(output.Length - 60).ToArray();
-            long liveValue = new FileInfo(split.VideoOutputPath).Length + 20;
+            Assert.NotNull(observed.MotionVideo);
+            long liveValue = observed.MotionVideo.ByteLength + 20;
             Assert.True(ContainsBytes(tail, Encoding.ASCII.GetBytes($"LIVE_{liveValue}")));
+            Assert.Equal(output.LongLength - 60, observed.MotionVideo.ByteOffset + observed.MotionVideo.ByteLength);
         }
         else if (protocolIndex == 5)
         {
@@ -914,9 +925,15 @@ public sealed class P7R2MergeTransactionTests
         });
         using var trace = directory.CapturePublisherTrace();
 
-        await Assert.ThrowsAsync<IOException>(() => directory.ObserveOperationAsync(
+        var failure = await Record.ExceptionAsync(() => directory.ObserveOperationAsync(
             $"MergeAlias({route},{sourceRole},{aliasKind})",
             () => InvokeWriterRouteAsync(route, imagePath, videoPath, targetPath)));
+        if (route is "native" or "huawei")
+        {
+            Assert.IsType<NotSupportedException>(failure);
+            Assert.Contains("AuthorityViolation", failure.Message);
+        }
+        else Assert.IsType<IOException>(failure);
 
         FileSnapshot imageAfter = CaptureFile(imagePath);
         FileSnapshot videoAfter = CaptureFile(videoPath);
@@ -1059,10 +1076,27 @@ public sealed class P7R2MergeTransactionTests
     {
         string imagePath = Path.Combine(root, "input.jpg");
         string videoPath = Path.Combine(root, "input.mp4");
-        byte[] videoBytes = SyntheticProtocolFixtures.CreateMinimalMp4();
-        File.WriteAllBytes(imagePath, SyntheticProtocolFixtures.CreateMinimalJpeg());
+        // The compatibility API now runs real media validation. Keep all
+        // transaction assertions, using decodable fixtures instead of box shells.
+        byte[] videoBytes = File.ReadAllBytes(Path.Combine(P9TargetTestInputs.Root, "neutral.mp4"));
+        File.Copy(Path.Combine(P9TargetTestInputs.Root, "neutral.jpg"), imagePath);
         File.WriteAllBytes(videoPath, videoBytes);
         return (imagePath, videoPath, videoBytes);
+    }
+
+    private static byte[] Mp4MediaPayload(ReadOnlySpan<byte> movie)
+    {
+        using var payload = new MemoryStream();
+        for (int offset = 0; offset < movie.Length;)
+        {
+            Assert.True(movie.Length - offset >= 8);
+            int length = checked((int)BinaryPrimitives.ReadUInt32BigEndian(movie[offset..]));
+            Assert.InRange(length, 8, movie.Length - offset);
+            if (movie.Slice(offset + 4, 4).SequenceEqual("mdat"u8)) payload.Write(movie.Slice(offset + 8, length - 8));
+            offset += length;
+        }
+        Assert.True(payload.Length > 0);
+        return payload.ToArray();
     }
 
     private static void AssertNoTransactionArtifacts(string directory)

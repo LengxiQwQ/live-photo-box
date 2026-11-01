@@ -2162,15 +2162,7 @@ bool capture_isobmff_static_metadata_evidence(std::span<const uint8_t> source,
         for (uint8_t index = 0U; index < source_headers.size(); ++index) {
             if (source_headers[index].empty()) continue;
             if (source_headers[index] != output_headers[index]) {
-                static char hdr_err[256]{};
-                uint32_t src_w = read_u32(source_headers[index].data() + 96U);
-                uint32_t src_h = read_u32(source_headers[index].data() + 100U);
-                uint32_t out_w = read_u32(output_headers[index].data() + 96U);
-                uint32_t out_h = read_u32(output_headers[index].data() + 100U);
-                std::snprintf(hdr_err, sizeof(hdr_err),
-                    "idx %u: SRC(w=0x%08X, h=0x%08X) vs OUT(w=0x%08X, h=0x%08X)",
-                    index, src_w, src_h, out_w, out_h);
-                reason(hdr_err);
+                reason("movie/track/media header metadata differs");
                 return false;
             }
             const uint8_t scope = static_cast<uint8_t>(5U + index);

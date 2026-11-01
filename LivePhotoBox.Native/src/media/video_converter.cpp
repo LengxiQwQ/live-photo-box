@@ -3143,9 +3143,8 @@ lpb_result transcode_video_file(
                     return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                         "Native could not materialize its metadata-preserving Stage B output.");
                 }
-                final_staged_reader = meta_stage->reader();
                 std::vector<uint8_t> stage_readback;
-                if (!read_all_bytes(final_staged_reader, stage_readback) ||
+                if (!read_all_bytes(meta_stage->reader(), stage_readback) ||
                     !validate_isobmff_static_metadata(source_bytes, stage_readback) ||
                     (meta_seed_valid && !validate_isobmff_mebx_transplants(source_bytes, stage_readback, transplanted_facts))) {
                     if (!compatible_profile) {
@@ -3154,6 +3153,7 @@ lpb_result transcode_video_file(
                     }
                 } else {
                     publish_stage = meta_stage;
+                    final_staged_reader = publish_stage->reader();
                 }
             }
         }
@@ -3384,11 +3384,15 @@ lpb_result transcode_video_file(
             if (pcm_to_aac || sibling_audio_transcoded || bridge.stream_copied) {
                 char compat_diag[128]{};
                 std::snprintf(compat_diag, sizeof(compat_diag),
-                    "; compat:aux_vid=%u;mebx=%u;other=%u;pcm_aac=%d;copied=%d",
+                    "compat:aux_vid=%u;mebx=%u;other=%u;pcm_aac=%d;copied=%d",
                     0U, 0U, 0U,
                     (pcm_to_aac || sibling_audio_transcoded) ? 1 : 0, bridge.stream_copied ? 1 : 0);
-                strncat_s(out_diagnostics->fallback_reason, sizeof(out_diagnostics->fallback_reason),
-                    compat_diag, _TRUNCATE);
+                // These flags are consumed by managed conversion truth. Keep
+                // them ahead of optional prose so truncation cannot erase them.
+                std::array<char, sizeof(out_diagnostics->fallback_reason)> detail{};
+                std::memcpy(detail.data(), out_diagnostics->fallback_reason, detail.size());
+                std::snprintf(out_diagnostics->fallback_reason, sizeof(out_diagnostics->fallback_reason),
+                    "%s;%s", compat_diag, detail.data());
             }
         }
         return LPB_RESULT_OK;

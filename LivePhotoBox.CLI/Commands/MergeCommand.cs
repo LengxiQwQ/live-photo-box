@@ -949,87 +949,27 @@ namespace LivePhotoBox.Cli.Commands
                 return 130;
             }
 
-            // 7. After-completion actions (only on successful tasks)
-            if (!string.IsNullOrEmpty(afterMoveDir))
+            // Keep conversion receipts separate from source post-processing.
+            int afterFailed = 0;
+            bool afterCancelled = false;
+            if (!string.IsNullOrEmpty(afterMoveDir) || afterRecycle)
             {
-                if (!json)
-                {
-                    if (CliConsole.UseColor)
-                    {
-                        Console.WriteLine();
-                        Console.Write("Moving source files to '");
-                        CliConsole.Write(afterMoveDir, CliConsole.PathGreen);
-                        Console.WriteLine("'...");
-                    }
-                    else
-                    {
-                        Console.WriteLine($"\nMoving source files to '{afterMoveDir}'...");
-                    }
-                }
-                Directory.CreateDirectory(afterMoveDir);
-                int moved = 0;
                 foreach (var task in tasks.Where(t => t.Status == ProcessStatus.Success))
                 {
-                    try
+                    var action = ApplySourceAction(task.ImagePath, task.VideoPath, afterMoveDir, ct);
+                    if (json) jsonFiles[task.Index - 1].AfterAction = action;
+                    if (action.Status == "failed")
                     {
-                        if (File.Exists(task.ImagePath))
-                        {
-                            File.Move(task.ImagePath, Path.Combine(afterMoveDir, Path.GetFileName(task.ImagePath)));
-                            moved++;
-                        }
-                        if (!string.IsNullOrEmpty(task.VideoPath) && File.Exists(task.VideoPath))
-                        {
-                            File.Move(task.VideoPath, Path.Combine(afterMoveDir, Path.GetFileName(task.VideoPath)));
-                            moved++;
-                        }
+                        afterFailed++;
+                        if (!json) CliConsole.WriteErrorLine($"WARN: Source {action.Action} failed for '{Path.GetFileName(task.ImagePath)}': {action.Reason}");
                     }
-                    catch (Exception ex)
-                    {
-                        if (!json) CliConsole.WriteErrorLine($"WARN: Failed to move '{Path.GetFileName(task.ImagePath)}': {ex.Message}");
-                    }
-                }
-                if (!json)
-                {
-                    Console.Write("Moved ");
-                    CliConsole.Write(moved.ToString(), CliConsole.Highlight);
-                    Console.WriteLine(" source files.");
-                }
-            }
-            else if (afterRecycle)
-            {
-                if (!json) Console.WriteLine("\nMoving source files to recycle bin...");
-                int recycled = 0;
-                foreach (var task in tasks.Where(t => t.Status == ProcessStatus.Success))
-                {
-                    try
-                    {
-                        if (File.Exists(task.ImagePath))
-                        {
-                            MoveToRecycleBin(task.ImagePath);
-                            recycled++;
-                        }
-                        if (!string.IsNullOrEmpty(task.VideoPath) && File.Exists(task.VideoPath))
-                        {
-                            MoveToRecycleBin(task.VideoPath);
-                            recycled++;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        if (!json) CliConsole.WriteErrorLine($"WARN: Failed to recycle '{Path.GetFileName(task.ImagePath)}': {ex.Message}");
-                    }
-                }
-                if (!json)
-                {
-                    Console.Write("Recycled ");
-                    CliConsole.Write(recycled.ToString(), CliConsole.Highlight);
-                    Console.WriteLine(" source files.");
+                    if (action.Status == "cancelled") { afterCancelled = true; break; }
                 }
             }
 
             // 8. Summary
             if (json)
-                PrintBatchJson(inputDir, outputDir, tasks.Count, ok, fail, jsonFiles);
+                PrintBatchJson(inputDir, outputDir, tasks.Count, ok, fail, jsonFiles, afterFailed, afterCancelled);
             else
             {
                 Console.WriteLine();
@@ -1040,8 +980,76 @@ namespace LivePhotoBox.Cli.Commands
                 Console.Write(" FAIL, ");
                 CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
                 Console.WriteLine(" total");
+                if (afterFailed > 0) CliConsole.WriteErrorLine($"Source post-processing failed for {afterFailed} pair(s); converted outputs are retained.");
+                if (afterCancelled) CliConsole.WriteErrorLine("Source post-processing cancelled; converted outputs are retained.");
             }
-            return fail > 0 ? 1 : 0;
+            return afterCancelled ? 130 : fail > 0 || afterFailed > 0 ? 1 : 0;
+        }
+
+        private sealed class SourceActionFile
+        {
+            public required string Source { get; init; }
+            public string? Destination { get; set; }
+            public string Status { get; set; } = "pending";
+        }
+
+        private sealed class SourceActionResult
+        {
+            public required string Action { get; init; }
+            public string Status { get; set; } = "pending";
+            public string Reason { get; set; } = "";
+            public required SourceActionFile[] Files { get; init; }
+        }
+
+        private static SourceActionResult ApplySourceAction(
+            string imagePath, string videoPath, string? moveDirectory, CancellationToken ct)
+        {
+            var paths = new[] { imagePath, videoPath }.Where(p => !string.IsNullOrEmpty(p))
+                .Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            var result = new SourceActionResult
+            {
+                Action = moveDirectory is null ? "recycle" : "move",
+                Files = paths.Select(path => new SourceActionFile
+                {
+                    Source = path
+                }).ToArray()
+            };
+            try
+            {
+                ct.ThrowIfCancellationRequested();
+                if (moveDirectory is not null)
+                {
+                    moveDirectory = Path.GetFullPath(moveDirectory);
+                    foreach (var file in result.Files) file.Destination = Path.Combine(moveDirectory, Path.GetFileName(file.Source));
+                }
+                // Check the whole pair before moving its first member. Do not
+                // overwrite an archive member or silently split a known conflict.
+                foreach (var file in result.Files)
+                {
+                    if (!File.Exists(file.Source)) throw new FileNotFoundException("Source post-processing input is missing.", file.Source);
+                    if (file.Destination is { } destination && (File.Exists(destination) || Directory.Exists(destination)))
+                        throw new IOException($"Archive destination already exists: '{destination}'.");
+                }
+                if (moveDirectory is not null) Directory.CreateDirectory(moveDirectory);
+                foreach (var file in result.Files)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (file.Destination is { } destination) File.Move(file.Source, destination);
+                    else MoveToRecycleBin(file.Source);
+                    file.Status = file.Destination is null ? "recycled" : "moved";
+                }
+                result.Status = "completed";
+            }
+            catch (Exception ex)
+            {
+                result.Status = ex is OperationCanceledException && ct.IsCancellationRequested ? "cancelled" : "failed";
+                result.Reason = ex.Message;
+                // A late I/O error can follow a successful first move. Report
+                // that exact state; no path-only rollback may clobber a new file.
+                foreach (var file in result.Files.Where(f => f.Status == "pending"))
+                    file.Status = File.Exists(file.Source) ? "retained" : "unknown";
+            }
+            return result;
         }
 
         // 序列化 JSON 到 stdout（脚本模式 --json 用，方便脚本稳定解析，不受文件名长度/终端宽度影响）。
@@ -1058,8 +1066,11 @@ namespace LivePhotoBox.Cli.Commands
             => PrintJson(new { command = "merge", mode = "single", image, video, output, status, reason });
 
         // 批量模式的 JSON 结果。
-        private static void PrintBatchJson(string input, string output, int scanned, int merged, int failed, List<MergeJsonFileEntry> files)
-            => PrintJson(new { command = "merge", mode = "batch", targetSupport = "experimental-device-acceptance-pending", input, output, scanned, merged, failed, files });
+        private static void PrintBatchJson(string input, string output, int scanned, int merged, int failed, List<MergeJsonFileEntry> files,
+            int afterFailed = 0, bool afterCancelled = false)
+            => PrintJson(new { command = "merge", mode = "batch", targetSupport = "experimental-device-acceptance-pending", input, output,
+                status = afterCancelled ? "cancelled" : failed > 0 || afterFailed > 0 ? "failed" : "completed",
+                scanned, merged, failed, afterFailed, files });
 
         // 脚本模式（--json）下单个文件的 JSON 结果条目。
         private sealed class MergeJsonFileEntry
@@ -1070,6 +1081,7 @@ namespace LivePhotoBox.Cli.Commands
             public string Status { get; set; } = "";  // merged / would-merge / failed
             public string Reason { get; set; } = "";  // 失败原因
             public string Output { get; set; } = "";
+            public SourceActionResult? AfterAction { get; set; }
             public ProductOperationOutcome? Outcome { get; set; }
             public string? HistoryWarning { get; set; }
             public IReadOnlyList<NotCarriedItem> NotCarried { get; set; } = [];
@@ -1205,8 +1217,8 @@ namespace LivePhotoBox.Cli.Commands
                 fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT,
             };
             int result = SHFileOperationW(ref shf);
-            if (result != 0)
-                throw new IOException($"SHFileOperationW failed with code {result}");
+            if (result != 0 || shf.fAnyOperationsAborted)
+                throw new IOException($"SHFileOperationW failed or aborted (code {result}).");
         }
     }
 }

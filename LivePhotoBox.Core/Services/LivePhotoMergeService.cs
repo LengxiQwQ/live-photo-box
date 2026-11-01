@@ -15,14 +15,8 @@ using LogLevel = LivePhotoBox.Models.LogLevel;
 
 namespace LivePhotoBox.Services
 {
-    // Live photo merge (composition) service.
-    // Combines a still image and a video into a platform-compliant live photo file.
-    // Core method <see cref="WriteLivePhotoAsync"/> builds XMP metadata per protocol,
-    // then delegates to either the JPEG writer (<see cref="WriteNativeAsync"/> — SOI +
-    // APP1 XMP segment) or the HEIC writer (<see cref="WriteHeicNativeAsync"/> —
-    // exiftool XMP injection into ISOBMFF meta box + mpvd box with video).
-    // XMP already contains the LivePhotoBox namespace marker (injected by WrapXmp),
-    // so no post-write exiftool dc:subject patch is needed.
+    // Compatibility API: high-level writes use the shared validated pipeline.
+    // Raw byte assembly entry points are retired; naming helpers remain shared.
     public static class LivePhotoMergeService
     {
         // Generate the live photo output filename.
@@ -221,10 +215,8 @@ namespace LivePhotoBox.Services
                 presentationTimestampUs, outputFormatIndex);
         }
 
-        // Rebuilt route: the writer itself is format/protocol byte assembly, while
-        // media probing, extraction and codec work stays in Native/NeutralMediaService.
-        // Keeping this boundary explicit prevents the rebuilt merge path from entering
-        // the archived Legacy router.
+        // Preserve the historical signature while delegating all media work to
+        // the same Neutral/Writer/Validator/publication path as the main CLI.
         internal static Task WriteLivePhotoRebuiltAsync(
             string sourceImg,
             string sourceVid,
@@ -257,30 +249,44 @@ namespace LivePhotoBox.Services
             bool overwriteExisting,
             Func<SplitPublicationTraceEvent, CancellationToken, Task>? testHook)
         {
-            return ProcessingPipelineRouter.RunRebuiltAsync("merge", async () =>
+            return WriteValidatedPairAsync(sourceImg, sourceVid, targetPath,
+                selectedModeIndex, outputFormatIndex, presentationTimestampUs,
+                overwriteExisting, testHook, token);
+        }
+
+        private static async Task WriteValidatedPairAsync(
+            string sourceImg, string sourceVid, string targetPath,
+            int protocolIndex, int formatIndex, long presentationTimestampUs,
+            bool overwriteExisting, Func<SplitPublicationTraceEvent, CancellationToken, Task>? testHook,
+            CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            EnsureNoSourceAliasesTarget(sourceImg, sourceVid, targetPath);
+            _ = new FileInfo(sourceImg).Length;
+            _ = new FileInfo(sourceVid).Length;
+            string destination = Path.GetFullPath(targetPath);
+            var previousHook = WindowsSplitOutputPublisher.TestHook.Value;
+            try
             {
-                EnsureNoSourceAliasesTarget(sourceImg, sourceVid, targetPath);
-
-                // Preserve the existing pipeline-router boundary while ensuring
-                // missing inputs fail before the transaction creates staging files.
-                _ = new FileInfo(sourceVid).Length;
-                _ = new FileInfo(sourceImg).Length;
-
-                await WindowsSplitOutputPublisher.PublishSingleAsync(
-                    targetPath,
-                    overwriteExisting,
-                    (staging, stageToken) => WriteLivePhotoCoreAsync(
-                        sourceImg,
-                        sourceVid,
-                        staging,
-                        targetPath,
-                        selectedModeIndex,
-                        stageToken,
-                        presentationTimestampUs,
-                        outputFormatIndex),
-                    testHook,
-                    token).ConfigureAwait(false);
-            });
+                if (testHook is not null) WindowsSplitOutputPublisher.TestHook.Value = testHook;
+                var outcome = await LivePhotoMergeRunnerService.ProcessSinglePairWithOutcomeAsync(
+                    sourceImg, sourceVid, Path.GetFileNameWithoutExtension(destination), 1,
+                    new LivePhotoMergeRunOptions
+                    {
+                        OutputProfile = ProductSelectionAdapter.Merge(protocolIndex, formatIndex),
+                        OutputFilePath = destination,
+                        OutputDirectory = Path.GetDirectoryName(destination)!,
+                        OverwriteExisting = overwriteExisting,
+                        KeyPhotoTimestampUs = presentationTimestampUs
+                    }, string.Empty, token).ConfigureAwait(false);
+                if (outcome.IsSuccess) return;
+                if (outcome.Status == ProductOperationStatus.Cancelled)
+                    throw new OperationCanceledException(outcome.Details, token);
+                if (outcome.Status == ProductOperationStatus.Unsupported)
+                    throw new NotSupportedException(outcome.Details);
+                throw new IOException(outcome.Details);
+            }
+            finally { WindowsSplitOutputPublisher.TestHook.Value = previousHook; }
         }
 
         private static async Task WriteLivePhotoCoreAsync(
@@ -528,25 +534,9 @@ namespace LivePhotoBox.Services
             int originalDurationMs = 0,
             string tailPrefix = "v6_f")
         {
-            EnsureNoSourceAliasesTarget(sourceImg, sourceVid, targetPath);
-            _ = new FileInfo(sourceVid).Length;
-            _ = new FileInfo(sourceImg).Length;
-            return WindowsSplitOutputPublisher.PublishSingleAsync(
-                targetPath,
-                overwriteExisting: true,
-                (output, stageToken) => WriteHuaweiNativeToStreamAsync(
-                    sourceImg,
-                    sourceVid,
-                    output,
-                    targetPath,
-                    isHeicOutput,
-                    presentationTimestampUs,
-                    stageToken,
-                    originalCoverMs,
-                    originalDurationMs,
-                    tailPrefix),
-                testHook: null,
-                token);
+            token.ThrowIfCancellationRequested();
+            return Task.FromException(new NotSupportedException(
+                "[AuthorityViolation] Historical raw Huawei writing is unsupported; use the validated merge pipeline."));
         }
 
         private static async Task WriteHuaweiNativeToStreamAsync(
@@ -856,25 +846,13 @@ namespace LivePhotoBox.Services
         // Write the combined JPEG + XMP + video file.
         // Image pre-processing (e.g. OPPO EXIF injection) is expected to be handled
         // by the caller via <see cref="LivePhotoProtocol.PrepareImageAsync"/>.
-        public static async Task WriteNativeAsync(
-            string sourceImg,
-            string sourceVid,
-            string targetPath,
-            byte[] xmpBytes,
-            CancellationToken token)
+        public static Task WriteNativeAsync(
+            string sourceImg, string sourceVid, string targetPath,
+            byte[] xmpBytes, CancellationToken token)
         {
-            EnsureNoSourceAliasesTarget(sourceImg, sourceVid, targetPath);
-            await WindowsSplitOutputPublisher.PublishSingleAsync(
-                targetPath,
-                overwriteExisting: true,
-                (output, stageToken) => WriteNativeToStreamAsync(
-                    sourceImg,
-                    sourceVid,
-                    output,
-                    xmpBytes,
-                    stageToken),
-                testHook: null,
-                token).ConfigureAwait(false);
+            token.ThrowIfCancellationRequested();
+            return Task.FromException(new NotSupportedException(
+                "[AuthorityViolation] Historical raw XMP writing is unsupported; use the validated merge pipeline."));
         }
 
         private static void EnsureNoSourceAliasesTarget(

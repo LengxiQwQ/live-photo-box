@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.Models;
+using LivePhotoBox.Media.Workspace;
 using Xunit;
 
 namespace LivePhotoBox.Core.Tests.Media;
@@ -17,6 +18,37 @@ public sealed class P9R8ProductIntegrationTests
         OutputProfile = OutputProfile.Create(TargetProtocol.GoogleMotionPhotoV2, OutputMediaFormat.JpegMp4),
         StructuredOptions = new() { PreservationPolicy = PreservationPolicy.Strict }
     };
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task PostPublicationCleanupFailureRetainsCommittedOutputReceipt()
+    {
+        using var folder = new P9TargetTestInputs.Folder(nameof(PostPublicationCleanupFailureRetainsCommittedOutputReceipt));
+        string outputPath = Path.Combine(folder.Path, "target.jpg");
+        string? workspaceRoot = null;
+        var previous = MediaWorkspace.TestCleanupHook.Value;
+        bool injected = false;
+        MediaWorkspace.TestCleanupHook.Value = (_, root) =>
+        {
+            if (injected || !File.Exists(outputPath)) return;
+            workspaceRoot = root;
+            injected = true;
+            throw new IOException("Test post-publication workspace cleanup failure");
+        };
+        try
+        {
+            var result = await LivePhotoMergeRunnerService.ProcessSinglePairWithOutcomeAsync(Source, "", "target", 1,
+                Options(folder.Path, outputPath), CancellationToken.None);
+            Assert.True(injected);
+            Assert.Equal(ProductOperationStatus.Failed, result.Status);
+            Assert.Equal(ProductOperationStage.Cleanup, result.Diagnostic.Stage);
+            var committed = Assert.Single(result.CommittedOutputs);
+            Assert.Equal(outputPath, committed.Path);
+            Assert.Equal(Hash(outputPath), committed.Sha256);
+            Assert.False(Directory.Exists(workspaceRoot));
+        }
+        finally { MediaWorkspace.TestCleanupHook.Value = previous; }
+    }
 
     [Fact]
     [Trait("Category", "RealSamples")]

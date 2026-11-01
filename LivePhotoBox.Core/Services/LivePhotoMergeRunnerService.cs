@@ -210,6 +210,8 @@ namespace LivePhotoBox.Services
                 RequestedDestination = options.OutputFilePath ?? options.OutputDirectory
             };
             NeutralMediaBundle? prepared = null;
+            ProductCommittedArtifact[] committedOutputs = [];
+            var notCarried = new List<NotCarriedItem>();
             ProductOperationStage stage = ProductOperationStage.Selection;
             ProductOperationOutcome terminal;
             try
@@ -224,7 +226,6 @@ namespace LivePhotoBox.Services
                 }
                 MediaFormatRequirement requirement = options.OutputProfile.MediaRequirement with
                     { UnspecifiedImageOrientationHandling = orientationHandling };
-                var notCarried = new List<NotCarriedItem>();
 
                 // Keep original file objects read-only until publication completes.
                 // This also blocks hard-link/reparse aliases and late replacements
@@ -305,8 +306,8 @@ namespace LivePhotoBox.Services
                         ? OppoInitialCoverPolicy.InitializeNewTargetAtCurrentCover
                         : OppoInitialCoverPolicy.RequireKnownOriginal).ConfigureAwait(false);
 
-                stopwatch.Stop();
-                LogService.Merge($"Rebuilt merge completed for {baseName}: {finalOutputPath} ({stopwatch.Elapsed.TotalSeconds:F2}s)");
+                committedOutputs = [new ProductCommittedArtifact { Role = "TargetLivePhoto", Path = published.FinalPath,
+                    Sha256 = published.Sha256, ByteLength = published.ByteLength }];
                 notCarried.AddRange(published.NotCarried);
                 if (bundle.PreparationExecution is { } prepExec)
                 {
@@ -317,15 +318,17 @@ namespace LivePhotoBox.Services
                     }
                 }
 
-                var outputs = new[] { new ProductCommittedArtifact { Role = "TargetLivePhoto", Path = published.FinalPath,
-                    Sha256 = published.Sha256, ByteLength = published.ByteLength } };
+                stage = ProductOperationStage.Cleanup;
+                workspace.Dispose();
+                stopwatch.Stop();
+                LogService.Merge($"Rebuilt merge completed for {baseName}: {finalOutputPath} ({stopwatch.Elapsed.TotalSeconds:F2}s)");
                 terminal = baseline with
                 {
                     Status = ProductOperationStatus.Success,
                     PreparationSemantics = bundle.Semantics,
                     PreparationManifest = bundle.Manifest,
                     PreparationExecution = bundle.PreparationExecution,
-                    CommittedOutputs = outputs,
+                    CommittedOutputs = committedOutputs,
                     NotCarried = notCarried,
                     Diagnostic = new() { Stage = ProductOperationStage.Publication, Message = ResourceService.GetString("Task_Success") }
                 };
@@ -344,6 +347,8 @@ namespace LivePhotoBox.Services
                     PreparationSemantics = prepared?.Semantics,
                     PreparationManifest = prepared?.Manifest ?? [],
                     PreparationExecution = execution,
+                    CommittedOutputs = committedOutputs,
+                    NotCarried = notCarried,
                     Diagnostic = diagnostic with { Message = ex is OperationCanceledException ? ex.Message : ResourceService.Format("Task_Error", ex.Message) }
                 };
             }

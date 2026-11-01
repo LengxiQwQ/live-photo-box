@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using LivePhotoBox.Interop;
+using LivePhotoBox.Services;
 using LivePhotoBox.Services.Protocols;
 using Xunit;
 
@@ -104,6 +105,33 @@ public sealed class P9LegacyMutationBoundaryTests
             VivoDualFileMetadataWriter.WritePairMetadataAsync(image, video, new CancellationToken(true)));
         Assert.Equal(before, Directory.GetFileSystemEntries(root).OrderBy(x => x).ToArray());
         foreach (string file in before) Assert.Equal(baseline, File.ReadAllBytes(file));
+    }
+
+    [Theory]
+    [InlineData("native")]
+    [InlineData("huawei")]
+    public async Task HistoricalRawMerge_RejectsBeforeTouchingMissingPaths(string route)
+    {
+        string root = Path.Combine(Workspace(), "raw-merge-" + route);
+        string image = Path.Combine(root, "missing.jpg"), video = Path.Combine(root, "missing.mp4"), target = Path.Combine(root, "never-created.jpg");
+        Assert.False(Directory.Exists(root));
+        var error = await Assert.ThrowsAsync<NotSupportedException>(() => route == "native"
+            ? LivePhotoMergeService.WriteNativeAsync(image, video, target, [], CancellationToken.None)
+            : LivePhotoMergeService.WriteHuaweiNativeAsync(image, video, target, false, 0, CancellationToken.None));
+        Assert.Contains("AuthorityViolation", error.Message);
+        Assert.False(Directory.Exists(root));
+    }
+
+    [Fact]
+    public async Task HistoricalHighLevelMerge_RejectsInvalidMediaWithoutPublishing()
+    {
+        string root = Workspace() + "-invalid-merge";Directory.CreateDirectory(root);
+        string image = Path.Combine(root, "input.jpg"), video = Path.Combine(root, "input.mp4"), target = Path.Combine(root, "target.jpg");
+        File.WriteAllBytes(image, [255, 216, 255, 217]);File.WriteAllText(video, "not-a-video");
+        byte[] original = [9, 8, 7];File.WriteAllBytes(target, original);
+        await Assert.ThrowsAsync<NotSupportedException>(() => LivePhotoMergeService.WriteLivePhotoAsync(image, video, target, 2, CancellationToken.None));
+        Assert.Equal(original, File.ReadAllBytes(target));
+        Assert.Empty(Directory.GetFiles(root, ".lpb-split-*.tmp"));
     }
 
     [Fact]

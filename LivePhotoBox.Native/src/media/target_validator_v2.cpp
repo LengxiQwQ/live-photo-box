@@ -302,6 +302,7 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
       : primary.auxiliaries.size();
   if(effective_aux_count!=request->auxiliary_count)return reject(2,4,124,"Auxiliary cardinality differs from semantic expectations");
   std::set<uint32_t> actual_semantics;
+  size_t written_aux_count=0;
   for(size_t i=0;i<primary.auxiliaries.size();++i) {
    const auto& a=primary.auxiliaries[i];const uint32_t semantic=a.semantic=="GainMap"?1:a.semantic=="Original"?2:a.semantic=="MiCameraSubimage"?3:a.semantic=="MiCameraLensWatermark"?4:a.semantic=="MpfAuxiliaryImage"?5:0;
    const uint32_t container=a.mime=="image/jpeg"||a.mime=="image/png"?1:a.mime=="image/heic"?2:0;
@@ -316,12 +317,17 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
    for(uint32_t j=0;j<request->auxiliary_count;++j)if(aux_expect[j].semantic==semantic)wanted=&aux_expect[j];
    if((huawei || vivo) && !wanted && (semantic == 3 || semantic == 4)) continue;
    if(!wanted||wanted->container!=container||wanted->byte_length!=a.range.length)return reject(2,4,125,"Auxiliary semantic representation mismatch");
-   auto& actual=output->auxiliaries[i];actual.semantic=semantic;actual.container=container;actual.selector_kind=a.selector_kind;actual.selector_id=a.selector_id;
+   // Observation indices include optional private assets that may be skipped.
+   // Only materialized expectations consume a slot in the bounded ABI result.
+   if(written_aux_count>=std::size(output->auxiliaries))return reject(2,4,125,"Auxiliary result capacity exceeded");
+   auto& actual=output->auxiliaries[written_aux_count];actual.semantic=semantic;actual.container=container;actual.selector_kind=a.selector_kind;actual.selector_id=a.selector_id;
    actual.byte_offset=a.range.offset;actual.byte_length=a.range.length;
    if(!hash_range(full,a.range.offset,a.range.length,actual.sha256)){if(io())return source.error;return reject(2,4,125,"Auxiliary extent exceeds actual file");}
    if(std::memcmp(actual.sha256,wanted->sha256,32))return reject(2,4,125,"Auxiliary bytes differ from expected semantic asset");
+   ++written_aux_count;
   }
-  output->auxiliary_count=static_cast<uint32_t>(effective_aux_count);result.observed_auxiliary_count=output->auxiliary_count;
+  if(written_aux_count!=request->auxiliary_count)return reject(2,4,124,"Auxiliary result count differs from semantic expectations");
+  output->auxiliary_count=static_cast<uint32_t>(written_aux_count);result.observed_auxiliary_count=output->auxiliary_count;
   slice video{full,video_offset,video_length};lpb::media::target_video_observation media;lpb::media::target_video_diagnostic diagnostic;
   lpb::media::target_covertime_observation cover_properties;
   if(!lpb::media::observe_target_video(video.view(),expected.media_format==0||huawei||samsung,media,diagnostic,huawei?&cover_properties:nullptr)) {

@@ -98,6 +98,21 @@ void run(const std::filesystem::path& path){
  if(!evidence(source,source,true,&reason)){if(reason)std::cerr<<reason<<'\n';require(false,"Copy self-proof covers complete real auxiliary graph");}
  require(stream(source,source),"complete real metadata and auxiliary stream proof");
  const auto movie=one(children(source,0,source.size()),"moov");
+ // Header rejection diagnostics must be safe for short mdhd/name projections.
+ unsigned header_cases=0;
+ for(const auto& track:children(source,movie.body,movie.end))if(track.kind=="trak") {
+  const auto mdia=one(children(source,track.body,track.end),"mdia"),handler=one(children(source,mdia.body,mdia.end),"hdlr");
+  if(std::memcmp(source.data()+handler.body+8,"vide",4)&&std::memcmp(source.data()+handler.body+8,"soun",4))continue;
+  const auto mdhd=one(children(source,mdia.body,mdia.end),"mdhd");
+  require(handler.end>handler.body+25,"real handler has a name");
+  for(const auto offset:{mdhd.body+4,handler.end-2}) {
+   auto mismatch=source;mismatch[offset]^=1;
+   require(!evidence(source,mismatch,true,&reason),"changed header rejects");
+   require(reason&&std::strcmp(reason,"movie/track/media header metadata differs")==0,"short-header mismatch has safe truthful diagnostic");
+   ++header_cases;
+  }
+ }
+ require(header_cases==4,"video/audio creation-time and handler-name mismatch coverage");
  // Additional inline user data is admitted only by the original Copy grammar.
  // This real fixture has a final moov, so filling its empty udta moves no mdat.
  require(movie.end==source.size(),"inline fixture requires final movie");

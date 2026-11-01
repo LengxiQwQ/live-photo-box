@@ -3,6 +3,8 @@ using System.Security.Cryptography;
 using System.Buffers.Binary;
 using System.Text;
 using LivePhotoBox.Interop;
+using LivePhotoBox.Media;
+using LivePhotoBox.Media.Workspace;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.Protocols.Cleaning;
@@ -271,24 +273,99 @@ public sealed class P9R3StructuredFamilyTests
         Assert.Throws<TargetValidationException>(() => NativeTargetValidator.RequirePass(report, forged));
     }
 
-    [Fact]
-    public async Task ForgedAuxiliaryOwnerCannotPublishOrOverwriteItsInput()
+    [Theory]
+    [InlineData(TargetProtocol.GoogleMotionPhotoV2)]
+    [InlineData(TargetProtocol.VivoLivePhoto)]
+    [InlineData(TargetProtocol.HuaweiMovingPhoto)]
+    public async Task ForgedAuxiliaryOwnerCannotPublishOrOverwriteItsInput(TargetProtocol target)
     {
-        using var folder = new P9TargetTestInputs.Folder(nameof(ForgedAuxiliaryOwnerCannotPublishOrOverwriteItsInput));
+        using var folder = new P9TargetTestInputs.Folder(nameof(ForgedAuxiliaryOwnerCannotPublishOrOverwriteItsInput) + target);
         var bundle = WithDetachedOriginal(P9TargetTestInputs.Bundle(folder.Path), folder.Path);
         bundle = bundle with { Semantics = bundle.Semantics with
         { AuxiliaryMedia = [bundle.Semantics.AuxiliaryMedia.Single() with { OwnerIdentity = "auxiliary:other" }] } };
         string final = Path.Combine(folder.Path, "target.jpg");
         await Assert.ThrowsAsync<InvalidDataException>(() => StructuredTargetWriterService.WriteAsync(bundle,
-            OutputProfile.Create(TargetProtocol.GoogleMotionPhotoV2, OutputMediaFormat.JpegMp4),
+            OutputProfile.Create(target, OutputMediaFormat.JpegMp4),
             final, folder.Path, false, CancellationToken.None));
         Assert.False(File.Exists(final));
         Assert.Equal(3, Directory.GetFiles(folder.Path).Length);
     }
 
-    private static NeutralMediaBundle WithDetachedOriginal(NeutralMediaBundle bundle, string directory)
+    [Theory]
+    [Trait("Category", "Synthetic")]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OptionalHistoryCapacityDoesNotBlockMainMediaButStillRejectsChangedBytes(bool changedHistory)
     {
-        string path = Path.Combine(directory, "original.jpg");
+        using var folder = new P9TargetTestInputs.Folder(nameof(OptionalHistoryCapacityDoesNotBlockMainMediaButStillRejectsChangedBytes) + changedHistory);
+        var profile = OutputProfile.Create(TargetProtocol.GoogleMotionPhotoV2, OutputMediaFormat.JpegMp4);
+        var bundle = P9TargetTestInputs.Bundle(folder.Path);
+        foreach (string name in new[] { "first", "second", "third" })
+            bundle = WithDetachedOriginal(bundle, folder.Path, name);
+        string history = bundle.AuxiliaryMedia.Last().MaterializedArtifact!.Path;
+        if (changedHistory)
+        {
+            byte[] bytes = File.ReadAllBytes(history);
+            bytes[^1] ^= 1;
+            File.WriteAllBytes(history, bytes);
+        }
+        string final = Path.Combine(folder.Path, "target.jpg");
+        if (changedHistory)
+        {
+            await Assert.ThrowsAsync<InvalidDataException>(() => StructuredTargetWriterService.WriteAsync(bundle,
+                profile, final, folder.Path, false, CancellationToken.None));
+            Assert.False(File.Exists(final));
+            return;
+        }
+        var receipt = await StructuredTargetWriterService.WriteAsync(bundle, profile, final, folder.Path,
+            false, CancellationToken.None);
+        Assert.Equal(2, receipt.NotCarried.Count);
+        Assert.All(receipt.NotCarried, item => Assert.Equal("Original", item.Item));
+        Assert.Equal(Hash(final), receipt.Sha256);
+        Assert.Equal(P9TargetTestInputs.Image, File.ReadAllBytes(history));
+        using var output = File.OpenRead(final);
+        var expected = new TargetValidationExpectations(2, 0, (uint)bundle.MotionVideo!.VideoCodec, bundle.Semantics.Timing.CoverTimestampUs)
+        {
+            UseV2 = true,
+            Auxiliaries = bundle.Manifest.Where(row => row.StableIdentity == "synthetic:original:first").Select(row =>
+                new TargetAuxiliaryExpectation(2u, (uint)row.ImageContainer, (ulong)row.ByteLength, row.Sha256)).ToArray()
+        };
+        NativeTargetValidator.RequirePass(NativeTargetValidator.Observe(output, expected, CancellationToken.None), expected);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task GainMapKeepsTransportPriorityOverExtraHistoryWhileStrictStillRejects()
+    {
+        using var folder = new P9TargetTestInputs.Folder(nameof(GainMapKeepsTransportPriorityOverExtraHistoryWhileStrictStillRejects));
+        using var workspace = new MediaWorkspace();
+        string source = Path.GetFullPath(Path.Combine(P9TargetTestInputs.Root, "../../../../../cache/samples/vivo.jpg"));
+        var profile = OutputProfile.Create(TargetProtocol.GoogleMotionPhotoV2, OutputMediaFormat.JpegMp4);
+        var bundle = await new NeutralMediaService().CreateNeutralBundleAsync(source, null, workspace,
+            profile.MediaRequirement, PreservationPolicy.BestEffort);
+        Assert.NotNull(bundle.Semantics.GainMap);
+        bundle = WithDetachedOriginal(WithDetachedOriginal(bundle, folder.Path, "first"), folder.Path, "second");
+        string final = Path.Combine(folder.Path, "target.jpg");
+        await Assert.ThrowsAsync<NotSupportedException>(() => StructuredTargetWriterService.WriteAsync(bundle,
+            profile, final, workspace.RootDirectory, false, CancellationToken.None, preservationPolicy: PreservationPolicy.Strict));
+        Assert.False(File.Exists(final));
+        var receipt = await StructuredTargetWriterService.WriteAsync(bundle, profile, final, workspace.RootDirectory,
+            false, CancellationToken.None);
+        Assert.Equal("Original", Assert.Single(receipt.NotCarried).Item);
+        using var output = File.OpenRead(final);
+        var expected = new TargetValidationExpectations(2, 0, (uint)bundle.MotionVideo!.VideoCodec, bundle.Semantics.Timing.CoverTimestampUs)
+        {
+            UseV2 = true,
+            Auxiliaries = bundle.Manifest.Where(row => row.Role == "GainMap" || row.StableIdentity == "synthetic:original:first")
+                .Select(row => new TargetAuxiliaryExpectation(row.Role == "GainMap" ? 1u : 2u,
+                    (uint)row.ImageContainer, (ulong)row.ByteLength, row.Sha256)).ToArray()
+        };
+        NativeTargetValidator.RequirePass(NativeTargetValidator.Observe(output, expected, CancellationToken.None), expected);
+    }
+
+    private static NeutralMediaBundle WithDetachedOriginal(NeutralMediaBundle bundle, string directory, string name = "0")
+    {
+        string path = Path.Combine(directory, "original-" + name + ".jpg");
         File.WriteAllBytes(path, P9TargetTestInputs.Image);
         string hash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path)));
         var artifact = new MediaArtifact
@@ -298,21 +375,21 @@ public sealed class P9R3StructuredFamilyTests
         };
         var semantic = new NeutralAuxiliarySemantics
         {
-            StableIdentity = "synthetic:original:0", Semantic = "Original", OwnerIdentity = "primary:0",
+            StableIdentity = "synthetic:original:" + name, Semantic = "Original", OwnerIdentity = "primary:0",
             Relationship = "Original", ImageContainer = ImageContainer.Jpeg, Codec = AuxiliaryCodec.Jpeg,
             Representation = NeutralAuxiliaryRepresentation.Detached, Ownership = AuxiliaryOwnership.Primary,
             EvidenceState = NeutralEvidenceState.Verified
         };
         return bundle with
         {
-            AuxiliaryMedia = [new AuxiliaryMediaDescriptor
+            AuxiliaryMedia = bundle.AuxiliaryMedia.Append(new AuxiliaryMediaDescriptor
             {
                 StableIdentity = semantic.StableIdentity, Semantic = semantic.Semantic,
                 OwnerIdentity = semantic.OwnerIdentity, Relationship = semantic.Relationship,
                 SourceSha256 = hash, SourceLength = artifact.ByteLength, ImageContainer = ImageContainer.Jpeg,
                 Representation = AuxiliaryRepresentation.Detached, Ownership = AuxiliaryOwnership.Primary,
                 MaterializedArtifact = artifact, Codec = AuxiliaryCodec.Jpeg
-            }],
+            }).ToArray(),
             Manifest = bundle.Manifest.Append(new NeutralArtifactManifest
             {
                 Role = "Auxiliary", Path = path, Sha256 = hash, ByteLength = artifact.ByteLength,
@@ -321,7 +398,7 @@ public sealed class P9R3StructuredFamilyTests
                 ImageContainer = ImageContainer.Jpeg, AuxiliaryCodec = AuxiliaryCodec.Jpeg,
                 SemanticRepresentation = NeutralAuxiliaryRepresentation.Detached, Ownership = AuxiliaryOwnership.Primary
             }).ToArray(),
-            Semantics = bundle.Semantics with { AuxiliaryMedia = [semantic] }
+            Semantics = bundle.Semantics with { AuxiliaryMedia = bundle.Semantics.AuxiliaryMedia.Append(semantic).ToArray() }
         };
     }
 }

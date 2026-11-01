@@ -1,5 +1,6 @@
 using System.Reflection;
 using System.Security.Cryptography;
+using System.Text.Json;
 using LivePhotoBox.Cli.Commands;
 using LivePhotoBox.Services;
 using Xunit;
@@ -121,6 +122,82 @@ public sealed class P8SplitCancellationOwnershipTests
             Assert.Equal(130, result.ExitCode);
             Assert.Contains("cancelled", result.StdOut);
             Assert.False(Directory.Exists(output));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Theory]
+    [InlineData("none")]
+    [InlineData("image")]
+    [InlineData("video")]
+    [InlineData("archive-file")]
+    [Trait("Category", "RealSamples")]
+    public async Task MergeAfterMove_ReportsFailureWithoutSplittingKnownConflicts(string conflict)
+    {
+        string root = CliTestHost.CreateTempDir("lpb-p9-merge-after-");
+        try
+        {
+            string input = Path.Combine(root, "input"), archive = Path.Combine(root, "archive"), output = Path.Combine(root, "output");
+            Directory.CreateDirectory(input);
+            string image = Path.Combine(input, "live.jpg"), video = Path.Combine(input, "live.mov");
+            File.Copy(Sample("苹果-双文件.JPG"), image);
+            File.Copy(Sample("苹果-双文件.MOV"), video);
+            string imageHash = Hash(image), videoHash = Hash(video);
+            byte[] foreign = [3, 8, 13, 21];
+            if (conflict == "archive-file") File.WriteAllBytes(archive, foreign);
+            else
+            {
+                Directory.CreateDirectory(archive);
+                if (conflict is "image" or "video")
+                    File.WriteAllBytes(Path.Combine(archive, conflict == "image" ? "live.jpg" : "live.mov"), foreign);
+            }
+            var result = await CliTestHost.RunAsync(MergeCommand.Create(),
+                input, "-o", output, "--after", "move:" + archive, "--json");
+            bool failed = conflict != "none";
+            Assert.Equal(failed ? 1 : 0, result.ExitCode);
+            using var document = JsonDocument.Parse(result.StdOut);
+            var json = document.RootElement;
+            Assert.Equal(1, json.GetProperty("merged").GetInt32());
+            Assert.Equal(0, json.GetProperty("failed").GetInt32());
+            Assert.Equal(failed ? 1 : 0, json.GetProperty("afterFailed").GetInt32());
+            Assert.Equal(failed ? "failed" : "completed", json.GetProperty("status").GetString());
+            var entry = json.GetProperty("files")[0];
+            Assert.Equal("merged", entry.GetProperty("Status").GetString());
+            Assert.True(File.Exists(entry.GetProperty("Output").GetString()));
+            var action = entry.GetProperty("AfterAction");
+            Assert.Equal(failed ? "failed" : "completed", action.GetProperty("Status").GetString());
+            if (failed) Assert.False(string.IsNullOrWhiteSpace(action.GetProperty("Reason").GetString()));
+            Assert.Equal(imageHash, Hash(failed ? image : Path.Combine(archive, "live.jpg")));
+            Assert.Equal(videoHash, Hash(failed ? video : Path.Combine(archive, "live.mov")));
+            foreach (var file in action.GetProperty("Files").EnumerateArray())
+                Assert.Equal(failed ? "retained" : "moved", file.GetProperty("Status").GetString());
+            if (conflict is "image" or "video")
+                Assert.Equal(foreign, File.ReadAllBytes(Path.Combine(archive, conflict == "image" ? "live.jpg" : "live.mov")));
+            if (conflict == "archive-file") Assert.Equal(foreign, File.ReadAllBytes(archive));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public void MergeAfterMove_LateSharingViolationReportsActualPartialState()
+    {
+        string root = CliTestHost.CreateTempDir("lpb-p9-merge-after-lock-");
+        try
+        {
+            string image = Path.Combine(root, "live.jpg"), video = Path.Combine(root, "live.mov"), archive = Path.Combine(root, "archive");
+            File.WriteAllBytes(image, [1, 2, 3]);File.WriteAllBytes(video, [4, 5, 6]);
+            using (File.Open(video, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                var method = typeof(MergeCommand).GetMethod("ApplySourceAction", BindingFlags.NonPublic | BindingFlags.Static)!;
+                var result = method.Invoke(null, [image, video, archive, CancellationToken.None]);
+                using var json = JsonDocument.Parse(JsonSerializer.Serialize(result));
+                Assert.Equal("failed", json.RootElement.GetProperty("Status").GetString());
+                Assert.Equal("moved", json.RootElement.GetProperty("Files")[0].GetProperty("Status").GetString());
+                Assert.Equal("retained", json.RootElement.GetProperty("Files")[1].GetProperty("Status").GetString());
+            }
+            Assert.False(File.Exists(image));Assert.True(File.Exists(video));
+            Assert.Equal(new byte[] { 1, 2, 3 }, File.ReadAllBytes(Path.Combine(archive, "live.jpg")));
+            Assert.Equal(new byte[] { 4, 5, 6 }, File.ReadAllBytes(video));
         }
         finally { Directory.Delete(root, recursive: true); }
     }
