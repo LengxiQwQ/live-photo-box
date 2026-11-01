@@ -468,8 +468,13 @@ public sealed class CleanerTransactionTests
             ];
             outFs.Write(mdatHdr);
 
-            // Sparse seek or chunk write
-            outFs.Seek(targetMdatPayload - 1, SeekOrigin.Current);
+            // Write the original mdat payload so real sample chunk offsets remain valid
+            int origPayloadLen = 2776582 - 36;
+            outFs.Write(movBytes, 36, origPayloadLen);
+
+            // Sparse seek or chunk write for remaining padding
+            long remainingPadding = targetMdatPayload - origPayloadLen;
+            outFs.Seek(remainingPadding - 1, SeekOrigin.Current);
             outFs.WriteByte(0);
 
             // Write the original moov box from the real sample (from offset 2776582 to end)

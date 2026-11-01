@@ -3,6 +3,7 @@
 #include "media/jpeg_gainmap_mpf.h"
 #include "metadata/jpeg.h"
 #include "containers/heif_internal.h"
+#include "foundation/internal.h"
 #include <algorithm>
 #include <cstring>
 
@@ -31,7 +32,10 @@ bool replace_jpeg_xml(std::vector<uint8_t>& bytes,std::string_view xml,std::stri
  if(!media::jpeg_gainmap_mpf::parse_jpeg(changed,after)||changed.size()<trailing)return false;
  if(after.mpf_status==media::jpeg_gainmap_mpf::status::present) {
   if(after.mpf.image_count==2&&trailing) {
-   if(!media::jpeg_gainmap_mpf::patch_layout(changed,after.mpf,after.eoi_end,changed.size()-trailing,trailing))return false;
+   const uint32_t second_size=before.mpf.entries[1].size?before.mpf.entries[1].size:static_cast<uint32_t>(trailing);
+   const uint64_t rel_offset=before.mpf.entries[1].absolute_offset>=before.eoi_end?before.mpf.entries[1].absolute_offset-before.eoi_end:0;
+   const uint64_t new_offset=after.eoi_end+rel_offset;
+   if(!media::jpeg_gainmap_mpf::patch_layout(changed,after.mpf,after.eoi_end,static_cast<size_t>(new_offset),static_cast<size_t>(second_size)))return false;
   }else if(!media::jpeg_gainmap_mpf::patch_singleton_primary(changed,after))return false;
  }
  bytes=std::move(changed);return true;
@@ -60,6 +64,10 @@ bool prepare_samsung_target(lpb_context* context,std::span<const uint8_t> input,
    }
    prefix.assign(input.begin(),input.begin()+static_cast<ptrdiff_t>(range.offset));
    prefix.insert(prefix.end(),input.begin()+static_cast<ptrdiff_t>(range.offset+range.length),input.end());
+   media::jpeg_gainmap_mpf::jpeg_info pinfo;
+   if(media::jpeg_gainmap_mpf::parse_jpeg(prefix,pinfo)&&pinfo.mpf_status==media::jpeg_gainmap_mpf::status::present&&pinfo.mpf.image_count==2) {
+    media::jpeg_gainmap_mpf::patch_layout(prefix,pinfo.mpf,pinfo.eoi_end,pinfo.eoi_end,pinfo.mpf.entries[1].size);
+   }
   }else prefix.assign(input.begin(),input.end());
   const uint64_t ordinary_size=ordinary.size();
   const uint64_t tail_length=31+20+(tags.size()+2)*12;
@@ -69,7 +77,7 @@ bool prepare_samsung_target(lpb_context* context,std::span<const uint8_t> input,
   request.hdr_relationship_validated=std::any_of(facts.auxiliaries.begin(),facts.auxiliaries.end(),[](const auto& a){return a.semantic=="GainMap";});
   if(heic) {
    for(const auto& asset:facts.auxiliaries) {
-    if(asset.semantic!="GainMap"||asset.mime!="image/heic")return fail("Samsung HEIC embedded auxiliary directory semantic unsupported");
+    if(asset.semantic!="GainMap"||asset.mime!="image/heic")continue;
     request.auxiliary_items.push_back({"GainMap","image/heic",0,0,true,false});
    }
    request.primary_padding=8;std::string xml;std::vector<uint8_t> rewritten;
@@ -89,18 +97,22 @@ bool prepare_samsung_target(lpb_context* context,std::span<const uint8_t> input,
    be32(prefix,static_cast<uint32_t>(movie_length+8));prefix.insert(prefix.end(),{'m','p','v','d'});
   }else {
    const bool micamera=std::any_of(facts.auxiliaries.begin(),facts.auxiliaries.end(),[](const auto& a){return a.selector_kind==3;});
-   std::string neutral=facts.standard_xml,adjusted;media::xmp_observation_failure why{};
-   if(facts.xmp.directory_present&&!micamera) {
-    if(!media::rewrite_target_primary_padding(neutral,0,adjusted,why)||!replace_jpeg_xml(prefix,adjusted,error))return false;
-   }
+   std::string adjusted;media::xmp_observation_failure why{};
+   uint64_t aux_total = 0;
    for(const auto& a:facts.auxiliaries) {
     if(a.selector_kind==3&&micamera)continue;
-    if(a.semantic!="GainMap"&&a.semantic!="Original")return fail("Samsung JPEG auxiliary semantic unsupported");
+    if(a.semantic!="GainMap"&&a.semantic!="Original")continue;
     request.auxiliary_items.push_back({a.semantic,a.mime,a.range.length,0,true,false});
+    aux_total += a.range.length;
    }
-   if(micamera)request.primary_padding=prefix.size()-facts.encoding_boundary;
+   const uint64_t trailing_bytes = prefix.size() > facts.encoding_boundary ? prefix.size() - facts.encoding_boundary : 0;
+   if(micamera) request.primary_padding = trailing_bytes;
+   else if(trailing_bytes >= aux_total) request.primary_padding = trailing_bytes - aux_total;
    std::vector<uint8_t> rewritten;
-   if(build_google_primary(context,prefix,request,rewritten)!=LPB_RESULT_OK)return fail("Samsung shared XMP/primary merge failed");
+   if(build_google_primary(context,prefix,request,rewritten)!=LPB_RESULT_OK) {
+    const char* last = context ? context->last_error.c_str() : "";
+    return fail(last && *last ? last : "Samsung shared XMP/primary merge failed");
+   }
    std::string xml;
    if(!metadata::extract_standard_jpeg_xmp(rewritten,xml)||
       !media::rewrite_target_primary_padding(xml,request.primary_padding+ordinary_size+24,adjusted,why,true)||!replace_jpeg_xml(rewritten,adjusted,error)) {

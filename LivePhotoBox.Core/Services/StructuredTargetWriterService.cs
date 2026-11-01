@@ -12,7 +12,6 @@ using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media;
 using LivePhotoBox.Protocols.Cleaning;
-using NativeFileIdentity = LivePhotoBox.Interop.NativeCleanService.NativeFileIdentity;
 
 namespace LivePhotoBox.Services;
 
@@ -83,7 +82,18 @@ internal static class StructuredTargetWriterService
         if (target == 3 && !primaryTime.HasValue)
             throw new NotSupportedException("OPPO original capture time is unknown; current cover cannot invent that history.");
         var notCarried = new List<NotCarriedItem>();
-        OrdinaryBinding[] ordinary = await BindOrdinaryMetadataAsync(bundle, finalPath, preservationPolicy, notCarried, token).ConfigureAwait(false);
+        OrdinaryBinding[] ordinary = (target is 1 or 2 or 3)
+            ? await BindOrdinaryMetadataAsync(bundle, finalPath, preservationPolicy, notCarried, token).ConfigureAwait(false)
+            : Array.Empty<OrdinaryBinding>();
+        if (target is not (1 or 2 or 3) && (bundle.Semantics.OrdinaryMetadata.Count > 0 || bundle.Manifest.Any(x => x.Role == "OrdinaryMetadata")))
+        {
+            notCarried.Add(new NotCarriedItem
+            {
+                Item = "OrdinaryMetadata",
+                Reason = $"{profile.TargetProtocol} cannot represent preserved ordinary metadata records",
+                Outcome = PreservationOutcome.DiscardedNotApplicable
+            });
+        }
         AuxiliaryBinding[] auxiliaries = await BindAuxiliariesAsync(bundle, finalPath, preservationPolicy, target, notCarried, token).ConfigureAwait(false);
         NativeCompoundPrimaryObservation? compound = bundle.PrimaryImage.CompoundPrimary?.Inspect(bundle.PrimaryImage.Path, token).Observation;
         if (compound.HasValue && preservationPolicy == PreservationPolicy.Strict &&
@@ -95,7 +105,7 @@ internal static class StructuredTargetWriterService
             Auxiliaries = auxiliaries.Select(row => new TargetAuxiliaryExpectation(
                 AuxiliarySemanticCode(row.Row.Semantic), (uint)row.Row.ImageContainer,
                 checked((ulong)row.Row.ByteLength), row.Row.Sha256)).ToArray(),
-            OrdinaryMetadata=ordinary.Select(x=>new TargetOrdinaryMetadataExpectation(checked((ulong)x.Row.ByteLength),x.Row.Sha256,(uint)bundle.PrimaryImage.ImageContainer)).ToArray(),
+            OrdinaryMetadata = ordinary.Select(x => new TargetOrdinaryMetadataExpectation(checked((ulong)x.Row.ByteLength), x.Row.Sha256, (uint)bundle.PrimaryImage.ImageContainer)).ToArray(),
             ImageRotationDegrees = KnownRotation(bundle.Semantics.Orientation.PrimaryImage),
             ImageReflection = KnownReflection(bundle.Semantics.Orientation.PrimaryImage),
             VideoRotationDegrees = KnownRotation(bundle.Semantics.Orientation.MotionVideo),
@@ -334,7 +344,17 @@ internal static class StructuredTargetWriterService
                 notCarried.Add(new NotCarriedItem
                 {
                     Item = semantic.Semantic,
-                    Reason = "Vivo directory cannot represent preserved non-GainMap assets",
+                    Reason = target == 4 ? "Vivo directory cannot represent preserved non-GainMap assets" : "Samsung directory cannot represent preserved non-GainMap assets",
+                    Outcome = PreservationOutcome.DiscardedNotApplicable
+                });
+                continue;
+            }
+            if (target == 6 && (semantic.Semantic == "MiCameraSubimage" || semantic.Semantic == "MiCameraLensWatermark"))
+            {
+                notCarried.Add(new NotCarriedItem
+                {
+                    Item = semantic.Semantic,
+                    Reason = "Huawei directory cannot represent preserved Xiaomi camera assets",
                     Outcome = PreservationOutcome.DiscardedNotApplicable
                 });
                 continue;

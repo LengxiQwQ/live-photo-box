@@ -221,7 +221,7 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
   const bool observed=samsung&&!heif?lpb::media::observe_samsung_jpeg_prefix(prefix,full.length,samsung_padding,primary,error):
    !heif&&!v1&&!huawei?lpb::media::observe_target_jpeg_prefix(prefix,full.length,primary,error):lpb::media::observe_target_primary(known,primary,error,false,huawei?known.size():full.length);
   if(!observed)return reject(2,3,111,error.c_str());
-  if(expected.target_profile>=LPB_TARGET_GOOGLE_V1&&expected.target_profile<=LPB_TARGET_OPPO&&
+  if(((expected.target_profile>=LPB_TARGET_GOOGLE_V1&&expected.target_profile<=LPB_TARGET_VIVO_MODERN)||expected.target_profile==LPB_TARGET_SAMSUNG)&&
      std::any_of(primary.auxiliaries.begin(),primary.auxiliaries.end(),[](const auto& a){return a.semantic=="MpfAuxiliaryImage";})) {
    lpb::media::mpf_vendor_primary vendor;
    if(primary.auxiliaries.size()!=1||!lpb::media::observe_cross_target_mpf_primary(prefix,vendor,error))
@@ -284,7 +284,7 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
   if(vivo) {
    if(!x.vivo_claim||!x.vivo_version_present||x.vivo_version!=1||x.vivo_source_present||x.vivo_mediakit_present||x.vivo_flags_present||x.oppo_claim||x.micro_claim)
     return reject(2,4,160,"Vivo experimental identity/version or fabricated camera history mismatch");
-   if(x.items.front().has_length||x.items.front().has_padding||!x.items.back().has_padding||x.items.back().padding||std::any_of(primary.auxiliaries.begin(),primary.auxiliaries.end(),[](const auto& a){return a.semantic!="GainMap";}))
+   if(x.items.front().has_length||x.items.front().has_padding||!x.items.back().has_padding||x.items.back().padding||std::any_of(primary.auxiliaries.begin(),primary.auxiliaries.end(),[](const auto& a){return a.semantic!="GainMap"&&a.semantic!="MpfAuxiliaryImage";}))
     return reject(2,4,161,"Vivo unsupported padding or non-GainMap auxiliary inventory");
    std::map<std::string,std::string> observed_comment;
    if(!primary.jpeg.exif.has_user_comment||!lpb::media::observe_raw_camera_comment(primary.jpeg.exif.user_comment,observed_comment))
@@ -295,7 +295,12 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
    // SDR remains experimental: a GainMap is never manufactured to satisfy a
    // camera-template assumption. Existing HDR ownership is checked below.
   }
-  if(primary.auxiliaries.size()!=request->auxiliary_count)return reject(2,4,124,"Auxiliary cardinality differs from semantic expectations");
+  const size_t effective_aux_count = (huawei || vivo)
+      ? std::count_if(primary.auxiliaries.begin(), primary.auxiliaries.end(), [](const auto& a) {
+          return a.semantic == "GainMap" || a.semantic == "Original" || a.semantic == "MpfAuxiliaryImage";
+        })
+      : primary.auxiliaries.size();
+  if(effective_aux_count!=request->auxiliary_count)return reject(2,4,124,"Auxiliary cardinality differs from semantic expectations");
   std::set<uint32_t> actual_semantics;
   for(size_t i=0;i<primary.auxiliaries.size();++i) {
    const auto& a=primary.auxiliaries[i];const uint32_t semantic=a.semantic=="GainMap"?1:a.semantic=="Original"?2:a.semantic=="MiCameraSubimage"?3:a.semantic=="MiCameraLensWatermark"?4:a.semantic=="MpfAuxiliaryImage"?5:0;
@@ -309,13 +314,14 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
     return reject(2,4,125,"Auxiliary dependency extends outside actual primary container");
    const lpb_target_auxiliary_expectation_v2* wanted=nullptr;
    for(uint32_t j=0;j<request->auxiliary_count;++j)if(aux_expect[j].semantic==semantic)wanted=&aux_expect[j];
+   if((huawei || vivo) && !wanted && (semantic == 3 || semantic == 4)) continue;
    if(!wanted||wanted->container!=container||wanted->byte_length!=a.range.length)return reject(2,4,125,"Auxiliary semantic representation mismatch");
    auto& actual=output->auxiliaries[i];actual.semantic=semantic;actual.container=container;actual.selector_kind=a.selector_kind;actual.selector_id=a.selector_id;
    actual.byte_offset=a.range.offset;actual.byte_length=a.range.length;
    if(!hash_range(full,a.range.offset,a.range.length,actual.sha256)){if(io())return source.error;return reject(2,4,125,"Auxiliary extent exceeds actual file");}
    if(std::memcmp(actual.sha256,wanted->sha256,32))return reject(2,4,125,"Auxiliary bytes differ from expected semantic asset");
   }
-  output->auxiliary_count=static_cast<uint32_t>(primary.auxiliaries.size());result.observed_auxiliary_count=output->auxiliary_count;
+  output->auxiliary_count=static_cast<uint32_t>(effective_aux_count);result.observed_auxiliary_count=output->auxiliary_count;
   slice video{full,video_offset,video_length};lpb::media::target_video_observation media;lpb::media::target_video_diagnostic diagnostic;
   lpb::media::target_covertime_observation cover_properties;
   if(!lpb::media::observe_target_video(video.view(),expected.media_format==0||huawei||samsung,media,diagnostic,huawei?&cover_properties:nullptr)) {

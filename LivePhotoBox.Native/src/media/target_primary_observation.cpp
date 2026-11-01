@@ -58,7 +58,8 @@ bool jpeg_facts(std::span<const uint8_t> input, target_primary_observation& out,
     if((out.xmp.items.empty()||ordinary_mpf_directory)&&mpf.mpf_status==jpeg_gainmap_mpf::status::present&&mpf.mpf.image_count==2) {
         mpf_vendor_primary vendor;
         if(ordinary_mpf_directory) {
-            if(micamera||out.xmp.hdr_claim||out.xmp.items[0].padding!=input.size()-out.encoding_boundary||
+            const uint64_t expected_padding = (samsung_padding != UINT64_MAX ? samsung_padding : 0) + input.size() - out.encoding_boundary;
+            if(micamera||out.xmp.hdr_claim||out.xmp.items[0].padding!=expected_padding||
                 !observe_cross_target_mpf_primary(input,vendor,error)) {
                 error="MPF ordinary primary padding has a conflicting or incomplete owner: "+error;return false;
             }
@@ -69,9 +70,13 @@ bool jpeg_facts(std::span<const uint8_t> input, target_primary_observation& out,
         aux.range={vendor.auxiliary_offset,vendor.auxiliary_length};out.auxiliaries.push_back(std::move(aux));
         if(!ordinary_mpf_directory)cursor=input.size();
     }
-    const uint64_t samsung_embedded_padding=micamera==1?watermark.offset+watermark.length-out.encoding_boundary:0;
+    const uint64_t mpf_padding = ordinary_mpf_directory ? (input.size() - out.encoding_boundary) : 0;
+    const uint64_t samsung_embedded_padding=micamera==1?(watermark.offset+watermark.length-out.encoding_boundary):mpf_padding;
     if(samsung_padding!=UINT64_MAX&&(out.xmp.items.empty()||out.xmp.items.front().padding!=samsung_padding+samsung_embedded_padding)) {
         error="Samsung compatibility padding differs from actual tag extent.";return false;
+    }
+    if(samsung_padding!=UINT64_MAX) {
+        cursor += samsung_embedded_padding;
     }
     if (!out.xmp.items.empty()&&samsung_padding==UINT64_MAX) {
         if (out.xmp.items.front().padding > input.size() - cursor) { error="JPEG primary padding exceeds the observed span."; return false; }

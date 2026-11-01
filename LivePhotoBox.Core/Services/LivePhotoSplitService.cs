@@ -17,7 +17,7 @@ namespace LivePhotoBox.Services
     // belongs to SourceInspector / Native; raw metadata reads are diagnostics.
     public static class LivePhotoSplitService
     {
-        private const int MetadataProbeBytes = 1024 * 1024;
+
 
         private static readonly AsyncLocal<SplitPublicationTestHook?> s_splitPublicationTestHook = new();
 
@@ -150,8 +150,36 @@ namespace LivePhotoBox.Services
                 outputBaseName,
                 overwriteExisting);
 
+            string sourceImagePath = bundle.PrimaryImage.Path;
+            if (bundle.PrimaryImage.CompoundPrimary is not null)
+            {
+                var (_, obs) = bundle.PrimaryImage.CompoundPrimary.Inspect(bundle.PrimaryImage.Path, token);
+                if (obs.KnownLength > 0 && obs.KnownLength < (ulong)new FileInfo(bundle.PrimaryImage.Path).Length)
+                {
+                    string cleanPrimaryPath = workspace.AllocateFilePath("split-clean-primary", imageExtension.ToLowerInvariant());
+                    using (var src = File.OpenRead(bundle.PrimaryImage.Path))
+                    using (var dst = File.Create(cleanPrimaryPath))
+                    {
+                        byte[] buf = new byte[81920];
+                        long remaining = checked((long)obs.KnownLength);
+                        while (remaining > 0)
+                        {
+                            int toRead = (int)Math.Min(remaining, buf.Length);
+                            int r = src.Read(buf, 0, toRead);
+                            if (r <= 0) break;
+                            dst.Write(buf, 0, r);
+                            remaining -= r;
+                        }
+                    }
+                    string sha = await workspace.ComputeFileSha256Async(cleanPrimaryPath, token).ConfigureAwait(false);
+                    var fileIdentity = WindowsFileIdentity.Capture(cleanPrimaryPath);
+                    LivePhotoBox.Media.Workspace.WorkspaceOwnershipRegistry.RegisterCreatedFile(cleanPrimaryPath, fileIdentity, checked((long)obs.KnownLength), sha, "split-clean-primary");
+                    sourceImagePath = cleanPrimaryPath;
+                }
+            }
+
             await PublishSplitOutputsAsync(
-                bundle.PrimaryImage.Path,
+                sourceImagePath,
                 bundle.MotionVideo.Path,
                 imageOutputPath,
                 videoOutputPath,
@@ -241,20 +269,6 @@ namespace LivePhotoBox.Services
                 overwriteExisting,
                 InvokeSplitPublicationTestHookAsync,
                 token);
-        }
-
-        /// <summary>
-        /// 同步版本：遗留文本扫描方法，仅保留给测试使用。
-        /// 生产运行中的媒体检查必须使用 SourceInspector。
-        /// </summary>
-        [Obsolete("Legacy text probe retained only for tests. Production inspection must use SourceInspector.")]
-        public static string ReadMetadataTextSync(string filePath)
-        {
-            using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            int bufferLength = (int)Math.Min(fs.Length, MetadataProbeBytes);
-            byte[] buffer = new byte[bufferLength];
-            int bytesRead = fs.Read(buffer, 0, bufferLength);
-            return Encoding.UTF8.GetString(buffer, 0, bytesRead);
         }
 
         // 构建拆分后图片和视频的输出路径。

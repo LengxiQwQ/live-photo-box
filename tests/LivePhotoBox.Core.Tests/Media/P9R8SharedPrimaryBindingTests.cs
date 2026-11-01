@@ -183,7 +183,7 @@ public sealed class P9R8SharedPrimaryBindingTests
                 StructSize = (uint)sizeof(NativeTargetWriterArtifactV1), Version = 1, Role = role,
                 Container = role == 0 ? (uint)artifact.ImageContainer : (uint)artifact.VideoContainer,
                 VideoCodec = role == 0 ? 0 : (uint)artifact.VideoCodec,
-                ExpectedIdentity = new NativeCleanService.NativeFileIdentity
+                ExpectedIdentity = new NativeFileIdentity
                 {
                     VolumeSerial = identity.VolumeSerialNumber, FileIndex = identity.FileIndex,
                     FileSize = (ulong)artifact.ByteLength, LinkCount = identity.LinkCount

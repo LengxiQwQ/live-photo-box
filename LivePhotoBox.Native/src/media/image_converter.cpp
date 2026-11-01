@@ -9,6 +9,7 @@
 #include "media/image_exif_mapping.h"
 
 #include "media/target_primary_observation.h"
+#include "media/jpeg_observation.h"
 
 #include "media/pixel_orientation.h"
 
@@ -485,28 +486,43 @@ lpb_result convert_image_file(lpb_context* context, const char* input_image_path
 
 
         target_primary_observation facts{};
-
         std::string obs_err;
-
         std::vector<uint8_t> exif;
-
         std::string xmp_str;
-
-        if (!observe_target_primary(source_bytes, facts, obs_err) || facts.container != LPB_IMAGE_CONTAINER_JPEG) {
-            set_error(context,"JPEG metadata observation failed before HEIC encoding; no output was created.");
-            return LPB_RESULT_INVALID_ARGUMENT;
-        }
-        exif = facts.exif_payload;
-        if (!exif.empty()) {
-            auto mapped_exif = exif;
-            if (!map_image_exif_orientation(mapped_exif, facts)) {
-                set_error(context,"JPEG EXIF cannot be safely mapped to the oriented HEIC; no output was created.");
+        if (observe_target_primary(source_bytes, facts, obs_err) && facts.container == LPB_IMAGE_CONTAINER_JPEG) {
+            exif = facts.exif_payload;
+            if (!exif.empty()) {
+                auto mapped_exif = exif;
+                if (!map_image_exif_orientation(mapped_exif, facts)) {
+                    set_error(context,"JPEG EXIF cannot be safely mapped to the oriented HEIC; no output was created.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                exif.swap(mapped_exif);
+            }
+            if (facts.orientation >= 1 && facts.orientation <= 8) normalize_pixel_orientation(pixels, facts.orientation);
+            xmp_str = facts.standard_xml;
+        } else {
+            memory_random_access memory{source_bytes};
+            jpeg_observation jpeg_obs{};
+            jpeg_observation_failure failure{};
+            uint64_t bad = 0;
+            if (!observe_jpeg(memory.view(), jpeg_obs, failure, bad, {true, true, true, true})) {
+                set_error(context, "JPEG metadata observation failed before HEIC encoding; no output was created.");
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
-            exif.swap(mapped_exif);
+            exif = jpeg_obs.exif_payload;
+            if (!exif.empty()) {
+                facts.orientation = jpeg_obs.orientation;
+                auto mapped_exif = exif;
+                if (!map_image_exif_orientation(mapped_exif, facts)) {
+                    set_error(context, "JPEG EXIF cannot be safely mapped to the oriented HEIC; no output was created.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                exif.swap(mapped_exif);
+            }
+            if (jpeg_obs.orientation >= 1 && jpeg_obs.orientation <= 8) normalize_pixel_orientation(pixels, jpeg_obs.orientation);
+            xmp_str = jpeg_obs.xmp;
         }
-        if (facts.orientation >= 1 && facts.orientation <= 8) normalize_pixel_orientation(pixels, facts.orientation);
-        xmp_str = facts.standard_xml;
 
         const auto tiff = exif.size() > 6 ? std::span<const uint8_t>(exif).subspan(6) : std::span<const uint8_t>{};
 

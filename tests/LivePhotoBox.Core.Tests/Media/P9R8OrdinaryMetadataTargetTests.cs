@@ -123,7 +123,7 @@ public sealed class P9R8OrdinaryMetadataTargetTests
     {
         var identity=artifact.FileIdentity!;
         var result=new NativeTargetWriterArtifactV1{StructSize=1112,Version=1,Role=role,Container=role==0?(uint)artifact.ImageContainer:role==1?(uint)artifact.VideoContainer:0,
-            VideoCodec=role==1?(uint)artifact.VideoCodec:0,ExpectedIdentity=new NativeCleanService.NativeFileIdentity{
+            VideoCodec=role==1?(uint)artifact.VideoCodec:0,ExpectedIdentity=new NativeFileIdentity{
                 VolumeSerial=identity.VolumeSerialNumber,FileIndex=identity.FileIndex,FileSize=(ulong)artifact.ByteLength,LinkCount=identity.LinkCount}};
         byte[] hash=Convert.FromHexString(artifact.Sha256!);for(int i=0;i<32;i++)result.Sha256[i]=hash[i];Text(artifact.Path,result.PathUtf8,1024);return result;
     }

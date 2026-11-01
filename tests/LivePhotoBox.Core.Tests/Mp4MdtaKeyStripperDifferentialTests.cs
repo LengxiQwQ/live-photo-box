@@ -11,6 +11,15 @@ namespace LivePhotoBox.Core.Tests;
 [Trait("Evidence", "HistoricalAlgorithm")]
 public sealed class Mp4MdtaKeyStripperDifferentialTests
 {
+    private static byte[] BuildBox(byte[] type, byte[] payload)
+    {
+        byte[] box = new byte[8 + payload.Length];
+        BinaryPrimitives.WriteUInt32BigEndian(box, (uint)box.Length);
+        type.CopyTo(box, 4);
+        payload.CopyTo(box, 8);
+        return box;
+    }
+
     private static byte[] BuildBox(string type, byte[] payload)
     {
         byte[] box = new byte[8 + payload.Length];
@@ -37,13 +46,20 @@ public sealed class Mp4MdtaKeyStripperDifferentialTests
     [Fact]
     public void StripStsdTracks_IsByteIdenticalToLegacyParser()
     {
-        // Construct a mock stsd inside trak
-        byte[] textFragment = Encoding.ASCII.GetBytes("com.apple.quicktime.live-photo-info... padding string");
-        byte[] stsdPayload = [.. new byte[8], .. BuildBox("txt ", textFragment)]; // dummy stsd
+        // Construct a valid metadata trak with tkhd and mebx
+        byte[] keyName = Encoding.UTF8.GetBytes("com.apple.quicktime.live-photo-info");
+        byte[] keydPayload = [.. Encoding.ASCII.GetBytes("mdta"), .. keyName];
+        byte[] keyd = BuildBox("keyd", keydPayload);
+        byte[] keyItem = BuildBox(new byte[] { 0, 0, 0, 1 }, keyd);
+        byte[] keys = BuildBox("keys", keyItem);
+        
+        byte[] mebxPayload = [0, 0, 0, 0, 0, 0, 0, 1, .. keys];
+        byte[] mebx = BuildBox("mebx", mebxPayload);
+        
+        byte[] stsdPayload = [0, 0, 0, 1, .. mebx];
         byte[] stsd = BuildFullBox("stsd", 0, 0, stsdPayload);
         byte[] stbl = BuildBox("stbl", stsd);
         
-        // hdlr for meta
         byte[] hdlrPayload = new byte[20];
         hdlrPayload[4] = (byte)'m';
         hdlrPayload[5] = (byte)'e';
@@ -53,9 +69,16 @@ public sealed class Mp4MdtaKeyStripperDifferentialTests
 
         byte[] minf = BuildBox("minf", stbl);
         byte[] mdia = BuildBox("mdia", [.. hdlr, .. minf]);
-        byte[] trak = BuildBox("trak", mdia);
+        
+        byte[] tkhdPayload1 = new byte[92];
+        BinaryPrimitives.WriteUInt32BigEndian(tkhdPayload1.AsSpan(8), 1);
+        byte[] tkhd1 = BuildFullBox("tkhd", 0, 0, tkhdPayload1);
+        byte[] trak = BuildBox("trak", [.. tkhd1, .. mdia]);
 
-        // A second trak to keep
+        byte[] tkhdPayload2 = new byte[92];
+        BinaryPrimitives.WriteUInt32BigEndian(tkhdPayload2.AsSpan(8), 2);
+        byte[] tkhd2 = BuildFullBox("tkhd", 0, 0, tkhdPayload2);
+        
         byte[] hdlrPayloadVide = new byte[20];
         hdlrPayloadVide[4] = (byte)'v';
         hdlrPayloadVide[5] = (byte)'i';
@@ -63,7 +86,7 @@ public sealed class Mp4MdtaKeyStripperDifferentialTests
         hdlrPayloadVide[7] = (byte)'e';
         byte[] hdlrVide = BuildFullBox("hdlr", 0, 0, hdlrPayloadVide);
         byte[] mdiaVide = BuildBox("mdia", [.. hdlrVide, .. BuildBox("minf", [])]);
-        byte[] trakKeep = BuildBox("trak", mdiaVide);
+        byte[] trakKeep = BuildBox("trak", [.. tkhd2, .. mdiaVide]);
 
         byte[] moov = BuildBox("moov", [.. trakKeep, .. trak]);
         byte[] fileData = [.. BuildBox("ftyp", new byte[16]), .. moov, .. new byte[100]];

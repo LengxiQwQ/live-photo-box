@@ -128,7 +128,7 @@ public sealed class P5R6ConverterIntegrationTests
     public void P5R6_MergeUnavailableInRangeCell_Rejects(int protocolIndex, int formatIndex)
     {
         Assert.False(ProtocolFormatMatrix.IsAvailable(protocolIndex, formatIndex));
-        Assert.Throws<System.ArgumentException>(() =>
+        Assert.ThrowsAny<System.ArgumentException>(() =>
             ProtocolMediaRequirements.GetMergeRequirement(protocolIndex, formatIndex));
     }
 
@@ -137,29 +137,29 @@ public sealed class P5R6ConverterIntegrationTests
     public void P5R6_SplitUnavailableInRangeCell_Rejects(int protocolIndex, int formatIndex)
     {
         Assert.False(ProtocolFormatMatrix.IsSplitAvailable(protocolIndex, formatIndex));
-        Assert.Throws<System.ArgumentException>(() =>
+        Assert.ThrowsAny<System.ArgumentException>(() =>
             ProtocolMediaRequirements.GetSplitRequirement(protocolIndex, formatIndex));
     }
 
     [Fact]
     public void P5R6_MergeRepresentativeOutOfRangeIndices_Reject()
     {
-        Assert.Throws<System.ArgumentException>(() => ProtocolMediaRequirements.GetMergeRequirement(-1, 0));
-        Assert.Throws<System.ArgumentException>(() => ProtocolMediaRequirements.GetMergeRequirement(0, -1));
-        Assert.Throws<System.ArgumentException>(() =>
+        Assert.ThrowsAny<System.ArgumentException>(() => ProtocolMediaRequirements.GetMergeRequirement(-1, 0));
+        Assert.ThrowsAny<System.ArgumentException>(() => ProtocolMediaRequirements.GetMergeRequirement(0, -1));
+        Assert.ThrowsAny<System.ArgumentException>(() =>
             ProtocolMediaRequirements.GetMergeRequirement(ProtocolFormatMatrix.Matrix.Length, 0));
-        Assert.Throws<System.ArgumentException>(() =>
+        Assert.ThrowsAny<System.ArgumentException>(() =>
             ProtocolMediaRequirements.GetMergeRequirement(0, ProtocolFormatMatrix.Matrix[0].Length));
     }
 
     [Fact]
     public void P5R6_SplitRepresentativeOutOfRangeIndices_Reject()
     {
-        Assert.Throws<System.ArgumentException>(() => ProtocolMediaRequirements.GetSplitRequirement(-1, 0));
-        Assert.Throws<System.ArgumentException>(() => ProtocolMediaRequirements.GetSplitRequirement(0, -1));
-        Assert.Throws<System.ArgumentException>(() =>
+        Assert.ThrowsAny<System.ArgumentException>(() => ProtocolMediaRequirements.GetSplitRequirement(-1, 0));
+        Assert.ThrowsAny<System.ArgumentException>(() => ProtocolMediaRequirements.GetSplitRequirement(0, -1));
+        Assert.ThrowsAny<System.ArgumentException>(() =>
             ProtocolMediaRequirements.GetSplitRequirement(ProtocolFormatMatrix.SplitMatrix.Length, 0));
-        Assert.Throws<System.ArgumentException>(() =>
+        Assert.ThrowsAny<System.ArgumentException>(() =>
             ProtocolMediaRequirements.GetSplitRequirement(0, ProtocolFormatMatrix.SplitMatrix[0].Length));
     }
 

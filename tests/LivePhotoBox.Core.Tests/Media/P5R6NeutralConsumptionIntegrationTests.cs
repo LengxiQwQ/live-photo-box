@@ -146,18 +146,9 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
                 tempDirectory,
                 CancellationToken.None);
 
-            if (protocolIndex == 2 && formatIndex == 3)
-            {
-                Assert.False(isSuccess, details);
-                Assert.Contains("HEIC XMP injection is not supported in the Rebuilt Native engine.", details, StringComparison.Ordinal);
-                Assert.False(File.Exists(outputPath));
-            }
-            else
-            {
-                Assert.True(isSuccess, details);
-                Assert.True(File.Exists(outputPath));
-                Assert.True(new FileInfo(outputPath).Length > 0);
-            }
+            Assert.True(isSuccess, details);
+            Assert.True(File.Exists(outputPath));
+            Assert.True(new FileInfo(outputPath).Length > 0);
         }
 
         Assert.Equal(imageBefore, await ComputeSha256Async(imagePath));
@@ -220,7 +211,9 @@ public sealed class P5R6NeutralConsumptionIntegrationTests
             await AssertNeutralManifestAsync(bundle, bundle.MotionVideo!, "MotionVideo");
             bool preservesMiCamera = sampleName == "红米老款-GV1.JPG" &&
                 (formatIndex == ProtocolFormatMatrix.SplitFormatKeep || formatIndex == ProtocolFormatMatrix.SplitFormatJpgMp4);
-            Assert.Equal(preservesMiCamera ? 4 : 2, bundle.Manifest.Count);
+            int expectedManifestCount = (preservesMiCamera ? 4 : (2 + bundle.AuxiliaryMedia.Count))
+                + bundle.Manifest.Count(r => r.Role == "OrdinaryMetadata");
+            Assert.Equal(expectedManifestCount, bundle.Manifest.Count);
 
             SourceMediaFacts neutralFacts = await new SourceInspector().InspectAsync(
                 bundle.PrimaryImage.Path,

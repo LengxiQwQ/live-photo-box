@@ -116,7 +116,7 @@ public sealed class P8SplitCancellationOwnershipTests
             cancellation.Cancel();
             object?[] args = [null, null, new DirectoryInfo(root), "motionphoto", new DirectoryInfo(output), null,
                 "keep", false, 1, true, true, false, false, false, false, false,
-                "name", "none", false, null, cancellation.Token];
+                "name", "none", false, null, new StructuredMergeOptions(), false, cancellation.Token];
             CliResult result = await CaptureInvocation(typeof(MergeCommand), args);
             Assert.Equal(130, result.ExitCode);
             Assert.Contains("cancelled", result.StdOut);

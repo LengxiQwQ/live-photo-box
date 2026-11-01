@@ -84,9 +84,6 @@ public sealed class NeutralMediaService : INeutralMediaService
         // disposing the inspected source that owns the context itself.
         using CleanupPlan? cleanupAuthority = extracted.CleanupPlan;
 
-        MediaAssetInventory? extractedVideoInventory = extracted.MotionVideo is { } extractedVideo
-            ? MediaChangeReports.CaptureVideo(extractedVideo.Path, cancellationToken) : null;
-        var mediaChanges = new List<MediaAssetChange>();
 
         // 3. Clean source Live/Motion Photo protocol
         diagnosticStage = ProductOperationStage.Cleaning;
@@ -114,15 +111,6 @@ public sealed class NeutralMediaService : INeutralMediaService
             var (_, obs) = finalImage.CompoundPrimary.Inspect(finalImage.Path, cancellationToken);
             string recordsPath = workspace.AllocateFilePath("compound-prefix-records", ".bin");
             compoundOrdinaryRecords = finalImage.CompoundPrimary.MaterializeOpaqueRecords(finalImage.Path, recordsPath, cancellationToken);
-            mediaChanges.Add(new MediaAssetChange
-            {
-                AssetId = "opaque-source-prefix:0", Stage = "ImagePreparation", Action = MediaChangeAction.Mapped,
-                ReasonCode = MediaChangeReason.RepresentationChanged,
-                Reason = "Native lineage-bound opaque prefix was wrapped as inert ordinary records for target transport; its bytes retain no live or file-access authority.",
-                SourceRepresentation = "OpaqueSourcePrefix", TargetRepresentation = "OrdinaryMetadata/SourcePrefixFragment/v1",
-                SourceSha256 = NativeCompoundPrimary.OpaqueHash(obs), TargetSha256 = compoundOrdinaryRecords.Sha256,
-                SourceArtifactSha256 = finalImage.Sha256, TargetArtifactSha256 = compoundOrdinaryRecords.Sha256
-            });
             string slicedPath = workspace.AllocateFilePath("known-primary", ".jpg");
             using (var src = File.OpenRead(finalImage.Path))
             using (var dst = File.Create(slicedPath))
@@ -151,11 +139,6 @@ public sealed class NeutralMediaService : INeutralMediaService
             };
         }
         MediaArtifact? finalVideo = cleanResult.CleanedVideo;
-        MediaAssetInventory? cleanedVideoInventory = finalVideo is { } cleanedVideo
-            ? MediaChangeReports.CaptureVideo(cleanedVideo.Path, cancellationToken) : null;
-        if (extractedVideoInventory is not null && cleanedVideoInventory is not null)
-            mediaChanges.AddRange(MediaChangeReports.Compare(extractedVideoInventory, cleanedVideoInventory,
-                "SourceCleanup", cleanResult.RemovedFacts.Count > 0));
         VideoConversionResult? explicitVideoPreparation = null;
         // A caller may explicitly compose two ordinary media files. Inspector
         // deliberately does not manufacture a source-live pairing for them.
@@ -174,7 +157,6 @@ public sealed class NeutralMediaService : INeutralMediaService
             if (!companionFacts.IsPresent || companionFacts.Container == VideoContainer.Unknown ||
                 companionFacts.Codec == VideoCodec.Unknown)
                 throw new InvalidDataException("Explicit companion is not a supported, independently valid video.");
-            cleanedVideoInventory = MediaChangeReports.CaptureVideo(secondaryPath, cancellationToken);
             explicitVideoPreparation = await _videoConverter.ConvertAsync(new VideoConversionRequest
             {
                 SourceArtifact = new MediaArtifact
@@ -290,6 +272,28 @@ public sealed class NeutralMediaService : INeutralMediaService
             : null;
         var auxiliaryHandoff = new List<AuxiliaryMediaDescriptor>(
             cleanResult.AuxiliaryMedia.Count > 0 ? cleanResult.AuxiliaryMedia : extracted.AuxiliaryMedia);
+        if (auxiliaryHandoff.Count == 0 && hdrGainMapBinding != null && neutralInputFacts.GainMap is { IsPresent: true })
+        {
+            var observed = neutralInputFacts.AuxiliaryItems[checked((int)neutralInputFacts.GainMap.AuxiliaryIndex)];
+            auxiliaryHandoff.Add(new AuxiliaryMediaDescriptor
+            {
+                ArtifactRole = MediaArtifactKind.GainMap,
+                StableIdentity = observed.StableIdentity,
+                Semantic = observed.Semantic,
+                OwnerIdentity = observed.OwnerIdentity,
+                Relationship = observed.Relationship,
+                SourceIndex = 0,
+                SourceOffset = observed.ByteOffset,
+                SourceLength = observed.ByteLength,
+                SourceSha256 = observed.Sha256,
+                ImageContainer = observed.Container,
+                Codec = observed.Codec,
+                Representation = observed.Representation,
+                Ownership = observed.Ownership,
+                ItemType = observed.ItemType,
+                GraphComplete = observed.GraphComplete
+            });
+        }
 
         PreservationOutcome imageOutcome = cleanResult.PreservationOutcome;
         bool gainMapSemanticallyReencoded = false;
@@ -419,9 +423,7 @@ public sealed class NeutralMediaService : INeutralMediaService
             }
 
             bool isCompatibleProfile = preservationPolicy == PreservationPolicy.BestEffort;
-            bool needsTranscodeForRotation = isCompatibleProfile &&
-                resolvedVideoFacts?.RotationDegrees != 0;
-            bool containerChanges = requirement.VideoContainer != VideoContainer.Unknown &&
+                        bool containerChanges = requirement.VideoContainer != VideoContainer.Unknown &&
                 requirement.VideoContainer != finalVideo?.VideoContainer;
             bool targetDiffers = (requirement.TargetFps is > 0) ||
                 (requirement.VideoContainer != VideoContainer.Unknown && requirement.VideoContainer != finalVideo?.VideoContainer) ||
@@ -429,31 +431,14 @@ public sealed class NeutralMediaService : INeutralMediaService
 
             // Preserve the cleaned movie by default. Convert only when the target
             // representation or actual display transform requires it.
-            if (finalVideo != null && (targetDiffers || needsTranscodeForRotation))
+            if (finalVideo != null && targetDiffers)
             {
                 VideoFacts videoFacts = resolvedVideoFacts ??
                     throw new InvalidDataException("Neutral video facts were not resolved.");
-                VideoCodec converterTargetCodec;
-                if (requirement.VideoCodec is not (VideoCodec.Unknown or VideoCodec.Copy) &&
-                    requirement.VideoCodec != videoFacts.Codec)
-                {
-                    converterTargetCodec = requirement.VideoCodec;
-                }
-                else if (needsTranscodeForRotation)
-                {
-                    // Physical rotation requires decoding and re-encoding with source/target codec
-                    converterTargetCodec = videoFacts.Codec;
-                }
-                else
-                {
-                    // Plan 01 §1.1: “编码能接受就复制，不能接受才转码”
-                    // Stream-copy video when rotation is 0
-                    converterTargetCodec = VideoCodec.Copy;
-                }
-
-
-
-
+                VideoCodec converterTargetCodec = requirement.VideoCodec is VideoCodec.Unknown or VideoCodec.Copy ||
+                    requirement.VideoCodec == videoFacts.Codec
+                    ? VideoCodec.Copy
+                    : requirement.VideoCodec;
                 diagnosticStage = ProductOperationStage.VideoConversion;
                 var vidConv = await _videoConverter.ConvertAsync(new VideoConversionRequest
                 {
@@ -686,38 +671,6 @@ public sealed class NeutralMediaService : INeutralMediaService
             videoWasConverted,
             gainMapRep,physicalImageMapping);
 
-        var imageSource = cleanResult.CleanedImage;
-        bool imageBytesMatch = string.Equals(imageSource.Sha256, finalImage.Sha256, StringComparison.OrdinalIgnoreCase);
-        mediaChanges.Add(new MediaAssetChange
-        {
-            AssetId = "primary:0", Stage = "ImageConversion",
-            Action = imageBytesMatch ? MediaChangeAction.Copied : imageExecution is not null ? MediaChangeAction.Reencoded : MediaChangeAction.Mapped,
-            ReasonCode = imageBytesMatch ? MediaChangeReason.None : MediaChangeReason.RepresentationChanged,
-            Reason = imageBytesMatch ? "Prepared primary image bytes match the cleaned primary." : "Primary image representation changed; conversion truth and actual artifact hashes are recorded.",
-            SourceRepresentation = imageSource.ImageContainer.ToString(), TargetRepresentation = finalImage.ImageContainer.ToString(),
-            SourceSha256 = imageSource.Sha256, TargetSha256 = finalImage.Sha256
-        });
-        if (imageExecution is { } imageRecord && !imageBytesMatch)
-        {
-            bool verifiedMetadata = imageRecord.OrdinaryConversionEvidence is not null || imageRecord.HdrConversionEvidence is not null;
-            mediaChanges.Add(new MediaAssetChange
-            {
-                AssetId = "primary:0/ordinary-metadata", Stage = "ImageConversion",
-                Action = verifiedMetadata ? MediaChangeAction.Mapped : MediaChangeAction.Unverified,
-                ReasonCode = verifiedMetadata ? MediaChangeReason.RepresentationChanged : MediaChangeReason.EvidenceUnavailable,
-                Reason = verifiedMetadata ? "Native-bound image metadata mapping evidence is attached to PreparationExecution.Image." : "Complete ordinary image metadata preservation was not proved; no Preserved claim is made.",
-                SourceSha256 = imageSource.Sha256, TargetSha256 = finalImage.Sha256
-            });
-        }
-        foreach (var row in manifest.Where(x => x.Role is not ("PrimaryImage" or "MotionVideo")))
-            mediaChanges.Add(new MediaAssetChange
-            {
-                AssetId = row.StableIdentity.Length == 0 ? row.Role : row.StableIdentity,
-                Stage = "NeutralAssetBinding", Action = MediaChangeAction.Mapped, ReasonCode = MediaChangeReason.RepresentationChanged,
-                Reason = "Final Neutral asset is identity/length/hash-bound to its manifest; target transport is validated by the target writer.",
-                SourceRepresentation = row.Role, TargetRepresentation = row.SemanticRepresentation.ToString(),
-                SourceSha256 = row.SourceSha256, TargetSha256 = row.Sha256
-            });
 
         return new NeutralMediaBundle
         {
@@ -733,10 +686,7 @@ public sealed class NeutralMediaService : INeutralMediaService
             PreservationCarriers = preservationCarriers,
             Timing = facts.Timing,
             Semantics = semantics,
-            PreparationExecution = SnapshotExecution(),
-            MediaChanges = mediaChanges.Concat(cleanedVideoInventory is not null && finalVideo is not null
-                ? MediaChangeReports.Compare(cleanedVideoInventory, MediaChangeReports.CaptureVideo(finalVideo.Path, cancellationToken), "VideoConversion")
-                : Array.Empty<MediaAssetChange>()).ToArray()
+            PreparationExecution = SnapshotExecution()
         };
         }
         catch (Exception exception)
@@ -1870,7 +1820,33 @@ public sealed class NeutralMediaService : INeutralMediaService
             : [];
         if (matches.Length != 1 && ownerTransitionCandidates.Length != 1)
         {
-            string candidates = string.Join(" | ", descriptors
+            if (observed.Representation == AuxiliaryRepresentation.Embedded &&
+                observed.Ownership == AuxiliaryOwnership.Primary &&
+                descriptors.Count == 0)
+            {
+                var directLineage = new AuxiliaryMediaDescriptor
+                {
+                    ArtifactRole = MediaArtifactKind.GainMap,
+                    StableIdentity = observed.StableIdentity,
+                    Semantic = observed.Semantic,
+                    OwnerIdentity = observed.OwnerIdentity,
+                    Relationship = observed.Relationship,
+                    SourceIndex = 0,
+                    SourceOffset = observed.ByteOffset,
+                    SourceLength = observed.ByteLength,
+                    SourceSha256 = observed.Sha256,
+                    ImageContainer = observed.Container,
+                    Codec = observed.Codec,
+                    Representation = observed.Representation,
+                    Ownership = observed.Ownership,
+                    ItemType = observed.ItemType,
+                    GraphComplete = observed.GraphComplete
+                };
+                matches = [directLineage];
+            }
+            else
+            {
+                string candidates = string.Join(" | ", descriptors
                 .Where(item => item.ArtifactRole == MediaArtifactKind.GainMap ||
                     string.Equals(item.Semantic, "GainMap", StringComparison.Ordinal))
                 .Select(item => $"id={item.StableIdentity},semantic={item.Semantic},owner={item.OwnerIdentity}," +
@@ -1882,6 +1858,7 @@ public sealed class NeutralMediaService : INeutralMediaService
                 $"relationship={observed.Relationship},length={observed.ByteLength}," +
                 $"container={observed.Container},representation={observed.Representation},ownership={observed.Ownership}; " +
                 $"candidates: {candidates}).");
+            }
         }
 
         AuxiliaryMediaDescriptor lineage = matches.Length == 1 ? matches[0] : ownerTransitionCandidates[0];

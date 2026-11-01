@@ -48,7 +48,7 @@ public sealed class P9R8BoundImageConversionTests
     {
         var identity=WindowsFileIdentity.Capture(input);
         var request=new NativeImageConversionRequestV2{StructSize=96,ApiVersion=2,SourceContainer=1,TargetContainer=2,Quality=95,OrientationPolicy=1,
-            ExpectedIdentity=new NativeCleanService.NativeFileIdentity{VolumeSerial=identity.VolumeSerialNumber,FileIndex=identity.FileIndex,FileSize=(ulong)new FileInfo(input).Length,LinkCount=identity.LinkCount}};
+            ExpectedIdentity=new NativeFileIdentity{VolumeSerial=identity.VolumeSerialNumber,FileIndex=identity.FileIndex,FileSize=(ulong)new FileInfo(input).Length,LinkCount=identity.LinkCount}};
         var hash=SHA256.HashData(File.ReadAllBytes(input));for(int i=0;i<32;i++)request.SourceSha256[i]=hash[i];
         using var context=NativeContext.Create();var proof=new NativeImageConversionProofV1{StructSize=240,ApiVersion=1};
         var result=NativeMethods.ConvertImageV2(context.Handle,input,output,in request,ref proof);context.ThrowIfFailed(result);return proof;

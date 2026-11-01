@@ -1305,16 +1305,6 @@ LPB_API lpb_result LPB_CALL lpb_transform_jpeg_losslessly(
  * versioned v2 API returns a POD diagnostic record; it never guesses hardware
  * selection from an encoder display name.
  */
-LPB_API lpb_result LPB_CALL lpb_transcode_video(
-    lpb_context* context,
-    const char* input_video_path,
-    const char* output_video_path,
-    lpb_video_container target_container,
-    lpb_video_codec target_codec,
-    int32_t crf,
-    char* out_encoder_used,
-    size_t encoder_buf_len);
-
 LPB_API lpb_result LPB_CALL lpb_transcode_video_v2(
     lpb_context* context,
     const char* input_video_path,
@@ -1323,13 +1313,6 @@ LPB_API lpb_result LPB_CALL lpb_transcode_video_v2(
     lpb_video_codec target_codec,
     int32_t crf,
     lpb_video_backend_diagnostics* out_diagnostics);
-
-LPB_API lpb_result LPB_CALL lpb_transcode_video_v3(
-    lpb_context* context, const char* input_video_path, const char* output_video_path,
-    lpb_video_container target_container, lpb_video_codec target_codec, int32_t crf,
-    const lpb_video_preservation_request_v1* preservation_request,
-    lpb_video_backend_diagnostics* out_diagnostics,
-    lpb_video_preservation_result_v1* out_preservation);
 
 LPB_API lpb_result LPB_CALL lpb_transcode_video_v4(
     lpb_context* context, const char* input_video_path, const char* output_video_path,

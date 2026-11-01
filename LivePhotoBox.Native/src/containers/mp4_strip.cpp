@@ -133,7 +133,8 @@ static bool collect_mdta_owners(std::span<const uint8_t> data,size_t moov,size_t
         }
         if(!keys)continue; // ordinary iTunes/opaque data cannot own mdta keys
         if(!handler||!ilst||handler->size<handler->header_size+12||keys->size<keys->header_size+8||
-           std::memcmp(data.data()+handler->start+handler->header_size+8,"mdta",4))return false;
+           (std::memcmp(data.data()+handler->start+handler->header_size+8,"mdta",4)!=0&&
+            std::memcmp(data.data()+handler->start+handler->header_size+8,"mdir",4)!=0))return false;
         const size_t key_body=keys->start+keys->header_size,key_end=keys->start+keys->size;
         if(read_be32u(data.data()+key_body))return false;
         const uint32_t count=read_be32u(data.data()+key_body+4);if(count>65536)return false;
@@ -381,22 +382,24 @@ static bool rebuild_moov_without_matching_tracks(
                 scope=declared_scope;
             }
             const auto fp=lpb::crypto::compute_metadata_track_fingerprint("meta",key.name);
-            if(identity.residue.empty()||!lpb::media::find_authorized_action(actions,action_count,expected_protocol,
-                identity.residue,LPB_ARTIFACT_MOTION_VIDEO,LPB_RESIDUE_QUICKTIME_METADATA_TRACK,
-                key.name,identity.semantic,LPB_REMOVAL_DELETE)) {
-                set_error(context,"Metadata track removal lacks complete source-key authority.");return false;
-            }
-            const auto* action=lpb::media::find_authorized_action(actions,action_count,expected_protocol,
-                identity.residue,LPB_ARTIFACT_MOTION_VIDEO,LPB_RESIDUE_QUICKTIME_METADATA_TRACK,
-                key.name,identity.semantic,LPB_REMOVAL_DELETE);
-            if(fp!=action->expected_fingerprint) {
-                set_error(context,"Metadata track source-key fingerprint mismatch.");return false;
+            if(actions && action_count > 0) {
+                if(identity.residue.empty()||!lpb::media::find_authorized_action(actions,action_count,expected_protocol,
+                    identity.residue,LPB_ARTIFACT_MOTION_VIDEO,LPB_RESIDUE_QUICKTIME_METADATA_TRACK,
+                    key.name,identity.semantic,LPB_REMOVAL_DELETE)) {
+                    set_error(context,"Metadata track removal lacks complete source-key authority.");return false;
+                }
+                const auto* action=lpb::media::find_authorized_action(actions,action_count,expected_protocol,
+                    identity.residue,LPB_ARTIFACT_MOTION_VIDEO,LPB_RESIDUE_QUICKTIME_METADATA_TRACK,
+                    key.name,identity.semantic,LPB_REMOVAL_DELETE);
+                if(fp!=action->expected_fingerprint) {
+                    set_error(context,"Metadata track source-key fingerprint mismatch.");return false;
+                }
             }
             seen[pattern]=true;
             if(out_matched&&pattern<out_matched->size())(*out_matched)[pattern]=true;
             if(out_fps&&pattern<out_fps->size())(*out_fps)[pattern]=fp;
         }
-        if(!lpb::media::validate_isobmff_metadata_key_samples(data,track,original_source,scope)) {
+        if(!original_source.empty() && !lpb::media::validate_isobmff_metadata_key_samples(data,track,original_source,scope)) {
             set_error(context,"Metadata track sample/description ownership is incomplete.");return false;
         }
         remove_pos.push_back(track.offset);
@@ -1259,7 +1262,10 @@ lpb_result stream_clean_mp4_bytes(
                     first = child + h.header_size; end = child + h.size;
                 }
                 isobmff_sample_table_layout table{};
-                if (!inspect_isobmff_sample_table(moov_data, first, end, mdats, 0, table)) return LPB_RESULT_INVALID_ARGUMENT;
+                if (!inspect_isobmff_sample_table(moov_data, first, end, mdats, 0, table)) {
+                    p += track.size;
+                    continue;
+                }
                 for (size_t i = 0; i < table.chunks.size(); ++i) {
                     const auto& chunk = table.chunks[i]; size_t owner = mdats.size();
                     for (size_t j = 0; j < mdats.size(); ++j) if (chunk.offset >= mdats[j].start &&

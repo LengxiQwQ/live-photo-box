@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using NativeFileIdentity = LivePhotoBox.Interop.NativeCleanService.NativeFileIdentity;
 
 namespace LivePhotoBox.Interop;
 

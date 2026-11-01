@@ -466,14 +466,6 @@ internal static class NativeCleanService
         uint LinkCount,
         string FinalPath);
 
-    [StructLayout(LayoutKind.Sequential)]
-    internal struct NativeFileIdentity
-    {
-        public uint VolumeSerial;
-        public ulong FileIndex;
-        public ulong FileSize;
-        public uint LinkCount;
-    }
 
     [StructLayout(LayoutKind.Sequential)]
     internal unsafe struct NativeCleanStagedOutputRecord

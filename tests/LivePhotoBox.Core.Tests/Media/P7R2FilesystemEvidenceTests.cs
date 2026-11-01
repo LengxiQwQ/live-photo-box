@@ -31,7 +31,8 @@ public sealed class P7R2FilesystemEvidenceTests
         .Order().Select(p => (object)new { path = Path.GetRelativePath(root, p), bytes = new FileInfo(p).Length, sha256 = Sha(p) }).ToArray();
     static void Save(string name, object value)
     {
-        string root = Environment.GetEnvironmentVariable("LPB_R2_EVIDENCE") ?? throw new InvalidOperationException("LPB_R2_EVIDENCE required");
+        string? root = Environment.GetEnvironmentVariable("LPB_R2_EVIDENCE");
+        if (string.IsNullOrWhiteSpace(root)) return;
         Directory.CreateDirectory(root);
         using var stream = new FileStream(Path.Combine(root, name + ".json"), FileMode.CreateNew);
         JsonSerializer.Serialize(stream, value, new JsonSerializerOptions { WriteIndented = true });

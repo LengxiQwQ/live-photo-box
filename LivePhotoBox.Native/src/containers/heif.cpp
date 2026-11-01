@@ -1900,6 +1900,7 @@ struct xmp_rewrite_graph {
     std::map<uint32_t, std::vector<uint32_t>> metadata_owners;
     std::vector<heif_reference> references;
     std::map<uint32_t,uint16_t> item_protection;
+    bool multiple_primary_xmp{false};
 };
 
 bool parse_xmp_rewrite_graph(std::span<const uint8_t> input,
@@ -2049,8 +2050,8 @@ bool parse_xmp_rewrite_graph(std::span<const uint8_t> input,
         if (owner == xmp_owners.end() || owner->second.size() != 1)
             return fail("HEIF XMP rewrite: XMP requires one unique cdsc item owner.");
         if (owner->second.front() == graph.primary) {
-            if (graph.xmp) return fail("HEIF XMP rewrite: multiple primary-owned XMP items.");
-            graph.xmp = item.id;
+            if (graph.xmp) graph.multiple_primary_xmp = true;
+            else graph.xmp = item.id;
         }
     }
     if (graph.xmp) for (const auto& ref : all_references) {
@@ -2421,6 +2422,7 @@ bool read_primary_xmp(std::span<const uint8_t> input, uint32_t& primary_item_id,
     try {
         xmp_rewrite_graph graph;
         if (!parse_xmp_rewrite_graph(input, graph, error)) return false;
+        if (graph.multiple_primary_xmp) { xml.clear(); error = "HEIF XMP read: multiple primary-owned XMP items."; return false; }
         for (const auto& location : graph.locations) if (location.id == graph.xmp) {
             for (const auto& extent : location.extents) {
                 if (extent.length > 16u * 1024u * 1024u - xml.size()) {
@@ -2554,6 +2556,7 @@ bool rewrite_primary_xmp(std::span<const uint8_t> input, std::string_view replac
             return fail("HEIF XMP rewrite: replacement must be nonempty and at most 16 MiB.");
         xmp_rewrite_graph graph;
         if (!parse_xmp_rewrite_graph(input, graph, error)) return false;
+        if (graph.multiple_primary_xmp) return fail("HEIF XMP rewrite: multiple primary-owned XMP items.");
         std::vector<uint8_t> raw(input.begin(), input.end());
         std::vector<uint8_t> new_iinf(raw.begin() + static_cast<std::ptrdiff_t>(graph.iinf.start),
             raw.begin() + static_cast<std::ptrdiff_t>(graph.iinf.start + graph.iinf.size));

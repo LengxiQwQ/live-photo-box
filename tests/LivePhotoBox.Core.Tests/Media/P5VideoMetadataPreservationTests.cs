@@ -196,8 +196,10 @@ public sealed class P5VideoMetadataPreservationTests
         var request = new NativeVideoPreservationRequestV1 { StructSize = 16, ApiVersion = 1 };
         // Reusing a previously successful receipt must not leak success when
         // request validation fails before any source/output I/O.
-        var result = new NativeVideoPreservationResultV1 { StructSize = 96, Status = 1,
-            SourceBoxCount = 3, VerifiedBoxCount = 3 };
+        var result = new NativeVideoPreservationResultV2 { StructSize = 192, ApiVersion = 2, ProofKind = 1, ProofFlags = 1 };
+        result.Metadata.Status = 1;
+        result.Metadata.SourceBoxCount = 3;
+        result.Metadata.VerifiedBoxCount = 3;
         var diagnostics = new NativeVideoBackendDiagnostics { StructSize = 208 };
         switch (invalid)
         {
@@ -207,13 +209,15 @@ public sealed class P5VideoMetadataPreservationTests
             case 3: request.Reserved = 1; break;
         }
         string destination = Path.Combine(workspace.RootDirectory, "output.mp4");
-        Assert.Equal(NativeResult.InvalidArgument, NativeMethods.TranscodeVideoV3(context.Handle,
+        Assert.Equal(NativeResult.InvalidArgument, NativeMethods.TranscodeVideoV4(context.Handle,
             "missing-source", destination, (int)VideoContainer.Mp4, (int)VideoCodec.Copy, 23,
             in request, ref diagnostics, ref result));
-        Assert.Equal(0u, result.Status);
+        Assert.Equal(0u, result.Metadata.Status);
+        Assert.Equal(0u, result.ProofKind);
+        Assert.Equal(0u, result.ProofFlags);
         Assert.Empty(Directory.GetFiles(workspace.RootDirectory));
         Assert.Equal(16, Marshal.SizeOf<NativeVideoPreservationRequestV1>());
-        Assert.Equal(96, Marshal.SizeOf<NativeVideoPreservationResultV1>());
+        Assert.Equal(192, Marshal.SizeOf<NativeVideoPreservationResultV2>());
     }
 
     [Theory]

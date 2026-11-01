@@ -298,7 +298,7 @@ public sealed class VideoConverter : IVideoConverter
                         FallbackOccurred = backendDiagnostics.HardwareFallbackOccurred,
                         FallbackReason = backendDiagnostics.HardwareFallbackReason,
                         Pixel = ConversionComponentOutcome.NotApplicable,
-                        Metadata = (request.PreservationPolicy == PreservationPolicy.Strict && backendAttempt.MetadataPreservation != null)
+                        Metadata = backendAttempt.MetadataPreservation != null
                             ? ConversionComponentOutcome.Preserved
                             : ConversionComponentOutcome.Degraded,
                         ColorIcc = provedCopy ? ConversionComponentOutcome.Preserved : ConversionComponentOutcome.NotEvaluated,

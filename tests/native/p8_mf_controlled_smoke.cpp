@@ -48,12 +48,12 @@ int wmain(int argc, wchar_t** argv) {
         const fs::path destination = root / L"unavailable.mp4";
         lpb_video_backend_diagnostics diagnostic{}; diagnostic.struct_size = sizeof(diagnostic);
         lpb_video_preservation_request_v1 request{sizeof(request), 1U, 0U, 0U};
-        lpb_video_preservation_result_v1 preservation{}; preservation.struct_size = sizeof(preservation);
-        const auto result = lpb_transcode_video_v3(context.get(), input_utf8.c_str(), utf8(destination).c_str(),
+        lpb_video_preservation_result_v2 preservation{}; preservation.struct_size = sizeof(preservation); preservation.api_version = 2U;
+        const auto result = lpb_transcode_video_v4(context.get(), input_utf8.c_str(), utf8(destination).c_str(),
             LPB_VIDEO_CONTAINER_MP4, LPB_VIDEO_CODEC_H264, 23, &request, &diagnostic, &preservation);
         const std::string error = last_error(context.get());
         const bool valid = result != LPB_RESULT_OK && diagnostic.backend == LPB_VIDEO_BACKEND_MINIMAL_LIBAV &&
-            diagnostic.hardware_fallback_occurred != 0 && preservation.status == 0U &&
+            diagnostic.hardware_fallback_occurred != 0 && preservation.metadata.status == 0U &&
             std::strncmp(diagnostic.selected_encoder, "s1s|?|?|", sizeof("s1s|?|?|") - 1U) == 0 &&
             std::strstr(diagnostic.selected_encoder, "libx264") == nullptr &&
             std::strstr(diagnostic.fallback_reason, "MFComponentMissing") != nullptr &&
@@ -84,18 +84,18 @@ int wmain(int argc, wchar_t** argv) {
         const auto foreign = conflict ? bytes(destination) : std::vector<char>{};
         lpb_video_backend_diagnostics diagnostic{}; diagnostic.struct_size = sizeof(diagnostic);
         lpb_video_preservation_request_v1 request{sizeof(request), 1U, 0U, 0U};
-        lpb_video_preservation_result_v1 preservation{}; preservation.struct_size = sizeof(preservation);
-        const auto result = lpb_transcode_video_v3(context.get(), input_utf8.c_str(), utf8(destination).c_str(),
+        lpb_video_preservation_result_v2 preservation{}; preservation.struct_size = sizeof(preservation); preservation.api_version = 2U;
+        const auto result = lpb_transcode_video_v4(context.get(), input_utf8.c_str(), utf8(destination).c_str(),
             container, codec, crf, &request, &diagnostic, &preservation);
         bool valid = (result == LPB_RESULT_OK) == expect_success &&
             (diagnostic.hardware_fallback_occurred != 0) == expected_fallback;
         if (expect_success) {
-            valid = valid && fs::is_regular_file(destination) && preservation.status == 1U;
+            valid = valid && fs::is_regular_file(destination) && preservation.metadata.status == 1U;
             if (expected_fallback) valid = valid && diagnostic.backend == LPB_VIDEO_BACKEND_MINIMAL_LIBAV &&
                 std::strncmp(diagnostic.selected_encoder, "s1v|9.0.1|libx264|", sizeof("s1v|9.0.1|libx264|") - 1U) == 0 &&
                 std::strstr(diagnostic.fallback_reason, "controlled x264 route") != nullptr;
             else valid = valid && diagnostic.backend == LPB_VIDEO_BACKEND_PROJECT_ISOBMFF_REMUX;
-        } else valid = valid && preservation.status == 0U &&
+        } else valid = valid && preservation.metadata.status == 0U &&
             (conflict ? bytes(destination) == foreign : !fs::exists(destination));
         if (bytes(input) != original) valid = false;
         std::printf("Synthetic case=%s pass=%u result=%d fallback=%d encoder=%s reason=%s\n", name,

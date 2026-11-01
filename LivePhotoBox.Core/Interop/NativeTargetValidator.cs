@@ -43,6 +43,7 @@ internal sealed record TargetValidationReport(NativeResult InvocationResult,
 {
     internal NativeTargetValidationResultV2? ObservedV2 { get; init; }
     internal NativeTargetValidationResultV3? ObservedV3 {get;init;}
+    internal string? ErrorDetail { get; init; }
     internal bool CanPublish => InvocationResult == NativeResult.Ok &&
         Observed.StructuralStatus == 1 && Observed.GenericMediaStatus == 1 &&
         Observed.PreservationStatus == 0 && Observed.DeviceStatus == 0&&
@@ -171,7 +172,8 @@ internal static class NativeTargetValidator
                 throw new IOException("Reading the fresh target artifact failed.", state.Failure);
             if (result == NativeResult.Cancelled)
                 throw new OperationCanceledException("Native target validation was cancelled.", token);
-            return new TargetValidationReport(result, observed, observed.GetSha256()) { ObservedV2 = actualV2,ObservedV3=actualV3 };
+            string? errDetail = context.GetLastError();
+            return new TargetValidationReport(result, observed, observed.GetSha256()) { ObservedV2 = actualV2, ObservedV3 = actualV3, ErrorDetail = errDetail };
         }
         finally
         {
@@ -198,7 +200,7 @@ internal static class NativeTargetValidator
             !MatchesOrientation(expected.VideoRotationDegrees, expected.VideoReflection, facts.VideoOrientation))
             throw new TargetValidationException($"Target validation rejected publication: invocation={report.InvocationResult}, " +
                 $"structure={facts.StructuralStatus}, media={facts.GenericMediaStatus}, " +
-                $"category={facts.FailureCategory}, stage={facts.FailureStage}, rule={facts.RuleId}.");
+                $"category={facts.FailureCategory}, stage={facts.FailureStage}, rule={facts.RuleId}. Detail: {report.ErrorDetail}");
         if (expected.UseV2)
         {
             if (report.ObservedV2 is not { } actual || actual.StructSize != Marshal.SizeOf<NativeTargetValidationResultV2>() ||

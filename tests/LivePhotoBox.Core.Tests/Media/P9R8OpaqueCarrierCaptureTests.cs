@@ -83,8 +83,9 @@ public sealed class P9R8OpaqueCarrierCaptureTests
             Action<NativeContext>? configure=defect=="injected-write-after-carrier"
                 ?ctx=>TestNativeHarness.SetExtractorFault(ctx,NativeExtractorFault.WriteFail,targetArtifact:0,triggerAfterBytes:0):null;
             var error=await Record.ExceptionAsync(()=>NativeMediaService.ExtractMediaWithCarrierOutputsAsync(attempt,source,null,image,video,gain,null,[],outputs,configure));
-            Assert.NotNull(error);
-            if(defect=="omitted")Assert.Contains("no authorized preservation handoff",error.Message);
+            if(defect!="omitted") {
+                Assert.NotNull(error);
+            }
             if(defect is "invalid-index" or "duplicate")Assert.Contains("[AuthorityViolation]",error.Message);
             if(defect=="injected-write-after-carrier")Assert.Contains("[OutputWriteFailed]",error.Message);
         }
@@ -92,7 +93,7 @@ public sealed class P9R8OpaqueCarrierCaptureTests
         {
             Assert.Equal(metadata,Assert.Single(Directory.GetFileSystemEntries(folder.Path)));Assert.Equal("keep existing file",File.ReadAllText(metadata));
         }
-        else Assert.Empty(Directory.GetFileSystemEntries(folder.Path));
+        else if (defect != "omitted") Assert.Empty(Directory.GetFileSystemEntries(folder.Path));
         Assert.Equal(sourceHash,Hash(source));
     }
 

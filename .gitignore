@@ -35,6 +35,7 @@ bld/
 
 # Visual Studio 2015/2017 cache/options directory
 .vs/
+cache/
 
 # AI assistant files
 /.ai/

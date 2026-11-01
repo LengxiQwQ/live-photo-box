@@ -302,7 +302,7 @@ public sealed class ImageConverter : IImageConverter
         // Inspect semantic scope before applying generic conversion policy so
         // GainMap inputs retain the R1 HdrGainMapConversion/Unsupported truth,
         // even when Strict independently prohibits this cross-container route.
-        bool boundOrdinaryConversion=!conversionFacts.HasAuxiliaryMedia&&request.SourceArtifact.Kind==MediaArtifactKind.PrimaryImage&&request.SourceArtifact.ImageContainer==ImageContainer.Jpeg&&request.TargetContainer==ImageContainer.Heic&&
+        bool boundOrdinaryConversion=request.TrustedHdrGainMapBinding==null&&!conversionFacts.HasAuxiliaryMedia&&request.SourceArtifact.Kind==MediaArtifactKind.PrimaryImage&&request.SourceArtifact.ImageContainer==ImageContainer.Jpeg&&request.TargetContainer==ImageContainer.Heic&&
             request.Transform==ImageTransformKind.None;
         if (!boundOrdinaryConversion&&request.PreservationPolicy == PreservationPolicy.Strict &&
             request.SourceArtifact.ImageContainer != request.TargetContainer &&
@@ -437,8 +437,19 @@ public sealed class ImageConverter : IImageConverter
             {
                 NativeMediaService.NativeImageConversionAttempt nativeAttempt;
                 if(boundOrdinaryConversion) {
-                    boundAttempt=await NativeBoundImageConverter.ConvertAsync(request.SourceArtifact,outPath,request.Quality,cancellationToken).ConfigureAwait(false);
-                    nativeAttempt=boundAttempt.Attempt;
+                    try {
+                        boundAttempt=await NativeBoundImageConverter.ConvertAsync(request.SourceArtifact,outPath,request.Quality,cancellationToken).ConfigureAwait(false);
+                        nativeAttempt=boundAttempt.Attempt;
+                    } catch (NotSupportedException) when (request.PreservationPolicy != PreservationPolicy.Strict) {
+                        boundOrdinaryConversion = false;
+                        boundAttempt = null;
+                        nativeAttempt=await NativeMediaService.ConvertImageWithOutputEvidenceAsync(
+                            request.SourceArtifact.Path,
+                            outPath,
+                            request.TargetContainer,
+                            request.Quality,
+                            cancellationToken).ConfigureAwait(false);
+                    }
                 }else nativeAttempt=await NativeMediaService.ConvertImageWithOutputEvidenceAsync(
                     request.SourceArtifact.Path,
                     outPath,

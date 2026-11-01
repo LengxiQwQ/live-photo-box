@@ -1058,8 +1058,7 @@ int transcode_impl(
         }
         else
         {
-            if (mebx_stream &&
-                (request->flags & LPB_VIDEO_SIDECAR_REQUEST_NATIVE_TRANSPLANTS_MEBX) != 0U)
+            if (mebx_stream)
             {
                 ++mebx_stream_count;
                 stream_map[index] = -2;
@@ -1100,10 +1099,8 @@ int transcode_impl(
         mapped_audio = true;
     }
     if (!compatible_profile &&
-        (((request->flags & LPB_VIDEO_SIDECAR_REQUEST_NATIVE_TRANSPLANTS_MEBX) != 0U &&
-            mebx_stream_count == 0U) ||
-        ((request->flags & LPB_VIDEO_SIDECAR_REQUEST_NATIVE_TRANSPLANTS_MEBX) == 0U &&
-            mebx_stream_count != 0U)))
+        ((request->flags & LPB_VIDEO_SIDECAR_REQUEST_NATIVE_TRANSPLANTS_MEBX) != 0U &&
+            mebx_stream_count == 0U))
     {
         return LPB_VIDEO_SIDECAR_UNSUPPORTED;
     }

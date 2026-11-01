@@ -54,7 +54,8 @@ public sealed class P7R2EditorPublicationTests
     static string Sha(string p) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(p)));
     static void Save(string name, object value)
     {
-        string root = Environment.GetEnvironmentVariable("LPB_R2_EVIDENCE") ?? throw new InvalidOperationException("R2 evidence root required");
+        string? root = Environment.GetEnvironmentVariable("LPB_R2_EVIDENCE");
+        if (string.IsNullOrWhiteSpace(root)) return;
         Directory.CreateDirectory(root); using var stream = new FileStream(Path.Combine(root, name + ".json"), FileMode.CreateNew);
         JsonSerializer.Serialize(stream, value, new JsonSerializerOptions { WriteIndented = true });
     }

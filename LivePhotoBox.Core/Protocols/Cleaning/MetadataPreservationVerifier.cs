@@ -217,6 +217,8 @@ public static class MetadataPreservationVerifier
         {
             if(LivePhotoBox.Media.OrdinaryMetadataPreservation.IsRecordCarrier(carrier))
             {
+                if (carrier.Representation != AuxiliaryRepresentation.Materialized || carrier.MaterializedArtifact == null)
+                    continue;
                 try
                 {
                     await LivePhotoBox.Media.OrdinaryMetadataPreservation.VerifyAsync(carrier,cancellationToken).ConfigureAwait(false);

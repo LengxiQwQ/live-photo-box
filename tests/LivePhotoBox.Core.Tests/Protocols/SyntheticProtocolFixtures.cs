@@ -1293,38 +1293,78 @@ internal static class SyntheticProtocolFixtures
                 WriteBox(moovMs, "meta", metaMs.ToArray());
             }
 
-            // trak with mebx metadata
-            using (var trakMs = new MemoryStream())
+            byte[] BoxBytes(string type, byte[] payload)
             {
-                using (var mdiaMs = new MemoryStream())
-                {
-                    // hdlr box with handler type 'meta'
-                    WriteBox(mdiaMs, "hdlr", Encoding.UTF8.GetBytes("\0\0\0\0\0\0\0\0metaappl\0\0\0\0\0\0\0\0\0"));
-
-                    using (var minfMs = new MemoryStream())
-                    {
-                        using (var stblMs = new MemoryStream())
-                        {
-                            using (var stsdMs = new MemoryStream())
-                            {
-                                WriteBe32(stsdMs, 0); // version/flags
-                                WriteBe32(stsdMs, 1); // 1 entry
-                                WriteBox(stsdMs, "mebx",
-                                    Encoding.UTF8.GetBytes("com.apple.quicktime.live-photo-info"));
-                                WriteBox(stblMs, "stsd", stsdMs.ToArray());
-                            }
-                            WriteBox(minfMs, "stbl", stblMs.ToArray());
-                        }
-                        WriteBox(mdiaMs, "minf", minfMs.ToArray());
-                    }
-                    WriteBox(trakMs, "mdia", mdiaMs.ToArray());
-                }
-                WriteBox(moovMs, "trak", trakMs.ToArray());
+                using var box = new MemoryStream();
+                WriteBox(box, type, payload);
+                return box.ToArray();
+            }
+            byte[] BoxBytesWithCode(uint typeCode, byte[] payload)
+            {
+                using var box = new MemoryStream();
+                WriteBe32(box, (uint)(payload.Length + 8));
+                WriteBe32(box, typeCode);
+                box.Write(payload);
+                return box.ToArray();
             }
 
-            // Add one real video track so Native primary validation can prove
-            // this synthetic MOV is media, while the metadata track above
-            // remains available for ContentIdentifier extraction.
+            // Keyed metadata atom sample (size: 12, type: 1, payload: 4-byte int 1)
+            byte[] metaSample = [0, 0, 0, 12, 0, 0, 0, 1, 0, 0, 0, 1];
+            byte[] videoSample = [0, 0, 0, 0];
+
+            byte[] BuildMetadataTrak(uint chunkOffset, uint sampleLength)
+            {
+                using var mebxEntry = new MemoryStream();
+                mebxEntry.Write([0, 0, 0, 0, 0, 0, 0, 1]); // 6 reserved zero bytes + data reference index 1
+                using var keyItem = new MemoryStream();
+                using var keydBox = new MemoryStream();
+                keydBox.Write(Encoding.UTF8.GetBytes("mdta"));
+                keydBox.Write(Encoding.UTF8.GetBytes("com.apple.quicktime.live-photo-info"));
+                WriteBox(keyItem, "keyd", keydBox.ToArray());
+                byte[] keysBox = BoxBytes("keys", BoxBytesWithCode(1, keyItem.ToArray()));
+                mebxEntry.Write(keysBox);
+
+                using var stsd = new MemoryStream();
+                WriteBe32(stsd, 0); WriteBe32(stsd, 1);
+                WriteBox(stsd, "mebx", mebxEntry.ToArray());
+
+                using var stsz = new MemoryStream();
+                WriteBe32(stsz, 0); WriteBe32(stsz, sampleLength); WriteBe32(stsz, 1);
+
+                using var stts = new MemoryStream();
+                WriteBe32(stts, 0); WriteBe32(stts, 1); WriteBe32(stts, 1); WriteBe32(stts, 1);
+
+                using var stsc = new MemoryStream();
+                WriteBe32(stsc, 0); WriteBe32(stsc, 1); WriteBe32(stsc, 1); WriteBe32(stsc, 1); WriteBe32(stsc, 1);
+
+                using var stco = new MemoryStream();
+                WriteBe32(stco, 0); WriteBe32(stco, 1); WriteBe32(stco, chunkOffset);
+
+                using var stbl = new MemoryStream();
+                WriteBox(stbl, "stsd", stsd.ToArray());
+                WriteBox(stbl, "stsz", stsz.ToArray());
+                WriteBox(stbl, "stts", stts.ToArray());
+                WriteBox(stbl, "stsc", stsc.ToArray());
+                WriteBox(stbl, "stco", stco.ToArray());
+
+                byte[] nmhd = BoxBytes("nmhd", [0, 0, 0, 0]);
+                using var dref = new MemoryStream();
+                WriteBe32(dref, 0); WriteBe32(dref, 1);
+                WriteBox(dref, "url ", [0, 0, 0, 1]);
+                byte[] dinf = BoxBytes("dinf", BoxBytes("dref", dref.ToArray()));
+                byte[] minf = BoxBytes("minf", [.. nmhd, .. dinf, .. BoxBytes("stbl", stbl.ToArray())]);
+
+                byte[] mdhd = BoxBytes("mdhd", [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x03, 0xe8, 0, 0, 0, 1, 0, 0, 0, 0]);
+                byte[] hdlr = BoxBytes("hdlr", [0, 0, 0, 0, 0, 0, 0, 0, (byte)'m', (byte)'e', (byte)'t', (byte)'a', 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+                byte[] mdia = BoxBytes("mdia", [.. mdhd, .. hdlr, .. minf]);
+
+                byte[] tkhdBody = new byte[84];
+                tkhdBody[15] = 2; // track_id = 2
+                byte[] tkhd = BoxBytes("tkhd", tkhdBody);
+
+                return BoxBytes("trak", [.. tkhd, .. mdia]);
+            }
+
             byte[] BuildVideoTrak(uint chunkOffset)
             {
                 using var stbl = new MemoryStream();
@@ -1343,28 +1383,33 @@ internal static class SyntheticProtocolFixtures
                 using var stco = new MemoryStream();
                 WriteBe32(stco, 0); WriteBe32(stco, 1); WriteBe32(stco, chunkOffset);
                 WriteBox(stbl, "stco", stco.ToArray());
+
                 byte[] stblBox = BoxBytes("stbl", stbl.ToArray());
                 byte[] minf = BoxBytes("minf", stblBox);
                 byte[] hdlr = BoxBytes("hdlr", [0, 0, 0, 0, 0, 0, 0, 0, (byte)'v', (byte)'i', (byte)'d', (byte)'e', 0, 0, 0, 0, 0, 0, 0, 0]);
-                return BoxBytes("trak", BoxBytes("mdia", [.. hdlr, .. minf]));
+                byte[] tkhdBody = new byte[84];
+                tkhdBody[15] = 1; // track_id = 1
+                byte[] tkhd = BoxBytes("tkhd", tkhdBody);
+                return BoxBytes("trak", [.. tkhd, .. BoxBytes("mdia", [.. hdlr, .. minf])]);
             }
-            byte[] BoxBytes(string type, byte[] payload)
-            {
-                using var box = new MemoryStream();
-                WriteBox(box, type, payload);
-                return box.ToArray();
-            }
-            byte[] videoTrak = BuildVideoTrak(0);
-            uint moovSize = checked((uint)(8 + moovMs.Length + videoTrak.Length));
-            uint sampleOffset = checked((uint)(20 + moovSize + 8));
-            videoTrak = BuildVideoTrak(sampleOffset);
+
+            byte[] dummyVideoTrak = BuildVideoTrak(0);
+            byte[] dummyMetaTrak = BuildMetadataTrak(0, (uint)metaSample.Length);
+            uint moovSize = checked((uint)(8 + moovMs.Length + dummyVideoTrak.Length + dummyMetaTrak.Length));
+            uint mdatPayloadOffset = checked(20 + moovSize + 8);
+            uint videoChunkOffset = mdatPayloadOffset;
+            uint metaChunkOffset = mdatPayloadOffset + (uint)videoSample.Length;
+
+            byte[] videoTrak = BuildVideoTrak(videoChunkOffset);
+            byte[] metaTrak = BuildMetadataTrak(metaChunkOffset, (uint)metaSample.Length);
             moovMs.Write(videoTrak);
+            moovMs.Write(metaTrak);
 
             WriteBox(ms, "moov", moovMs.ToArray());
         }
 
         // mdat box
-        WriteBox(ms, "mdat", Encoding.UTF8.GetBytes("DUMMY_APPLE_VIDEO_TRACK"));
+        WriteBox(ms, "mdat", [0, 0, 0, 0, .. new byte[] { 0, 0, 0, 12, 0, 0, 0, 1, 0, 0, 0, 1 }, .. Encoding.UTF8.GetBytes("DUMMY_APPLE_VIDEO_TRACK")]);
         File.WriteAllBytes(outputPath, ms.ToArray());
     }
 

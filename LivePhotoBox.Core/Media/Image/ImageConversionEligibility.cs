@@ -73,6 +73,7 @@ public static class ImageConversionEligibility
         Container = facts.PrimaryImage.Container,
         Codec = facts.PrimaryImage.Container == ImageContainer.Heic ? ImageCodec.Hevc : ImageCodec.Jpeg,
         HasGainMap = facts.GainMap is { IsPresent: true },
-        HasAuxiliaryMedia = facts.GainMap is { IsPresent: true } || facts.AuxiliaryItems.Any(item => item.IsPresent)
+        HasAuxiliaryMedia = facts.GainMap is { IsPresent: true } || facts.AuxiliaryItems.Any(item => item.IsPresent),
+        HasLiveBinding = facts.Protocol != SourceProtocol.NonLive || facts.PairingIdentifier != null
     };
 }

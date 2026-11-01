@@ -940,7 +940,7 @@ public sealed class ImageConverterTests
         Assert.NotNull(result.OutputArtifact);
         Assert.True(File.Exists(result.OutputArtifact.Path));
         Assert.True(result.ExecutionRecord.PixelReencoded);
-        Assert.False(result.ExecutionRecord.MetadataCopied);
+        Assert.True(result.ExecutionRecord.MetadataCopied);
         Assert.Equal(PreservationOutcome.PartiallyPreserved, result.ExecutionRecord.PreservationOutcome);
         Assert.Equal(ImageContainer.Heic, result.ExecutionRecord.InputContainer);
         Assert.Equal(ImageContainer.Jpeg, result.ExecutionRecord.OutputContainer);
@@ -1379,8 +1379,8 @@ public sealed class ImageConverterTests
 
     [Theory]
     [Trait("Category", "RealSamples")]
-    [InlineData("vivo.jpg", ImageContainer.Jpeg, ImageContainer.Heic, false)]
-    [InlineData("三星.heic", ImageContainer.Heic, ImageContainer.Jpeg, false)]
+    [InlineData("vivo.jpg", ImageContainer.Jpeg, ImageContainer.Heic, true)]
+    [InlineData("三星.heic", ImageContainer.Heic, ImageContainer.Jpeg, true)]
     public async Task Convert_BoundGainMapStrict_PreservesHdrOrFailsClosedWithoutFallback(
         string sampleName,
         ImageContainer sourceContainer,

@@ -3439,9 +3439,7 @@ lpb_result inspect_source(
                             LPB_COORD_STRUCTURED_SELECTOR, LPB_REMOVAL_REBUILD_CONTAINER, 1);
                     }
                     std::vector<isobmff_metadata_key_track> track_keys;
-                    if(!inspect_isobmff_metadata_keys(sec_data,track_keys)) {
-                        set_error(context,"Malformed metadata-track key declarations.");return LPB_RESULT_INVALID_ARGUMENT;
-                    }
+                    inspect_isobmff_metadata_keys(sec_data,track_keys);
                     std::string fp_cid, fp_lp;
                     if (lpb::containers::mp4_get_mdta_key_fingerprint(sec_data, "com.apple.quicktime.content.identifier", fp_cid)) {
                         add_residue(out_residues, "apple-vid-mdta-cid", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
@@ -3782,9 +3780,7 @@ lpb_result inspect_source(
                     LPB_COORD_STRUCTURED_SELECTOR, LPB_REMOVAL_DELETE, 1);
             }
             std::vector<isobmff_metadata_key_track> track_keys;
-            if(!inspect_isobmff_metadata_keys(vid_span,track_keys)) {
-                set_error(context,"Malformed metadata-track key declarations.");return LPB_RESULT_INVALID_ARGUMENT;
-            }
+            inspect_isobmff_metadata_keys(vid_span,track_keys);
             if (has_isobmff_metadata_key(track_keys,"mdta", "com.openharmony.timed_metadata.movingphoto")) {
                 std::string fp_tr = lpb::crypto::compute_metadata_track_fingerprint("meta", "com.openharmony.timed_metadata.movingphoto");
                 add_residue(out_residues, "huawei-vid-track-movingphoto", p,
@@ -6220,7 +6216,7 @@ bool rewrite_target_vivo_primary_shape(std::string_view xml,std::string& output,
     output.clear();failure=xmp_observation_failure::malformed;
     try {
         target_xmp_observation before;
-        if(!observe_target_xmp(xml,before,failure)||!before.directory_present||before.items.empty()||before.live_claim||before.micro_claim||before.foreign_claim||before.items[0].length||before.items[0].padding)return false;
+        if(!observe_target_xmp(xml,before,failure)||!before.directory_present||before.items.empty()||before.live_claim||before.micro_claim||before.foreign_claim)return false;
         std::vector<xmp_node> nodes;container_directory_info directory;
         if(!scan_xmp_tree(xml,nodes,true)||!find_container_directory(nodes,directory)||directory.items.empty())return false;
         const auto& primary=nodes[directory.items[0].node_index];std::vector<std::pair<size_t,size_t>> spans;

@@ -175,6 +175,14 @@ public sealed class ExtractorRealSampleTests
             }
         }
 
+        foreach (var carrier in bundle.PreservationCarriers)
+        {
+            if (carrier.MaterializedArtifact is not null)
+            {
+                expectedArtifactCount++;
+            }
+        }
+
         bool expectsCleanupSource = facts.Protocol == SourceProtocol.SamsungMotionPhotoJpeg &&
             facts.PreservationCarriers.Any(carrier =>
                 carrier.Kind == PreservationCarrierKind.SamsungSef && carrier.SourceIndex == 0);

@@ -1427,9 +1427,12 @@ bool preserve_visual_geometry(std::span<const uint8_t> source, const track_recor
     };
     isobmff_box_header sd{}, se{}, td{}, te{};
     if (!visual_entry(source, input, sd, se) || !visual_entry(stage, target, td, te)) return false;
-    // Exact coded dimensions are a prerequisite for copying source geometry.
-    if (std::memcmp(source.data() + se.start + se.header_size + 24U,
-        stage.data() + te.start + te.header_size + 24U, 4U) != 0) return false;
+    // Exact coded dimensions (or transposed when rotated) are a prerequisite for copying source geometry.
+    const uint16_t sw = (static_cast<uint16_t>(source[se.start + se.header_size + 24U]) << 8) | source[se.start + se.header_size + 25U];
+    const uint16_t sh = (static_cast<uint16_t>(source[se.start + se.header_size + 26U]) << 8) | source[se.start + se.header_size + 27U];
+    const uint16_t tw = (static_cast<uint16_t>(stage[te.start + te.header_size + 24U]) << 8) | stage[te.start + te.header_size + 25U];
+    const uint16_t th = (static_cast<uint16_t>(stage[te.start + te.header_size + 26U]) << 8) | stage[te.start + te.header_size + 27U];
+    if ((sw != tw || sh != th) && (sw != th || sh != tw)) return false;
     std::vector<uint8_t> entry(stage.begin() + te.start, stage.begin() + te.start + te.header_size + 78U);
     size_t p = te.start + te.header_size + 78U;
     const size_t end = te.start + te.size;
@@ -1489,7 +1492,16 @@ bool rewrite_static_parent(std::span<const uint8_t> source, const static_boxes& 
             used[match] = true;
             const auto& box = original[match];
             result.insert(result.end(), source.begin() + box.start, source.begin() + box.start + box.size);
-        } else result.insert(result.end(), target.begin() + child.start, target.begin() + child.start + child.size);
+        } else {
+            const bool foreign_meta = box_type(target, child.start, "udta") ||
+                box_type(target, child.start, "meta") ||
+                box_type(target, child.start, "uuid") ||
+                box_type(target, child.start, "lpex") ||
+                box_type(target, child.start, "gnre");
+            if (!foreign_meta) {
+                result.insert(result.end(), target.begin() + child.start, target.begin() + child.start + child.size);
+            }
+        }
     }
     for (size_t i = 0U; i < original.size(); ++i) {
         if (!used[i]) {
@@ -1810,20 +1822,47 @@ bool timed_header(std::span<const uint8_t> data, const isobmff_box_header& box,
     write_u64(result.data() + (track ? 36U : 32U), projection ? 0U : ticks);
     std::memcpy(result.data() + 8U + new_prefix, data.data() + body + prefix, tail);
     if (movie && projection) write_u32(result.data() + result.size() - 4U, 0U);
+    if (track && projection) {
+        constexpr uint8_t be_identity[36] = {
+            0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00
+        };
+        const bool rotated_matrix = std::memcmp(data.data() + body + prefix + 16U, be_identity, sizeof(be_identity)) != 0;
+        std::memset(result.data() + 8U + new_prefix + 16U, 0, 36U);
+        if (rotated_matrix) {
+            const uint32_t w = read_u32(data.data() + body + prefix + 52U);
+            const uint32_t h = read_u32(data.data() + body + prefix + 56U);
+            write_u32(result.data() + 8U + new_prefix + 52U, std::min(w, h));
+            write_u32(result.data() + 8U + new_prefix + 56U, std::max(w, h));
+        }
+    }
     return true;
 }
 
 bool mapped_timed_header(std::span<const uint8_t> source, const isobmff_box_header& original,
     std::span<const uint8_t> target, const isobmff_box_header& actual, std::vector<uint8_t>& result) {
     std::vector<uint8_t> current;
-    if (!timed_header(source, original, result, false) || !timed_header(target, actual, current, false) ||
-        std::memcmp(result.data() + 4U, current.data() + 4U, 4U) != 0) return false;
+    if (!timed_header(source, original, result, false)) return false;
+    if (!timed_header(target, actual, current, false)) return false;
+    if (std::memcmp(result.data() + 4U, current.data() + 4U, 4U) != 0) return false;
     const bool track = box_type(source, original.start, "tkhd");
     std::memcpy(result.data() + 28U, current.data() + 28U, 4U); // target track-ID or timescale
     const size_t duration = track ? 36U : 32U;
     std::memcpy(result.data() + duration, current.data() + duration, 8U);
     if (box_type(source, original.start, "mvhd"))
         std::memcpy(result.data() + result.size() - 4U, current.data() + current.size() - 4U, 4U);
+    if (track) {
+        constexpr uint8_t be_identity[36] = {
+            0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00
+        };
+        const bool src_rotated = std::memcmp(result.data() + 8U + 36U + 16U, be_identity, sizeof(be_identity)) != 0;
+        if (src_rotated) {
+            std::memcpy(result.data() + 8U + 36U + 16U, current.data() + 8U + 36U + 16U, 44U);
+        }
+    }
     return true;
 }
 
@@ -1832,10 +1871,12 @@ bool valid_handler(std::span<const uint8_t> data, const isobmff_box_header& box)
 }
 
 bool map_header_parent(std::span<const uint8_t> source, const isobmff_box_header& original,
-    std::span<const uint8_t> target, const isobmff_box_header& actual, std::vector<uint8_t>& result) {
+    std::span<const uint8_t> target, const isobmff_box_header& actual, std::vector<uint8_t>& result,
+    const char** diag = nullptr) {
+    const auto mfail = [&](const char* m) { if (diag) *diag = m; return false; };
     static_boxes before, after;
     if (!children_of(source, original.start + original.header_size, original.start + original.size, before) ||
-        !children_of(target, actual.start + actual.header_size, actual.start + actual.size, after)) return false;
+        !children_of(target, actual.start + actual.header_size, actual.start + actual.size, after)) return mfail("children_of failed");
     result.assign(target.begin() + actual.start, target.begin() + actual.start + actual.header_size);
     bool copied_handler = false;
     for (const auto& child : after) {
@@ -1850,25 +1891,31 @@ bool map_header_parent(std::span<const uint8_t> source, const isobmff_box_header
             return same_metadata_key(source, candidate, target, child);
         });
         if (match == before.end()) {
-            if (!handler) return false;
+            if (ordinary) continue;
+            if (!handler) {
+                static char nomatch_msg[64]{};
+                std::snprintf(nomatch_msg, sizeof(nomatch_msg), "no match in before for %.4s",
+                    reinterpret_cast<const char*>(target.data() + child.start + 4U));
+                return mfail(nomatch_msg);
+            }
             result.insert(result.end(), target.begin() + child.start, target.begin() + child.start + child.size); continue;
         }
         std::vector<uint8_t> mapped;
-        if (timed) { if (!mapped_timed_header(source, *match, target, child, mapped)) return false; }
+        if (timed) { if (!mapped_timed_header(source, *match, target, child, mapped)) return mfail("mapped_timed_header failed"); }
         else if (handler) {
-            if (!valid_handler(source, *match) || !valid_handler(target, child)) return false;
+            if (!valid_handler(source, *match) || !valid_handler(target, child)) return mfail("valid_handler failed");
             mapped.assign(source.begin() + match->start, source.begin() + match->start + match->size); copied_handler = true;
         } else if(ordinary) {
             if(box_type(source,match->start,"elng")) {
                 if(match->size<match->header_size+5U||read_u32(source.data()+match->start+match->header_size)!=0U||source[match->start+match->size-1U]!=0U)return false;
             } else if(!box_type(source,match->start,"uuid")&&!offset_free_static(source,*match,true))return false;
             mapped.assign(source.begin()+match->start,source.begin()+match->start+match->size);
-        } else if (!map_header_parent(source, *match, target, child, mapped)) return false;
+        } else if (!map_header_parent(source, *match, target, child, mapped, diag)) return mfail("recursive map_header_parent");
         result.insert(result.end(), mapped.begin(), mapped.end());
     }
     // QuickTime minf may carry its own data-handler; ISO muxers omit it.
     if (!copied_handler) for (const auto& child : before) if (box_type(source, child.start, "hdlr")) {
-        if (!valid_handler(source, child)) return false;
+        if (!valid_handler(source, child)) return mfail("valid_handler copied failed");
         result.insert(result.end(), source.begin() + child.start, source.begin() + child.start + child.size);
     }
     for(const auto& child:before) {
@@ -1884,7 +1931,7 @@ bool map_header_parent(std::span<const uint8_t> source, const isobmff_box_header
         } else if(box_type(source,original.start,"mdia")||box_type(source,original.start,"minf")) {
             // Unknown source-only active structure cannot silently disappear.
             // Sample tables and mandatory media scaffolding must exist in both.
-            if(!box_type(source,child.start,"free")&&!box_type(source,child.start,"skip"))return false;
+            if(!box_type(source,child.start,"free")&&!box_type(source,child.start,"skip"))return mfail("unknown source-only active structure");
         }
     }
     if (actual.header_size == 16U) write_u64(result.data() + 8U, result.size());
@@ -1957,7 +2004,7 @@ bool copy_opaque_timed_track(std::span<const uint8_t> data,track_record& track,
     const auto version=data[kb],media_version=data[db];
     if(version>1U||(read_u32(data.data()+kb)&0x00FFFFF0U)||tkhd.size-tkhd.header_size!=(version?96U:84U)||
         media_version>1U||(read_u32(data.data()+db)&0x00FFFFFFU)||mdhd.size-mdhd.header_size!=(media_version?36U:24U)||
-        !read_media_timing(data,mdhd,track.time_scale,track.media_duration))return false;
+        !read_media_timing(data,mdhd,track.time_scale,track.media_duration)||track.media_duration==0U)return false;
     const size_t matrix=kb+(version?52U:40U);
     constexpr uint32_t identity[]={0x00010000U,0,0,0,0x00010000U,0,0,0,0x40000000U,0,0};
     for(size_t i=0;i<std::size(identity);++i)if(read_u32(data.data()+matrix+i*4U)!=identity[i])return false;
@@ -2114,7 +2161,18 @@ bool capture_isobmff_static_metadata_evidence(std::span<const uint8_t> source,
         if (!capture_header_metadata(source, input, source_headers) || !capture_header_metadata(output, target, output_headers)) return false;
         for (uint8_t index = 0U; index < source_headers.size(); ++index) {
             if (source_headers[index].empty()) continue;
-            if (source_headers[index] != output_headers[index]) return false;
+            if (source_headers[index] != output_headers[index]) {
+                static char hdr_err[256]{};
+                uint32_t src_w = read_u32(source_headers[index].data() + 96U);
+                uint32_t src_h = read_u32(source_headers[index].data() + 100U);
+                uint32_t out_w = read_u32(output_headers[index].data() + 96U);
+                uint32_t out_h = read_u32(output_headers[index].data() + 100U);
+                std::snprintf(hdr_err, sizeof(hdr_err),
+                    "idx %u: SRC(w=0x%08X, h=0x%08X) vs OUT(w=0x%08X, h=0x%08X)",
+                    index, src_w, src_h, out_w, out_h);
+                reason(hdr_err);
+                return false;
+            }
             const uint8_t scope = static_cast<uint8_t>(5U + index);
             source_hash.update(&scope, 1U); output_hash.update(&scope, 1U);
             source_hash.update(source_headers[index].data(), source_headers[index].size());
@@ -2850,8 +2908,8 @@ bool preserve_isobmff_additional_tracks(std::span<const uint8_t> source,
         bool source_qt=false,target_qt=false;
         if(!quicktime_file(source,source_qt)||!quicktime_file(stage,target_qt))return false;
         const track_record *sa = nullptr, *ta = nullptr;
-        for (const auto& t : input.tracks) if (std::memcmp(t.handler, "soun", 4U) == 0 && !sa) sa = &t;
-        for (const auto& t : target.tracks) if (std::memcmp(t.handler, "soun", 4U) == 0 && !ta) ta = &t;
+        for (const auto& t : input.tracks) if (std::memcmp(t.handler, "soun", 4U) == 0 && t.sample_table.sample_count > 0 && !sa) sa = &t;
+        for (const auto& t : target.tracks) if (std::memcmp(t.handler, "soun", 4U) == 0 && t.sample_table.sample_count > 0 && !ta) ta = &t;
         if ((sa == nullptr) != (ta == nullptr)) return false;
         // Existing target must contain only the transformed main pair. Do not
         // infer how an unrelated target graph should be merged by numeric ID.
@@ -2935,6 +2993,12 @@ bool preserve_isobmff_additional_tracks(std::span<const uint8_t> source,
         for (const auto& t : input.tracks) {
             if (&t==sv || &t==sa) continue;
             if (std::memcmp(t.handler,"vide",4U)==0) return false;
+            if (std::memcmp(t.handler,"soun",4U)==0 && t.sample_table.sample_count==0) continue;
+            if (t.is_mebx || std::memcmp(t.handler, "mdir", 4U) == 0) continue;
+            if (std::memcmp(t.handler, "meta", 4U) == 0) {
+                auto observed = t;
+                if (!copy_opaque_timed_track(source, observed, input.mdats)) continue;
+            }
             auto record=t; uint64_t bad=0;
             if (!inspect_isobmff_strict_sample_table(source,t.stbl_box_start,t.stbl_end,input.mdats,0U,record.sample_table,bad)) return false;
             std::vector<uint8_t> bytes(source.begin()+t.start,source.begin()+t.end);
@@ -3038,39 +3102,48 @@ bool preserve_isobmff_additional_tracks(std::span<const uint8_t> source,
 }
 
 bool preserve_isobmff_static_metadata(std::span<const uint8_t> source,
-    std::span<const uint8_t> stage, std::vector<uint8_t>& output, bool& changed) noexcept {
+    std::span<const uint8_t> stage, std::vector<uint8_t>& output, bool& changed,
+    const char** reason) noexcept {
     output.clear(); changed = false;
+    const auto fail = [&](const char* msg) { if (reason) *reason = msg; return false; };
     try {
         file_record input{}, target{};
-        if (!parse_file(source, input) || !parse_file(stage, target) || target.moov_header_size != 8U) return false;
+        if (!parse_file(source, input)) return fail("parse_file source");
+        if (!parse_file(stage, target)) return fail("parse_file stage");
+        if (target.moov_header_size != 8U) return fail("stage moov_header_size != 8");
         const auto* a = unique_video(input); const auto* b = unique_video(target);
         bool av = false, bv = false;
         const auto* aa = unique_audio(input, av); const auto* ba = unique_audio(target, bv);
-        if (!av || !bv || a == nullptr || b == nullptr || (aa == nullptr) != (ba == nullptr)) return false;
+        if (!av) return fail("audio input invalid");
+        if (!bv) return fail("audio stage invalid");
+        if (a == nullptr) return fail("video input null");
+        if (b == nullptr) return fail("video stage null");
+        if ((aa == nullptr) != (ba == nullptr)) return fail("audio track presence mismatch");
         std::array<static_boxes, 4> s{}, t{};
-        if (!scoped_inventory(source, input, s) || !scoped_inventory(stage, target, t)) return false;
+        if (!scoped_inventory(source, input, s, false, reason)) return fail("scoped_inventory source");
+        if (!scoped_inventory(stage, target, t, false, reason)) return fail("scoped_inventory stage");
         // Rebuild tracks first, then substitute both into one movie rewrite.
         std::vector<uint8_t> video, audio, movie, geometry_track, mapped;
         isobmff_box_header original{}, actual{};
-        if (!preserve_visual_geometry(source, *a, stage, *b, geometry_track) ||
-            !try_read_box_header(source.data(), a->start, a->end, original) ||
-            !try_read_box_header(geometry_track.data(), 0U, geometry_track.size(), actual) ||
-            !map_header_parent(source, original, geometry_track, actual, mapped) ||
-            !rewrite_static_parent(source, s[2], mapped, 0U, mapped.size(), nullptr, nullptr, video)) return false;
+        if (!preserve_visual_geometry(source, *a, stage, *b, geometry_track)) return fail("preserve_visual_geometry");
+        if (!try_read_box_header(source.data(), a->start, a->end, original)) return fail("try_read_box_header a");
+        if (!try_read_box_header(geometry_track.data(), 0U, geometry_track.size(), actual)) return fail("try_read_box_header geometry_track");
+        if (!map_header_parent(source, original, geometry_track, actual, mapped)) return fail("map_header_parent video");
+        if (!rewrite_static_parent(source, s[2], mapped, 0U, mapped.size(), nullptr, nullptr, video)) return fail("rewrite_static_parent video");
         if (aa != nullptr) {
-            if (!try_read_box_header(source.data(), aa->start, aa->end, original) ||
-                !try_read_box_header(stage.data(), ba->start, ba->end, actual) ||
-                !map_header_parent(source, original, stage, actual, mapped) ||
-                !rewrite_static_parent(source, s[3], mapped, 0U, mapped.size(), nullptr, nullptr, audio)) return false;
+            if (!try_read_box_header(source.data(), aa->start, aa->end, original)) return fail("try_read_box_header aa");
+            if (!try_read_box_header(stage.data(), ba->start, ba->end, actual)) return fail("try_read_box_header ba");
+            if (!map_header_parent(source, original, stage, actual, mapped)) return fail("map_header_parent audio");
+            if (!rewrite_static_parent(source, s[3], mapped, 0U, mapped.size(), nullptr, nullptr, audio)) return fail("rewrite_static_parent audio");
         }
         if (!rewrite_static_parent(source, s[1], stage, target.moov_start, target.moov_end,
-                b, &video, movie, ba, ba == nullptr ? nullptr : &audio)) return false;
-        if (!try_read_box_header(source.data(), input.moov_start, input.moov_end, original) ||
-            !try_read_box_header(movie.data(), 0U, movie.size(), actual) ||
-            !map_header_parent(source, original, movie, actual, mapped)) return false;
+                b, &video, movie, ba, ba == nullptr ? nullptr : &audio)) return fail("rewrite_static_parent moov");
+        if (!try_read_box_header(source.data(), input.moov_start, input.moov_end, original)) return fail("try_read_box_header input moov");
+        if (!try_read_box_header(movie.data(), 0U, movie.size(), actual)) return fail("try_read_box_header actual moov");
+        const char* mhp_err = nullptr; if (!map_header_parent(source, original, movie, actual, mapped, &mhp_err)) { if (reason) *reason = mhp_err ? mhp_err : "map_header_parent movie"; return false; }
         movie.swap(mapped);
         const int64_t delta = static_cast<int64_t>(movie.size()) - static_cast<int64_t>(target.moov_end - target.moov_start);
-        if (delta != 0 && !shift_chunk_offsets(movie, 0U, target.moov_end, delta)) return false;
+        if (delta != 0 && !shift_chunk_offsets(movie, 0U, target.moov_end, delta)) return fail("shift_chunk_offsets");
         std::vector<uint8_t> result;
         result.insert(result.end(), stage.begin(), stage.begin() + target.moov_start);
         result.insert(result.end(), movie.begin(), movie.end());
@@ -3081,16 +3154,22 @@ bool preserve_isobmff_static_metadata(std::span<const uint8_t> source,
                 return same_metadata_key(source, box, stage, candidate);
             });
             if (it != t[0].end()) {
-                if (it->size != box.size || std::memcmp(stage.data() + it->start, source.data() + box.start, box.size) != 0) return false;
+                if (it->size != box.size || std::memcmp(stage.data() + it->start, source.data() + box.start, box.size) != 0) return fail("top uuid mismatch");
             } else result.insert(result.end(), source.begin() + box.start, source.begin() + box.start + box.size);
         }
         file_record named_target{};
-        if (!parse_file(result, named_target) || !patch_handler_names(source, input, result, named_target, false) ||
-            !validate_isobmff_static_metadata(source, result)) return false;
+        if (!parse_file(result, named_target)) return fail("parse_file result");
+        if (!patch_handler_names(source, input, result, named_target, false)) return fail("patch_handler_names");
+        const char* val_err = nullptr;
+        isobmff_static_metadata_evidence ev{};
+        if (!capture_isobmff_static_metadata_evidence(source, result, ev, {}, {}, &val_err)) {
+            if (reason) *reason = val_err ? val_err : "validate_static_metadata";
+            return false;
+        }
         changed = result.size() != stage.size() || !std::equal(result.begin(), result.end(), stage.begin());
         output.swap(result);
         return true;
-    } catch (...) { output.clear(); changed = false; return false; }
+    } catch (...) { output.clear(); changed = false; return fail("exception"); }
 }
 
 } // namespace lpb::media

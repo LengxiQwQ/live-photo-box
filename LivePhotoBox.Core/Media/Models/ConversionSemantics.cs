@@ -44,6 +44,7 @@ public sealed record ImageConversionSourceFacts
     public ImageCodec Codec { get; init; } = ImageCodec.Unknown;
     public bool HasGainMap { get; init; }
     public bool HasAuxiliaryMedia { get; init; }
+    public bool HasLiveBinding { get; init; }
 }
 
 public sealed record VideoConversionSourceFacts

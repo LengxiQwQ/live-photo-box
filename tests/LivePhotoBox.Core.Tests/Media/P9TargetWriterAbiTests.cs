@@ -1,7 +1,7 @@
 using System.Runtime.InteropServices;
 using LivePhotoBox.Interop;
 using Xunit;
-using NativeFileIdentity = LivePhotoBox.Interop.NativeCleanService.NativeFileIdentity;
+using NativeFileIdentity = LivePhotoBox.Interop.NativeFileIdentity;
 
 namespace LivePhotoBox.Core.Tests.Media;
 

@@ -42,7 +42,7 @@ public sealed class SameFormatHdrRegressionTests
             LivePhotoSplitResult result = await LivePhotoSplitService.SplitAsync(
                 source, outputDir, protocolIndex: 0, outputFormatIndex: 0, CancellationToken.None);
 
-            string metadata = LivePhotoSplitService.ReadMetadataTextSync(result.ImageOutputPath);
+            string metadata = ReadProbeText(result.ImageOutputPath);
             Assert.DoesNotContain("GCamera:MotionPhoto", metadata, StringComparison.Ordinal);
             Assert.DoesNotContain("GCamera:MicroVideo", metadata, StringComparison.Ordinal);
             Assert.DoesNotContain("Semantic=\"MotionPhoto\"", metadata, StringComparison.OrdinalIgnoreCase);
@@ -130,7 +130,7 @@ public sealed class SameFormatHdrRegressionTests
         {
             LivePhotoSplitResult result = await LivePhotoSplitService.SplitAsync(
                 source, outputDir, protocolIndex: 0, outputFormatIndex: 0, CancellationToken.None);
-            string metadata = LivePhotoSplitService.ReadMetadataTextSync(result.ImageOutputPath);
+            string metadata = ReadProbeText(result.ImageOutputPath);
 
             Assert.Contains("Keep me", metadata, StringComparison.Ordinal);
             Assert.Contains("http://purl.org/dc/elements/1.1/", metadata, StringComparison.Ordinal);
@@ -497,6 +497,15 @@ public sealed class SameFormatHdrRegressionTests
         }
 
         return stdout;
+    }
+
+    private static string ReadProbeText(string filePath)
+    {
+        using var fs = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+        int bufferLength = (int)Math.Min(fs.Length, 1024 * 1024);
+        byte[] buffer = new byte[bufferLength];
+        int bytesRead = fs.Read(buffer, 0, bufferLength);
+        return System.Text.Encoding.UTF8.GetString(buffer, 0, bytesRead);
     }
 
     private static void TryDeleteDirectory(string path)

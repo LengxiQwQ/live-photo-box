@@ -82,7 +82,7 @@ bool preserve_isobmff_additional_tracks(std::span<const uint8_t> source,
     std::span<const uint8_t> stage, std::vector<uint8_t>& output, uint32_t rotation = 0U) noexcept;
 bool preserve_isobmff_static_metadata(std::span<const uint8_t> source,
     std::span<const uint8_t> stage, std::vector<uint8_t>& output,
-    bool& changed) noexcept;
+    bool& changed, const char** reason = nullptr) noexcept;
 bool validate_isobmff_static_metadata(std::span<const uint8_t> source,
     std::span<const uint8_t> output) noexcept;
 // Same-size, ftyp-directed QuickTime Pascal <-> ISO NUL handler-name mapping.

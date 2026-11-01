@@ -30,7 +30,7 @@ internal static class NativeBoundImageConverter
             (source.Sha256 is { Length: > 0 } expected&&!string.Equals(expected,sourceHash,StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException("Bound image input bytes differ from the requested artifact.");
         var request=new NativeImageConversionRequestV2{StructSize=96,ApiVersion=2,SourceContainer=1,TargetContainer=2,Quality=quality,OrientationPolicy=1,
-            ExpectedIdentity=new NativeCleanService.NativeFileIdentity{VolumeSerial=identity.VolumeSerialNumber,FileIndex=identity.FileIndex,FileSize=(ulong)input.Length,LinkCount=identity.LinkCount}};
+            ExpectedIdentity=new NativeFileIdentity{VolumeSerial=identity.VolumeSerialNumber,FileIndex=identity.FileIndex,FileSize=(ulong)input.Length,LinkCount=identity.LinkCount}};
         byte[] hash=System.Convert.FromHexString(sourceHash);for(int i=0;i<32;++i)request.SourceSha256[i]=hash[i];
         using var context=NativeContext.Create(token);var proof=new NativeImageConversionProofV1{StructSize=240,ApiVersion=1};
         var result=NativeMethods.ConvertImageV2(context.Handle,source.Path,output,in request,ref proof);

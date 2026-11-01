@@ -1097,7 +1097,7 @@ public static class NativeMediaService
                 }
 
                 VideoMetadataPreservationEvidence? metadata = null;
-                if (res == NativeResult.Ok && preservationPolicy == PreservationPolicy.Strict &&
+                if (res == NativeResult.Ok &&
                     preservation.StructSize == 96 && preservation.ApiVersion == 1 &&
                     preservation.Policy == (uint)preservationPolicy && preservation.Status == 1 &&
                     preservation.SourceBoxCount > 0 &&
@@ -1511,9 +1511,10 @@ public static class NativeMediaService
         uint droppedOther = 0;
         bool audioTranscodedToAac = false;
         bool streamCopied = false;
-        if (fallbackReason.StartsWith("compat:", StringComparison.OrdinalIgnoreCase))
+        int compatIdx = fallbackReason.IndexOf("compat:", StringComparison.OrdinalIgnoreCase);
+        if (compatIdx >= 0)
         {
-            string body = fallbackReason[7..];
+            string body = fallbackReason[(compatIdx + 7)..];
             var pairs = body.Split(';');
             foreach (var pair in pairs)
             {

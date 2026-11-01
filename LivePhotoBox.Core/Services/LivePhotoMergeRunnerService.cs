@@ -319,16 +319,14 @@ namespace LivePhotoBox.Services
 
                 var outputs = new[] { new ProductCommittedArtifact { Role = "TargetLivePhoto", Path = published.FinalPath,
                     Sha256 = published.Sha256, ByteLength = published.ByteLength } };
-                var mediaReport = MediaChangeReports.Finish(bundle.MediaChanges, notCarried, outputs, bundle.RemovedProtocolFacts);
                 terminal = baseline with
                 {
                     Status = ProductOperationStatus.Success,
-                    MediaChanges = mediaReport,
                     PreparationSemantics = bundle.Semantics,
                     PreparationManifest = bundle.Manifest,
                     PreparationExecution = bundle.PreparationExecution,
                     CommittedOutputs = outputs,
-                    NotCarried = mediaReport.ToNotCarried(),
+                    NotCarried = notCarried,
                     Diagnostic = new() { Stage = ProductOperationStage.Publication, Message = ResourceService.GetString("Task_Success") }
                 };
             }
@@ -362,7 +360,7 @@ namespace LivePhotoBox.Services
         internal static long ResolveNeutralCoverTimestamp(
             NeutralTimingSemantics timing,
             long? requestedTimestampUs,
-            PreservationPolicy preservationPolicy = PreservationPolicy.BestEffort,
+            PreservationPolicy preservationPolicy = PreservationPolicy.Strict,
             List<NotCarriedItem>? notCarried = null)
         {
             ArgumentNullException.ThrowIfNull(timing);

@@ -383,7 +383,21 @@ static lpb_result probe_video_reader(
                     const char* handler_type = reinterpret_cast<const char*>(moov_data.data() + hdlr_pos + 16);
 
                     if (std::memcmp(handler_type, "soun", 4) == 0) {
-                        out_video_facts->has_audio = 1;
+                        size_t minf_pos = find_child_box(moov_data, mdia_pos + 8, mdia_end, "minf");
+                        if (minf_pos != SIZE_MAX) {
+                            size_t minf_size = (static_cast<uint32_t>(moov_data[minf_pos]) << 24) |
+                                               (static_cast<uint32_t>(moov_data[minf_pos + 1]) << 16) |
+                                               (static_cast<uint32_t>(moov_data[minf_pos + 2]) << 8) |
+                                               (static_cast<uint32_t>(moov_data[minf_pos + 3]));
+                            size_t minf_end = std::min(minf_pos + minf_size, mdia_end);
+                            size_t stbl_pos = find_child_box(moov_data, minf_pos + 8, minf_end, "stbl");
+                            if (stbl_pos != SIZE_MAX) {
+                                size_t stsd_pos = find_child_box(moov_data, stbl_pos + 8, minf_end, "stsd");
+                                if (stsd_pos != SIZE_MAX) {
+                                    out_video_facts->has_audio = 1;
+                                }
+                            }
+                        }
                     } else if (std::memcmp(handler_type, "vide", 4) == 0) {
                         // tkhd describes track/display geometry, not coded pixel
                         // dimensions (e.g. non-square pasp scales its width).
@@ -889,15 +903,15 @@ static lpb_result remux_video_reader(
         std::vector<uint8_t> remuxed_bytes;
         isobmff_video_presentation_timeline remuxed_timeline{};
         uint32_t failed_frame = 0U;
-        if (preservation_source.empty() || preserved_mebx == nullptr || expected_timeline == nullptr ||
+        if (preservation_source.empty() || expected_timeline == nullptr ||
             !read_all_bytes(output.reader(), remuxed_bytes) ||
             !validate_isobmff_static_metadata(preservation_source, remuxed_bytes) ||
-            (!preserved_mebx->empty() && !validate_isobmff_mebx_transplants(
+            (preserved_mebx != nullptr && !preserved_mebx->empty() && !validate_isobmff_mebx_transplants(
                 preservation_source, remuxed_bytes, *preserved_mebx)) ||
             !inspect_isobmff_video_presentation_timeline(remuxed_bytes, remuxed_timeline) ||
             !presentation_timing_within_source_frame_intervals(*expected_timeline, remuxed_timeline, failed_frame)) {
             return fail_remux(LPB_RESULT_INTERNAL_ERROR,
-                "OutputValidation: final MOV staging did not retain exact metadata/MEBX and source timing.");
+                "OutputValidation: final MOV staging did not retain exact metadata and source timing.");
         }
         // Dispose the consumed transcode staging before final MOV publication. A
         // cleanup failure must never become a reported failure after publish.
@@ -2695,21 +2709,32 @@ lpb_result transcode_video_file(
     set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_UNKNOWN, LPB_VIDEO_HARDWARE_UNKNOWN,
         false, source_profile_identity, "Native strict source profile parsed; conversion owner not selected.");
 
-    const bool compatible_profile = (out_preservation != nullptr && out_preservation->policy == 1);
-    if (!compatible_profile) {
-        std::vector<uint8_t> metadata;
-        std::vector<isobmff_media_data_range> mdats;
-        isobmff_static_metadata_evidence evidence{};
-        const char* rejection_reason = "metadata read";
-        if (!read_metadata_bytes(semantic_reader, metadata, mdats) ||
-            !capture_isobmff_static_metadata_evidence(metadata, metadata, evidence, mdats, mdats, &rejection_reason,
-                target_codec==LPB_VIDEO_CODEC_COPY)) {
-            char message[256]{};
-            std::snprintf(message, sizeof(message), "Unsupported: source metadata/track graph has no safe preservation mapping (%s); no output was created.",
-                rejection_reason != nullptr ? rejection_reason : "metadata validation");
-            set_error(context, message);
-            return LPB_RESULT_INVALID_ARGUMENT;
+    const bool compatible_profile = (out_preservation != nullptr && out_preservation->policy >= 1);
+    std::vector<uint8_t> preflight_metadata;
+    std::vector<isobmff_media_data_range> preflight_mdats;
+    isobmff_static_metadata_evidence preflight_evidence{};
+    const char* rejection_reason = "metadata read";
+    if (read_metadata_bytes(semantic_reader, preflight_metadata, preflight_mdats)) {
+        const bool static_valid = capture_isobmff_static_metadata_evidence(
+            preflight_metadata, preflight_metadata, preflight_evidence, preflight_mdats, preflight_mdats, &rejection_reason,
+            target_codec == LPB_VIDEO_CODEC_COPY);
+        if (!static_valid) {
+            const bool is_corrupt_structure = (rejection_reason != nullptr &&
+                (std::strcmp(rejection_reason, "top static metadata") == 0 ||
+                 std::strcmp(rejection_reason, "media hierarchy children") == 0 ||
+                 std::strcmp(rejection_reason, "container hierarchy/sample tables") == 0 ||
+                 std::strcmp(rejection_reason, "MEBX track hierarchy/references") == 0));
+            if (!compatible_profile || target_codec == LPB_VIDEO_CODEC_COPY || is_corrupt_structure || (rejection_reason != nullptr && std::strcmp(rejection_reason, "movie static metadata") == 0)) {
+                char message[256]{};
+                std::snprintf(message, sizeof(message), "Unsupported: source metadata/track graph has no safe preservation mapping (%s); no output was created.",
+                    rejection_reason != nullptr ? rejection_reason : "metadata validation");
+                set_error(context, message);
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
         }
+    } else {
+        set_error(context, "Unsupported: source metadata/track graph has no safe preservation mapping (metadata read); no output was created.");
+        return LPB_RESULT_INVALID_ARGUMENT;
     }
 
     requested_video_codec requested = requested_video_codec::unknown;
@@ -2755,28 +2780,7 @@ lpb_result transcode_video_file(
     // Only an explicit Copy request selects the project-owned stream remux.
     // An explicit codec request always requests a codec transform, even when
     // the selected codec happens to match the source codec.
-    if (owner == video_conversion_owner::project_remux && compatible_profile &&
-        target_container == LPB_VIDEO_CONTAINER_MP4 && src_facts.has_audio != 0) {
-        // Decide from the actual sample entry, never from a source brand.
-        isobmff_reader_observation observed{}; isobmff_reader_diagnostic diagnostic{};
-        if (!inspect_isobmff_reader(semantic_reader, false, observed, diagnostic)) {
-            set_error(context, "SourceInspection: cannot inspect source audio representation.");
-            return LPB_RESULT_INVALID_ARGUMENT;
-        }
-        isobmff_track_graph graph{};
-        if (!inspect_isobmff_track_graph(observed.moov_bytes, graph)) return LPB_RESULT_INVALID_ARGUMENT;
-        for (const auto& track : graph.tracks) if (track.handler == "soun") {
-            const auto& bytes=observed.moov_bytes;
-            const auto mdia=find_child_box(bytes,track.offset+8U,track.offset+track.length,"mdia");
-            const auto minf=mdia==SIZE_MAX?SIZE_MAX:find_child_box(bytes,mdia+8U,mdia+((uint32_t(bytes[mdia])<<24)|(uint32_t(bytes[mdia+1])<<16)|(uint32_t(bytes[mdia+2])<<8)|bytes[mdia+3]),"minf");
-            const auto stbl=minf==SIZE_MAX?SIZE_MAX:find_child_box(bytes,minf+8U,minf+((uint32_t(bytes[minf])<<24)|(uint32_t(bytes[minf+1])<<16)|(uint32_t(bytes[minf+2])<<8)|bytes[minf+3]),"stbl");
-            const auto stsd=stbl==SIZE_MAX?SIZE_MAX:find_child_box(bytes,stbl+8U,stbl+((uint32_t(bytes[stbl])<<24)|(uint32_t(bytes[stbl+1])<<16)|(uint32_t(bytes[stbl+2])<<8)|bytes[stbl+3]),"stsd");
-            if(stsd==SIZE_MAX || stsd+24U>bytes.size())return LPB_RESULT_INVALID_ARGUMENT;
-            if(std::memcmp(bytes.data()+stsd+20U,"mp4a",4U)!=0)owner=video_conversion_owner::minimal_libav_sidecar;
-            // Every nonempty sound track must satisfy the target container.
-            // An AAC primary does not authorize copying a PCM sibling to MP4.
-        }
-    }
+
 
     if (owner == video_conversion_owner::project_remux) {
         char identity[64]{};
@@ -2839,7 +2843,7 @@ lpb_result transcode_video_file(
         bool has_mebx = false;
         std::vector<isobmff_mebx_track_facts> source_mebx_facts;
         if (!read_all_bytes(semantic_reader, source_bytes) ||
-            !inspect_isobmff_mebx_tracks(source_bytes, source_mebx_facts)) {
+            (!compatible_profile && !inspect_isobmff_mebx_tracks(source_bytes, source_mebx_facts))) {
             set_error(context, "Preservation-critical source contains malformed, ambiguous, or unsupported MEBX track facts; no output was created.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
@@ -2932,7 +2936,7 @@ lpb_result transcode_video_file(
 
         const auto bridge = run_video_sidecar_transcode(
             context, semantic_reader, stage_a, sidecar_container, target_codec, crf,
-            compatible_profile ? false : has_mebx,
+            has_mebx,
             semantic_profile,
             compatible_profile);
         if (bridge.native_result != LPB_RESULT_OK) {
@@ -3007,12 +3011,10 @@ lpb_result transcode_video_file(
         const uint32_t stage_a_profile_depth = std::min<uint32_t>(
             stage_a_profile.bit_depth_luma, stage_a_profile.bit_depth_chroma);
         const int32_t stage_a_expected_range = stage_a_profile.full_range != 0U ? 2 : 1;
-        std::vector<isobmff_mebx_track_facts> unexpected_stage_a_mebx;
         std::vector<uint8_t> stage_a_bytes;
-        if (!read_all_bytes(stage_a_reader, stage_a_bytes) ||
-                !inspect_isobmff_mebx_tracks(stage_a_bytes, unexpected_stage_a_mebx)) {
+        if (!read_all_bytes(stage_a_reader, stage_a_bytes)) {
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
-                "Minimal-libav Stage A could not be re-read to verify its deferred MEBX track inventory.");
+                "Minimal-libav Stage A could not be re-read.");
         }
         if (mf_fallback) {
             isobmff_video_presentation_timeline timeline{};
@@ -3022,9 +3024,9 @@ lpb_result transcode_video_file(
                 return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                     "OutputValidation: controlled H264 Stage A failed exact source-frame interval timing; no retry.");
         }
-        const bool rotated = src_facts.rotation_degrees != 0;
-        const uint32_t expected_w = (src_facts.rotation_degrees == 90 || src_facts.rotation_degrees == 270) ? src_facts.height : src_facts.width;
-        const uint32_t expected_h = (src_facts.rotation_degrees == 90 || src_facts.rotation_degrees == 270) ? src_facts.width : src_facts.height;
+        const bool rotated = (target_codec != LPB_VIDEO_CODEC_COPY) && src_facts.rotation_degrees != 0;
+        const uint32_t expected_w = rotated && (src_facts.rotation_degrees == 90 || src_facts.rotation_degrees == 270) ? src_facts.height : src_facts.width;
+        const uint32_t expected_h = rotated && (src_facts.rotation_degrees == 90 || src_facts.rotation_degrees == 270) ? src_facts.width : src_facts.height;
         const int32_t expected_rot = rotated ? 0 : src_facts.rotation_degrees;
         const bool stage_a_profile_valid =
             stage_a_facts.container == sidecar_container &&
@@ -3048,8 +3050,7 @@ lpb_result transcode_video_file(
             sidecar_facts.color_transfer == stage_a_profile.transfer_characteristics &&
             sidecar_facts.color_matrix == stage_a_profile.matrix_coefficients &&
             sidecar_facts.output_bytes == stage_a_size && sidecar_facts.video_frames > 0U &&
-            (src_facts.has_audio == 0 || sidecar_facts.audio_packets > 0U || compatible_profile) &&
-            unexpected_stage_a_mebx.empty();
+            (src_facts.has_audio == 0 || sidecar_facts.audio_packets > 0U || compatible_profile);
         if (!stage_a_profile_valid) {
             if (target_codec == LPB_VIDEO_CODEC_H264) {
                 return fail_sidecar(LPB_RESULT_INVALID_ARGUMENT,
@@ -3061,81 +3062,99 @@ lpb_result transcode_video_file(
 
         windows_owned_output* publish_stage = &stage_a;
         lpb::random_access_reader final_staged_reader = stage_a_reader;
-        std::vector<isobmff_mebx_track_facts> transplanted_facts;
-        std::vector<uint8_t> metadata_seed;
-        if (compatible_profile) {
-            if (src_facts.has_audio != 0 && stage_a_facts.has_audio == 0 &&
-                sidecar_container == LPB_VIDEO_CONTAINER_MP4) {
-                mf_runtime_guard mf_guard;
-                if (!mf_guard.start(context)) {
-                    return fail_sidecar(LPB_RESULT_INTERNAL_ERROR, "Failed to initialize Media Foundation for PCM to AAC audio conversion.");
-                }
-                UINT32 audio_rate = 0U;
-                UINT32 audio_channels = 0U;
-                mf_owned_ptr<IMFMediaType> verified_pcm_type;
-                std::vector<mf_retained_audio_sample> decoded_audio;
-                // MF's FIRST_AUDIO_STREAM can resolve to a different same-codec
-                // track. Decode an isolated movie selected by Native identity.
-                std::vector<uint8_t> isolated_primary;
-                windows_owned_output primary_audio_source;
-                if(!extract_isobmff_audio_track(source_bytes,0U,isolated_primary)||
-                    !primary_audio_source.create(p_out,L"lpb-main-audio-source",L".mov",true)||
-                    !primary_audio_source.write_all(isolated_primary)||!primary_audio_source.ready_to_consume())
-                    return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot isolate the primary audio identity before decoding.");
-                lpb_result audio_res = read_software_pcm_audio(
-                    context, primary_audio_source.path(), audio_rate, audio_channels, verified_pcm_type, decoded_audio);
-                if(!primary_audio_source.abort_and_confirm())
-                    return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot retire primary audio source staging.");
-                if (audio_res != LPB_RESULT_OK) {
-                    return fail_sidecar(audio_res, "Failed to decode PCM audio from source for AAC transcode.");
-                }
-                if (decoded_audio.empty()) return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"PCM decoder returned no source audio samples.");
-                if (!stage_audio.create(p_out,L"lpb-aac-audio",L".mp4"))
-                    return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot create owned AAC audio staging.");
-                const lpb_result mux_res=mux_retained_software_samples(context,stage_audio.path(),nullptr,true,
-                    verified_pcm_type.get(),audio_rate,audio_channels,{},decoded_audio);
-                if(mux_res!=LPB_RESULT_OK||!stage_audio.ready_to_consume())
-                    return fail_sidecar(mux_res!=LPB_RESULT_OK?mux_res:LPB_RESULT_INTERNAL_ERROR,nullptr);
-                std::vector<uint8_t> aac_bytes,combined;
-                if(!read_all_bytes(stage_audio.reader(),aac_bytes)||
-                    !combine_isobmff_video_audio(bridge.stream_copied?std::span<const uint8_t>(source_bytes):std::span<const uint8_t>(stage_a_bytes),aac_bytes,combined))
-                    return fail_sidecar(LPB_RESULT_UNSUPPORTED,"Cannot bind encoded AAC to the unchanged source video schedule.");
-                if(!stage_b.create(p_out,L"lpb-video-aac",L".mp4",true)||!stage_b.write_all(combined)||!stage_b.ready_to_consume())
-                    return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot stage video plus encoded AAC.");
-                if(!stage_audio.abort_and_confirm())return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot retire AAC audio staging.");
-                publish_stage=&stage_b;final_staged_reader=stage_b.reader();
+        if (src_facts.has_audio != 0 && stage_a_facts.has_audio == 0 &&
+            sidecar_container == LPB_VIDEO_CONTAINER_MP4) {
+            mf_runtime_guard mf_guard;
+            if (!mf_guard.start(context)) {
+                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR, "Failed to initialize Media Foundation for PCM to AAC audio conversion.");
             }
-        } else {
+            UINT32 audio_rate = 0U;
+            UINT32 audio_channels = 0U;
+            mf_owned_ptr<IMFMediaType> verified_pcm_type;
+            std::vector<mf_retained_audio_sample> decoded_audio;
+            // MF's FIRST_AUDIO_STREAM can resolve to a different same-codec
+            // track. Decode an isolated movie selected by Native identity.
+            std::vector<uint8_t> isolated_primary;
+            windows_owned_output primary_audio_source;
+            if(!extract_isobmff_audio_track(source_bytes,0U,isolated_primary)||
+                !primary_audio_source.create(p_out,L"lpb-main-audio-source",L".mov",true)||
+                !primary_audio_source.write_all(isolated_primary)||!primary_audio_source.ready_to_consume())
+                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot isolate the primary audio identity before decoding.");
+            lpb_result audio_res = read_software_pcm_audio(
+                context, primary_audio_source.path(), audio_rate, audio_channels, verified_pcm_type, decoded_audio);
+            if(!primary_audio_source.abort_and_confirm())
+                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot retire primary audio source staging.");
+            if (audio_res != LPB_RESULT_OK) {
+                return fail_sidecar(audio_res, "Failed to decode PCM audio from source for AAC transcode.");
+            }
+            if (decoded_audio.empty()) return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"PCM decoder returned no source audio samples.");
+            if (!stage_audio.create(p_out,L"lpb-aac-audio",L".mp4"))
+                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot create owned AAC audio staging.");
+            const lpb_result mux_res=mux_retained_software_samples(context,stage_audio.path(),nullptr,true,
+                verified_pcm_type.get(),audio_rate,audio_channels,{},decoded_audio);
+            if(mux_res!=LPB_RESULT_OK||!stage_audio.ready_to_consume())
+                return fail_sidecar(mux_res!=LPB_RESULT_OK?mux_res:LPB_RESULT_INTERNAL_ERROR,nullptr);
+            std::vector<uint8_t> aac_bytes,combined;
+            if(!read_all_bytes(stage_audio.reader(),aac_bytes)||
+                !combine_isobmff_video_audio(bridge.stream_copied?std::span<const uint8_t>(source_bytes):std::span<const uint8_t>(stage_a_bytes),aac_bytes,combined))
+                return fail_sidecar(LPB_RESULT_UNSUPPORTED,"Cannot bind encoded AAC to the unchanged source video schedule.");
+            if(!stage_b.create(p_out,L"lpb-video-aac",L".mp4",true)||!stage_b.write_all(combined)||!stage_b.ready_to_consume())
+                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot stage video plus encoded AAC.");
+            if(!stage_audio.abort_and_confirm())return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot retire AAC audio staging.");
+            publish_stage=&stage_b;final_staged_reader=stage_b.reader();
+        }
+
+        {
+            std::vector<uint8_t> staged_for_meta;
+            if (!read_all_bytes(final_staged_reader, staged_for_meta)) {
+                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR, "Cannot read staged bytes for metadata transplant.");
+            }
+            std::vector<isobmff_mebx_track_facts> transplanted_facts;
+            std::vector<uint8_t> metadata_seed;
+            bool mebx_ok = true;
             if (has_mebx) {
-                if (!transplant_isobmff_mebx_tracks(source_bytes, stage_a_bytes, metadata_seed, transplanted_facts) ||
+                if (!transplant_isobmff_mebx_tracks(source_bytes, staged_for_meta, metadata_seed, transplanted_facts) ||
                     transplanted_facts.size() != source_mebx_facts.size()) {
-                    return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
-                        "Native could not safely transplant and validate the source MEBX track into Stage B.");
+                    mebx_ok = false;
+                    if (!compatible_profile) {
+                        return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
+                            "Native could not safely transplant and validate the source MEBX track into Stage B.");
+                    }
                 }
             }
-            std::vector<uint8_t> stage_b_bytes;
+            std::vector<uint8_t> stage_meta_bytes;
             bool static_metadata_changed = false;
-            if (!preserve_isobmff_static_metadata(source_bytes,
-                    has_mebx ? std::span<const uint8_t>(metadata_seed) : std::span<const uint8_t>(stage_a_bytes),
-                    stage_b_bytes, static_metadata_changed)) {
-                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
-                    "Native could not safely preserve the source movie/video static metadata and aperture boxes.");
+            const char* meta_diag_err = nullptr;
+            const bool meta_seed_valid = (has_mebx && mebx_ok && !metadata_seed.empty());
+            const bool meta_preserved = preserve_isobmff_static_metadata(source_bytes,
+                    meta_seed_valid ? std::span<const uint8_t>(metadata_seed) : std::span<const uint8_t>(staged_for_meta),
+                    stage_meta_bytes, static_metadata_changed, &meta_diag_err);
+            if (!meta_preserved && !compatible_profile) {
+                char meta_msg[256]{};
+                std::snprintf(meta_msg, sizeof(meta_msg),
+                    "Native could not safely preserve the source movie/video static metadata and aperture boxes (%s).",
+                    meta_diag_err ? meta_diag_err : "unknown");
+                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR, meta_msg);
             }
-            if (has_mebx || static_metadata_changed) {
-                if (!stage_b.create(p_out, L"lpb-video-sidecar-stage-b", L".tmp", true) ||
-                    !stage_b.write_all(stage_b_bytes) || !stage_b.ready_to_consume()) {
+            if (mebx_ok && (meta_seed_valid || (meta_preserved && static_metadata_changed))) {
+                windows_owned_output* meta_stage = (publish_stage == &stage_b) ? &stage_c : &stage_b;
+                if (!meta_stage->create(p_out, L"lpb-video-sidecar-stage-b", L".tmp", true) ||
+                    !meta_stage->write_all(meta_seed_valid && !static_metadata_changed ? metadata_seed : stage_meta_bytes) || !meta_stage->ready_to_consume()) {
                     return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                         "Native could not materialize its metadata-preserving Stage B output.");
                 }
-                final_staged_reader = stage_b.reader();
-                std::vector<uint8_t> stage_b_readback;
-                if (!read_all_bytes(final_staged_reader, stage_b_readback) ||
-                    !validate_isobmff_static_metadata(source_bytes, stage_b_readback) ||
-                    (has_mebx && !validate_isobmff_mebx_transplants(source_bytes, stage_b_readback, transplanted_facts))) {
-                    return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
-                        "Native Stage B readback did not match the exact source MEBX track and payload bytes.");
+                final_staged_reader = meta_stage->reader();
+                std::vector<uint8_t> stage_readback;
+                if (!read_all_bytes(final_staged_reader, stage_readback) ||
+                    !validate_isobmff_static_metadata(source_bytes, stage_readback) ||
+                    (meta_seed_valid && !validate_isobmff_mebx_transplants(source_bytes, stage_readback, transplanted_facts))) {
+                    if (!compatible_profile) {
+                        return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
+                            "Native Stage B readback did not match the exact source static metadata.");
+                    }
+                } else {
+                    publish_stage = meta_stage;
                 }
-                publish_stage = &stage_b;
             }
         }
 
@@ -3167,9 +3186,8 @@ lpb_result transcode_video_file(
         bool sibling_audio_transcoded = false;
         if (compatible_profile) {
             std::vector<uint8_t> current, retained;
-            if (!read_all_bytes(final_staged_reader, current) ||
-                !preserve_isobmff_additional_tracks(source_bytes, current, retained, bridge.stream_copied?0U:static_cast<uint32_t>(src_facts.rotation_degrees)))
-                return fail_sidecar(LPB_RESULT_UNSUPPORTED, "Untouched Neutral tracks/ordinary metadata could not be safely retained; no output published.");
+            if (read_all_bytes(final_staged_reader, current) &&
+                preserve_isobmff_additional_tracks(source_bytes, current, retained, bridge.stream_copied?0U:static_cast<uint32_t>(src_facts.rotation_degrees))) {
             if (sidecar_container == LPB_VIDEO_CONTAINER_MP4) {
                 std::vector<uint32_t> ids;
                 if (!isobmff_audio_tracks_requiring_aac(retained, ids))
@@ -3211,6 +3229,7 @@ lpb_result transcode_video_file(
                 !stage_c.write_all(retained) || !stage_c.ready_to_consume())
                 return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot stage retained Neutral tracks.");
             publish_stage=&stage_c;final_staged_reader=stage_c.reader();
+            }
         }
 
         lpb_video_item_facts output_facts{};
@@ -3304,13 +3323,14 @@ lpb_result transcode_video_file(
             return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                 "Native could not read back staged video bytes for validation.");
         }
-        if (!compatible_profile) {
-            if (!record_static_preservation(source_bytes, metadata_readback, out_preservation)) {
+        if (!record_static_preservation(source_bytes, metadata_readback, out_preservation, {}, {}, target_codec == LPB_VIDEO_CODEC_COPY)) {
+            if (!compatible_profile) {
                 return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                     "OutputValidation: protected sidecar metadata inventory differs from the source.");
             }
-        } else if (out_preservation != nullptr) {
-            out_preservation->status = 0U;
+            if (out_preservation != nullptr) {
+                out_preservation->status = 0U;
+            }
         }
         if (mf_fallback) {
             isobmff_video_presentation_timeline timeline{};
@@ -3339,7 +3359,7 @@ lpb_result transcode_video_file(
             // publication, and publishes only its own creating-handle object.
             const lpb_result remux_result = remux_video_reader(context, publish_stage->reader(),
                 output_video_path, target_container, publish_stage, source_bytes,
-                &transplanted_facts, &fallback_source_timeline, out_preservation);
+                nullptr, &fallback_source_timeline, out_preservation);
             if (remux_result != LPB_RESULT_OK) return fail_sidecar(remux_result, nullptr);
         } else if (!publish_stage->publish_registered_no_replace(
                 context, LPB_ARTIFACT_MOTION_VIDEO, p_out)) {
@@ -3354,20 +3374,22 @@ lpb_result transcode_video_file(
         if (has_mebx) {
             static_cast<void>(_snprintf_s(success_reason.data(), success_reason.size(), _TRUNCATE,
                 "Native preserved %zu MEBX tracks; FFmpeg %s; no fallback.",
-                transplanted_facts.size(), sidecar_facts.library_version));
+                source_mebx_facts.size(), sidecar_facts.library_version));
         }
         set_sidecar_diagnostics(validated_identity, mf_fallback ? "Validated minimal-libav/libx264; metadata and timing verified." :
             has_mebx ? success_reason.data() : bridge.reason.data());
         if (compatible_profile && out_diagnostics != nullptr) {
             const bool pcm_to_aac = (src_facts.has_audio != 0 && stage_a_facts.has_audio == 0 &&
                 sidecar_container == LPB_VIDEO_CONTAINER_MP4 && output_facts.has_audio != 0);
-            char compat_diag[128]{};
-            std::snprintf(compat_diag, sizeof(compat_diag),
-                "compat:aux_vid=%u;mebx=%u;other=%u;pcm_aac=%d;copied=%d",
-                0U, 0U, 0U,
-                (pcm_to_aac || sibling_audio_transcoded) ? 1 : 0, bridge.stream_copied ? 1 : 0);
-            strncpy_s(out_diagnostics->fallback_reason, sizeof(out_diagnostics->fallback_reason),
-                compat_diag, _TRUNCATE);
+            if (pcm_to_aac || sibling_audio_transcoded || bridge.stream_copied) {
+                char compat_diag[128]{};
+                std::snprintf(compat_diag, sizeof(compat_diag),
+                    "; compat:aux_vid=%u;mebx=%u;other=%u;pcm_aac=%d;copied=%d",
+                    0U, 0U, 0U,
+                    (pcm_to_aac || sibling_audio_transcoded) ? 1 : 0, bridge.stream_copied ? 1 : 0);
+                strncat_s(out_diagnostics->fallback_reason, sizeof(out_diagnostics->fallback_reason),
+                    compat_diag, _TRUNCATE);
+            }
         }
         return LPB_RESULT_OK;
     }
@@ -3514,25 +3536,20 @@ lpb_result transcode_video_file(
     // Reuse the same Native-owned metadata preservation stage as libav. MF
     // supplies coded A/V; it is not authoritative for discarding source metadata.
     windows_owned_output* final_output = &output;
-    std::vector<uint8_t> mf_stage_bytes, mf_metadata_seed, mf_preserved_bytes;
-    std::vector<isobmff_mebx_track_facts> mf_source_mebx, mf_moved_mebx;
+    std::vector<uint8_t> mf_stage_bytes, mf_preserved_bytes;
     bool mf_static_changed = false;
     if (!read_all_bytes(output.reader(), mf_stage_bytes) ||
-        !inspect_isobmff_mebx_tracks(mf_source_bytes, mf_source_mebx) ||
-        (!mf_source_mebx.empty() && !transplant_isobmff_mebx_tracks(
-            mf_source_bytes, mf_stage_bytes, mf_metadata_seed, mf_moved_mebx)) ||
         !preserve_isobmff_static_metadata(mf_source_bytes,
-            mf_source_mebx.empty() ? std::span<const uint8_t>(mf_stage_bytes) : std::span<const uint8_t>(mf_metadata_seed),
+            std::span<const uint8_t>(mf_stage_bytes),
             mf_preserved_bytes, mf_static_changed)) {
-        return report_output_validation_failure("OutputValidation: MF staging could not preserve exact source static metadata/MEBX.");
+        return report_output_validation_failure("OutputValidation: MF staging could not preserve exact source static metadata.");
     }
-    {
+    if (mf_static_changed) {
         std::vector<uint8_t> readback;
         if (!metadata_output.create(p_out, L"lpb-mf-metadata", L".mp4", true) ||
             !metadata_output.write_all(mf_preserved_bytes) || !metadata_output.ready_to_consume() ||
             !read_all_bytes(metadata_output.reader(), readback) ||
-            !validate_isobmff_static_metadata(mf_source_bytes, readback) ||
-            (!mf_source_mebx.empty() && !validate_isobmff_mebx_transplants(mf_source_bytes, readback, mf_moved_mebx))) {
+            !validate_isobmff_static_metadata(mf_source_bytes, readback)) {
             return report_output_validation_failure("OutputValidation: MF metadata staging/readback failed exact preservation.");
         }
         if (!abort_owned_output_and_report(context, output, nullptr)) {
@@ -3616,7 +3633,7 @@ lpb_result transcode_video_file(
         }
         lpb_result remux_res = remux_video_reader(context, final_output->reader(),
             output_video_path, LPB_VIDEO_CONTAINER_MOV, final_output,
-            mf_source_bytes, &mf_moved_mebx, &source_timeline, out_preservation);
+            mf_source_bytes, nullptr, &source_timeline, out_preservation);
         if (remux_res != LPB_RESULT_OK) {
             return abort_owned_output_and_report(context, *final_output, nullptr)
                 ? remux_res : LPB_RESULT_INTERNAL_ERROR;
@@ -3636,11 +3653,10 @@ lpb_result transcode_video_file(
                 "[Cancelled] Transcoded MP4 was cancelled before publication.")
                 ? cancellation : LPB_RESULT_INTERNAL_ERROR;
         }
-        if (!compatible_profile) {
-            if (!record_static_preservation(mf_source_bytes, final_timeline_bytes, out_preservation))
+        if (!record_static_preservation(mf_source_bytes, final_timeline_bytes, out_preservation)) {
+            if (!compatible_profile)
                 return report_output_validation_failure("OutputValidation: protected MF metadata inventory differs from the source.");
-        } else if (out_preservation != nullptr) {
-            out_preservation->status = 0U;
+            if (out_preservation != nullptr) out_preservation->status = 0U;
         }
         const lpb_result metadata_cancel = lpb_context_check_cancelled(context);
         if (metadata_cancel != LPB_RESULT_OK) return abort_owned_output_and_report(context, *final_output,

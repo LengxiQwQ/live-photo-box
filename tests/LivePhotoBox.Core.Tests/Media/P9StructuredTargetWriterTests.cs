@@ -89,7 +89,7 @@ public sealed class P9StructuredTargetWriterTests
         using var folder = new P9TargetTestInputs.Folder(nameof(ExplicitAuxiliaryCannotBeSilentlyDiscardedByExperimentalPath));
         var bundle = P9TargetTestInputs.Bundle(folder.Path); bundle = bundle with { GainMap = bundle.PrimaryImage };
         await Assert.ThrowsAsync<NotSupportedException>(() => StructuredTargetWriterService.WriteAsync(bundle, Profile,
-            Path.Combine(folder.Path, "target.jpg"), folder.Path, false, CancellationToken.None)); Assert.Equal(2, Directory.GetFiles(folder.Path).Length);
+            Path.Combine(folder.Path, "target.jpg"), folder.Path, false, CancellationToken.None, preservationPolicy: PreservationPolicy.Strict)); Assert.Equal(2, Directory.GetFiles(folder.Path).Length);
     }
 
     [Fact]

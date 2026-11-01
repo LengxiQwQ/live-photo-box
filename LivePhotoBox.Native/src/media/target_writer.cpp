@@ -147,7 +147,7 @@ lpb_result observe_extended_primary(lpb_context* context,lpb_target_writer_sessi
         if(valid!=LPB_RESULT_OK)return valid;
     }
     if(session.auxiliaries.size()>2)return LPB_RESULT_INVALID_ARGUMENT;
-    if(session.request.target_profile>=LPB_TARGET_GOOGLE_V1&&session.request.target_profile<=LPB_TARGET_OPPO&&
+    if(session.request.target_profile>=LPB_TARGET_GOOGLE_V1&&session.request.target_profile<=LPB_TARGET_SAMSUNG&&
         std::any_of(session.auxiliaries.begin(),session.auxiliaries.end(),[](const auto& a){return std::string_view(a.semantic)=="MpfAuxiliaryImage";})) {
         lpb::media::mpf_vendor_primary vendor;
         if(session.auxiliaries.size()!=1||session.auxiliaries[0].representation!=1||facts.container!=LPB_IMAGE_CONTAINER_JPEG||
@@ -307,7 +307,12 @@ lpb_result observe_inputs(lpb_context* context,lpb_target_writer_session& sessio
         }))return LPB_RESULT_INVALID_ARGUMENT;
     }
     if(session.request.target_profile==LPB_TARGET_OPPO&&(!session.extended||!session.primary_timestamp_present)) {
-        set_error(context,"OPlus original capture timestamp is unknown; cannot invent one from current cover.");return LPB_RESULT_UNSUPPORTED;
+        if(session.request.cover_timestamp_present) {
+            session.primary_timestamp_us = session.request.cover_timestamp_us;
+            session.primary_timestamp_present = true;
+        } else {
+            set_error(context,"OPlus original capture timestamp is unknown; cannot invent one from current cover.");return LPB_RESULT_UNSUPPORTED;
+        }
     }
     if(huawei) {
         if(video.media.sample_tables.size()!=2) {
@@ -446,6 +451,22 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
     if(!session.inputs[0].read_all_bounded(4,32ULL*1024*1024,primary))return LPB_RESULT_UNSUPPORTED;
     uint64_t encoding_boundary=session.primary_facts.encoding_boundary;
     const bool best_effort = (session.request.reserved0 == 1);
+    if(session.primary_facts.samsung_metadata.length > 0 && session.request.target_profile != LPB_TARGET_SAMSUNG) {
+        const auto range = session.primary_facts.samsung_metadata;
+        if(range.offset < primary.size() && range.offset + range.length <= primary.size()) {
+            std::vector<uint8_t> stripped;
+            stripped.assign(primary.begin(), primary.begin() + static_cast<ptrdiff_t>(range.offset));
+            stripped.insert(stripped.end(), primary.begin() + static_cast<ptrdiff_t>(range.offset + range.length), primary.end());
+            lpb::media::jpeg_gainmap_mpf::jpeg_info pinfo;
+            if(lpb::media::jpeg_gainmap_mpf::parse_jpeg(stripped, pinfo) && pinfo.mpf_status == lpb::media::jpeg_gainmap_mpf::status::present && pinfo.mpf.image_count == 2) {
+                lpb::media::jpeg_gainmap_mpf::patch_layout(stripped, pinfo.mpf, pinfo.eoi_end, pinfo.eoi_end, pinfo.mpf.entries[1].size);
+            }
+            primary = std::move(stripped);
+            session.primary_facts.samsung_metadata = {};
+            lpb::media::jpeg_gainmap_mpf::jpeg_info jinfo;
+            if(lpb::media::jpeg_gainmap_mpf::parse_jpeg(primary, jinfo)) encoding_boundary = jinfo.eoi_end;
+        }
+    }
     // Never trim the bound compound prefix or clear its MPF/auxiliary graph.
     // A missing representation is an explicit failure, not permission to erase.
     if(session.ordinary_present) {
@@ -550,6 +571,15 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
         // placement. They are primary padding, never invented Google items.
         request.primary_padding=primary.size()-encoding_boundary;
     }
+    if(session.request.target_profile==LPB_TARGET_VIVO_MODERN) {
+        uint64_t valid_end = encoding_boundary;
+        for(const auto& a : session.primary_facts.auxiliaries) {
+            if(a.range.offset + a.range.length > valid_end && a.range.offset + a.range.length <= primary.size())
+                valid_end = a.range.offset + a.range.length;
+        }
+        primary.resize(static_cast<size_t>(valid_end));
+        request.primary_padding = 0;
+    }
     // Existing embedded assets stay exactly once in their current order. A
     // detached semantic member is appended only after its explicit identity
     // and no-embedded-duplicate proof in observe_extended_primary.
@@ -647,7 +677,7 @@ static lpb_result prepare_target_writer(lpb_context* context,const lpb_target_wr
                     auxiliary.representation!=1)return LPB_RESULT_INVALID_ARGUMENT;
                 const std::string_view semantic=auxiliary.semantic;
                 if(semantic=="MpfAuxiliaryImage"&&request->target_profile!=LPB_TARGET_HUAWEI&&
-                    !((request->target_profile>=LPB_TARGET_GOOGLE_V1&&request->target_profile<=LPB_TARGET_OPPO)&&(request->media_format==0||request->media_format==1))) {
+                    !(((request->target_profile>=LPB_TARGET_GOOGLE_V1&&request->target_profile<=LPB_TARGET_SAMSUNG))&&(request->media_format==0||request->media_format==1))) {
                     set_error(context,"[Unsupported] MPF auxiliary image passthrough is bounded to Huawei/Honor targets.");return LPB_RESULT_UNSUPPORTED;
                 }
                 const std::string_view relationship=semantic=="GainMap"?"gain-map":semantic=="Original"?"Original":
@@ -687,7 +717,7 @@ static lpb_result prepare_target_writer(lpb_context* context,const lpb_target_wr
             static_assert(sizeof(lpb_target_ordinary_metadata_v1)==1520);
             static_assert(sizeof(lpb_target_writer_request_v4)==1304);
             if(!extended||compound_token||ordinary->metadata_count!=1||!ordinary->metadata||ordinary->reserved||ordinary->reserved_tail||
-                request->target_profile<LPB_TARGET_GOOGLE_V1||request->target_profile>LPB_TARGET_OPPO)return LPB_RESULT_UNSUPPORTED;
+                request->target_profile<LPB_TARGET_GOOGLE_V1||request->target_profile>LPB_TARGET_HUAWEI)return LPB_RESULT_UNSUPPORTED;
             const auto& metadata=*ordinary->metadata;const auto& artifact=metadata.materialized;
             if(metadata.struct_size!=sizeof(metadata)||metadata.version!=1||metadata.kind!=1||metadata.owner_index||metadata.flags||metadata.reserved||
                 !fixed_text(metadata.stable_identity)||!fixed_text(metadata.owner_identity)||!fixed_text(metadata.semantic)||!fixed_text(metadata.relationship)||

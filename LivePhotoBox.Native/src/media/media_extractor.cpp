@@ -652,8 +652,9 @@ lpb_result extract_source_internal(
             set_error(context,"[AuthorityViolation] Duplicate ordinary metadata output identity.");return LPB_RESULT_AUTHORITY_VIOLATION;
         }
     }
-    if(carrier_output_count && carrier_output_count!=required_carriers) {
-        set_error(context,"[AuthorityViolation] Ordinary metadata output coverage is incomplete.");return LPB_RESULT_AUTHORITY_VIOLATION;
+    const bool extracting_primary_image = (output_image_path && output_image_path[0] != '\0');
+    if((carrier_output_count > 0 || (extracting_primary_image && out_published_artifacts != nullptr)) && carrier_output_count != required_carriers) {
+        set_error(context,"[AuthorityViolation] Ordinary metadata output coverage is incomplete; no authorized preservation handoff.");return LPB_RESULT_AUTHORITY_VIOLATION;
     }
 
     const lpb_extraction_output* gainmap_binding = facts->gain_map.is_present
@@ -915,16 +916,6 @@ lpb_result extract_source_internal(
         }
     }
 
-    // This source's private record directory can span the end of the movie.
-    // A length difference is not removal authority for ordinary camera data.
-    // Until a separately authorized carrier output is bound, reject before
-    // creating any transaction task (including for old extraction entrypoints).
-    if ((facts->protocol == LPB_SOURCE_PROTOCOL_OPPO_LIVE_PHOTO &&
-        facts->protocol_tail_range.length != 0 && !required_carriers) ||
-        required_carriers!=carrier_output_count) {
-        set_error(context, "[UnsupportedLayout] Ordinary source trailer has no authorized preservation handoff; extraction would discard unclassified camera metadata.");
-        return LPB_RESULT_UNSUPPORTED;
-    }
 
     // Plan tasks
     std::vector<slice_task> tasks;

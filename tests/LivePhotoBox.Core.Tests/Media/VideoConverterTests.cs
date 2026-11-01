@@ -88,7 +88,7 @@ public sealed class VideoConverterTests
                 TargetContainer = VideoContainer.Mp4, TargetCodec = VideoCodec.Hevc, TargetDirectory = target,
                 PreservationPolicy = PreservationPolicy.Strict
             });
-            Assert.True(result.Success, result.ErrorMessage);
+            Assert.True(result.Success, $"[{Path.GetFileName(path)}|{container}|{capability}] {result.ErrorMessage}");
             Assert.NotNull(result.OutputArtifact);
             Assert.Equal("minimal-libav", result.ExecutionRecord.Truth.BackendName);
             Assert.Equal(capability, result.ExecutionRecord.Truth.ActualCapability);

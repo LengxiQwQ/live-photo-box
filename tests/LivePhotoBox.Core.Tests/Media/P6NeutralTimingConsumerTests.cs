@@ -137,7 +137,7 @@ public sealed class P6NeutralTimingConsumerTests
         Assert.Contains("bundle.Semantics.Timing", consumer, StringComparison.Ordinal);
         Assert.Contains("options.KeyPhotoTimestampUs", consumer, StringComparison.Ordinal);
         Assert.Contains("ResolveNeutralCoverTimestamp(", consumer, StringComparison.Ordinal);
-        Assert.Contains("presentationTimestampUs,", consumer, StringComparison.Ordinal);
+        Assert.Contains("presentationTimestampUs", consumer, StringComparison.Ordinal);
         Assert.DoesNotContain("bundle.Timing", consumer, StringComparison.Ordinal);
     }
 

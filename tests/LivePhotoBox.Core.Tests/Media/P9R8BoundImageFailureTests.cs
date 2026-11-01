@@ -112,7 +112,7 @@ public sealed class P9R8BoundImageFailureTests
     internal static unsafe NativeImageConversionRequestV2 Request(string input)
     {
         var id=WindowsFileIdentity.Capture(input);var request=new NativeImageConversionRequestV2{StructSize=96,ApiVersion=2,SourceContainer=1,TargetContainer=2,
-            Quality=95,OrientationPolicy=1,ExpectedIdentity=new NativeCleanService.NativeFileIdentity{VolumeSerial=id.VolumeSerialNumber,FileIndex=id.FileIndex,FileSize=(ulong)new FileInfo(input).Length,LinkCount=id.LinkCount}};
+            Quality=95,OrientationPolicy=1,ExpectedIdentity=new NativeFileIdentity{VolumeSerial=id.VolumeSerialNumber,FileIndex=id.FileIndex,FileSize=(ulong)new FileInfo(input).Length,LinkCount=id.LinkCount}};
         var hash=SHA256.HashData(File.ReadAllBytes(input));for(int i=0;i<32;i++)request.SourceSha256[i]=hash[i];return request;
     }
     private static unsafe void CorruptHash(ref NativeImageConversionRequestV2 request){fixed(byte* hash=request.SourceSha256)hash[0]^=1;}

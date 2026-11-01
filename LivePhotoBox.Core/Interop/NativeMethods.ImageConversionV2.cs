@@ -7,7 +7,7 @@ namespace LivePhotoBox.Interop;
 internal unsafe struct NativeUnspecifiedJpegOrientationRequestV1
 {
     public uint StructSize,ApiVersion,Handling,Reserved;
-    public NativeCleanService.NativeFileIdentity ExpectedIdentity;
+    public NativeFileIdentity ExpectedIdentity;
     public fixed byte SourceSha256[32];
 }
 
@@ -17,7 +17,7 @@ internal unsafe struct NativeImageConversionRequestV2
     public uint StructSize,ApiVersion,SourceContainer,TargetContainer;
     public int Quality;
     public uint OrientationPolicy;
-    public NativeCleanService.NativeFileIdentity ExpectedIdentity;
+    public NativeFileIdentity ExpectedIdentity;
     public fixed byte SourceSha256[32];
     public uint Reserved0,Reserved1;
 }
@@ -35,7 +35,7 @@ internal unsafe struct NativeImageConversionProofV1
     public uint MetadataStatus,IccStatus,OrientationStatus;
     public uint SourceWidth,SourceHeight,OutputWidth,OutputHeight;
     public uint MetadataCount,Reserved;
-    public NativeCleanService.NativeFileIdentity OutputIdentity;
+    public NativeFileIdentity OutputIdentity;
 }
 
 internal static partial class NativeMethods

@@ -240,19 +240,7 @@ internal static partial class NativeMethods
         string outputImagePath,
         int transform);
 
-    [LibraryImport(LibraryName, EntryPoint = "lpb_transcode_video", StringMarshalling = StringMarshalling.Utf8)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
-    internal static unsafe partial NativeResult TranscodeVideo(
-        nint context,
-        string inputVideoPath,
-        string outputVideoPath,
-        int targetContainer,
-        int targetCodec,
-        int crf,
-        byte* outEncoderUsed,
-        nuint encoderBufLen);
-
+    [Obsolete("Preserved for P5 legacy transcode verification")]
     [LibraryImport(LibraryName, EntryPoint = "lpb_transcode_video_v2", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -264,16 +252,6 @@ internal static partial class NativeMethods
         int targetCodec,
         int crf,
         ref NativeVideoBackendDiagnostics outDiagnostics);
-
-    [LibraryImport(LibraryName, EntryPoint = "lpb_transcode_video_v3", StringMarshalling = StringMarshalling.Utf8)]
-    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
-    internal static partial NativeResult TranscodeVideoV3(
-        nint context, string inputVideoPath, string outputVideoPath,
-        int targetContainer, int targetCodec, int crf,
-        in NativeVideoPreservationRequestV1 request,
-        ref NativeVideoBackendDiagnostics outDiagnostics,
-        ref NativeVideoPreservationResultV1 outPreservation);
 
     [LibraryImport(LibraryName, EntryPoint = "lpb_transcode_video_v4", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
