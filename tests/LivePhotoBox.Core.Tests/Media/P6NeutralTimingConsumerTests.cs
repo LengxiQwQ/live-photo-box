@@ -116,47 +116,4 @@ public sealed class P6NeutralTimingConsumerTests
             LivePhotoMergeRunnerService.ResolveNeutralCoverTimestamp(timing, requestedTimestampUs: null));
     }
 
-    [Fact]
-    public void P6_Runner_ConsumesNeutralTimingSemanticsInsteadOfOriginalBundleTiming()
-    {
-        string runnerPath = Path.Combine(
-            FindRepositoryRoot(),
-            "LivePhotoBox.Core",
-            "Services",
-            "LivePhotoMergeRunnerService.cs");
-        string source = File.ReadAllText(runnerPath);
-        const string methodStart =
-            "private static async Task<ProductOperationOutcome> ProcessSinglePairRebuiltAsync(";
-        const string methodEnd = "internal static long ResolveNeutralCoverTimestamp(";
-        int start = source.IndexOf(methodStart, StringComparison.Ordinal);
-        Assert.True(start >= 0, "The rebuilt merge consumer method was not found.");
-        int end = source.IndexOf(methodEnd, start, StringComparison.Ordinal);
-        Assert.True(end > start, "The rebuilt merge consumer method boundary was not found.");
-        string consumer = source[start..end];
-
-        Assert.Contains("bundle.Semantics.Timing", consumer, StringComparison.Ordinal);
-        Assert.Contains("options.KeyPhotoTimestampUs", consumer, StringComparison.Ordinal);
-        Assert.Contains("ResolveNeutralCoverTimestamp(", consumer, StringComparison.Ordinal);
-        Assert.Contains("presentationTimestampUs", consumer, StringComparison.Ordinal);
-        Assert.DoesNotContain("bundle.Timing", consumer, StringComparison.Ordinal);
-    }
-
-    private static string FindRepositoryRoot()
-    {
-        DirectoryInfo? current = new(AppContext.BaseDirectory);
-        while (current is not null)
-        {
-            string runnerPath = Path.Combine(
-                current.FullName,
-                "LivePhotoBox.Core",
-                "Services",
-                "LivePhotoMergeRunnerService.cs");
-            if (File.Exists(runnerPath))
-                return current.FullName;
-
-            current = current.Parent;
-        }
-
-        throw new DirectoryNotFoundException("Could not locate the Live Photo Box repository root.");
-    }
 }

@@ -322,11 +322,15 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 
 | 方式 | 配对依据 | 示例 |
 |------|----------|------|
-| `name`（默认） | 基础名称相同、扩展名不同 | `photo_001.jpg` + `photo_001.mp4` → 配对 |
+| `name`（默认） | 同一目录内基础名称相同，且恰好一张有效图片和一个有效视频 | `photo_001.jpg` + `photo_001.mp4` → 配对 |
 | `cid` | Apple `ContentIdentifier` UUID 一致，与文件名无关 | `IMG_0002.HEIC` + `renamed.MOV` → 配对 |
 | `vivo` | JPEG 尾部 + MP4 元数据中的 vivo 相机 ID | `vivo_photo.jpg` + `vivo_video.mp4` → 配对 |
 
-`cid` 需要 `exiftool.exe` 位于可执行文件旁的 `Tools\` 目录中（所有分发包均自带）；`name` 与 `vivo` 无需外部工具。
+三种扫描模式互斥，不猜配、不自动回退到其他模式。`name` 不跨子目录配对，同名多图或多视频整组报告冲突；普通同名关系是用户的合成请求，不代表原厂实况身份。`cid` / `vivo` 按身份唯一性筛选，并由 Native Inspector 确认双文件关系。配对不依赖 ExifTool；必需 Native 组件不可用时结束当前扫描并报告原因。
+
+坏文件、孤立项和冲突保存在独立扫描诊断中，不伪造成待执行任务，其他正常独立组继续。`--include-live` 只补入已成功识别的单文件实况照片，不重新接纳坏项或冲突项。
+
+批量合成和拆分的 `--json` 输出包含 `scanStatus`、`scanSummary`、`scanDiagnostics`。诊断列出 `code`、`severity`、`stage`、`primaryPath`、`relatedPaths` 和原因；拆分按 `--pairing` 排除的文件记录为 `ProtocolFiltered`。`scanStatus: completed` 只表示扫描结束，仍须检查总 `status` 和诊断严重度。仅孤立/过滤等说明项不算任务失败；存在扫描错误或处理失败时退出码为 1，正常组的成功产物保留；取消为 130，零可执行项也保留诊断。正式写入前批量原件保护失败时停止整批，不能绕过保护继续写入。
 
 #### 命名模板速查
 
@@ -769,8 +773,8 @@ JSON 为 UTF-8 编码；脚本读取时请按 UTF-8 解码（如 Python `json.lo
 #### 所选格式不适用于该协议
 运行 `lpb protocols` 查看兼容矩阵。例如，`heic+mp4-h265` 仅可用于 `huawei`。
 
-#### 使用 `--pairing cid` 时提示找不到 exiftool
-把 `exiftool.exe` 放到可执行文件旁的 `Tools\` 目录即可。
+#### 身份模式未找到配对或 Native 组件不可用
+确认选择了正确模式，图片和视频携带一致且唯一的原厂配对标识，并查看扫描诊断。Native 组件缺失时应恢复完整的产品运行文件；安装 ExifTool 不会替代 Native Inspector。
 
 #### 输出文件扩展名与源文件不一致
 正常现象。源文件为 HEIC 且选择了 JPEG 类格式时，输出使用 `.jpg` 扩展名。

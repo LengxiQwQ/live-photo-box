@@ -248,8 +248,11 @@ namespace LivePhotoBox.ViewModels
 
         // 开始一次扫描会话，重置进度状态并调用子类钩子。
         // 注意：ProgressBarState 已由 OnIsScanningChanged(true) 设为 Scanning，此处不覆盖。
+        private int _scanSessionVersion;
+
         protected void BeginScanSession()
         {
+            _scanSessionVersion++;
             _scanCancelledByUser = false;
             _scanProcessed = 0;
             _scanTotal = 0;
@@ -283,11 +286,16 @@ namespace LivePhotoBox.ViewModels
         protected IProgress<WorkProgressSnapshot> CreateScanProgressReporter()
         {
             var dispatcher = App.MainWindow?.DispatcherQueue;
-            return new Progress<WorkProgressSnapshot>(snapshot => EnqueueThrottledScanProgress(snapshot, dispatcher));
+            int session = _scanSessionVersion;
+            return new Progress<WorkProgressSnapshot>(snapshot =>
+            {
+                if (IsScanning && !_isCleaningUp && session == _scanSessionVersion)
+                    EnqueueThrottledScanProgress(snapshot, dispatcher, session);
+            });
         }
 
         // 将扫描进度快照排队到 UI 线程（节流：最高每 100ms 一次，完成时强制刷新）。
-        private void EnqueueThrottledScanProgress(WorkProgressSnapshot snapshot, Microsoft.UI.Dispatching.DispatcherQueue? dispatcher)
+        private void EnqueueThrottledScanProgress(WorkProgressSnapshot snapshot, Microsoft.UI.Dispatching.DispatcherQueue? dispatcher, int session)
         {
             _pendingScanSnapshot = snapshot;
             if (dispatcher == null) return;
@@ -298,7 +306,27 @@ namespace LivePhotoBox.ViewModels
 
             _lastScanUiUpdateMs = now;
             var captured = snapshot;
-            dispatcher.TryEnqueue(() => ApplyScanProgress(captured));
+            dispatcher.TryEnqueue(() =>
+            {
+                if (IsScanning && !_isCleaningUp && session == _scanSessionVersion) ApplyScanProgress(captured);
+            });
+        }
+
+        protected Task ApplyScanResultAsync(Action apply, CancellationToken token)
+        {
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            void Commit()
+            {
+                if (token.IsCancellationRequested) { completion.TrySetCanceled(token); return; }
+                if (_isCleaningUp) { completion.TrySetResult(); return; }
+                try { apply(); completion.TrySetResult(); }
+                catch (Exception ex) { completion.TrySetException(ex); }
+            }
+            var dispatcher = App.MainWindow?.DispatcherQueue;
+            if (dispatcher?.HasThreadAccess == true) Commit();
+            else if (dispatcher == null || !dispatcher.TryEnqueue(Commit))
+                completion.TrySetException(new InvalidOperationException("The UI dispatcher is unavailable."));
+            return completion.Task;
         }
 
         // 扫描会话开始时的子类钩子。
@@ -432,6 +460,7 @@ namespace LivePhotoBox.ViewModels
         // 默认冻结扫描用时：保持"扫描用时 mm:ss"显示，直到用户开始处理时切换到处理用时。
         protected virtual void OnScanningEnded()
         {
+            _scanSessionVersion++;
             ScanStopwatch.Stop();
             _scanElapsedTimer.Stop();
         }

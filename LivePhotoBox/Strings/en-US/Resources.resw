@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -4547,4 +4547,47 @@ Inputs: {1}
 {2} / {3}: {4}</value></data>
   <data name="ProductHistory_Title.Text" xml:space="preserve"><value>Operation history · App and CLI</value></data>
   <data name="ProductHistory_Video" xml:space="preserve"><value>Video preparation: {0}; encoder={1}</value></data>
+  <data name="ScanStatus_Conflict" xml:space="preserve"><value>Name Conflict</value></data>
+  <data name="ScanStatus_IdentityConflict" xml:space="preserve"><value>Identity Conflict</value></data>
+  <data name="ScanStatus_Unmatched" xml:space="preserve"><value>Unmatched</value></data>
+  <data name="ScanStatus_Unpaired" xml:space="preserve"><value>Unpaired</value></data>
+  <data name="ScanStatus_AccessDenied" xml:space="preserve"><value>Access Denied</value></data>
+  <data name="ScanStatus_NotFound" xml:space="preserve"><value>Not Found</value></data>
+  <data name="ScanStatus_Unsupported" xml:space="preserve"><value>Unsupported</value></data>
+  <data name="ScanStatus_VideoError" xml:space="preserve"><value>Companion Video Error</value></data>
+  <data name="ScanStatus_InspectionFailed" xml:space="preserve"><value>Inspection Failed</value></data>
+  <data name="ScanStatus_Failed" xml:space="preserve"><value>Failed</value></data>
+  <data name="ScanDiagnostic_RelatedFiles" xml:space="preserve"><value>Related files:</value></data>
+  <data name="MergeDiagnostic_ConflictMultipleMedia" xml:space="preserve"><value>Name conflict: Multiple images or videos share the same base name in this directory.</value></data>
+  <data name="MergeDiagnostic_ConflictDuplicateIdentity" xml:space="preserve"><value>Identity conflict: Multiple files share the same live photo pairing identity.</value></data>
+  <data name="MergeDiagnostic_UnmatchedImage" xml:space="preserve"><value>Unmatched image: No companion video found.</value></data>
+  <data name="MergeDiagnostic_UnmatchedVideo" xml:space="preserve"><value>Unmatched video: No companion image found.</value></data>
+  <data name="MergeDiagnostic_LivePhotoCannotBeCompanion" xml:space="preserve"><value>Conflict: Image is already a live photo and cannot be composed as plain media.</value></data>
+  <data name="MergeDiagnostic_AmbiguousLiveBinding" xml:space="preserve"><value>Conflict: Image has ambiguous live bindings and cannot be downgraded to plain composition.</value></data>
+  <data name="MergeDiagnostic_InvalidCompanionVideo" xml:space="preserve"><value>Invalid companion video or unsupported container/codec.</value></data>
+  <data name="MergeDiagnostic_PairInspectionFailed" xml:space="preserve"><value>Dual-file live photo inspection failed.</value></data>
+  <data name="MergeDiagnostic_ImageInspectionFailed" xml:space="preserve"><value>Image inspection failed.</value></data>
+  <data name="MergeDiagnostic_VideoInspectionFailed" xml:space="preserve"><value>Video inspection failed.</value></data>
+  <data name="MergeDiagnostic_FileNotFound" xml:space="preserve"><value>File not found.</value></data>
+  <data name="MergeDiagnostic_DirectoryNotFound" xml:space="preserve"><value>Directory not found.</value></data>
+  <data name="MergeDiagnostic_UnsupportedExtension" xml:space="preserve"><value>Unsupported file extension.</value></data>
+  <data name="MergeDiagnostic_AccessDenied" xml:space="preserve"><value>Access denied.</value></data>
+  <data name="MergeDiagnostic_DirectoryEnumerationFailed" xml:space="preserve"><value>Directory enumeration failed.</value></data>
+  <data name="SplitDiagnostic_InspectionFailed" xml:space="preserve"><value>Single-file live photo inspection failed.</value></data>
+  <data name="SplitDiagnostic_ReadFailed" xml:space="preserve"><value>File read failed.</value></data>
+  <data name="ScanDiagnostic_Header.Text" xml:space="preserve"><value>scan diagnostics and unselected files (click status for details)</value></data>
+  <data name="ScanStatus_NotSelected" xml:space="preserve"><value>Not selected</value></data>
+  <data name="ScanStatus_Partial" xml:space="preserve"><value>Scan partially completed; see diagnostics for unreadable inputs</value></data>
+  <data name="ScanDiagnostic_InputFailed" xml:space="preserve"><value>This input or relationship failed a read, format, or identity check. See the reason below.</value></data>
+  <data name="ScanDiagnostic_OperationFailed" xml:space="preserve"><value>The scan could not complete. The previous complete queue is preserved; processing was not started. See the reason below.</value></data>
+  <data name="ScanDiagnostic_UnresolvedBinding" xml:space="preserve"><value>The live binding is unresolved or ambiguous; it cannot be treated as plain media.</value></data>
+  <data name="ScanDiagnostic_ConflictAlreadyQueued" xml:space="preserve"><value>The pending relationship is no longer unique and has been blocked. Run a complete scan again.</value></data>
+  <data name="ScanDiagnostic_BatchSafetyFailed" xml:space="preserve"><value>Input protection or output access failed. Processing stopped and the queue was preserved. Input protection was not bypassed; see details.</value></data>
+  <data name="ScanDiagnostic_UnmatchedImage" xml:space="preserve"><value>Unmatched image: no unique, valid companion video in this pairing mode.</value></data>
+  <data name="ScanDiagnostic_UnmatchedVideo" xml:space="preserve"><value>Unmatched video: no unique, valid companion image in this pairing mode.</value></data>
+  <data name="ScanDiagnostic_NotSelected" xml:space="preserve"><value>This discovery mode did not select the file as a single-file live photo.</value></data>
+  <data name="ScanDiagnostic_ProtocolFiltered" xml:space="preserve"><value>This live photo does not match the selected source protocol and was not queued.</value></data>
+  <data name="ScanDiagnostic_UnsupportedExtension" xml:space="preserve"><value>The file extension is not supported by this scan and was not queued.</value></data>
+  <data name="ScanDiagnostic_ReparsePointSkipped" xml:space="preserve"><value>Directory links are not followed, to avoid escaping the selected scope or introducing cycles.</value></data>
+  <data name="MergeDiagnostic_UnconfirmedProtocolPair" xml:space="preserve"><value>The source pair could not be confirmed and cannot be downgraded to a plain-media request.</value></data>
 </root>

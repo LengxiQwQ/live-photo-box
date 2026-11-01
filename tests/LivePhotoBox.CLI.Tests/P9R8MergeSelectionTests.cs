@@ -1,4 +1,4 @@
-using System.Text.Json;
+﻿using System.Text.Json;
 using LivePhotoBox.Cli.Commands;
 using Xunit;
 
@@ -62,12 +62,92 @@ public sealed class P9R8MergeSelectionTests
     }
 
     [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task BatchIncludeLiveRetainsGoodResultAndReportsBrokenFile()
+    {
+        string root = CliTestHost.CreateTempDir("lpb-scan-partial-");
+        try
+        {
+            File.Copy(ResolveSample("oppo.jpg"), Path.Combine(root, "live.jpg"));
+            string broken = CliTestHost.CreateDummyFile(root, "broken.jpg");
+            string output = Path.Combine(root, "output");
+            var result = await CliTestHost.RunAsync(MergeCommand.Create(), root, "--include-live", "--dry-run", "--json", "-o", output);
+            Assert.Equal(1, result.ExitCode);
+            using var json = JsonDocument.Parse(result.StdOut);
+            Assert.Equal(1, json.RootElement.GetProperty("scanned").GetInt32());
+            Assert.Contains(json.RootElement.GetProperty("scanDiagnostics").EnumerateArray(),
+                d => d.GetProperty("primaryPath").GetString() == broken && d.GetProperty("severity").GetString() == "error");
+            Assert.False(Directory.Exists(output));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task BatchIncludeLiveCannotReintroduceAConflictedImage()
+    {
+        string root = CliTestHost.CreateTempDir("lpb-scan-conflict-");
+        try
+        {
+            File.Copy(ResolveSample("oppo.jpg"), Path.Combine(root, "same.jpg"));
+            File.Copy(ResolveSample("oppo.jpg"), Path.Combine(root, "same.jpeg"));
+            var result = await CliTestHost.RunAsync(MergeCommand.Create(), root, "--include-live", "--dry-run", "--json");
+            Assert.Equal(1, result.ExitCode);
+            using var json = JsonDocument.Parse(result.StdOut);
+            Assert.Equal(0, json.RootElement.GetProperty("scanned").GetInt32());
+            Assert.Contains(json.RootElement.GetProperty("scanDiagnostics").EnumerateArray(), d => d.GetProperty("code").GetString() == "ConflictMultipleMedia");
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task SplitBatchBrokenFileReportsDiagnosticWithoutLosingLiveSelection()
+    {
+        string root = CliTestHost.CreateTempDir("lpb-split-partial-");
+        try
+        {
+            File.Copy(ResolveSample("oppo.jpg"), Path.Combine(root, "live.jpg"));
+            string broken = CliTestHost.CreateDummyFile(root, "broken.heic");
+            var result = await CliTestHost.RunAsync(SplitCommand.Create(), root, "--dry-run", "--json");
+            Assert.Equal(1, result.ExitCode);
+            using var json = JsonDocument.Parse(result.StdOut);
+            Assert.Equal(1, json.RootElement.GetProperty("scanned").GetInt32());
+            Assert.Contains(json.RootElement.GetProperty("scanDiagnostics").EnumerateArray(), d => d.GetProperty("primaryPath").GetString() == broken);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
+    private static string ResolveSample(string name)
+    {
+        for (var directory = new DirectoryInfo(AppContext.BaseDirectory); directory != null; directory = directory.Parent)
+        {
+            string path = Path.Combine(directory.FullName, "tests", "fixtures", "realsamples", name);
+            if (File.Exists(path)) return path;
+        }
+        throw new FileNotFoundException("Required real sample fixture is missing.", name);
+    }
+
+    [Fact]
     public async Task ExplicitBatchLiveDiscoveryIncludesUnmatchedImagesWithoutChangingDefaultPairDiscovery()
     {
         string root = CliTestHost.CreateTempDir("lpb-r8-batch-");
         try
         {
-            CliTestHost.CreateDummyFile(root, "embedded.jpg");
+            string samplePath = Path.Combine(AppContext.BaseDirectory, "tests", "fixtures", "realsamples", "oppo.jpg");
+            if (!File.Exists(samplePath))
+            {
+                string dir = AppContext.BaseDirectory;
+                while (!string.IsNullOrEmpty(dir))
+                {
+                    string candidate = Path.Combine(dir, "tests", "fixtures", "realsamples", "oppo.jpg");
+                    if (File.Exists(candidate)) { samplePath = candidate; break; }
+                    var parent = Directory.GetParent(dir);
+                    if (parent == null) break;
+                    dir = parent.FullName;
+                }
+            }
+            File.Copy(samplePath, Path.Combine(root, "embedded.jpg"));
             string output = Path.Combine(root, "new-output");
             var defaultResult = await CliTestHost.RunAsync(MergeCommand.Create(), root, "-o", output, "--json", "--dry-run");
             using var defaultJson = JsonDocument.Parse(defaultResult.StdOut);

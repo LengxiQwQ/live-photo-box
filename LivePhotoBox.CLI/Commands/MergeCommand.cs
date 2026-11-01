@@ -1,9 +1,10 @@
-using LivePhotoBox.Cli.Infrastructure;
+﻿using LivePhotoBox.Cli.Infrastructure;
 using LivePhotoBox.Cli.Models;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media;
+using LivePhotoBox.Media.Inspection;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -69,7 +70,7 @@ namespace LivePhotoBox.Cli.Commands
                 "Accepts seconds (2.500), mm:ss (1:30.500) or hh:mm:ss (0:01:30.500).\n" +
                 "Default: follow the source video's own timeline (Apple MOV / vivo metadata)." };
 
-            var includeLiveOpt = new Option<bool>("--include-live") { Description = "In batch mode also process unmatched original live images. Ordinary unmatched images fail explicitly." };
+            var includeLiveOpt = new Option<bool>("--include-live") { Description = "In batch mode also process successfully inspected, unmatched complete single-file live images. Ordinary, rejected or conflicted inputs are not included." };
             var preservationOpt = new Option<string>("--preservation") { DefaultValueFactory = _ => "best-effort", Description = "Output preservation profile: best-effort (compatible profile, default)|strict (full preservation profile)." };
             var targetVersionOpt = new Option<string?>("--target-version") { Description = "Explicit target version: samsung mpv2|mpv3; huawei v6|honor-v2. Candidate support; device acceptance pending." };
             var unspecifiedDirectionOpt = new Option<string>("--unspecified-image-orientation") { DefaultValueFactory=_=>"reject",
@@ -212,6 +213,11 @@ namespace LivePhotoBox.Cli.Commands
                     || !CliInputValidator.ValidateOutputDirectory(output)
                     || !CliInputValidator.ValidateParallel(parallel))
                 {
+                    if (json && dir != null && !Directory.Exists(dir.FullName))
+                        PrintBatchJson(dir.FullName, output?.FullName ?? string.Empty, 0, 0, 0, new List<MergeJsonFileEntry>(),
+                            scanDiagnostics: new[] { LivePhotoScanSupport.Failure(dir.FullName,
+                                new IOException("The selected input directory is unavailable or cannot be accessed."),
+                                "DirectoryEnumerationFailed", stage: ScanDiagnosticStage.Enumeration) }, scanStatus: "failed");
                     Environment.ExitCode = 1;
                     return;
                 }
@@ -591,7 +597,7 @@ namespace LivePhotoBox.Cli.Commands
                         dir!.FullName, outputDir,
                         protocolIndex, formatIndex, namingRuleIndex, customPattern,
                         parallel, yes, json, dryRun, verbose,
-                        overwrite, preserveSubdirs, useCid, useVivo,
+                        overwrite, preserveSubdirs, pairing, recursive,
                         afterMoveDir, afterRecycle, candidate, includeLive, ct);
                 }
             }
@@ -689,10 +695,10 @@ namespace LivePhotoBox.Cli.Commands
             string inputDir, string outputDir,
             int protocolIndex, int formatIndex, int namingRuleIndex, string? customPattern,
             int parallel, bool yes, bool json, bool dryRun, bool verbose,
-            bool overwrite, bool preserveSubdirs, bool useCid, bool useVivo,
+            bool overwrite, bool preserveSubdirs, string pairing, bool recursive,
             string? afterMoveDir, bool afterRecycle, StructuredMergeOptions candidate, bool includeLive, CancellationToken ct)
         {
-            // 1. Scan — filename-based pairing (always)
+            // 1. Scan — using unified LivePhotoMergeScanService.ScanAsync
             if (!json)
             {
                 if (CliConsole.UseColor)
@@ -707,65 +713,141 @@ namespace LivePhotoBox.Cli.Commands
                     Console.Write($"{"Scanning".PadRight(10)}: {inputDir} ... ");
                 }
             }
-            var scanResult = LivePhotoMergeScanService.Scan(inputDir, ct);
 
+            PairingMode pairingMode = pairing.ToLowerInvariant() switch
+            {
+                "cid" => PairingMode.Cid,
+                "vivo" => PairingMode.Vivo,
+                _ => PairingMode.Name
+            };
+
+            var scanOptions = new MergeScanOptions
+            {
+                InputDirectory = inputDir,
+                Mode = pairingMode,
+                Recursive = recursive
+            };
+
+            var scanResult = await LivePhotoMergeScanService.ScanAsync(scanOptions, ct).ConfigureAwait(false);
+
+            var scanDiagnostics = scanResult.Diagnostics.ToList();
+            if (scanResult.Status == ScanOperationStatus.Cancelled)
+            {
+                if (json) PrintBatchJson(inputDir, outputDir, 0, 0, 0, new List<MergeJsonFileEntry>(),
+                    scanDiagnostics: scanDiagnostics, scanStatus: "cancelled");
+                else CliConsole.WriteErrorLine("Scan cancelled; no processing started.");
+                return 130;
+            }
             var allPairs = new List<(string ImagePath, string VideoPath, string BaseName)>();
 
-            // Add filename pairs
             foreach (var pair in scanResult.Pairs)
+            {
                 allPairs.Add((pair.ImagePath, pair.VideoPath, pair.BaseName));
-
-            // 2. Metadata-based pairing on unmatched files (cid / vivo)
-            int metaPairs = 0;
-            if (useCid && scanResult.StandaloneImagePaths.Count > 0 && scanResult.StandaloneVideoPaths.Count > 0)
-            {
-                if (!json) Console.Write("CID matching... ");
-                var metaResult = await LivePhotoMetadataMatcher.MatchAsync(
-                    scanResult.StandaloneImagePaths, scanResult.StandaloneVideoPaths,
-                    token: ct);
-                foreach (var mp in metaResult.Pairs)
-                    allPairs.Add((mp.ImagePath, mp.VideoPath, Path.GetFileNameWithoutExtension(mp.ImagePath)));
-                metaPairs = metaResult.Pairs.Count;
-            }
-            else if (useVivo && scanResult.StandaloneImagePaths.Count > 0 && scanResult.StandaloneVideoPaths.Count > 0)
-            {
-                if (!json) Console.Write("vivo matching... ");
-                var metaResult = LivePhotoMetadataMatcher.MatchVivo(
-                    scanResult.StandaloneImagePaths, scanResult.StandaloneVideoPaths);
-                foreach (var mp in metaResult.Pairs)
-                    allPairs.Add((mp.ImagePath, mp.VideoPath, Path.GetFileNameWithoutExtension(mp.ImagePath)));
-                metaPairs = metaResult.Pairs.Count;
             }
 
-            if (includeLive)
+            if (includeLive && scanResult.StandaloneImagePaths.Count > 0)
             {
-                var pairedImages = allPairs.Select(p => p.ImagePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                foreach (string path in scanResult.StandaloneImagePaths.Where(path => !pairedImages.Contains(path)))
-                    allPairs.Add((path, string.Empty, Path.GetFileNameWithoutExtension(path)));
+                var inspector = new SourceInspector();
+                foreach (var imgPath in scanResult.StandaloneImagePaths)
+                {
+                    try
+                    {
+                        var facts = await inspector.InspectAsync(imgPath, cancellationToken: ct).ConfigureAwait(false);
+                        if (facts.PrimaryImage?.IsPresent == true &&
+                            facts.MotionVideo?.IsPresent == true &&
+                            facts.Protocol != SourceProtocol.NonLive &&
+                            facts.Protocol != SourceProtocol.Unknown)
+                        {
+                            allPairs.Add((imgPath, string.Empty, Path.GetFileNameWithoutExtension(imgPath)));
+                        }
+                    }
+                    catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                    {
+                        if (json) PrintBatchJson(inputDir, outputDir, 0, 0, 0, new List<MergeJsonFileEntry>(),
+                            scanDiagnostics: scanDiagnostics, scanStatus: "cancelled");
+                        else CliConsole.WriteErrorLine("Scan cancelled; no processing started.");
+                        return 130;
+                    }
+                    catch (Exception ex) when (LivePhotoScanSupport.IsInputFailure(ex))
+                    {
+                        scanDiagnostics.Add(LivePhotoScanSupport.Failure(imgPath, ex));
+                    }
+                    catch (Exception ex) when (LivePhotoScanSupport.CanReportOperationFailure(ex))
+                    {
+                        scanDiagnostics.Add(LivePhotoScanSupport.Failure(imgPath, ex, "ScanOperationFailed", stage: ScanDiagnosticStage.Capability));
+                        if (json) PrintBatchJson(inputDir, outputDir, 0, 0, 0, new List<MergeJsonFileEntry>(),
+                            scanDiagnostics: scanDiagnostics, scanStatus: "failed");
+                        else CliConsole.WriteErrorLine($"Scan failed; no processing started: {ex.Message}");
+                        return 1;
+                    }
+                }
             }
 
-            int standaloneImg = scanResult.StandaloneImagesCount - metaPairs;
-            int standaloneVid = scanResult.StandaloneVideosCount - metaPairs;
+            var scanSummary = new
+            {
+                pairsCount = scanResult.Pairs.Count,
+                standaloneImagesCount = scanResult.StandaloneImagesCount,
+                standaloneVideosCount = scanResult.StandaloneVideosCount,
+                diagnosticsCount = scanDiagnostics.Count,
+                isPartial = scanResult.IsPartial
+            };
+            string scanStatus = scanResult.Status.ToString().ToLowerInvariant();
+            bool hasScanErrors = scanResult.Status == ScanOperationStatus.Failed || scanDiagnostics.Any(d => d.Severity == ScanDiagnosticSeverity.Error);
+
             if (!json)
             {
                 Console.WriteLine();
                 CliConsole.Write(scanResult.Pairs.Count.ToString(), CliConsole.Highlight);
-                Console.Write(" filename pairs, ");
-                CliConsole.Write(metaPairs.ToString(), CliConsole.Highlight);
-                Console.Write(" meta pairs, ");
-                CliConsole.Write(standaloneImg.ToString(), CliConsole.Highlight);
+                Console.Write($" pairs ({pairing}), ");
+                CliConsole.Write(scanResult.StandaloneImagesCount.ToString(), CliConsole.Highlight);
                 Console.Write(" standalone images, ");
-                CliConsole.Write(standaloneVid.ToString(), CliConsole.Highlight);
-                Console.WriteLine(" standalone videos");
+                CliConsole.Write(scanResult.StandaloneVideosCount.ToString(), CliConsole.Highlight);
+                Console.Write(" standalone videos, ");
+                CliConsole.Write(scanDiagnostics.Count.ToString(), CliConsole.Highlight);
+                Console.WriteLine(" diagnostics");
+
+                if (scanDiagnostics.Count > 0)
+                {
+                    foreach (var diag in scanDiagnostics)
+                    {
+                        var color = diag.Severity switch
+                        {
+                            ScanDiagnosticSeverity.Error => CliConsole.Error,
+                            ScanDiagnosticSeverity.Warning => CliConsole.Highlight,
+                            _ => CliConsole.Muted
+                        };
+                        CliConsole.Write($"  [{diag.Severity}] ", color);
+                        Console.WriteLine($"{Path.GetFileName(diag.PrimaryPath)}: {diag.Summary}");
+                    }
+                }
             }
 
             if (allPairs.Count == 0)
             {
                 if (json)
-                    PrintBatchJson(inputDir, outputDir, 0, 0, 0, new List<MergeJsonFileEntry>());
+                    PrintBatchJson(inputDir, outputDir, 0, 0, 0, new List<MergeJsonFileEntry>(),
+                        scanDiagnostics: scanDiagnostics, scanSummary: scanSummary, scanStatus: scanStatus);
                 else
+                {
+                    if (scanDiagnostics.Count > 0)
+                    {
+                        Console.WriteLine();
+                        CliConsole.WriteLine("Scan diagnostics:", CliConsole.Muted);
+                        foreach (var diag in scanDiagnostics)
+                        {
+                            var color = diag.Severity switch
+                            {
+                                ScanDiagnosticSeverity.Error => CliConsole.Error,
+                                ScanDiagnosticSeverity.Warning => CliConsole.Highlight,
+                                _ => CliConsole.Muted
+                            };
+                            CliConsole.Write($"  [{diag.Severity}] ", color);
+                            Console.WriteLine($"{Path.GetFileName(diag.PrimaryPath)}: {diag.Summary}");
+                        }
+                    }
                     CliConsole.WriteErrorLine("No image+video pairs found. Nothing to do.");
-                return 0;
+                }
+                return hasScanErrors ? 1 : 0;
             }
 
             // 3. Build task list
@@ -798,7 +880,8 @@ namespace LivePhotoBox.Cli.Commands
             {
                 LogService.Merge($"DRY RUN: would merge {tasks.Count} pairs.");
                 if (json)
-                    PrintBatchJson(inputDir, outputDir, tasks.Count, 0, 0, jsonFiles);
+                    PrintBatchJson(inputDir, outputDir, tasks.Count, 0, 0, jsonFiles,
+                        scanDiagnostics: scanDiagnostics, scanSummary: scanSummary, scanStatus: scanStatus);
                 else
                 {
                     Console.WriteLine();
@@ -810,12 +893,31 @@ namespace LivePhotoBox.Cli.Commands
                         CliConsole.Write($"#{t.Index}", CliConsole.Highlight);
                         Console.Write("  ");
                         CliConsole.Write(Path.GetFileName(t.ImagePath), CliConsole.PathGreen);
-                        Console.Write("  +  ");
-                        CliConsole.Write(Path.GetFileName(t.VideoPath), CliConsole.PathGreen);
+                        if (!string.IsNullOrEmpty(t.VideoPath))
+                        {
+                            Console.Write("  +  ");
+                            CliConsole.Write(Path.GetFileName(t.VideoPath), CliConsole.PathGreen);
+                        }
                         Console.WriteLine();
                     }
+                    if (scanDiagnostics.Count > 0)
+                    {
+                        Console.WriteLine();
+                        CliConsole.WriteLine("Scan diagnostics:", CliConsole.Muted);
+                        foreach (var diag in scanDiagnostics)
+                        {
+                            var color = diag.Severity switch
+                            {
+                                ScanDiagnosticSeverity.Error => CliConsole.Error,
+                                ScanDiagnosticSeverity.Warning => CliConsole.Highlight,
+                                _ => CliConsole.Muted
+                            };
+                            CliConsole.Write($"  [{diag.Severity}] ", color);
+                            Console.WriteLine($"{Path.GetFileName(diag.PrimaryPath)}: {diag.Summary}");
+                        }
+                    }
                 }
-                return 0;
+                return hasScanErrors ? 1 : 0;
             }
 
             // 5. Confirmation（交互模式先列出匹配对，确认后再处理；-y / --json 静默跳过）
@@ -940,13 +1042,23 @@ namespace LivePhotoBox.Cli.Commands
                     }
                 });
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
                 foreach (var entry in jsonFiles.Where(entry => entry.Status == "pending")) entry.Status = "unprocessed";
-                if (json) PrintJson(new { command = "merge", mode = "batch", targetSupport = "experimental-device-acceptance-pending", input = inputDir, output = outputDir,
-                    status = "cancelled", scanned = tasks.Count, merged = ok, failed = fail, files = jsonFiles });
+                if (json) PrintBatchJson(inputDir, outputDir, tasks.Count, ok, fail, jsonFiles,
+                    afterFailed: 0, afterCancelled: true,
+                    scanDiagnostics: scanDiagnostics, scanSummary: scanSummary, scanStatus: "cancelled");
                 else CliConsole.WriteErrorLine($"Cancelled: {ok} succeeded, {fail} failed.");
                 return 130;
+            }
+            catch (Exception ex) when (LivePhotoScanSupport.CanReportOperationFailure(ex))
+            {
+                foreach (var entry in jsonFiles.Where(entry => entry.Status == "pending")) entry.Status = "unprocessed";
+                scanDiagnostics.Add(LivePhotoScanSupport.Failure(inputDir, ex, "BatchSafetyFailed"));
+                if (json) PrintBatchJson(inputDir, outputDir, tasks.Count, ok, fail, jsonFiles,
+                    scanDiagnostics: scanDiagnostics, scanSummary: scanSummary, scanStatus: scanStatus);
+                else CliConsole.WriteErrorLine($"Processing stopped; input protection was not bypassed: {ex.Message}");
+                return 1;
             }
 
             // Keep conversion receipts separate from source post-processing.
@@ -969,7 +1081,8 @@ namespace LivePhotoBox.Cli.Commands
 
             // 8. Summary
             if (json)
-                PrintBatchJson(inputDir, outputDir, tasks.Count, ok, fail, jsonFiles, afterFailed, afterCancelled);
+                PrintBatchJson(inputDir, outputDir, tasks.Count, ok, fail, jsonFiles, afterFailed, afterCancelled,
+                    scanDiagnostics: scanDiagnostics, scanSummary: scanSummary, scanStatus: scanStatus);
             else
             {
                 Console.WriteLine();
@@ -983,7 +1096,7 @@ namespace LivePhotoBox.Cli.Commands
                 if (afterFailed > 0) CliConsole.WriteErrorLine($"Source post-processing failed for {afterFailed} pair(s); converted outputs are retained.");
                 if (afterCancelled) CliConsole.WriteErrorLine("Source post-processing cancelled; converted outputs are retained.");
             }
-            return afterCancelled ? 130 : fail > 0 || afterFailed > 0 ? 1 : 0;
+            return afterCancelled ? 130 : (fail > 0 || afterFailed > 0 || hasScanErrors) ? 1 : 0;
         }
 
         private sealed class SourceActionFile
@@ -1067,10 +1180,39 @@ namespace LivePhotoBox.Cli.Commands
 
         // 批量模式的 JSON 结果。
         private static void PrintBatchJson(string input, string output, int scanned, int merged, int failed, List<MergeJsonFileEntry> files,
-            int afterFailed = 0, bool afterCancelled = false)
-            => PrintJson(new { command = "merge", mode = "batch", targetSupport = "experimental-device-acceptance-pending", input, output,
-                status = afterCancelled ? "cancelled" : failed > 0 || afterFailed > 0 ? "failed" : "completed",
-                scanned, merged, failed, afterFailed, files });
+            int afterFailed = 0, bool afterCancelled = false,
+            IReadOnlyList<ScanDiagnostic>? scanDiagnostics = null,
+            object? scanSummary = null,
+            string scanStatus = "completed")
+            => PrintJson(new {
+                command = "merge",
+                mode = "batch",
+                targetSupport = "experimental-device-acceptance-pending",
+                input,
+                output,
+                status = afterCancelled || scanStatus == "cancelled" ? "cancelled" : (scanStatus == "failed" || failed > 0 || afterFailed > 0 || (scanDiagnostics != null && scanDiagnostics.Any(d => d.Severity == ScanDiagnosticSeverity.Error))) ? "failed" : "completed",
+                scanned,
+                merged,
+                failed,
+                afterFailed,
+                scanStatus,
+                scanSummary,
+                scanDiagnostics = scanDiagnostics?.Select(d => new
+                {
+                    code = d.DiagnosticCode,
+                    severity = d.Severity.ToString().ToLowerInvariant(),
+                    stage = d.Stage.ToString().ToLowerInvariant(),
+                    primaryPath = d.PrimaryPath,
+                    relatedPaths = d.RelatedPaths,
+                    groupKey = d.GroupKey,
+                    summary = d.Summary,
+                    messageKey = d.MessageKey,
+                    category = d.RawCategory?.ToString(),
+                    inspectionStage = d.RawStage?.ToString(),
+                    capability = d.RawCapability
+                }).ToList() ?? (object)Array.Empty<object>(),
+                files
+            });
 
         // 脚本模式（--json）下单个文件的 JSON 结果条目。
         private sealed class MergeJsonFileEntry

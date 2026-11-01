@@ -163,11 +163,14 @@ public sealed class SourceInspectorRoutingRegressionTests
         Assert.DoesNotContain("catch\n", resolver, StringComparison.Ordinal);
 
         string split = ReadProductionSource("LivePhotoBox", "ViewModels", "SplitViewModel.cs");
-        Assert.Contains("catch (SourceInspectionException", split, StringComparison.Ordinal);
-        Assert.Contains("throw;", split, StringComparison.Ordinal);
+        Assert.Contains("LivePhotoDiscoveryService.ScanFilesAsync", split, StringComparison.Ordinal);
+        Assert.Contains("result.Diagnostics", split, StringComparison.Ordinal);
+        Assert.DoesNotContain("new SourceInspector()", split, StringComparison.Ordinal);
 
         string merge = ReadProductionSource("LivePhotoBox", "ViewModels", "MergeViewModel.cs");
-        Assert.Contains("MatchNativePairsAsync", merge, StringComparison.Ordinal);
+        Assert.Contains("LivePhotoMergeScanService.ScanAsync", merge, StringComparison.Ordinal);
+        Assert.Contains("result.Diagnostics", merge, StringComparison.Ordinal);
+        Assert.DoesNotContain("LivePhotoDiscoveryService.ScanAsync", merge, StringComparison.Ordinal);
         Assert.DoesNotContain("0 => true", merge, StringComparison.Ordinal);
 
         string mergeScan = ReadProductionSource("LivePhotoBox.Core", "Services", "LivePhotoMergeScanService.cs");

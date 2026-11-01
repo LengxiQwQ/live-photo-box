@@ -12,6 +12,7 @@ using Xunit;
 
 namespace LivePhotoBox.Core.Tests.Media;
 
+[Trait("Category", "Extended")]
 public sealed partial class ExtractorScaleTests
 {
     [LibraryImport("kernel32.dll", SetLastError = true)]

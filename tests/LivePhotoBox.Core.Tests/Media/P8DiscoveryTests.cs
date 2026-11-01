@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using LivePhotoBox.Core.Tests.Protocols;
 using LivePhotoBox.Core.Tests.Support;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
@@ -72,12 +73,30 @@ public sealed class P8DiscoveryTests
     public async Task Discovery_DuplicateVivoIdentity_FailsClosed()
     {
         using var workspace = new TestFixtureWorkspace();
-        var (image, _) = CopyVivoPair(workspace);
-        File.Copy(image, Path.Combine(workspace.RootDirectory, "duplicate.jpg"));
-        var error = await Assert.ThrowsAsync<SourceInspectionException>(() =>
-            LivePhotoDiscoveryService.ScanAsync(workspace.RootDirectory, DiscoveryScanMode.MergeOnly));
-        Assert.Equal(SourceInspectionFailureCategory.Ambiguous, error.Category);
-        Assert.Equal(SourceInspectionStage.Pairing, error.Stage);
+        var (image, video) = CopyVivoPair(workspace);
+        string duplicate = Path.Combine(workspace.RootDirectory, "duplicate.jpg");
+        File.Copy(image, duplicate);
+
+        // 1. 底层 MatchVivo 仍严格抛出 Ambiguous/Pairing 异常（保留严格安全门禁）
+        var ex = Assert.Throws<SourceInspectionException>(() =>
+            LivePhotoMetadataMatcher.MatchVivo([image, duplicate], [video]));
+        Assert.Equal(SourceInspectionFailureCategory.Ambiguous, ex.Category);
+        Assert.Equal(SourceInspectionStage.Pairing, ex.Stage);
+
+        string independentImage = Path.Combine(workspace.RootDirectory, "independent.jpg");
+        string independentVideo = Path.Combine(workspace.RootDirectory, "independent.mp4");
+        SyntheticProtocolFixtures.CreateVivoLegacyDualJpeg(independentImage);
+        SyntheticProtocolFixtures.CreateVivoLegacyDualMp4(independentVideo);
+        var result = await LivePhotoDiscoveryService.ScanAsync(workspace.RootDirectory, DiscoveryScanMode.MergeOnly);
+        Assert.Equal(LivePhotoType.None, result.Items.Single(i => i.FilePath == image).LivePhotoType);
+        Assert.Equal(LivePhotoType.None, result.Items.Single(i => i.FilePath == duplicate).LivePhotoType);
+        Assert.Equal(LivePhotoType.None, result.Items.Single(i => i.FilePath == video).LivePhotoType);
+        var independent = Assert.Single(result.DualFilePairs);
+        Assert.Equal(independentImage, independent.Image.FilePath);
+        Assert.Equal(independentVideo, independent.Video.FilePath);
+        Assert.Contains(result.Diagnostics, d => d.DiagnosticCode == "ConflictDuplicateIdentity" &&
+            d.Severity == ScanDiagnosticSeverity.Error && d.Stage == ScanDiagnosticStage.Pairing &&
+            d.RelatedPaths.Contains(image) && d.RelatedPaths.Contains(duplicate) && d.RelatedPaths.Contains(video));
     }
 
     [Fact]
@@ -113,5 +132,115 @@ public sealed class P8DiscoveryTests
         File.Copy(TestSampleResolver.ResolveSample("vivo双文件.jpg"), image);
         File.Copy(TestSampleResolver.ResolveSample("vivo双文件.mp4"), video);
         return (image, video);
+    }
+
+    [Fact]
+    [Trait("Category", "Synthetic")]
+    public async Task MergeScan_NameMode_PairsOnlySameDirectoryAndBaseName()
+    {
+        using var workspace = new TestFixtureWorkspace();
+        string tempDir = Path.Combine(Path.GetTempPath(), $"lpb-test-neutral-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            string matchImg = Path.Combine(workspace.RootDirectory, "sample.jpg");
+            string matchVid = Path.Combine(workspace.RootDirectory, "sample.mov");
+            await CopyPlainPairAsync(matchImg, matchVid, tempDir);
+
+            // Subdirectory with same base name: should NOT cross-pair across directories
+            string subDir = Path.Combine(workspace.RootDirectory, "subdir");
+            Directory.CreateDirectory(subDir);
+            string crossImg = Path.Combine(subDir, "cross.jpg");
+            string crossVid = Path.Combine(workspace.RootDirectory, "cross.mov");
+            await CopyPlainPairAsync(crossImg, crossVid, tempDir);
+
+            var result = await LivePhotoMergeScanService.ScanAsync(new MergeScanOptions
+            {
+                InputDirectory = workspace.RootDirectory,
+                Mode = PairingMode.Name,
+                Recursive = true
+            });
+
+            // Only sample.jpg + sample.mov in the same directory should be paired
+            var pair = Assert.Single(result.Pairs);
+            Assert.Equal(matchImg, pair.ImagePath);
+            Assert.Equal(matchVid, pair.VideoPath);
+            Assert.Equal(PairingKind.FilenameCompositionRequest, pair.PairingKind);
+
+            // cross.jpg and cross.mov remain standalone
+            Assert.Contains(crossImg, result.StandaloneImagePaths);
+            Assert.Contains(crossVid, result.StandaloneVideoPaths);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Synthetic")]
+    public async Task MergeScan_NameMode_MultipleMediaConflict_ProducesDiagnostic()
+    {
+        using var workspace = new TestFixtureWorkspace();
+        string tempDir = Path.Combine(Path.GetTempPath(), $"lpb-test-neutral-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            string img1 = Path.Combine(workspace.RootDirectory, "conflict.jpg");
+            string img2 = Path.Combine(workspace.RootDirectory, "conflict.jpeg");
+            string vid = Path.Combine(workspace.RootDirectory, "conflict.mov");
+            await CopyPlainPairAsync(img1, vid, tempDir);
+            File.Copy(img1, img2);
+
+            var result = await LivePhotoMergeScanService.ScanAsync(new MergeScanOptions
+            {
+                InputDirectory = workspace.RootDirectory,
+                Mode = PairingMode.Name
+            });
+
+            // Multiple images with the same base name in the same directory must conflict and fail closed
+            Assert.Empty(result.Pairs);
+            var diag = Assert.Single(result.Diagnostics);
+            Assert.Equal("ConflictMultipleMedia", diag.DiagnosticCode);
+            Assert.Equal(ScanDiagnosticSeverity.Error, diag.Severity);
+            Assert.Equal(ScanDiagnosticStage.Pairing, diag.Stage);
+            Assert.Contains(img2, diag.RelatedPaths);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Synthetic")]
+    public async Task MergeScan_EmptyDirectory_ReturnsZeroPairsWithoutError()
+    {
+        using var workspace = new TestFixtureWorkspace();
+        var result = await LivePhotoMergeScanService.ScanAsync(new MergeScanOptions
+        {
+            InputDirectory = workspace.RootDirectory,
+            Mode = PairingMode.Name
+        });
+
+        Assert.Empty(result.Pairs);
+        Assert.Empty(result.Diagnostics);
+        Assert.Equal(ScanOperationStatus.Completed, result.Status);
+        Assert.False(result.IsPartial);
+    }
+
+    private static async Task CopyPlainPairAsync(string imageDst, string videoDst, string tempDir)
+    {
+        File.WriteAllBytes(imageDst, SyntheticProtocolFixtures.CreateMinimalJpeg());
+        string oppo = TestSampleResolver.ResolveSample("oppo.jpg");
+        var split = await LivePhotoSplitService.SplitAsync(
+            oppo,
+            tempDir,
+            protocolIndex: ProtocolFormatMatrix.SplitProtocolNone,
+            outputFormatIndex: ProtocolFormatMatrix.SplitFormatJpgMov,
+            CancellationToken.None);
+        File.Copy(split.VideoOutputPath, videoDst, overwrite: true);
     }
 }

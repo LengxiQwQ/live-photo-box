@@ -322,11 +322,15 @@ In batch mode (`-d`), the tool must decide which image belongs to which video:
 
 | Method | How pairs are matched | Example |
 |--------|-----------------------|---------|
-| `name` (default) | Same base name, different extension | `photo_001.jpg` + `photo_001.mp4` → paired |
+| `name` (default) | Same directory and base name, with exactly one valid image and one valid video | `photo_001.jpg` + `photo_001.mp4` → paired |
 | `cid` | Apple `ContentIdentifier` UUID match, regardless of filename | `IMG_0002.HEIC` + `renamed.MOV` → paired |
 | `vivo` | vivo camera ID in the JPEG tail + MP4 metadata | `vivo_photo.jpg` + `vivo_video.mp4` → paired |
 
-`cid` requires `exiftool.exe` in the `Tools\` directory alongside the executable (included in all packages); `name` and `vivo` need no external tools.
+The three scan modes are exclusive and never fall back to one another. `name` does not pair across directories; multiple images or videos with the same base name reject the group. An ordinary filename pair expresses the requested composition, not an authenticated camera relationship. `cid` and `vivo` require unique identities and Native Inspector confirmation of the dual-file relationship. Pairing does not require ExifTool. Missing required Native components stop the scan with a diagnostic.
+
+Broken files, unmatched inputs and conflicts remain separate scan diagnostics rather than executable tasks; independent valid groups continue. `--include-live` adds only successfully inspected single-file live photos and cannot reintroduce broken or conflicted inputs.
+
+Batch merge and split JSON include `scanStatus`, `scanSummary` and `scanDiagnostics`. Diagnostics expose `code`, `severity`, `stage`, `primaryPath`, `relatedPaths` and the reason. Split records protocol-filtered files as `ProtocolFiltered`. `scanStatus: completed` describes scan completion; also inspect the overall `status` and diagnostic severity. Informational unmatched/filtered entries alone are not task failures. Scan errors or processing failures return exit code 1 while keeping independent successful outputs; cancellation returns 130. Zero-ready results retain diagnostics. Failure to establish batch input protection stops the entire batch before writing; protection is never bypassed.
 
 #### Naming Templates
 
@@ -754,8 +758,8 @@ Note: root-level `-v` means `--version`; inside subcommands (e.g. `lpb merge -v`
 
 | Code | Meaning |
 |:---:|---------|
-| 0 | All tasks completed successfully |
-| 1 | Parameter error, or at least one task failed |
+| 0 | All tasks completed successfully, or 0 pairs found without scan errors |
+| 1 | Parameter error, at least one task failed, or scan encountered error diagnostics (e.g. conflicts, unreadable files) |
 | 2 | Update check failed (network / GitHub unreachable) |
 | 130 | Cancelled by user (Ctrl+C) |
 
@@ -769,8 +773,8 @@ Run `lpb protocols` to list valid protocol names and shorthand aliases.
 #### Format not available for protocol
 Run `lpb protocols` to view the compatibility matrix. For example, `heic+mp4-h265` is only available for `huawei`.
 
-#### "exiftool not found" with `--pairing cid`
-Add `exiftool.exe` to the `Tools\` folder next to the executable.
+#### Identity mode finds no pair, or Native components are unavailable
+Check the selected mode and consistent, unique camera pairing identifiers, then read the scan diagnostics. Restore the complete application runtime if a Native component is missing; ExifTool cannot replace the Native Inspector.
 
 #### Output file extension differs from source
 Expected behaviour. When the source is HEIC and a JPEG-based format is selected, the output uses `.jpg`.

@@ -1,4 +1,4 @@
-/*
+﻿/*
  * MergeViewModel.cs
  *
  * MergePage（合成页面）的视图模型，负责将图片与视频合成为实况照片。
@@ -44,6 +44,7 @@ namespace LivePhotoBox.ViewModels
 
         // 所有合并任务是否已完成（成功/失败都算）。
         private bool _mergeDone;
+                private bool _mergeOperationFailed;
 
         // 扫描进度本地计数器（基类的 _scanTotal/_scanProcessed 是 private，子类不可访问）。
         private int _mergeLocalScanTotal;
@@ -106,6 +107,12 @@ namespace LivePhotoBox.ViewModels
         // 扫描到的无配对视频文件数。
         [ObservableProperty]
         private int _standaloneVideosCount = 0;
+
+        // 扫描诊断条目集合（独立于 Tasks，不可被 Runner 执行）
+        public BulkObservableCollection<ScanDiagnosticDisplayItem> ScanDiagnostics { get; } = [];
+
+        public int ScanDiagnosticsCount => ScanDiagnostics.Count;
+        public bool HasScanDiagnostics => ScanDiagnostics.Count > 0;
 
         // 目录选择面板是否展开显示。
         [ObservableProperty]
@@ -581,6 +588,13 @@ namespace LivePhotoBox.ViewModels
             _uiUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
             _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
 
+            ScanDiagnostics.CollectionChanged += (_, _) =>
+            {
+                OnPropertyChanged(nameof(HasScanDiagnostics));
+                OnPropertyChanged(nameof(ScanDiagnosticsCount));
+                UpdateIsQueueEmpty(Tasks.Count + ScanDiagnostics.Count);
+            };
+
             // 扫描添加任务时自动同步到显示列表
             Tasks.CollectionChanged += (_, change) =>
             {
@@ -596,6 +610,7 @@ namespace LivePhotoBox.ViewModels
                     NotifyStatsChanged();
                 }
                 RefreshTaskView();
+                UpdateIsQueueEmpty(Tasks.Count + ScanDiagnostics.Count);
             };
 
             // 响应全局设置清除：刷新所有持久化属性 + 清空命名片段
@@ -641,7 +656,7 @@ namespace LivePhotoBox.ViewModels
             : "";                          // Play ▶
 
         // 当前是否允许开始处理（扫描中不允许）。
-        public override bool IsProcessingAllowed => !IsScanning;
+        public override bool IsProcessingAllowed => !IsScanning && Tasks.Count > 0;
 
         // 当前是否可以编辑合成配置（仅处理中不可编辑，扫描时允许边扫边配）。
         public bool CanEditSelectedMode => !IsProcessing;
@@ -741,6 +756,7 @@ namespace LivePhotoBox.ViewModels
         // <inheritdoc/>
         protected override void OnInitializeRunState()
         {
+            _mergeOperationFailed = false;
             _mergeStoppedByUser = false;
             _mergeDone = false;
             _completedTasksCount = 0;
@@ -773,7 +789,7 @@ namespace LivePhotoBox.ViewModels
                 }
                 NotifyStatsChanged();
             }
-            else
+            else if (!_mergeOperationFailed)
             {
                 _mergeDone = true;
 
@@ -810,14 +826,14 @@ namespace LivePhotoBox.ViewModels
         /// <summary>从队列中移除指定任务（不删除源文件）</summary>
         public void RemoveTask(MergeTask task)
         {
-            if (task == null) return;
+            if (task == null || IsScanning || IsProcessing) return;
             Tasks.Remove(task);
             TotalPairsCount = Tasks.Count;
-            UpdateIsQueueEmpty(Tasks.Count);
+            UpdateIsQueueEmpty(Tasks.Count + ScanDiagnostics.Count);
 
             // 删除到最后一行 = 视为清空列表：与"清空列表"按钮走同一套完整重置逻辑，
             // 否则用户逐行删完还得再点一次"清空列表"才是真清空。
-            if (Tasks.Count == 0 && !IsProcessing && !IsScanning)
+            if (Tasks.Count == 0 && ScanDiagnostics.Count == 0 && !IsProcessing && !IsScanning)
             {
                 ClearState();
                 return;
@@ -829,6 +845,7 @@ namespace LivePhotoBox.ViewModels
         protected override void OnClearState()
         {
             Tasks.ReplaceRange([]);
+            ScanDiagnostics.ReplaceRange([]);
             UpdateIsQueueEmpty(0);
             ThumbnailService.ClearCache();
             TotalPairsCount = 0;
@@ -863,414 +880,142 @@ namespace LivePhotoBox.ViewModels
 
         #region Scan Command
 
-        // 扫描输入文件夹中的图片-视频配对，配对 authority 始终来自 Native metadata。
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ScanDirectoryAsync()
         {
-            if (!TryGuardScanClick()) return;
-            if (IsProcessing) return;
+            if (!TryGuardScanClick() || IsProcessing) return;
+            if (IsScanning) { CancelScanning(); SetStatus("Status_ScanCancelling"); return; }
+            if (string.IsNullOrWhiteSpace(InputDirectory)) { await ShowNoInputDirectoryDialogAsync("Merge"); return; }
+            if (string.IsNullOrWhiteSpace(OutputDirectory))
+                OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_LivePhotos"));
+            AutoFillOriginalDirectory();
+            await ScanInputsAsync(new[] { InputDirectory }, Array.Empty<string>(), replace: true);
+        }
 
-            if (IsScanning)
-            {
-                CancelScanning();
-                SetStatus("Status_ScanCancelling");
-                return;
-            }
+        public Task AddFilesToQueueAsync(List<string> filePaths) => ImportStorageItemsAsync(Array.Empty<string>(), filePaths);
+        public Task AddFolderToQueueAsync(string folderPath) => ImportStorageItemsAsync(new[] { folderPath }, Array.Empty<string>());
+        public Task ImportStorageItemsAsync(IReadOnlyList<string> folderPaths, IReadOnlyList<string> filePaths)
+            => ScanInputsAsync(folderPaths, filePaths, replace: false);
 
-            if (string.IsNullOrWhiteSpace(InputDirectory))
-            {
-                await ShowNoInputDirectoryDialogAsync("Merge");
-                return;
-            }
-            if (!Directory.Exists(InputDirectory))
-            {
-                await ShowInvalidInputDirectoryDialogAsync();
-                return;
-            }
+        public void ReportImportFailure(Exception error, string path = "")
+        {
+            LogService.Merge($"Import failed: {error}", LogLevel.Error, error);
+            ScanDiagnostics.Add(ScanDiagnosticDisplayItem.FromDiagnostic(
+                LivePhotoScanSupport.Failure(path, error, "ScanOperationFailed", stage: ScanDiagnosticStage.Capability)));
+            SetStatus("ScanStatus_Failed");
+        }
 
+        private async Task ScanInputsAsync(IReadOnlyList<string> folderPaths, IReadOnlyList<string> filePaths, bool replace)
+        {
+            if (IsProcessing || IsScanning || _isCleaningUp || (folderPaths.Count == 0 && filePaths.Count == 0)) return;
+            var oldTasks = Tasks.ToList();
+            var oldPending = oldTasks.Where(t => t.Status != ProcessStatus.Success).ToList();
+            var options = new MergeScanOptions
+            {
+                InputDirectories = folderPaths.ToArray(),
+                ExplicitFiles = filePaths.Concat(replace ? Array.Empty<string>() :
+                    oldPending.SelectMany(t => new[] { t.ImagePath, t.VideoPath })).ToArray(),
+                Mode = PairingMethodIndex switch { 1 => PairingMode.Cid, 2 => PairingMode.Vivo, _ => PairingMode.Name },
+                Recursive = AppSettingsService.GetValue("IsRecursiveScanEnabled", false)
+            };
             IsScanning = true;
             var token = GetScanningToken();
-            IsDirectoryPanelOpen = false;
-
-            if (string.IsNullOrWhiteSpace(OutputDirectory))
-            {
-                OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_LivePhotos"));
-            }
-
-            // 扫描开始时自动填充原始文件移动目录（仅当用户未手动设置过时覆盖）
-            AutoFillOriginalDirectory();
-
-            LogService.Merge($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
-
-            SetStatus("Status_Scanning");
             BeginScanSession();
-            await Task.Yield();
-            NotifyStatusChanged();
-
-            _scanCancelledByUser = false;
-            _mergeStoppedByUser = false;
-            _mergeDone = false;
-
+            SetStatus("Status_Scanning");
+            IsDirectoryPanelOpen = false;
             try
             {
-                ThumbnailService.ClearCache();
-                var pendingText = ResourceService.GetString("Task_Pending");
-                var scanProgress = CreateScanProgressReporter();
-
-                if (!token.IsCancellationRequested)
+                var reporter = CreateScanProgressReporter();
+                var result = await Task.Run(() => LivePhotoMergeScanService.ScanAsync(options, token, reporter), token);
+                token.ThrowIfCancellationRequested();
+                await ApplyScanResultAsync(() =>
                 {
-                    try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
-                }
-
-                // ── 使用统一发现服务扫描 ──
-                // Mutually exclusive: only the selected matching method runs
-                DiscoveryScanMode scanMode = PairingMethodIndex switch
-                {
-                    0 => DiscoveryScanMode.CidMatch | DiscoveryScanMode.VivoMatch,
-                    1 => DiscoveryScanMode.CidMatch,
-                    2 => DiscoveryScanMode.VivoMatch,
-                    _ => DiscoveryScanMode.CidMatch | DiscoveryScanMode.VivoMatch
-                };
-
-                var discoveryResult = await Task.Run(
-                    () => LivePhotoDiscoveryService.ScanAsync(
-                        InputDirectory, scanMode, token, scanProgress),
-                    token);
-
-                if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
-
-                // 转换为 MergeTask：只取 DualFile 类型的图片条目（每个图片对应一个配对）
-                int index = 0;
-                var dualFileImages = discoveryResult.Items
-                    .Where(i => i.LivePhotoType == LivePhotoType.DualFile && i.IsImage);
-
-                var tempTasks = dualFileImages.Select(img =>
-                {
-                    index++;
-                    string baseName = Path.GetFileNameWithoutExtension(img.FilePath);
-                    string vidPath = img.PairedVideoPath ?? "";
-                    long vidSize = 0;
-                    string vidFileName = "";
-
-                    if (!string.IsNullOrEmpty(vidPath))
+                    if (result.Status != ScanOperationStatus.Completed)
                     {
-                        try
+                        foreach (var d in result.Diagnostics) ScanDiagnostics.Add(ScanDiagnosticDisplayItem.FromDiagnostic(d));
+                        SetStatus(result.Status == ScanOperationStatus.Cancelled ? "Status_ScanCancelled" : "ScanStatus_Failed");
+                        return;
+                    }
+                    bool SamePair(MergeTask task, LivePhotoFilePairInfo pair) =>
+                        string.Equals(task.ImagePath, pair.ImagePath, StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(task.VideoPath, pair.VideoPath, StringComparison.OrdinalIgnoreCase);
+                    bool Overlaps(MergeTask task, LivePhotoFilePairInfo pair) =>
+                        string.Equals(task.ImagePath, pair.ImagePath, StringComparison.OrdinalIgnoreCase) ||
+                        string.Equals(task.VideoPath, pair.VideoPath, StringComparison.OrdinalIgnoreCase);
+                    var diagnostics = result.Diagnostics.ToList();
+                    var updated = replace ? new List<MergeTask>() : oldTasks.Where(t => t.Status == ProcessStatus.Success).ToList();
+                    foreach (var pair in result.Pairs)
+                    {
+                        if (!replace && oldTasks.Any(t => SamePair(t, pair) && t.Status == ProcessStatus.Success)) continue;
+                        if (!replace && oldTasks.Any(t => Overlaps(t, pair) && !SamePair(t, pair)))
                         {
-                            vidSize = new System.IO.FileInfo(vidPath).Length;
-                            vidFileName = Path.GetFileName(vidPath);
+                            diagnostics.Add(QueueConflict(pair.ImagePath, new[] { pair.VideoPath }));
+                            continue;
                         }
-                        catch (System.IO.IOException ex)
+                        var existing = replace ? null : oldPending.FirstOrDefault(t => SamePair(t, pair));
+                        updated.Add(existing ?? CreateScanTask(pair));
+                    }
+                    if (!replace)
+                    {
+                        foreach (var task in oldPending.Where(t => !updated.Contains(t)))
                         {
-                            LogService.Merge($"Failed to get video file size for {baseName}", LogLevel.Warning, ex);
+                            if (!diagnostics.Any(d => d.PrimaryPath == task.ImagePath || d.RelatedPaths.Contains(task.ImagePath, StringComparer.OrdinalIgnoreCase)))
+                                diagnostics.Add(QueueConflict(task.ImagePath, new[] { task.VideoPath }));
                         }
                     }
-
-                    return new MergeTask
-                    {
-                        Index = index,
-                        ImageFileName = Path.GetFileName(img.FilePath),
-                        VideoFileName = vidFileName,
-                        ImageSize = FileSizeFormatter.Format(img.FileSizeBytes),
-                        VideoSize = FileSizeFormatter.Format(vidSize),
-                        ImageSizeBytes = img.FileSizeBytes,
-                        VideoSizeBytes = vidSize,
-                        TotalSizeBytes = img.FileSizeBytes + vidSize,
-                        DateTaken = GetDateTaken(img.FilePath),
-                        BaseName = baseName,
-                        ImagePath = img.FilePath,
-                        VideoPath = vidPath,
-                        Protocol = MapSourceProtocol(img.Protocol),
-                        DetectionMethod = img.DetectionMethod,
-                        MotionVideoByteOffset = img.MotionVideoByteOffset,
-                        MotionVideoByteLength = img.MotionVideoByteLength,
-                        MotionVideoContainer = img.MotionVideoContainer,
-                        Status = ProcessStatus.Pending,
-                        Details = pendingText
-                    };
-                }).ToList();
-
-                int standaloneImg = discoveryResult.StandaloneImagePaths.Count;
-                int standaloneVid = discoveryResult.StandaloneVideoPaths.Count;
-                int totalPairs = tempTasks.Count;
-
-                Tasks.ReplaceRange(tempTasks);
-                UpdateIsQueueEmpty(tempTasks.Count);
-                TotalPairsCount = totalPairs;
-                NotifyStatsChanged();
-                StandaloneImagesCount = standaloneImg;
-                StandaloneVideosCount = standaloneVid;
-
-                LogService.Merge($"Scan complete: {totalPairs} pairs, {standaloneImg} standalone images, {standaloneVid} standalone videos");
-
-                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
-                {
-                    MergeProgress = 0;
-                    Progress = 0;
+                    var touched = options.ExplicitFiles!.Concat(result.Pairs.SelectMany(p => new[] { p.ImagePath, p.VideoPath }))
+                        .Concat(diagnostics.SelectMany(d => d.RelatedPaths.Prepend(d.PrimaryPath))).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    var retained = replace ? new List<ScanDiagnosticDisplayItem>() : ScanDiagnostics.Where(d => !touched.Contains(d.PrimaryPath)).ToList();
+                    retained.AddRange(diagnostics.Select(ScanDiagnosticDisplayItem.FromDiagnostic));
+                    ScanDiagnostics.ReplaceRange(retained);
+                    for (int i = 0; i < updated.Count; i++) updated[i].Index = i + 1;
+                    Tasks.ReplaceRange(updated);
+                    TotalPairsCount = Tasks.Count;
+                    StandaloneImagesCount = ScanDiagnostics.Count(d => d.DiagnosticCode == "UnmatchedImage");
+                    StandaloneVideosCount = ScanDiagnostics.Count(d => d.DiagnosticCode == "UnmatchedVideo");
+                    _mergeDone = false;
+                    _mergeStoppedByUser = false;
+                    MergeProgress = Progress = 0;
                     ProgressText = $"0/{TotalPairsCount}";
-                });
-
-                FlushPendingScanProgress();
-                CompleteScanSnapshot();
-
-                if (TotalPairsCount > 0)
-                    SetStatus("Status_ScanDone", TotalPairsCount);
-                else
-                {
-                    IsDirectoryPanelOpen = true;
-                    SetStatus("Status_ScanNoPairs", StandaloneImagesCount, StandaloneVideosCount);
-                }
+                    FlushPendingScanProgress();
+                    CompleteScanSnapshot();
+                    NotifyStatsChanged();
+                    SetStatus(result.IsPartial ? "ScanStatus_Partial" : "Status_ScanDone", TotalPairsCount);
+                }, token);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                SetStatus("Status_ScanCancelled");
-
-                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
-                {
-                    Tasks.ReplaceRange([]);
-                    UpdateIsQueueEmpty(0);
-                    ThumbnailService.ClearCache();
-                    TotalPairsCount = 0;
-                    StandaloneImagesCount = 0;
-                    StandaloneVideosCount = 0;
-                    MergeProgress = 0;
-                    Progress = 0;
-                    ProgressText = "0/0";
-                });
-
-                AppViewModel.Instance.ResetFooterScanCounters();
+                if (!_isCleaningUp) SetStatus("Status_ScanCancelled");
             }
-            catch (SourceInspectionException ex)
+            catch (Exception ex) when (LivePhotoScanSupport.CanReportOperationFailure(ex))
             {
-                LastSourceInspectionFailure = ex;
-                LogService.Merge(
-                    $"ScanDirectory Native inspection failed ({ex.Category}/{ex.Stage}, capability=0x{ex.Capability:X}): {ex.Message}",
-                    LogLevel.Error,
-                    ex);
-                SetStatus("Status_Error", ex.Message);
-            }
-            catch (Exception ex)
-            {
-                LogService.Merge($"ScanDirectory error: {ex.Message}", LogLevel.Error, ex);
-                SetStatus("Status_Error", ex.Message);
+                if (!_isCleaningUp) ReportImportFailure(ex, options.InputDirectories?.FirstOrDefault() ?? options.ExplicitFiles?.FirstOrDefault() ?? "");
             }
             finally
             {
                 IsScanning = false;
                 OnScanningEnded();
-                NotifyStatusChanged();
+                if (!_isCleaningUp) NotifyStatusChanged();
             }
         }
 
-        // 添加文件到队列（追加，不清空）。按当前配对方式验证后才加入。
-        public async Task AddFilesToQueueAsync(List<string> filePaths)
+        private static ScanDiagnostic QueueConflict(string path, IReadOnlyList<string> related) => new()
         {
-            if (filePaths.Count == 0) return;
+            DiagnosticCode = "ConflictAlreadyQueued", Severity = ScanDiagnosticSeverity.Error, Stage = ScanDiagnosticStage.Pairing,
+            PrimaryPath = path, RelatedPaths = related, MessageKey = "ScanDiagnostic_ConflictAlreadyQueued",
+            Summary = "The pending relationship is no longer unique. Run a complete scan before processing it."
+        };
 
-            // 分离图片和视频
-            var imgExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".heic", ".heif" };
-            var vidExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".mp4", ".mov" };
-            var images = filePaths.Where(p => imgExts.Contains(Path.GetExtension(p))).ToList();
-            var videos = filePaths.Where(p => vidExts.Contains(Path.GetExtension(p))).ToList();
-
-            var pendingText = ResourceService.GetString("Task_Pending");
-            var newTasks = new List<MergeTask>();
-            var unmatchedImages = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var matchedVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            LivePhotoFilePairInfo? explicitSelection = PairingMethodIndex == 0 && images.Count == 1 && videos.Count == 1
-                ? await LivePhotoMergeScanService.PrepareExplicitMediaSelectionAsync(images[0], videos[0], CancellationToken.None)
-                : null;
-            IReadOnlyList<LivePhotoFilePairInfo> nativePairs = explicitSelection is not null
-                ? new[] { explicitSelection }
-                : await MatchNativePairsAsync(images, videos, CancellationToken.None);
-            foreach (var pair in nativePairs)
-            {
-                string imgPath = pair.ImagePath;
-                string vidPath = pair.VideoPath;
-                matchedVideos.Add(vidPath);
-
-                long imgSize = new FileInfo(imgPath).Length;
-                long vidSize = new FileInfo(vidPath).Length;
-                int index = Tasks.Count + newTasks.Count + 1;
-
-                newTasks.Add(new MergeTask
-                {
-                    Index = index,
-                    ImageFileName = Path.GetFileName(imgPath),
-                    VideoFileName = Path.GetFileName(vidPath),
-                    ImageSize = FileSizeFormatter.Format(imgSize),
-                    VideoSize = FileSizeFormatter.Format(vidSize),
-                    ImageSizeBytes = imgSize,
-                    VideoSizeBytes = vidSize,
-                    TotalSizeBytes = imgSize + vidSize,
-                    DateTaken = GetDateTaken(imgPath),
-                    BaseName = Path.GetFileNameWithoutExtension(imgPath),
-                    ImagePath = imgPath,
-                    VideoPath = vidPath,
-                    Protocol = pair.Protocol,
-                    DetectionMethod = pair.DetectionMethod,
-                    MotionVideoByteOffset = pair.VideoByteOffset,
-                    MotionVideoByteLength = pair.VideoByteLength,
-                    MotionVideoContainer = pair.VideoContainer,
-                    Status = ProcessStatus.Pending,
-                    Details = pendingText
-                });
-            }
-
-            foreach (var imgPath in images.Where(path => !nativePairs.Any(pair =>
-                string.Equals(pair.ImagePath, path, StringComparison.OrdinalIgnoreCase))))
-                unmatchedImages.Add(imgPath);
-
-            // 未匹配的视频 = 所有视频中未被匹配上的
-            var unmatchedVideos = videos.Where(v => !matchedVideos.Contains(v)).ToList();
-
-            // 累计未匹配计数
-            StandaloneImagesCount += unmatchedImages.Count;
-            StandaloneVideosCount += unmatchedVideos.Count;
-
-            if (newTasks.Count > 0)
-            {
-                foreach (var t in newTasks)
-                    Tasks.Add(t);
-                TotalPairsCount = Tasks.Count(t => t != null);
-                UpdateIsQueueEmpty(Tasks.Count);
-                NotifyStatsChanged();
-            }
-            else
-            {
-                // 没有成功配对也要刷新统计显示
-                NotifyStatsChanged();
-            }
-        }
-
-        // 添加文件夹到队列（追加，不清空）
-        public async Task AddFolderToQueueAsync(string folderPath)
+        private static MergeTask CreateScanTask(LivePhotoFilePairInfo pair) => new()
         {
-            if (string.IsNullOrEmpty(folderPath) || !Directory.Exists(folderPath)) return;
-
-            var scanResult = LivePhotoMergeScanService.Scan(folderPath, GetScanningToken());
-
-            var pendingText = ResourceService.GetString("Task_Pending");
-            int startIndex = Tasks.Count;
-            var matchedVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var pair in scanResult.Pairs)
-            {
-                matchedVideos.Add(pair.VideoPath);
-
-                Tasks.Add(new MergeTask
-                {
-                    Index = ++startIndex,
-                    ImageFileName = Path.GetFileName(pair.ImagePath),
-                    VideoFileName = Path.GetFileName(pair.VideoPath),
-                    ImageSize = FileSizeFormatter.Format(pair.ImageSizeBytes),
-                    VideoSize = FileSizeFormatter.Format(pair.VideoSizeBytes),
-                    ImageSizeBytes = pair.ImageSizeBytes,
-                    VideoSizeBytes = pair.VideoSizeBytes,
-                    TotalSizeBytes = pair.ImageSizeBytes + pair.VideoSizeBytes,
-                    DateTaken = GetDateTaken(pair.ImagePath),
-                    BaseName = pair.BaseName,
-                    ImagePath = pair.ImagePath,
-                    VideoPath = pair.VideoPath,
-                    Protocol = pair.Protocol,
-                    DetectionMethod = pair.DetectionMethod,
-                    MotionVideoByteOffset = pair.VideoByteOffset,
-                    MotionVideoByteLength = pair.VideoByteLength,
-                    MotionVideoContainer = pair.VideoContainer,
-                    Status = ProcessStatus.Pending,
-                    Details = pendingText
-                });
-            }
-
-            // 未匹配统计：
-            // Only Native-confirmed pairs were added; all remaining paths stay standalone.
-            var standaloneImagePaths = new HashSet<string>(scanResult.StandaloneImagePaths ?? [], StringComparer.OrdinalIgnoreCase);
-            int unmatchedImages = standaloneImagePaths.Count;
-            var unmatchedVideosPaths = new HashSet<string>(scanResult.StandaloneVideoPaths ?? [], StringComparer.OrdinalIgnoreCase);
-            foreach (var pair in scanResult.Pairs)
-            {
-                if (!matchedVideos.Contains(pair.VideoPath))
-                    unmatchedVideosPaths.Add(pair.VideoPath);
-            }
-            int unmatchedVideos = unmatchedVideosPaths.Count;
-
-            StandaloneImagesCount += unmatchedImages;
-            StandaloneVideosCount += unmatchedVideos;
-
-            TotalPairsCount = Tasks.Count(t => t != null);
-            UpdateIsQueueEmpty(Tasks.Count);
-            NotifyStatsChanged();
-        }
-
-        // ── 配对验证辅助方法 ──
-
-        private async Task<IReadOnlyList<LivePhotoFilePairInfo>> MatchNativePairsAsync(
-            IReadOnlyList<string> imagePaths,
-            IReadOnlyList<string> videoPaths,
-            CancellationToken token)
-        {
-            var confirmedPairs = await LivePhotoMergeScanService.MatchMetadataPairsAsync(
-                imagePaths, videoPaths, token).ConfigureAwait(false);
-
-            IEnumerable<MetadataPair> metadataPairs = PairingMethodIndex switch
-            {
-                1 => confirmedPairs.Where(pair => pair.Source == MatchSource.ContentIdentifier),
-                2 => confirmedPairs.Where(pair => pair.Source == MatchSource.VivoLivePhoto),
-                _ => confirmedPairs
-            };
-
-            var inspector = new SourceInspector();
-            var result = new List<LivePhotoFilePairInfo>();
-            foreach (var pair in metadataPairs)
-            {
-                token.ThrowIfCancellationRequested();
-                var facts = await inspector.InspectAsync(pair.ImagePath, pair.VideoPath, token).ConfigureAwait(false);
-                if (facts.PrimaryImage is not { IsPresent: true } ||
-                    facts.Protocol is SourceProtocol.NonLive or SourceProtocol.Unknown ||
-                    facts.MotionVideo is not { IsPresent: true, SourceIndex: 1 } motionVideo)
-                {
-                    throw new SourceInspectionException(
-                        SourceInspectionFailureCategory.Malformed,
-                        SourceInspectionStage.Pairing,
-                        0,
-                        $"Native facts did not confirm pair '{pair.ImagePath}' + '{pair.VideoPath}'.");
-                }
-
-                LivePhotoProtocolType protocol = MapSourceProtocol(facts.Protocol);
-                if (protocol == LivePhotoProtocolType.Unknown)
-                {
-                    throw new SourceInspectionException(
-                        SourceInspectionFailureCategory.Unsupported,
-                        SourceInspectionStage.Pairing,
-                        0,
-                        $"Native facts returned unsupported pair protocol for '{pair.ImagePath}'.");
-                }
-
-                result.Add(new LivePhotoFilePairInfo
-                {
-                    BaseName = Path.GetFileNameWithoutExtension(pair.ImagePath),
-                    ImagePath = pair.ImagePath,
-                    VideoPath = pair.VideoPath,
-                    ImageSizeBytes = new FileInfo(pair.ImagePath).Length,
-                    VideoSizeBytes = new FileInfo(pair.VideoPath).Length,
-                    Protocol = protocol,
-                    DetectionMethod = pair.Source == MatchSource.ContentIdentifier
-                        ? LivePhotoDetectionMethod.ContentIdentifier
-                        : LivePhotoDetectionMethod.VivoLivePhoto,
-                    VideoByteOffset = motionVideo.ByteOffset,
-                    VideoByteLength = motionVideo.ByteLength,
-                    VideoContainer = motionVideo.Container,
-                    PairingIdentifier = facts.PairingIdentifier
-                });
-            }
-
-            return result;
-        }
-
-        private static LivePhotoProtocolType MapSourceProtocol(SourceProtocol protocol) => protocol switch
-        {
-            SourceProtocol.AppleLivePhoto => LivePhotoProtocolType.Apple,
-            SourceProtocol.VivoLegacyDualFile or SourceProtocol.VivoLivePhoto => LivePhotoProtocolType.Vivo,
-            _ => LivePhotoProtocolType.Unknown
+            ImageFileName = Path.GetFileName(pair.ImagePath), VideoFileName = Path.GetFileName(pair.VideoPath),
+            ImageSize = FileSizeFormatter.Format(pair.ImageSizeBytes), VideoSize = FileSizeFormatter.Format(pair.VideoSizeBytes),
+            ImageSizeBytes = pair.ImageSizeBytes, VideoSizeBytes = pair.VideoSizeBytes,
+            TotalSizeBytes = pair.ImageSizeBytes + pair.VideoSizeBytes, DateTaken = GetDateTaken(pair.ImagePath),
+            BaseName = pair.BaseName, ImagePath = pair.ImagePath, VideoPath = pair.VideoPath,
+            Protocol = pair.Protocol, DetectionMethod = pair.DetectionMethod, PairingKind = pair.PairingKind, PairingIdentifier = pair.PairingIdentifier,
+            MotionVideoByteOffset = pair.VideoByteOffset, MotionVideoByteLength = pair.VideoByteLength, MotionVideoContainer = pair.VideoContainer,
+            Status = ProcessStatus.Pending, Details = ResourceService.GetString("Task_Pending")
         };
 
         #endregion
@@ -1297,6 +1042,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private void ToggleSecondaryAction()
         {
+            if (IsScanning) { CancelScanning(); return; }
             if (!IsProcessing)
             {
                 ClearState();
@@ -1312,6 +1058,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ToggleProcessAsync()
         {
+            if (IsScanning) return;
             if (IsProcessing)
             {
                 SetStatus("Status_Stopping");
@@ -1512,6 +1259,7 @@ namespace LivePhotoBox.ViewModels
             var token = GetProcessingToken();
             string outputDir = OutputDirectory;
             var succeededThisRun = new System.Collections.Concurrent.ConcurrentBag<MergeTask>();
+            bool operationFailed = false;
             int alreadySucceeded = Tasks.Count(task => task.Status == ProcessStatus.Success);
             _completedTasksCount = alreadySucceeded;
             string capabilityDiagnostic = ProductOutcomePresentation.CapabilityDiagnostic(() => ProductCapabilityQuery.Query(outputProfile));
@@ -1549,7 +1297,7 @@ namespace LivePhotoBox.ViewModels
                         if (outcome.IsSuccess && task is MergeTask completedTask) succeededThisRun.Add(completedTask);
                     });
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
                 foreach (var task in Tasks.Where(task => task.Status == ProcessStatus.Processing))
                     UpdateTaskCancelled(task, ResourceService.GetString("Task_Cancelled"));
@@ -1561,11 +1309,18 @@ namespace LivePhotoBox.ViewModels
                 LogService.Merge($"Processing cancelled by user after {elapsed:F1}s, completed {_completedTasksCount}/{TotalPairsCount}");
                 SetStatus("Status_MergeStoppedSummary", total, elapsed, succeeded, failed, unprocessed);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             {
-                LogService.Merge($"RunRebuiltTasksAsync fatal error: {ex.Message}", LogLevel.Error, ex);
-                Environment.ExitCode = unchecked((int)0xE0000001);
-                throw;
+                operationFailed = _mergeOperationFailed = true;
+                LogService.Merge($"Batch input/output protection failed; processing stopped: {ex}", LogLevel.Error, ex);
+                ScanDiagnostics.Add(ScanDiagnosticDisplayItem.FromDiagnostic(
+                    LivePhotoScanSupport.Failure(InputDirectory, ex, "BatchSafetyFailed", stage: ScanDiagnosticStage.Read)));
+                SetStatus("ScanDiagnostic_BatchSafetyFailed");
+            }
+            catch (Exception ex) when (LivePhotoScanSupport.CanReportOperationFailure(ex))
+            {
+                operationFailed = _mergeOperationFailed = true;
+                ReportImportFailure(ex, InputDirectory);
             }
             finally
             {
@@ -1573,7 +1328,7 @@ namespace LivePhotoBox.ViewModels
                 bool wasCancelled = _cancelledByUser;
                 FinalizeRunState();
 
-                if (!wasCancelled)
+                if (!wasCancelled && !operationFailed)
                 {
                     if (AfterCompletionActionIndex == 1)
                     {
@@ -1608,7 +1363,7 @@ namespace LivePhotoBox.ViewModels
                     }
                 }
 
-                if (Tasks.Count > 0 && !_isCleaningUp)
+                if (Tasks.Count > 0 && !_isCleaningUp && !operationFailed)
                 {
                     try
                     {

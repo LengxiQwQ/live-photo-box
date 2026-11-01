@@ -41,6 +41,7 @@ namespace LivePhotoBox.ViewModels
 
         // 所有拆分任务是否已完成（成功/失败都算）。
         private bool _splitDone;
+                private bool _splitOperationFailed;
 
         // 扫描进度本地计数器（基类的 _scanTotal/_scanProcessed 是 private，子类不可访问）。
         private int _splitLocalScanTotal;
@@ -102,6 +103,12 @@ namespace LivePhotoBox.ViewModels
         // 扫描中跳过的文件数（非实况照片格式等）。
         [ObservableProperty]
         private int _skippedCount = 0;
+
+        // 扫描诊断条目集合（独立于 Tasks，不可被 Runner 执行）
+        public BulkObservableCollection<ScanDiagnosticDisplayItem> ScanDiagnostics { get; } = [];
+
+        public int ScanDiagnosticsCount => ScanDiagnostics.Count;
+        public bool HasScanDiagnostics => ScanDiagnostics.Count > 0;
 
         // 目录选择面板是否展开显示。
         [ObservableProperty]
@@ -288,20 +295,6 @@ namespace LivePhotoBox.ViewModels
             7 => LivePhotoProtocolType.Huawei,
             _ => null
         };
-
-        // 判断单文件实况照片是否符合当前"匹配方式"选中的协议（"所有单文件"=全部通过）。
-        private bool PassesProtocolFilter(LivePhotoDiscoveryItem item)
-            => PassesProtocolFilter(item.FilePath, item.LivePhotoType);
-
-        // 按 (路径, 类型) 判断协议，供没有 LivePhotoDiscoveryItem 的调用点（逐文件入队）复用。
-        private bool PassesProtocolFilter(string filePath, LivePhotoType type)
-        {
-            var target = MatchProtocolType;
-            if (target == null) return true;
-            if (type == LivePhotoType.None || type == LivePhotoType.DualFile) return false;
-            var facts = new SourceInspector().InspectAsync(filePath).GetAwaiter().GetResult();
-            return MapNativeProtocol(facts.Protocol) == target.Value;
-        }
 
         private static LivePhotoProtocolType MapNativeProtocol(SourceProtocol protocol) => protocol switch
         {
@@ -606,6 +599,13 @@ namespace LivePhotoBox.ViewModels
             _uiUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
             _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
 
+            ScanDiagnostics.CollectionChanged += (_, _) =>
+            {
+                OnPropertyChanged(nameof(HasScanDiagnostics));
+                OnPropertyChanged(nameof(ScanDiagnosticsCount));
+                UpdateIsQueueEmpty(Tasks.Count + ScanDiagnostics.Count);
+            };
+
             // 扫描添加任务时自动同步到显示列表
             Tasks.CollectionChanged += (_, change) =>
             {
@@ -621,6 +621,7 @@ namespace LivePhotoBox.ViewModels
                     NotifyStatsChanged();
                 }
                 RefreshTaskView();
+                UpdateIsQueueEmpty(Tasks.Count + ScanDiagnostics.Count);
             };
 
             // 响应全局设置清除：刷新所有持久化属性 + 清空命名片段
@@ -666,7 +667,7 @@ namespace LivePhotoBox.ViewModels
             : "";                          // Play ▶
 
         // 当前是否允许开始处理（扫描中不允许）。
-        public override bool IsProcessingAllowed => !IsScanning;
+        public override bool IsProcessingAllowed => !IsScanning && Tasks.Count > 0;
 
         // 当前是否可以编辑拆分配置（仅处理中不可编辑，扫描时允许边扫边配）。
         public bool CanEditSelectedMode => !IsProcessing;
@@ -732,6 +733,7 @@ namespace LivePhotoBox.ViewModels
         // <inheritdoc/>
         protected override void OnInitializeRunState()
         {
+            _splitOperationFailed = false;
             _splitStoppedByUser = false;
             _splitDone = false;
             _completedTasksCount = 0;
@@ -764,7 +766,7 @@ namespace LivePhotoBox.ViewModels
                 }
                 NotifyStatsChanged();
             }
-            else
+            else if (!_splitOperationFailed)
             {
                 _splitDone = true;
 
@@ -800,14 +802,14 @@ namespace LivePhotoBox.ViewModels
         /// <summary>从队列中移除指定任务（不删除源文件）</summary>
         public void RemoveTask(SplitTask task)
         {
-            if (task == null) return;
+            if (task == null || IsScanning || IsProcessing) return;
             Tasks.Remove(task);
             TotalCount = Tasks.Count;
-            UpdateIsQueueEmpty(Tasks.Count);
+            UpdateIsQueueEmpty(Tasks.Count + ScanDiagnostics.Count);
 
             // 删除到最后一行 = 视为清空列表：与"清空列表"按钮走同一套完整重置逻辑，
             // 否则用户逐行删完还得再点一次"清空列表"才是真清空。
-            if (Tasks.Count == 0 && !IsProcessing && !IsScanning)
+            if (Tasks.Count == 0 && ScanDiagnostics.Count == 0 && !IsProcessing && !IsScanning)
             {
                 ClearState();
                 return;
@@ -819,6 +821,7 @@ namespace LivePhotoBox.ViewModels
         protected override void OnClearState()
         {
             Tasks.ReplaceRange([]);
+            ScanDiagnostics.ReplaceRange([]);
             UpdateIsQueueEmpty(0);
             ThumbnailService.ClearCache();
             TotalCount = 0;
@@ -884,296 +887,114 @@ namespace LivePhotoBox.ViewModels
 
         #region Scan Command
 
-        // 扫描输入文件夹中的单文件实况照片（JPEG）。
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ScanDirectoryAsync()
         {
-            if (!TryGuardScanClick()) return;
-            if (IsProcessing) return;
+            if (!TryGuardScanClick() || IsProcessing) return;
+            if (IsScanning) { CancelScanning(); SetStatus("SplitPage_Status_ScanCancelling"); return; }
+            if (string.IsNullOrWhiteSpace(InputDirectory)) { await ShowNoInputDirectoryDialogAsync("Split"); return; }
+            if (string.IsNullOrWhiteSpace(OutputDirectory))
+                OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_SplitPhotos"));
+            AutoFillOriginalDirectory();
+            await ScanInputsAsync(new[] { InputDirectory }, Array.Empty<string>(), replace: true);
+        }
 
-            if (IsScanning)
-            {
-                CancelScanning();
-                SetStatus("SplitPage_Status_ScanCancelling");
-                return;
-            }
+        public Task AddFilesToQueueAsync(List<string> filePaths) => ImportStorageItemsAsync(Array.Empty<string>(), filePaths);
+        public Task AddFolderToQueueAsync(string folderPath) => ImportStorageItemsAsync(new[] { folderPath }, Array.Empty<string>());
+        public Task ImportStorageItemsAsync(IReadOnlyList<string> folderPaths, IReadOnlyList<string> filePaths)
+            => ScanInputsAsync(folderPaths, filePaths, replace: false);
 
-            if (string.IsNullOrWhiteSpace(InputDirectory))
-            {
-                await ShowNoInputDirectoryDialogAsync("Split");
-                return;
-            }
-            if (!Directory.Exists(InputDirectory))
-            {
-                await ShowInvalidInputDirectoryDialogAsync();
-                return;
-            }
+        public void ReportImportFailure(Exception error, string path = "")
+        {
+            LogService.Split($"Import failed: {error}", LogLevel.Error, error);
+            ScanDiagnostics.Add(ScanDiagnosticDisplayItem.FromDiagnostic(
+                LivePhotoScanSupport.Failure(path, error, "ScanOperationFailed", stage: ScanDiagnosticStage.Capability)));
+            SetStatus("ScanStatus_Failed");
+        }
 
+        private async Task ScanInputsAsync(IReadOnlyList<string> folderPaths, IReadOnlyList<string> filePaths, bool replace)
+        {
+            if (IsProcessing || IsScanning || _isCleaningUp || (folderPaths.Count == 0 && filePaths.Count == 0)) return;
+            var oldTasks = Tasks.ToList();
+            var targetProtocol = MatchProtocolType;
+            var options = new MergeScanOptions
+            {
+                InputDirectories = folderPaths.ToArray(),
+                ExplicitFiles = filePaths.Concat(replace ? Array.Empty<string>() :
+                    oldTasks.Where(t => t.Status != ProcessStatus.Success).Select(t => t.SourcePath)).ToArray(),
+                Recursive = AppSettingsService.GetValue("IsRecursiveScanEnabled", false)
+            };
             IsScanning = true;
             var token = GetScanningToken();
-            IsDirectoryPanelOpen = false;
-
-            if (string.IsNullOrWhiteSpace(OutputDirectory))
-            {
-                OutputDirectory = Path.Combine(InputDirectory, ResourceService.GetString("OutputDir_SplitPhotos"));
-            }
-
-            // 扫描开始时自动填充原始文件移动目录（仅当用户未手动设置过时覆盖）
-            AutoFillOriginalDirectory();
-
-            LogService.Split($"ScanDirectory requested. Input='{InputDirectory}', Output='{OutputDirectory}'");
-
-            SetStatus("SplitPage_Status_Scanning");
             BeginScanSession();
-            await Task.Yield();
-            NotifyStatusChanged();
-
-            _scanCancelledByUser = false;
-            _splitStoppedByUser = false;
-            _splitDone = false;
-
+            SetStatus("SplitPage_Status_Scanning");
+            IsDirectoryPanelOpen = false;
             try
             {
-                ThumbnailService.ClearCache();
-                var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
-                var scanProgress = CreateScanProgressReporter();
-
-                if (!token.IsCancellationRequested)
+                var reporter = CreateScanProgressReporter();
+                var result = await Task.Run(() => LivePhotoDiscoveryService.ScanFilesAsync(options, DiscoveryScanMode.SplitOnly, token, reporter), token);
+                token.ThrowIfCancellationRequested();
+                await ApplyScanResultAsync(() =>
                 {
-                    try { await Task.Delay(1000, token); } catch (TaskCanceledException) { }
-                }
-
-                // ── 使用统一发现服务扫描（SplitOnly 单文件实况检测）──
-                var discoveryResult = await Task.Run(
-                    () => LivePhotoDiscoveryService.ScanAsync(
-                        InputDirectory, DiscoveryScanMode.SplitOnly, token, scanProgress),
-                    token);
-
-                if (token.IsCancellationRequested) token.ThrowIfCancellationRequested();
-
-                // 转换为 SplitTask：只取单文件 JPEG 实况照片，并按"匹配方式"过滤协议
-                int index = 0;
-                var liveItems = discoveryResult.Items
-                    .Where(i => i.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic)
-                    .Where(i => PassesProtocolFilter(i))
-                    .ToList();
-
-                var tempTasks = liveItems.Select(item =>
-                {
-                    index++;
-                    string baseName = Path.GetFileNameWithoutExtension(item.FilePath);
-                    return new SplitTask
+                    if (result.Status != ScanOperationStatus.Completed)
                     {
-                        Index = index,
-                        SourceFileName = Path.GetFileName(item.FilePath),
-                        SourcePath = item.FilePath,
-                        FileSize = FileSizeFormatter.Format(item.FileSizeBytes),
-                        FileSizeBytes = item.FileSizeBytes,
-                        DateTaken = GetDateTaken(item.FilePath),
-                        BaseName = baseName,
-                        AppendedVideoLength = item.AppendedVideoLength,
-                        Status = ProcessStatus.Pending,
-                        Details = pendingText
-                    };
-                }).ToList();
-
-                int finalCount = tempTasks.Count;
-
-                Tasks.ReplaceRange(tempTasks);
-                UpdateIsQueueEmpty(tempTasks.Count);
-                TotalCount = finalCount;
-                // 识别 = 入队数量（已按"匹配方式"过滤）；跳过 = 扫描文件总数 − 识别
-                RecognizedCount = finalCount;
-                SkippedCount = discoveryResult.Items.Count - finalCount;
-                NotifyStatsChanged();
-
-                LogService.Split($"Scan complete: {finalCount} queued, {discoveryResult.Items.Count - finalCount} skipped");
-
-                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
-                {
-                    SplitProgress = 0;
-                    Progress = 0;
+                        foreach (var d in result.Diagnostics) ScanDiagnostics.Add(ScanDiagnosticDisplayItem.FromDiagnostic(d));
+                        SetStatus(result.Status == ScanOperationStatus.Cancelled ? "SplitPage_Status_ScanCancelled" : "ScanStatus_Failed");
+                        return;
+                    }
+                    var diagnostics = result.Diagnostics.ToList();
+                    var selected = result.Items.Where(i => i.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic).ToList();
+                    foreach (var item in selected.Where(i => targetProtocol != null && MapNativeProtocol(i.Protocol) != targetProtocol.Value))
+                        diagnostics.Add(LivePhotoScanSupport.Info(item.FilePath, "ProtocolFiltered", "This source protocol is not selected."));
+                    selected.RemoveAll(i => targetProtocol != null && MapNativeProtocol(i.Protocol) != targetProtocol.Value);
+                    var updated = replace ? new List<SplitTask>() : oldTasks.Where(t => t.Status == ProcessStatus.Success).ToList();
+                    foreach (var item in selected)
+                    {
+                        if (updated.Any(t => string.Equals(t.SourcePath, item.FilePath, StringComparison.OrdinalIgnoreCase))) continue;
+                        var existing = replace ? null : oldTasks.FirstOrDefault(t => string.Equals(t.SourcePath, item.FilePath, StringComparison.OrdinalIgnoreCase));
+                        updated.Add(existing ?? new SplitTask
+                        {
+                            SourceFileName = Path.GetFileName(item.FilePath), SourcePath = item.FilePath,
+                            FileSize = FileSizeFormatter.Format(item.FileSizeBytes), FileSizeBytes = item.FileSizeBytes,
+                            DateTaken = item.LastWriteTime, BaseName = Path.GetFileNameWithoutExtension(item.FilePath),
+                            AppendedVideoLength = item.AppendedVideoLength, Status = ProcessStatus.Pending,
+                            Details = ResourceService.GetString("SplitPage_Task_Pending")
+                        });
+                    }
+                    var touched = options.ExplicitFiles!.Concat(result.Items.Select(i => i.FilePath))
+                        .Concat(diagnostics.Select(d => d.PrimaryPath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    var retained = replace ? new List<ScanDiagnosticDisplayItem>() : ScanDiagnostics.Where(d => !touched.Contains(d.PrimaryPath)).ToList();
+                    retained.AddRange(diagnostics.Select(ScanDiagnosticDisplayItem.FromDiagnostic));
+                    ScanDiagnostics.ReplaceRange(retained);
+                    for (int i = 0; i < updated.Count; i++) updated[i].Index = i + 1;
+                    Tasks.ReplaceRange(updated);
+                    TotalCount = RecognizedCount = Tasks.Count;
+                    SkippedCount = ScanDiagnostics.Count;
+                    _splitDone = false;
+                    _splitStoppedByUser = false;
+                    SplitProgress = Progress = 0;
                     ProgressText = $"0/{TotalCount}";
-                });
-
-                FlushPendingScanProgress();
-                CompleteScanSnapshot();
-
-                if (TotalCount > 0)
-                    SetStatus("SplitPage_Status_ScanDone", TotalCount);
-                else
-                {
-                    IsDirectoryPanelOpen = true;
-                    SetStatus("SplitPage_Status_NoLivePhotos");
-                }
+                    FlushPendingScanProgress();
+                    CompleteScanSnapshot();
+                    NotifyStatsChanged();
+                    SetStatus(result.IsPartial ? "ScanStatus_Partial" : "SplitPage_Status_ScanDone", TotalCount);
+                }, token);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
-                SetStatus("SplitPage_Status_ScanCancelled");
-
-                App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
-                {
-                    Tasks.ReplaceRange([]);
-                    UpdateIsQueueEmpty(0);
-                    ThumbnailService.ClearCache();
-                    TotalCount = 0;
-                    RecognizedCount = 0;
-                    SkippedCount = 0;
-                    SplitProgress = 0;
-                    Progress = 0;
-                    ProgressText = "0/0";
-                });
-
-                AppViewModel.Instance.ResetFooterScanCounters();
+                if (!_isCleaningUp) SetStatus("SplitPage_Status_ScanCancelled");
             }
-            catch (SourceInspectionException ex)
+            catch (Exception ex) when (LivePhotoScanSupport.CanReportOperationFailure(ex))
             {
-                LastSourceInspectionFailure = ex;
-                LogService.Split(
-                    $"ScanDirectory Native inspection failed ({ex.Category}/{ex.Stage}, capability=0x{ex.Capability:X}): {ex.Message}",
-                    LogLevel.Error,
-                    ex);
-                SetStatus("Status_Error", ex.Message);
-            }
-            catch (Exception ex)
-            {
-                LogService.Split($"ScanDirectory error: {ex.Message}", LogLevel.Error, ex);
-                SetStatus("Status_Error", ex.Message);
+                if (!_isCleaningUp) ReportImportFailure(ex, options.InputDirectories?.FirstOrDefault() ?? options.ExplicitFiles?.FirstOrDefault() ?? "");
             }
             finally
             {
                 IsScanning = false;
                 OnScanningEnded();
-                NotifyStatusChanged();
+                if (!_isCleaningUp) NotifyStatusChanged();
             }
         }
-
-        // 添加文件到队列（追加，不清空）。仅接受单文件实况照片（JPEG + HEIC）。
-        public async Task AddFilesToQueueAsync(List<string> filePaths)
-        {
-            if (filePaths.Count == 0) return;
-
-            var imgExts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".jpg", ".jpeg", ".heic", ".heif" };
-            var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
-            var newTasks = new List<SplitTask>();
-
-            foreach (var path in filePaths)
-            {
-                if (!imgExts.Contains(Path.GetExtension(path))) continue;
-
-                // 逐文件单文件实况检测（JPEG 字节标记 + HEIC 视频轨），与主扫描 ScanAsync 一致
-                LivePhotoType type;
-                try { type = await LivePhotoDiscoveryService.DetectSingleFileTypeAsync(path); }
-                catch (OperationCanceledException) { throw; }
-                catch (SourceInspectionException ex)
-                {
-                    LogService.Split(
-                        $"AddFiles Native inspection failed for '{Path.GetFileName(path)}' " +
-                        $"({ex.Category}/{ex.Stage}, capability=0x{ex.Capability:X}): {ex.Message}",
-                        LogLevel.Warning);
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    LogService.Split(
-                        $"AddFiles Native inspection failed for '{Path.GetFileName(path)}': {ex.Message}",
-                        LogLevel.Error,
-                        ex);
-                    throw;
-                }
-
-                if (type == LivePhotoType.None) continue;
-                // 按"匹配方式"过滤协议
-                if (!PassesProtocolFilter(path, type)) continue;
-
-                long size;
-                try { size = new FileInfo(path).Length; }
-                catch { continue; }
-
-                int index = Tasks.Count + newTasks.Count + 1;
-                newTasks.Add(new SplitTask
-                {
-                    Index = index,
-                    SourceFileName = Path.GetFileName(path),
-                    SourcePath = path,
-                    FileSize = FileSizeFormatter.Format(size),
-                    FileSizeBytes = size,
-                    DateTaken = GetDateTaken(path),
-                    BaseName = Path.GetFileNameWithoutExtension(path),
-                    AppendedVideoLength = 0,
-                    Status = ProcessStatus.Pending,
-                    Details = pendingText
-                });
-            }
-
-            // 未被识别/被过滤掉的都计入跳过（未匹配）
-            int newlySkipped = filePaths.Count - newTasks.Count;
-            if (newTasks.Count > 0)
-            {
-                foreach (var t in newTasks)
-                    Tasks.Add(t);
-                TotalCount = Tasks.Count(t => t != null);
-                SkippedCount += newlySkipped;
-                UpdateIsQueueEmpty(Tasks.Count);
-                NotifyStatsChanged();
-                LogService.Split($"Added {newTasks.Count} file(s) to queue (total: {TotalCount}, skipped: {SkippedCount})");
-            }
-            else if (newlySkipped > 0)
-            {
-                // 全部未匹配也要刷新统计显示
-                SkippedCount += newlySkipped;
-                NotifyStatsChanged();
-                LogService.Split($"No files matched (skipped: {SkippedCount})");
-            }
-        }
-
-        // 添加文件夹到队列（追加，不清空）
-        public async Task AddFolderToQueueAsync(string folderPath)
-        {
-            if (string.IsNullOrEmpty(folderPath) || !Directory.Exists(folderPath)) return;
-
-            var discoveryResult = await Task.Run(
-                () => LivePhotoDiscoveryService.ScanAsync(
-                    folderPath, DiscoveryScanMode.SplitOnly, GetScanningToken()));
-            var liveItems = discoveryResult.Items
-                .Where(i => i.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic)
-                .Where(i => PassesProtocolFilter(i))
-                .ToList();
-            // 本文件夹被丢弃的文件计入跳过（即使没有入队也更新）
-            SkippedCount += discoveryResult.Items.Count - liveItems.Count;
-            if (liveItems.Count == 0)
-            {
-                NotifyStatsChanged();
-                return;
-            }
-
-            var pendingText = ResourceService.GetString("SplitPage_Task_Pending");
-            int startIndex = Tasks.Count;
-
-            foreach (var item in liveItems)
-            {
-                Tasks.Add(new SplitTask
-                {
-                    Index = ++startIndex,
-                    SourceFileName = Path.GetFileName(item.FilePath),
-                    SourcePath = item.FilePath,
-                    FileSize = FileSizeFormatter.Format(item.FileSizeBytes),
-                    FileSizeBytes = item.FileSizeBytes,
-                    DateTaken = GetDateTaken(item.FilePath),
-                    BaseName = Path.GetFileNameWithoutExtension(item.FilePath),
-                    AppendedVideoLength = item.AppendedVideoLength,
-                    Status = ProcessStatus.Pending,
-                    Details = pendingText
-                });
-            }
-
-            TotalCount = Tasks.Count(t => t != null);
-            RecognizedCount = TotalCount;
-            UpdateIsQueueEmpty(Tasks.Count);
-            NotifyStatsChanged();
-            LogService.Split($"Added folder '{folderPath}' to queue (total: {TotalCount})");
-        }
-
         #endregion
 
         #region Helpers
@@ -1208,6 +1029,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand]
         private void ToggleSecondaryAction()
         {
+            if (IsScanning) { CancelScanning(); return; }
             if (!IsProcessing)
             {
                 ClearState();
@@ -1222,6 +1044,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ToggleProcessAsync()
         {
+            if (IsScanning) return;
             if (IsProcessing)
             {
                 SetStatus("Status_Stopping");
@@ -1568,7 +1391,7 @@ namespace LivePhotoBox.ViewModels
                     }
                 }, token);
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
             {
                 int total = Tasks.Count;
                 int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
@@ -1578,11 +1401,10 @@ namespace LivePhotoBox.ViewModels
                 LogService.Split($"Processing cancelled by user after {elapsed:F1}s, completed {_completedTasksCount}/{TotalCount}");
                 SetStatus("Status_SplitStoppedSummary", total, elapsed, succeeded, failed, unprocessed);
             }
-            catch (Exception ex) when (ex is not OperationCanceledException)
+            catch (Exception ex) when (LivePhotoScanSupport.CanReportOperationFailure(ex))
             {
-                LogService.Split($"RunTasksAsync fatal error: {ex.Message}", LogLevel.Error, ex);
-                Environment.ExitCode = unchecked((int)0xE0000001);
-                throw;
+                _splitOperationFailed = true;
+                ReportImportFailure(ex, OutputDirectory);
             }
             finally
             {
@@ -1591,7 +1413,7 @@ namespace LivePhotoBox.ViewModels
                 FinalizeRunState();
 
                 // ── 完成后处理原始文件 ──
-                if (!wasCancelled)
+                if (!wasCancelled && !_splitOperationFailed)
                 {
                     if (AfterCompletionActionIndex == 1) // 移动到指定目录
                     {
@@ -1624,7 +1446,7 @@ namespace LivePhotoBox.ViewModels
                 }
 
                 // 关闭中不弹对话框，避免在窗口销毁期间操作 XamlRoot。
-                if (Tasks.Count > 0 && !_isCleaningUp)
+                if (Tasks.Count > 0 && !_isCleaningUp && !_splitOperationFailed)
                 {
                     try
                     {

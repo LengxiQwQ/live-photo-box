@@ -9,6 +9,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
 
 namespace LivePhotoBox.Models
@@ -64,6 +65,73 @@ namespace LivePhotoBox.Models
         Huawei = 8,
         /// <summary>LivePhotoBox 融合协议（自创，融合各家）</summary>
         Fusion = 9,
+    }
+
+    /// <summary>批量配对模式（互斥，绝不跨模式兜底）</summary>
+    public enum PairingMode
+    {
+        /// <summary>按同目录 + 基本文件名配对（用户普通合成请求关系）</summary>
+        Name = 0,
+        /// <summary>按 Apple ContentIdentifier UUID 配对</summary>
+        Cid = 1,
+        /// <summary>按 vivo 双文件 ID 配对</summary>
+        Vivo = 2,
+    }
+
+    /// <summary>双文件关系的真实语义种类</summary>
+    public enum PairingKind
+    {
+        /// <summary>普通同名用户合成请求，不是检测到的原厂实况</summary>
+        FilenameCompositionRequest = 0,
+        /// <summary>经 Native facts 完整验证的原厂双文件实况照片</summary>
+        NativeConfirmedSourcePair = 1,
+        /// <summary>用户显式指定的 1 图 + 1 视频对</summary>
+        ExplicitMediaSelection = 2,
+    }
+
+    /// <summary>扫描诊断严重度</summary>
+    public enum ScanDiagnosticSeverity
+    {
+        Info = 0,
+        Warning = 1,
+        Error = 2,
+    }
+
+    /// <summary>扫描诊断阶段</summary>
+    public enum ScanDiagnosticStage
+    {
+        Enumeration = 0,
+        Read = 1,
+        Container = 2,
+        Metadata = 3,
+        Pairing = 4,
+        Capability = 5,
+    }
+
+    /// <summary>扫描操作级完成状态</summary>
+    public enum ScanOperationStatus
+    {
+        Completed = 0,
+        Cancelled = 1,
+        Failed = 2,
+    }
+
+    /// <summary>扫描诊断记录：表示单个文件或候选关系的不可执行、孤立、冲突或错误原因</summary>
+    public sealed class ScanDiagnostic
+    {
+        public required string DiagnosticCode { get; init; }
+        public required ScanDiagnosticSeverity Severity { get; init; }
+        public required ScanDiagnosticStage Stage { get; init; }
+        public required string PrimaryPath { get; init; }
+        public IReadOnlyList<string> RelatedPaths { get; init; } = Array.Empty<string>();
+        public string? GroupKey { get; init; }
+        public required string MessageKey { get; init; }
+        public IReadOnlyList<object>? MessageArgs { get; init; }
+        public required string Summary { get; init; }
+        public SourceInspectionFailureCategory? RawCategory { get; init; }
+        public SourceInspectionStage? RawStage { get; init; }
+        public ulong? RawCapability { get; init; }
+        public string? LogMessage { get; init; }
     }
 
     /// <summary>扫描模式 — 控制要运行哪些检测 Pass</summary>
@@ -149,6 +217,18 @@ namespace LivePhotoBox.Models
         /// <summary>所有被扫描到的文件（含普通文件和实况照片）</summary>
         public required IReadOnlyList<LivePhotoDiscoveryItem> Items { get; init; }
 
+        /// <summary>扫描诊断记录集合</summary>
+        public IReadOnlyList<ScanDiagnostic> Diagnostics { get; init; } = Array.Empty<ScanDiagnostic>();
+
+        /// <summary>扫描操作级状态</summary>
+        public ScanOperationStatus Status { get; init; } = ScanOperationStatus.Completed;
+
+        /// <summary>是否发生部分扫描失败（例如部分子目录无法访问）</summary>
+        public bool IsPartial { get; init; }
+
+        /// <summary>操作级错误信息</summary>
+        public string? ErrorMessage { get; init; }
+
         /// <summary>文件总数</summary>
         public int TotalCount => Items.Count;
 
@@ -165,7 +245,10 @@ namespace LivePhotoBox.Models
         public int SingleFileHeicCount => Items.Count(i => i.LivePhotoType == LivePhotoType.SingleFileHeic);
 
         /// <summary>普通文件数量</summary>
-        public int RegularFileCount => Items.Count(i => i.LivePhotoType == LivePhotoType.None);
+        private bool HasError(string path) => Diagnostics.Any(d => d.Severity == ScanDiagnosticSeverity.Error &&
+            (string.Equals(d.PrimaryPath, path, StringComparison.OrdinalIgnoreCase) || d.RelatedPaths.Contains(path, StringComparer.OrdinalIgnoreCase)));
+
+        public int RegularFileCount => Items.Count(i => i.LivePhotoType == LivePhotoType.None && !HasError(i.FilePath));
 
         /// <summary>双文件实况照片配对列表：按图片+视频分组（仅包含 DualFile 类型的完整配对）</summary>
         public IReadOnlyList<(LivePhotoDiscoveryItem Image, LivePhotoDiscoveryItem Video)> DualFilePairs
@@ -196,13 +279,13 @@ namespace LivePhotoBox.Models
 
         /// <summary>获取所有未被配对的独立图片路径</summary>
         public IReadOnlyList<string> StandaloneImagePaths =>
-            Items.Where(i => i.LivePhotoType == LivePhotoType.None && i.IsImage)
+            Items.Where(i => i.LivePhotoType == LivePhotoType.None && i.IsImage && !HasError(i.FilePath))
                  .Select(i => i.FilePath)
                  .ToList();
 
         /// <summary>获取所有未被配对的独立视频路径</summary>
         public IReadOnlyList<string> StandaloneVideoPaths =>
-            Items.Where(i => i.LivePhotoType == LivePhotoType.None && i.IsVideo)
+            Items.Where(i => i.LivePhotoType == LivePhotoType.None && i.IsVideo && !HasError(i.FilePath))
                  .Select(i => i.FilePath)
                  .ToList();
     }

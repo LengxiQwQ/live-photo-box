@@ -1,4 +1,4 @@
-# master: build-only gate while phased Roadmap work is in progress.
+# master: build-only; targeted tests are selected during development.
 # v* tag: full release verification, packaging, and draft release creation.
 name: Build & Release / 构建与发布
 
@@ -16,8 +16,6 @@ on:
       - '!.gitignore'
       - '!.gitattributes'
       - '!.editorconfig'
-      # Formal Verify authority needs exact-HEAD push CI; ordinary docs still skip.
-      - 'docs/LivePhotoBox-Current-Roadmap/LivePhotoBox-P5-细分路线图/09-P5-Verify-验证与外部门禁.md'
   workflow_dispatch:
 
 # Verification must not be able to modify the repository or Actions state.
@@ -59,6 +57,7 @@ jobs:
           -File scripts/verify.ps1
           -Scope $env:VERIFY_SCOPE
           -Configuration Release
+          -AllowBroadTests
       - name: Upload Native symbols / 上传 Native 符号
         if: always()
         uses: actions/upload-artifact@v4

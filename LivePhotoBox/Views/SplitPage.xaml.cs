@@ -998,9 +998,9 @@ namespace LivePhotoBox.Views
                         ResourceService.GetString("OutputDir_SplitPhotos"));
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (LivePhotoScanSupport.CanReportOperationFailure(ex))
             {
-                LogService.Split($"Left panel drop error: {ex.Message}", LogLevel.Error, ex);
+                ViewModel.ReportImportFailure(ex);
             }
         }
 
@@ -1072,20 +1072,8 @@ namespace LivePhotoBox.Views
                 var files = items.OfType<StorageFile>().ToList();
                 bool wasEmpty = ViewModel.Tasks.Count == 0;
 
-                if (folders.Count > 0)
-                {
-                    foreach (var folder in folders)
-                    {
-                        if (!string.IsNullOrEmpty(folder.Path) && Directory.Exists(folder.Path))
-                            await ViewModel.AddFolderToQueueAsync(folder.Path);
-                    }
-                }
-
-                if (files.Count > 0)
-                {
-                    var paths = files.Select(f => f.Path).ToList();
-                    await ViewModel.AddFilesToQueueAsync(paths);
-                }
+                await ViewModel.ImportStorageItemsAsync(
+                    folders.Select(f => f.Path).ToArray(), files.Select(f => f.Path).ToArray());
 
                 if (wasEmpty && ViewModel.Tasks.Count > 0)
                 {
@@ -1100,9 +1088,9 @@ namespace LivePhotoBox.Views
                     }
                 }
             }
-            catch (Exception ex)
+            catch (Exception ex) when (LivePhotoScanSupport.CanReportOperationFailure(ex))
             {
-                LogService.Split($"Drop CRASH: {ex.GetType().Name}: {ex.Message}", LogLevel.Error, ex);
+                ViewModel.ReportImportFailure(ex);
             }
         }
 
@@ -1458,9 +1446,16 @@ namespace LivePhotoBox.Views
         private void StatusTextBlock_Tapped(object sender, TappedRoutedEventArgs e)
         {
             if (sender is not FrameworkElement element) return;
-            if (element.DataContext is not SplitTask task) return;
-            if (string.IsNullOrWhiteSpace(task.OutcomeSummary) &&
-                (task.Status != ProcessStatus.Failed || string.IsNullOrWhiteSpace(task.Details))) return;
+            string summary;
+            if (element.DataContext is ScanDiagnosticDisplayItem diagnostic)
+                summary = diagnostic.OutcomeSummary;
+            else if (element.DataContext is SplitTask task)
+            {
+                if (string.IsNullOrWhiteSpace(task.OutcomeSummary) &&
+                    (task.Status != ProcessStatus.Failed || string.IsNullOrWhiteSpace(task.Details))) return;
+                summary = string.IsNullOrWhiteSpace(task.OutcomeSummary) ? task.Details : task.OutcomeSummary;
+            }
+            else return;
 
             // TeachingTip 箭头指向状态文字前面的状态圆点（横向 StackPanel 的第一个子元素），
             // 比指向整块文字更贴合"状态"位置。
@@ -1471,10 +1466,12 @@ namespace LivePhotoBox.Views
             {
                 tipTarget = dot;
             }
+            else if (element.Parent is Grid statusGrid && statusGrid.Children.OfType<Border>().FirstOrDefault() is Border diagnosticDot)
+                tipTarget = diagnosticDot;
 
             if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == tipTarget) { ErrorDetailTip.IsOpen = false; return; }
             ErrorDetailTip.Title = ResourceService.GetString("ProductOutcome_ResultTitle");
-            ErrorDetailText.Text = string.IsNullOrWhiteSpace(task.OutcomeSummary) ? task.Details : task.OutcomeSummary;
+            ErrorDetailText.Text = summary;
             ErrorDetailTip.Target = tipTarget;
             ErrorDetailTip.IsOpen = true;
         }

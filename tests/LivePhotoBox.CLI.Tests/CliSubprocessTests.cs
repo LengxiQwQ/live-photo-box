@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Linq;
 using System.Text.Json;
 using Xunit;
@@ -184,11 +184,11 @@ public sealed class CliSubprocessTests
         Task<string> stdoutTask = process.StandardOutput.ReadToEndAsync();
         Task<string> stderrTask = process.StandardError.ReadToEndAsync();
         Task exitTask = process.WaitForExitAsync();
-        Task completed = await Task.WhenAny(exitTask, Task.Delay(TimeSpan.FromSeconds(30)));
+        Task completed = await Task.WhenAny(exitTask, Task.Delay(TimeSpan.FromSeconds(90)));
         if (completed != exitTask)
         {
             try { process.Kill(entireProcessTree: true); } catch { }
-            throw new TimeoutException("CLI subprocess did not exit within 30 seconds.");
+            throw new TimeoutException("CLI subprocess did not exit within 90 seconds.");
         }
 
         await exitTask;

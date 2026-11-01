@@ -226,6 +226,11 @@ namespace LivePhotoBox.Cli.Commands
                     || !CliInputValidator.ValidateOutputDirectory(output)
                     || !CliInputValidator.ValidateParallel(parallel))
                 {
+                    if (json && dir != null && !Directory.Exists(dir.FullName))
+                        PrintBatchJson(dir.FullName, output?.FullName ?? string.Empty, 0, 0, 0, 0, new List<SplitJsonFileEntry>(),
+                            new[] { LivePhotoScanSupport.Failure(dir.FullName,
+                                new IOException("The selected input directory is unavailable or cannot be accessed."),
+                                "DirectoryEnumerationFailed", stage: ScanDiagnosticStage.Enumeration) }, scanStatus: "failed");
                     Environment.ExitCode = 1;
                     return;
                 }
@@ -763,26 +768,85 @@ namespace LivePhotoBox.Cli.Commands
                 }
             }
             var discovery = await LivePhotoDiscoveryService.ScanAsync(inputDir, DiscoveryScanMode.SplitOnly, ct);
+            var scanDiagnostics = discovery.Diagnostics.ToList();
             var liveItems = discovery.Items
                 .Where(i => i.LivePhotoType == LivePhotoType.SingleFileJpeg
                          || i.LivePhotoType == LivePhotoType.SingleFileHeic)
-                .Where(i => PassesPairingFilter(i.FilePath, i.LivePhotoType, pairingProtocol))
+                .Where(i => pairingProtocol == null || MapNativeProtocol(i.Protocol) == pairingProtocol.Value)
                 .ToList();
+
+            foreach (var item in discovery.Items.Where(i =>
+                i.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic &&
+                pairingProtocol != null && MapNativeProtocol(i.Protocol) != pairingProtocol.Value))
+                scanDiagnostics.Add(LivePhotoScanSupport.Info(item.FilePath, "ProtocolFiltered", "This source protocol is not selected."));
+
+            if (discovery.Status == ScanOperationStatus.Cancelled)
+            {
+                if (json) PrintBatchJson(inputDir, outputDir, 0, 0, 0, 0, new List<SplitJsonFileEntry>(),
+                    scanDiagnostics, scanStatus: "cancelled");
+                else CliConsole.WriteErrorLine("Scan cancelled; no processing started.");
+                return 130;
+            }
+            var scanSummary = new
+            {
+                totalItems = discovery.Items.Count,
+                livePhotosCount = discovery.LivePhotoCount,
+                diagnosticsCount = scanDiagnostics.Count,
+                isPartial = discovery.IsPartial
+            };
+            string scanStatus = discovery.Status.ToString().ToLowerInvariant();
+            bool hasScanErrors = discovery.Status == ScanOperationStatus.Failed || scanDiagnostics.Any(d => d.Severity == ScanDiagnosticSeverity.Error);
 
             if (!json)
             {
                 Console.WriteLine();
                 CliConsole.Write(liveItems.Count.ToString(), CliConsole.Highlight);
-                Console.WriteLine(" single-file live photos found");
+                Console.Write(" single-file live photos found, ");
+                CliConsole.Write(scanDiagnostics.Count.ToString(), CliConsole.Highlight);
+                Console.WriteLine(" diagnostics");
+
+                if (scanDiagnostics.Count > 0)
+                {
+                    foreach (var diag in scanDiagnostics)
+                    {
+                        var color = diag.Severity switch
+                        {
+                            ScanDiagnosticSeverity.Error => CliConsole.Error,
+                            ScanDiagnosticSeverity.Warning => CliConsole.Highlight,
+                            _ => CliConsole.Muted
+                        };
+                        CliConsole.Write($"  [{diag.Severity}] ", color);
+                        Console.WriteLine($"{Path.GetFileName(diag.PrimaryPath)}: {diag.Summary}");
+                    }
+                }
             }
 
             if (liveItems.Count == 0)
             {
                 if (json)
-                    PrintBatchJson(inputDir, outputDir, 0, 0, 0, 0, new List<SplitJsonFileEntry>());
+                    PrintBatchJson(inputDir, outputDir, 0, 0, 0, 0, new List<SplitJsonFileEntry>(),
+                        scanDiagnostics, scanSummary, scanStatus);
                 else
+                {
+                    if (scanDiagnostics.Count > 0)
+                    {
+                        Console.WriteLine();
+                        CliConsole.WriteLine("Scan diagnostics:", CliConsole.Muted);
+                        foreach (var diag in scanDiagnostics)
+                        {
+                            var color = diag.Severity switch
+                            {
+                                ScanDiagnosticSeverity.Error => CliConsole.Error,
+                                ScanDiagnosticSeverity.Warning => CliConsole.Highlight,
+                                _ => CliConsole.Muted
+                            };
+                            CliConsole.Write($"  [{diag.Severity}] ", color);
+                            Console.WriteLine($"{Path.GetFileName(diag.PrimaryPath)}: {diag.Summary}");
+                        }
+                    }
                     CliConsole.WriteErrorLine("No single-file live photos found. Nothing to do.");
-                return 0;
+                }
+                return hasScanErrors ? 1 : 0;
             }
 
             // 2. Build task list
@@ -815,7 +879,8 @@ namespace LivePhotoBox.Cli.Commands
             {
                 LogService.Split($"DRY RUN: would split {tasks.Count} files.");
                 if (json)
-                    PrintBatchJson(inputDir, outputDir, tasks.Count, 0, 0, 0, jsonFiles);
+                    PrintBatchJson(inputDir, outputDir, tasks.Count, 0, 0, 0, jsonFiles,
+                        scanDiagnostics, scanSummary, scanStatus);
                 else
                 {
                     Console.WriteLine();
@@ -824,13 +889,29 @@ namespace LivePhotoBox.Cli.Commands
                     Console.WriteLine(" files:");
                     foreach (var t in tasks)
                     {
-                    CliConsole.Write($"#{t.Index}", CliConsole.Highlight);
-                    Console.Write("  ");
-                    CliConsole.Write(Path.GetFileName(t.SourcePath), CliConsole.PathGreen);
-                    Console.WriteLine();
+                        CliConsole.Write($"#{t.Index}", CliConsole.Highlight);
+                        Console.Write("  ");
+                        CliConsole.Write(Path.GetFileName(t.SourcePath), CliConsole.PathGreen);
+                        Console.WriteLine();
+                    }
+                    if (scanDiagnostics.Count > 0)
+                    {
+                        Console.WriteLine();
+                        CliConsole.WriteLine("Scan diagnostics:", CliConsole.Muted);
+                        foreach (var diag in scanDiagnostics)
+                        {
+                            var color = diag.Severity switch
+                            {
+                                ScanDiagnosticSeverity.Error => CliConsole.Error,
+                                ScanDiagnosticSeverity.Warning => CliConsole.Highlight,
+                                _ => CliConsole.Muted
+                            };
+                            CliConsole.Write($"  [{diag.Severity}] ", color);
+                            Console.WriteLine($"{Path.GetFileName(diag.PrimaryPath)}: {diag.Summary}");
+                        }
                     }
                 }
-                return 0;
+                return hasScanErrors ? 1 : 0;
             }
 
             // 4. Confirmation（交互模式先列出匹配文件，确认后再处理；-y / --json 静默跳过）
@@ -972,10 +1053,8 @@ namespace LivePhotoBox.Cli.Commands
             {
                 foreach (var task in tasks.Where(task => task.Status == ProcessStatus.Pending))
                     if (task.Json != null) task.Json.Status = "unprocessed";
-                if (json) PrintJson(new { input = inputDir, output = outputDir, status = "cancelled",
-                    scanned = tasks.Count, split = ok, failed = fail,
-                    cancelled = tasks.Count(task => task.Status == ProcessStatus.Cancelled),
-                    unprocessed = tasks.Count(task => task.Status == ProcessStatus.Pending), files = jsonFiles });
+                if (json) PrintBatchJson(inputDir, outputDir, tasks.Count, ok, fail, tasks.Count(task => task.Status == ProcessStatus.Pending), jsonFiles,
+                    scanDiagnostics, scanSummary, "cancelled");
                 else CliConsole.WriteErrorLine($"Cancelled: {ok} succeeded, {fail} failed.");
                 return 130;
             }
@@ -1050,7 +1129,8 @@ namespace LivePhotoBox.Cli.Commands
 
             // 7. Summary
             if (json)
-                PrintBatchJson(inputDir, outputDir, tasks.Count, ok, fail, 0, jsonFiles);
+                PrintBatchJson(inputDir, outputDir, tasks.Count, ok, fail, 0, jsonFiles,
+                    scanDiagnostics, scanSummary, scanStatus);
             else
             {
                 Console.WriteLine();
@@ -1062,7 +1142,7 @@ namespace LivePhotoBox.Cli.Commands
                 CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
                 Console.WriteLine(" total");
             }
-            return fail > 0 ? 1 : 0;
+            return (fail > 0 || hasScanErrors) ? 1 : 0;
         }
 
         private static void ApplyAfterAction(string sourcePath, string? afterMoveDir, bool afterRecycle, bool json)
@@ -1108,8 +1188,38 @@ namespace LivePhotoBox.Cli.Commands
             => PrintJson(new { command = "split", mode = "single", input, imageOutput, videoOutput, status, reason });
 
         // 批量模式的 JSON 结果。
-        private static void PrintBatchJson(string input, string output, int scanned, int split, int failed, int skipped, List<SplitJsonFileEntry> files)
-            => PrintJson(new { command = "split", mode = "batch", input, output, scanned, split, failed, skipped, files });
+        private static void PrintBatchJson(string input, string output, int scanned, int split, int failed, int skipped, List<SplitJsonFileEntry> files,
+            IReadOnlyList<ScanDiagnostic>? scanDiagnostics = null,
+            object? scanSummary = null,
+            string scanStatus = "completed")
+            => PrintJson(new {
+                command = "split",
+                mode = "batch",
+                input,
+                output,
+                status = scanStatus == "cancelled" ? "cancelled" : (scanStatus == "failed" || failed > 0 || (scanDiagnostics != null && scanDiagnostics.Any(d => d.Severity == ScanDiagnosticSeverity.Error))) ? "failed" : "completed",
+                scanned,
+                split,
+                failed,
+                skipped,
+                scanStatus,
+                scanSummary,
+                scanDiagnostics = scanDiagnostics?.Select(d => new
+                {
+                    code = d.DiagnosticCode,
+                    severity = d.Severity.ToString().ToLowerInvariant(),
+                    stage = d.Stage.ToString().ToLowerInvariant(),
+                    primaryPath = d.PrimaryPath,
+                    relatedPaths = d.RelatedPaths,
+                    groupKey = d.GroupKey,
+                    summary = d.Summary,
+                    messageKey = d.MessageKey,
+                    category = d.RawCategory?.ToString(),
+                    inspectionStage = d.RawStage?.ToString(),
+                    capability = d.RawCapability
+                }).ToList() ?? (object)Array.Empty<object>(),
+                files
+            });
 
         private sealed class SplitTaskInfo
         {

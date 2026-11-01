@@ -71,6 +71,8 @@ namespace LivePhotoBox.Models
         // Native-confirmed protocol provenance and exact motion-video facts.
         public LivePhotoProtocolType Protocol { get; set; } = LivePhotoProtocolType.Unknown;
         public LivePhotoDetectionMethod DetectionMethod { get; set; }
+        public PairingKind PairingKind { get; set; }
+        public string? PairingIdentifier { get; set; }
         public long MotionVideoByteOffset { get; set; }
         public long MotionVideoByteLength { get; set; }
         public VideoContainer MotionVideoContainer { get; set; } = VideoContainer.Unknown;
