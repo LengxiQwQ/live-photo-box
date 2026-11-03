@@ -1566,6 +1566,7 @@ bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool requir
                     }
                 } else {
                     if(type_is(data.data(),entry_start,"lpcm")) {
+                        ++parsed.other_audio_tracks;
                         lpb::media::lpcm_v2_layout pcm;
                         if(!lpb::media::inspect_lpcm_v2(data.subspan(eb,entry.size-entry.header_size),pcm)||pcm.rate!=timescale)
                             return fail(isobmff_reader_failure::malformed, moov_offset+entry_start, "tag_1553");
@@ -1591,6 +1592,7 @@ bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool requir
                     }
                     if(type_is(data.data(),entry_start,"sowt") || type_is(data.data(),entry_start,"ipcm") || type_is(data.data(),entry_start,"twos")) {
                         if (entry.size < entry.header_size + 28) return fail(isobmff_reader_failure::malformed, moov_offset + entry_start, "tag_1575");
+                        ++parsed.other_audio_tracks;
                         const uint16_t sound_version = read_be16u(data.data() + eb + 8);
                         if (sound_version != 0) return fail(isobmff_reader_failure::unsupported, moov_offset + entry_start, "tag_1577");
                         if (!read_be16u(data.data() + eb + 16) || !read_be16u(data.data() + eb + 18) || !read_be32u(data.data() + eb + 24))
@@ -1654,6 +1656,7 @@ bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool requir
                         sl_end != es_end || es_end != es + esds.size)
                         return fail(isobmff_reader_failure::unsupported, moov_offset + es, "tag_1637");
                 }
+                if(audio)++parsed.aac_audio_tracks;
                 parsed.sample_tables.push_back(std::move(table));
             }
             p += trak.size;

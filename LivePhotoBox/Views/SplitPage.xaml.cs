@@ -1,4 +1,4 @@
-/*
+﻿/*
  * SplitPage.xaml.cs
  *
  * 实况照片拆分页面的代码后置。
@@ -415,6 +415,7 @@ namespace LivePhotoBox.Views
                 "SplitPage_Match_Vivo_Hint",
                 "SplitPage_Match_Samsung_Hint",
                 "SplitPage_Match_Huawei_Hint",
+                "SplitPage_Match_Apple_Hint",
             ];
 
             double fontSize = comboBox.FontSize > 0 && !double.IsNaN(comboBox.FontSize)
@@ -838,6 +839,8 @@ namespace LivePhotoBox.Views
                 picker.FileTypeFilter.Add(".jpeg");
                 picker.FileTypeFilter.Add(".heic");
                 picker.FileTypeFilter.Add(".heif");
+                picker.FileTypeFilter.Add(".mov");
+                picker.FileTypeFilter.Add(".mp4");
                 var files = await picker.PickMultipleFilesAsync();
                 if (files.Count > 0)
                 {

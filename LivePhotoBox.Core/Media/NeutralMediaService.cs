@@ -1194,7 +1194,7 @@ public sealed class NeutralMediaService : INeutralMediaService
         _ => ImageCodec.Unknown
     };
 
-    private static string AuxiliaryStableIdentity(string semantic, string sha256)
+    internal static string AuxiliaryStableIdentity(string semantic, string sha256)
     {
         if (string.IsNullOrWhiteSpace(semantic) || !IsValidSha256(sha256))
             throw new InvalidDataException("Auxiliary semantic identity requires a semantic name and content SHA-256.");

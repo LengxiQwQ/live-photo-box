@@ -406,7 +406,13 @@ internal static class StructuredTargetWriterService
                 MediaArtifact? materialized = null;
                 if (representation != 1)
                 {
-                    var candidates = bundle.AuxiliaryMedia.Where(item => item.StableIdentity == row.StableIdentity && item.Semantic == row.Semantic &&
+                    // Detached final manifests use a content identity; the extractor's
+                    // descriptor retains its source graph identity. Accept only
+                    // that explicit canonical mapping, with the full path/hash/
+                    // length/file-object comparison below still mandatory.
+                    var candidates = bundle.AuxiliaryMedia.Where(item => item.MaterializedArtifact is not null &&
+                        (item.StableIdentity == row.StableIdentity || (item.MaterializedArtifact.Sha256 is { } digest && row.StableIdentity ==
+                            NeutralMediaService.AuxiliaryStableIdentity(item.Semantic, digest))) && item.Semantic == row.Semantic &&
                         item.OwnerIdentity == row.OwnerIdentity && item.Relationship == row.Relationship &&
                         item.MaterializedArtifact is not null).Select(item => item.MaterializedArtifact!).ToList();
                     if (row.Semantic == "GainMap" && bundle.GainMap is { } image) candidates.Add(image);
@@ -430,8 +436,9 @@ internal static class StructuredTargetWriterService
                     RejectSourceAlias(finalPath, materialized);
                 }
 
-                bool targetCannotCarry = (target == 4 && row.Semantic != "GainMap") ||
-                    (target == 6 && row.Semantic is "MiCameraSubimage" or "MiCameraLensWatermark");
+                bool targetCannotCarry = (target == 4 && row.Semantic is not ("GainMap" or "MpfAuxiliaryImage")) ||
+                    (target == 6 && row.Semantic is "MiCameraSubimage" or "MiCameraLensWatermark") ||
+                    (target is 5 or 6 && representation == 2 && row.Semantic == "Original");
                 if (targetCannotCarry || result.Count >= 2 || result.Any(item => item.Row.Semantic == row.Semantic))
                 {
                     // This is a transport limit, not a reason to extend the

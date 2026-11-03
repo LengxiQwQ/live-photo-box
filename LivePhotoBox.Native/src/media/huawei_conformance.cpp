@@ -1,4 +1,5 @@
 #include "media/huawei_conformance.h"
+#include "containers/isobmff.h"
 #include <charconv>
 #include <cmath>
 #include <cstring>
@@ -14,6 +15,25 @@ bool field(std::span<const uint8_t> bytes,std::string_view& text) {
  for(size_t i=n;i<bytes.size();++i)if(bytes[i]!=' ')return false;
  text={reinterpret_cast<const char*>(bytes.data()),n};return true;
 }
+}
+bool observe_huawei_heif_motion_envelope(const lpb::random_access_reader& full,uint64_t video_offset,
+    uint64_t video_length,uint64_t& primary_length) noexcept {
+ primary_length=0;
+ try {
+  if(!video_length||video_offset<8||video_offset>full.length||
+     full.length-video_offset<60||video_length!=full.length-video_offset-60)return false;
+  const auto boxes=scan_top_level_boxes(full);
+  if(boxes.size()<2||boxes.front().offset!=0||std::memcmp(boxes.front().type,"ftyp",4))return false;
+  const auto& box=boxes.back();
+  if(std::memcmp(box.type,"free",4)||box.header_size!=8||box.offset!=video_offset-8||
+     box.offset>full.length||box.size!=full.length-box.offset)return false;
+  uint8_t header[8]{};
+  if(!full.read_exact(box.offset,header))return false;
+  const uint32_t declared=(uint32_t(header[0])<<24)|(uint32_t(header[1])<<16)|
+      (uint32_t(header[2])<<8)|uint32_t(header[3]);
+  if(declared<8||declared!=box.size||std::memcmp(header+4,"free",4))return false;
+  primary_length=box.offset;return primary_length!=0;
+ }catch(...){primary_length=0;return false;}
 }
 bool observe_huawei_footer(std::span<const uint8_t> b,huawei_footer_observation& out) noexcept {
  out={};try {

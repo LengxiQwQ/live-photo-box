@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
@@ -20,6 +20,7 @@ namespace LivePhotoBox.Models
         [ObservableProperty] private string _sourceFileName = string.Empty;
         // 源文件完整路径
         [ObservableProperty] private string _sourcePath = string.Empty;
+        [ObservableProperty] private string? _secondaryPath;
         // 源文件大小（格式化字符串）
         [ObservableProperty] private string _fileSize = string.Empty;
         // 进度文本（如 "50%"）

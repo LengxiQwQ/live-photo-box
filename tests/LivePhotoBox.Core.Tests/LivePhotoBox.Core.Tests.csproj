@@ -50,6 +50,10 @@
       <Link>synthetic\谷歌自己合成的.heic</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <Content Include="..\fixtures\synthetic\vfr-silent-last-short.mp4;..\fixtures\synthetic\bframes-silent-cfr.mp4">
+      <Link>synthetic\%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
     <Content Include="..\..\LivePhotoBox\Tools\**\*" Condition="Exists('..\..\LivePhotoBox\Tools')">
       <Link>Tools\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

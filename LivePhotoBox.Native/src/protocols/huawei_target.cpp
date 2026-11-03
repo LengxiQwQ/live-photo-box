@@ -131,8 +131,8 @@ bool prepare_huawei_movie(const random_access_reader& input,int64_t cover_us,hua
     try {
         media::target_video_observation observed;media::target_video_diagnostic diagnostic;
         if(!media::observe_target_video(input,true,observed,diagnostic)){error=diagnostic.reason;return false;}
-        if(observed.media.quicktime||(observed.media.video_codec!=2&&observed.media.video_codec!=3)||observed.media.sample_tables.size()!=2)
-            return fail("Huawei requires one H264/HEVC video and one independently validated AAC audio track");
+        if(observed.media.quicktime||(observed.media.video_codec!=2&&observed.media.video_codec!=3)||observed.media.aac_audio_tracks>1||observed.media.other_audio_tracks!=0)
+            return fail("Huawei requires H264/HEVC video with zero or one independently validated AAC audio track");
         if(cover_us<0||cover_us>INT64_MAX/10)return fail("Unknown or out-of-range Huawei cover");
         uint32_t selected=0,count=0,hits=0;
         for(const auto& s:observed.media.timeline.presentation_order)if(s.visible) {

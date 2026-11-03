@@ -98,9 +98,21 @@ namespace LivePhotoBox.Services
                         {
                             try
                             {
-                                var facts = await new SourceInspector().InspectAsync(item.FilePath, null, ct).ConfigureAwait(false);
-                                ApplySingleFacts(item, facts);
-                                if (item.IsLivePhoto) itemProgress?.Report(item);
+                                var inspection = await new SourceInspector().InspectForDiscoveryAsync(item.FilePath, null, ct).ConfigureAwait(false);
+                                if (inspection.Failure is { } failure)
+                                {
+                                    bool inputFailure = LivePhotoScanSupport.IsInputFailure(failure);
+                                    diagnostics.Add(LivePhotoScanSupport.Failure(item.FilePath, failure,
+                                        inputFailure ? "SingleFileInspectionFailed" : "ScanOperationFailed"));
+                                    if (!inputFailure)
+                                        return new LivePhotoDiscoveryResult { Items = Array.Empty<LivePhotoDiscoveryItem>(),
+                                            Diagnostics = diagnostics, Status = ScanOperationStatus.Failed, IsPartial = true, ErrorMessage = failure.Reason };
+                                }
+                                else
+                                {
+                                    ApplySingleFacts(item, inspection.Facts!);
+                                    if (item.IsLivePhoto) itemProgress?.Report(item);
+                                }
                             }
                             catch (Exception ex) when (LivePhotoScanSupport.IsInputFailure(ex))
                             {
@@ -159,7 +171,11 @@ namespace LivePhotoBox.Services
             {
                 if (!LivePhotoScanSupport.IsImage(filePath))
                     return (LivePhotoType.None, SourceProtocol.Unknown, 0, LivePhotoScanSupport.Info(filePath, "UnsupportedExtension", "Unsupported image extension."));
-                var facts = await new SourceInspector().InspectAsync(filePath, null, ct).ConfigureAwait(false);
+                var inspection = await new SourceInspector().InspectForDiscoveryAsync(filePath, null, ct).ConfigureAwait(false);
+                if (inspection.Failure is { } failure)
+                    return (LivePhotoType.None, SourceProtocol.Unknown, 0, LivePhotoScanSupport.Failure(filePath, failure,
+                        LivePhotoScanSupport.IsInputFailure(failure) ? "SingleFileInspectionFailed" : "ScanOperationFailed"));
+                var facts = inspection.Facts!;
                 var item = new LivePhotoDiscoveryItem { FilePath = filePath, FileSizeBytes = new FileInfo(filePath).Length };
                 ApplySingleFacts(item, facts);
                 return (item.LivePhotoType, item.Protocol, item.AppendedVideoLength, null);

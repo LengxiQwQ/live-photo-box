@@ -51,7 +51,7 @@ namespace LivePhotoBox.Services
 
     public static class LivePhotoMergeScanService
     {
-        private sealed record Candidate(string Path, long Size, SourceMediaFacts? Facts, SourceInspectionException? PendingBinding = null);
+        private sealed record Candidate(string Path, long Size, SourceMediaFacts? Facts, SourceInspectionFailure? PendingBinding = null);
 
         public static async Task<LivePhotoScanResult> ScanAsync(MergeScanOptions options,
             CancellationToken cancellationToken = default, IProgress<WorkProgressSnapshot>? progress = null)
@@ -72,17 +72,20 @@ namespace LivePhotoBox.Services
                     try
                     {
                         long size = new FileInfo(path).Length;
-                        try
+                        var inspection = await inspector.InspectForDiscoveryAsync(path, null, cancellationToken).ConfigureAwait(false);
+                        if (inspection.Failure is { } failure)
                         {
-                            var facts = await inspector.InspectAsync(path, null, cancellationToken).ConfigureAwait(false);
-                            candidates.Add(path, new Candidate(path, size, facts));
+                            if (IsPendingVivoBinding(failure) && LivePhotoScanSupport.IsImage(path) && options.Mode != PairingMode.Cid)
+                                candidates.Add(path, new Candidate(path, size, null, failure));
+                            else if (LivePhotoScanSupport.IsInputFailure(failure))
+                                diagnostics.Add(LivePhotoScanSupport.Failure(path, failure));
+                            else
+                            {
+                                diagnostics.Add(LivePhotoScanSupport.Failure(path, failure, "ScanOperationFailed"));
+                                return Incomplete(ScanOperationStatus.Failed, diagnostics, failure.Reason);
+                            }
                         }
-                        catch (SourceInspectionException ex) when (IsPendingVivoBinding(ex) && LivePhotoScanSupport.IsImage(path) &&
-                            options.Mode != PairingMode.Cid)
-                        {
-                            // This is only a candidate for complete dual-input confirmation, never NonLive authority.
-                            candidates.Add(path, new Candidate(path, size, null, ex));
-                        }
+                        else candidates.Add(path, new Candidate(path, size, inspection.Facts!));
                     }
                     catch (Exception ex) when (LivePhotoScanSupport.IsInputFailure(ex))
                     {
@@ -105,6 +108,8 @@ namespace LivePhotoBox.Services
                         break;
                 }
                 cancellationToken.ThrowIfCancellationRequested();
+                if (diagnostics.Any(d => d.DiagnosticCode == "ScanOperationFailed"))
+                    return Incomplete(ScanOperationStatus.Failed, diagnostics);
                 var used = pairs.SelectMany(p => new[] { p.ImagePath, p.VideoPath }).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 foreach (var candidate in candidates.Values.Where(c => c.PendingBinding != null && !used.Contains(c.Path)))
                 {
@@ -151,7 +156,7 @@ namespace LivePhotoBox.Services
             Diagnostics = diagnostics, Status = status, IsPartial = true, ErrorMessage = error
         };
 
-        private static bool IsPendingVivoBinding(SourceInspectionException error) =>
+        private static bool IsPendingVivoBinding(SourceInspectionFailure error) =>
             error.Category == SourceInspectionFailureCategory.Ambiguous && error.Stage == SourceInspectionStage.Pairing &&
             error.Capability == NativeRuntime.VivoLegacyCapability;
 
@@ -212,7 +217,16 @@ namespace LivePhotoBox.Services
                         diagnostics.Add(Conflict(image.Path, [video.Path], "LivePhotoCannotBeCompanion", group.Key));
                         continue;
                     }
-                    var facts = await inspector.InspectAsync(image.Path, video.Path, ct).ConfigureAwait(false);
+                    var inspection = await inspector.InspectForDiscoveryAsync(image.Path, video.Path, ct).ConfigureAwait(false);
+                    if (inspection.Failure is { } failure)
+                    {
+                        bool inputFailure = LivePhotoScanSupport.IsInputFailure(failure);
+                        diagnostics.Add(LivePhotoScanSupport.Failure(image.Path, failure,
+                            inputFailure ? "PairInspectionFailed" : "ScanOperationFailed", [video.Path]));
+                        if (!inputFailure) return;
+                        continue;
+                    }
+                    var facts = inspection.Facts!;
                     if (Confirmed(facts, video, SourceProtocol.VivoLegacyDualFile) ||
                         (image.Facts != null && Confirmed(facts, video, SourceProtocol.AppleLivePhoto)))
                     {
@@ -223,7 +237,12 @@ namespace LivePhotoBox.Services
                     {
                         var probe = await NativeMediaService.ProbeVideoAsync(video.Path, ct).ConfigureAwait(false);
                         if (!probe.IsPresent || probe.Container == VideoContainer.Unknown || probe.Codec == VideoCodec.Unknown)
-                            throw new InvalidDataException("A valid companion video is required.");
+                        {
+                            diagnostics.Add(LivePhotoScanSupport.Failure(video.Path,
+                                new SourceInspectionFailure(SourceInspectionFailureCategory.Malformed,
+                                    SourceInspectionStage.Container, 0, "A valid companion video is required."), "PairInspectionFailed", [image.Path]));
+                            continue;
+                        }
                         pairs.Add(new LivePhotoFilePairInfo
                         {
                             BaseName = Path.GetFileNameWithoutExtension(image.Path), ImagePath = image.Path, VideoPath = video.Path,
@@ -266,7 +285,16 @@ namespace LivePhotoBox.Services
                 var video = candidates[vids[0]];
                 try
                 {
-                    var facts = await inspector.InspectAsync(image.Path, video.Path, ct).ConfigureAwait(false);
+                    var inspection = await inspector.InspectForDiscoveryAsync(image.Path, video.Path, ct).ConfigureAwait(false);
+                    if (inspection.Failure is { } failure)
+                    {
+                        bool inputFailure = LivePhotoScanSupport.IsInputFailure(failure);
+                        diagnostics.Add(LivePhotoScanSupport.Failure(image.Path, failure,
+                            inputFailure ? "PairInspectionFailed" : "ScanOperationFailed", [video.Path]));
+                        if (!inputFailure) return;
+                        continue;
+                    }
+                    var facts = inspection.Facts!;
                     if (Confirmed(facts, video, SourceProtocol.AppleLivePhoto)) pairs.Add(Pair(image, video, facts));
                     else diagnostics.Add(Conflict(image.Path, [video.Path], "UnconfirmedProtocolPair", id));
                 }
@@ -291,7 +319,20 @@ namespace LivePhotoBox.Services
                     if (!candidates.TryGetValue(videoPath, out var video)) continue;
                     try
                     {
-                        var facts = await inspector.InspectAsync(image.Path, video.Path, ct).ConfigureAwait(false);
+                        var inspection = await inspector.InspectForDiscoveryAsync(image.Path, video.Path, ct).ConfigureAwait(false);
+                        if (inspection.Failure is { } failure)
+                        {
+                            if (!LivePhotoScanSupport.IsInputFailure(failure))
+                            {
+                                diagnostics.Add(LivePhotoScanSupport.Failure(imagePath, failure, "ScanOperationFailed", [videoPath]));
+                                return;
+                            }
+                            // A refused matrix edge is not a failed endpoint.
+                            if (failure.Stage != SourceInspectionStage.Pairing)
+                                rejected.TryAdd(imagePath, LivePhotoScanSupport.Failure(imagePath, failure, "PairInspectionFailed", [videoPath]));
+                            continue;
+                        }
+                        var facts = inspection.Facts!;
                         if (Confirmed(facts, video, SourceProtocol.VivoLegacyDualFile)) edges.Add(Pair(image, video, facts));
                     }
                     catch (Exception ex) when (LivePhotoScanSupport.IsInputFailure(ex))

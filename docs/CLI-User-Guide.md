@@ -125,7 +125,7 @@ lpb cover photo.jpg --at 1.5 -y
 |---------|-------------|
 | `lpb protocols` | View protocol × format compatibility and device support |
 | `lpb merge` | Merge image+video pairs (single pair or batch) |
-| `lpb split` | Split single-file live photos into separate image and video files |
+| `lpb split` | Export single-file or explicitly paired dual-file Live Photos as protocol-free image and video |
 | `lpb cover` | Change the cover frame (Key Photo) of an existing live photo; alias `keyphoto` |
 | `lpb repair` | Analyze and repair live photo metadata |
 | `lpb --info` / `lpb --version` (`-v`) | Show version, environment, and bundled tool versions |
@@ -357,14 +357,17 @@ Only source files from **successfully** merged pairs are affected.
 
 ---
 
-### `split` — Split single-file live photos
+### `split` — Split and export neutral media
 
-The reverse of `merge`: splits single-file live photos (an image with an appended video) back into a separate photo and video. Supports two operating modes:
+Uses Inspector → Extractor → Cleaner → Neutral for single-file sources and confirmed Apple/legacy vivo pairs. Dual-file inputs are cleaned and converted rather than copied as already separate. The current output protocol is `none`; Apple/legacy vivo target writing belongs to a later step.
 
 | Mode | Arguments | Use case |
 |------|-----------|----------|
 | Single file | `<file>` (auto-detected by extension) | Split one single-file live photo |
-| Batch folder | `<path>` (auto-detected: no extension) or `-d` | Split every single-file live photo in a directory |
+| Dual files | `<image> --companion <video>` | Explicit input pair, validated by Native inspection |
+| Batch folder | `<path>` (auto-detected: no extension) or `-d` | Single-file sources and unique native Apple/legacy vivo identities; no filename guessing |
+
+Use `lpb split photo.heic --companion renamed.mov -f jpg+mp4 -o ./neutral --json` for a pair. `--pairing apple` filters Apple sources. `none` retains the independent still and complete video timeline; source cover timing is reported in `outcome.PreparationSemantics.Timing` without recreating a live binding. A cover override is rejected for protocol-free output. Both originals and their aliases remain protected even with `--overwrite`; an explicitly requested successful `--after` action applies to both members. `--all-variants` exports the four neutral formats, including paired input via `--companion`.
 
 #### Examples
 
@@ -376,8 +379,8 @@ The reverse of `merge`: splits single-file live photos (an image with an appende
 | Preview without processing | `lpb split -d ./MyPhotos --dry-run` |
 | Only split vivo live photos | `lpb split -d ./MyPhotos --pairing vivo -y` |
 | Overwrite existing outputs | `lpb split photo.jpg -w` |
-| Export all variants (Apple + vivo + no-protocol) | `lpb split photo.jpg --all-variants` |
-| Set key photo position (Apple conversion) | `lpb split photo.jpg -p apple --key-timestamp 2.500 -y` |
+| Export four protocol-free media formats | `lpb split photo.jpg --all-variants` |
+| Export a dual-file source | `lpb split photo.heic --companion renamed.mov -f jpg+mp4 -o ./neutral --json` |
 
 > **Note:** Wildcards (`*.jpg`) are not supported. Pass a folder (`-d`) or list files explicitly.
 
@@ -390,7 +393,8 @@ The reverse of `merge`: splits single-file live photos (an image with an appende
 | Option | Description |
 |--------|-------------|
 | `<file>` | One single-file live photo to split: `.jpg .jpeg .heic .heif` (image with an appended video), or a folder path — a path without a file extension is auto-detected as a folder (batch mode) |
-| `-d, --dir <path>` | Folder with single-file live photos (batch mode); all detected live photos are split. A path can also be passed as the positional argument |
+| `--companion <video>` | Explicit companion for the source image; both originals are protected |
+| `-d, --dir <path>` | Folder with single-file sources or natively confirmed dual-file pairs |
 | `--pairing <protocol>` | Only split live photos of this protocol: `all` (no filter, default), `v1` (MicroVideo), `v2` (MotionPhoto), `oppo`, `vivo`, `samsung`, `huawei` |
 | `-r, --recursive` | Include subdirectories when scanning |
 
@@ -407,9 +411,9 @@ The reverse of `merge`: splits single-file live photos (an image with an appende
 
 | Option | Description |
 |--------|-------------|
-| `-p, --protocol <p>` | Target phone format (default `none`): `none` (split only), `apple` (Apple Live Photo), `vivo` (vivo Live Photo, ≤ X200). Apple/vivo write pairing metadata (ContentIdentifier / vivo tail + uuid box) |
+| `-p, --protocol <p>` | Target phone format (default `none`): `none` (protocol-free). Apple/vivo output selections are explicitly rejected pending their shared target writers |
 | `-f, --format <f>` | Output format (default: first available for the protocol): `keep` (no conversion), `jpg+mov` (H.265), `heic+mov` (H.265), `jpg+mp4` (H.264) |
-| `--key-timestamp <time>` | Override the key photo (cover) position (Apple conversion, single-file only). Accepts seconds (`2.500`), `mm:ss` (`1:30.500`), `hh:mm:ss` (`0:01:30.500`). Default: follow the source |
+| `--key-timestamp <time>` | Currently rejected for protocol-free output; source cover timing is included in the JSON preparation semantics |
 | `-n, --naming <rule>` | Output filename rule. Default: `keep`. `keep` (same name) or `custom:TEMPLATE` (tokens below) |
 
 Naming tokens:
@@ -446,13 +450,13 @@ When `-o` is omitted, output never lands in the terminal's current directory —
 | Batch (folder / `-d`) | A subfolder inside the input folder, named `{folder}_split` | `lpb split ./MyPhotos` → `./MyPhotos/MyPhotos_split/` |
 
 - The image keeps the source base name and extension; the video keeps the source video's container (`.mov` or `.mp4`).
-- Splitting in place: when the image name would collide with the source file, it is auto-renamed (`photo.jpg` → `photo (2).jpg`); pass `-w` to overwrite instead.
+- Splitting in place: when the image name would collide with the source file, it is auto-renamed (`photo.jpg` → `photo (2).jpg`); `-w` still cannot overwrite any original.
 - Batch files keep their source names — they land in the separate `{folder}_split/` subfolder.
-- `--dry-run` prints the resolved output paths and creates **no** folders.
+- A normal dry run creates no media. The current `--all-variants --dry-run` path still creates an empty variant directory; it is not a media-processing result.
 
 #### `--all-variants` — Export every split variant
 
-From one single-file live photo, generate all 7 supported split variants in one command. Single-file mode only — batch (`-d`) is rejected. Ideal for developer QA and testing.
+Export four protocol-free media formats from one single-file source or one explicit `--companion` pair. Batch (`-d`) is rejected; this does not validate Apple/legacy vivo target writers.
 
 | Variant | Output pair |
 |---------|-------------|
@@ -460,9 +464,6 @@ From one single-file live photo, generate all 7 supported split variants in one 
 | No protocol (JPG+MOV) | `none_jpg+mov.JPG` + `none_jpg+mov.MOV` |
 | No protocol (HEIC+MOV) | `none_heic+mov.HEIC` + `none_heic+mov.MOV` |
 | No protocol (JPG+MP4) | `none_jpg+mp4.JPG` + `none_jpg+mp4.MP4` |
-| Apple Live Photo (JPG+MOV) | `apple_jpg+mov.JPG` + `apple_jpg+mov.MOV` |
-| Apple Live Photo (HEIC+MOV) | `apple_heic+mov.HEIC` + `apple_heic+mov.MOV` |
-| vivo Live Photo (JPG+MP4) | `vivo_jpg+mp4.JPG` + `vivo_jpg+mp4.MP4` |
 
 ```powershell
 # Default: writes to {source_dir}/split_{name}_All_Variants/
@@ -472,7 +473,7 @@ lpb split photo.jpg --all-variants
 lpb split photo.jpg --all-variants -o ./Out
 ```
 
-Files are named `{protocol}_{format}` (lowercase CLI values, e.g. `-p apple -f jpg+mov` → `apple_jpg+mov`); the original name goes into the **folder** name only; no spaces in any name. For the keep variant the image keeps the source extension and the video keeps the source container (`.MOV` / `.MP4`). `-p` / `-f` / `-n` / `-w` / `--after` are ignored; `-j` still controls parallelism.
+Files are named `{protocol}_{format}` (lowercase CLI values, e.g. neutral JPG+MOV → `none_jpg+mov`); the original name goes into the **folder** name only; no spaces in any name. For the keep variant the image keeps the source extension and the video keeps the source container (`.MOV` / `.MP4`). `-p` / `-f` / `-n` / `-w` / `--after` are ignored; `-j` still controls parallelism.
 
 #### Protocol × Format Matrix
 
@@ -481,8 +482,7 @@ Which output formats each split protocol supports:
 | Protocol | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
 | `none` (split only) | ✅ | ✅ | ✅ | ✅ |
-| `apple` (Apple Live Photo) | ✖️ | ✅ | ✅ | ✖️ |
-| `vivo` (vivo Live Photo) | ✖️ | ✖️ | ✖️ | ✅ |
+| `apple` / `vivo` | Deferred | Deferred | Deferred | Deferred |
 
 Omitted `--format` defaults to the protocol's first available format: `keep` (`none`), `jpg+mov` (`apple`), `jpg+mp4` (`vivo`).
 
@@ -496,7 +496,7 @@ Omitted `--format` defaults to the protocol's first available format: `keep` (`n
 | `v1` | Google Micro Video (v1) |
 | `v2` | Google Motion Photo (v2) |
 | `oppo` | OPPO O-Live Photo |
-| `vivo` | vivo Live Photo |
+| `apple` / `vivo` | Deferred | Deferred | Deferred | Deferred |
 | `samsung` | Samsung Motion Photo |
 | `huawei` | HUAWEI Moving Photo |
 

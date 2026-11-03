@@ -53,13 +53,17 @@ bool jpeg_facts(std::span<const uint8_t> input, target_primary_observation& out,
         }
     }
     uint64_t cursor = out.encoding_boundary;
+    const bool implicit_vivo_mpf=out.xmp.vivo_claim&&out.xmp.vivo_version_present&&out.xmp.vivo_version==1&&
+        out.xmp.directory_present&&out.xmp.items.size()==2&&!out.xmp.items[0].has_padding&&
+        !out.xmp.items[0].has_length&&out.xmp.items.back().semantic=="MotionPhoto";
     const bool ordinary_mpf_directory=out.xmp.directory_present&&mpf.mpf_status==jpeg_gainmap_mpf::status::present&&mpf.mpf.image_count==2&&
-        (out.xmp.items.size()==1||(out.xmp.items.size()==2&&out.xmp.items[1].semantic=="MotionPhoto"))&&out.xmp.items[0].padding;
+        (out.xmp.items.size()==1||(out.xmp.items.size()==2&&out.xmp.items[1].semantic=="MotionPhoto"))&&
+        (out.xmp.items[0].padding||implicit_vivo_mpf);
     if((out.xmp.items.empty()||ordinary_mpf_directory)&&mpf.mpf_status==jpeg_gainmap_mpf::status::present&&mpf.mpf.image_count==2) {
         mpf_vendor_primary vendor;
         if(ordinary_mpf_directory) {
             const uint64_t expected_padding = (samsung_padding != UINT64_MAX ? samsung_padding : 0) + input.size() - out.encoding_boundary;
-            if(micamera||out.xmp.hdr_claim||out.xmp.items[0].padding!=expected_padding||
+            if(micamera||out.xmp.hdr_claim||(!implicit_vivo_mpf&&out.xmp.items[0].padding!=expected_padding)||
                 !observe_cross_target_mpf_primary(input,vendor,error)) {
                 error="MPF ordinary primary padding has a conflicting or incomplete owner: "+error;return false;
             }
@@ -71,6 +75,7 @@ bool jpeg_facts(std::span<const uint8_t> input, target_primary_observation& out,
         if(!ordinary_mpf_directory)cursor=input.size();
     }
     const uint64_t mpf_padding = ordinary_mpf_directory ? (input.size() - out.encoding_boundary) : 0;
+    if(implicit_vivo_mpf&&ordinary_mpf_directory)cursor=input.size();
     const uint64_t samsung_embedded_padding=micamera==1?(watermark.offset+watermark.length-out.encoding_boundary):mpf_padding;
     if(samsung_padding!=UINT64_MAX&&(out.xmp.items.empty()||out.xmp.items.front().padding!=samsung_padding+samsung_embedded_padding)) {
         error="Samsung compatibility padding differs from actual tag extent.";return false;

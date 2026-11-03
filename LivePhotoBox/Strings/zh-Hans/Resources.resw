@@ -1546,7 +1546,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SplitTutorial_Step03_Content" xml:space="preserve">
     <value>筛选扫描结果中哪些协议的实况照片需要处理。
 
-**👍** 默认选择「所有单文件实况照片协议」，所有能找到的实况照片都会被识别。
+**👍** 默认选择「所有实况照片协议」，所有能找到的实况照片都会被识别。
 
 **⚠️** 仅当文件夹中混杂了多种协议的实况照片、你只想处理特定协议时，才需要切换匹配方式。</value>
   </data>
@@ -1957,7 +1957,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
 
 💡 具体支持机型，请看「匹配方式」下拉菜单提示
 
-在「匹配方式」中选择对应协议类型或「所有单文件实况照片」，把文件放入同一文件夹即可。</value>
+在「匹配方式」中选择对应协议类型或「所有实况照片」，把文件放入同一文件夹即可。</value>
   </data>
   <data name="HomePage_SplitTutorial_Step2_Desc.Text" xml:space="preserve">
     <value>点击「浏览」选择文件夹，程序自动扫描并识别实况照片。确认统计无误后，选择输出协议与格式：
@@ -3973,7 +3973,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>协议版本：</value>
   </data>
   <data name="SplitPage_Protocol_None.Content" xml:space="preserve">
-    <value>无协议（原始格式）</value>
+    <value>无协议（独立图片和视频）</value>
   </data>
   <data name="SplitPage_Protocol_None_Hint" xml:space="preserve">
     <value>移除原始实况照片协议拆分</value>
@@ -4228,7 +4228,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>匹配方式：</value>
   </data>
   <data name="SplitPage_Match_All.Content" xml:space="preserve">
-    <value>所有单文件实况照片协议</value>
+    <value>所有实况照片协议</value>
   </data>
   <data name="SplitPage_Match_All_Hint" xml:space="preserve">
     <value>识别所有协议</value>
@@ -4632,4 +4632,11 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="ScanDiagnostic_UnsupportedExtension" xml:space="preserve"><value>当前扫描不支持此文件扩展名，未加入处理队列。</value></data>
   <data name="ScanDiagnostic_ReparsePointSkipped" xml:space="preserve"><value>扫描不跟随目录链接，以免扩大范围或形成循环。</value></data>
   <data name="MergeDiagnostic_UnconfirmedProtocolPair" xml:space="preserve"><value>无法确认此来源配对关系，不能降级为普通媒体请求。</value></data>
+  <data name="ScanDiagnostic_UnsupportedInput" xml:space="preserve"><value>暂不支持此输入格式或来源特性。</value></data>
+  <data name="SplitPage_Match_Apple.Content" xml:space="preserve">
+    <value>Apple - Live Photo（双文件）</value>
+  </data>
+  <data name="SplitPage_Match_Apple_Hint" xml:space="preserve">
+    <value>按原生配对标识确认图片与视频</value>
+  </data>
 </root>

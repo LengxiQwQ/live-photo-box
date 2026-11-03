@@ -1,4 +1,4 @@
-/*
+﻿/*
  * SplitViewModel.cs
  *
  * SplitPage（拆分页面）的视图模型，负责将单文件实况照片拆分为图片与视频。
@@ -264,8 +264,8 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        // 匹配方式索引：0=所有单文件实况照片协议 / 1=Fusion / 2=MicroVideo V1 / 3=MotionPhoto V2
-        //                / 4=OPPO O-Live Photo / 5=vivo Live Photo / 6=Samsung Motion Photo / 7=HUAWEI Moving Photo。
+        // 匹配方式索引：0=所有实况照片协议 / 1=Fusion / 2=MicroVideo V1 / 3=MotionPhoto V2
+        //                / 4=OPPO O-Live Photo / 5=vivo Live Photo / 6=Samsung Motion Photo / 7=HUAWEI Moving Photo / 8=Apple双文件。
         // 扫描时按此协议过滤单文件实况照片（复用 Core 的 LivePhotoProtocolDetector）。
         public int MatchProtocolIndex
         {
@@ -283,7 +283,7 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        // 匹配方式索引 → 目标协议类型（null 表示"所有单文件"，不过滤）。
+        // 匹配方式索引 → 目标协议类型（null 表示"所有实况照片"，不过滤）。
         private LivePhotoProtocolType? MatchProtocolType => MatchProtocolIndex switch
         {
             1 => LivePhotoProtocolType.Fusion,
@@ -293,6 +293,7 @@ namespace LivePhotoBox.ViewModels
             5 => LivePhotoProtocolType.Vivo,
             6 => LivePhotoProtocolType.Samsung,
             7 => LivePhotoProtocolType.Huawei,
+            8 => LivePhotoProtocolType.Apple,
             _ => null
         };
 
@@ -921,7 +922,8 @@ namespace LivePhotoBox.ViewModels
             {
                 InputDirectories = folderPaths.ToArray(),
                 ExplicitFiles = filePaths.Concat(replace ? Array.Empty<string>() :
-                    oldTasks.Where(t => t.Status != ProcessStatus.Success).Select(t => t.SourcePath)).ToArray(),
+                    oldTasks.Where(t => t.Status != ProcessStatus.Success).SelectMany(t => new[] { t.SourcePath, t.SecondaryPath }).Where(p => p != null).Select(p => p!)
+                        .Concat(ScanDiagnostics.Where(d => d.IsImage || d.IsVideo).SelectMany(d => d.RelatedPaths.Prepend(d.PrimaryPath)))).ToArray(),
                 Recursive = AppSettingsService.GetValue("IsRecursiveScanEnabled", false)
             };
             IsScanning = true;
@@ -943,7 +945,7 @@ namespace LivePhotoBox.ViewModels
                         return;
                     }
                     var diagnostics = result.Diagnostics.ToList();
-                    var selected = result.Items.Where(i => i.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic).ToList();
+                    var selected = result.Items.Where(i => i.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic || i.LivePhotoType == LivePhotoType.DualFile && i.IsImage).ToList();
                     foreach (var item in selected.Where(i => targetProtocol != null && MapNativeProtocol(i.Protocol) != targetProtocol.Value))
                         diagnostics.Add(LivePhotoScanSupport.Info(item.FilePath, "ProtocolFiltered", "This source protocol is not selected."));
                     selected.RemoveAll(i => targetProtocol != null && MapNativeProtocol(i.Protocol) != targetProtocol.Value);
@@ -951,10 +953,10 @@ namespace LivePhotoBox.ViewModels
                     foreach (var item in selected)
                     {
                         if (updated.Any(t => string.Equals(t.SourcePath, item.FilePath, StringComparison.OrdinalIgnoreCase))) continue;
-                        var existing = replace ? null : oldTasks.FirstOrDefault(t => string.Equals(t.SourcePath, item.FilePath, StringComparison.OrdinalIgnoreCase));
+                        var existing = replace ? null : oldTasks.FirstOrDefault(t => string.Equals(t.SourcePath, item.FilePath, StringComparison.OrdinalIgnoreCase) && string.Equals(t.SecondaryPath, item.PairedVideoPath, StringComparison.OrdinalIgnoreCase));
                         updated.Add(existing ?? new SplitTask
                         {
-                            SourceFileName = Path.GetFileName(item.FilePath), SourcePath = item.FilePath,
+                            SourceFileName = Path.GetFileName(item.FilePath), SourcePath = item.FilePath, SecondaryPath = item.PairedVideoPath,
                             FileSize = FileSizeFormatter.Format(item.FileSizeBytes), FileSizeBytes = item.FileSizeBytes,
                             DateTaken = item.LastWriteTime, BaseName = Path.GetFileNameWithoutExtension(item.FilePath),
                             AppendedVideoLength = item.AppendedVideoLength, Status = ProcessStatus.Pending,
@@ -1223,6 +1225,7 @@ namespace LivePhotoBox.ViewModels
                 await Task.Run(async () =>
                 {
                     var tasksToProcess = Tasks.Where(t => t.Status != ProcessStatus.Success).ToList();
+                    using var originals = new SourceInputProtection(Tasks.SelectMany(t => new[] { t.SourcePath, t.SecondaryPath }));
 
                     int maxParallel = AppSettingsService.GetValue("SplitThreadCount", 4);
 
@@ -1261,7 +1264,7 @@ namespace LivePhotoBox.ViewModels
                                 string outputBaseName = ComputeOutputBaseName(task);
                                 outcome = await LivePhotoSplitService.SplitWithOutcomeAsync(
                                     task.SourcePath, outputDir, outputFormat, token,
-                                    inputDirectory, outputBaseName, overwriteExisting);
+                                    inputDirectory, outputBaseName, overwriteExisting, task.SecondaryPath);
                                 isSuccess = outcome.IsSuccess;
                                 isCanceled = outcome.Status == ProductOperationStatus.Cancelled;
                                 outputImagePath = outcome.CommittedOutputs.FirstOrDefault(output => output.Role == "PrimaryImage")?.Path ?? string.Empty;
@@ -1422,20 +1425,20 @@ namespace LivePhotoBox.ViewModels
                         {
                             try { Directory.CreateDirectory(moveDir); }
                             catch (Exception ex) { LogService.Split($"Failed to create original dir: {ex.Message}", LogLevel.Warning); }
-                            foreach (var task in succeededThisRun)
+                            foreach (var path in succeededThisRun.SelectMany(t => new[] { t.SourcePath, t.SecondaryPath }).Where(p => p != null).Distinct(StringComparer.OrdinalIgnoreCase))
                             {
-                                try { if (File.Exists(task.SourcePath)) File.Move(task.SourcePath, Path.Combine(moveDir, Path.GetFileName(task.SourcePath))); } catch { }
+                                try { if (File.Exists(path)) File.Move(path!, Path.Combine(moveDir, Path.GetFileName(path!))); } catch (Exception ex) { LogService.Split($"Failed to archive source: {ex.Message}", LogLevel.Warning); }
                             }
                         }
                     }
                     else if (AfterCompletionActionIndex == 2) // 回收站
                     {
-                        foreach (var task in succeededThisRun)
+                        foreach (var path in succeededThisRun.SelectMany(t => new[] { t.SourcePath, t.SecondaryPath }).Where(p => p != null).Distinct(StringComparer.OrdinalIgnoreCase))
                         {
                             try
                             {
-                                if (File.Exists(task.SourcePath))
-                                    await MoveFileToRecycleBinAsync(task.SourcePath);
+                                if (File.Exists(path))
+                                    await MoveFileToRecycleBinAsync(path!);
                             }
                             catch (Exception ex)
                             {

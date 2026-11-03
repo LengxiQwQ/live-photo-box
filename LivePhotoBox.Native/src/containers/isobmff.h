@@ -169,6 +169,7 @@ struct isobmff_reader_observation {
     uint32_t video_width{}, video_height{}, video_orientation{}, video_codec{};
     bool quicktime{};
     bool opaque_metadata{};
+    uint32_t aac_audio_tracks{}, other_audio_tracks{};
 };
 bool inspect_isobmff_reader(const lpb::random_access_reader& reader, bool require_ftyp,
     isobmff_reader_observation& output, isobmff_reader_diagnostic& diagnostic) noexcept;

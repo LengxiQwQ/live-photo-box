@@ -1,4 +1,4 @@
-/*
+﻿/*
  * LivePhotoDiscoveryModels.cs
  *
  * 统一实况照片发现服务的数据模型。
@@ -149,8 +149,8 @@ namespace LivePhotoBox.Models
         /// <summary>匹配：vivo 双文件 ID（JPEG 尾 vivo{JSON} + MP4 uuid vivoMediaExtInfo, com.android.camera.livephoto）</summary>
         VivoMatch = 1 << 4,
 
-        /// <summary>拆分页面：JPEG XMP 字节标记 + HEIC 视频轨检测（单文件实况：谷歌/华为 HEIC 等）</summary>
-        SplitOnly = JpegMarkers | HeicTrack,
+        /// <summary>拆分页面：单文件实况 + 原生确认的 Apple/旧 vivo 双文件（不按同名猜配）</summary>
+        SplitOnly = JpegMarkers | HeicTrack | CidMatch | VivoMatch,
         /// <summary>合并页面：三个匹配方法（按 UI 选择互斥运行）</summary>
         MergeOnly = FilenamePair | CidMatch | VivoMatch,
         /// <summary>资源浏览：检测 + 匹配全部</summary>

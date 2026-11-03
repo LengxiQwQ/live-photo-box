@@ -65,6 +65,7 @@ namespace LivePhotoBox.Cli.Commands
         private static readonly Dictionary<string, LivePhotoProtocolType?> SplitPairingMap = new(StringComparer.OrdinalIgnoreCase)
         {
             ["all"]     = null,
+            ["apple"]   = LivePhotoProtocolType.Apple,
             // Fusion 隐藏：CLI 不再暴露 fusion 配对过滤。
             // ["fusion"]  = LivePhotoProtocolType.Fusion,
             ["v1"]      = LivePhotoProtocolType.GoogleV1,
@@ -86,10 +87,11 @@ namespace LivePhotoBox.Cli.Commands
             var filesArg = new Argument<string?>("files") { Description = "Live photo file (.jpg/.jpeg/.heic/.heif) or folder path. A path without a file extension is auto-detected as a folder (same as --dir)." };
             filesArg.Arity = ArgumentArity.ZeroOrOne;
 
-            var dirOpt = new Option<DirectoryInfo?>("--dir", "-d") { Description = "Folder with single-file live photos. All detected live photos are split. For batch mode; a folder path can also be passed as the positional argument." };
-            var pairingOpt = new Option<string>("--pairing") { DefaultValueFactory = _ => "all", Description = "Only split live photos of this protocol. all (no filter)|v1 (MicroVideo)|v2 (MotionPhoto)|oppo|vivo|samsung|huawei." };
+            var dirOpt = new Option<DirectoryInfo?>("--dir", "-d") { Description = "Folder with single-file or natively paired dual-file live photos. All detected live photos are split. For batch mode; a folder path can also be passed as the positional argument." };
+            var companionOpt = new Option<FileInfo?>("--companion") { Description = "Explicit companion video for a dual-file source. Native inspection must confirm the source binding; no filename guessing." };
+            var pairingOpt = new Option<string>("--pairing") { DefaultValueFactory = _ => "all", Description = "Only split live photos of this protocol. all (no filter)|apple|v1 (MicroVideo)|v2 (MotionPhoto)|oppo|vivo|samsung|huawei." };
 
-            var protocolOpt = new Option<string>("--protocol", "-p") { DefaultValueFactory = _ => "none", Description = "Target phone format. Rebuilt split exports protocol-free neutral media (none); target protocol writers are deferred to P9." };
+            var protocolOpt = new Option<string>("--protocol", "-p") { DefaultValueFactory = _ => "none", Description = "Target phone format. Rebuilt split exports protocol-free neutral media (none); Apple/vivo target writing belongs to a later implementation step." };
             var formatOpt = new Option<string?>("--format", "-f") { Description = "Output format. keep (no conversion)|jpg+mov (H.265)|heic+mov (H.265)|jpg+mp4 (H.264).\nDefault: first available for the chosen protocol." };
             var keyTimestampOpt = new Option<string?>("--key-timestamp") { Description = "Override the key photo (cover) position on the video timeline (Apple conversion, single-file mode).\n" +
                 "Accepts seconds (2.500), mm:ss (1:30.500) or hh:mm:ss (0:01:30.500).\n" +
@@ -113,8 +115,8 @@ namespace LivePhotoBox.Cli.Commands
                 "Output goes to {output}/split_{name}_All_Variants/. Files are named {protocol}_{format}.ext." };
 
             var cmd = new Command("split",
-                "Split single-file live photos into separate image and video files.\n" +
-                "Input: .jpg .jpeg .heic .heif (single-file live photos with an appended video)\n\n" +
+                "Export single-file or paired dual-file live photos as protocol-free image and video files.\n" +
+                "Input: .jpg .jpeg .heic .heif; dual files: image --companion video.mov\n\n" +
                 "Single file:  lpb split photo.jpg\n" +
                 "              (writes photo.jpg + photo.mov next to the source)\n" +
                 "Batch folder: lpb split ./MyPhotos -y\n" +
@@ -127,7 +129,7 @@ namespace LivePhotoBox.Cli.Commands
                 "Formats:      lpb protocols")
             {
                 filesArg,
-                dirOpt, pairingOpt, protocolOpt, formatOpt, keyTimestampOpt, outputOpt, namingOpt,
+                dirOpt, companionOpt, pairingOpt, protocolOpt, formatOpt, keyTimestampOpt, outputOpt, namingOpt,
                 parallelOpt, yesOpt, jsonOpt, dryRunOpt, verboseOpt,
                 overwriteOpt, recursiveOpt, preserveSubdirsOpt, afterOpt,
                 allVariantsOpt
@@ -137,6 +139,7 @@ namespace LivePhotoBox.Cli.Commands
             {
                 string? singlePath = parseResult.GetValue(filesArg);
                 var dir = parseResult.GetValue(dirOpt);
+                string? companionPath = parseResult.GetValue(companionOpt)?.FullName;
                 var pairingName = parseResult.GetValue(pairingOpt)!;
                 var protocolName = parseResult.GetValue(protocolOpt)!;
                 var formatName = parseResult.GetValue(formatOpt);
@@ -239,7 +242,7 @@ namespace LivePhotoBox.Cli.Commands
                     singlePath, dir, pairingName, protocolName, formatName, output, naming, namingExplicit,
                     parallel, yes, json, dryRun, verbose,
                     overwrite, recursive, preserveSubdirs, after, allVariants, keyTimestampUs,
-                    cancellationToken);
+                    cancellationToken, companionPath);
             });
 
             return cmd;
@@ -250,20 +253,26 @@ namespace LivePhotoBox.Cli.Commands
             string pairingName, string protocolName, string? formatName, DirectoryInfo? output,
             string naming, bool namingExplicit, int parallel, bool yes, bool json, bool dryRun, bool verbose,
             bool overwrite, bool recursive, bool preserveSubdirs, string after, bool allVariants, long? keyTimestampUs,
-            CancellationToken ct)
+            CancellationToken ct, string? companionPath)
         {
             try
             {
                 return await ProcessingPipelineRouter.RunAsync("split", () => RunSplitAsync(
                     singlePath, dir, pairingName, protocolName, formatName, output, naming, namingExplicit,
                     parallel, yes, json, dryRun, verbose, overwrite, recursive, preserveSubdirs,
-                    after, allVariants, keyTimestampUs, ct));
+                    after, allVariants, keyTimestampUs, ct, companionPath));
             }
             catch (OperationCanceledException)
             {
                 if (json) PrintJson(new { operation = "split", status = "cancelled" });
                 else CliConsole.WriteErrorLine("Cancelled.");
                 return 130;
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                if (json) PrintJson(new { command = "split", status = "failed", reason = exception.Message });
+                else CliConsole.WriteErrorLine(exception.Message);
+                return 1;
             }
             catch (RebuiltPipelineNotReadyException exception)
             {
@@ -280,11 +289,16 @@ namespace LivePhotoBox.Cli.Commands
             string pairingName, string protocolName, string? formatName, DirectoryInfo? output,
             string naming, bool namingExplicit, int parallel, bool yes, bool json, bool dryRun, bool verbose,
             bool overwrite, bool recursive, bool preserveSubdirs, string after, bool allVariants, long? keyTimestampUs,
-            CancellationToken ct)
+            CancellationToken ct, string? companionPath)
         {
             bool isSingle = singlePath != null;
             bool isBatch = dir != null;
             const bool isRebuilt = true;
+            if (companionPath is not null && !isSingle)
+            {
+                CliConsole.WriteErrorLine("Error: --companion requires one source image.");
+                return 1;
+            }
 
             // --all-variants 优先给出专属错误（避免先报通用的"缺少输入"误导用户）
             if (allVariants && !isSingle && !isBatch)
@@ -344,7 +358,7 @@ namespace LivePhotoBox.Cli.Commands
                 // Default output to the source file's directory (not cwd)
                 string outputDir = output?.FullName ?? Path.GetDirectoryName(Path.GetFullPath(singlePath))!;
                 Directory.CreateDirectory(outputDir);
-                return await RunSplitAllVariantsAsync(singlePath, outputDir, parallel, dryRun, verbose, json, isRebuilt, ct);
+                return await RunSplitAllVariantsAsync(singlePath, outputDir, parallel, dryRun, verbose, json, isRebuilt, ct, companionPath);
             }
 
             // Resolve split protocol
@@ -407,7 +421,7 @@ namespace LivePhotoBox.Cli.Commands
             // Resolve pairing filter (null = no filter, keep the current scan-everything behavior)
             if (!SplitPairingMap.TryGetValue(pairingName.Trim(), out LivePhotoProtocolType? pairingProtocol))
             {
-                CliConsole.WriteErrorLine($"Error: Unknown pairing '{pairingName}'. Valid: all, v1, v2, oppo, vivo, samsung, huawei.{CliConsole.DidYouMean(pairingName, ["all", "v1", "v2", "oppo", "vivo", "samsung", "huawei"])}");
+                CliConsole.WriteErrorLine($"Error: Unknown pairing '{pairingName}'. Valid: all, apple, v1, v2, oppo, vivo, samsung, huawei.{CliConsole.DidYouMean(pairingName, ["all", "apple", "v1", "v2", "oppo", "vivo", "samsung", "huawei"])}");
                 return 1;
             }
 
@@ -509,7 +523,15 @@ namespace LivePhotoBox.Cli.Commands
                 if (isSingle)
                 {
                     // 配对协议过滤（单文件模式，等价 GUI 的 PassesProtocolFilter）
-                    if (!PassesPairingFilter(singlePath!, GetSingleFileType(singlePath!), pairingProtocol))
+                    var filterInspection = pairingProtocol is null ? null : await new SourceInspector()
+                        .InspectForDiscoveryAsync(singlePath!, companionPath, ct);
+                    if (filterInspection?.Failure is { } refusal)
+                    {
+                        if (json) PrintSingleJson(singlePath!, "", "", "failed", reason: refusal.Reason);
+                        else CliConsole.WriteErrorLine(refusal.Reason);
+                        return 1;
+                    }
+                    if (pairingProtocol is not null && MapNativeProtocol(filterInspection!.Facts!.Protocol) != pairingProtocol.Value)
                     {
                         if (json) PrintSingleJson(singlePath!, "", "", "skipped", reason: $"not a {pairingName} live photo");
                         else CliConsole.WriteErrorLine($"Skipped: '{Path.GetFileName(singlePath)}' is not a {pairingName} live photo.");
@@ -545,7 +567,7 @@ namespace LivePhotoBox.Cli.Commands
                     Directory.CreateDirectory(outputDir);
                     return await SplitSingleAsync(
                         singlePath!, outputDir, protocolIndex, formatIndex, customPattern,
-                        overwrite, verbose, json, afterMoveDir, afterRecycle, keyTimestampUs, ct);
+                        overwrite, verbose, json, afterMoveDir, afterRecycle, keyTimestampUs, ct, companionPath);
                 }
                 else
                 {
@@ -595,34 +617,6 @@ namespace LivePhotoBox.Cli.Commands
             return cleaned.Trim('_', '-', ' ', '+');
         }
 
-        // 单文件模式按扩展名推断容器类型（扩展名已在入参处校验为 .jpg/.jpeg/.heic/.heif）。
-        private static LivePhotoType GetSingleFileType(string path)
-        {
-            string ext = Path.GetExtension(path);
-            return ext.Equals(".heic", StringComparison.OrdinalIgnoreCase)
-                || ext.Equals(".heif", StringComparison.OrdinalIgnoreCase)
-                ? LivePhotoType.SingleFileHeic
-                : LivePhotoType.SingleFileJpeg;
-        }
-
-        // 配对协议过滤：target 为 null（--pairing all）不过滤；否则用 Core 的协议检测比对。
-        // 等价 GUI SplitViewModel.PassesProtocolFilter。
-        private static bool PassesPairingFilter(string filePath, LivePhotoType type, LivePhotoProtocolType? target)
-        {
-            if (target == null) return true;
-            if (type == LivePhotoType.None || type == LivePhotoType.DualFile) return false;
-            try
-            {
-                var facts = new SourceInspector().InspectAsync(filePath).GetAwaiter().GetResult();
-                return MapNativeProtocol(facts.Protocol) == target.Value;
-            }
-            catch (SourceInspectionException)
-            {
-                throw;
-            }
-            catch { return false; }
-        }
-
         private static LivePhotoProtocolType MapNativeProtocol(SourceProtocol protocol) => protocol switch
         {
             SourceProtocol.AppleLivePhoto => LivePhotoProtocolType.Apple,
@@ -638,7 +632,7 @@ namespace LivePhotoBox.Cli.Commands
         private static async Task<int> SplitSingleAsync(
             string sourcePath, string outputDir, int protocolIndex, int formatIndex,
             string? customPattern, bool overwrite, bool verbose, bool json,
-            string? afterMoveDir, bool afterRecycle, long? keyTimestampUs, CancellationToken ct)
+            string? afterMoveDir, bool afterRecycle, long? keyTimestampUs, CancellationToken ct, string? companionPath)
         {
             string baseName = Path.GetFileNameWithoutExtension(sourcePath);
             try
@@ -651,7 +645,7 @@ namespace LivePhotoBox.Cli.Commands
                 if (!json) Console.WriteLine($"Preparation capability: {capability.Diagnostic}");
                 var outcome = await LivePhotoSplitService.SplitWithOutcomeAsync(
                     sourcePath, outputDir, ProductSelectionAdapter.Split(protocolIndex, formatIndex), ct,
-                    inputDirectory: null, outputBaseName: outputBaseName, overwriteExisting: overwrite);
+                    inputDirectory: null, outputBaseName: outputBaseName, overwriteExisting: overwrite, secondaryPath: companionPath);
                 if (json) PrintJson(ProjectSingleOutcome(sourcePath, outcome, capability));
                 else
                 {
@@ -659,7 +653,9 @@ namespace LivePhotoBox.Cli.Commands
                     else CliConsole.WriteErrorLine($"{OutcomeStatus(outcome)}: {outcome.Details}");
                     PrintOutcome(outcome);
                 }
-                if (outcome.IsSuccess) ApplyAfterAction(sourcePath, afterMoveDir, afterRecycle, json);
+                if (outcome.IsSuccess)
+                    foreach (var path in new[] { sourcePath, companionPath }.Where(p => p != null).Distinct(StringComparer.OrdinalIgnoreCase))
+                        ApplyAfterAction(path!, afterMoveDir, afterRecycle, json);
                 return outcome.ExitCode;
             }
             catch (OperationCanceledException)
@@ -687,7 +683,7 @@ namespace LivePhotoBox.Cli.Commands
         // ══════════════════════════════════════════════════════════════
 
         private static async Task<int> RunSplitAllVariantsAsync(
-            string sourcePath, string outputDir, int parallel, bool dryRun, bool verbose, bool json, bool rebuiltOnly, CancellationToken ct)
+            string sourcePath, string outputDir, int parallel, bool dryRun, bool verbose, bool json, bool rebuiltOnly, CancellationToken ct, string? companionPath)
         {
             string originalBaseName = Path.GetFileNameWithoutExtension(sourcePath);
             string variantsDir = Path.Combine(outputDir, $"split_{originalBaseName}_All_Variants");
@@ -699,7 +695,7 @@ namespace LivePhotoBox.Cli.Commands
                 (0, 2, "none_heic+mov", "No protocol (HEIC+MOV)"),
                 (0, 3, "none_jpg+mp4", "No protocol (JPG+MP4)"),
             };
-            var entries = variants.Select(v => new SplitJsonFileEntry { Path = sourcePath, Name = v.BaseName,
+            var entries = variants.Select(v => new SplitJsonFileEntry { Path = sourcePath, CompanionPath = companionPath, Name = v.BaseName,
                 Status = dryRun ? "would-split" : "unprocessed" }).ToArray();
             if (dryRun)
             {
@@ -718,7 +714,7 @@ namespace LivePhotoBox.Cli.Commands
                     if (!json) Console.WriteLine($"Preparation capability: {entries[index].Capability!.Diagnostic}");
                     var outcome = await LivePhotoSplitService.SplitWithOutcomeAsync(
                         sourcePath, variantsDir, ProductSelectionAdapter.Split(v.Proto, v.Fmt), ct,
-                        inputDirectory: null, outputBaseName: v.BaseName, overwriteExisting: true);
+                        inputDirectory: null, outputBaseName: v.BaseName, overwriteExisting: true, secondaryPath: companionPath);
                     var entry = entries[index];
                     entry.Outcome = outcome; entry.Status = OutcomeStatus(outcome);
                     entry.ImageOutput = CommittedPath(outcome, "PrimaryImage"); entry.VideoOutput = CommittedPath(outcome, "MotionVideo");
@@ -770,13 +766,12 @@ namespace LivePhotoBox.Cli.Commands
             var discovery = await LivePhotoDiscoveryService.ScanAsync(inputDir, DiscoveryScanMode.SplitOnly, ct);
             var scanDiagnostics = discovery.Diagnostics.ToList();
             var liveItems = discovery.Items
-                .Where(i => i.LivePhotoType == LivePhotoType.SingleFileJpeg
-                         || i.LivePhotoType == LivePhotoType.SingleFileHeic)
+                .Where(i => i.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic || i.LivePhotoType == LivePhotoType.DualFile && i.IsImage)
                 .Where(i => pairingProtocol == null || MapNativeProtocol(i.Protocol) == pairingProtocol.Value)
                 .ToList();
 
             foreach (var item in discovery.Items.Where(i =>
-                i.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic &&
+                (i.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic || i.LivePhotoType == LivePhotoType.DualFile && i.IsImage) &&
                 pairingProtocol != null && MapNativeProtocol(i.Protocol) != pairingProtocol.Value))
                 scanDiagnostics.Add(LivePhotoScanSupport.Info(item.FilePath, "ProtocolFiltered", "This source protocol is not selected."));
 
@@ -801,7 +796,7 @@ namespace LivePhotoBox.Cli.Commands
             {
                 Console.WriteLine();
                 CliConsole.Write(liveItems.Count.ToString(), CliConsole.Highlight);
-                Console.Write(" single-file live photos found, ");
+                Console.Write(" live photo sources found, ");
                 CliConsole.Write(scanDiagnostics.Count.ToString(), CliConsole.Highlight);
                 Console.WriteLine(" diagnostics");
 
@@ -858,14 +853,14 @@ namespace LivePhotoBox.Cli.Commands
                 var task = new SplitTaskInfo
                 {
                     Index = i + 1,
-                    SourcePath = item.FilePath,
+                    SourcePath = item.FilePath, SecondaryPath = item.PairedVideoPath,
                     BaseName = Path.GetFileNameWithoutExtension(item.FilePath),
                 };
                 if (json)
                 {
                     task.Json = new SplitJsonFileEntry
                     {
-                        Path = item.FilePath,
+                        Path = item.FilePath, CompanionPath = item.PairedVideoPath,
                         Name = Path.GetFileNameWithoutExtension(item.FilePath),
                         Status = dryRun ? "would-split" : "pending",
                     };
@@ -957,6 +952,7 @@ namespace LivePhotoBox.Cli.Commands
             var capability = ProductCapabilityQuery.Query(ProductSelectionAdapter.Split(protocolIndex, formatIndex));
             if (!json) Console.WriteLine($"Preparation capability: {capability.Diagnostic}");
             foreach (var entry in jsonFiles) entry.Capability = capability;
+            using var originals = new SourceInputProtection(tasks.SelectMany(t => new[] { t.SourcePath, t.SecondaryPath }));
             using var semaphore = new SemaphoreSlim(Math.Max(1, parallel));
             var running = tasks.Select(async task =>
             {
@@ -976,7 +972,7 @@ namespace LivePhotoBox.Cli.Commands
                             task.SourcePath, outputDir, ProductSelectionAdapter.Split(protocolIndex, formatIndex), ct,
                             inputDirectory: preserveSubdirs ? inputDir : null,
                             outputBaseName: outputBaseName,
-                            overwriteExisting: overwrite);
+                            overwriteExisting: overwrite, secondaryPath: task.SecondaryPath);
 
                         if (task.Json != null) { task.Json.Outcome = outcome; task.Json.Status = OutcomeStatus(outcome);
                             task.Json.ImageOutput = CommittedPath(outcome, "PrimaryImage"); task.Json.VideoOutput = CommittedPath(outcome, "MotionVideo");
@@ -1059,6 +1055,8 @@ namespace LivePhotoBox.Cli.Commands
                 return 130;
             }
 
+            originals.Dispose();
+
             // 6. After-completion actions (only on successful tasks)
             if (!string.IsNullOrEmpty(afterMoveDir))
             {
@@ -1078,19 +1076,19 @@ namespace LivePhotoBox.Cli.Commands
                 }
                 Directory.CreateDirectory(afterMoveDir);
                 int moved = 0;
-                foreach (var task in tasks.Where(t => t.Status == ProcessStatus.Success))
+                foreach (var path in tasks.Where(t => t.Status == ProcessStatus.Success).SelectMany(t => new[] { t.SourcePath, t.SecondaryPath }).Where(p => p != null).Distinct(StringComparer.OrdinalIgnoreCase))
                 {
                     try
                     {
-                        if (File.Exists(task.SourcePath))
+                        if (File.Exists(path!))
                         {
-                            File.Move(task.SourcePath, Path.Combine(afterMoveDir, Path.GetFileName(task.SourcePath)));
+                            File.Move(path!, Path.Combine(afterMoveDir, Path.GetFileName(path!)));
                             moved++;
                         }
                     }
                     catch (Exception ex)
                     {
-                        if (!json) CliConsole.WriteErrorLine($"WARN: Failed to move '{Path.GetFileName(task.SourcePath)}': {ex.Message}");
+                        if (!json) CliConsole.WriteErrorLine($"WARN: Failed to move '{Path.GetFileName(path!)}': {ex.Message}");
                     }
                 }
                 if (!json)
@@ -1104,19 +1102,19 @@ namespace LivePhotoBox.Cli.Commands
             {
                 if (!json) Console.WriteLine("\nMoving source files to recycle bin...");
                 int recycled = 0;
-                foreach (var task in tasks.Where(t => t.Status == ProcessStatus.Success))
+                foreach (var path in tasks.Where(t => t.Status == ProcessStatus.Success).SelectMany(t => new[] { t.SourcePath, t.SecondaryPath }).Where(p => p != null).Distinct(StringComparer.OrdinalIgnoreCase))
                 {
                     try
                     {
-                        if (File.Exists(task.SourcePath))
+                        if (File.Exists(path!))
                         {
-                            MoveToRecycleBin(task.SourcePath);
+                            MoveToRecycleBin(path!);
                             recycled++;
                         }
                     }
                     catch (Exception ex)
                     {
-                        if (!json) CliConsole.WriteErrorLine($"WARN: Failed to recycle '{Path.GetFileName(task.SourcePath)}': {ex.Message}");
+                        if (!json) CliConsole.WriteErrorLine($"WARN: Failed to recycle '{Path.GetFileName(path!)}': {ex.Message}");
                     }
                 }
                 if (!json)
@@ -1225,6 +1223,7 @@ namespace LivePhotoBox.Cli.Commands
         {
             public int Index;
             public string SourcePath = "";
+            public string? SecondaryPath;
             public string BaseName = "";
             public ProcessStatus Status = ProcessStatus.Pending;
             public string Details = "";
@@ -1235,6 +1234,7 @@ namespace LivePhotoBox.Cli.Commands
         private sealed class SplitJsonFileEntry
         {
             public string Path { get; set; } = "";
+            public string? CompanionPath { get; set; }
             public string Name { get; set; } = "";
             public string Status { get; set; } = "";  // split / would-split / failed / skipped
             public string Reason { get; set; } = "";  // 跳过/失败原因

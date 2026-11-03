@@ -2743,6 +2743,18 @@ lpb_result transcode_video_file(
     else if (target_codec == LPB_VIDEO_CODEC_HEVC) requested = requested_video_codec::hevc;
     const video_conversion_owner original_owner = select_video_conversion_owner(semantic_profile, requested);
     video_conversion_owner owner = original_owner;
+    // MP4 compatible export normalizes actual non-AAC audio through the
+    // existing per-track AAC route while stream-copying the video. Strict
+    // retains its exact-copy contract; AAC inputs still use project remux.
+    if(compatible_profile&&target_container==LPB_VIDEO_CONTAINER_MP4&&owner==video_conversion_owner::project_remux) {
+        isobmff_reader_observation audio_inventory;
+        isobmff_reader_diagnostic audio_diagnostic;
+        if(!inspect_isobmff_reader(semantic_reader,true,audio_inventory,audio_diagnostic)) {
+            const std::string message=std::string("Cannot inventory MP4 audio preparation requirements: ")+audio_diagnostic.detail;
+            set_error(context,message.c_str());return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if(audio_inventory.other_audio_tracks)owner=video_conversion_owner::minimal_libav_sidecar;
+    }
     bool mf_fallback = false;
     mf_deployment_probe deployment{};
     isobmff_video_presentation_timeline fallback_source_timeline{};
@@ -3175,6 +3187,11 @@ lpb_result transcode_video_file(
             }
             with_geometry.swap(timed);geometry_changed=geometry_changed||timing_changed;
             if (geometry_changed) {
+                // Geometry/timing bytes have been fully read above. Stage C
+                // may already own the retained metadata candidate; retire that
+                // exact object before reusing its slot, never its pathname.
+                if(!stage_c.path().empty()&&!stage_c.abort_and_confirm())
+                    return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot retire prior copied-video display staging.");
                 if (!stage_c.create(p_out, L"lpb-video-display-stage", L".tmp", true) ||
                     !stage_c.write_all(with_geometry) || !stage_c.ready_to_consume())
                     return fail_sidecar(LPB_RESULT_INTERNAL_ERROR, "Cannot stage the copied video display geometry.");

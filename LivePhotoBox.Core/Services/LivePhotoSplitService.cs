@@ -21,19 +21,20 @@ namespace LivePhotoBox.Services
 
         private static readonly AsyncLocal<SplitPublicationTestHook?> s_splitPublicationTestHook = new();
 
-        public static Task<LivePhotoSplitResult> SplitAsync(string sourcePath, string outputDirectory, int protocolIndex, int outputFormatIndex, CancellationToken token, string? inputDirectory = null, string? outputBaseName = null, bool overwriteExisting = false, long? keyTimestampUs = null)
+        public static Task<LivePhotoSplitResult> SplitAsync(string sourcePath, string outputDirectory, int protocolIndex, int outputFormatIndex, CancellationToken token, string? inputDirectory = null, string? outputBaseName = null, bool overwriteExisting = false, long? keyTimestampUs = null, string? secondaryPath = null)
         {
+            if (keyTimestampUs.HasValue) throw new NotSupportedException("Protocol-free media has no live cover binding to override.");
             return SplitAsync(sourcePath, outputDirectory,
                 ProductSelectionAdapter.Split(protocolIndex, outputFormatIndex), token,
-                inputDirectory, outputBaseName, overwriteExisting);
+                inputDirectory, outputBaseName, overwriteExisting, secondaryPath);
         }
 
         public static async Task<LivePhotoSplitResult> SplitAsync(string sourcePath, string outputDirectory,
             SplitMediaFormat format, CancellationToken token, string? inputDirectory = null,
-            string? outputBaseName = null, bool overwriteExisting = false)
+            string? outputBaseName = null, bool overwriteExisting = false, string? secondaryPath = null)
         {
             SplitAttempt attempt = await ExecuteSplitWithOutcomeAsync(sourcePath, outputDirectory, format, token,
-                inputDirectory, outputBaseName, overwriteExisting).ConfigureAwait(false);
+                inputDirectory, outputBaseName, overwriteExisting, secondaryPath).ConfigureAwait(false);
             if (attempt.Error is not null) ExceptionDispatchInfo.Capture(attempt.Error).Throw();
             return new LivePhotoSplitResult
             {
@@ -45,22 +46,22 @@ namespace LivePhotoBox.Services
 
         internal static async Task<ProductOperationOutcome> SplitWithOutcomeAsync(
             string sourcePath, string outputDirectory, SplitMediaFormat format, CancellationToken token,
-            string? inputDirectory = null, string? outputBaseName = null, bool overwriteExisting = false)
+            string? inputDirectory = null, string? outputBaseName = null, bool overwriteExisting = false, string? secondaryPath = null)
             => (await ExecuteSplitWithOutcomeAsync(sourcePath, outputDirectory, format, token,
-                inputDirectory, outputBaseName, overwriteExisting).ConfigureAwait(false)).Outcome;
+                inputDirectory, outputBaseName, overwriteExisting, secondaryPath).ConfigureAwait(false)).Outcome;
 
         private sealed record SplitAttempt(ProductOperationOutcome Outcome, LivePhotoSplitResult? Result, Exception? Error);
 
         private static async Task<SplitAttempt> ExecuteSplitWithOutcomeAsync(
             string sourcePath, string outputDirectory, SplitMediaFormat format, CancellationToken token,
-            string? inputDirectory, string? outputBaseName, bool overwriteExisting)
+            string? inputDirectory, string? outputBaseName, bool overwriteExisting, string? secondaryPath)
         {
             var baseline = new ProductOperationOutcome
             {
                 OperationId = Guid.NewGuid(), StartedUtc = DateTimeOffset.UtcNow,
                 Operation = ProductOperationKind.Split,
                 RequestedSelection = new() { SplitFormat = Enum.IsDefined(format) ? format : null },
-                Inputs = new[] { sourcePath }, RequestedDestination = outputDirectory
+                Inputs = secondaryPath is null ? new[] { sourcePath } : new[] { sourcePath, secondaryPath }, RequestedDestination = outputDirectory
             };
             ProductOperationStage stage = ProductOperationStage.Selection;
             NeutralMediaBundle? prepared = null;
@@ -69,16 +70,22 @@ namespace LivePhotoBox.Services
             ProductOperationOutcome terminal;
             try
             {
+                token.ThrowIfCancellationRequested();
+                using var sourceProtection = new SourceInputProtection(new[] { sourcePath, secondaryPath });
                 MediaFormatRequirement requirement = SplitMediaRequirements.Get(format);
                 stage = ProductOperationStage.Inspection;
                 result = await ProcessingPipelineRouter.RunRebuiltAsync("split", () => SplitRebuiltAsync(
                     sourcePath, outputDirectory, requirement, token,
                     inputDirectory, outputBaseName, overwriteExisting,
-                    bundle => prepared = bundle, boundary => stage = boundary)).ConfigureAwait(false);
+                    secondaryPath, bundle => prepared = bundle, boundary => stage = boundary)).ConfigureAwait(false);
                 terminal = baseline with
                 {
                     Status = ProductOperationStatus.Success,
                     PreparationSemantics = prepared?.Semantics,
+                    PreparationManifest = prepared?.Manifest ?? [],
+                    NotCarried = new[] { new NotCarriedItem { Item = "LiveCoverBinding",
+                        Reason = "Protocol-free export keeps the still image and video timeline; source live cover timing is recorded in PreparationSemantics, not written as a live binding.",
+                        Outcome = PreservationOutcome.DiscardedNotApplicable } },
                     PreparationExecution = prepared?.PreparationExecution,
                     CommittedOutputs = new[]
                     {
@@ -104,7 +111,7 @@ namespace LivePhotoBox.Services
             return new SplitAttempt(terminal, result, failure);
         }
 
-        // Rebuilt split: materialize a source single-file live photo into two
+        // Rebuilt split: materialize an inspected single/dual-file source into two
         // independently usable, protocol-free media files. Target protocol
         // writers intentionally do not participate in this pipeline stage.
         private static async Task<LivePhotoSplitResult> SplitRebuiltAsync(
@@ -115,6 +122,7 @@ namespace LivePhotoBox.Services
             string? inputDirectory,
             string? outputBaseName,
             bool overwriteExisting,
+            string? secondaryPath,
             Action<NeutralMediaBundle>? onPrepared = null,
             Action<ProductOperationStage>? onStage = null)
         {
@@ -128,7 +136,7 @@ namespace LivePhotoBox.Services
             using var workspace = new MediaWorkspace();
             NeutralMediaBundle bundle = await new NeutralMediaService().CreateNeutralBundleAsync(
                 sourcePath,
-                secondaryPath: null,
+                secondaryPath,
                 workspace,
                 requirement,
                 PreservationPolicy.BestEffort,
@@ -166,7 +174,7 @@ namespace LivePhotoBox.Services
                         {
                             int toRead = (int)Math.Min(remaining, buf.Length);
                             int r = src.Read(buf, 0, toRead);
-                            if (r <= 0) break;
+                            if (r <= 0) throw new EndOfStreamException("Known primary ended before its inspected extent.");
                             dst.Write(buf, 0, r);
                             remaining -= r;
                         }
@@ -177,6 +185,11 @@ namespace LivePhotoBox.Services
                     sourceImagePath = cleanPrimaryPath;
                 }
             }
+
+            if (secondaryPath is not null &&
+                (string.Equals(Path.GetFullPath(imageOutputPath), Path.GetFullPath(secondaryPath), StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(Path.GetFullPath(videoOutputPath), Path.GetFullPath(secondaryPath), StringComparison.OrdinalIgnoreCase)))
+                throw new IOException("Target publication cannot overwrite an original companion.");
 
             await PublishSplitOutputsAsync(
                 sourceImagePath,

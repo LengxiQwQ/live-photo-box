@@ -3607,6 +3607,14 @@ lpb_result inspect_source(
     bool is_honor = false;
     uint64_t huawei_vid_off = 0, huawei_vid_len = 0;
     if (check_huawei_moving_photo(primary_data, primary_size, huawei_vid_off, huawei_vid_len, huawei_cover_time_us, is_honor)) {
+        uint64_t huawei_primary_length = huawei_vid_off;
+        if (img_cont == LPB_IMAGE_CONTAINER_HEIC) {
+            lpb::memory_random_access input{primary_data};
+            uint64_t wrapped_primary_length = 0;
+            if (lpb::media::observe_huawei_heif_motion_envelope(input.view(), huawei_vid_off,
+                    huawei_vid_len, wrapped_primary_length))
+                huawei_primary_length = wrapped_primary_length;
+        }
         const bool primary_valid = img_cont == LPB_IMAGE_CONTAINER_JPEG
             // The protocol report defines the embedded MP4 as an ftyp box
             // located after JPEG EOI; real Huawei/Honor files may keep
@@ -3616,7 +3624,7 @@ lpb_result inspect_source(
             ? (has_jpeg_end && jpeg_end <= huawei_vid_off &&
                is_valid_jpeg_media_range(primary_data.data(), primary_data.size(), 0, jpeg_end))
             : img_cont == LPB_IMAGE_CONTAINER_HEIC
-                ? is_valid_heic_container(context, primary_data.data(), static_cast<size_t>(huawei_vid_off))
+                ? is_valid_heic_container(context, primary_data.data(), static_cast<size_t>(huawei_primary_length))
                 : false;
         if (!primary_valid) {
             set_error(context, "Huawei/Honor primary image range is malformed.");
@@ -3629,7 +3637,7 @@ lpb_result inspect_source(
             std::vector<lpb_auxiliary_item_facts> auxiliary_items;
             lpb::containers::heif_graph_diagnostic diagnostic;
             if (!lpb::containers::enumerate_auxiliary_items(
-                    {primary_data.data(), static_cast<size_t>(huawei_vid_off)}, auxiliary_items, diagnostic)) {
+                    {primary_data.data(), static_cast<size_t>(huawei_primary_length)}, auxiliary_items, diagnostic)) {
                 set_error(context, diagnostic.message.c_str());
                 set_inspection_status(context, lpb::containers::inspection_category(diagnostic.code),
                     LPB_INSPECTION_STAGE_CONTAINER, LPB_CAPABILITY_HUAWEI_HONOR);
@@ -3740,7 +3748,7 @@ lpb_result inspect_source(
         // wrapper, not part of the neutral primary JPEG artifact.
         out_facts->primary_image.file_range.length = img_cont == LPB_IMAGE_CONTAINER_JPEG&&!retained_mpf_vendor
             ? jpeg_end
-            : huawei_vid_off;
+            : huawei_primary_length;
         out_facts->motion_video.is_present = 1;
         out_facts->motion_video.container = LPB_VIDEO_CONTAINER_MP4;
         out_facts->motion_video.file_range.offset = huawei_vid_off;
@@ -5697,6 +5705,29 @@ int observe_micamera_assets(const std::vector<uint8_t>& prefix, std::string_view
         if(result==1){subimage={pair.subimage.offset,pair.subimage.length};watermark={pair.lenswatermark.offset,pair.lenswatermark.length};}
         return result;
     }catch(...){return -1;}
+}
+bool remove_micamera_asset_description(std::string_view packet,std::string& output) noexcept {
+    output.clear();
+    try {
+        std::vector<xmp_node> nodes;
+        if(!scan_xmp_tree(packet,nodes))return false;
+        const xmp_attribute* selected=nullptr;
+        for(const auto& node:nodes) {
+            if(local_name(node.tag_name)=="XMPMeta")return false;
+            for(const auto& attr:node.attributes)if(local_name(attr.name)=="XMPMeta") {
+                if(selected||attr.resolved_uri!=micamera_namespace||!node_is(node,rdf_namespace,"Description"))return false;
+                selected=&attr;
+            }
+        }
+        if(!selected)return false;
+        std::string decoded;micamera_embedded_pair pair;
+        if(!decode_micamera_xml_attribute(selected->value,decoded)||!parse_micamera_xmpmeta_fragment(decoded,pair))return false;
+        const size_t first=static_cast<size_t>(selected->name.data()-packet.data());
+        const size_t end=static_cast<size_t>(selected->value.data()-packet.data())+selected->value.size();
+        if(first>=end||end>=packet.size()||(packet[end]!='"'&&packet[end]!='\''))return false;
+        output=packet;output.erase(first,end+1-first);
+        std::vector<xmp_node> observed;return scan_xmp_tree(output,observed);
+    }catch(...){output.clear();return false;}
 }
 bool rebase_micamera_offsets(std::string_view packet,uint64_t appended_length,std::string& output) noexcept {
     output.clear();

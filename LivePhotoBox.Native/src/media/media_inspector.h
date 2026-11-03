@@ -51,6 +51,8 @@ lpb_video_container detect_video_container(std::span<const uint8_t> header) noex
 int observe_micamera_assets(const std::vector<uint8_t>& prefix,
     std::string_view packet, uint64_t full_length,
     lpb_media_range& subimage, lpb_media_range& watermark) noexcept;
+// Target-only omission of an already bound optional MiCamera asset description.
+bool remove_micamera_asset_description(std::string_view packet,std::string& output) noexcept;
 bool rebase_micamera_offsets(std::string_view packet, uint64_t appended_length,
     std::string& output) noexcept;
 

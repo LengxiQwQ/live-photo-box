@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Diagnostics;
 using System.Linq;
@@ -15,6 +15,75 @@ namespace LivePhotoBox.Core.Tests.Media;
 
 public sealed class ScanPairingIsolationTests
 {
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task MixedCameraDirectory_ExpectedRefusalsNeverRaiseInspectionExceptions()
+    {
+        string root = Environment.GetEnvironmentVariable("LPB_SCAN_REFUSAL_INPUT_ROOT")
+            ?? throw new InvalidOperationException("Set LPB_SCAN_REFUSAL_INPUT_ROOT to the cached camera directory.");
+        Assert.True(Directory.Exists(root));
+        Assert.True(File.Exists(Path.Combine(root, "三星.heic")));
+        Assert.True(File.Exists(Path.Combine(root, "vivo双文件.jpg")));
+        var raised = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> observe = (_, args) =>
+        {
+            if (args.Exception is SourceInspectionException) raised.Enqueue(args.Exception.Message);
+        };
+        AppDomain.CurrentDomain.FirstChanceException += observe;
+        try
+        {
+            var name = await LivePhotoMergeScanService.ScanAsync(new MergeScanOptions { InputDirectory = root });
+            Assert.Equal(ScanOperationStatus.Completed, name.Status);
+            Assert.Contains(name.Diagnostics, d => d.DiagnosticCode == "ConflictMultipleMedia" && d.RelatedPaths.Any(p => p.EndsWith("三星.heic")));
+            Assert.Contains(name.Pairs, p => p.Protocol == LivePhotoProtocolType.Vivo);
+            foreach (var mode in new[] { PairingMode.Cid, PairingMode.Vivo })
+            {
+                var result = await LivePhotoMergeScanService.ScanAsync(new MergeScanOptions { InputDirectory = root, Mode = mode });
+                Assert.Equal(ScanOperationStatus.Completed, result.Status);
+                Assert.NotEmpty(result.Pairs);
+            }
+            var split = await LivePhotoDiscoveryService.ScanAsync(root, DiscoveryScanMode.SplitOnly);
+            Assert.Equal(ScanOperationStatus.Completed, split.Status);
+            Assert.Contains(split.Items, i => i.FilePath.EndsWith("oppo.jpg") && i.IsLivePhoto);
+            Assert.Contains(split.DualFilePairs, p => p.Image.FilePath.EndsWith("vivo双文件.jpg"));
+            Assert.DoesNotContain(split.Diagnostics, d => d.PrimaryPath.EndsWith("vivo双文件.jpg"));
+            var single = await LivePhotoDiscoveryService.DetectSingleFileWithDiagnosticAsync(Path.Combine(root, "vivo双文件.jpg"));
+            Assert.NotNull(single.Diagnostic);
+            using var ws = new TestFixtureWorkspace();
+            PlainPair(ws, "good");
+            File.WriteAllText(Path.Combine(ws.RootDirectory, "broken.jpg"), "truncated JPEG");
+            File.WriteAllText(Path.Combine(ws.RootDirectory, "broken.mp4"), "truncated MP4");
+            string locked = Path.Combine(ws.RootDirectory, "locked.jpg");
+            File.Copy(Path.Combine(ws.RootDirectory, "good.jpg"), locked);
+            using var lease = new FileStream(locked, FileMode.Open, FileAccess.Read, FileShare.None);
+            var mixedFailure = await LivePhotoMergeScanService.ScanAsync(new MergeScanOptions { InputDirectory = ws.RootDirectory });
+            Assert.Single(mixedFailure.Pairs);
+            Assert.Contains(mixedFailure.Diagnostics, d => d.PrimaryPath == locked && d.Severity == ScanDiagnosticSeverity.Error);
+            Assert.Contains(mixedFailure.Diagnostics, d => d.PrimaryPath.EndsWith("broken.jpg") && d.Severity == ScanDiagnosticSeverity.Error);
+        }
+        finally { AppDomain.CurrentDomain.FirstChanceException -= observe; }
+        Assert.Empty(raised);
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task DiscoveryRefusalHasNoFactsAndStrictInspectorStillRejects()
+    {
+        using var ws = new TestFixtureWorkspace();
+        string path = Copy(ws, "vivo双文件.jpg", "orphan.jpg");
+        var inspector = new SourceInspector();
+        var result = await inspector.InspectForDiscoveryAsync(path);
+        Assert.Null(result.Facts);
+        Assert.NotNull(result.Failure);
+        Assert.Equal(SourceInspectionFailureCategory.Ambiguous, result.Failure.Category);
+        Assert.Equal(SourceInspectionStage.Pairing, result.Failure.Stage);
+        var strict = await Assert.ThrowsAsync<SourceInspectionException>(() => inspector.InspectAsync(path));
+        Assert.Equal(strict.Category, result.Failure.Category);
+        Assert.Equal(strict.Stage, result.Failure.Stage);
+        Assert.Equal(strict.Capability, result.Failure.Capability);
+        Assert.Equal(strict.Reason, result.Failure.Reason);
+    }
+
     [Fact]
     [Trait("Category", "RealSamples")]
     public async Task Name_ConfirmsLegacyVivoWithoutRelaxingSoloRefusal()

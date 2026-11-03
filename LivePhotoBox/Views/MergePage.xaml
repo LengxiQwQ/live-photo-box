@@ -1430,15 +1430,15 @@
         </Border>
 
         <!-- TeachingTip（必须在 Grid 内部） -->
-        <TeachingTip x:Name="ErrorDetailTip" IsLightDismissEnabled="False" PreferredPlacement="Left"
+        <controls:ErrorDetailTeachingTip x:Name="ErrorDetailTip" IsLightDismissEnabled="False" PreferredPlacement="Left"
                      Closed="ErrorDetailTip_Closed">
-            <TeachingTip.Content>
+            <controls:ErrorDetailTeachingTip.Content>
                 <ScrollViewer MaxHeight="360" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Auto">
                     <TextBlock x:Name="ErrorDetailText" MaxWidth="520" TextWrapping="Wrap"
                                IsTextSelectionEnabled="True" Margin="0,0,36,0"/>
                 </ScrollViewer>
-            </TeachingTip.Content>
-        </TeachingTip>
+            </controls:ErrorDetailTeachingTip.Content>
+        </controls:ErrorDetailTeachingTip>
 
         <!-- 合成引导教程：按步骤指向左侧设置面板的各个配置项 -->
         <TeachingTip x:Name="TutorialTip" IsLightDismissEnabled="False"

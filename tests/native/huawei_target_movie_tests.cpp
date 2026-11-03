@@ -14,6 +14,32 @@ struct planned {
  static bool read(void* p,uint64_t at,std::span<uint8_t> bytes) noexcept {const auto& s=*static_cast<planned*>(p);return s.plan.read(s.source,at,bytes);}
  lpb::random_access_reader view(){return {plan.output_length,this,read};}
 };
+void envelope_cases() {
+ const std::vector<uint8_t> prefix{0,0,0,20,'f','t','y','p','h','e','i','c',0,0,0,0,'m','i','f','1',
+     0,0,0,12,'m','d','a','t',1,2,3,4};
+ const std::vector<uint8_t> movie{0,0,0,16,'f','t','y','p','m','p','4','2',0,0,0,0};
+ auto valid=prefix;const uint32_t size=static_cast<uint32_t>(movie.size()+68);
+ valid.insert(valid.end(),{static_cast<uint8_t>(size>>24),static_cast<uint8_t>(size>>16),static_cast<uint8_t>(size>>8),static_cast<uint8_t>(size),'f','r','e','e'});
+ valid.insert(valid.end(),movie.begin(),movie.end());valid.insert(valid.end(),60,' ');
+ const auto observe=[&](const std::vector<uint8_t>& input,uint64_t offset,uint64_t length,uint64_t& primary) {
+  lpb::memory_random_access memory{input};return lpb::media::observe_huawei_heif_motion_envelope(memory.view(),offset,length,primary);
+ };
+ uint64_t primary=999;const uint64_t offset=prefix.size()+8;
+ require(observe(valid,offset,movie.size(),primary)&&primary==prefix.size(),"explicit HEIF wrapper independently bounds static prefix and movie+footer");
+ for(unsigned i=0;i<7;++i) {
+  auto broken=valid;auto at=offset;auto length=static_cast<uint64_t>(movie.size());
+  if(i==0)std::fill_n(broken.begin()+static_cast<ptrdiff_t>(prefix.size()),4,uint8_t{0});
+  if(i==1)--broken[prefix.size()+3];
+  if(i==2)broken[prefix.size()+4]='m';
+  if(i==3)++at;
+  if(i==4)++length;
+  if(i==5)broken.push_back(0);
+  if(i==6){std::fill_n(broken.begin()+static_cast<ptrdiff_t>(prefix.size()),4,uint8_t{0});broken[prefix.size()+3]=1;}
+  primary=999;require(!observe(broken,at,length,primary)&&primary==0,"bad/implicit/nonfree wrapper cannot authorize an image boundary");
+ }
+ auto legacy=prefix;legacy.insert(legacy.end(),movie.begin(),movie.end());legacy.insert(legacy.end(),60,' ');
+ require(!observe(legacy,prefix.size(),movie.size(),primary),"legacy raw append supplies no new wrapper authority");
+}
 // Independently rearrange the fixture and patch its original table entries.
 // No Writer output or relocation helper constructs these input layouts.
 std::vector<uint8_t> layout(const std::vector<uint8_t>& input,bool front,bool split) {
@@ -62,6 +88,7 @@ std::vector<uint8_t> layout(const std::vector<uint8_t>& input,bool front,bool sp
 }
 int main(int argc,char** argv) {
  try {
+  envelope_cases();
   require(argc==2,"qualified input directory required");
   auto original=load(std::filesystem::path(argv[1])/"neutral-audio.mp4");
   for(const auto& input:{original,layout(original,true,false),layout(original,false,false),layout(original,true,true),layout(original,false,true)}) {

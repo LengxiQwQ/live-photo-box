@@ -307,7 +307,8 @@ int main() {
         auto h=heif(); success(h,facts); REQUIRE(facts.width==7 && facts.height==5 && facts.orientation==1 && facts.primary_item_id==1);
         auto wrong_brand=h; std::copy_n("avif",4,wrong_brand.begin()+8); rejection(wrong_brand,"file type brand");
         auto wrong_codec=h;
-        const auto codec=std::search(wrong_codec.begin(),wrong_codec.end(),"hvc1","hvc1"+4);
+        constexpr char hevc_entry[]="hvc1";
+        const auto codec=std::search(wrong_codec.begin(),wrong_codec.end(),hevc_entry,hevc_entry+4);
         REQUIRE(codec!=wrong_codec.end()); std::copy_n("av01",4,codec); rejection(wrong_codec,"must be HEVC");
         std::copy_n("grid",4,codec); rejection(wrong_codec,"HEVC-backed grid");
         REQUIRE(facts.primary_extents.size()==1 && facts.primary_extents[0].length==4);

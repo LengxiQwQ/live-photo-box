@@ -1957,7 +1957,7 @@ The resulting single-file format can be viewed and played directly on both Windo
 
 💡 For supported devices, see the hint in the "Match" dropdown
 
-Pick the matching protocol type or "All single-file Live Photo" and place the files in one folder.</value>
+Pick the matching protocol type or "All Live Photo" and place the files in one folder.</value>
   </data>
   <data name="HomePage_SplitTutorial_Step2_Desc.Text" xml:space="preserve">
     <value>Click "Browse" to choose a folder; the app scans and recognizes Live Photos automatically. After verifying the stats, pick the output protocol &amp; format:
@@ -3973,7 +3973,7 @@ Then click "Start Split".</value>
     <value>Protocol version:</value>
   </data>
   <data name="SplitPage_Protocol_None.Content" xml:space="preserve">
-    <value>None (Original Format)</value>
+    <value>None (protocol-free)</value>
   </data>
   <data name="SplitPage_Protocol_None_Hint" xml:space="preserve">
     <value>No pairing metadata</value>
@@ -4228,7 +4228,7 @@ Then click "Start Split".</value>
     <value>Matching method:</value>
   </data>
   <data name="SplitPage_Match_All.Content" xml:space="preserve">
-    <value>All single-file Live Photo protocols</value>
+    <value>All Live Photo protocols</value>
   </data>
   <data name="SplitPage_Match_All_Hint" xml:space="preserve">
     <value>Recognize all protocols</value>
@@ -4590,4 +4590,11 @@ Inputs: {1}
   <data name="ScanDiagnostic_UnsupportedExtension" xml:space="preserve"><value>The file extension is not supported by this scan and was not queued.</value></data>
   <data name="ScanDiagnostic_ReparsePointSkipped" xml:space="preserve"><value>Directory links are not followed, to avoid escaping the selected scope or introducing cycles.</value></data>
   <data name="MergeDiagnostic_UnconfirmedProtocolPair" xml:space="preserve"><value>The source pair could not be confirmed and cannot be downgraded to a plain-media request.</value></data>
+  <data name="ScanDiagnostic_UnsupportedInput" xml:space="preserve"><value>This input format or source feature is not currently supported.</value></data>
+  <data name="SplitPage_Match_Apple.Content" xml:space="preserve">
+    <value>Apple - Live Photo (dual files)</value>
+  </data>
+  <data name="SplitPage_Match_Apple_Hint" xml:space="preserve">
+    <value>Match confirmed Apple image/video identities</value>
+  </data>
 </root>

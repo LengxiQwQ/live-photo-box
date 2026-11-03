@@ -11,6 +11,10 @@ namespace LivePhotoBox.Media.Inspection;
 /// </summary>
 public sealed class SourceInspector : ISourceInspector
 {
+    internal Task<SourceInspectionResult> InspectForDiscoveryAsync(
+        string primaryPath, string? secondaryPath = null, CancellationToken cancellationToken = default)
+        => NativeMediaService.InspectMediaForDiscoveryAsync(primaryPath, secondaryPath, cancellationToken);
+
     public Task<SourceMediaFacts> InspectAsync(
         string primaryPath,
         string? secondaryPath = null,

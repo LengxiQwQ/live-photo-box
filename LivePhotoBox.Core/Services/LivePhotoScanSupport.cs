@@ -24,6 +24,35 @@ internal static class LivePhotoScanSupport
         _ => false
     };
 
+    internal static bool IsInputFailure(SourceInspectionFailure failure) =>
+        failure.Category != SourceInspectionFailureCategory.InvalidArgument &&
+        !(failure.Category == SourceInspectionFailureCategory.Unsupported &&
+          failure.Capability == NativeRuntime.HeifOriginalFileResourceCapability);
+
+    internal static ScanDiagnostic Failure(string path, SourceInspectionFailure failure,
+        string code = "SingleFileInspectionFailed", IReadOnlyList<string>? related = null)
+    {
+        LogService.Scan($"{code}: '{path}': {failure.Category}/{failure.Stage}: {failure.Reason}", LogLevel.Warning);
+        return new ScanDiagnostic
+        {
+            DiagnosticCode = code, Severity = ScanDiagnosticSeverity.Error,
+            Stage = failure.Stage switch
+            {
+                SourceInspectionStage.Container => ScanDiagnosticStage.Container,
+                SourceInspectionStage.Metadata => ScanDiagnosticStage.Metadata,
+                SourceInspectionStage.Pairing => ScanDiagnosticStage.Pairing,
+                SourceInspectionStage.Protocol => ScanDiagnosticStage.Capability,
+                _ => ScanDiagnosticStage.Read
+            },
+            PrimaryPath = path, RelatedPaths = related ?? Array.Empty<string>(),
+            MessageKey = code == "ScanOperationFailed" ? "ScanDiagnostic_OperationFailed" :
+                code == "UnresolvedBinding" ? "ScanDiagnostic_UnresolvedBinding" :
+                failure.Category == SourceInspectionFailureCategory.Unsupported ? "ScanDiagnostic_UnsupportedInput" : "ScanDiagnostic_InputFailed",
+            Summary = failure.Reason, RawCategory = failure.Category, RawStage = failure.Stage,
+            RawCapability = failure.Capability, LogMessage = failure.Reason
+        };
+    }
+
     internal static bool CanReportOperationFailure(Exception error) =>
         error is not OutOfMemoryException and not AccessViolationException and not StackOverflowException;
 

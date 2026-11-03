@@ -164,6 +164,13 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
    if(!lpb::media::observe_huawei_footer(tail,footer)||footer.variant!=expected.target_version||footer.movie_length>=full.length-60)
     return reject(2,4,140,"Huawei footer variant, numeric fields or LIVE length is invalid");
    video_length=footer.movie_length;prefix_length=video_offset=full.length-60-video_length;
+   if(heif) {
+    if(!lpb::media::observe_huawei_heif_motion_envelope(full,video_offset,video_length,prefix_length)) {
+     if(io())return source.error;
+     return reject(2,3,140,"Huawei HEIC requires an explicit final free envelope owning the movie and footer");
+    }
+    video_header=8;
+   }
   }else if(!heif) {
    lpb::media::jpeg_observation_failure why;uint64_t bad=0;
    if(!lpb::media::observe_jpeg(full,jpeg,why,bad,{true,true,true,true})) {
@@ -341,7 +348,7 @@ static lpb_result validate_target_extended(lpb_context* context,const lpb_target
   if(oppo&&!selects(media.media.timeline,request->primary_timestamp_us))return reject(2,6,129,"Original timestamp does not select an observed visible sample");
   if(huawei) {
    int64_t observed_time=0;uint32_t frame_index=0,frame_count=0;
-   if(media.media.sample_tables.size()!=2||!lpb::media::observe_huawei_covertime(cover_properties,observed_time)||
+   if(media.media.aac_audio_tracks>1||media.media.other_audio_tracks!=0||!lpb::media::observe_huawei_covertime(cover_properties,observed_time)||
       observed_time!=expected.cover_timestamp_us||!lpb::media::select_huawei_frame(media.media.timeline,observed_time,frame_index,frame_count)||
       footer.frame!=frame_index||footer.history!=std::to_string(frame_index)+":"+std::to_string(frame_count))
     return reject(2,6,143,"Huawei typed millisecond cover, legacy frame or new-file frame/count history mismatch");

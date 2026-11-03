@@ -11,6 +11,74 @@ namespace LivePhotoBox.UITests;
 
 public sealed partial class ScanPairingInteractionTests
 {
+    [Theory]
+    [InlineData("Merge", "三星.heic", "三星.jpg")]
+    [InlineData("Split", "vivo双文件.jpg", "vivo双文件.jpg")]
+    public async Task CameraDirectory_DiagnosticTipDoesNotRaiseNativeExceptions(string workflow, string primaryName, string relatedName)
+    {
+        string input = RequiredEnvironment("LPB_SCAN_REFUSAL_INPUT_ROOT");
+        string root = RequiredEnvironment("LPB_UI_TEST_INPUT_ROOT");
+        await using var app = await Flawright.Flawright.LaunchAsync(new LaunchOptions { ApplicationPath = RequiredEnvironment("LPB_UI_TEST_APP_PATH") });
+        var page = await app.Browser.NewPageAsync();
+        using var automation = new FlaUI.UIA3.UIA3Automation();
+        var window = FindLaunchedWindow(automation);
+        window.Patterns.Window.Pattern.SetWindowVisualState(WindowVisualState.Maximized);
+        await page.GetByTestId("Nav" + workflow).ClickAsync();
+        await page.GetByTestId("ScanInputDirectory").FillAsync(input);
+        await WaitForAsync(() => FindById(window, "ScanInputDirectory").IsEnabled);
+        var list = FindById(window, workflow + "DiagnosticListView");
+        var row = list.FindAllDescendants(cf => cf.ByControlType(ControlType.ListItem))
+            .FirstOrDefault(item => item.FindFirstDescendant(cf => cf.ByName(primaryName)) is not null);
+        Assert.NotNull(row);
+        var status = FindById(row, "ScanDiagnosticStatus");
+        Assert.False(status.IsOffscreen);
+        string evidence = NewOutputDirectory(root, "camera-conflict-" + workflow);
+        string observation = Path.Combine(evidence, "native");
+        Process? observer = null;
+        try
+        {
+            if (Environment.GetEnvironmentVariable("LPB_NATIVE_OBSERVER_PATH") is { Length: > 0 } executable)
+            {
+                observer = Process.Start(new ProcessStartInfo(executable)
+                {
+                    ArgumentList = { window.Properties.ProcessId.Value.ToString(), observation },
+                    UseShellExecute = false, CreateNoWindow = true
+                });
+                await WaitForAsync(() => File.Exists(observation + ".ready"));
+            }
+            File.WriteAllText(observation + ".phase", "click-samsung-status");
+            status.Click();
+            await page.GetByTestId("ErrorDetailText").WaitForAsync();
+            string details = await page.GetByTestId("ErrorDetailText").InnerTextAsync();
+            File.WriteAllText(Path.Combine(evidence, "details.txt"), details);
+            Assert.Contains(primaryName, details);
+            Assert.Contains(relatedName, details);
+            await page.ScreenshotAsync(Path.Combine(evidence, "tip.png"));
+            File.WriteAllText(observation + ".phase", "close-samsung-status");
+            status.Click();
+            await Task.Delay(300);
+            File.WriteAllText(observation + ".phase", "reopen-samsung-status");
+            status.Click();
+            await page.GetByTestId("ErrorDetailText").WaitForAsync();
+            Assert.Contains(relatedName, await page.GetByTestId("ErrorDetailText").InnerTextAsync());
+            await Task.Delay(300);
+        }
+        finally
+        {
+            File.WriteAllText(observation + ".done", "finished");
+            if (observer is not null)
+            {
+                Assert.True(observer.WaitForExit(10000));
+                Assert.Equal(0, observer.ExitCode);
+                observer.Dispose();
+                string nativeLog = File.ReadAllText(observation + ".log");
+                Assert.Contains("DETACHED", nativeLog);
+                Assert.DoesNotContain("code=e06d7363", nativeLog);
+                Assert.DoesNotContain("code=40080201", nativeLog);
+            }
+        }
+    }
+
     private readonly HashSet<int> _existingProcesses = Process.GetProcesses().Select(p => p.Id).ToHashSet();
     private readonly string _settingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LivePhotoBox", "appsettings.json");
     private readonly byte[]? _settingsBefore;

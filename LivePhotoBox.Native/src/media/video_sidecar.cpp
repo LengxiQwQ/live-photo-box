@@ -886,6 +886,10 @@ int transcode_impl(
             encoder_context->sample_aspect_ratio = av_inv_q(encoder_context->sample_aspect_ratio);
         encoder_context->gop_size = 60;
         encoder_context->max_b_frames = 0;
+        // libavcodec clears per-frame durations unless this flag is set.
+        // Keep the actual source interval, especially a short final VFR frame,
+        // rather than letting the encoder substitute the guessed average FPS.
+        encoder_context->flags |= AV_CODEC_FLAG_FRAME_DURATION;
         encoder_context->color_range = input_video->codecpar->color_range;
         encoder_context->color_primaries = input_video->codecpar->color_primaries;
         encoder_context->color_trc = input_video->codecpar->color_trc;
@@ -1393,6 +1397,9 @@ int transcode_impl(
                 converted->pts = frame_timestamp == AV_NOPTS_VALUE
                     ? AV_NOPTS_VALUE
                     : av_rescale_q(frame_timestamp, input_video->time_base, encoder_context->time_base);
+                if (decoded->duration <= 0) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+                converted->duration = av_rescale_q(decoded->duration, input_video->time_base, encoder_context->time_base);
+                if (converted->duration <= 0) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
                 if (!attach_header_sei(converted->pts)) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
                 operation_result = encode_frame(
                     encoder_context.get(), output.get(), output_video, converted.get(), encoded_packet_count, pending_sei);
@@ -1503,6 +1510,9 @@ int transcode_impl(
             converted->pts = frame_timestamp == AV_NOPTS_VALUE
                 ? AV_NOPTS_VALUE
                 : av_rescale_q(frame_timestamp, input_video->time_base, encoder_context->time_base);
+            if (decoded->duration <= 0) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+            converted->duration = av_rescale_q(decoded->duration, input_video->time_base, encoder_context->time_base);
+            if (converted->duration <= 0) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
             if (!attach_header_sei(converted->pts)) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
             operation_result = encode_frame(
                 encoder_context.get(), output.get(), output_video, converted.get(), encoded_packet_count, pending_sei);

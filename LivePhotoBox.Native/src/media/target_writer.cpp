@@ -7,6 +7,7 @@
 #include "media/jpeg_gainmap_mpf.h"
 #include "media/jpeg_mpf_vendor.h"
 #include "media/ordinary_metadata_container.h"
+#include "metadata/jpeg.h"
 #include "containers/heif_internal.h"
 #include "foundation/internal.h"
 #include "foundation/sha256_core.h"
@@ -315,8 +316,8 @@ lpb_result observe_inputs(lpb_context* context,lpb_target_writer_session& sessio
         }
     }
     if(huawei) {
-        if(video.media.sample_tables.size()!=2) {
-            set_error(context,"[Unsupported] Huawei requires one video and one AAC audio track.");return LPB_RESULT_UNSUPPORTED;
+        if(video.media.aac_audio_tracks>1||video.media.other_audio_tracks!=0) {
+            set_error(context,"[Unsupported] Huawei requires a validated main video and at most one AAC audio track; non-AAC audio requires preparation.");return LPB_RESULT_UNSUPPORTED;
         }
         if(!session.request.cover_timestamp_present||session.primary_timestamp_present) {
             set_error(context,"[Unsupported] Huawei requires a known current cover without source capture history.");return LPB_RESULT_UNSUPPORTED;
@@ -450,6 +451,7 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
     std::vector<uint8_t> primary;
     if(!session.inputs[0].read_all_bounded(4,32ULL*1024*1024,primary))return LPB_RESULT_UNSUPPORTED;
     uint64_t encoding_boundary=session.primary_facts.encoding_boundary;
+    bool removed_samsung_metadata=false;
     const bool best_effort = (session.request.reserved0 == 1);
     if(session.primary_facts.samsung_metadata.length > 0 && session.request.target_profile != LPB_TARGET_SAMSUNG) {
         const auto range = session.primary_facts.samsung_metadata;
@@ -463,9 +465,34 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
             }
             primary = std::move(stripped);
             session.primary_facts.samsung_metadata = {};
+            removed_samsung_metadata=true;
             lpb::media::jpeg_gainmap_mpf::jpeg_info jinfo;
             if(lpb::media::jpeg_gainmap_mpf::parse_jpeg(primary, jinfo)) encoding_boundary = jinfo.eoi_end;
         }
+    }
+    if(best_effort&&session.request.target_profile==LPB_TARGET_VIVO_MODERN&&
+        std::any_of(session.primary_facts.auxiliaries.begin(),session.primary_facts.auxiliaries.end(),[](const auto& a){return a.selector_kind==3;})) {
+        // This target cannot carry the explicitly optional MiCamera pair.
+        // Its two ranges must uniquely cover the exact suffix; the primary
+        // pixels and every unrelated metadata field remain in the JPEG.
+        std::vector<lpb::media::target_primary_auxiliary> assets=session.primary_facts.auxiliaries;
+        std::sort(assets.begin(),assets.end(),[](const auto& a,const auto& b){return a.range.offset<b.range.offset;});
+        if(assets.size()!=2||assets[0].selector_kind!=3||assets[1].selector_kind!=3||
+            assets[0].range.offset!=encoding_boundary||assets[0].range.length>primary.size()-encoding_boundary||
+            assets[1].range.offset!=assets[0].range.offset+assets[0].range.length||
+            assets[1].range.length!=primary.size()-assets[1].range.offset||
+            std::any_of(session.auxiliaries.begin(),session.auxiliaries.end(),[](const auto& a){return std::string_view(a.semantic).starts_with("MiCamera");}))
+            return LPB_RESULT_INVALID_ARGUMENT;
+        std::string xml,error;std::vector<uint8_t> rebuilt;
+        if(!lpb::media::remove_micamera_asset_description(session.primary_facts.standard_xml,xml))return LPB_RESULT_UNSUPPORTED;
+        primary.resize(static_cast<size_t>(encoding_boundary));
+        if(lpb::metadata::replace_standard_jpeg_xmp_unchecked(primary,
+            std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(xml.data()),xml.size()),rebuilt,error)!=LPB_RESULT_OK)
+            return LPB_RESULT_INVALID_ARGUMENT;
+        primary=std::move(rebuilt);
+        lpb::media::target_primary_observation observed;
+        if(!lpb::media::observe_target_primary(primary,observed,error)||!observed.auxiliaries.empty())return LPB_RESULT_INVALID_ARGUMENT;
+        session.primary_facts=std::move(observed);encoding_boundary=session.primary_facts.encoding_boundary;
     }
     // Never trim the bound compound prefix or clear its MPF/auxiliary graph.
     // A missing representation is an explicit failure, not permission to erase.
@@ -571,15 +598,9 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
         // placement. They are primary padding, never invented Google items.
         request.primary_padding=primary.size()-encoding_boundary;
     }
-    if(session.request.target_profile==LPB_TARGET_VIVO_MODERN) {
-        uint64_t valid_end = encoding_boundary;
-        for(const auto& a : session.primary_facts.auxiliaries) {
-            if(a.range.offset + a.range.length > valid_end && a.range.offset + a.range.length <= primary.size())
-                valid_end = a.range.offset + a.range.length;
-        }
-        primary.resize(static_cast<size_t>(valid_end));
-        request.primary_padding = 0;
-    }
+    // Bound ordinary MPF/MiCamera payloads remain part of the primary. Their
+    // actual padding is computed above; do not resize using stale pre-reflow
+    // offsets after SEF removal or an ordinary metadata capsule insertion.
     // Existing embedded assets stay exactly once in their current order. A
     // detached semantic member is appended only after its explicit identity
     // and no-embedded-duplicate proof in observe_extended_primary.
@@ -598,6 +619,18 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
             primary.insert(primary.end(),bytes.begin(),bytes.end());
         }
         request.auxiliary_items.push_back({std::string(semantic),"image/jpeg",found->byte_length,0,true,false});
+    }
+    if(removed_samsung_metadata) {
+        // The source directory described its former SEF area. Bind padding to
+        // the current owned bytes after removing that area and appending any
+        // declared detached members; auxiliary image bytes are not padding.
+        if(encoding_boundary>primary.size())return LPB_RESULT_INVALID_ARGUMENT;
+        uint64_t available=primary.size()-encoding_boundary;
+        for(const auto& asset:request.auxiliary_items) {
+            if(asset.length>available)return LPB_RESULT_INVALID_ARGUMENT;
+            available-=asset.length;
+        }
+        request.primary_padding=available;
     }
     if(!ordinary_mpf&&!request.auxiliary_items.empty()&&!expand_owned_mpf(primary,request.auxiliary_items,request.primary_padding)) {
         set_error(context, "[Stage] expand_owned_mpf failed.");
@@ -855,11 +888,27 @@ lpb_result LPB_CALL lpb_target_writer_stage_v1(lpb_context* context,lpb_target_w
                         static_cast<uint32_t>(observed.eoi_end),observed.mpf.little_endian);
                 }
                 if(result==LPB_RESULT_OK) {
+                    const uint64_t movie_length=huawei?session->huawei_movie.output_length:session->inputs[1].size();
+                    if(huawei&&(session->request.media_format==2||session->request.media_format==4)) {
+                        // Keep the complete HEIF a legal image container. Its
+                        // final explicit free box owns the independent MP4 and
+                        // fixed Huawei footer, so image decoders never parse a
+                        // second ftyp or the ASCII footer as HEIF box headers.
+                        // The footer still addresses exactly the MP4 payload.
+                        if(movie_length>UINT32_MAX-68ULL)result=LPB_RESULT_UNSUPPORTED;
+                        else {
+                            const uint32_t length=static_cast<uint32_t>(movie_length+68);
+                            const std::array<uint8_t,8> header{
+                                static_cast<uint8_t>(length>>24),static_cast<uint8_t>(length>>16),
+                                static_cast<uint8_t>(length>>8),static_cast<uint8_t>(length),'f','r','e','e'};
+                            serialized.insert(serialized.end(),header.begin(),header.end());
+                        }
+                    }
+                    if(result!=LPB_RESULT_OK)return finish(context,session,result);
                     session->stage=std::make_unique<windows_owned_output>();
                     const auto destination=utf8_to_path(session->request.staging_directory_utf8)/L"target-stage.bin";
                     if(!session->stage->create(destination,L"lpb-target-",L".stage",true)||!session->stage->write_all(serialized))result=LPB_RESULT_INTERNAL_ERROR;
                     std::array<uint8_t,65536> buffer{};
-                    const uint64_t movie_length=huawei?session->huawei_movie.output_length:session->inputs[1].size();
                     for(uint64_t at=0;result==LPB_RESULT_OK&&at<movie_length;) {
                         result=check_cancel(context);if(result!=LPB_RESULT_OK)break;
                         const size_t n=static_cast<size_t>(std::min<uint64_t>(buffer.size(),movie_length-at));

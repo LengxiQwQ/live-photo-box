@@ -125,7 +125,7 @@ lpb cover photo.jpg --at 1.5 -y
 |------|------|
 | `lpb protocols` | 查看协议 × 格式兼容矩阵与设备支持 |
 | `lpb merge` | 合成图片 + 视频（单对或批量） |
-| `lpb split` | 把单文件实况照片拆回独立的图片与视频 |
+| `lpb split` | 把单文件或明确配对的双文件实况照片导出为无协议图片与视频 |
 | `lpb cover` | 修改已有实况照片的封面帧（Key Photo），别名 `keyphoto` |
 | `lpb repair` | 分析并修复实况照片元数据 |
 | `lpb --info` / `lpb --version`（`-v`） | 查看版本、环境与内置工具版本 |
@@ -357,14 +357,15 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 
 ---
 
-### `split` — 拆分单文件实况照片
+### `split` — 拆分与无协议转换
 
-`merge` 的反向操作：把单文件实况照片（图片 + 追加视频）拆回独立的图片与视频。两种运行模式：
+沿用 Inspector → Extractor → Cleaner → Neutral，把单文件实况照片或明确配对的 Apple/旧 vivo 双文件导出为独立、已去来源绑定的图片与视频。双文件仍实际清理和转换，不能直接复制并宣布完成。当前目标协议仅 `none`；Apple/旧 vivo 目标写入属于后续步骤。
 
 | 模式 | 参数 | 使用场景 |
 |------|------|----------|
 | 单文件 | `<文件>`（按扩展名自动识别） | 拆分单个单文件实况照片 |
-| 批量文件夹 | `<路径>`（无扩展名自动识别）或 `-d` | 拆分目录内所有单文件实况照片 |
+| 双文件 | `<图片> --companion <视频>` | 明确指定输入双方，严格检查配对身份 |
+| 批量文件夹 | `<路径>`（无扩展名自动识别）或 `-d` | 单文件和按原生 ID 唯一确认的 Apple/旧 vivo 双文件；不按同名猜配 |
 
 #### 使用示例
 
@@ -376,12 +377,15 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 | 预览（不实际处理） | `lpb split -d ./MyPhotos --dry-run` |
 | 只拆分 vivo 实况照片 | `lpb split -d ./MyPhotos --pairing vivo -y` |
 | 覆盖已存在输出 | `lpb split photo.jpg -w` |
-| 导出所有变体（Apple + vivo + 无协议） | `lpb split photo.jpg --all-variants` |
-| 设置封面位置（Apple 转换） | `lpb split photo.jpg -p apple --key-timestamp 2.500 -y` |
+| 导出四种无协议媒体格式 | `lpb split photo.jpg --all-variants` |
+| 双文件去绑定并转换 | `lpb split photo.heic --companion renamed.mov -f jpg+mp4 -o ./neutral --json` |
+| 仅处理 Apple 来源 | `lpb split ./MyPhotos --pairing apple --json` |
 
 > **注意：** 不支持通配符（`*.jpg`）。请用 `-d` 指定文件夹，或显式列出文件。
 
 ---
+
+`none` 保留独立主图和完整视频时间轴；原来源的实况封面位置记录在 JSON `outcome.PreparationSemantics.Timing`，不会重新写成实况绑定。`--key-timestamp` 不适用于无协议输出，会明确拒绝。`keep` 保持已有媒体格式，其他三种格式走共用转换器。默认不覆盖原件；显式 `--overwrite` 也不能覆盖任一来源或其硬链接。成功后的 `--after` 对双文件的两份来源生效；归档失败仍须检查告警。
 
 #### 完整选项参考
 
@@ -390,8 +394,9 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 | 选项 | 说明 |
 |------|------|
 | `<文件>` | 单个待拆分的单文件实况照片：`.jpg .jpeg .heic .heif`（图片 + 追加视频）；也可传文件夹路径，无扩展名即自动识别为批量模式 |
-| `-d, --dir <路径>` | 包含单文件实况照片的文件夹（批量模式），所有检测到的实况照片都会被拆分；也可直接作为位置参数传入 |
-| `--pairing <协议>` | 只拆分该协议的实况照片：`all`（不过滤，默认）、`v1`（MicroVideo）、`v2`（MotionPhoto）、`oppo`、`vivo`、`samsung`、`huawei` |
+| `--companion <视频>` | 与位置参数图片明确配对的伴生视频；两份来源都受保护，支持 `--all-variants` |
+| `-d, --dir <路径>` | 包含单文件或原生确认双文件的文件夹；也可直接作为位置参数传入 |
+| `--pairing <协议>` | 只拆分该协议的实况照片：`all`（不过滤，默认）、`apple`、`v1`（MicroVideo）、`v2`（MotionPhoto）、`oppo`、`vivo`、`samsung`、`huawei` |
 | `-r, --recursive` | 扫描时包含所有子目录 |
 
 **输出**
@@ -407,9 +412,9 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 
 | 选项 | 说明 |
 |------|------|
-| `-p, --protocol <协议>` | 目标手机格式（默认 `none`）：`none`（仅拆分）、`apple`（Apple Live Photo）、`vivo`（vivo Live Photo，≤ X200）。apple/vivo 会写入配对元数据（ContentIdentifier / vivo 尾标 + uuid box） |
+| `-p, --protocol <协议>` | 目标手机格式（默认 `none`）：`none`（无协议）；`apple` / `vivo` 当前明确拒绝，待后续共用目标 Writer 接通 |
 | `-f, --format <格式>` | 输出格式（默认：指定协议的首个可用格式）：`keep`（不转换）、`jpg+mov` (H.265)、`heic+mov` (H.265)、`jpg+mp4` (H.264) |
-| `--key-timestamp <时间>` | 覆盖封面（key photo）在视频时间轴上的位置（仅 Apple 转换、单文件）。支持秒（`2.500`）、分:秒（`1:30.500`）、时:分:秒（`0:01:30.500`）；默认跟随源 |
+| `--key-timestamp <时间>` | 当前 none 导出不支持封面绑定覆盖，传入即拒绝；来源封面时间见 JSON preparation semantics |
 | `-n, --naming <规则>` | 输出文件名规则。默认：`keep`。`keep`（保持原名）或 `custom:模板`（占位符见下） |
 
 命名占位符：
@@ -434,7 +439,7 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 | `-y, --yes` | 跳过确认提示。适用于脚本 / 自动化 |
 | `--dry-run` | 预览：显示将要执行的操作，不实际处理文件 |
 | `-v, --verbose` | 逐文件输出状态，而非仅显示汇总 |
-| `--all-variants` | 从单个单文件实况照片导出所有拆分变体（仅单文件模式）；输出到 `{输出目录}/split_{名称}_All_Variants/` |
+| `--all-variants` | 从单文件或 `--companion` 双文件导出四种无协议格式（不接受批量目录）；输出到 `{输出目录}/split_{名称}_All_Variants/` |
 
 #### 默认输出位置
 
@@ -446,13 +451,13 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 | 批量（文件夹 / `-d`） | 输入目录下的子文件夹，命名为 `{文件夹名}_split` | `lpb split ./MyPhotos` → `./MyPhotos/MyPhotos_split/` |
 
 - 图片保持源基础名与扩展名；视频保持源视频的容器（`.mov` 或 `.mp4`）。
-- 就地拆分：图片名与源文件冲突时自动重命名（`photo.jpg` → `photo (2).jpg`）；传 `-w` 则覆盖。
+- 就地拆分默认使用 `_split` 后缀；冲突时自动另取名称；显式 `-w` 也不允许覆盖来源。
 - 批量文件名保持源名不变——它们进入独立的 `{文件夹名}_split/` 子文件夹。
-- `--dry-run` 会打印解析出的输出路径，且**不创建任何文件夹**。
+- 普通 `--dry-run` 预览不生成媒体；`--all-variants --dry-run` 当前仍会建立空变体目录，不应当作媒体处理成功。
 
 #### `--all-variants` — 一键导出所有拆分变体
 
-从单个单文件实况照片一键导出全部 7 组拆分变体。仅单文件模式——批量（`-d`）会被拒绝。适合开发者快速验证各协议的拆分输出。
+从一个单文件来源或一组明确双文件导出四种无协议媒体格式；批量（`-d`）会被拒绝。不是 Apple/旧 vivo 目标协议输出验收。
 
 | 变体 | 输出文件对 |
 |------|-----------|
@@ -460,9 +465,6 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 | 无协议（JPG+MOV） | `none_jpg+mov.JPG` + `none_jpg+mov.MOV` |
 | 无协议（HEIC+MOV） | `none_heic+mov.HEIC` + `none_heic+mov.MOV` |
 | 无协议（JPG+MP4） | `none_jpg+mp4.JPG` + `none_jpg+mp4.MP4` |
-| Apple Live Photo (JPG+MOV) | `apple_jpg+mov.JPG` + `apple_jpg+mov.MOV` |
-| Apple Live Photo (HEIC+MOV) | `apple_heic+mov.HEIC` + `apple_heic+mov.MOV` |
-| vivo Live Photo (JPG+MP4) | `vivo_jpg+mp4.JPG` + `vivo_jpg+mp4.MP4` |
 
 ```powershell
 # 默认输出到源文件所在目录的 split_{名称}_All_Variants/
@@ -472,7 +474,7 @@ lpb split photo.jpg --all-variants
 lpb split photo.jpg --all-variants -o ./Out
 ```
 
-文件名按 `{协议}_{格式}` 命名（小写 CLI 规范值，如 `-p apple -f jpg+mov` → `apple_jpg+mov`）；原文件名只进**文件夹名**，所有名称不含空格。keep 变体图片跟随源扩展名、视频跟随源容器（`.MOV` / `.MP4`）。`-p` / `-f` / `-n` / `-w` / `--after` 被忽略；`-j` 仍控制并行度。
+文件名按 `{协议}_{格式}` 命名（小写 CLI 规范值，如无协议 JPG+MOV → `none_jpg+mov`）；原文件名只进**文件夹名**，所有名称不含空格。keep 变体图片跟随源扩展名、视频跟随源容器（`.MOV` / `.MP4`）。`-p` / `-f` / `-n` / `-w` / `--after` 被忽略；`-j` 仍控制并行度。
 
 #### 协议 × 格式矩阵
 
@@ -481,8 +483,7 @@ lpb split photo.jpg --all-variants -o ./Out
 | 协议 | Keep | JPG + MOV | HEIC + MOV | JPG + MP4 |
 |---|---|---|---|---|
 | `none`（仅拆分） | ✅ | ✅ | ✅ | ✅ |
-| `apple`（Apple Live Photo） | ✖️ | ✅ | ✅ | ✖️ |
-| `vivo`（vivo Live Photo） | ✖️ | ✖️ | ✖️ | ✅ |
+| `apple` / `vivo` | 暂未接通目标写入 | 暂未接通 | 暂未接通 | 暂未接通 |
 
 省略 `--format` 时，默认取该协议的首个可用格式：`none` → `keep`、`apple` → `jpg+mov`、`vivo` → `jpg+mp4`。
 
@@ -496,7 +497,7 @@ lpb split photo.jpg --all-variants -o ./Out
 | `v1` | Google Micro Video (v1) |
 | `v2` | Google Motion Photo (v2) |
 | `oppo` | OPPO O-Live Photo |
-| `vivo` | vivo Live Photo |
+| `apple` / `vivo` | 暂未接通目标写入 | 暂未接通 | 暂未接通 | 暂未接通 |
 | `samsung` | Samsung Motion Photo |
 | `huawei` | HUAWEI Moving Photo |
 

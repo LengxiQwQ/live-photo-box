@@ -1,4 +1,4 @@
-using LivePhotoBox.Media.Inspection;
+﻿using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Models;
 using System;
@@ -11,6 +11,7 @@ namespace LivePhotoBox.Services
     public sealed class LivePhotoSplitFileInfo
     {
         public required string SourcePath { get; init; }
+        public string? SecondaryPath { get; init; }
         public required long FileSizeBytes { get; init; }
         public long AppendedVideoLength { get; init; }
     }
@@ -32,10 +33,10 @@ namespace LivePhotoBox.Services
         {
             var discovery = LivePhotoDiscoveryService.ScanAsync(inputDirectory, DiscoveryScanMode.SplitOnly,
                 cancellationToken, progress).GetAwaiter().GetResult();
-            var files = discovery.Items.Where(i => i.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic)
+            var files = discovery.Items.Where(i => i.LivePhotoType is LivePhotoType.SingleFileJpeg or LivePhotoType.SingleFileHeic || i.LivePhotoType == LivePhotoType.DualFile && i.IsImage)
                 .Select(i => new LivePhotoSplitFileInfo
                 {
-                    SourcePath = i.FilePath, FileSizeBytes = i.FileSizeBytes, AppendedVideoLength = i.AppendedVideoLength
+                    SourcePath = i.FilePath, SecondaryPath = i.PairedVideoPath, FileSizeBytes = i.FileSizeBytes, AppendedVideoLength = i.AppendedVideoLength
                 }).ToList();
             foreach (var file in files) itemProgress?.Report(file);
             return new LivePhotoSplitScanResult

@@ -1,4 +1,4 @@
-/*
+﻿/*
  * LightboxItemSource.cs
  *
  * 灯箱条目源工具类。将各页面的 Task 列表转换为 LightboxItem 列表，
@@ -104,7 +104,7 @@ namespace LivePhotoBox.Services
                 string? videoPath = null;
 
                 // A same-name file is only a candidate; Native must confirm it.
-                videoPath = videoLen > 0 ? null : FindPairedVideo(t.SourcePath);
+                videoPath = t.SecondaryPath ?? (videoLen > 0 ? null : FindPairedVideo(t.SourcePath));
 
                 items.Add(new LightboxItem
                 {

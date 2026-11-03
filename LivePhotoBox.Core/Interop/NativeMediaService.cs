@@ -385,17 +385,35 @@ public static class NativeMediaService
     }
 
     public static Task<SourceMediaFacts> InspectMediaAsync(
+        string primaryPath, string? secondaryPath = null, CancellationToken cancellationToken = default)
+    {
+        // Keep the strict API's synchronous argument/path preflight behavior.
+        var inspection = InspectMediaCoreAsync(primaryPath, secondaryPath, cancellationToken, discovery: false);
+        return ReadFactsAsync(inspection);
+
+        static async Task<SourceMediaFacts> ReadFactsAsync(Task<SourceInspectionResult> pending)
+            => (await pending.ConfigureAwait(false)).Facts!;
+    }
+
+    internal static Task<SourceInspectionResult> InspectMediaForDiscoveryAsync(
+        string primaryPath, string? secondaryPath = null, CancellationToken cancellationToken = default)
+        => InspectMediaCoreAsync(primaryPath, secondaryPath, cancellationToken, discovery: true);
+
+    private static Task<SourceInspectionResult> InspectMediaCoreAsync(
         string primaryPath,
-        string? secondaryPath = null,
-        CancellationToken cancellationToken = default)
+        string? secondaryPath,
+        CancellationToken cancellationToken, bool discovery)
     {
         cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(primaryPath);
-        PreflightInspectionPath(primaryPath, "Primary");
+        if (discovery && (string.IsNullOrWhiteSpace(primaryPath) || secondaryPath is not null && string.IsNullOrWhiteSpace(secondaryPath)))
+            return Task.FromResult(SourceInspectionResult.Rejected(new(SourceInspectionFailureCategory.Io,
+                SourceInspectionStage.Read, NativeRuntime.FoundationCapability, "The selected media path is empty.")));
+        if (!discovery) PreflightInspectionPath(primaryPath, "Primary");
         if (secondaryPath is not null)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            PreflightInspectionPath(secondaryPath, "Secondary");
+            if (!discovery) PreflightInspectionPath(secondaryPath, "Secondary");
         }
 
         return Task.Run(() =>
@@ -428,9 +446,21 @@ public static class NativeMediaService
                         pResidues,
                         (nuint)residuesBuf.Length,
                         out nuint outResiduesCount);
+                    if (discovery && (res is NativeResult.InvalidArgument or NativeResult.Unsupported) &&
+                        ctx.ReadInspectionFailure() is { } failure)
+                        return SourceInspectionResult.Rejected(failure);
                     ctx.ThrowIfFailed(res);
 
-                    RequireCompleteHeifFileInventory(ctx,nativeFacts);
+                    if (discovery && nativeFacts.PrimaryImage.Container == (int)ImageContainer.Heic)
+                    {
+                        var runtime = new NativeRuntimeInfoData { StructSize = (uint)Marshal.SizeOf<NativeRuntimeInfoData>() };
+                        ctx.ThrowIfFailed(NativeMethods.GetRuntimeInfo(ctx.Handle, ref runtime));
+                        if ((runtime.Capabilities & NativeRuntime.HeifOriginalFileResourceCapability) == 0)
+                            return SourceInspectionResult.Rejected(new(SourceInspectionFailureCategory.Unsupported,
+                                SourceInspectionStage.Container, NativeRuntime.HeifOriginalFileResourceCapability,
+                                "The loaded Native runtime cannot prove complete HEIF Original file resource inventory."));
+                    }
+                    else RequireCompleteHeifFileInventory(ctx,nativeFacts);
 
                     var residuesList = new List<ConfirmedProtocolResidue>();
                     int count = Math.Min((int)outResiduesCount, residuesBuf.Length);
@@ -456,7 +486,7 @@ public static class NativeMediaService
                         });
                     }
 
-                    return MapFromNativeFacts(nativeFacts, residuesList);
+                    return SourceInspectionResult.Accepted(MapFromNativeFacts(nativeFacts, residuesList));
                 }
             }
         }, cancellationToken);
