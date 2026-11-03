@@ -119,7 +119,7 @@ void mapped_comment_cases() {
     wrong_owner.replace(at,10,attributes);REQUIRE(!observe_target_xmp(wrong_owner,xml,why));
    }
    const std::string guid(32,'A');auto standard=observed.xmp;
-   const auto owner=standard.find(" lpbrdf:about=\"\"");REQUIRE(owner!=std::string::npos);
+   const auto owner=standard.find(" rdf:about=\"\"");REQUIRE(owner!=std::string::npos);
    standard.insert(owner," xmlns:n=\"http://ns.adobe.com/xmp/note/\" n:HasExtendedXMP=\""+guid+"\"");
    const std::string extension="<r:RDF xmlns:r=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"+record+"</r:RDF>";
    REQUIRE(!observe_target_xmp_packets(standard,extension,guid,xml,why));
@@ -133,6 +133,11 @@ void scalar_cleanup_cases() {
  lpb::target::google_xmp_request request;request.target=1;request.video_length=4;request.cover_present=true;
  std::string packet;REQUIRE(lpb::target::build_google_xmp({},request,packet)==LPB_RESULT_OK);
  const std::string property="<lpbc:MicroVideoVersion xmlns:lpbc=\""+uri+"\">1</lpbc:MicroVideoVersion>";
+ // Exercise element cleanup independently of the writer's attribute emission.
+ const std::string attribute=" GCamera:MicroVideoVersion=\"1\"";
+ REQUIRE(packet.find(attribute)!=std::string::npos);
+ packet.erase(packet.find(attribute),attribute.size());
+ packet.insert(packet.find("</rdf:Description>"),property);
  REQUIRE(packet.find(property)!=std::string::npos);
  lpb_cleanup_action action{};action.struct_size=sizeof(action);action.owner_protocol=LPB_SOURCE_PROTOCOL_GOOGLE_MICRO_VIDEO_V1;
  action.artifact_role=LPB_ARTIFACT_PRIMARY_IMAGE;action.structure_kind=LPB_RESIDUE_XMP_PROPERTY;
@@ -183,8 +188,8 @@ int main() {
                     REQUIRE(facts.auxiliaries.size()==1&&facts.auxiliaries[0].semantic=="MpfAuxiliaryImage");
                     if(target!=1) {
                         auto wrong_padding=output;
-                        const std::string from="lpbi:Padding=\""+std::to_string(padding)+"\"";
-                        const std::string to="lpbi:Padding=\""+std::to_string(padding+1)+"\"";
+                        const std::string from="Item:Padding=\""+std::to_string(padding)+"\"";
+                        const std::string to="Item:Padding=\""+std::to_string(padding+1)+"\"";
                         REQUIRE(from.size()==to.size());auto at=std::search(wrong_padding.begin(),wrong_padding.end(),from.begin(),from.end());
                         REQUIRE(at!=wrong_padding.end());std::copy(to.begin(),to.end(),at);
                         REQUIRE(!lpb::media::observe_target_jpeg_prefix(wrong_padding,wrong_padding.size()+12345,facts,error));

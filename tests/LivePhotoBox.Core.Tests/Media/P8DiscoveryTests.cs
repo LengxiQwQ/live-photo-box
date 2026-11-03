@@ -200,13 +200,13 @@ public sealed class P8DiscoveryTests
                 Mode = PairingMode.Name
             });
 
-            // Multiple images with the same base name in the same directory must conflict and fail closed
-            Assert.Empty(result.Pairs);
-            var diag = Assert.Single(result.Diagnostics);
-            Assert.Equal("ConflictMultipleMedia", diag.DiagnosticCode);
-            Assert.Equal(ScanDiagnosticSeverity.Error, diag.Severity);
-            Assert.Equal(ScanDiagnosticStage.Pairing, diag.Stage);
-            Assert.Contains(img2, diag.RelatedPaths);
+            // Multiple images with the same base name in the same directory match the companion and keep remaining without error
+            Assert.Single(result.Pairs);
+            Assert.Equal("conflict", result.Pairs[0].BaseName);
+            string pairedImg = result.Pairs[0].ImagePath;
+            string remainingImg = Assert.Single(result.StandaloneImagePaths);
+            Assert.True((pairedImg == img1 && remainingImg == img2) || (pairedImg == img2 && remainingImg == img1));
+            Assert.Equal(ScanOperationStatus.Completed, result.Status);
         }
         finally
         {

@@ -10,7 +10,7 @@
 #endif
 
 #define LPB_VIDEO_SIDECAR_ABI_MAJOR 1U
-#define LPB_VIDEO_SIDECAR_ABI_MINOR 2U
+#define LPB_VIDEO_SIDECAR_ABI_MINOR 4U
 #define LPB_VIDEO_SIDECAR_VERSION_CAPACITY 32U
 #define LPB_VIDEO_SIDECAR_ENCODER_CAPACITY 32U
 
@@ -52,7 +52,10 @@ enum lpb_video_sidecar_request_flag_v1
     // Source facts came from Native's strict ISO-BMFF profile inspection.
     LPB_VIDEO_SIDECAR_REQUEST_NATIVE_SOURCE_PROFILE = 1U << 1U,
     // Compatible profile: drop auxiliary video tracks/mebx, physically rotate pixels to 0
-    LPB_VIDEO_SIDECAR_REQUEST_COMPATIBLE_PROFILE = 1U << 2U
+    LPB_VIDEO_SIDECAR_REQUEST_COMPATIBLE_PROFILE = 1U << 2U,
+    // Private Native media preparation requirement: every video sample is independently decodable.
+    LPB_VIDEO_SIDECAR_REQUEST_ALL_INTRA = 1U << 3U,
+    LPB_VIDEO_SIDECAR_REQUEST_AAC_AUDIO = 1U << 4U
 };
 
 enum lpb_video_sidecar_container_v1

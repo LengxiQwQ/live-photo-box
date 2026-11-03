@@ -244,21 +244,35 @@ namespace LivePhotoBox.Views
         // 浏览输入目录按钮点击：选择文件夹、更新 ViewModel 并自动触发扫描
         private async void BrowseInput_Click(object sender, RoutedEventArgs e)
         {
-            var folder = await FilePickerService.PickFolderAsync();
-            if (folder != null)
+            try
             {
-                ViewModel.InputDirectory = folder.Path;
-                await Task.Delay(100);
-                if (ViewModel.ScanDirectoryCommand.CanExecute(null))
-                    ViewModel.ScanDirectoryCommand.Execute(null);
+                var folder = await FilePickerService.PickFolderAsync();
+                if (folder != null)
+                {
+                    ViewModel.InputDirectory = folder.Path;
+                    await Task.Delay(100);
+                    if (ViewModel.ScanDirectoryCommand.CanExecute(null))
+                        ViewModel.ScanDirectoryCommand.Execute(null);
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Repair($"BrowseInput failed: {ex.Message}", LogLevel.Error, ex);
             }
         }
 
         // 浏览输出目录按钮点击：选择文件夹并更新 ViewModel
         private async void BrowseOutput_Click(object sender, RoutedEventArgs e)
         {
-            var folder = await FilePickerService.PickFolderAsync();
-            if (folder != null) ViewModel.OutputDirectory = folder.Path;
+            try
+            {
+                var folder = await FilePickerService.PickFolderAsync();
+                if (folder != null) ViewModel.OutputDirectory = folder.Path;
+            }
+            catch (Exception ex)
+            {
+                LogService.Repair($"BrowseOutput failed: {ex.Message}", LogLevel.Error, ex);
+            }
         }
 
         // 文件按钮点击：在资源管理器中打开文件所在位置

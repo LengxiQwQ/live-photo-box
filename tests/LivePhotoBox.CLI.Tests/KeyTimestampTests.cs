@@ -10,7 +10,7 @@ namespace LivePhotoBox.Cli.Tests
     public sealed class KeyTimestampTests
     {
         [Fact]
-        public async Task Split_KeyTimestampApple_RejectedInRebuilt()
+        public async Task Split_KeyTimestampApple_IsAcceptedByTargetPlanning()
         {
             string dir = CliTestHost.CreateTempDir("lpb_test_kt_ok_");
             string photo = CliTestHost.CreateDummyFile(dir, "photo.jpg");
@@ -18,8 +18,9 @@ namespace LivePhotoBox.Cli.Tests
             {
                 var r = await CliTestHost.RunAsync(
                     SplitCommand.Create(), photo, "-p", "apple", "--key-timestamp", "2.500", "--dry-run", "--json");
-                Assert.Equal(1, r.ExitCode);
-                Assert.Contains("rebuilt split exports protocol-free neutral media only", r.StdErr);
+                Assert.Equal(0, r.ExitCode);
+                Assert.Contains("would-split", r.StdOut);
+                Assert.DoesNotContain("intentionally disabled", r.StdErr);
             }
             finally { Directory.Delete(dir, recursive: true); }
         }
@@ -53,7 +54,7 @@ namespace LivePhotoBox.Cli.Tests
         }
 
         [Fact]
-        public async Task Split_KeyTimestampNonApple_Rejected()
+        public async Task Split_KeyTimestampProtocolFree_Rejected()
         {
             string dir = CliTestHost.CreateTempDir("lpb_test_kt_proto_");
             string photo = CliTestHost.CreateDummyFile(dir, "photo.jpg");
@@ -62,7 +63,7 @@ namespace LivePhotoBox.Cli.Tests
                 var r = await CliTestHost.RunAsync(
                     SplitCommand.Create(), photo, "-p", "none", "--key-timestamp", "2.500", "--dry-run");
                 Assert.Equal(1, r.ExitCode);
-                Assert.Contains("--key-timestamp is unavailable in rebuilt split", r.StdErr);
+                Assert.Contains("--key-timestamp requires an Apple or vivo live target", r.StdErr);
             }
             finally { Directory.Delete(dir, recursive: true); }
         }

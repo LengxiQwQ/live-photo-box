@@ -424,3 +424,9 @@ LPB_API lpb_result LPB_CALL lpb_observe_neutral_timing_v1(lpb_context* context,
         *out={};out->struct_size=sizeof(*out);set_error(context,"Neutral timing observation failed safely.");return LPB_RESULT_INTERNAL_ERROR;
     }
 }
+
+namespace lpb::media {
+bool observe_vivo_source_positions(std::span<const uint8_t> bytes,bool& has_frame,int64_t& frame,bool& has_cover,int64_t& cover) {
+    return vivo_positions(bytes,has_frame,frame,has_cover,cover);
+}
+}

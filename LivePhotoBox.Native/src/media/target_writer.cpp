@@ -18,6 +18,10 @@
 #include "protocols/google_v2_writer.h"
 #include "protocols/huawei_target.h"
 #include "protocols/samsung_target.h"
+#include "protocols/dual_file_target.h"
+#include "media/video_sync_samples.h"
+#include "media/neutral_timing.h"
+#include "media/video_sidecar_bridge.h"
 #include <array>
 #include <string_view>
 
@@ -64,9 +68,13 @@ struct lpb_target_writer_session {
     uint32_t active_reads{};
     std::mutex stage_io;
     std::unique_ptr<windows_owned_output> stage;
+    std::unique_ptr<windows_owned_output> video_stage;
+    lpb_target_writer_output_v1 video_output{};
+    uint32_t cover_frame{};
+    std::string pairing_id;
     lpb_target_writer_output_v1 output{};
     void* directory{};
-    ~lpb_target_writer_session() noexcept { if(stage)stage->abort_and_confirm();if(directory)CloseHandle(directory); }
+    ~lpb_target_writer_session() noexcept { if(stage)stage->abort_and_confirm();if(video_stage)video_stage->abort_and_confirm();if(directory)CloseHandle(directory); }
 };
 bool lpb_abort_target_writer_stages(lpb_context* context) noexcept {
     if(!context)return false;
@@ -74,7 +82,10 @@ bool lpb_abort_target_writer_stages(lpb_context* context) noexcept {
     try {
         // Finalization is exclusive: active_operations is zero. No callbacks.
         for(const auto& session:context->target_writer_plans)
-            if(session->stage&&!session->stage->abort_and_confirm())confirmed=false;
+            {
+                if(session->stage&&!session->stage->abort_and_confirm())confirmed=false;
+                if(session->video_stage&&!session->video_stage->abort_and_confirm())confirmed=false;
+            }
         context->target_writer_plans.clear();
     }catch(...){return false;}
     return confirmed;
@@ -257,10 +268,11 @@ lpb_result observe_inputs(lpb_context* context,lpb_target_writer_session& sessio
     const uint32_t format=session.request.media_format;
     const bool huawei=session.request.target_profile==LPB_TARGET_HUAWEI;
     const bool samsung=session.request.target_profile==LPB_TARGET_SAMSUNG;
+    const bool pair=session.request.target_profile==LPB_TARGET_APPLE||session.request.target_profile==LPB_TARGET_VIVO_LEGACY;
     if(huawei&&(!session.extended||(format==4&&session.artifacts[1].video_codec!=3))) {
         set_error(context,"[Unsupported] Explicit Huawei HEVC profile requires prepared HEVC/AAC.");return LPB_RESULT_UNSUPPORTED;
     }
-    if(format>1&&(!session.extended||!((format==3&&session.request.target_profile==2)||(format==2&&samsung)||((format==2||format==4)&&huawei))||
+    if(format>1&&(!session.extended||!((format==3&&(session.request.target_profile==2||session.request.target_profile==LPB_TARGET_APPLE))||(format==2&&samsung)||((format==2||format==4)&&huawei))||
         session.primary_facts.container!=LPB_IMAGE_CONTAINER_HEIC))return LPB_RESULT_UNSUPPORTED;
     const bool mp4=session.artifacts[1].container==LPB_VIDEO_CONTAINER_MP4;
     if(session.artifacts[1].container!=static_cast<uint32_t>((format==0||format==2||format==4)?LPB_VIDEO_CONTAINER_MP4:LPB_VIDEO_CONTAINER_MOV)) {
@@ -298,6 +310,20 @@ lpb_result observe_inputs(lpb_context* context,lpb_target_writer_session& sessio
             set_error(context,"[Malformed] Writer cover timestamp does not select an observed visible video sample.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
+    }
+    if(pair) {
+        if(!session.extended||!session.request.cover_timestamp_present||session.primary_timestamp_present||session.ordinary_present)
+            return LPB_RESULT_UNSUPPORTED;
+        uint32_t frame=0,hits=0;
+        for(const auto& sample:timeline.presentation_order)if(sample.visible) {
+            if(sample.normalized_time_100ns<0||sample.duration_100ns<=0)return LPB_RESULT_UNSUPPORTED;
+            const auto stamp=session.request.cover_timestamp_us*10;
+            if(stamp>=sample.normalized_time_100ns&&stamp-sample.normalized_time_100ns<sample.duration_100ns) {
+                session.cover_frame=frame;++hits;
+            }
+            ++frame;
+        }
+        if(hits!=1)return LPB_RESULT_INVALID_ARGUMENT;
     }
     if(session.extended&&session.primary_timestamp_present) {
         if(session.primary_timestamp_us<0||session.primary_timestamp_us>INT64_MAX/10)return LPB_RESULT_INVALID_ARGUMENT;
@@ -641,6 +667,10 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
 lpb_result finish(lpb_context* context,const std::shared_ptr<lpb_target_writer_session>& session,lpb_result result) {
     std::scoped_lock lock(context->plan_mutex);
     if(session->release_requested&&result==LPB_RESULT_OK)result=LPB_RESULT_CANCELLED;
+    if(result!=LPB_RESULT_OK && session->video_stage) {
+        if(!session->video_stage->abort_and_confirm()) {result=LPB_RESULT_INTERNAL_ERROR;session->failure=6;}
+        session->video_stage.reset();session->video_output={};
+    }
     if(result!=LPB_RESULT_OK && session->stage) {
         if(!session->stage->abort_and_confirm()) {
             result=LPB_RESULT_INTERNAL_ERROR;session->failure=6;
@@ -658,6 +688,105 @@ lpb_result finish(lpb_context* context,const std::shared_ptr<lpb_target_writer_s
     return result;
 }
 
+lpb_result stage_pair(lpb_context* context,lpb_target_writer_session& s) {
+    if(!s.request.reserved0&&std::any_of(s.auxiliaries.begin(),s.auxiliaries.end(),[](const auto& a){return a.selector_kind==3;})) {
+        set_error(context,"[Unsupported] Strict dual-file output cannot omit MiCamera private assets");return LPB_RESULT_UNSUPPORTED;
+    }
+    std::vector<uint8_t> image,video,image_out,video_out;
+    if(!s.inputs[0].read_all_bounded(4,32ULL*1024*1024,image)||
+       !s.inputs[1].read_all_bounded(8,512ULL*1024*1024,video))return LPB_RESULT_UNSUPPORTED;
+    if(s.request.target_profile==LPB_TARGET_APPLE) {
+        lpb::media::target_video_observation source;lpb::media::target_video_diagnostic diagnostic;
+        if(!lpb::media::observe_target_video(s.inputs[1].reader(),false,source,diagnostic))return LPB_RESULT_INVALID_ARGUMENT;
+        const bool all_intra=lpb::media::all_video_samples_sync(source.media.moov_bytes);
+        if(!all_intra||source.media.other_audio_tracks!=0) {
+            if(!s.request.reserved0) {
+                set_error(context,"[Unsupported] Strict Apple output requires prepared all-intra video and compatible audio");return LPB_RESULT_UNSUPPORTED;
+            }
+            windows_owned_output converted;
+            const auto path=utf8_to_path(s.request.staging_directory_utf8)/L"all-intra.mov";
+            if(!converted.create(path,L"lpb-intra-",L".stage",true))return LPB_RESULT_INTERNAL_ERROR;
+            const auto conversion=lpb::media::run_video_sidecar_transcode(context,s.inputs[1].reader(),converted,
+                LPB_VIDEO_CONTAINER_MOV,all_intra?LPB_VIDEO_CODEC_COPY:static_cast<lpb_video_codec>(s.artifacts[1].video_codec),18,false,source.profile,true,!all_intra,true);
+            auto outcome=conversion.native_result;
+            std::string preparation_failure=conversion.reason.data();
+            if(outcome==LPB_RESULT_OK) {
+                lpb::media::target_video_observation actual;
+                const bool valid=lpb::media::observe_target_video(converted.reader(),false,actual,diagnostic);
+                if(!valid||!lpb::media::all_video_samples_sync(actual.media.moov_bytes)||
+                   actual.media.timeline.visible_sample_count!=source.media.timeline.visible_sample_count||actual.media.other_audio_tracks!=0||
+                   actual.media.aac_audio_tracks!=source.media.aac_audio_tracks+source.media.other_audio_tracks) {
+                    outcome=LPB_RESULT_INVALID_ARGUMENT;
+                    preparation_failure="observed="+std::to_string(valid)+" source_frames="+std::to_string(source.media.timeline.visible_sample_count)+
+                        " output_frames="+std::to_string(actual.media.timeline.visible_sample_count)+" non_aac="+std::to_string(actual.media.other_audio_tracks)+
+                        " reason="+diagnostic.reason;
+                }
+                uint64_t length=0;
+                if(outcome==LPB_RESULT_OK&&(!converted.size(length)||length>512ULL*1024*1024))outcome=LPB_RESULT_UNSUPPORTED;
+                if(outcome==LPB_RESULT_OK) {video.resize(static_cast<size_t>(length));if(!converted.reader().read_exact(0,video))outcome=LPB_RESULT_INTERNAL_ERROR;}
+            }
+            if(!converted.abort_and_confirm())outcome=LPB_RESULT_INTERNAL_ERROR;
+            if(outcome!=LPB_RESULT_OK) {set_error(context,("Apple independently decodable frame preparation failed: "+preparation_failure).c_str());return outcome;}
+        }
+    }
+    const auto result=lpb::target::serialize_dual_file(context,s.request.target_profile,image,video,
+        s.artifacts[0].container==LPB_IMAGE_CONTAINER_HEIC,s.request.cover_timestamp_us,s.cover_frame,s.pairing_id,image_out,video_out);
+    if(result!=LPB_RESULT_OK)return result;
+    auto write=[&](const std::vector<uint8_t>& bytes,uint32_t role,std::unique_ptr<windows_owned_output>& stage,lpb_target_writer_output_v1& output){
+        stage=std::make_unique<windows_owned_output>();
+        const auto path=utf8_to_path(s.request.staging_directory_utf8)/L"target-pair.bin";
+        output={sizeof(output),1,role,role,s.request.target_profile,s.request.target_version,s.generation};
+        if(!stage->create(path,L"lpb-target-",L".stage",true)||!stage->write_all(bytes)||!stage->ready_to_consume()||
+           !stage->capture_identity(output.identity)||!stage->size(output.byte_length)||!stage->compute_sha256(output.sha256)||
+           !lpb_generate_unique_plan_token(output.stage_id))return false;
+        std::memcpy(output.request_fingerprint,s.fingerprint.data(),32);return true;
+    };
+    if(!write(image_out,0,s.stage,s.output)||!write(video_out,1,s.video_stage,s.video_output))return LPB_RESULT_INTERNAL_ERROR;
+    // Validator observes the two complete guarded outputs, not serializer state.
+    lpb_source_media_facts facts{};facts.struct_size=sizeof(facts);
+    const auto image_path=s.stage->path().u8string(),video_path=s.video_stage->path().u8string();
+    const auto validation=lpb::media::inspect_source(context,reinterpret_cast<const char*>(image_path.c_str()),
+        reinterpret_cast<const char*>(video_path.c_str()),&facts,nullptr,true);
+    if(validation!=LPB_RESULT_OK)return validation;
+    const auto protocol=s.request.target_profile==LPB_TARGET_APPLE?LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO:LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL;
+    if(facts.protocol!=protocol||std::string_view(facts.pairing_identifier)!=s.pairing_id||
+       static_cast<uint32_t>(facts.primary_image.container)!=s.artifacts[0].container||
+       !facts.primary_image.is_present||!facts.motion_video.is_present||!facts.has_secondary_source||
+       std::memcmp(facts.primary_sha256,s.output.sha256,32)||std::memcmp(facts.secondary_sha256,s.video_output.sha256,32)) {
+        set_error(context,"[TargetValidation] Complete pair protocol, identity or media roles differ");return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if(s.artifacts[0].container==LPB_IMAGE_CONTAINER_JPEG) {
+        const auto length=facts.primary_image.file_range.length;
+        lpb::media::target_primary_observation primary;std::string why;
+        if(!length||length>image_out.size()||!lpb::media::observe_target_primary(
+            std::span<const uint8_t>(image_out.data(),static_cast<size_t>(length)),primary,why)||
+            (primary.singleton_mpf&&!primary.singleton_size_matches)) {
+            set_error(context,("[TargetValidation] Dual JPEG auxiliary/index extent differs: "+why).c_str());return LPB_RESULT_INVALID_ARGUMENT;
+        }
+    }
+    isobmff_reader_observation observed;isobmff_reader_diagnostic diagnostic;
+    if(!inspect_isobmff_reader(s.video_stage->reader(),true,observed,diagnostic)||observed.video_codec!=s.artifacts[1].video_codec) {
+        set_error(context,(std::string("[TargetValidation] Complete movie reader rejected: ")+diagnostic.detail+
+            " offset="+std::to_string(diagnostic.offset)).c_str());return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if(s.request.target_profile==LPB_TARGET_APPLE) {
+        bool present=false;int64_t cover=0;
+        const bool valid_cover=inspect_isobmff_still_image_time(video_out,present,cover);
+        const bool sync=lpb::media::all_video_samples_sync(observed.moov_bytes);
+        if(!valid_cover||!present||cover-s.request.cover_timestamp_us < -23||cover-s.request.cover_timestamp_us > 23||!sync) {
+            set_error(context,("[TargetValidation] Apple cover/sample mismatch: valid="+std::to_string(valid_cover)+
+                " present="+std::to_string(present)+" cover="+std::to_string(cover)+" expected="+
+                std::to_string(s.request.cover_timestamp_us)+" sync="+std::to_string(sync)).c_str());return LPB_RESULT_INVALID_ARGUMENT;
+        }
+    } else {
+        bool has_frame=false,has_cover=false;int64_t frame=0,cover=0;
+        if(!lpb::media::observe_vivo_source_positions(video_out,has_frame,frame,has_cover,cover)||
+           !has_frame||has_cover||frame!=s.cover_frame) {
+            set_error(context,"[TargetValidation] Legacy vivo frame differs from requested cover");return LPB_RESULT_INVALID_ARGUMENT;
+        }
+    }
+    return check_cancel(context);
+}
 bool reentry(lpb_context* context) noexcept {
     if(!context||lpb_writer_callback_active(context)) {
         set_error(context,"[AuthorityViolation] Writer callback reentry is not authorized.");return true;
@@ -709,9 +838,11 @@ static lpb_result prepare_target_writer(lpb_context* context,const lpb_target_wr
                 if((std::string_view(auxiliary.semantic)=="MiCameraSubimage"||std::string_view(auxiliary.semantic)=="MiCameraLensWatermark"||std::string_view(auxiliary.semantic)=="MpfAuxiliaryImage")&&
                     auxiliary.representation!=1)return LPB_RESULT_INVALID_ARGUMENT;
                 const std::string_view semantic=auxiliary.semantic;
-                if(semantic=="MpfAuxiliaryImage"&&request->target_profile!=LPB_TARGET_HUAWEI&&
+                const bool dual_jpeg=(request->target_profile==LPB_TARGET_APPLE&&request->media_format==1)||
+                    (request->target_profile==LPB_TARGET_VIVO_LEGACY&&request->media_format==0);
+                if(semantic=="MpfAuxiliaryImage"&&request->target_profile!=LPB_TARGET_HUAWEI&&!dual_jpeg&&
                     !(((request->target_profile>=LPB_TARGET_GOOGLE_V1&&request->target_profile<=LPB_TARGET_SAMSUNG))&&(request->media_format==0||request->media_format==1))) {
-                    set_error(context,"[Unsupported] MPF auxiliary image passthrough is bounded to Huawei/Honor targets.");return LPB_RESULT_UNSUPPORTED;
+                    set_error(context,"[Unsupported] Target cannot transport this observed embedded MPF auxiliary graph.");return LPB_RESULT_UNSUPPORTED;
                 }
                 const std::string_view relationship=semantic=="GainMap"?"gain-map":semantic=="Original"?"Original":
                     semantic=="MpfAuxiliaryImage"?"mpf-image":semantic=="MiCameraSubimage"?"micamera-xmpmeta-subimage":"micamera-xmpmeta-lenswatermark";
@@ -795,6 +926,19 @@ static lpb_result prepare_target_writer(lpb_context* context,const lpb_target_wr
             if(!identity_equal(session->compound->identity,session->observed[0])||session->compound->sha256!=session->hashes[0])return LPB_RESULT_SOURCE_CHANGED;
         }
         fingerprint(*session);
+        if(request->target_profile==LPB_TARGET_APPLE||request->target_profile==LPB_TARGET_VIVO_LEGACY) {
+            GUID id{};if(CoCreateGuid(&id)!=S_OK)return LPB_RESULT_INTERNAL_ERROR;
+            if(request->target_profile==LPB_TARGET_APPLE) {
+                wchar_t canonical[39]{};
+                if(StringFromGUID2(id,canonical,39)!=39)return LPB_RESULT_INTERNAL_ERROR;
+                // Windows formats the mixed-endian GUID fields; omit braces.
+                for(size_t i=1;i<37;++i)session->pairing_id+=static_cast<char>(canonical[i]);
+            }else {
+                const auto* raw=reinterpret_cast<const uint8_t*>(&id);
+                static constexpr char hex[]="0123456789abcdef";
+                for(size_t i=0;i<14;++i) {session->pairing_id+=hex[raw[i]>>4];session->pairing_id+=hex[raw[i]&15];}
+            }
+        }
         if(check_cancel(context)!=LPB_RESULT_OK)return LPB_RESULT_CANCELLED;
         if(!lpb_generate_unique_plan_token(session->token))return LPB_RESULT_INTERNAL_ERROR;
         {
@@ -840,6 +984,8 @@ lpb_result LPB_CALL lpb_target_writer_stage_v1(lpb_context* context,lpb_target_w
         }
         auto result=check_cancel(context);
         if(result==LPB_RESULT_OK)result=revalidate(context,*session);
+        if(result==LPB_RESULT_OK&&(session->request.target_profile==LPB_TARGET_APPLE||session->request.target_profile==LPB_TARGET_VIVO_LEGACY))
+            return finish(context,session,stage_pair(context,*session));
         if(result==LPB_RESULT_OK) {
             if((session->request.target_profile!=LPB_TARGET_GOOGLE_V2&&session->request.target_profile!=LPB_TARGET_GOOGLE_V1&&
                 (!session->extended||(session->request.target_profile!=LPB_TARGET_OPPO&&session->request.target_profile!=LPB_TARGET_VIVO_MODERN&&session->request.target_profile!=LPB_TARGET_HUAWEI&&session->request.target_profile!=LPB_TARGET_SAMSUNG)))||
@@ -952,12 +1098,17 @@ lpb_result LPB_CALL lpb_target_writer_get_outputs_v1(lpb_context* context,lpb_ta
         if(!count||!status||status->struct_size!=sizeof(*status)||status->version!=1||(capacity&&!outputs))return LPB_RESULT_INVALID_ARGUMENT;
         std::scoped_lock lock(context->plan_mutex);const auto session=find_locked(context,plan);
         if(!session)return LPB_RESULT_AUTHORITY_VIOLATION;
-        const uint32_t total=session->state==2&&!session->release_requested&&session->stage?1U:0U;
+        const uint32_t total=session->state==2&&!session->release_requested&&session->stage?(session->video_stage?2U:1U):0U;
         *status={sizeof(*status),1,session->state,session->failure,session->request.target_profile,total,session->generation};
         *count=total;
+        if(total&&capacity<total)return LPB_RESULT_BUFFER_TOO_SMALL;
         if(total&&capacity) {
             if(outputs[0].struct_size!=sizeof(outputs[0])||outputs[0].version!=1){*count=0;return LPB_RESULT_INVALID_ARGUMENT;}
             outputs[0]=session->output;
+            if(total==2) {
+                if(outputs[1].struct_size!=sizeof(outputs[1])||outputs[1].version!=1){*count=0;return LPB_RESULT_INVALID_ARGUMENT;}
+                outputs[1]=session->video_output;
+            }
         }
         return LPB_RESULT_OK;
     } catch(...) {return LPB_RESULT_INTERNAL_ERROR;}
@@ -975,17 +1126,20 @@ lpb_result LPB_CALL lpb_target_writer_read_stage_v1(lpb_context* context,lpb_tar
             std::scoped_lock lock(context->plan_mutex);session=find_locked(context,plan);
             if(!session)return LPB_RESULT_AUTHORITY_VIOLATION;
             if(session->state!=2||session->release_requested||!session->stage)return LPB_RESULT_UNSUPPORTED;
-            if(stage!=session->output.stage_id)return LPB_RESULT_AUTHORITY_VIOLATION;
-            if(offset>session->output.byte_length||capacity>session->output.byte_length-offset)return LPB_RESULT_INVALID_ARGUMENT;
+            if(stage!=session->output.stage_id&&(!session->video_stage||stage!=session->video_output.stage_id))return LPB_RESULT_AUTHORITY_VIOLATION;
+            const auto& member=stage==session->output.stage_id?session->output:session->video_output;
+            if(offset>member.byte_length||capacity>member.byte_length-offset)return LPB_RESULT_INVALID_ARGUMENT;
             ++session->active_reads;
         }
         lpb_result result=check_cancel(context);
         {
             std::scoped_lock io(session->stage_io);
             if(result==LPB_RESULT_OK&&session->compound&&session->compound->revoked)result=LPB_RESULT_AUTHORITY_VIOLATION;
+            auto* member=stage==session->output.stage_id?session->stage.get():session->video_stage.get();
+            const auto& expected=stage==session->output.stage_id?session->output:session->video_output;
             lpb_file_identity actual{};
-            if(result==LPB_RESULT_OK&&(!session->stage->capture_identity(actual)||!identity_equal(actual,session->output.identity)))result=LPB_RESULT_SOURCE_CHANGED;
-            if(result==LPB_RESULT_OK&&capacity&&!session->stage->reader().read_exact(offset,std::span<uint8_t>(output,capacity)))result=LPB_RESULT_INTERNAL_ERROR;
+            if(result==LPB_RESULT_OK&&(!member->capture_identity(actual)||!identity_equal(actual,expected.identity)))result=LPB_RESULT_SOURCE_CHANGED;
+            if(result==LPB_RESULT_OK&&capacity&&!member->reader().read_exact(offset,std::span<uint8_t>(output,capacity)))result=LPB_RESULT_INTERNAL_ERROR;
         }
         if(result==LPB_RESULT_OK)result=check_cancel(context);
         if(result==LPB_RESULT_OK&&session->compound&&session->compound->revoked)result=LPB_RESULT_AUTHORITY_VIOLATION;
@@ -995,7 +1149,7 @@ lpb_result LPB_CALL lpb_target_writer_read_stage_v1(lpb_context* context,lpb_tar
             cleanup=session->active_reads==0&&session->release_requested;
             if(cleanup){auto& plans=context->target_writer_plans;plans.erase(std::remove(plans.begin(),plans.end(),session),plans.end());}
         }
-        if(cleanup&&session->stage&&!session->stage->abort_and_confirm()) {
+        if(cleanup&&((session->stage&&!session->stage->abort_and_confirm())|(session->video_stage&&!session->video_stage->abort_and_confirm()))) {
             set_error(context,"[CleanupFailed] Released Writer read stage cleanup failed.");result=LPB_RESULT_INTERNAL_ERROR;
         }
         if(result==LPB_RESULT_OK)*count=capacity;
@@ -1015,7 +1169,7 @@ lpb_result LPB_CALL lpb_target_writer_release_v1(lpb_context* context,lpb_target
             auto& plans=context->target_writer_plans;
             plans.erase(std::remove(plans.begin(),plans.end(),session),plans.end());
         }
-        if(session->stage&&!session->stage->abort_and_confirm()) {
+        if((session->stage&&!session->stage->abort_and_confirm())|(session->video_stage&&!session->video_stage->abort_and_confirm())) {
             set_error(context,"[CleanupFailed] Writer exact-owned stage cleanup failed during release.");return LPB_RESULT_INTERNAL_ERROR;
         }
         return LPB_RESULT_OK;

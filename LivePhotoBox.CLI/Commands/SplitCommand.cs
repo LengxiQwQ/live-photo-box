@@ -91,7 +91,7 @@ namespace LivePhotoBox.Cli.Commands
             var companionOpt = new Option<FileInfo?>("--companion") { Description = "Explicit companion video for a dual-file source. Native inspection must confirm the source binding; no filename guessing." };
             var pairingOpt = new Option<string>("--pairing") { DefaultValueFactory = _ => "all", Description = "Only split live photos of this protocol. all (no filter)|apple|v1 (MicroVideo)|v2 (MotionPhoto)|oppo|vivo|samsung|huawei." };
 
-            var protocolOpt = new Option<string>("--protocol", "-p") { DefaultValueFactory = _ => "none", Description = "Target phone format. Rebuilt split exports protocol-free neutral media (none); Apple/vivo target writing belongs to a later implementation step." };
+            var protocolOpt = new Option<string>("--protocol", "-p") { DefaultValueFactory = _ => "none", Description = "Target output: protocol-free media (none), Apple dual file (apple), or legacy vivo dual file (vivo)." };
             var formatOpt = new Option<string?>("--format", "-f") { Description = "Output format. keep (no conversion)|jpg+mov (H.265)|heic+mov (H.265)|jpg+mp4 (H.264).\nDefault: first available for the chosen protocol." };
             var keyTimestampOpt = new Option<string?>("--key-timestamp") { Description = "Override the key photo (cover) position on the video timeline (Apple conversion, single-file mode).\n" +
                 "Accepts seconds (2.500), mm:ss (1:30.500) or hh:mm:ss (0:01:30.500).\n" +
@@ -368,25 +368,11 @@ namespace LivePhotoBox.Cli.Commands
                 return 1;
             }
 
-            if (isRebuilt && protocolIndex != ProtocolFormatMatrix.SplitProtocolNone)
-            {
-                CliConsole.WriteErrorLine(
-                    "Error: rebuilt split exports protocol-free neutral media only; Apple/vivo target protocol writers are intentionally disabled. Use --protocol none.");
-                return 1;
-            }
-
-            if (isRebuilt && keyTimestampUs.HasValue)
-            {
-                CliConsole.WriteErrorLine(
-                    "Error: --key-timestamp is unavailable in rebuilt split because no target protocol writer is invoked.");
-                return 1;
-            }
-
-            // --key-timestamp 只在 Apple 转换（写封面位置元数据）时有意义；vivo 写入器固定 cover=0，无协议无封面概念。
-            if (keyTimestampUs.HasValue && protocolIndex != 1)
+            // A live target writes cover semantics; protocol-free export has no live binding.
+            if (keyTimestampUs.HasValue && protocolIndex == 0)
             {
                 CliConsole.WriteErrorWithHint(
-                    "Error: --key-timestamp only works when converting to Apple Live Photo (-p apple).",
+                    "Error: --key-timestamp requires an Apple or vivo live target; protocol none has no live cover binding.",
                     "Example: 'lpb split photo.jpg -p apple --key-timestamp 2.500'");
                 return 1;
             }
@@ -645,7 +631,7 @@ namespace LivePhotoBox.Cli.Commands
                 if (!json) Console.WriteLine($"Preparation capability: {capability.Diagnostic}");
                 var outcome = await LivePhotoSplitService.SplitWithOutcomeAsync(
                     sourcePath, outputDir, ProductSelectionAdapter.Split(protocolIndex, formatIndex), ct,
-                    inputDirectory: null, outputBaseName: outputBaseName, overwriteExisting: overwrite, secondaryPath: companionPath);
+                    inputDirectory: null, outputBaseName: outputBaseName, overwriteExisting: overwrite, secondaryPath: companionPath, keyTimestampUs: keyTimestampUs);
                 if (json) PrintJson(ProjectSingleOutcome(sourcePath, outcome, capability));
                 else
                 {

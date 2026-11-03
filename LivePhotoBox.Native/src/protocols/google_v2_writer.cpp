@@ -19,12 +19,13 @@ std::string property(std::string_view name,std::string_view value,std::string_vi
   std::string(value)+"</lpbc:"+std::string(name)+">";
 }
 std::string resource(std::string_view semantic,std::string_view mime,uint64_t length,uint64_t padding=0,bool vivo=false) {
- std::string out="<lpbrdf:li xmlns:lpbrdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" lpbrdf:parseType=\"Resource\">"
-  "<lpbcontainer:Item xmlns:lpbcontainer=\"http://ns.google.com/photos/1.0/container/\" xmlns:lpbi=\"http://ns.google.com/photos/1.0/container/item/\" lpbi:Mime=\""+
-  std::string(mime)+"\" lpbi:Semantic=\""+std::string(semantic)+"\"";
- if(!(vivo&&semantic=="Primary"))out+=" lpbi:Length=\""+std::to_string(length)+"\"";
- if((semantic=="Primary"&&!vivo)||(vivo&&semantic=="MotionPhoto"))out+=" lpbi:Padding=\""+std::to_string(padding)+"\"";
- return out+"/></lpbrdf:li>";
+ std::string out="<rdf:li xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" rdf:parseType=\"Resource\">"
+  "<Container:Item xmlns:Container=\"http://ns.google.com/photos/1.0/container/\" xmlns:Item=\"http://ns.google.com/photos/1.0/container/item/\" Item:Mime=\""+
+  std::string(mime)+"\" Item:Semantic=\""+std::string(semantic)+"\"";
+ if(!(vivo&&semantic=="Primary"))out+=" Item:Length=\""+std::to_string(length)+"\"";
+ if((semantic=="Primary"&&!vivo)||(vivo&&semantic=="MotionPhoto"))out+=" Item:Padding=\""+std::to_string(padding)+"\"";
+ out+="/></rdf:li>";
+ return out;
 }
 }
 
@@ -32,6 +33,11 @@ lpb_result build_google_xmp(std::string_view input,const google_xmp_request& req
  output.clear();
  try {
   const bool samsung=request.target==5,vivo=request.target==4;
+  const auto finish=[&]() {
+   std::string packet;lpb::media::xmp_observation_failure failure{};
+   if(!lpb::media::serialize_target_camera_attributes(output,request.target,packet,failure)) {if(error_out)*error_out="attribute emission failed: "+std::to_string(static_cast<int>(failure));output.clear();return LPB_RESULT_INVALID_ARGUMENT;}
+   output=std::move(packet);return LPB_RESULT_OK;
+  };
   if((request.target<1||request.target>4)&&!samsung)return LPB_RESULT_UNSUPPORTED;
   if((request.format!=0&&request.format!=1&&request.format!=3&&!(samsung&&request.format==2))||!request.video_length)return LPB_RESULT_UNSUPPORTED;
   const bool heif=request.format==3||(samsung&&request.format==2);
@@ -71,15 +77,15 @@ lpb_result build_google_xmp(std::string_view input,const google_xmp_request& req
   // No camera-direct source flag or proprietary media-kit version is invented.
   const std::string video=resource("MotionPhoto",request.format==0||samsung?"video/mp4":"video/quicktime",request.video_length,0,vivo);
   std::string assets;for(const auto& item:request.auxiliary_items)assets+=resource(item.semantic,item.mime,item.length,0,false);
-  const std::string directory=v1&&request.auxiliary_items.empty()?"":"<lpbcontainer:Directory xmlns:lpbcontainer=\"http://ns.google.com/photos/1.0/container/\">"
-   "<lpbrdf:Seq xmlns:lpbrdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"+
-   resource("Primary",request.primary_mime,0,request.primary_padding,vivo)+assets+(v1?"":video)+"</lpbrdf:Seq></lpbcontainer:Directory>";
-  const std::string description="<lpbrdf:Description xmlns:lpbrdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" lpbrdf:about=\"\">"+
-   properties+directory+"</lpbrdf:Description>";
+  std::string directory=v1&&request.auxiliary_items.empty()?"":"<Container:Directory xmlns:Container=\"http://ns.google.com/photos/1.0/container/\">"
+   "<rdf:Seq xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"+
+   resource("Primary",request.primary_mime,0,request.primary_padding,vivo)+assets+(v1?"":video)+"</rdf:Seq></Container:Directory>";
+  std::string description="<rdf:Description xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\" rdf:about=\"\">"+
+   properties+directory+"</rdf:Description>";
   if(input.empty()) {
    output="<x:xmpmeta xmlns:x=\"adobe:ns:meta/\"><rdf:RDF xmlns:rdf=\"http://www.w3.org/1999/02/22-rdf-syntax-ns#\">"+
     description+"</rdf:RDF></x:xmpmeta>";
-   return LPB_RESULT_OK;
+   return finish();
   }
   lpb::media::target_xmp_observation observed;lpb::media::xmp_observation_failure why{};
   if(!lpb::media::observe_target_xmp(input,observed,why))
@@ -141,7 +147,7 @@ lpb_result build_google_xmp(std::string_view input,const google_xmp_request& req
    output=input;
    output.replace(observed.rdf_content_offset-2,2,">"+description+"</"+observed.rdf_name+">");
   }
-  return LPB_RESULT_OK;
+  return finish();
  }catch(...){output.clear();return LPB_RESULT_INTERNAL_ERROR;}
 }
 

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidatePattern('^[a-z0-9][a-z0-9-]{0,23}$')][string]$BuildId = 'r4-hevc-v2',
+    [ValidatePattern('^[a-z0-9][a-z0-9-]{0,23}$')][string]$BuildId = 'r4-hevc-v3-aac',
     [ValidateRange(1,64)][int]$Jobs = [Math]::Min([Environment]::ProcessorCount,8)
 )
 $ErrorActionPreference='Stop'

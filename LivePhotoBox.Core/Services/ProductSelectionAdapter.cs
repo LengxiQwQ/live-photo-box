@@ -18,6 +18,8 @@ public static class ProductSelectionAdapter
         4 => TargetProtocol.VivoLivePhoto,
         5 => TargetProtocol.SamsungMotionPhoto,
         6 => TargetProtocol.HuaweiMovingPhoto,
+        7 => TargetProtocol.AppleLivePhoto,
+        8 => TargetProtocol.VivoLegacyDualFile,
         _ => throw new ArgumentOutOfRangeException(nameof(index), index, "Unknown target selection.")
     };
 
@@ -36,8 +38,11 @@ public static class ProductSelectionAdapter
 
     public static SplitMediaFormat Split(int protocolIndex, int formatIndex)
     {
-        if (protocolIndex != ProtocolFormatMatrix.SplitProtocolNone)
-            throw new NotSupportedException("Rebuilt split exports protocol-free neutral media only; use protocol 'none'.");
+        if (!ProtocolFormatMatrix.IsSplitAvailable(protocolIndex, formatIndex))
+            throw new NotSupportedException("The requested split target/format combination is unavailable.");
+        if (protocolIndex == ProtocolFormatMatrix.SplitProtocolApple)
+            return formatIndex == 1 ? SplitMediaFormat.AppleJpegMov : SplitMediaFormat.AppleHeicMov;
+        if (protocolIndex == ProtocolFormatMatrix.SplitProtocolVivo) return SplitMediaFormat.VivoJpegMp4;
         return formatIndex switch
         {
             0 => SplitMediaFormat.KeepSource,
@@ -58,6 +63,8 @@ public static class ProductSelectionAdapter
         TargetProtocol.VivoLivePhoto => 4,
         TargetProtocol.SamsungMotionPhoto => 5,
         TargetProtocol.HuaweiMovingPhoto => 6,
+        TargetProtocol.AppleLivePhoto => 7,
+        TargetProtocol.VivoLegacyDualFile => 8,
         _ => throw new ArgumentOutOfRangeException(nameof(target))
     };
 

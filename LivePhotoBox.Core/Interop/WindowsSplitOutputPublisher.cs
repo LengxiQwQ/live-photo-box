@@ -123,6 +123,29 @@ internal static class WindowsSplitOutputPublisher
         CancellationToken token) =>
         PublishSingleCoreAsync(finalPath, overwriteExisting, writeStageAsync, null, testHook, token);
 
+    internal static async Task PublishPairTargetAsync(string imagePath, string videoPath, bool overwrite,
+        Func<Stream, CancellationToken, Task> writeImage, Func<Stream, CancellationToken, Task> writeVideo,
+        NativeTargetPairProof expected, Action completeTransport, CancellationToken token)
+    {
+        using var transaction = new SplitOutputPublicationTransaction(imagePath, videoPath, overwrite, TestHook.Value);
+        try
+        {
+            await transaction.PreparePairTargetAsync(writeImage, writeVideo, expected, token).ConfigureAwait(false);
+            // Both sealed files have passed validation. Retire Native staging before commit.
+            completeTransport();
+            await transaction.CommitAsync(token).ConfigureAwait(false);
+        }
+        catch (Exception failure)
+        {
+            Exception? rollback = transaction.Rollback();
+            Exception? evidence = await transaction.EmitRollbackEvidenceAsync().ConfigureAwait(false);
+            if (rollback is not null || evidence is not null)
+                throw new AggregateException("Target pair publication/rollback failed.",
+                    new[] { failure, rollback, evidence }.OfType<Exception>());
+            throw;
+        }
+    }
+
     /// <summary>
     /// The concrete Target Validator reopens complete flushed bytes. Callers supply
     /// semantic expectations and cannot replace or disable the publication verdict.
@@ -387,6 +410,43 @@ internal static class WindowsSplitOutputPublisher
                 token.ThrowIfCancellationRequested();
                 slot.Baseline = CaptureBaseline(slot, token);
             }
+        }
+
+        public async Task PreparePairTargetAsync(Func<Stream, CancellationToken, Task> imageWriter,
+            Func<Stream, CancellationToken, Task> videoWriter, NativeTargetPairProof expected,
+            CancellationToken token)
+        {
+            var writers = new[] { imageWriter, videoWriter };
+            var seals = new List<TargetPublicationStage>();
+            try
+            {
+                for (int i = 0; i < 2; i++)
+                {
+                    token.ThrowIfCancellationRequested();
+                    var stage = CreateTransactionFile(_targetDirectory, "stage", deleteOnClose: false,
+                        allowReadOnlyValidation: true);
+                    _slots[i].Stage = stage;
+                    using (var borrowed = new SafeFileHandle(stage.Handle.DangerousGetHandle(), ownsHandle: false))
+                    using (var stream = new FileStream(borrowed, FileAccess.ReadWrite, BufferSize, isAsync: false))
+                    {
+                        await writers[i](stream, token).ConfigureAwait(false);
+                        stream.Flush(flushToDisk: true);
+                    }
+                    Flush(stage.Handle, stage.Path);
+                    var identity = CaptureAndValidateRegularFile(stage.Handle, stage.Path, requiredLinkCount: 1);
+                    if (!SameObjectAndAttributes(identity, stage.Identity)) throw new IOException("Target pair stage changed object.");
+                    stage.Length = GetLength(stage.Handle, stage.Path);
+                    stage.Sha256 = ComputeSha256(stage.Handle, stage.Length, stage.Path, token);
+                    seals.Add(new TargetPublicationStage(stage.Path, identity, stage.Length, stage.Sha256));
+                }
+                await DualFileTargetValidator.ValidateAsync(seals[0], seals[1], expected, token).ConfigureAwait(false);
+                foreach (var slot in _slots)
+                {
+                    VerifyOwnedFileMatches(slot.Stage!, slot.Stage!.Length, slot.Stage.Sha256!, token);
+                    slot.Baseline = _overwriteExisting ? CaptureBaseline(slot, token) : TargetBaseline.Missing;
+                }
+            }
+            finally { foreach (var seal in seals) seal.Dispose(); }
         }
 
         public async Task CommitAsync(CancellationToken token)

@@ -33,7 +33,10 @@ internal sealed record StructuredTargetWriteReceipt(
     WindowsFileIdentity FileIdentity,
     long ByteLength,
     string Sha256,
-    IReadOnlyList<NotCarriedItem> NotCarried);
+    IReadOnlyList<NotCarriedItem> NotCarried)
+{
+    internal string? VideoPath { get; init; }
+}
 
 internal static class StructuredTargetWriterService
 {
@@ -55,6 +58,8 @@ internal static class StructuredTargetWriterService
             TargetProtocol.VivoLivePhoto => 4,
             TargetProtocol.SamsungMotionPhoto => 5,
             TargetProtocol.HuaweiMovingPhoto => 6,
+            TargetProtocol.AppleLivePhoto => 7,
+            TargetProtocol.VivoLegacyDualFile => 8,
             _ => throw new NotSupportedException("This structured path does not implement the requested target family.")
         };
         MediaArtifact video = bundle.MotionVideo ?? throw new InvalidDataException("A prepared motion video is required.");
@@ -114,6 +119,24 @@ internal static class StructuredTargetWriterService
         };
         using var session = new Session(bundle.PrimaryImage, video, profile, target, targetVersion, cover, primaryTime,
             auxiliaries, ordinary, stagingDirectory, token, preservationPolicy);
+        if (target is 7 or 8)
+        {
+            foreach (var binding in auxiliaries.Where(x => x.SelectorKind == 3 &&
+                x.Row.Semantic is "MiCameraSubimage" or "MiCameraLensWatermark"))
+                notCarried.Add(new NotCarriedItem { Item = binding.Row.Semantic,
+                    Reason = "Optional MiCamera camera record omitted from the new dual-file target after its exact source ownership was validated.",
+                    Outcome = PreservationOutcome.DiscardedNotApplicable });
+            string videoPath = Path.ChangeExtension(finalPath, target == 7 ? ".MOV" : ".MP4");
+            RejectSourceAlias(videoPath, bundle.PrimaryImage);
+            RejectSourceAlias(videoPath, video);
+            await WindowsSplitOutputPublisher.PublishPairTargetAsync(finalPath, videoPath, overwriteExisting,
+                (stream, ct) => session.CopyMemberToAsync(0, stream, ct),
+                (stream, ct) => session.CopyMemberToAsync(1, stream, ct),
+                session.PairProof ?? throw new InvalidDataException("Native did not validate the target pair."),
+                session.CompleteTransport, token).ConfigureAwait(false);
+            return new StructuredTargetWriteReceipt(finalPath, WindowsFileIdentity.Capture(finalPath),
+                new FileInfo(finalPath).Length, session.MemberHash(0), notCarried) { VideoPath = videoPath };
+        }
         var published = await WindowsSplitOutputPublisher.PublishTargetAsync(finalPath, overwriteExisting,
             session.CopyToAsync, expected, token).ConfigureAwait(false);
         return new StructuredTargetWriteReceipt(published.FinalPath, published.FileIdentity, published.ByteLength, published.Sha256, notCarried);
@@ -436,7 +459,7 @@ internal static class StructuredTargetWriterService
                     RejectSourceAlias(finalPath, materialized);
                 }
 
-                bool targetCannotCarry = (target == 4 && row.Semantic is not ("GainMap" or "MpfAuxiliaryImage")) ||
+                bool targetCannotCarry = (target is 7 or 8 && representation == 2 && row.Semantic is "Original" or "MiCameraSubimage" or "MiCameraLensWatermark") || (target == 4 && row.Semantic is not ("GainMap" or "MpfAuxiliaryImage")) ||
                     (target == 6 && row.Semantic is "MiCameraSubimage" or "MiCameraLensWatermark") ||
                     (target is 5 or 6 && representation == 2 && row.Semantic == "Original");
                 if (targetCannotCarry || result.Count >= 2 || result.Any(item => item.Row.Semantic == row.Semantic))
@@ -524,6 +547,8 @@ internal static class StructuredTargetWriterService
         private readonly NativeContextLease _operation;
         private nint _plan;
         private NativeTargetWriterOutputV1 _output;
+        private NativeTargetWriterOutputV1 _videoOutput;
+        internal NativeTargetPairProof? PairProof { get; private set; }
         private NativeCompoundPrimary? _compound;
         private bool _compoundRetained;
 
@@ -600,11 +625,14 @@ internal static class StructuredTargetWriterService
                 Require(NativeMethods.TargetWriterStage(_operation.Handle, _plan), "stage");
                 var status = new NativeTargetWriterStatusV1
                 { StructSize = (uint)sizeof(NativeTargetWriterStatusV1), Version = 1 };
-                var output = new NativeTargetWriterOutputV1
-                { StructSize = (uint)sizeof(NativeTargetWriterOutputV1), Version = 1 };
-                Require(NativeMethods.TargetWriterGetOutputs(_operation.Handle, _plan, &output, 1,
+                NativeTargetWriterOutputV1* outputs = stackalloc NativeTargetWriterOutputV1[2];
+                for (int i = 0; i < 2; i++) outputs[i] = new NativeTargetWriterOutputV1
+                    { StructSize = (uint)sizeof(NativeTargetWriterOutputV1), Version = 1 };
+                uint members = target is 7 or 8 ? 2u : 1u;
+                Require(NativeMethods.TargetWriterGetOutputs(_operation.Handle, _plan, outputs, members,
                     out uint count, ref status), "query");
-                if (count != 1 || status.State != 2 || status.OutputCount != 1 || status.FailureCategory != 0 ||
+                var output = outputs[0];
+                if (count != members || status.State != 2 || status.OutputCount != members || status.FailureCategory != 0 ||
                     output.StructSize != sizeof(NativeTargetWriterOutputV1) || output.Version != 1 ||
                     output.ArtifactRole != 0 || output.ArtifactIndex != 0 || output.TargetProfile != request.TargetProfile ||
                     output.TargetVersion != request.TargetVersion || output.Generation != status.Generation || output.StageId == 0 ||
@@ -612,6 +640,17 @@ internal static class StructuredTargetWriterService
                     output.Identity.FileSize != output.ByteLength)
                     throw new IOException("Native Writer did not provide one complete sealed target artifact.");
                 _output = output;
+                if (members == 2)
+                {
+                    PairProof = NativeTargetPairProof.Observe(_operation.Handle, _plan);
+                    _videoOutput = outputs[1];
+                    if (_videoOutput.ArtifactIndex != 1 || _videoOutput.ArtifactRole != 1 ||
+                        _videoOutput.Generation != output.Generation || _videoOutput.TargetProfile != target ||
+                        _videoOutput.TargetVersion != targetVersion || _videoOutput.StageId == 0 || _videoOutput.StageId == output.StageId ||
+                        _videoOutput.ByteLength == 0 || _videoOutput.ByteLength > long.MaxValue ||
+                        _videoOutput.Identity.LinkCount != 1 || _videoOutput.Identity.FileSize != _videoOutput.ByteLength)
+                        throw new IOException("Native Writer did not seal both members of the target pair.");
+                }
             }
             catch
             {
@@ -639,6 +678,42 @@ internal static class StructuredTargetWriterService
             // A cleanup failure must not turn an already committed output into
             // a reported failure with no committed-artifact receipt.
             ReleasePlan();
+        }
+
+        internal void CompleteTransport() => ReleasePlan();
+
+        internal unsafe string MemberHash(int member)
+        {
+            var output = member == 0 ? _output : _videoOutput;
+            return Convert.ToHexString(new ReadOnlySpan<byte>(output.Sha256, 32));
+        }
+
+        internal async Task CopyMemberToAsync(int member, Stream writer, CancellationToken token)
+        {
+            var output = member == 0 ? _output : _videoOutput;
+            byte[] buffer = new byte[128 * 1024];
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            for (ulong offset = 0; offset < output.ByteLength;)
+            {
+                token.ThrowIfCancellationRequested();
+                int count = (int)Math.Min((ulong)buffer.Length, output.ByteLength - offset);
+                ReadMember(output.StageId, offset, buffer.AsSpan(0, count));
+                hash.AppendData(buffer.AsSpan(0, count));
+                await writer.WriteAsync(buffer.AsMemory(0, count), token).ConfigureAwait(false);
+                offset += (uint)count;
+            }
+            if (Convert.ToHexString(hash.GetHashAndReset()) != MemberHash(member))
+                throw new IOException("Target pair transport changed the sealed member bytes.");
+        }
+
+        private unsafe void ReadMember(ulong stage, ulong offset, Span<byte> buffer)
+        {
+            fixed (byte* bytes = buffer)
+            {
+                Require(NativeMethods.TargetWriterReadStage(_operation.Handle, _plan, stage,
+                    offset, bytes, (uint)buffer.Length, out uint read), "read pair member");
+                if (read != buffer.Length) throw new EndOfStreamException("Target pair transport was incomplete.");
+            }
         }
 
         private unsafe void Read(ulong offset, Span<byte> buffer)

@@ -104,6 +104,60 @@ int main(){
   REQUIRE(out.find("M:XMPMeta='opaque ordinary value'")!=std::string::npos);
  }
  REQUIRE(build_google_xmp("",req,out)==LPB_RESULT_OK);REQUIRE(observe_target_xmp(out,got,why)&&got.items.size()==2&&got.cover_us==2000);
+ // Device-facing V2 emission follows the attribute form used by camera
+ // exports. Reading remains URI based; do not rewrite unrelated bindings.
+ REQUIRE(out.find("GCamera:MotionPhoto=\"1\"")!=std::string::npos);
+ REQUIRE(out.find("GCamera:MotionPhotoVersion=\"1\"")!=std::string::npos);
+ REQUIRE(out.find("GCamera:MotionPhotoPresentationTimestampUs=\"2000\"")!=std::string::npos);
+ REQUIRE(out.find("<Container:Directory")!=std::string::npos&&out.find("<rdf:Seq")!=std::string::npos);
+ REQUIRE(out.find("<lpbc:MotionPhoto")==std::string::npos&&out.find("lpbcontainer")==std::string::npos);
+ auto collision=packet("<C:Item I:Semantic='Primary' I:Mime='image/jpeg' custom:Keep='same'/>");
+ collision.insert(collision.find("<r:Description")+15,"xmlns:GCamera='urn:ordinary' GCamera:Keep='must stay' ");
+ REQUIRE(build_google_xmp(collision,req,out)==LPB_RESULT_OK&&observe_target_xmp(out,got,why)&&got.cover_us==2000);
+ REQUIRE(out.find("xmlns:GCamera='urn:ordinary' GCamera:Keep='must stay'")!=std::string::npos);
+ REQUIRE(out.find("Camera:MotionPhoto=\"1\"")!=std::string::npos&&out.find("custom:Keep='same'")!=std::string::npos);
+ // All camera families emit attributes; collisions preserve ordinary XML.
+ for(uint32_t target=1;target<=5;++target) {
+  auto r=req;r.target=target;r.primary_cover_present=true;r.primary_cover_us=1500;
+  REQUIRE(build_google_xmp("",r,out)==LPB_RESULT_OK&&observe_target_xmp(out,got,why));
+  REQUIRE(out.find(target==1?"GCamera:MicroVideo=\"1\"":"GCamera:MotionPhoto=\"1\"")!=std::string::npos);
+  if(target==1)REQUIRE(!got.directory_present&&got.micro_offset==12345);
+  if(target==3)REQUIRE(out.find("OpCamera:MotionPhotoOwner=\"oplus\"")!=std::string::npos);
+  if(target==4)REQUIRE(out.find("VCamera:VMotionPhotoVersion=\"1\"")!=std::string::npos);
+  auto c=packet("<C:Item I:Semantic='Primary' I:Mime='image/jpeg' custom:Keep='same'/>");
+  c.insert(c.find("<r:Description")+15,"xmlns:GCamera='urn:ordinary' xmlns:OpCamera='urn:ordinary-op' xmlns:VCamera='urn:ordinary-vivo' GCamera:Keep='untouched' OpCamera:Keep='op' VCamera:Keep='vivo' ");
+  std::string emission_error;const auto emitted=build_google_xmp(c,r,out,&emission_error);
+  if(emitted!=LPB_RESULT_OK)std::cerr<<"collision target="<<target<<" result="<<emitted<<" "<<emission_error<<"\n";
+  REQUIRE(emitted==LPB_RESULT_OK&&observe_target_xmp(out,got,why));
+  REQUIRE(out.find("GCamera:Keep='untouched' OpCamera:Keep='op' VCamera:Keep='vivo'")!=std::string::npos);
+  REQUIRE(out.find("custom:Keep='same'")!=std::string::npos);
+  if(target==3)REQUIRE(out.find("lpbOpCamera0:MotionPhotoOwner=\"oplus\"")!=std::string::npos);
+  if(target==4)REQUIRE(out.find("lpbVCamera0:VMotionPhotoVersion=\"1\"")!=std::string::npos);
+ }
+ // Unknown cover stays -1 where supported, rather than manufacturing time zero.
+ for(uint32_t target=2;target<=5;++target) {
+  auto r=req;r.target=target;r.cover_present=false;r.primary_cover_present=true;r.primary_cover_us=1500;
+  REQUIRE(build_google_xmp("",r,out)==LPB_RESULT_OK&&observe_target_xmp(out,got,why)&&got.cover_us==-1);
+ }
+ // The generated-scalar pass must not become a permissive general XML rewriter.
+ const auto scalar=[](const std::string& name,const std::string& value) {
+  return "<g:"+name+" xmlns:g='http://ns.google.com/photos/1.0/camera/'>"+value+"</g:"+name+">";
+ };
+ const auto scalars=scalar("MotionPhoto","1")+scalar("MotionPhotoVersion","1")+scalar("MotionPhotoPresentationTimestampUs","2000");
+ auto element_packet=packet("<C:Item I:Semantic='Primary' I:Mime='image/jpeg' custom:Keep='untouched'/>");
+ element_packet.insert(element_packet.find("</r:Description>"),scalars);
+ REQUIRE(serialize_target_camera_attributes(element_packet,2,out,why)&&why==xmp_observation_failure::none);
+ REQUIRE(out.find("custom:Keep='untouched'")!=std::string::npos);
+ for(unsigned malformed=0;malformed<5;++malformed) {
+  auto bad=element_packet;
+  if(malformed==0)bad.insert(bad.find("</r:Description>"),scalar("MotionPhoto","1"));
+  if(malformed==1)bad.insert(bad.find(" xmlns:g=")," xmlns:ordinary='urn:kept' ordinary:Keep='must not erase'");
+  if(malformed==2)bad.erase(bad.find("<C:Directory>"),bad.find("</C:Directory>")+14-bad.find("<C:Directory>"));
+  if(malformed==3)bad.insert(bad.find("</r:Description>"),scalar("MicroVideo","1"));
+  if(malformed==4)bad.replace(bad.find(">2000</"),7,">oops</");
+  out="stale output";
+  REQUIRE(!serialize_target_camera_attributes(bad,2,out,why)&&out.empty()&&why!=xmp_observation_failure::none);
+ }
  req.target=3;REQUIRE(build_google_xmp("",req,out)==LPB_RESULT_UNSUPPORTED&&out.empty());
  req.primary_cover_present=true;req.primary_cover_us=1500;
  REQUIRE(build_google_xmp("",req,out)==LPB_RESULT_OK);REQUIRE(observe_target_xmp(out,got,why)&&got.oppo_claim&&got.oppo_owner=="oplus"&&got.primary_cover_us==1500&&!got.edit_flag_present);

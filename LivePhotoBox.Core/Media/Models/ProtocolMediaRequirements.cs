@@ -44,6 +44,6 @@ public static class ProtocolMediaRequirements
                 $"Split format index {splitFormatIndex} is not available for split protocol index {splitProtocolIndex}.");
         }
 
-        return SplitMediaRequirements.Get(ProductSelectionAdapter.Split(0, splitFormatIndex));
+        return SplitMediaRequirements.Get(ProductSelectionAdapter.Split(splitProtocolIndex, splitFormatIndex));
     }
 }

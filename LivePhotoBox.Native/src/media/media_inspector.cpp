@@ -1822,7 +1822,7 @@ static bool looks_like_uuid(std::string_view value) noexcept {
 
 static bool extract_apple_cid_from_makernote(const uint8_t* data, size_t start, size_t end, std::string& out, bool& out_has_conflict) {
     out_has_conflict = false;
-    if (!data || start > end || end - start < 30) return false;
+    if (!data || start > end || end - start < 16) return false;
     const char signature[] = "Apple iOS\0";
     std::string found_cid;
     // The MakerNote owner is already resolved by the enclosing ExifIFD.  Do
@@ -1832,7 +1832,13 @@ static bool extract_apple_cid_from_makernote(const uint8_t* data, size_t start, 
     if (p + 16 > end || std::memcmp(data + p, signature, 10) != 0 || data[p + 10] != 0 ||
         data[p + 11] != 1 || data[p + 12] != 'M' || data[p + 13] != 'M') return false;
     const uint16_t count = read_be16u(data + p + 14);
-    if (count == 0 || count > 64 || count > (end - p - 16) / 12) {
+    if (count == 0) {
+        // A cleaned note with no entries is valid only with a complete,
+        // terminated next-IFD field. It has no ContentIdentifier.
+        if (end-p<20 || read_be32u(data+p+16)!=0) out_has_conflict=true;
+        return false;
+    }
+    if (count > 64 || count > (end - p - 16) / 12) {
         // The Apple-shaped MakerNote is formally owned, but its directory is
         // malformed.  Keep this distinct from a valid non-live Apple
         // MakerNote that simply has no ContentIdentifier after cleaning.
@@ -2209,12 +2215,21 @@ static bool extract_apple_cid_from_image(lpb_context* context, const std::vector
             offset > data.size() || length > data.size() - static_cast<size_t>(offset)) return false;
         size_t owned_start = static_cast<size_t>(offset);
         size_t owned_end = static_cast<size_t>(offset + length);
-        if (owned_end - owned_start >= 10 && data[owned_start] == 0 && data[owned_start + 1] == 0 &&
-            data[owned_start + 2] == 0 && data[owned_start + 3] == 6 &&
-            std::memcmp(data.data() + owned_start + 4, "Exif\0\0", 6) == 0)
-            owned_start += 10;
-        else if (owned_end - owned_start >= 6 && std::memcmp(data.data() + owned_start, "Exif\0\0", 6) == 0)
-            owned_start += 6;
+        // HEIF Exif owns a four-byte big-endian TIFF offset relative to the
+        // bytes immediately after that field.  Offset zero (no Exif marker)
+        // and offset six (Exif\0\0 prefix) are both valid representations.
+        // The strict item locator has already established a unique owner; the
+        // TIFF parser below still enforces its unique ExifIFD and MakerNote.
+        if (owned_end-owned_start < 4) return false;
+        const bool raw_tiff = (data[owned_start]=='I' && data[owned_start+1]=='I') ||
+                              (data[owned_start]=='M' && data[owned_start+1]=='M');
+        if (!raw_tiff && owned_end-owned_start>=6 &&
+            std::memcmp(data.data()+owned_start,"Exif\0\0",6)==0) owned_start+=6;
+        else if (!raw_tiff) {
+            const uint32_t tiff_offset=read_be32u(data.data()+owned_start);
+            if (tiff_offset>owned_end-owned_start-4 || owned_end-owned_start-4-tiff_offset<8) return false;
+            owned_start+=4+static_cast<size_t>(tiff_offset);
+        }
         return extract_apple_cid_from_owned_exif(data.data(), owned_start, owned_end, out, out_has_conflict);
     }
     return false;
@@ -2235,14 +2250,31 @@ static bool extract_vivo_id_from_bytes(const uint8_t* data, size_t start, size_t
     return true;
 }
 
-static bool extract_vivo_id_from_image(const std::vector<uint8_t>& data, uint64_t jpeg_end, std::string& out) {
-    constexpr std::string_view marker = "cameralbum!";
-    if (jpeg_end > data.size()) return false;
-    const size_t marker_pos = std::string_view(reinterpret_cast<const char*>(data.data()), data.size()).rfind(marker);
-    if (marker_pos == std::string_view::npos || marker_pos < jpeg_end) return false;
-    const auto bytes = std::string_view(reinterpret_cast<const char*>(data.data()), data.size());
-    const size_t vivo_pos = bytes.rfind("vivo{", marker_pos);
-    return vivo_pos != std::string_view::npos && extract_vivo_id_from_bytes(data.data(), vivo_pos, data.size(), out);
+static bool extract_vivo_id_from_image(const std::vector<uint8_t>& data, uint64_t jpeg_end, std::string& out,
+    size_t* tail_start = nullptr) {
+    constexpr std::string_view marker="cameralbum!";
+    constexpr uint8_t tail[]={255,255,255,255,0x1b,0x2a,0x39,0x48,0x57,0x66,0x75,0x84,0x93,0xa2,0xb3};
+    if(jpeg_end>data.size() || data.size()<marker.size()+19+4)return false;
+    const auto bytes=std::string_view(reinterpret_cast<const char*>(data.data()),data.size());
+    const size_t album=bytes.rfind(marker);
+    if(album==std::string_view::npos || album<jpeg_end || album<8 ||
+       album+marker.size()>data.size() || data.size()-album-marker.size()<19)return false;
+    const size_t record=album+marker.size();const uint32_t record_length=read_be32u(data.data()+record);
+    if(record_length<19 || record_length!=data.size()-record ||
+       !std::equal(std::begin(tail),std::end(tail),data.end()-sizeof(tail)))return false;
+    const uint32_t json_length=read_be32u(data.data()+album-4);
+    if(json_length>album-8)return false;
+    const size_t start=album-8-json_length;
+    if(start<jpeg_end || std::memcmp(data.data()+start,"vivo",4))return false;
+    const size_t json_start=start+4,json_end=album-4;
+    lpb::media::vivo_json_detail::parser json{std::span<const uint8_t>(data),json_start,json_end};
+    if(!json.object(true) || json.p!=json_end)return false;
+    const lpb::media::vivo_json_member* pairing=nullptr;
+    for(const auto& item:json.root) if(item.key=="com.android.camera.livephoto") {if(pairing)return false;pairing=&item;}
+    const size_t id_length=record_length-19;
+    if(!pairing || !pairing->string_value || pairing->value.empty() || pairing->value.size()>127 ||
+       pairing->value.size()!=id_length || std::memcmp(data.data()+record+4,pairing->value.data(),id_length))return false;
+    out=pairing->value;if(tail_start)*tail_start=start;return true;
 }
 
 static bool extract_vivo_id_from_video(const std::vector<uint8_t>& data, std::string& out) {
@@ -3365,10 +3397,36 @@ lpb_result inspect_source(
         if (image_id_ok && video_id_ok) {
             if (image_content_id == video_content_id) {
                 if (img_cont == LPB_IMAGE_CONTAINER_JPEG) {
-                    if (!is_valid_jpeg_media_range(primary_data.data(), primary_data.size(), 0, primary_size)) {
-                        set_error(context, "Apple Live Photo primary JPEG image is structurally malformed or truncated.");
+                    lpb::media::target_primary_observation observed;std::string image_error;
+                    if(!lpb::media::observe_target_primary(primary_data,observed,image_error) ||
+                       observed.container!=LPB_IMAGE_CONTAINER_JPEG || observed.has_video ||
+                       lpb::media::target_primary_has_live_binding(observed)) {
+                        set_error(context, image_error.empty()?"Apple primary JPEG asset graph is invalid or carries conflicting live ownership.":image_error.c_str());
                         set_inspection_status(context, LPB_INSPECTION_FAILURE_MALFORMED, LPB_INSPECTION_STAGE_CONTAINER, LPB_CAPABILITY_APPLE);
                         return LPB_RESULT_INVALID_ARGUMENT;
+                    }
+                    for(const auto& asset:observed.auxiliaries) {
+                        bool added=false;
+                        if(asset.semantic=="GainMap") {
+                            added=publish_gainmap_auxiliary(out_facts,primary_data,LPB_IMAGE_CONTAINER_JPEG,asset.range);
+                        } else {
+                            const char* identity=asset.semantic=="MpfAuxiliaryImage"?"mpf-image:2":
+                                asset.semantic=="MiCameraSubimage"?"micamera:xmpmeta:subimage":
+                                asset.semantic=="MiCameraLensWatermark"?"micamera:xmpmeta:lenswatermark":
+                                asset.semantic=="Original"?"auxiliary:original:0":nullptr;
+                            if(identity)added=publish_auxiliary_item(out_facts,primary_data,LPB_IMAGE_CONTAINER_JPEG,
+                                asset.range,LPB_AUX_REPRESENTATION_EMBEDDED,LPB_AUX_OWNER_PRIMARY,asset.selector_id,
+                                asset.relationship.c_str(),asset.semantic.c_str(),identity,"primary:0",
+                                asset.semantic=="MiCameraLensWatermark"?LPB_AUX_CODEC_COPY:LPB_AUX_CODEC_JPEG);
+                        }
+                        if(!added) {set_error(context,"Apple JPEG auxiliary ownership cannot be published safely.");return LPB_RESULT_INVALID_ARGUMENT;}
+                    }
+                    if(std::any_of(observed.auxiliaries.begin(),observed.auxiliaries.end(),[](const auto& a){return a.semantic=="MpfAuxiliaryImage";})) {
+                        mpf_vendor_primary vendor;
+                        if(observe_mpf_vendor_primary(primary_data,vendor) && vendor.metadata_length &&
+                           !publish_preservation_carrier(out_facts,primary_data,LPB_PRESERVATION_CARRIER_CONTAINER_METADATA,
+                              {vendor.metadata_offset,vendor.metadata_length},"primary-metadata:VLDMAGIC","CameraMetadata","primary:0","opaque-camera-metadata"))
+                            return LPB_RESULT_INVALID_ARGUMENT;
                     }
                 } else if (img_cont == LPB_IMAGE_CONTAINER_HEIC) {
                     if (!is_valid_heic_container(context, primary_data.data(), primary_data.size())) {
@@ -3491,7 +3549,8 @@ lpb_result inspect_source(
         // 2. Check Vivo Legacy Dual-File
         std::string vivo_image_id;
         std::string vivo_video_id;
-        const bool vivo_img_ok = has_jpeg_end && extract_vivo_id_from_image(primary_data, jpeg_end, vivo_image_id);
+        size_t vivo_tail_start=0;
+        const bool vivo_img_ok = has_jpeg_end && extract_vivo_id_from_image(primary_data, jpeg_end, vivo_image_id, &vivo_tail_start);
         const bool vivo_vid_ok = extract_vivo_id_from_video(sec_data, vivo_video_id);
 
         if (vivo_img_ok && vivo_vid_ok) {
@@ -3508,11 +3567,40 @@ lpb_result inspect_source(
                 out_facts->motion_video.file_range.offset = 0;
                 out_facts->motion_video.file_range.length = secondary_size;
                 out_facts->motion_video.source_index = 1;
-                if (has_jpeg_end && jpeg_end < primary_size) {
-                    out_facts->primary_image.file_range.length = jpeg_end;
-                    out_facts->protocol_tail_range.offset = jpeg_end;
-                    out_facts->protocol_tail_range.length = primary_size - jpeg_end;
+                lpb::media::target_primary_observation observed;std::string image_error;
+                const std::span<const uint8_t> owned_primary(primary_data.data(),vivo_tail_start);
+                if(!lpb::media::observe_target_primary(owned_primary,observed,image_error) ||
+                   observed.container!=LPB_IMAGE_CONTAINER_JPEG || observed.has_video ||
+                   lpb::media::target_primary_has_live_binding(observed)) {
+                    set_error(context,image_error.empty()?"Vivo legacy primary asset graph is malformed or has conflicting live ownership.":image_error.c_str());
+                    set_inspection_status(context,LPB_INSPECTION_FAILURE_MALFORMED,LPB_INSPECTION_STAGE_CONTAINER,LPB_CAPABILITY_VIVO_LEGACY);
+                    return LPB_RESULT_INVALID_ARGUMENT;
                 }
+                for(const auto& asset:observed.auxiliaries) {
+                    bool added=false;
+                    if(asset.semantic=="GainMap") added=publish_gainmap_auxiliary(out_facts,primary_data,LPB_IMAGE_CONTAINER_JPEG,asset.range);
+                    else {
+                        const char* identity=asset.semantic=="MpfAuxiliaryImage"?"mpf-image:2":
+                            asset.semantic=="MiCameraSubimage"?"micamera:xmpmeta:subimage":
+                            asset.semantic=="MiCameraLensWatermark"?"micamera:xmpmeta:lenswatermark":
+                            asset.semantic=="Original"?"auxiliary:original:0":nullptr;
+                        if(identity)added=publish_auxiliary_item(out_facts,primary_data,LPB_IMAGE_CONTAINER_JPEG,
+                            asset.range,LPB_AUX_REPRESENTATION_EMBEDDED,LPB_AUX_OWNER_PRIMARY,asset.selector_id,
+                            asset.relationship.c_str(),asset.semantic.c_str(),identity,"primary:0",
+                            asset.semantic=="MiCameraLensWatermark"?LPB_AUX_CODEC_COPY:LPB_AUX_CODEC_JPEG);
+                    }
+                    if(!added) {set_error(context,"Vivo legacy JPEG auxiliary ownership cannot be published safely.");return LPB_RESULT_INVALID_ARGUMENT;}
+                }
+                if(std::any_of(observed.auxiliaries.begin(),observed.auxiliaries.end(),[](const auto& a){return a.semantic=="MpfAuxiliaryImage";})) {
+                    mpf_vendor_primary vendor;
+                    if(observe_mpf_vendor_primary(owned_primary,vendor) && vendor.metadata_length &&
+                       !publish_preservation_carrier(out_facts,primary_data,LPB_PRESERVATION_CARRIER_CONTAINER_METADATA,
+                         {vendor.metadata_offset,vendor.metadata_length},"primary-metadata:VLDMAGIC","CameraMetadata","primary:0","opaque-camera-metadata"))
+                        return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                out_facts->primary_image.file_range.length=vivo_tail_start;
+                out_facts->protocol_tail_range.offset=vivo_tail_start;
+                out_facts->protocol_tail_range.length=primary_size-vivo_tail_start;
                 strncpy_s(out_facts->pairing_identifier, vivo_image_id.c_str(), _TRUNCATE);
 
                 if (out_residues) {
@@ -6334,6 +6422,86 @@ bool normalize_secondary_item_padding(std::string_view xml,std::string& output,x
                 after.items[i].mime!=observed.items[i].mime||after.items[i].length!=observed.items[i].length)return false;
         failure=xmp_observation_failure::none;return true;
     }catch(...){output.clear();return false;}
+}
+
+bool serialize_target_camera_attributes(std::string_view xml,uint32_t target,std::string& output,xmp_observation_failure& failure) noexcept {
+    output.clear();failure=xmp_observation_failure::malformed;
+    try {
+        target_xmp_observation before;
+        if(!observe_target_xmp(xml,before,failure))return false;
+        failure=xmp_observation_failure::malformed;
+        if(target<1||target>5||before.oppo_claim!=(target==3)||before.vivo_claim!=(target==4)||(target!=1&&!before.directory_present)||
+           (target==1?(!before.micro_claim||before.live_claim||!before.micro_cover_present):(!before.live_claim||before.micro_claim||!before.cover_present)))return false;
+        std::vector<xmp_node> nodes;if(!scan_xmp_tree(xml,nodes,true))return false;
+        size_t owner=k_no_parent;std::vector<std::pair<size_t,size_t>> removals;
+        std::map<std::pair<std::string,std::string>,std::string> values;
+        for(const auto& node:nodes) {
+            const auto name=local_name(node.tag_name);
+            const bool camera=node.resolved_uri==google_camera_namespace&&
+                (target==1?(name=="MicroVideo"||name=="MicroVideoVersion"||name=="MicroVideoOffset"||name=="MicroVideoPresentationTimestampUs"):
+                 (name=="MotionPhoto"||name=="MotionPhotoVersion"||name=="MotionPhotoPresentationTimestampUs"));
+            const bool oppo=target==3&&node.resolved_uri=="http://ns.oplus.com/photos/1.0/camera/"&&
+                (name=="MotionPhotoOwner"||name=="OLivePhotoVersion"||name=="VideoLength"||name=="MotionPhotoPrimaryPresentationTimestampUs");
+            const bool vivo=target==4&&node.resolved_uri=="http://ns.vivo.com/photos/1.0/camera/"&&name=="VMotionPhotoVersion";
+            if(!camera&&!oppo&&!vivo)continue;
+            if(node.parent_index==k_no_parent||!node.children.empty()||node.close_start==std::string::npos)return false;
+            const auto& parent=nodes[node.parent_index];
+            if(!node_is(parent,rdf_namespace,"Description")||(owner!=k_no_parent&&owner!=parent.node_index))return false;
+            owner=parent.node_index;
+            for(const auto& a:node.attributes)if(a.name!="xmlns"&&!a.name.starts_with("xmlns:"))return false;
+            const auto end=xml.find('>',node.close_start);if(end==std::string::npos)return false;
+            if(!values.emplace(std::pair{std::string(node.resolved_uri),std::string(name)},std::string(node.text_value)).second)return false;
+            removals.emplace_back(node.tag_start,end+1);
+        }
+        if(owner==k_no_parent||values.size()!=(target==1?4U:target==3?7U:target==4?4U:3U))return false;
+        const auto binding=[&](const std::string& prefix)->std::string_view {
+            for(size_t i=owner;i!=k_no_parent;i=nodes[i].parent_index)
+                for(const auto& a:nodes[i].attributes)if(a.name=="xmlns:"+prefix)return a.value;
+            return {};
+        };
+        std::string attributes;std::map<std::string,std::string> prefixes;
+        for(const auto& [key,value]:values) {
+            const auto& [uri,name]=key;
+            auto& prefix=prefixes[uri];
+            if(prefix.empty()) {
+                const std::string preferred=uri==google_camera_namespace?"GCamera":
+                    uri=="http://ns.oplus.com/photos/1.0/camera/"?"OpCamera":"VCamera";
+                prefix=preferred;
+                for(unsigned i=0;!binding(prefix).empty()&&binding(prefix)!=uri;++i)
+                    prefix=preferred=="GCamera"&&i==0?"Camera":"lpb"+preferred+std::to_string(i);
+                if(binding(prefix).empty())attributes+=" xmlns:"+prefix+"=\""+uri+"\"";
+            }
+            if(name=="MotionPhotoOwner") {if(value!="oplus")return false;}
+            else if(value.empty()||value.find_first_not_of("-0123456789")!=std::string::npos)return false;
+            attributes+=" "+prefix+":"+name+"=\""+value+"\"";
+        }
+        const auto insert=nodes[owner].content_start-1;
+        if(!nodes[owner].content_start||insert>=xml.size()||xml[insert]!='>')return false;
+        output=xml;std::sort(removals.begin(),removals.end());
+        for(auto i=removals.rbegin();i!=removals.rend();++i)output.erase(i->first,i->second-i->first);
+        output.insert(insert,attributes);
+        target_xmp_observation after;
+        if(!observe_target_xmp(output,after,failure)){output.clear();return false;}
+        failure=xmp_observation_failure::malformed;
+        if(after.motion_photo!=before.motion_photo||
+           after.motion_version!=before.motion_version||after.cover_us!=before.cover_us||after.items.size()!=before.items.size()||
+           after.micro_video!=before.micro_video||after.micro_version!=before.micro_version||after.micro_offset!=before.micro_offset||
+           after.micro_cover_us!=before.micro_cover_us||after.oppo_owner!=before.oppo_owner||after.oppo_version!=before.oppo_version||
+           after.oppo_video_length!=before.oppo_video_length||after.primary_cover_us!=before.primary_cover_us||after.vivo_version!=before.vivo_version) {
+            output.clear();return false;
+        }
+        for(size_t i=0;i<before.items.size();++i) {
+            const auto& a=before.items[i];const auto& b=after.items[i];
+            if(a.semantic!=b.semantic||a.mime!=b.mime||a.length!=b.length||a.padding!=b.padding||a.has_length!=b.has_length||a.has_padding!=b.has_padding) {
+                output.clear();return false;
+            }
+        }
+        failure=xmp_observation_failure::none;return true;
+    }catch(...){output.clear();return false;}
+}
+
+bool serialize_google_v2_camera_attributes(std::string_view xml,std::string& output,xmp_observation_failure& failure) noexcept {
+    return serialize_target_camera_attributes(xml,2,output,failure);
 }
 
 bool rewrite_target_primary_padding(std::string_view xml,uint64_t padding,std::string& output,xmp_observation_failure& failure,bool generated_target) noexcept {

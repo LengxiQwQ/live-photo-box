@@ -24,6 +24,8 @@ extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 #include <libavutil/display.h>
+#include <libavutil/audio_fifo.h>
+#include <libavutil/samplefmt.h>
 #include <libavutil/error.h>
 #include <libavutil/pixdesc.h>
 #include <libavutil/mastering_display_metadata.h>
@@ -623,6 +625,132 @@ int encode_frame(AVCodecContext* encoder, AVFormatContext* output, AVStream* out
     return write_encoded_packets(encoder, output, output_stream, packet_count, metadata);
 }
 
+// PCM16/24 to the built-in AAC encoder. No resampling or channel remix is
+// performed: sample rate, channel layout and the source timeline stay bound.
+struct PcmAacPipeline {
+    CodecContext decoder{nullptr,free_codec}, encoder{nullptr,free_codec};
+    Frame decoded{nullptr,free_frame};
+    std::unique_ptr<AVAudioFifo,void(*)(AVAudioFifo*)> fifo{nullptr,av_audio_fifo_free};
+    AVStream* source{}; AVStream* destination{}; AVFormatContext* output{};
+    uint64_t* packet_count{};int64_t next_input{AV_NOPTS_VALUE},next_output{AV_NOPTS_VALUE};
+
+    int open(AVStream* in,AVStream* out,AVFormatContext* mux,uint64_t& packets) {
+        source=in;destination=out;output=mux;packet_count=&packets;
+        if(!in || !in->codecpar || in->time_base.num<=0 || in->time_base.den<=0 ||
+           (in->codecpar->codec_id!=AV_CODEC_ID_PCM_S16LE && in->codecpar->codec_id!=AV_CODEC_ID_PCM_S24LE) ||
+           in->codecpar->sample_rate<=0 || !av_channel_layout_check(&in->codecpar->ch_layout) ||
+           in->codecpar->ch_layout.nb_channels<1 || in->codecpar->ch_layout.nb_channels>8) return AVERROR(ENOSYS);
+        const AVCodec* dec=avcodec_find_decoder(in->codecpar->codec_id);
+        const AVCodec* enc=avcodec_find_encoder_by_name("aac");
+        if(!dec||!enc)return AVERROR(ENOSYS);
+        decoder.reset(avcodec_alloc_context3(dec));encoder.reset(avcodec_alloc_context3(enc));decoded.reset(av_frame_alloc());
+        if(!decoder||!encoder||!decoded)return AVERROR(ENOMEM);
+        int r=avcodec_parameters_to_context(decoder.get(),in->codecpar);if(r<0)return r;
+        // PCM files commonly specify only mono/stereo channel count. AAC
+        // requires the corresponding named layout; no channel reorder/remix.
+        if(decoder->ch_layout.order==AV_CHANNEL_ORDER_UNSPEC) {
+            const int count=decoder->ch_layout.nb_channels;if(count>2)return AVERROR(ENOSYS);
+            av_channel_layout_uninit(&decoder->ch_layout);av_channel_layout_default(&decoder->ch_layout,count);
+        }
+        decoder->pkt_timebase=in->time_base;
+        if((r=avcodec_open2(decoder.get(),dec,nullptr))<0)return r;
+        encoder->sample_rate=in->codecpar->sample_rate;encoder->sample_fmt=AV_SAMPLE_FMT_FLTP;
+        encoder->time_base={1,encoder->sample_rate};encoder->bit_rate=static_cast<int64_t>(128000)*in->codecpar->ch_layout.nb_channels;
+        if((r=av_channel_layout_copy(&encoder->ch_layout,&decoder->ch_layout))<0)return r;
+        if((mux->oformat->flags&AVFMT_GLOBALHEADER)!=0)encoder->flags|=AV_CODEC_FLAG_GLOBAL_HEADER;
+        if((r=avcodec_open2(encoder.get(),enc,nullptr))<0)return r;
+        if(encoder->sample_rate!=in->codecpar->sample_rate || encoder->sample_fmt!=AV_SAMPLE_FMT_FLTP ||
+           av_channel_layout_compare(&encoder->ch_layout,&decoder->ch_layout)!=0 || encoder->frame_size<=0 ||
+           (enc->capabilities&AV_CODEC_CAP_SMALL_LAST_FRAME)==0)return AVERROR(ENOSYS);
+        if((r=avcodec_parameters_from_context(out->codecpar,encoder.get()))<0)return r;
+        out->codecpar->codec_tag=0;out->time_base=encoder->time_base;
+        fifo.reset(av_audio_fifo_alloc(AV_SAMPLE_FMT_FLTP,encoder->ch_layout.nb_channels,1));
+        return fifo?0:AVERROR(ENOMEM);
+    }
+    int packets() {
+        Packet pkt(av_packet_alloc(),free_packet);if(!pkt)return AVERROR(ENOMEM);
+        int r=0;
+        while((r=avcodec_receive_packet(encoder.get(),pkt.get()))>=0) {
+            av_packet_rescale_ts(pkt.get(),encoder->time_base,destination->time_base);
+            pkt->stream_index=destination->index;pkt->pos=-1;
+            const int written=av_interleaved_write_frame(output,pkt.get());av_packet_unref(pkt.get());
+            if(written<0)return written;++*packet_count;
+        }
+        return r==AVERROR(EAGAIN)||r==AVERROR_EOF?0:r;
+    }
+    int send(AVFrame* frame) {
+        int r=avcodec_send_frame(encoder.get(),frame);
+        if(r==AVERROR(EAGAIN)){if((r=packets())<0)return r;r=avcodec_send_frame(encoder.get(),frame);}
+        if(r<0&&r!=AVERROR_EOF)return r;return packets();
+    }
+    int emit(bool final) {
+        const int frame_size=encoder->frame_size;
+        while(av_audio_fifo_size(fifo.get())>=frame_size || (final&&av_audio_fifo_size(fifo.get())>0)) {
+            const int n=std::min(frame_size,av_audio_fifo_size(fifo.get()));
+            Frame frame(av_frame_alloc(),free_frame);if(!frame)return AVERROR(ENOMEM);
+            frame->format=encoder->sample_fmt;frame->sample_rate=encoder->sample_rate;frame->nb_samples=n;
+            int r=av_channel_layout_copy(&frame->ch_layout,&encoder->ch_layout);if(r<0)return r;
+            if((r=av_frame_get_buffer(frame.get(),0))<0)return r;
+            if(av_audio_fifo_read(fifo.get(),reinterpret_cast<void**>(frame->extended_data),n)!=n)return AVERROR_INVALIDDATA;
+            if(next_output==AV_NOPTS_VALUE||next_output>INT64_MAX-n)return AVERROR_INVALIDDATA;
+            frame->pts=next_output;frame->duration=n;next_output+=n;
+            if((r=send(frame.get()))<0)return r;
+        }
+        return 0;
+    }
+    int add_frame(const AVFrame* frame) {
+        if(!frame || frame->nb_samples<=0 || frame->sample_rate!=encoder->sample_rate ||
+           av_channel_layout_compare(&frame->ch_layout,&encoder->ch_layout)!=0)return AVERROR_INVALIDDATA;
+        const AVSampleFormat fmt=static_cast<AVSampleFormat>(frame->format);
+        const AVSampleFormat packed=av_get_packed_sample_fmt(fmt);
+        if((packed!=AV_SAMPLE_FMT_S16 && packed!=AV_SAMPLE_FMT_S32) || !frame->extended_data)return AVERROR(ENOSYS);
+        const int64_t pts=frame->pts!=AV_NOPTS_VALUE?frame->pts:frame->best_effort_timestamp;
+        if(pts==AV_NOPTS_VALUE)return AVERROR_INVALIDDATA;
+        const int64_t time=av_rescale_q(pts,source->time_base,encoder->time_base);
+        if(next_input==AV_NOPTS_VALUE){next_input=time;next_output=time;}
+        if(time<next_input-1 || time>next_input+1 || next_input>INT64_MAX-frame->nb_samples)return AVERROR_INVALIDDATA;
+        next_input+=frame->nb_samples;
+        Frame planar(av_frame_alloc(),free_frame);if(!planar)return AVERROR(ENOMEM);
+        planar->format=AV_SAMPLE_FMT_FLTP;planar->sample_rate=encoder->sample_rate;planar->nb_samples=frame->nb_samples;
+        int r=av_channel_layout_copy(&planar->ch_layout,&encoder->ch_layout);if(r<0)return r;
+        if((r=av_frame_get_buffer(planar.get(),0))<0)return r;
+        const int channels=encoder->ch_layout.nb_channels;const bool split=av_sample_fmt_is_planar(fmt)!=0;
+        for(int ch=0;ch<channels;++ch) {
+            const uint8_t* in=frame->extended_data[split?ch:0];if(!in)return AVERROR_INVALIDDATA;
+            float* dest=reinterpret_cast<float*>(planar->extended_data[ch]);
+            for(int i=0;i<frame->nb_samples;++i) {
+                const size_t index=split?static_cast<size_t>(i):static_cast<size_t>(i)*channels+ch;
+                if(packed==AV_SAMPLE_FMT_S16){int16_t sample;std::memcpy(&sample,in+index*sizeof(sample),sizeof(sample));dest[i]=static_cast<float>(sample)/32768.0f;}
+                else {int32_t sample;std::memcpy(&sample,in+index*sizeof(sample),sizeof(sample));dest[i]=static_cast<float>(static_cast<double>(sample)/2147483648.0);}
+            }
+        }
+        if(frame->nb_samples>INT_MAX-av_audio_fifo_size(fifo.get()) ||
+           (r=av_audio_fifo_realloc(fifo.get(),av_audio_fifo_size(fifo.get())+frame->nb_samples))<0)return r<0?r:AVERROR(ENOMEM);
+        if(av_audio_fifo_write(fifo.get(),reinterpret_cast<void**>(planar->extended_data),frame->nb_samples)!=frame->nb_samples)return AVERROR(ENOMEM);
+        return emit(false);
+    }
+    int receive() {
+        int r=0;while((r=avcodec_receive_frame(decoder.get(),decoded.get()))>=0){
+            const int status=add_frame(decoded.get());av_frame_unref(decoded.get());if(status<0)return status;
+        }
+        return r==AVERROR(EAGAIN)||r==AVERROR_EOF?0:r;
+    }
+    int push(const AVPacket* packet) {
+        int r=avcodec_send_packet(decoder.get(),packet);
+        if(r==AVERROR(EAGAIN)){if((r=receive())<0)return r;r=avcodec_send_packet(decoder.get(),packet);}
+        if(r<0)return r;return receive();
+    }
+    int finish() {
+        int r=avcodec_send_packet(decoder.get(),nullptr);
+        if(r==AVERROR(EAGAIN)){if((r=receive())<0)return r;r=avcodec_send_packet(decoder.get(),nullptr);}
+        if(r<0&&r!=AVERROR_EOF)return r;
+        if((r=receive())<0)return r;
+        if(next_input==AV_NOPTS_VALUE)return AVERROR_INVALIDDATA;
+        if((r=emit(true))<0)return r;
+        return send(nullptr);
+    }
+};
+
 int transcode_impl(
     const lpb_video_sidecar_request_v1* request,
     const lpb_video_sidecar_io_v1* callbacks,
@@ -635,7 +763,7 @@ int transcode_impl(
         request->crf < 0 || request->crf > 51 ||
         (request->flags & ~(LPB_VIDEO_SIDECAR_REQUEST_NATIVE_TRANSPLANTS_MEBX |
             LPB_VIDEO_SIDECAR_REQUEST_NATIVE_SOURCE_PROFILE |
-            LPB_VIDEO_SIDECAR_REQUEST_COMPATIBLE_PROFILE)) != 0U ||
+            LPB_VIDEO_SIDECAR_REQUEST_COMPATIBLE_PROFILE | LPB_VIDEO_SIDECAR_REQUEST_ALL_INTRA | LPB_VIDEO_SIDECAR_REQUEST_AAC_AUDIO)) != 0U ||
         request->reserved[0] != 0U || request->reserved[1] != 0U || request->reserved[2] != 0U)
     {
         return LPB_VIDEO_SIDECAR_INVALID_ARGUMENT;
@@ -884,7 +1012,7 @@ int transcode_impl(
         encoder_context->sample_aspect_ratio = input_video->codecpar->sample_aspect_ratio;
         if ((rot_cw == 90 || rot_cw == 270) && encoder_context->sample_aspect_ratio.num > 0 && encoder_context->sample_aspect_ratio.den > 0)
             encoder_context->sample_aspect_ratio = av_inv_q(encoder_context->sample_aspect_ratio);
-        encoder_context->gop_size = 60;
+        encoder_context->gop_size = (request->flags & LPB_VIDEO_SIDECAR_REQUEST_ALL_INTRA) ? 1 : 60;
         encoder_context->max_b_frames = 0;
         // libavcodec clears per-frame durations unless this flag is set.
         // Keep the actual source interval, especially a short final VFR frame,
@@ -914,10 +1042,11 @@ int transcode_impl(
         const bool hevc_reencode = input_video->codecpar->codec_id == AV_CODEC_ID_HEVC ||
             request->target_codec == LPB_VIDEO_SIDECAR_CODEC_HEVC;
         if (hevc_reencode) encoder_context->thread_count = static_cast<int>(encoder_workers);
-        const std::string codec_parameters = request->target_codec == LPB_VIDEO_SIDECAR_CODEC_HEVC
+        std::string codec_parameters = request->target_codec == LPB_VIDEO_SIDECAR_CODEC_HEVC
             ? "annexb=1:aud=0:pools=" + std::to_string(encoder_workers) +
                 ":frame-threads=1"
             : "annexb=1:aud=0";
+        if (request->flags & LPB_VIDEO_SIDECAR_REQUEST_ALL_INTRA) codec_parameters += ":keyint=1:min-keyint=1:scenecut=0";
         AVDictionary* encoder_options_raw = nullptr;
         (void)av_dict_set(&encoder_options_raw, "preset", "medium", 0);
         (void)av_dict_set_int(&encoder_options_raw, "crf", request->crf, 0);
@@ -994,6 +1123,10 @@ int transcode_impl(
     }
 
     std::vector<int> stream_map(input->nb_streams, -1);
+    PcmAacPipeline audio_pipeline;
+    bool audio_transcode=false;
+    const bool require_aac=(request->flags & LPB_VIDEO_SIDECAR_REQUEST_AAC_AUDIO)!=0U ||
+        (compatible_profile && request->target_container==LPB_VIDEO_SIDECAR_CONTAINER_MP4);
     uint32_t mebx_stream_count = 0U;
     bool mapped_audio = false;
     uint32_t dropped_aux_video = 0U;
@@ -1047,12 +1180,6 @@ int transcode_impl(
                 stream_map[index] = -2;
                 continue;
             }
-            if (request->target_container == LPB_VIDEO_SIDECAR_CONTAINER_MP4 &&
-                input_stream->codecpar->codec_id != AV_CODEC_ID_AAC)
-            {
-                stream_map[index] = -2;
-                continue;
-            }
             if (mapped_audio)
             {
                 ++dropped_other;
@@ -1082,14 +1209,22 @@ int transcode_impl(
         {
             return LPB_VIDEO_SIDECAR_INTERNAL_ERROR;
         }
-        operation_result = avcodec_parameters_copy(output_stream->codecpar, input_stream->codecpar);
-        if (operation_result < 0)
-        {
-            result_info->library_error = operation_result;
-            return LPB_VIDEO_SIDECAR_MUX_FAILURE;
+        const bool convert_audio=require_aac && input_stream->codecpar->codec_id!=AV_CODEC_ID_AAC;
+        if(convert_audio) {
+            operation_result=audio_pipeline.open(input_stream,output_stream,output.get(),result_info->audio_packets);
+            if(operation_result<0) {
+                result_info->library_error=operation_result;
+                return operation_result==AVERROR(ENOMEM)?LPB_VIDEO_SIDECAR_INTERNAL_ERROR:LPB_VIDEO_SIDECAR_UNSUPPORTED;
+            }
+            audio_transcode=true;
+        } else {
+            operation_result = avcodec_parameters_copy(output_stream->codecpar, input_stream->codecpar);
+            if (operation_result < 0) {
+                result_info->library_error = operation_result;return LPB_VIDEO_SIDECAR_MUX_FAILURE;
+            }
+            output_stream->codecpar->codec_tag = 0;
+            output_stream->time_base = input_stream->time_base;
         }
-        output_stream->codecpar->codec_tag = 0;
-        output_stream->time_base = input_stream->time_base;
         output_stream->disposition = input_stream->disposition;
         {
             operation_result = av_dict_copy(&output_stream->metadata, input_stream->metadata, 0);
@@ -1420,6 +1555,15 @@ int transcode_impl(
             continue;
         }
 
+        if(audio_transcode && stream_index==primary_audio_index) {
+            operation_result=audio_pipeline.push(input_packet.get());
+            av_packet_unref(input_packet.get());
+            if(operation_result<0) {
+                result_info->library_error=operation_result;
+                return operation_result==AVERROR(ENOSYS)?LPB_VIDEO_SIDECAR_UNSUPPORTED:LPB_VIDEO_SIDECAR_ENCODE_FAILURE;
+            }
+            continue;
+        }
         const int mapped_stream = stream_map[static_cast<size_t>(stream_index)];
         if (mapped_stream == -2)
         {
@@ -1551,6 +1695,13 @@ int transcode_impl(
         if (result_info->video_frames == 0U) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
     }
 
+    if(audio_transcode) {
+        operation_result=audio_pipeline.finish();
+        if(operation_result<0) {
+            result_info->library_error=operation_result;
+            return operation_result==AVERROR(ENOSYS)?LPB_VIDEO_SIDECAR_UNSUPPORTED:LPB_VIDEO_SIDECAR_ENCODE_FAILURE;
+        }
+    }
     if (check_cancelled(callbacks, result_info))
     {
         return result_info->status == LPB_VIDEO_SIDECAR_IO_FAILURE

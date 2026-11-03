@@ -1,6 +1,7 @@
 #include "foundation/portable_internal.h"
 #include "binary/endian.h"
 #include "containers/isobmff.h"
+#include "media/vivo_modern_inventory.h"
 
 namespace
 {
@@ -201,7 +202,7 @@ namespace
     }
 }
 
-lpb_result LPB_CALL lpb_vivo_rewrite_image_metadata(
+static lpb_result rewrite_image_metadata_impl(
     lpb_context* context,
     const uint8_t* input,
     size_t input_size,
@@ -210,10 +211,10 @@ lpb_result LPB_CALL lpb_vivo_rewrite_image_metadata(
     int32_t replace_existing,
     uint8_t* output,
     size_t output_size,
-    size_t* required_size)
+    size_t* required_size, [[maybe_unused]] bool internal)
 {
 #if !defined(LPB_NATIVE_TEST_HARNESS)
-    if (context != nullptr && !lpb_has_clean_authority(context))
+    if (context != nullptr && !internal && !lpb_has_clean_authority(context))
     {
         if (required_size) *required_size = 0;
         set_error(context, "[AuthorityViolation] Legacy raw mutation requires active Native cleanup-plan authority.");
@@ -276,7 +277,7 @@ lpb_result LPB_CALL lpb_vivo_rewrite_image_metadata(
     }
 }
 
-lpb_result LPB_CALL lpb_vivo_rewrite_video_metadata(
+static lpb_result rewrite_video_metadata_impl(
     lpb_context* context,
     const uint8_t* input,
     size_t input_size,
@@ -284,10 +285,10 @@ lpb_result LPB_CALL lpb_vivo_rewrite_video_metadata(
     size_t vivo_json_size,
     uint8_t* output,
     size_t output_size,
-    size_t* required_size)
+    size_t* required_size, [[maybe_unused]] bool internal)
 {
 #if !defined(LPB_NATIVE_TEST_HARNESS)
-    if (context != nullptr && !lpb_has_clean_authority(context))
+    if (context != nullptr && !internal && !lpb_has_clean_authority(context))
     {
         if (required_size) *required_size = 0;
         set_error(context, "[AuthorityViolation] Legacy raw mutation requires active Native cleanup-plan authority.");
@@ -328,4 +329,79 @@ lpb_result LPB_CALL lpb_vivo_rewrite_video_metadata(
         set_error(context, "Unexpected failure while building vivo video metadata.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
+}
+
+
+
+lpb_result LPB_CALL lpb_vivo_rewrite_image_metadata(
+    lpb_context* context, const uint8_t* input, size_t input_size,
+    const uint8_t* vivo_json, size_t vivo_json_size, int32_t replace_existing,
+    uint8_t* output, size_t output_size, size_t* required_size)
+{
+    return rewrite_image_metadata_impl(context, input, input_size, vivo_json, vivo_json_size, replace_existing,
+        output, output_size, required_size, false);
+}
+
+
+lpb_result LPB_CALL lpb_vivo_rewrite_video_metadata(
+    lpb_context* context, const uint8_t* input, size_t input_size,
+    const uint8_t* vivo_json, size_t vivo_json_size,
+    uint8_t* output, size_t output_size, size_t* required_size)
+{
+    return rewrite_video_metadata_impl(context, input, input_size, vivo_json, vivo_json_size,
+        output, output_size, required_size, false);
+}
+
+namespace lpb::target {
+lpb_result vivo_pair(lpb_context* ctx, const std::vector<uint8_t>& image,
+    const std::vector<uint8_t>& video, uint32_t frame, const std::string& id,
+    std::vector<uint8_t>& image_out, std::vector<uint8_t>& video_out) {
+    if(image.size()<4 || image[0]!=0xff || image[1]!=0xd8) return LPB_RESULT_INVALID_ARGUMENT;
+    const auto begin=image.data(), end=begin+image.size();
+    const uint8_t* search_end=end;
+    while(search_end>begin) {
+        const auto marker=std::find_end(begin,search_end,vivo_marker.begin(),vivo_marker.end());
+        if(marker==search_end) break;
+        if(is_valid_vivo_image_tail(marker,end)) {
+            set_error(ctx,"Input contains an existing vivo image binding."); return LPB_RESULT_UNSUPPORTED;
+        }
+        search_end=marker;
+    }
+    std::vector<uint8_t> clean; std::string error;
+    if(!strip_vivo_uuid_boxes(video.data(),video.size(),clean,error)) {
+        set_error(ctx,error.c_str()); return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    // A neutral movie may retain an ordinary metadata owner after its live
+    // binding was removed. Reuse only a fully observed, binding-free owner;
+    // preserve its ordinary JSON members instead of silently discarding them.
+    std::string ordinary;
+    if(clean!=video) {
+        lpb::media::vivo_modern_inventory metadata;
+        if(!lpb::media::observe_vivo_modern(video,metadata)||!metadata.found||metadata.binding||metadata.box_end!=video.size()) {
+            set_error(ctx,"Input contains an unverified or live-bound vivo UUID.");return LPB_RESULT_UNSUPPORTED;
+        }
+        for(const auto& member:metadata.members) {
+            if(member.key=="version"||member.key=="com.vivo.gallery.livePhoto.newCoverTime"||member.key=="com.vivo.gallery.livePhoto.bestTime")continue;
+            ordinary.push_back(',');ordinary.append(reinterpret_cast<const char*>(video.data()+member.begin),member.end-member.begin);
+        }
+    }
+    const std::string image_json="vivo{\"com.android.camera.livephoto\":\""+id+"\",\"version\":2104}";
+    const std::string video_json="vivo{\"com.android.camera.imageTime\":"+std::to_string(frame)+",\"com.android.camera.livephoto\":\""+id+"\",\"version\":2104"+ordinary+"}";
+    auto rewrite=[&](bool is_image,const std::vector<uint8_t>& in,const std::string& json,std::vector<uint8_t>& out) {
+        size_t size=0;
+        auto invoke=[&](uint8_t* dst,size_t cap) {
+            const auto* bytes=reinterpret_cast<const uint8_t*>(json.data());
+            return is_image?rewrite_image_metadata_impl(ctx,in.data(),in.size(),bytes,json.size(),0,dst,cap,&size,true):
+                rewrite_video_metadata_impl(ctx,in.data(),in.size(),bytes,json.size(),dst,cap,&size,true);
+        };
+        auto result=invoke(nullptr,0); if(result!=LPB_RESULT_BUFFER_TOO_SMALL) return result;
+        out.resize(size); result=invoke(out.data(),out.size());
+        if(result!=LPB_RESULT_OK) out.clear(); else out.resize(size);
+        return result;
+    };
+    auto result=rewrite(true,image,image_json,image_out);
+    if(result==LPB_RESULT_OK) result=rewrite(false,video,video_json,video_out);
+    if(result!=LPB_RESULT_OK) {image_out.clear();video_out.clear();}
+    return result;
+}
 }

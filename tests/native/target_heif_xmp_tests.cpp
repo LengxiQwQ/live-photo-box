@@ -1,4 +1,5 @@
 #include "containers/heif_internal.h"
+#include "metadata/exif_rewrite.h"
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -240,6 +241,46 @@ void owned_metadata_cases() {
         REQUIRE(a.empty()&&x.empty()&&!error.empty());
     }
 }
+void primary_exif_rewrite_cases() {
+    const auto input=owned_metadata_fixture();
+    bytes replacement{0,0,0,0,'M','M',0,42,0,0,0,8,0,0,0,0,0,0};
+    bytes output,primary_exif,auxiliary_exif;std::string xml,error;
+    REQUIRE(lpb::containers::rewrite_primary_exif(input,replacement,output,error));
+    REQUIRE(lpb::containers::read_image_item_metadata(output,1,primary_exif,xml,error));
+    bytes expected{'E','x','i','f',0,0};expected.insert(expected.end(),replacement.begin()+4,replacement.end());
+    REQUIRE(primary_exif==expected&&xml=="<x/>");
+    REQUIRE(lpb::containers::read_image_item_metadata(output,2,auxiliary_exif,xml,error));
+    bytes original;REQUIRE(lpb::containers::read_image_item_metadata(input,2,original,xml,error));
+    REQUIRE(auxiliary_exif==original);
+    const auto before=observe(input),after=observe(output);
+    for(const auto& [id,payload]:before.payloads)if(id!=3)REQUIRE(after.payloads.at(id)==payload);
+    // Missing, shared, duplicate and cross-role owners cannot grant a rewrite.
+    for(unsigned fault:{4U,5U,6U,7U,8U}) {
+        output={1,2};
+        REQUIRE(!lpb::containers::rewrite_primary_exif(owned_metadata_fixture(fault),replacement,output,error));
+        REQUIRE(output.empty()&&!error.empty());
+    }
+}
+void missing_exif_ifd_cases() {
+    for(bool big:{false,true}) {
+        bytes input(45,0),note(70,0x5a);
+        const auto put=[&](bytes& b,size_t at,uint32_t n,size_t width){for(size_t i=0;i<width;++i)b[at+i]=uint8_t(n>>(8*(big?width-1-i:i)));};
+        const auto get=[&](const bytes& b,size_t at,size_t width){REQUIRE(at+width<=b.size());uint32_t n=0;for(size_t i=0;i<width;++i)n|=uint32_t(b[at+i])<<(8*(big?width-1-i:i));return n;};
+        input[0]=input[1]=big?'M':'I';put(input,2,42,2);put(input,4,8,4);put(input,8,2,2);
+        put(input,10,0x10e,2);put(input,12,2,2);put(input,14,7,4);put(input,18,38,4);
+        put(input,22,0x112,2);put(input,24,3,2);put(input,26,1,4);put(input,30,6,2);
+        const bytes description{'k','e','e','p','m','e',0};std::copy(description.begin(),description.end(),input.begin()+38);
+        const auto output=lpb_tiff_insert_makernote(input.data(),input.size(),8,0,note.data(),note.size(),big);
+        REQUIRE(!output.empty());const auto root=get(output,4,4);REQUIRE(root>=input.size()&&get(output,root,2)==3);
+        REQUIRE(std::equal(input.begin()+8,input.end(),output.begin()+8));
+        REQUIRE(get(output,root+2,2)==0x10e&&get(output,root+10,4)==38);
+        REQUIRE(get(output,root+14,2)==0x112&&get(output,root+22,2)==6);
+        REQUIRE(get(output,root+26,2)==0x8769);const auto exif=get(output,root+34,4);
+        REQUIRE(get(output,exif,2)==1&&get(output,exif+2,2)==0x927c&&get(output,exif+6,4)==note.size());
+        const auto payload=get(output,exif+10,4);REQUIRE(payload+note.size()==output.size());
+        REQUIRE(std::equal(note.begin(),note.end(),output.begin()+payload));
+    }
+}
 void ordinary_sef_rewrite_cases() {
     const auto little=[](bytes& b,uint32_t n){for(unsigned i=0;i<4;++i)b.push_back(static_cast<uint8_t>(n>>(i*8)));};
     bytes sef{0,0,0x23,1,3,0,0,0,'F','o','o',99};const uint32_t table=static_cast<uint32_t>(sef.size());
@@ -330,6 +371,8 @@ void original_resource_transport_cases() {
 int main() {
     try {
         owned_metadata_cases();
+        primary_exif_rewrite_cases();
+        missing_exif_ifd_cases();
         ordinary_sef_rewrite_cases();
         original_resource_structure_cases();
         original_resource_transport_cases();

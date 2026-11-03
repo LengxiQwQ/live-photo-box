@@ -13,7 +13,9 @@ public enum TargetProtocol
     OppoLivePhoto,
     VivoLivePhoto,
     SamsungMotionPhoto,
-    HuaweiMovingPhoto
+    HuaweiMovingPhoto,
+    AppleLivePhoto,
+    VivoLegacyDualFile
 }
 
 public enum OutputMediaFormat
@@ -60,7 +62,8 @@ public sealed record OutputProfile
             format is OutputMediaFormat.JpegMp4 or OutputMediaFormat.JpegMov,
         TargetProtocol.GoogleMotionPhotoV2 =>
             format is OutputMediaFormat.JpegMp4 or OutputMediaFormat.JpegMov or OutputMediaFormat.HeicMov,
-        TargetProtocol.OppoLivePhoto or TargetProtocol.VivoLivePhoto => format == OutputMediaFormat.JpegMp4,
+        TargetProtocol.OppoLivePhoto or TargetProtocol.VivoLivePhoto or TargetProtocol.VivoLegacyDualFile => format == OutputMediaFormat.JpegMp4,
+        TargetProtocol.AppleLivePhoto => format is OutputMediaFormat.JpegMov or OutputMediaFormat.HeicMov,
         TargetProtocol.SamsungMotionPhoto => format is OutputMediaFormat.JpegMp4 or OutputMediaFormat.HeicMp4,
         TargetProtocol.HuaweiMovingPhoto =>
             format is OutputMediaFormat.JpegMp4 or OutputMediaFormat.HeicMp4 or OutputMediaFormat.HeicMp4Hevc,
@@ -77,7 +80,7 @@ public sealed record OutputProfile
 }
 
 /// <summary>Protocol-free split selection. Target writing belongs to Merge/P9.</summary>
-public enum SplitMediaFormat { KeepSource, JpegMov, HeicMov, JpegMp4 }
+public enum SplitMediaFormat { KeepSource, JpegMov, HeicMov, JpegMp4, AppleJpegMov, AppleHeicMov, VivoJpegMp4 }
 
 public static class SplitMediaRequirements
 {
@@ -91,6 +94,9 @@ public static class SplitMediaRequirements
             VideoContainer = VideoContainer.Mov, VideoCodec = VideoCodec.Hevc },
         SplitMediaFormat.JpegMp4 => new() { ImageContainer = ImageContainer.Jpeg,
             VideoContainer = VideoContainer.Mp4, VideoCodec = VideoCodec.H264 },
+        SplitMediaFormat.AppleJpegMov => OutputProfile.Create(TargetProtocol.AppleLivePhoto, OutputMediaFormat.JpegMov).MediaRequirement,
+        SplitMediaFormat.AppleHeicMov => OutputProfile.Create(TargetProtocol.AppleLivePhoto, OutputMediaFormat.HeicMov).MediaRequirement,
+        SplitMediaFormat.VivoJpegMp4 => OutputProfile.Create(TargetProtocol.VivoLegacyDualFile, OutputMediaFormat.JpegMp4).MediaRequirement,
         _ => throw new ArgumentOutOfRangeException(nameof(format), format, "Unknown split media format.")
     };
 }

@@ -24,6 +24,7 @@ namespace LivePhotoBox.Cli.Infrastructure
             ["vivo"]     = 4, ["v"] = 4,
             ["samsung"]  = 5, ["ss"] = 5, ["sam"] = 5,
             ["huawei"]   = 6, ["hw"] = 6, ["h"] = 6,
+            ["apple"] = 7, ["vivo-legacy"] = 8,
         };
 
         private static readonly Dictionary<string, int> FormatMap = new(StringComparer.OrdinalIgnoreCase)
@@ -52,6 +53,8 @@ namespace LivePhotoBox.Cli.Infrastructure
             4 => "vivo Live Photo (Windows / vivo x300+)",
             5 => "Samsung Motion Photo (Windows / Samsung)",
             6 => "HUAWEI Moving Photo (HUAWEI / Honor)",
+            7 => "Apple Live Photo (dual file)",
+            8 => "vivo legacy Live Photo (dual file)",
             _ => $"Unknown ({index})"
         };
 
@@ -59,12 +62,12 @@ namespace LivePhotoBox.Cli.Infrastructure
         public static string[] ProtocolDisplayNames { get; } =
             ["Fusion", "Google Micro Video (V1)", "Google Motion Photo (V2)",
              "OPPO O-Live Photo", "vivo Live Photo", "Samsung Motion Photo",
-             "HUAWEI Moving Photo"];
+             "HUAWEI Moving Photo", "Apple Live Photo", "vivo legacy Live Photo"];
 
         // 协议标识符：用于 --all-variants 文件名与 JSON name 字段，保持无空格
         public static string[] ProtocolNames { get; } =
             ["Fusion", "MicroVideo", "MotionPhoto",
              "OPPO_OLive", "vivo_LivePhoto", "Samsung_MotionPhoto",
-             "HUAWEI_MovingPhoto"];
+             "HUAWEI_MovingPhoto", "Apple_LivePhoto", "vivo_LegacyLivePhoto"];
     }
 }

@@ -71,6 +71,10 @@ bool append_original_file_resource(std::span<const uint8_t> input,std::span<cons
 
 bool rewrite_primary_xmp(std::span<const uint8_t> input, std::string_view replacement_xml,
     std::vector<uint8_t>& output, std::string& error) noexcept;
+// Rewrite only the unique primary-owned Exif item; preserve all other owners.
+bool rewrite_primary_exif(std::span<const uint8_t> input,std::span<const uint8_t> replacement,
+    std::vector<uint8_t>& output,std::string& error) noexcept;
+
 
 struct heif_primary_properties {
     uint32_t item_id{}, width{}, height{}, orientation{};

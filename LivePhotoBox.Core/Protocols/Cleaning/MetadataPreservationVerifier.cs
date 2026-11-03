@@ -539,7 +539,7 @@ public static class MetadataPreservationVerifier
             }
         }
 
-        string failedDetails = string.Join("; ", items.Where(i => i.Status == PreservationCheckStatus.Failed).Select(i => $"{i.Name}: {i.Details}"));
+        string failedDetails = string.Join("; ", items.Where(i => i.Status is PreservationCheckStatus.Failed or PreservationCheckStatus.UnableToVerify).Select(i => $"{i.Name} ({i.Status}): {i.Details}"));
         return new PreservationReport
         {
             OverallOutcome = outcome,

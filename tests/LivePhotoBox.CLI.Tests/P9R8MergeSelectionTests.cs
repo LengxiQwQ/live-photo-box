@@ -84,7 +84,7 @@ public sealed class P9R8MergeSelectionTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task BatchIncludeLiveCannotReintroduceAConflictedImage()
+    public async Task BatchIncludeLive_DifferentExtensionsWithSameBaseName_DoesNotConflictAndScansBoth()
     {
         string root = CliTestHost.CreateTempDir("lpb-scan-conflict-");
         try
@@ -92,10 +92,9 @@ public sealed class P9R8MergeSelectionTests
             File.Copy(ResolveSample("oppo.jpg"), Path.Combine(root, "same.jpg"));
             File.Copy(ResolveSample("oppo.jpg"), Path.Combine(root, "same.jpeg"));
             var result = await CliTestHost.RunAsync(MergeCommand.Create(), root, "--include-live", "--dry-run", "--json");
-            Assert.Equal(1, result.ExitCode);
+            Assert.Equal(0, result.ExitCode);
             using var json = JsonDocument.Parse(result.StdOut);
-            Assert.Equal(0, json.RootElement.GetProperty("scanned").GetInt32());
-            Assert.Contains(json.RootElement.GetProperty("scanDiagnostics").EnumerateArray(), d => d.GetProperty("code").GetString() == "ConflictMultipleMedia");
+            Assert.Equal(2, json.RootElement.GetProperty("scanned").GetInt32());
         }
         finally { Directory.Delete(root, recursive: true); }
     }

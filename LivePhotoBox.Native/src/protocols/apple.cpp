@@ -2,10 +2,13 @@
 #include <bit>
 #include <cmath>
 #include "protocols/apple.h"
+#include "media/jpeg_gainmap_mpf.h"
+#include "media/target_primary_observation.h"
 #include "foundation/residue_fingerprint.h"
 #include "foundation/portable_internal.h"
 #include "binary/endian.h"
 #include "containers/isobmff.h"
+#include "containers/heif_internal.h"
 #include <cstring>
 #include <algorithm>
 #include <vector>
@@ -1030,10 +1033,10 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_heif_locate_exif_item(
     lpb_context* context, const uint8_t* data, size_t data_size,
     uint64_t* out_offset, uint64_t* out_length);
 
-extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_jpeg(
+static lpb_result inject_makernote_jpeg_impl(
     lpb_context* context, const uint8_t* input, size_t input_size,
     const uint8_t* makernote, size_t makernote_size,
-    uint8_t* output, size_t output_size, size_t* out_written)
+    uint8_t* output, size_t output_size, size_t* out_written, [[maybe_unused]] bool internal)
 {
     if (!context || !input || !out_written) return LPB_RESULT_INVALID_ARGUMENT;
     if (makernote_size > 0 && !makernote) {
@@ -1048,7 +1051,7 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_jpeg(
     // Production capability gate: MakerNote injection rewrites JPEG bytes and
     // requires an active Native cleanup-plan authority.  External callers can
     // never bypass the Cleaner trust chain through this primitive.
-    if (!lpb_has_clean_authority(context))
+    if (!internal && !lpb_has_clean_authority(context))
     {
         set_error(context, "[AuthorityViolation] Apple MakerNote injection requires an active Native cleanup-plan authority.");
         return LPB_RESULT_AUTHORITY_VIOLATION;
@@ -1156,10 +1159,10 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_jpeg(
     return LPB_RESULT_INTERNAL_ERROR;
 }
 
-extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_heic(
+static lpb_result inject_makernote_heic_impl(
     lpb_context* context, const uint8_t* input, size_t input_size,
     const uint8_t* makernote, size_t makernote_size,
-    uint8_t* output, size_t output_size, size_t* out_written)
+    uint8_t* output, size_t output_size, size_t* out_written, bool internal)
 {
     if (!context || !input || !out_written) return LPB_RESULT_INVALID_ARGUMENT;
     if (makernote_size > 0 && !makernote) {
@@ -1175,7 +1178,7 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_heic(
     // Production capability gate: MakerNote injection rewrites HEIC bytes and
     // requires an active Native cleanup-plan authority.  External callers can
     // never bypass the Cleaner trust chain through this primitive.
-    if (!lpb_has_clean_authority(context))
+    if (!internal && !lpb_has_clean_authority(context))
     {
         set_error(context, "[AuthorityViolation] Apple MakerNote injection requires an active Native cleanup-plan authority.");
         return LPB_RESULT_AUTHORITY_VIOLATION;
@@ -1184,6 +1187,18 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_heic(
 
     uint64_t exif_offset, exif_length;
     if (lpb_heif_locate_exif_item(context, input, input_size, &exif_offset, &exif_length) != LPB_RESULT_OK) {
+        if(internal) {
+            std::vector<uint8_t> existing,created;std::string xml,error;
+            if(!lpb::containers::read_image_item_metadata({input,input_size},0,existing,xml,error) || !existing.empty()) {
+                set_error(context,error.empty()?"HEIF primary Exif owner is malformed or unsupported.":error.c_str());return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            const auto item=build_heif_exif_item(makernote,makernote_size);
+            if(!lpb::containers::rewrite_primary_exif({input,input_size},item,created,error)) {
+                set_error(context,error.c_str());return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            *out_written=created.size();if(!output||output_size<created.size())return LPB_RESULT_BUFFER_TOO_SMALL;
+            std::memcpy(output,created.data(),created.size());return LPB_RESULT_OK;
+        }
         // A generic HEIC encoder can produce a valid image without an Exif
         // item when the source has no metadata block to carry across. Apple
         // still needs a MakerNote for the pairing UUID, so create the smallest
@@ -1253,7 +1268,15 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_heic(
     std::vector<uint8_t> new_item(tiff_prefix_len + grown.size());
     std::memcpy(new_item.data(), input + offset, tiff_prefix_len);
     std::memcpy(new_item.data() + tiff_prefix_len, grown.data(), grown.size());
-    
+
+    if(internal) {
+        std::vector<uint8_t> rewritten;std::string error;
+        if(!lpb::containers::rewrite_primary_exif({input,input_size},new_item,rewritten,error)) {
+            set_error(context,error.c_str());return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        *out_written=rewritten.size();if(!output||output_size<rewritten.size())return LPB_RESULT_BUFFER_TOO_SMALL;
+        std::memcpy(output,rewritten.data(),rewritten.size());return LPB_RESULT_OK;
+    }
     if (new_item.size() <= length) {
         if (output && output_size >= input_size) {
             std::memcpy(output, input, input_size);
@@ -1428,11 +1451,15 @@ static bool locate_owned_makernote(const uint8_t* data, size_t start, size_t end
 {
     if (!data || start >= end) return false;
     size_t tiff_start = start;
-    if (end - start >= 10 && data[start] == 0 && data[start + 1] == 0 && data[start + 2] == 0 &&
-        data[start + 3] == 6 && std::memcmp(data + start + 4, "Exif\0\0", 6) == 0) {
-        tiff_start += 10;
+    if (end-start<8) return false;
+    const bool raw_tiff=(data[start]=='I'&&data[start+1]=='I') || (data[start]=='M'&&data[start+1]=='M');
+    if (!raw_tiff && end-start>=6 && std::memcmp(data+start,"Exif\0\0",6)==0) tiff_start+=6;
+    else if (!raw_tiff) {
+        const uint32_t offset=read_be32u(data+start);
+        if(offset>end-start-4 || end-start-4-offset<8)return false;
+        tiff_start+=4+static_cast<size_t>(offset);
     }
-    if (tiff_start + 8 > end) return false;
+    if (tiff_start > end || end-tiff_start < 8) return false;
     const bool little = data[tiff_start] == 'I' && data[tiff_start + 1] == 'I';
     const bool big = data[tiff_start] == 'M' && data[tiff_start + 1] == 'M';
     if ((!little && !big) || (little && (data[tiff_start + 2] != 0x2A || data[tiff_start + 3] != 0)) ||
@@ -1737,3 +1764,145 @@ static bool locate_formal_makernote_owner(
 }
 
 } // namespace
+
+
+
+extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_jpeg(
+    lpb_context* context, const uint8_t* input, size_t input_size,
+    const uint8_t* makernote, size_t makernote_size,
+    uint8_t* output, size_t output_size, size_t* out_written)
+{
+    return inject_makernote_jpeg_impl(context, input, input_size, makernote, makernote_size,
+        output, output_size, out_written, false);
+}
+
+
+extern "C" LPB_API lpb_result LPB_CALL lpb_apple_inject_makernote_heic(
+    lpb_context* context, const uint8_t* input, size_t input_size,
+    const uint8_t* makernote, size_t makernote_size,
+    uint8_t* output, size_t output_size, size_t* out_written)
+{
+    return inject_makernote_heic_impl(context, input, input_size, makernote, makernote_size,
+        output, output_size, out_written, false);
+}
+
+namespace lpb::target {
+// Preserve the two known Apple HDR numeric fields only when a unique,
+// formally-owned MakerNote supplies valid values. Their original type and raw
+// bytes are retained exactly; arbitrary private camera history is not copied.
+static bool make_pairing_note(lpb_context* ctx,const std::vector<uint8_t>& source,
+    const std::vector<uint8_t>& minimal,std::vector<uint8_t>& out) {
+    if(minimal.size()!=70)return false;
+    maker_note_region region{};
+    if(!locate_formal_makernote_owner(ctx,source.data(),source.size(),region)) {out=minimal;return true;}
+    struct field {uint16_t tag,type;std::vector<uint8_t> value;};std::vector<field> fields;
+    const uint8_t* data=source.data();const size_t start=region.start,end=region.end;
+    if(end<start || end-start<16)return false;
+    const uint16_t count=read_be16u(data+start+14);
+    for(uint16_t i=0;i<count;++i) {
+        const size_t at=start+16+static_cast<size_t>(i)*12;
+        if(at>end || end-at<12)return false;
+        const auto tag=read_be16u(data+at);if(tag!=0x21 && tag!=0x30)continue;
+        const auto type=read_be16u(data+at+2);const auto n=read_be32u(data+at+4);
+        if(n!=1 || (type!=10 && type!=11))return false;
+        const size_t length=type==10?8:4;size_t value=at+8;
+        if(length>4) {const auto offset=read_be32u(data+at+8);if(offset>end-start || length>end-start-offset)return false;value=start+offset;}
+        if(type==10 && read_be32u(data+value+4)==0)return false;
+        if(type==11 && !std::isfinite(std::bit_cast<float>(read_be32u(data+value))))return false;
+        fields.push_back({tag,type,std::vector<uint8_t>(data+value,data+value+length)});
+    }
+    if(fields.empty()){out=minimal;return true;}
+    const size_t entries=1+fields.size(),cid=20+12*entries;
+    out.assign(cid+38,0);std::copy_n(minimal.begin(),14,out.begin());write_be16(out.data()+14,static_cast<uint16_t>(entries));
+    write_be16(out.data()+16,0x11);write_be16(out.data()+18,2);write_be32(out.data()+20,37);write_be32(out.data()+24,static_cast<uint32_t>(cid));
+    std::copy_n(minimal.begin()+32,37,out.begin()+cid);
+    for(size_t i=0;i<fields.size();++i) {
+        const size_t at=28+i*12;const auto& f=fields[i];
+        write_be16(out.data()+at,f.tag);write_be16(out.data()+at+2,f.type);write_be32(out.data()+at+4,1);
+        if(f.value.size()==4)std::copy(f.value.begin(),f.value.end(),out.begin()+at+8);
+        else {const auto offset=out.size();if(offset>UINT32_MAX)return false;write_be32(out.data()+at+8,static_cast<uint32_t>(offset));out.insert(out.end(),f.value.begin(),f.value.end());}
+    }
+    return true;
+}
+static bool reflow_image_mpf(const std::vector<uint8_t>& before,std::vector<uint8_t>& after) {
+    using namespace lpb::media::jpeg_gainmap_mpf;
+    jpeg_info old{},now{};
+    if(!parse_jpeg(before,old)||!parse_jpeg(after,now)||old.mpf_status!=now.mpf_status)return false;
+    if(old.eoi_end>before.size() || now.eoi_end>after.size() ||
+       before.size()-old.eoi_end!=after.size()-now.eoi_end ||
+       !std::equal(before.begin()+old.eoi_end,before.end(),after.begin()+now.eoi_end))return false;
+    if(old.mpf_status==status::absent)return true;
+    // A complete singleton index carries only a redundant self-size. Existing
+    // neutral observation accepts its stale size; rebind it to the actual EOI.
+    // Multi-image MPF still requires an exact independently observed extent.
+    if(old.mpf_status!=status::present || old.mpf.image_count!=now.mpf.image_count ||
+       (!singleton_primary(old) && old.mpf.entries[0].size!=old.eoi_end) || now.eoi_end>UINT32_MAX)return false;
+    write_u32(after,now.mpf.entries[0].size_field_offset,static_cast<uint32_t>(now.eoi_end),now.mpf.little_endian);
+    for(size_t i=1;i<old.mpf.image_count;++i) {
+        const auto& entry=old.mpf.entries[i];const auto& dst=now.mpf.entries[i];
+        if(entry.absolute_offset<old.eoi_end || entry.absolute_offset>before.size() ||
+           entry.size>before.size()-entry.absolute_offset || entry.size!=dst.size ||
+           entry.attributes!=dst.attributes || entry.dependent_image_1!=dst.dependent_image_1 ||
+           entry.dependent_image_2!=dst.dependent_image_2)return false;
+        const uint64_t moved=now.eoi_end+(entry.absolute_offset-old.eoi_end);
+        if(moved<now.mpf.tiff_header_offset || moved-now.mpf.tiff_header_offset>UINT32_MAX)return false;
+        write_u32(after,dst.offset_field_offset,static_cast<uint32_t>(moved-now.mpf.tiff_header_offset),now.mpf.little_endian);
+    }
+    return true;
+}
+lpb_result apple_image(lpb_context* ctx, const std::vector<uint8_t>& source, bool heif,
+    const std::vector<uint8_t>& note, std::vector<uint8_t>& result) {
+    std::vector<uint8_t> image=source, target_note;
+    if(!make_pairing_note(ctx,source,note,target_note)) {
+        set_error(ctx,"Apple HDR MakerNote fields cannot be preserved safely.");return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    if (!heif) {
+        // Scan the complete header before changing it: duplicate Exif owners
+        // must not be hidden by replacing only the first one.
+        if (image.size()<4 || image[0]!=0xff || image[1]!=0xd8) return LPB_RESULT_INVALID_ARGUMENT;
+        size_t p=2, count=0; bool ended=false;
+        while(p<image.size()) {
+            if(image[p++]!=0xff) return LPB_RESULT_INVALID_ARGUMENT;
+            while(p<image.size() && image[p]==0xff) ++p;
+            if(p>=image.size()) return LPB_RESULT_INVALID_ARGUMENT;
+            const uint8_t m=image[p++];
+            if(m==0xda || m==0xd9) { ended=true; break; }
+            if(m==0x01 || (m>=0xd0 && m<=0xd7)) continue;
+            if(m==0x00 || p+2>image.size()) return LPB_RESULT_INVALID_ARGUMENT;
+            const size_t n=(static_cast<size_t>(image[p])<<8)|image[p+1];
+            if(n<2 || n>image.size()-p) return LPB_RESULT_INVALID_ARGUMENT;
+            if(m==0xe1 && n>=8 && !std::memcmp(image.data()+p+2,"Exif\0\0",6)) ++count;
+            p+=n;
+        }
+        if(!ended || count>1) { set_error(ctx,"Malformed JPEG or duplicate Exif owners."); return LPB_RESULT_INVALID_ARGUMENT; }
+        if(!count) {
+            const auto exif=build_heif_exif_item(target_note.data(),target_note.size());
+            const size_t segment_size=2+exif.size()-4;
+            if(segment_size>65535) return LPB_RESULT_INVALID_ARGUMENT;
+            std::vector<uint8_t> prefix{0xff,0xe1,static_cast<uint8_t>(segment_size>>8),static_cast<uint8_t>(segment_size)};
+            prefix.insert(prefix.end(),exif.begin()+4,exif.end());
+            image.insert(image.begin()+2,prefix.begin(),prefix.end());
+            if(!reflow_image_mpf(source,image))return LPB_RESULT_INVALID_ARGUMENT;
+            media::target_primary_observation checked;std::string error;
+            if(!media::observe_target_primary(image,checked,error)) {set_error(ctx,error.c_str());return LPB_RESULT_INVALID_ARGUMENT;}
+            result=std::move(image); return LPB_RESULT_OK;
+        }
+    }
+    size_t size=0;
+    auto invoke=[&](uint8_t* out,size_t cap) {
+        return heif?inject_makernote_heic_impl(ctx,image.data(),image.size(),target_note.data(),target_note.size(),out,cap,&size,true):
+            inject_makernote_jpeg_impl(ctx,image.data(),image.size(),target_note.data(),target_note.size(),out,cap,&size,true);
+    };
+    auto status=invoke(nullptr,0); if(status!=LPB_RESULT_BUFFER_TOO_SMALL) return status;
+    result.resize(size); status=invoke(result.data(),result.size());
+    if(status!=LPB_RESULT_OK) {result.clear();return status;}
+    result.resize(size);
+    if(!heif) {
+        media::target_primary_observation checked;std::string error;
+        if(!reflow_image_mpf(source,result)||!media::observe_target_primary(result,checked,error)) {
+            result.clear();set_error(ctx,error.empty()?"Apple JPEG MPF reflow failed.":error.c_str());return LPB_RESULT_INVALID_ARGUMENT;
+        }
+    }
+    return status;
+}
+}

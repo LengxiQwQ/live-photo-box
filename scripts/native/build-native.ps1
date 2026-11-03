@@ -7,7 +7,7 @@ param(
     [switch]$ValidateOnly,
     [switch]$CleanOnly,
     [string]$ArtifactDirectory = '',
-    [ValidatePattern('^[a-z0-9][a-z0-9-]{0,23}$')][string]$VideoSidecarBuildId = 'r4-hevc-v2',
+    [ValidatePattern('^[a-z0-9][a-z0-9-]{0,23}$')][string]$VideoSidecarBuildId = 'r4-hevc-v3-aac',
     [ValidatePattern('^[a-z0-9][a-z0-9-]{0,31}$')][string]$ExecutionRecordId = 'r4-native-hevc-v1'
 )
 

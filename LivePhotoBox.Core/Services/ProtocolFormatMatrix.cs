@@ -23,7 +23,7 @@ namespace LivePhotoBox.Services
         // 格式索引: 0=JPG_MP4, 1=JPG_MOV, 2=HEIC_MP4, 3=HEIC_MOV, 4=HEIC_MP4_H265
         // Compatibility projection for existing Windows dropdown/settings and CLI aliases.
         // The typed catalog is the authority; this table does not define a second policy.
-        public static readonly bool[][] Matrix = Enumerable.Range(0, 7)
+        public static readonly bool[][] Matrix = Enumerable.Range(0, 9)
             .Select(protocol => Enumerable.Range(0, 5)
                 .Select(format => OutputProfile.IsSupported(ProductSelectionAdapter.MergeTarget(protocol),
                     ProductSelectionAdapter.MergeFormat(format))).ToArray()).ToArray();

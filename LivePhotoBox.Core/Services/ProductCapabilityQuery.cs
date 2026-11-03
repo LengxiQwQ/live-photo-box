@@ -38,7 +38,7 @@ internal static class ProductCapabilityQuery
     }
 
     public static ProductCapabilityAssessment Query(SplitMediaFormat format) =>
-        Assess(SplitMediaRequirements.Get(format), NativeRuntime.Probe());
+        Assess(SplitMediaRequirements.Get(format), NativeRuntime.Probe(), LivePhotoSplitService.TargetProfile(format));
 
     internal static ProductCapabilityAssessment Assess(MediaFormatRequirement requirement,
         NativeRuntimeInfo runtime, OutputProfile? profile = null)

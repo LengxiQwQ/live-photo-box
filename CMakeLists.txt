@@ -45,6 +45,7 @@ set(LPB_PORTABLE_SOURCES
   LivePhotoBox.Native/src/media/gainmap_math.cpp
   LivePhotoBox.Native/src/protocols/apple.cpp
   LivePhotoBox.Native/src/protocols/apple_mebx.cpp
+  LivePhotoBox.Native/src/protocols/dual_file_target.cpp
   LivePhotoBox.Native/src/protocols/huawei.cpp
   LivePhotoBox.Native/src/protocols/samsung_sef.cpp
   LivePhotoBox.Native/src/protocols/samsung_inventory.cpp

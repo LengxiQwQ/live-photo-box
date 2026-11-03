@@ -10,6 +10,8 @@
 #include <cmath>
 #include <algorithm>
 #include <limits>
+#include <numeric>
+#include <ctime>
 
 namespace { static bool is_box_type(const uint8_t* p, const char* type) { return p[4] == type[0] && p[5] == type[1] && p[6] == type[2] && p[7] == type[3]; }
     bool has_complete_box_sequence(const uint8_t* data, size_t data_size) {
@@ -126,10 +128,11 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
         write_aperture(box.data(), 48, "enof", w, h);
         return box;
     }
-    std::vector<uint8_t> build_vmhd() {
+    std::vector<uint8_t> build_vmhd(bool target) {
         std::vector<uint8_t> box(20, 0);
         write_be32(box.data(), 20);
         write_type(box.data(), 4, "vmhd");
+        if(target) box[11]=1;
         write_be16(box.data() + 12, 0x40);
         write_be16(box.data() + 14, 0x8000);
         write_be16(box.data() + 16, 0x8000);
@@ -180,12 +183,14 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
         return b;
     }
 
-    std::vector<uint8_t> rebuild_minf(const std::vector<uint8_t>& minf, bool isVideo) {
+    std::vector<uint8_t> rebuild_minf(const std::vector<uint8_t>& minf, bool isVideo, bool target) {
         auto children = parse_children(minf.data(), 8, minf.size());
         if (children.empty()) return {};
         std::vector<std::vector<uint8_t>> res;
+        if(target && std::none_of(children.begin(),children.end(),[](const auto& c){return c.type=="hdlr";}))
+            res.push_back(build_hdlr("dhlr", "alis", "Core Media Data Handler"));
         for (auto& c : children) {
-            if (c.type == "vmhd" && isVideo) res.push_back(build_vmhd());
+            if (c.type == "vmhd" && isVideo) res.push_back(build_vmhd(target));
             else if (c.type == "hdlr") res.push_back(build_hdlr("dhlr", "alis", "Core Media Data Handler"));
             else if (c.type == "dinf") res.push_back(rebuild_dinf(c.data));
             else res.push_back(c.data);
@@ -193,20 +198,20 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
         return build_container("minf", res);
     }
 
-    std::vector<uint8_t> rebuild_mdia(const std::vector<uint8_t>& mdia, bool isVideo, uint32_t appleTime) {
+    std::vector<uint8_t> rebuild_mdia(const std::vector<uint8_t>& mdia, bool isVideo, uint32_t appleTime, bool target) {
         auto children = parse_children(mdia.data(), 8, mdia.size());
         if (children.empty()) return {};
         std::vector<std::vector<uint8_t>> res;
         for (auto& c : children) {
             if (c.type == "mdhd") res.push_back(rebuild_mdhd(c.data, appleTime));
             else if (c.type == "hdlr") res.push_back(build_hdlr("mhlr", isVideo ? "vide" : "soun", isVideo ? "Core Media Video" : "Core Media Audio"));
-            else if (c.type == "minf") res.push_back(rebuild_minf(c.data, isVideo));
+            else if (c.type == "minf") res.push_back(rebuild_minf(c.data, isVideo, target));
             else res.push_back(c.data);
         }
         return build_container("mdia", res);
     }
 
-    std::vector<uint8_t> normalize_trak(const std::vector<uint8_t>& trak, bool isVideo, int vw, int vh, uint32_t appleTime) {
+    std::vector<uint8_t> normalize_trak(const std::vector<uint8_t>& trak, bool isVideo, int vw, int vh, uint32_t appleTime, bool target) {
         auto children = parse_children(trak.data(), 8, trak.size());
         if (children.empty()) return {};
         std::vector<std::vector<uint8_t>> res;
@@ -215,8 +220,8 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
                 res.push_back(rebuild_tkhd(c.data, appleTime));
                 if (isVideo) res.push_back(build_tapt(vw, vh));
             } else if (c.type == "mdia") {
-                res.push_back(rebuild_mdia(c.data, isVideo, appleTime));
-            } else {
+                res.push_back(rebuild_mdia(c.data, isVideo, appleTime, target));
+            } else if (!(target && isVideo && c.type == "tapt")) {
                 res.push_back(c.data);
             }
         }
@@ -232,7 +237,7 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
 
     bool is_box_container(const std::string& type) {
         return type == "moov" || type == "trak" || type == "mdia" ||
-               type == "minf" || type == "stbl" || type == "udta";
+               type == "minf" || type == "stbl" || type == "udta" || type == "edts";
     }
 
     bool contains_atom_recursive(
@@ -371,53 +376,267 @@ namespace { static bool is_box_type(const uint8_t* p, const char* type) { return
         write_be32(trak.data() + tkhd + 20, trackId);
         write_be32(trak.data() + tkhd + 28, coverDur + oneFrame);
         write_be32(trak.data() + stco + 16, dataOff);
-
+        if(coverDur==0) {
+            // The first frame needs no empty edit. A zero-duration empty edit
+            // is invalid; retain one positive media edit at media time zero.
+            ptrdiff_t edts=find_atom(trak,8,trak.size(),"edts");
+            if(edts<0)return {};
+            trak.erase(trak.begin()+elst+16,trak.begin()+elst+28);
+            write_be32(trak.data()+elst,28);write_be32(trak.data()+elst+12,1);
+            write_be32(trak.data()+edts,36);write_be32(trak.data(),static_cast<int32_t>(trak.size()));
+        }
         return trak;
     }
 
-    std::vector<uint8_t> build_apple_content_identifier_meta(const char* contentId) {
+    std::vector<uint8_t> build_apple_content_identifier_meta(const char* contentId, bool target_metadata=false) {
         if (contentId == nullptr || *contentId == '\0') return {};
-
-        const std::string key = "com.apple.quicktime.content.identifier";
-        const std::string value(contentId);
-
-        std::vector<uint8_t> keyEntry(8 + key.size());
-        write_be32(keyEntry.data(), static_cast<int32_t>(keyEntry.size()));
-        write_type(keyEntry.data(), 4, "mdta");
-        std::memcpy(keyEntry.data() + 8, key.data(), key.size());
-
-        std::vector<uint8_t> keysBody(8 + keyEntry.size(), 0);
-        write_be32(keysBody.data() + 4, 1);
-        std::memcpy(keysBody.data() + 8, keyEntry.data(), keyEntry.size());
-        std::vector<uint8_t> keys = build_box_from_body("keys", keysBody);
-
-        std::vector<uint8_t> dataBox(16 + value.size(), 0);
-        write_be32(dataBox.data(), static_cast<int32_t>(dataBox.size()));
-        write_type(dataBox.data(), 4, "data");
-        write_be32(dataBox.data() + 8, 1); // UTF-8
-        std::memcpy(dataBox.data() + 16, value.data(), value.size());
-
-        std::vector<uint8_t> item(8 + dataBox.size(), 0);
-        write_be32(item.data(), static_cast<int32_t>(item.size()));
-        item[7] = 1; // key index 1
-        std::memcpy(item.data() + 8, dataBox.data(), dataBox.size());
-        std::vector<uint8_t> ilst = build_box_from_body("ilst", item);
-
-        std::vector<uint8_t> hdlr = build_hdlr("\0\0\0\0", "mdta", "");
-        std::vector<uint8_t> metaBody;
-        metaBody.reserve(hdlr.size() + keys.size() + ilst.size());
-        metaBody.insert(metaBody.end(), hdlr.begin(), hdlr.end());
-        metaBody.insert(metaBody.end(), keys.begin(), keys.end());
-        metaBody.insert(metaBody.end(), ilst.begin(), ilst.end());
-        return build_box_from_body("meta", metaBody);
+        std::vector<std::pair<std::string,std::string>> fields{{"com.apple.quicktime.content.identifier",contentId}};
+        if(target_metadata) {
+            const std::time_t now=std::time(nullptr);std::tm utc{};
+#if defined(_WIN32)
+            if(gmtime_s(&utc,&now)!=0)return {};
+#else
+            if(!gmtime_r(&now,&utc))return {};
+#endif
+            char text[32]{};if(!std::strftime(text,sizeof(text),"%Y-%m-%dT%H:%M:%SZ",&utc))return {};
+            fields.emplace_back("com.apple.quicktime.software","17.0.2");
+            fields.emplace_back("com.apple.quicktime.creationdate",text);
+        }
+        std::vector<uint8_t> keysBody(8,0),items;write_be32(keysBody.data()+4,static_cast<uint32_t>(fields.size()));
+        for(size_t i=0;i<fields.size();++i) {
+            const auto& [key,value]=fields[i];
+            std::vector<uint8_t> entry(8+key.size());write_be32(entry.data(),static_cast<uint32_t>(entry.size()));
+            write_type(entry.data(),4,"mdta");std::memcpy(entry.data()+8,key.data(),key.size());
+            keysBody.insert(keysBody.end(),entry.begin(),entry.end());
+            std::vector<uint8_t> data(16+value.size(),0);write_be32(data.data(),static_cast<uint32_t>(data.size()));
+            write_type(data.data(),4,"data");write_be32(data.data()+8,1);std::memcpy(data.data()+16,value.data(),value.size());
+            std::vector<uint8_t> item(8+data.size(),0);write_be32(item.data(),static_cast<uint32_t>(item.size()));
+            write_be32(item.data()+4,static_cast<uint32_t>(i+1));std::memcpy(item.data()+8,data.data(),data.size());
+            items.insert(items.end(),item.begin(),item.end());
+        }
+        auto keys=build_box_from_body("keys",keysBody);auto ilst=build_box_from_body("ilst",items);
+        auto hdlr=build_hdlr("\0\0\0\0","mdta","");
+        if(target_metadata) std::fill(hdlr.begin()+20,hdlr.begin()+24,uint8_t{0});
+        std::vector<uint8_t> body;
+        body.insert(body.end(),hdlr.begin(),hdlr.end());body.insert(body.end(),keys.begin(),keys.end());body.insert(body.end(),ilst.begin(),ilst.end());
+        return build_box_from_body("meta",body);
     }
+
+    // Merge a new mdta key into a structurally bounded existing QuickTime meta.
+    // Unknown child boxes and key values are retained byte-for-byte.
+    bool merge_apple_meta(const std::vector<uint8_t>& old, const char* id, std::vector<uint8_t>& result) {
+        if(old.size()<16) return false;
+        size_t offset=8;
+        auto children=parse_children(old.data(),offset,old.size());
+        if(children.empty() && old.size()>=20 && read_be32u(old.data()+8)==0) {
+            offset=12; children=parse_children(old.data(),offset,old.size());
+        }
+        if(children.empty()) return false;
+        size_t ki=SIZE_MAX,li=SIZE_MAX,hi=SIZE_MAX;
+        for(size_t i=0;i<children.size();++i) {
+            size_t* slot=children[i].type=="keys"?&ki:children[i].type=="ilst"?&li:children[i].type=="hdlr"?&hi:nullptr;
+            if(slot) {if(*slot!=SIZE_MAX)return false;*slot=i;}
+        }
+        if(ki==SIZE_MAX || li==SIZE_MAX || hi==SIZE_MAX || children[hi].data.size()<20 ||
+           std::memcmp(children[hi].data.data()+16,"mdta",4)!=0) return false;
+        auto& keys=children[ki].data; auto& ilst=children[li].data;
+        if(keys.size()<16 || read_be32u(keys.data()+8)!=0) return false;
+        const uint32_t count=read_be32u(keys.data()+12);
+        const auto existing=parse_children(keys.data(),16,keys.size());
+        if(existing.size()!=count || count==UINT32_MAX) return false;
+        const std::string wanted="com.apple.quicktime.content.identifier";
+        for(const auto& key:existing)
+            if(key.type=="mdta" && key.data.size()==8+wanted.size() &&
+               !std::memcmp(key.data.data()+8,wanted.data(),wanted.size())) return false;
+        const auto items=parse_children(ilst.data(),8,ilst.size());
+        if(ilst.size()!=8 && items.empty()) return false;
+        for(const auto& item:items) {
+            const uint32_t index=read_be32u(item.data.data()+4);
+            if(index==0 || index>count) return false;
+        }
+        auto added=build_apple_content_identifier_meta(id,true);
+        auto parts=parse_children(added.data(),8,added.size());
+        if(parts.size()!=3 || parts[1].type!="keys" || parts[2].type!="ilst") return false;
+        auto added_keys=parse_children(parts[1].data.data(),16,parts[1].data.size());
+        auto added_items=parse_children(parts[2].data.data(),8,parts[2].data.size());
+        if(added_keys.size()!=3 || added_items.size()!=3)return false;
+        size_t software_index=SIZE_MAX;
+        for(size_t i=0;i<existing.size();++i) if(existing[i].type==added_keys[1].type && existing[i].data==added_keys[1].data) {
+            if(software_index!=SIZE_MAX)return false;software_index=i+1;
+        }
+        if(software_index!=SIZE_MAX) {
+            size_t matches=0;std::vector<uint8_t> values;
+            for(const auto& item:items) {
+                const uint32_t index=read_be32u(item.data.data()+4);
+                if(index!=software_index) {values.insert(values.end(),item.data.begin(),item.data.end());continue;}
+                if(++matches!=1)return false;
+                const auto data_boxes=parse_children(item.data.data(),8,item.data.size());
+                if(data_boxes.size()!=1 || data_boxes[0].type!="data" || data_boxes[0].data.size()<16 ||
+                   read_be32u(data_boxes[0].data.data()+8)!=1)return false;
+                auto replacement=added_items[1].data;write_be32(replacement.data()+4,static_cast<uint32_t>(software_index));
+                values.insert(values.end(),replacement.begin(),replacement.end());
+            }
+            if(matches!=1)return false;
+            ilst=build_box_from_body("ilst",values);if(ilst.empty())return false;
+        }
+        uint32_t total=count;
+        for(size_t i=0;i<added_keys.size();++i) {
+            bool exists=false;
+            for(const auto& key:existing) if(key.type==added_keys[i].type && key.data==added_keys[i].data) exists=true;
+            if(exists) {if(i==0)return false;continue;}
+            if(total==UINT32_MAX)return false;++total;
+            keys.insert(keys.end(),added_keys[i].data.begin(),added_keys[i].data.end());
+            auto item=added_items[i].data;write_be32(item.data()+4,total);
+            ilst.insert(ilst.end(),item.begin(),item.end());
+        }
+        write_be32(keys.data(),static_cast<uint32_t>(keys.size()));write_be32(keys.data()+12,total);
+        write_be32(ilst.data(),static_cast<uint32_t>(ilst.size()));
+        std::fill(children[hi].data.begin()+12,children[hi].data.begin()+16,uint8_t{0});
+        if(children[hi].data.size()<24)return false;
+        std::fill(children[hi].data.begin()+20,children[hi].data.begin()+24,uint8_t{0});
+        std::vector<uint8_t> body;
+        for(const auto& child:children)body.insert(body.end(),child.data.begin(),child.data.end());
+        result=build_box_from_body("meta",body);return !result.empty();
+    }
+
+    // Movie-level durations use mvhd's scale; media-time fields use each
+    // mdhd's independent scale and must never be rewritten here.
+    bool rescale_apple_movie_units(std::vector<uint8_t>& bytes,size_t start,size_t end,uint32_t from,uint32_t target) {
+        const auto scale=[&](size_t at,size_t width) {
+            const uint64_t value=width==4?read_be32u(bytes.data()+at):static_cast<uint64_t>(read_be64(bytes.data()+at));
+            if(value>(UINT64_MAX-from/2)/target)return false;
+            const uint64_t result=(value*target+from/2)/from;
+            if(width==4) {if(result>UINT32_MAX)return false;write_be32(bytes.data()+at,static_cast<int32_t>(result));}
+            else {if(result>INT64_MAX)return false;write_be64(bytes.data()+at,static_cast<int64_t>(result));}
+            return true;
+        };
+        for(size_t p=start;p<end;) {
+            isobmff_box_header box{};if(!try_read_box_header(bytes.data(),p,end,box))return false;
+            const std::string type(reinterpret_cast<const char*>(bytes.data()+p+4),4);
+            const size_t body=p+box.header_size;
+            if(type=="mvhd") {
+                if(box.header_size!=8||box.size<28||bytes[body]!=0||!scale(body+16,4))return false;
+                write_be32(bytes.data()+body+12,static_cast<int32_t>(target));
+            } else if(type=="tkhd") {
+                if(box.header_size!=8||box.size<32||bytes[body]!=0||!scale(body+20,4))return false;
+            } else if(type=="elst") {
+                if(box.size<box.header_size+8)return false;
+                const uint8_t version=bytes[body];if(version>1)return false;
+                const size_t stride=version?20:12,width=version?8:4;
+                const uint32_t count=read_be32u(bytes.data()+body+4);
+                if(count>(box.size-box.header_size-8)/stride||box.size!=box.header_size+8+static_cast<uint64_t>(count)*stride)return false;
+                for(uint32_t i=0;i<count;++i)if(!scale(body+8+static_cast<size_t>(i)*stride,width))return false;
+            } else if(is_box_container(type)&&!rescale_apple_movie_units(bytes,body,p+box.size,from,target))return false;
+            p+=box.size;
+        }
+        return true;
+    }
+    struct mdat_map { uint64_t begin,end,destination; };
+    bool remap_chunks(std::vector<uint8_t>& bytes,size_t start,size_t end,const std::vector<mdat_map>& maps) {
+        size_t p=start;
+        while(p<end) {
+            isobmff_box_header box{};
+            if(!try_read_box_header(bytes.data(),p,end,box))return false;
+            const std::string type(reinterpret_cast<const char*>(bytes.data()+p+4),4);
+            if(type=="stco" || type=="co64") {
+                const size_t width=type=="stco"?4:8;
+                if(box.header_size!=8 || box.size<16)return false;
+                const uint32_t count=read_be32u(bytes.data()+p+12);
+                if(count!=(box.size-16)/width || (box.size-16)%width)return false;
+                for(uint32_t i=0;i<count;++i) {
+                    const size_t at=p+16+static_cast<size_t>(i)*width;
+                    const uint64_t old=width==4?read_be32u(bytes.data()+at):static_cast<uint64_t>(read_be64(bytes.data()+at));
+                    const mdat_map* owner=nullptr;
+                    for(const auto& map:maps) if(old>=map.begin && old<map.end) {if(owner)return false;owner=&map;}
+                    if(!owner || old-owner->begin>UINT64_MAX-owner->destination)return false;
+                    const uint64_t value=owner->destination+(old-owner->begin);
+                    if(width==4) {if(value>UINT32_MAX)return false;write_be32(bytes.data()+at,static_cast<uint32_t>(value));}
+                    else {if(value>INT64_MAX)return false;write_be64(bytes.data()+at,static_cast<int64_t>(value));}
+                }
+            } else if(is_box_container(type) && !remap_chunks(bytes,p+box.header_size,p+box.size,maps))return false;
+            p+=box.size;
+        }
+        return p==end;
+    }
+    bool canonicalize_apple_input(const std::vector<uint8_t>& input,std::vector<uint8_t>& out) {
+        struct range {size_t at,size,header;};
+        std::vector<range> mdats;range ftyp{},moov{};size_t p=0;
+        while(p<input.size()) {
+            isobmff_box_header box{};if(!try_read_box_header(input.data(),p,input.size(),box))return false;
+            if(is_box_type(input.data()+p,"ftyp")) {if(ftyp.size)return false;ftyp={p,box.size,box.header_size};}
+            else if(is_box_type(input.data()+p,"moov")) {if(moov.size)return false;moov={p,box.size,box.header_size};}
+            else if(is_box_type(input.data()+p,"mdat")) mdats.push_back({p,box.size,box.header_size});
+            else if(!is_box_type(input.data()+p,"free") && !is_box_type(input.data()+p,"wide") && !is_box_type(input.data()+p,"skip")) return false;
+            p+=box.size;
+        }
+        if(!ftyp.size || ftyp.at!=0 || ftyp.header!=8 || ftyp.size<16 || (ftyp.size-16)%4 ||
+           !moov.size || moov.header!=8 || mdats.empty())return false;
+        const std::vector<uint8_t> brand={0,0,0,20,'f','t','y','p','q','t',' ',' ',0,0,0,0,'q','t',' ',' '};
+        lpb::memory_random_access source{input};
+        isobmff_reader_observation observed;isobmff_reader_diagnostic diagnostic;
+        if(!inspect_isobmff_reader(source.view(),true,observed,diagnostic) || observed.moov_bytes.size()!=moov.size)return false;
+        std::vector<uint8_t> rebuilt_moov=observed.moov_bytes;
+        struct chunk_copy {uint64_t old,size;size_t field,width;int order;};
+        std::vector<chunk_copy> chunks;
+        for(const auto& table:observed.sample_tables) {
+            int order=2;bool found=false;
+            for(size_t at=8;at<rebuilt_moov.size();) {
+                isobmff_box_header box{};if(!try_read_box_header(rebuilt_moov.data(),at,rebuilt_moov.size(),box))return false;
+                if(is_box_type(rebuilt_moov.data()+at,"trak") && table.chunk_offsets_entries_start>=at && table.chunk_offsets_entries_start<at+box.size) {
+                    if(found)return false;found=true;
+                    std::vector<uint8_t> track(rebuilt_moov.begin()+at,rebuilt_moov.begin()+at+box.size);
+                    const bool video=contains_atom_recursive(track,8,track.size(),"vmhd");
+                    const bool audio=contains_atom_recursive(track,8,track.size(),"smhd");
+                    if(video&&audio)return false;order=video?0:audio?1:2;
+                }
+                at+=box.size;
+            }
+            if(!found || (table.chunk_offset_width!=4 && table.chunk_offset_width!=8))return false;
+            for(size_t i=0;i<table.chunks.size();++i) {
+                const auto& c=table.chunks[i];bool owned=false;
+                for(const auto& m:mdats) if(c.offset>=m.at+m.header && c.offset<=m.at+m.size && c.size<=m.at+m.size-c.offset) {
+                    if(owned)return false;owned=true;
+                }
+                if(!owned || !c.size)return false;
+                const size_t field=table.chunk_offsets_entries_start+i*table.chunk_offset_width;
+                if(field>rebuilt_moov.size() || table.chunk_offset_width>rebuilt_moov.size()-field)return false;
+                chunks.push_back({c.offset,c.size,field,table.chunk_offset_width,order});
+            }
+        }
+        if(chunks.empty())return false;
+        auto physical=chunks;std::sort(physical.begin(),physical.end(),[](const auto& a,const auto& b){return a.old<b.old;});
+        for(size_t i=1;i<physical.size();++i) if(physical[i-1].old+physical[i-1].size>physical[i].old)return false;
+        std::stable_sort(chunks.begin(),chunks.end(),[](const auto& a,const auto& b){return a.order<b.order;});
+        std::vector<uint8_t> payload;
+        for(const auto& c:chunks) {
+            const uint64_t position=brand.size()+rebuilt_moov.size()+16ULL+payload.size();
+            if(c.width==4) {if(position>UINT32_MAX)return false;write_be32(rebuilt_moov.data()+c.field,static_cast<uint32_t>(position));}
+            else {if(position>INT64_MAX)return false;write_be64(rebuilt_moov.data()+c.field,static_cast<int64_t>(position));}
+            payload.insert(payload.end(),input.begin()+static_cast<size_t>(c.old),input.begin()+static_cast<size_t>(c.old+c.size));
+        }
+        // Preserve unreferenced media bytes without letting them alter chunk ownership.
+        for(const auto& m:mdats) {
+            uint64_t cursor=m.at+m.header, limit=m.at+m.size;
+            for(const auto& c:physical) if(c.old>=cursor && c.old<limit) {
+                payload.insert(payload.end(),input.begin()+static_cast<size_t>(cursor),input.begin()+static_cast<size_t>(c.old));
+                cursor=c.old+c.size;
+            }
+            payload.insert(payload.end(),input.begin()+static_cast<size_t>(cursor),input.begin()+static_cast<size_t>(limit));
+        }
+        if(payload.size()>UINT32_MAX-8)return false;
+        out=brand;out.insert(out.end(),rebuilt_moov.begin(),rebuilt_moov.end());
+        out.insert(out.end(),{0,0,0,8,'w','i','d','e'});append_be32(out,static_cast<uint32_t>(payload.size()+8));
+        out.insert(out.end(),{'m','d','a','t'});out.insert(out.end(),payload.begin(),payload.end());
+        return true;
+    }
+
 }
 static lpb_result append_mebx_tracks_impl(
     lpb_context* context,
     const uint8_t* data, size_t data_size,
     double cover_seconds,
     const char* content_id,
-    uint8_t* output, size_t output_size, size_t* out_written)
+    uint8_t* output, size_t output_size, size_t* out_written, bool preserve_meta = false)
 {
     if (!context || !data || !out_written) return LPB_RESULT_INVALID_ARGUMENT;
     *out_written = 0;
@@ -477,11 +696,30 @@ static lpb_result append_mebx_tracks_impl(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
+    if(preserve_meta) {
+        const uint32_t old_scale=timescale;
+        // Keep every source edit exactly representable while giving the cover
+        // at least 1/44100-second precision. Rounding source edits to a fixed
+        // 44100 scale would introduce fractional-frame trim boundaries.
+        const uint64_t target_scale=old_scale>=44100?old_scale:
+            static_cast<uint64_t>(old_scale/std::gcd(old_scale,44100U))*44100ULL;
+        if(target_scale>INT32_MAX)return LPB_RESULT_UNSUPPORTED;
+        const auto target=static_cast<uint32_t>(target_scale);
+        for(auto& c:moov_children)if(!rescale_apple_movie_units(c.data,0,c.data.size(),old_scale,target)) {
+            set_error(context,"Movie-level timing cannot be safely mapped to a precise Apple cover scale");return LPB_RESULT_UNSUPPORTED;
+        }
+        const uint64_t duration=(static_cast<uint64_t>(movieDuration)*target+old_scale/2)/old_scale;
+        if(duration>UINT32_MAX||duration==0)return LPB_RESULT_UNSUPPORTED;
+        movieDuration=static_cast<uint32_t>(duration);timescale=target;
+        // Keep rounding inside the final representable movie interval.
+        cover_seconds=std::min(cover_seconds,static_cast<double>(movieDuration-1)/timescale);
+    }
     std::vector<uint8_t> normVideo;
     std::vector<uint8_t> normAudio;
     int videoOldLen = 0, audioOldLen = 0;
     int video_track_count = 0, audio_track_count = 0;
     int maxTrackId = 0;
+    uint32_t primaryVideoTrackId=0;
 
     for (const auto& c : moov_children) {
         if (c.type != "trak") continue;
@@ -501,6 +739,7 @@ static lpb_result append_mebx_tracks_impl(
         if (tid > maxTrackId) maxTrackId = tid;
 
         if (isVideo) {
+            primaryVideoTrackId=tid_value;
             if (++video_track_count > 1) {
                 set_error(context, "Multiple video tracks are unsupported by the MEBX template writer.");
                 return LPB_RESULT_INVALID_ARGUMENT;
@@ -516,7 +755,7 @@ static lpb_result append_mebx_tracks_impl(
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
             videoOldLen = static_cast<int>(c.data.size());
-            normVideo = normalize_trak(c.data, true, vw, vh, appleTime);
+            normVideo = normalize_trak(c.data, true, vw, vh, appleTime, preserve_meta);
             if (normVideo.empty()) {
                 set_error(context, "MOV video track could not be structurally rebuilt.");
                 return LPB_RESULT_INVALID_ARGUMENT;
@@ -527,7 +766,7 @@ static lpb_result append_mebx_tracks_impl(
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
             audioOldLen = static_cast<int>(c.data.size());
-            normAudio = normalize_trak(c.data, false, 0, 0, appleTime);
+            normAudio = normalize_trak(c.data, false, 0, 0, appleTime, preserve_meta);
             if (normAudio.empty()) {
                 set_error(context, "MOV audio track could not be structurally rebuilt.");
                 return LPB_RESULT_INVALID_ARGUMENT;
@@ -537,13 +776,19 @@ static lpb_result append_mebx_tracks_impl(
 
     const int64_t normalizationDelta = (normVideo.empty() ? 0 : static_cast<int64_t>(normVideo.size()) - videoOldLen) +
                                        (normAudio.empty() ? 0 : static_cast<int64_t>(normAudio.size()) - audioOldLen);
-    const int MetadataTrakSize = 1043 + 672;
+    const int MetadataTrakSize = 1043 + 672 + (preserve_meta ? 20 : 0) - (std::round(cover_seconds*timescale)==0 ? 12 : 0);
     std::vector<uint8_t> contentMeta;
     int64_t replacedMetaSize = 0;
     if (content_id != nullptr) {
-        contentMeta = build_apple_content_identifier_meta(content_id);
+        contentMeta = build_apple_content_identifier_meta(content_id,preserve_meta);
+        bool found_meta=false;
         for (const auto& c : moov_children) {
-            if (c.type == "meta") replacedMetaSize += static_cast<int64_t>(c.data.size());
+            if (c.type != "meta") continue;
+            if(preserve_meta && (found_meta || !merge_apple_meta(c.data,content_id,contentMeta))) {
+                set_error(context,"QuickTime metadata has conflicting or unsupported key ownership."); return LPB_RESULT_UNSUPPORTED;
+            }
+            found_meta=true;
+            replacedMetaSize += static_cast<int64_t>(c.data.size());
         }
     }
     if (content_id != nullptr && contentMeta.empty()) {
@@ -581,6 +826,15 @@ static lpb_result append_mebx_tracks_impl(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
+    if(preserve_meta) {
+        if(!primaryVideoTrackId)return LPB_RESULT_INVALID_ARGUMENT;
+        std::vector<uint8_t> reference(20,0);
+        write_be32(reference.data(),20);write_type(reference.data(),4,"tref");
+        write_be32(reference.data()+8,12);write_type(reference.data(),12,"cdsc");
+        write_be32(reference.data()+16,static_cast<int32_t>(primaryVideoTrackId));
+        contentTrak.insert(contentTrak.begin()+8,reference.begin(),reference.end());
+        write_be32(contentTrak.data(),static_cast<int32_t>(contentTrak.size()));
+    }
     patch_track_timestamps(contentTrak, appleTime);
     patch_track_timestamps(coverTrak, appleTime);
 
@@ -608,7 +862,13 @@ static lpb_result append_mebx_tracks_impl(
             bool isAudio = contains_atom_recursive(c.data, 8, c.data.size(), "smhd");
             if (isVideo && !normVideo.empty()) newMoovPayload.push_back(normVideo);
             else if (isAudio && !normAudio.empty()) newMoovPayload.push_back(normAudio);
-            else newMoovPayload.push_back(c.data);
+            else if (preserve_meta) {
+                auto preserved=c.data;
+                if(!shift_trak_chunk_offsets(preserved,oldMoovEnd,static_cast<int>(moovDelta))) {
+                    set_error(context,"Existing track offsets cannot be relocated safely."); return LPB_RESULT_UNSUPPORTED;
+                }
+                newMoovPayload.push_back(std::move(preserved));
+            } else newMoovPayload.push_back(c.data);
         } else if (c.type == "meta" && content_id != nullptr) {
             // Replace stale top-level QuickTime metadata when the rebuilt
             // writer supplies a new ContentIdentifier.
@@ -713,3 +973,38 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_apple_append_mebx_tracks_with_content
 }
 
 
+
+namespace lpb::target {
+lpb_result apple_movie(lpb_context* ctx, const std::vector<uint8_t>& input, int64_t cover,
+    const std::string& id, std::vector<uint8_t>& output) {
+    std::vector<uint8_t> normalized;
+    if(!canonicalize_apple_input(input,normalized)) {
+        set_error(ctx,"Apple MOV input cannot be safely reorganized into a single mdat."); return LPB_RESULT_UNSUPPORTED;
+    }
+    size_t size=0;
+    auto invoke=[&](uint8_t* out,size_t cap) {
+        return append_mebx_tracks_impl(ctx,normalized.data(),normalized.size(),static_cast<double>(cover)/1000000.0,id.c_str(),out,cap,&size,true);
+    };
+    auto result=invoke(nullptr,0); if(result!=LPB_RESULT_BUFFER_TOO_SMALL) return result;
+    output.resize(size); result=invoke(output.data(),output.size());
+    if(result!=LPB_RESULT_OK) {output.clear();return result;} output.resize(size);
+    auto boxes=parse_children(output.data(),0,output.size());
+    if(boxes.size()!=5 || boxes[0].type!="ftyp" || boxes[1].type!="moov" ||
+       boxes[2].type!="wide" || boxes[3].type!="mdat" || boxes[4].type!="mdat" ||
+       read_be32u(boxes[3].data.data())<8 || read_be32u(boxes[4].data.data())<8) {
+        set_error(ctx,"Apple MOV assembly did not produce the expected bounded top-level layout");
+        output.clear();return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    const size_t mdat=boxes[0].data.size()+boxes[1].data.size()+boxes[2].data.size();
+    const size_t next=mdat+boxes[3].data.size();
+    if(boxes[3].data.size()>UINT32_MAX-boxes[4].data.size()+8 ||
+       !shift_trak_chunk_offsets_in_range(output,boxes[0].data.size()+8,
+           boxes[0].data.size()+boxes[1].data.size(),next+8,-8)) {
+        set_error(ctx,"Apple MOV sample offsets could not be relocated during final mdat merge");
+        output.clear();return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    write_be32(output.data()+mdat,static_cast<uint32_t>(boxes[3].data.size()+boxes[4].data.size()-8));
+    output.erase(output.begin()+next,output.begin()+next+8);
+    return LPB_RESULT_OK;
+}
+}

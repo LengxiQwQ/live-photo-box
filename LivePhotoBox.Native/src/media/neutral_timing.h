@@ -3,6 +3,7 @@
 #include "livephotobox_native.h"
 #include <span>
 namespace lpb::media {
+bool observe_vivo_source_positions(std::span<const uint8_t>,bool& has_frame,int64_t& frame,bool& has_cover,int64_t& cover);
 // Source fact projection only. Never interprets the historical footer field
 // as a timestamp, and never mints writer authority from source provenance.
 bool observe_huawei_source_timing(std::span<const uint8_t> movie,

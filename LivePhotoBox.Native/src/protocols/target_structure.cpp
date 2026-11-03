@@ -10,6 +10,8 @@ bool profile_accepts(uint32_t target,uint32_t format) noexcept {
     case 3:case 4:return format==0;
     case 5:return format==0||format==2;
     case 6:return format==0||format==2||format==4;
+    case 7:return format==1||format==3;
+    case 8:return format==0;
     default:return false;
     }
 }

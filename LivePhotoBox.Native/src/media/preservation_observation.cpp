@@ -266,7 +266,11 @@ void observe_makernote(const std::vector<uint8_t>& bytes, lpb_source_protocol pr
         }
 
         uint16_t count = read_be16u(bytes.data() + p + 14);
-        if (count == 0 || count > 64 || p + 16 + static_cast<size_t>(count) * 12 > bytes.size()) {
+        // A minimum target MakerNote can contain only the authorized CID.
+        // After removing it, an empty, terminated IFD is a valid container;
+        // its canonical non-live inventory is still exactly the empty set.
+        if (count > 64 || p + 20 + static_cast<size_t>(count) * 12 > bytes.size() ||
+            (count == 0 && read_be32u(bytes.data() + p + 16) != 0)) {
             out->flags |= LPB_POBS_MAKERNOTE_MALFORMED;
             return;
         }

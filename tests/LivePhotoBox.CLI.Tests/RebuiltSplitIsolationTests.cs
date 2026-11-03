@@ -11,7 +11,7 @@ namespace LivePhotoBox.Cli.Tests;
 public sealed class RebuiltSplitIsolationTests
 {
     [Fact]
-    public async Task RebuiltSplit_RejectsTargetProtocolWriter()
+    public async Task RebuiltSplit_PlansAppleTargetWithoutInvokingMediaWriter()
     {
         string directory = CliTestHost.CreateTempDir("lpb-rebuilt-split-");
         string input = CliTestHost.CreateDummyFile(directory, "photo.jpg");
@@ -21,9 +21,9 @@ public sealed class RebuiltSplitIsolationTests
                 SplitCommand.Create(),
                 input, "--protocol", "apple", "--dry-run", "--json");
 
-            Assert.Equal(1, result.ExitCode);
-            Assert.Contains("protocol-free neutral media only", result.StdErr, StringComparison.OrdinalIgnoreCase);
-            Assert.DoesNotContain("apple_jpg+mov", result.StdOut, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(0, result.ExitCode);
+            Assert.Contains("would-split", result.StdOut, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("intentionally disabled", result.StdErr, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

@@ -766,6 +766,11 @@ namespace LivePhotoBox.Views
                 var folder = await FilePickerService.PickFolderAsync();
                 if (folder != null) ViewModel.InputDirectory = folder.Path;
             }
+            catch (Exception ex)
+            {
+                LogService.Merge($"BrowseInput failed: {ex.Message}", LogLevel.Error, ex);
+                ViewModel.ReportImportFailure(ex);
+            }
             finally { btn.IsEnabled = true; }
         }
 
@@ -785,6 +790,10 @@ namespace LivePhotoBox.Views
                     // 同步填充原始文件移动目录默认值（仅系统自动填充时生效，不覆盖用户手动填写的值）
                     ViewModel.AutoFillOriginalDirectory();
                 }
+            }
+            catch (Exception ex)
+            {
+                LogService.Merge($"BrowseOutput failed: {ex.Message}", LogLevel.Error, ex);
             }
             finally { btn.IsEnabled = true; }
         }
@@ -825,6 +834,11 @@ namespace LivePhotoBox.Views
                         }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                LogService.Merge($"AddFiles failed: {ex.Message}", LogLevel.Error, ex);
+                ViewModel.ReportImportFailure(ex);
             }
             finally { btn.IsEnabled = true; }
         }

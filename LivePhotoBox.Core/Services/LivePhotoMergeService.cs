@@ -56,6 +56,7 @@ namespace LivePhotoBox.Services
             // HEIC 输出：需 HEIC 源 + V2/Huawei 协议 + 用户选了 HEIC 格式
             bool wantHeic = outputFormatIndex is 2 or 3
                 or ProtocolFormatMatrix.FormatHeicMp4H265;
+            if (selectedModeIndex is 7 or 8) return name + (wantHeic ? ".heic" : ".jpg");
             if (wantHeic && sourceImagePath != null
                 && HeicConverterService.IsHeicFile(sourceImagePath)
                 && LivePhotoProtocol.FromIndex(selectedModeIndex) is MotionPhotoV2Protocol or HuaweiMovingPhotoProtocol)
@@ -94,6 +95,8 @@ namespace LivePhotoBox.Services
             4 => "vivo",
             5 => "samsung",
             6 => "huawei",
+            7 => "apple",
+            8 => "vivo-legacy",
             _ => null
         };
 

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * SplitPage.xaml.cs
  *
  * 实况照片拆分页面的代码后置。
@@ -531,18 +531,6 @@ namespace LivePhotoBox.Views
         {
             if (ProtocolComboBox == null) return;
 
-            for (int i = 1; i < ProtocolComboBox.Items.Count; i++)
-            {
-                if (ProtocolComboBox.Items[i] is ComboBoxItem item)
-                    item.Visibility = Visibility.Collapsed;
-            }
-
-            if (ViewModel.ProtocolIndex is ProtocolFormatMatrix.SplitProtocolApple or ProtocolFormatMatrix.SplitProtocolVivo)
-            {
-                ViewModel.ProtocolIndex = ProtocolFormatMatrix.SplitProtocolNone;
-                ProtocolComboBox.SelectedIndex = ProtocolFormatMatrix.SplitProtocolNone;
-            }
-
             UpdateOutputFormatOptions(ProtocolComboBox.SelectedIndex);
         }
 
@@ -803,6 +791,11 @@ namespace LivePhotoBox.Views
                 var folder = await FilePickerService.PickFolderAsync();
                 if (folder != null) ViewModel.InputDirectory = folder.Path;
             }
+            catch (Exception ex)
+            {
+                LogService.Split($"BrowseInput failed: {ex.Message}", LogLevel.Error, ex);
+                ViewModel.ReportImportFailure(ex);
+            }
             finally { btn.IsEnabled = true; }
         }
 
@@ -820,6 +813,10 @@ namespace LivePhotoBox.Views
                     ViewModel.OutputDirectory = folder.Path;
                     ViewModel.AutoFillOriginalDirectory();
                 }
+            }
+            catch (Exception ex)
+            {
+                LogService.Split($"BrowseOutput failed: {ex.Message}", LogLevel.Error, ex);
             }
             finally { btn.IsEnabled = true; }
         }
@@ -860,6 +857,11 @@ namespace LivePhotoBox.Views
                         }
                     }
                 }
+            }
+            catch (Exception ex)
+            {
+                LogService.Split($"AddFiles failed: {ex.Message}", LogLevel.Error, ex);
+                ViewModel.ReportImportFailure(ex);
             }
             finally { btn.IsEnabled = true; }
         }

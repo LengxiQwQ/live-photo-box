@@ -38,6 +38,10 @@ struct target_xmp_observation {
  std::vector<std::string> property_inventory;
 };
 bool observe_target_xmp(std::string_view,target_xmp_observation&,xmp_observation_failure&) noexcept;
+// Target emission only: serialize uniquely owned generated scalars as
+// description attributes. Unknown XML and namespace bindings remain intact.
+bool serialize_target_camera_attributes(std::string_view,uint32_t,std::string&,xmp_observation_failure&) noexcept;
+bool serialize_google_v2_camera_attributes(std::string_view,std::string&,xmp_observation_failure&) noexcept;
 // Changes only the uniquely owned Primary Padding property using parsed XML
 // ranges. All other bytes, including unknown item attributes, are retained.
 // Remove only zero-valued Padding properties on actual secondary directory

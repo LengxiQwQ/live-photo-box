@@ -171,7 +171,17 @@ namespace LivePhotoBox.Services
                     {
                         // Missing inputs still receive their normal per-item failure.
                         // Existing objects must be protected before any writer starts.
-                        if (File.Exists(path)) leases.Add(File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read));
+                        if (File.Exists(path))
+                        {
+                            try
+                            {
+                                leases.Add(File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read));
+                            }
+                            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                            {
+                                LogService.Merge($"Could not acquire shared read lease for '{path}': {ex.Message}", LogLevel.Debug);
+                            }
+                        }
                     }
                 }
                 catch { Dispose(); throw; }
@@ -306,8 +316,12 @@ namespace LivePhotoBox.Services
                         ? OppoInitialCoverPolicy.InitializeNewTargetAtCurrentCover
                         : OppoInitialCoverPolicy.RequireKnownOriginal).ConfigureAwait(false);
 
-                committedOutputs = [new ProductCommittedArtifact { Role = "TargetLivePhoto", Path = published.FinalPath,
-                    Sha256 = published.Sha256, ByteLength = published.ByteLength }];
+                committedOutputs = published.VideoPath is null
+                    ? [new ProductCommittedArtifact { Role = "TargetLivePhoto", Path = published.FinalPath,
+                        Sha256 = published.Sha256, ByteLength = published.ByteLength }]
+                    : [new ProductCommittedArtifact { Role = "PrimaryImage", Path = published.FinalPath,
+                        Sha256 = published.Sha256, ByteLength = published.ByteLength },
+                       new ProductCommittedArtifact { Role = "MotionVideo", Path = published.VideoPath }];
                 notCarried.AddRange(published.NotCarried);
                 if (bundle.PreparationExecution is { } prepExec)
                 {

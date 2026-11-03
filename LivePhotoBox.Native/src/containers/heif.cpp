@@ -2676,6 +2676,118 @@ bool rewrite_primary_xmp(std::span<const uint8_t> input, std::string_view replac
     } catch (const std::exception& ex) { output.clear(); error = ex.what(); return false; }
     catch (...) { return fail("HEIF XMP rewrite: allocation or internal failure."); }
 }
+// Internal owner-specific graph mutation. The input and replacement are bound
+// by the target Writer; the existing graph establishes metadata identity.
+bool rewrite_primary_exif(std::span<const uint8_t> input,std::span<const uint8_t> replacement,
+    std::vector<uint8_t>& output,std::string& error) noexcept {
+ output.clear();error.clear();
+ const auto fail=[&](const char* why){output.clear();error=why;return false;};
+ try {
+  if(replacement.empty()||replacement.size()>16u*1024u*1024u)return fail("HEIF Exif replacement exceeds its bound.");
+  xmp_rewrite_graph graph;if(!parse_xmp_rewrite_graph(input,graph,error))return false;
+  std::vector<uint8_t> existing_exif;std::string xml;
+  if(!read_image_item_metadata(input,graph.primary,existing_exif,xml,error))return false;
+  uint32_t exif_id=0;
+  for(const auto& item:graph.items) if(item.type==0x45786966u) {
+   const auto owner=graph.metadata_owners.find(item.id);
+   if(owner==graph.metadata_owners.end()||owner->second.size()!=1)return fail("HEIF Exif has no unique image owner.");
+   if(owner->second.front()==graph.primary){if(exif_id)return fail("Duplicate primary-owned Exif.");exif_id=item.id;}
+  }
+  std::vector<uint8_t> raw(input.begin(),input.end());
+  std::vector<uint8_t> new_iinf(raw.begin()+graph.iinf.start,raw.begin()+graph.iinf.start+graph.iinf.size),new_iref;
+  if(graph.has_iref)new_iref.assign(raw.begin()+graph.iref.start,raw.begin()+graph.iref.start+graph.iref.size);
+  const bool adding=exif_id==0;
+  if(adding) {
+   std::set<uint32_t> ids;for(const auto& item:graph.items)ids.insert(item.id);
+   exif_id=1;while(ids.count(exif_id))++exif_id;
+   if(graph.items.size()==65535||(graph.has_iref&&raw[graph.iref.body_start]==0&&(exif_id>65535||graph.primary>65535)))
+    return fail("HEIF Exif has no representable new item identity.");
+   std::vector<uint8_t> infe_payload{3,0,0,0};append_u32(infe_payload,exif_id);append_u16(infe_payload,0);
+   infe_payload.insert(infe_payload.end(),{'E','x','i','f',0});std::vector<uint8_t> infe;
+   if(!make_box("infe",infe_payload,infe))return false;
+   const size_t old_width=raw[graph.iinf.body_start]==0?2:4;
+   std::vector<uint8_t> payload{1,0,0,0};append_u32(payload,static_cast<uint32_t>(graph.items.size()+1));
+   payload.insert(payload.end(),raw.begin()+graph.iinf.body_start+4+old_width,raw.begin()+graph.iinf.start+graph.iinf.size);
+   payload.insert(payload.end(),infe.begin(),infe.end());if(!make_box("iinf",payload,new_iinf))return false;
+   const bool wide=!graph.has_iref||raw[graph.iref.body_start]==1;
+   std::vector<uint8_t> reference;if(wide)append_u32(reference,exif_id);else append_u16(reference,static_cast<uint16_t>(exif_id));
+   append_u16(reference,1);if(wide)append_u32(reference,graph.primary);else append_u16(reference,static_cast<uint16_t>(graph.primary));
+   std::vector<uint8_t> cdsc,refs{static_cast<uint8_t>(wide?1:0),0,0,0};if(!make_box("cdsc",reference,cdsc))return false;
+   if(graph.has_iref)refs.insert(refs.end(),raw.begin()+graph.iref.body_start+4,raw.begin()+graph.iref.start+graph.iref.size);
+   refs.insert(refs.end(),cdsc.begin(),cdsc.end());if(!make_box("iref",refs,new_iref))return false;
+   graph.locations.push_back({exif_id,0,{{0,replacement.size(),0}}});
+  }
+  bool found=false;
+  for(auto& location:graph.locations)if(location.id==exif_id){
+   if(found)return fail("Duplicate HEIF Exif location.");found=true;
+   if(!adding)for(const auto& extent:location.extents){
+    const uint64_t at=extent.offset+(location.method==1?graph.idat.body_start:0);
+    std::fill(raw.begin()+static_cast<ptrdiff_t>(at),raw.begin()+static_cast<ptrdiff_t>(at+extent.length),uint8_t{});
+   }
+   location.method=0;location.extents={{0,replacement.size(),0}};
+  }
+  if(!found)return fail("Primary Exif location is missing.");
+  const auto build_iloc=[&](std::vector<uint8_t>& bytes){
+   std::vector<uint8_t> payload{2,0,0,0,0x88,0x08};append_u32(payload,static_cast<uint32_t>(graph.locations.size()));
+   for(const auto& location:graph.locations){append_u32(payload,location.id);append_u16(payload,location.method);append_u16(payload,0);
+    append_u16(payload,static_cast<uint16_t>(location.extents.size()));for(const auto& extent:location.extents){
+     append_u64_xmp(payload,extent.index);append_u64_xmp(payload,extent.offset);append_u64_xmp(payload,extent.length);}}
+   return make_box("iloc",payload,bytes);
+  };
+  std::vector<uint8_t> new_iloc,new_meta;size_t new_idat_body=0;
+  if(!build_iloc(new_iloc))return false;
+  const auto build_meta=[&](){
+   std::vector<uint8_t> payload(4,0);
+   for(const auto& child:graph.children){const auto* change=is_type(child,"iinf")?&new_iinf:is_type(child,"iloc")?&new_iloc:is_type(child,"iref")?&new_iref:nullptr;
+    if(is_type(child,"idat"))new_idat_body=graph.meta.start+8+payload.size()+child.header_size;
+    if(change)payload.insert(payload.end(),change->begin(),change->end());
+    else payload.insert(payload.end(),raw.begin()+child.start,raw.begin()+child.start+child.size);
+   }
+   if(!graph.has_iref)payload.insert(payload.end(),new_iref.begin(),new_iref.end());
+   return payload.size()<=64u*1024u*1024u-8u&&make_box("meta",payload,new_meta);
+  };
+  if(!build_meta())return false;
+  const uint64_t old_end=graph.meta.start+graph.meta.size,new_end=graph.meta.start+new_meta.size();
+  const auto relocate=[&](uint64_t offset){
+   if(graph.has_idat&&offset>=graph.idat.body_start&&offset<graph.idat.start+graph.idat.size)
+    return uint64_t(new_idat_body+(offset-graph.idat.body_start));
+   return offset>=old_end?uint64_t(new_end+(offset-old_end)):offset;
+  };
+  const size_t tail_begin=!graph.top.empty()&&is_type(graph.top.back(),"sefd")?graph.top.back().start:raw.size();
+  if(tail_begin<graph.meta.start+graph.meta.size || raw.size()-graph.meta.size>SIZE_MAX-new_meta.size()-8-replacement.size())return false;
+  const uint64_t exif_offset=tail_begin-graph.meta.size+new_meta.size()+8;
+  for(auto& location:graph.locations)if(location.id==exif_id)location.extents.front().offset=exif_offset;
+   else if(location.method==0)for(auto& extent:location.extents)extent.offset=relocate(extent.offset);
+  if(!build_iloc(new_iloc)||!build_meta())return false;
+  std::vector<uint8_t> result;result.reserve(raw.size()-graph.meta.size+new_meta.size()+8+replacement.size());
+  result.insert(result.end(),raw.begin(),raw.begin()+graph.meta.start);result.insert(result.end(),new_meta.begin(),new_meta.end());
+  result.insert(result.end(),raw.begin()+old_end,raw.begin()+tail_begin);append_u32(result,static_cast<uint32_t>(replacement.size()+8));
+  result.insert(result.end(),{'m','d','a','t'});result.insert(result.end(),replacement.begin(),replacement.end());
+  result.insert(result.end(),raw.begin()+tail_begin,raw.end());
+  xmp_rewrite_graph verified;if(!parse_xmp_rewrite_graph(result,verified,error)||verified.primary!=graph.primary)return false;
+  std::vector<uint8_t> checked;std::string checked_xml;
+  if(!read_image_item_metadata(result,graph.primary,checked,checked_xml,error)||checked.empty())return false;
+  output=std::move(result);return true;
+ }catch(...){return fail("HEIF primary Exif graph rewrite failed.");}
+}
+
+// A contiguous primary Exif range is still required by the existing C ABI.
+// The owner-specific parser also rejects unowned/shared and same-owner shadows.
+static bool locate_primary_exif_graph(std::span<const uint8_t> input,uint64_t& offset,uint64_t& length,std::string& error) {
+ xmp_rewrite_graph graph;if(!parse_xmp_rewrite_graph(input,graph,error))return false;
+ std::vector<uint8_t> exif;std::string xml;if(!read_image_item_metadata(input,graph.primary,exif,xml,error)||exif.empty())return false;
+ uint32_t id=0;
+ for(const auto& item:graph.items)if(item.type==0x45786966u){const auto owner=graph.metadata_owners.find(item.id);
+  if(owner==graph.metadata_owners.end()||owner->second.size()!=1)return false;
+  if(owner->second.front()==graph.primary){if(id)return false;id=item.id;}}
+ if(!id)return false;
+ for(const auto& loc:graph.locations)if(loc.id==id){
+  if(loc.extents.size()!=1)return false;offset=loc.extents[0].offset+(loc.method==1?graph.idat.body_start:0);
+  length=loc.extents[0].length;return length&&offset<=input.size()&&length<=input.size()-offset;
+ }
+ return false;
+}
+
 } // namespace lpb::containers
 
 extern "C" LPB_API lpb_result LPB_CALL lpb_heif_enumerate_auxiliary_items(
@@ -2714,6 +2826,12 @@ extern "C" LPB_API lpb_result LPB_CALL lpb_heif_locate_exif_item(
     try {
         std::string error;
         const locator_result result = locate_item(input, input_size, 0x45786966u, "Exif", out_offset, out_length, error);
+        if(result!=locator_result::present) {
+            uint64_t offset=0,length=0;std::string graph_error;
+            if(lpb::containers::locate_primary_exif_graph({input,input_size},offset,length,graph_error)) {
+                *out_offset=offset;*out_length=length;set_error(context,"");return LPB_RESULT_OK;
+            }
+        }
         set_error(context, error.c_str());
         return result == locator_result::present ? LPB_RESULT_OK : LPB_RESULT_INVALID_ARGUMENT;
     } catch (const std::exception& ex) {

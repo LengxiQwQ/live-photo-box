@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <array>
 
 using namespace lpb;
 
@@ -288,6 +289,36 @@ std::vector<uint8_t> lpb_tiff_insert_makernote(const uint8_t* tiff, size_t tiff_
 {
     if (!tiff || (makernote_size > 0 && !makernote) ||
         tiff_size > std::numeric_limits<uint32_t>::max()) return std::vector<uint8_t>();
+    if(exif_ifd_offset==0) {
+        // MakerNote belongs to an ExifIFD, never directly to IFD0. Append a
+        // replacement root and a new ExifIFD without relocating any existing
+        // payload, thumbnail, GPS or next-IFD offsets.
+        if(tiff_size<8||ifd0_offset>tiff_size||tiff_size-ifd0_offset<2)return {};
+        const auto count=read_u16(tiff+ifd0_offset,big_endian);
+        if(count>256||static_cast<size_t>(count)*12+6>tiff_size-ifd0_offset)return {};
+        std::vector<std::array<uint8_t,12>> entries;
+        for(size_t i=0;i<count;++i) {
+            const auto* entry=tiff+ifd0_offset+2+12*i;
+            if(read_u16(entry,big_endian)==0x8769)return {};
+            std::array<uint8_t,12> copy{};std::copy_n(entry,12,copy.begin());entries.push_back(copy);
+        }
+        const uint64_t root=tiff_size+(tiff_size&1U),exif=root+6+12*(count+1ULL),note=exif+18;
+        if(note>UINT32_MAX||makernote_size>UINT32_MAX-note)return {};
+        std::array<uint8_t,12> pointer{};write_u16(pointer.data(),0x8769,big_endian);
+        write_u16(pointer.data()+2,4,big_endian);write_u32(pointer.data()+4,1,big_endian);
+        write_u32(pointer.data()+8,static_cast<uint32_t>(exif),big_endian);entries.push_back(pointer);
+        std::sort(entries.begin(),entries.end(),[&](const auto& a,const auto& b){return read_u16(a.data(),big_endian)<read_u16(b.data(),big_endian);});
+        std::vector<uint8_t> result(tiff,tiff+tiff_size);result.resize(static_cast<size_t>(note)+makernote_size,0);
+        write_u32(result.data()+4,static_cast<uint32_t>(root),big_endian);
+        write_u16(result.data()+root,static_cast<uint16_t>(count+1),big_endian);
+        for(size_t i=0;i<entries.size();++i)std::copy(entries[i].begin(),entries[i].end(),result.begin()+root+2+12*i);
+        std::copy_n(tiff+ifd0_offset+2+12*count,4,result.data()+root+2+12*entries.size());
+        write_u16(result.data()+exif,1,big_endian);write_u16(result.data()+exif+2,0x927c,big_endian);
+        write_u16(result.data()+exif+4,7,big_endian);write_u32(result.data()+exif+6,static_cast<uint32_t>(makernote_size),big_endian);
+        write_u32(result.data()+exif+10,static_cast<uint32_t>(note),big_endian);
+        if(makernote_size)std::copy_n(makernote,makernote_size,result.data()+note);
+        return result;
+    }
     size_t target_ifd = exif_ifd_offset > 0 ? exif_ifd_offset : ifd0_offset;
     if (target_ifd > tiff_size || tiff_size - target_ifd < 2) return std::vector<uint8_t>();
     

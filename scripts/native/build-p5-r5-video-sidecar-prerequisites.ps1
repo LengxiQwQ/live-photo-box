@@ -364,6 +364,12 @@ if (Test-Path -LiteralPath $buildRoot) {
                 throw "The recorded FFmpeg build is incomplete: $archivePath"
             }
         }
+        $featureConfig = Join-Path $buildRoot 'src\ffbuild\config.mak'
+        if (-not (Test-Path -LiteralPath $featureConfig -PathType Leaf)) { throw "Missing recorded FFmpeg feature configuration: $featureConfig" }
+        $featureText = Get-Content -LiteralPath $featureConfig -Raw
+        foreach ($requiredFeature in @('CONFIG_AAC_ENCODER','CONFIG_PCM_S16LE_DECODER','CONFIG_PCM_S24LE_DECODER')) {
+            if ($featureText -notmatch "(?m)^$requiredFeature=yes$") { throw "Existing FFmpeg build lacks required feature $requiredFeature; use a new BuildId." }
+        }
         $alreadyBuilt = $true
     }
     else {
@@ -375,7 +381,8 @@ if (Test-Path -LiteralPath $buildRoot) {
         $configuredText = Get-Content -LiteralPath $configMake -Raw
         foreach ($requiredSetting in @(
                 '^CONFIG_LIBX264=yes$', '^CONFIG_LIBX265=yes$', '^CONFIG_AVFORMAT=yes$',
-                '^CONFIG_AVCODEC=yes$', '^CONFIG_AVUTIL=yes$', '^CONFIG_SWSCALE=yes$')) {
+                '^CONFIG_AVCODEC=yes$', '^CONFIG_AVUTIL=yes$', '^CONFIG_SWSCALE=yes$',
+                '^CONFIG_AAC_ENCODER=yes$', '^CONFIG_PCM_S16LE_DECODER=yes$', '^CONFIG_PCM_S24LE_DECODER=yes$')) {
             if ($configuredText -notmatch "(?m)$requiredSetting") {
                 throw "Existing FFmpeg configure output is not the frozen P5-R5 feature set: $requiredSetting"
             }
@@ -460,8 +467,8 @@ if (-not $alreadyBuilt) {
         '--disable-avdevice', '--disable-avfilter', '--disable-swresample',
         '--enable-avutil', '--enable-avcodec', '--enable-avformat', '--enable-swscale', '--enable-gpl',
         '--enable-libx264', '--enable-libx265', '--enable-protocol=file', '--enable-demuxer=mov',
-        '--enable-muxer=mov,mp4', '--enable-decoder=h264,hevc,aac,pcm_s24le', '--enable-parser=h264,hevc,aac',
-        '--enable-encoder=libx264,libx265', '--enable-bsf=aac_adtstoasc', '--enable-runtime-cpudetect',
+        '--enable-muxer=mov,mp4', '--enable-decoder=h264,hevc,aac,pcm_s16le,pcm_s24le', '--enable-parser=h264,hevc,aac',
+        '--enable-encoder=libx264,libx265,aac', '--enable-bsf=aac_adtstoasc', '--enable-runtime-cpudetect',
         '--enable-w32threads', '--target-os=win32', '--cc=cl.exe', '--host-cc=cl.exe', '--cxx=cl.exe',
         '--windres=rc.exe', '--ld=link.exe', "--ar=$(Quote-Bash 'ar-lib lib.exe')", "--ranlib=$(Quote-Bash ':')",
         "--pkg-config=$(Quote-Bash $bashPkgConfig)", '--pkg-config-flags=--static',
