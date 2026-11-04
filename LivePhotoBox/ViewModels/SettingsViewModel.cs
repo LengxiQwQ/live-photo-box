@@ -601,6 +601,17 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Repair scan load thumbnail: {(value ? "enabled" : "disabled")}", LogSource.Settings);
         }
 
+        // 合成页面是否显示双文件协议（Apple Live Photo、vivo 旧版双文件，实验功能，默认关）
+        [ObservableProperty]
+        private bool _isExperimentalMergeDualFileEnabled;
+
+        partial void OnIsExperimentalMergeDualFileEnabledChanged(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(AppSettingsService.KeyEnableExperimentalMergeDualFile, value);
+            LogService.Info($"Experimental merge dual-file visibility: {(value ? "enabled" : "disabled")}", LogSource.Settings);
+        }
+
         // 更严格的实况照片扫描 — 通过 ContentIdentifier UUID 匹配（默认关 = 文件名匹配）
         [ObservableProperty]
         private bool _isStrictLivePhotoScanEnabled;
@@ -705,6 +716,7 @@ namespace LivePhotoBox.ViewModels
             MergeThreadCount = AppSettingsService.GetValue("MergeThreadCount", 4);
             IsHeicRepairEnabled = AppSettingsService.GetValue(nameof(IsHeicRepairEnabled), false);
             IsRepairScanLoadThumbnail = AppSettingsService.GetValue(nameof(IsRepairScanLoadThumbnail), false);
+            IsExperimentalMergeDualFileEnabled = AppSettingsService.GetValue(AppSettingsService.KeyEnableExperimentalMergeDualFile, false);
             IsStrictLivePhotoScanEnabled = AppSettingsService.GetValue(nameof(IsStrictLivePhotoScanEnabled), false);
             IsAppleOnlyScanEnabled = AppSettingsService.GetValue(nameof(IsAppleOnlyScanEnabled), true);
             IsGeoLocationEnabled = AppSettingsService.GetValue(nameof(IsGeoLocationEnabled), true);

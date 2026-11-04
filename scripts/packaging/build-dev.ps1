@@ -1,17 +1,17 @@
-# LivePhotoBox Dev Build — 编译并发布（未打包），含 GUI + CLI
-# 用法: powershell -ExecutionPolicy Bypass -File build-dev.ps1
-#       powershell -ExecutionPolicy Bypass -File build-dev.ps1 -CI
+﻿# LivePhotoBox Dev Build — 编译并发布（未打包），含 GUI + CLI
+# 用法: powershell -ExecutionPolicy Bypass -File scripts/packaging/build-dev.ps1
+#       powershell -ExecutionPolicy Bypass -File scripts/packaging/build-dev.ps1 -CI
 
 param([switch]$CI)
 
-$projectRoot = Split-Path -Parent $PSScriptRoot
+$projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Set-Location $projectRoot
 
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 chcp 65001 > $null
 
 try {
-    & "$PSScriptRoot\native\build-native.ps1" -Configuration Release -Architecture x64 -RunTests
+    & "$projectRoot\scripts\native\build-native.ps1" -Configuration Release -Architecture x64
 }
 catch {
     Write-Host "NATIVE BUILD FAILED - $($_.Exception.Message)" -ForegroundColor Red

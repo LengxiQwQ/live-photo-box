@@ -132,7 +132,7 @@ internal static unsafe class WindowsH264CapabilityOracle
             new Span<byte>(info, 80).Clear();
             *(uint*)info = 80;
             int result = ((delegate* unmanaged[Cdecl]<byte*, int>)query)(info);
-            if (result != 0 || *(uint*)info != 80 || *(uint*)(info + 4) != 1 || *(uint*)(info + 8) != 2 ||
+            if (result != 0 || *(uint*)info != 80 || *(uint*)(info + 4) != 1 || *(uint*)(info + 8) != 4 ||
                 (*(uint*)(info + 12) & 0x15) != 0x15 || Marshal.PtrToStringUTF8((nint)(info + 48)) != "9.0.1")
                 throw new InvalidOperationException("Independent video sidecar ABI/version/capability check failed.");
         }

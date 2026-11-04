@@ -1,6 +1,6 @@
-# LivePhotoBox Release Build — 编译 + 打包 3 个产物: 便携版 zip + CLI zip + 安装包
-# 用法: powershell -ExecutionPolicy Bypass -File build-release.ps1
-#       powershell -ExecutionPolicy Bypass -File build-release.ps1 -CI  (GitHub Actions)
+﻿# LivePhotoBox Release Build — 编译 + 打包 3 个产物: 便携版 zip + CLI zip + 安装包
+# 用法: powershell -ExecutionPolicy Bypass -File scripts/packaging/build-release.ps1
+#       powershell -ExecutionPolicy Bypass -File scripts/packaging/build-release.ps1 -CI  (GitHub Actions)
 
 param([switch]$CI)
 
@@ -57,14 +57,27 @@ function Invoke-ReliableZip {
     }
 }
 
-$projectRoot = Split-Path -Parent $PSScriptRoot
+$projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Set-Location $projectRoot
+
+$iscc = (Get-Command ISCC.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1).Source
+if (-not $iscc) {
+    $iscc = @(
+        "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+        (Join-Path ([Environment]::GetFolderPath('ProgramFilesX86')) 'Inno Setup 6\ISCC.exe')
+        "$env:LOCALAPPDATA\Programs\Inno Setup 7\ISCC.exe"
+        (Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'Inno Setup 7\ISCC.exe')
+    ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+}
+if (-not $iscc) {
+    throw 'Inno Setup compiler (ISCC.exe) was not found. Install Inno Setup 6 or add ISCC.exe to PATH.'
+}
 
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 chcp 65001 > $null
 
 try {
-    & "$PSScriptRoot\native\build-native.ps1" -Configuration Release -Architecture x64 -RunTests
+    & "$projectRoot\scripts\native\build-native.ps1" -Configuration Release -Architecture x64
 }
 catch {
     Write-Host "NATIVE BUILD FAILED - $($_.Exception.Message)" -ForegroundColor Red
@@ -216,8 +229,8 @@ if (Test-Path 'publish\cli_single\livephotobox-boot.exe') {
     Copy-Item 'LICENSE' "$cliDir\LICENSE" -Force
     Copy-Item 'docs\CLI-User-Guide.md' "$cliDir\CLI-User-Guide.md" -Force
     Copy-Item 'docs\CLI-User-Guide.zh-CN.md' "$cliDir\CLI-User-Guide.zh-CN.md" -Force
-    Copy-Item 'scripts\install\add-to-path.cmd'      "$cliDir\add-to-path.cmd"      -Force
-    Copy-Item 'scripts\install\remove-from-path.cmd' "$cliDir\remove-from-path.cmd" -Force
+    Copy-Item 'scripts\packaging\add-to-path.cmd'      "$cliDir\add-to-path.cmd"      -Force
+    Copy-Item 'scripts\packaging\remove-from-path.cmd' "$cliDir\remove-from-path.cmd" -Force
     Write-Host '       Docs + PATH helper scripts copied' -ForegroundColor Green
 
     # 打包 CLI zip
@@ -312,8 +325,8 @@ Copy-Item 'README.zh-CN.md' "$outDir\README.zh-CN.md" -Force
 Copy-Item 'LICENSE' "$outDir\LICENSE" -Force
 Copy-Item 'docs\CLI-User-Guide.md' "$outDir\CLI-User-Guide.md" -Force
 Copy-Item 'docs\CLI-User-Guide.zh-CN.md' "$outDir\CLI-User-Guide.zh-CN.md" -Force
-Copy-Item 'scripts\install\add-to-path.cmd'      "$outDir\add-to-path.cmd"      -Force
-Copy-Item 'scripts\install\remove-from-path.cmd' "$outDir\remove-from-path.cmd" -Force
+Copy-Item 'scripts\packaging\add-to-path.cmd'      "$outDir\add-to-path.cmd"      -Force
+Copy-Item 'scripts\packaging\remove-from-path.cmd' "$outDir\remove-from-path.cmd" -Force
 
 $zipName = "Live-Photo-Box-v$version-x64-portable.zip"
 $zipPath = "publish\$zipName"
@@ -327,23 +340,17 @@ Write-Host "       $zipName  ($zipSize)" -ForegroundColor Green
 Write-Host ''
 Write-Host '[7/7] Creating installer...' -ForegroundColor Yellow
 
-$iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
-if (Test-Path $iscc) {
-    & $iscc /Qp "/dVERSION=$versionFull" "/dVERSION_SHORT=$version" 'scripts\install\setup.iss'
-    if ($LASTEXITCODE -ne 0) {
-        throw "Inno Setup failed with exit code $LASTEXITCODE."
-    }
-    $setupName = "Live-Photo-Box-v$version-x64-setup.exe"
-    $setupPath = "publish\$setupName"
-    if (-not (Test-Path -LiteralPath $setupPath -PathType Leaf)) {
-        throw "Inno Setup completed without producing the declared installer: $setupPath"
-    }
-    $setupSize = '{0:N1} MB' -f ((Get-Item $setupPath).Length / 1MB)
-    Write-Host "       $setupName  ($setupSize)" -ForegroundColor Green
+& $iscc /Qp "/dVERSION=$versionFull" "/dVERSION_SHORT=$version" 'scripts\packaging\setup.iss'
+if ($LASTEXITCODE -ne 0) {
+    throw "Inno Setup failed with exit code $LASTEXITCODE."
 }
-else {
-    throw "Inno Setup compiler was not found: $iscc"
+$setupName = "Live-Photo-Box-v$version-x64-setup.exe"
+$setupPath = "publish\$setupName"
+if (-not (Test-Path -LiteralPath $setupPath -PathType Leaf)) {
+    throw "Inno Setup completed without producing the declared installer: $setupPath"
 }
+$setupSize = '{0:N1} MB' -f ((Get-Item $setupPath).Length / 1MB)
+Write-Host "       $setupName  ($setupSize)" -ForegroundColor Green
 
 Remove-Item -Recurse -Force $outDir -ErrorAction SilentlyContinue
 

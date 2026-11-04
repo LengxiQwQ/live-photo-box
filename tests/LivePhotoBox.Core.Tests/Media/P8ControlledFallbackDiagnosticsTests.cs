@@ -7,6 +7,21 @@ namespace LivePhotoBox.Core.Tests.Media;
 public sealed class P8ControlledFallbackDiagnosticsTests
 {
     [Theory]
+    [InlineData("s1v", "H10.10.9.18.9.L", "A8.8.1.1.1.L", true)]
+    [InlineData("s1c", "H10.10.9.18.9.L", "A8.8.1.1.1.L", false)]
+    [InlineData("s1v", "H10.10.9.18.9.F", "A8.8.1.1.1.L", true)]
+    [InlineData("s1v", "H10.10.9.18.9.L", "H10.10.9.18.9.L", false)]
+    [InlineData("s1v", "H8.8.1.1.1.L", "A8.8.1.1.1.L", false)]
+    public void HlgDegradationRequiresValidatedInputAndSdrOutput(string stage, string input, string output, bool degraded)
+    {
+        var actual = NativeMediaService.ProjectVideoDiagnostics(VideoBackend.MinimalLibav,
+            VideoHardwareMode.SoftwareForced, false,
+            $"{stage}|9.0.1|libx264|i{input}|o{output}", "Native color-managed conversion.");
+        Assert.True(actual.IdentityValid);
+        Assert.Equal(degraded, actual.HdrDegradedToSdr);
+    }
+
+    [Theory]
     [InlineData("s1s", "?", false)]
     [InlineData("s1c", "libx264", true)]
     [InlineData("s1v", "libx264", true)]

@@ -21,7 +21,8 @@ internal static class ProductExportAssessment
             warnings.Add(ResourceService.GetString("ProductWarning_UnknownDirection"));
         if (usesCoverBinding && bundle.Semantics.Timing.EvidenceState == NeutralEvidenceState.Unknown)
             warnings.Add(ResourceService.GetString("ProductWarning_UnknownCover"));
-        if (bundle.PreparationExecution?.Image?.Truth.HdrGainMap is ConversionComponentOutcome.Degraded or ConversionComponentOutcome.Lost)
+        if (bundle.PreparationExecution?.Image?.Truth.HdrGainMap is ConversionComponentOutcome.Degraded or ConversionComponentOutcome.Lost ||
+            bundle.PreparationExecution?.Videos?.Any(video => video.Truth.HdrGainMap is ConversionComponentOutcome.Degraded or ConversionComponentOutcome.Lost) == true)
             warnings.Add(ResourceService.GetString("ProductWarning_Hdr"));
         warnings.AddRange((notes ?? []).Where(n => n.Item == "CoverTimestamp").Select(n => n.Reason));
         return warnings.Distinct().ToArray();

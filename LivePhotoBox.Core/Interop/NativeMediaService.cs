@@ -1580,7 +1580,10 @@ public static class NativeMediaService
             droppedMebx,
             droppedOther,
             audioTranscodedToAac,
-            streamCopied);
+            streamCopied,
+            identityValid && minimalLibavSelected && fields[0] == "s1v" &&
+                fields[3] is "iH10.10.9.18.9.L" or "iH10.10.9.18.9.F" or "iA10.10.9.18.9.L" or "iA10.10.9.18.9.F" &&
+                fields[4] == "oA8.8.1.1.1.L");
     }
 
     private static bool TryReadProfile(string field, char prefix, out string profile)
@@ -1631,7 +1634,8 @@ public static class NativeMediaService
         uint DroppedMebx = 0,
         uint DroppedOther = 0,
         bool AudioTranscodedToAac = false,
-        bool StreamCopied = false);
+        bool StreamCopied = false,
+        bool HdrDegradedToSdr = false);
 
     internal sealed record NativeRegisteredOutputEvidence(
         WindowsFileIdentity FileIdentity,

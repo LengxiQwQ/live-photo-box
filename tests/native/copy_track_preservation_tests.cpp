@@ -34,6 +34,11 @@ void run_scene(const std::filesystem::path& path) {
  require(lpb::media::copy_inline_scene_metadata(payload),"real scene inline grammar");
  require(evidence(source,source)&&stream(source,source),"real whole Copy media and metadata self proof");
  require(!evidence(source,source,false),"scene mapping does not extend transcode scope");
+ const auto compatible_preflight=[](const bytes& data){
+  lpb::media::isobmff_static_metadata_evidence proof{};
+  return lpb::media::capture_isobmff_static_metadata_evidence(data,data,proof,{}, {},nullptr,false,true);
+ };
+ require(compatible_preflight(source),"compatible preflight recognizes bounded copy-only movie metadata");
  const auto wrap=[&](const bytes& body){bytes box(8);put(box,0,static_cast<uint32_t>(8U+body.size()));std::memcpy(box.data()+4,"gnre",4);box.insert(box.end(),body.begin(),body.end());return box;};
  const auto replace=[&](const bytes& box){auto result=source;result.erase(result.begin()+scene.at,result.begin()+scene.end);result.insert(result.begin()+scene.at,box.begin(),box.end());put(result,movie.at,static_cast<uint32_t>(movie.end-movie.at+box.size()-(scene.end-scene.at)));return result;};
  const auto change=[&](std::string_view from,std::string_view to){auto b=payload;std::string s(b.begin(),b.end());const auto at=s.find(from);require(at!=std::string::npos,"scene malformed fixture field");s.replace(at,from.size(),to);return bytes(s.begin(),s.end());};
@@ -42,6 +47,7 @@ void run_scene(const std::filesystem::path& path) {
  require(!evidence(source,replace({})),"missing scene record cannot claim preserved");
  auto doubled=wrap(payload);const auto second=doubled;doubled.insert(doubled.end(),second.begin(),second.end());
  require(!evidence(replace(doubled),replace(doubled)),"duplicate movie scene owner rejects");
+ require(!compatible_preflight(replace(doubled)),"compatible preflight rejects duplicate movie scene owner");
  std::vector<bytes> invalid{
   change("\"duration\":3030","\"duration\":3030,\"duration\":3030"),
   change("\"effect\":1,",""),change("\"effect\":1","\"offset\":1"),
@@ -64,6 +70,7 @@ void run_scene(const std::filesystem::path& path) {
  for(const auto& bad:invalid) {
   require(!lpb::media::copy_inline_scene_metadata(bad),"unknown/ambiguous/malformed scene grammar rejects");
   const auto derived=replace(wrap(bad));require(!evidence(derived,derived),"actual Copy classifier cannot bypass malformed scene grammar");
+  require(!compatible_preflight(derived),"compatible preflight rejects malformed scene grammar");
  }
  std::cout<<"Copy inline scene: actual full self proof, unchanged-only/nonCopy/duplicate/loss checks and "<<invalid.size()<<" malformed grammar negatives passed\n";
 }

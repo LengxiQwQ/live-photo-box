@@ -4664,4 +4664,6 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="ScanDiagnostic_NoPreview" xml:space="preserve"><value>暂无预览</value></data>
   <data name="QueueStats_Tasks" xml:space="preserve"><value>任务 {0} 项</value></data>
   <data name="QueueStats_Unselected" xml:space="preserve"><value>未选用 {0} 项</value></data>
+  <data name="SettingsPage_Debug_EnableMergeDualFileHeader.Text" xml:space="preserve"><value>合成页面支持双文件协议（实验功能）</value></data>
+  <data name="SettingsPage_Debug_EnableMergeDualFileDesc.Text" xml:space="preserve"><value>在合成页面的协议列表中显示 Apple Live Photo 和 vivo 旧版双文件（JPG+MOV / JPG+MP4）。关闭后合成页面仅保留单文件封装协议。</value></data>
 </root>

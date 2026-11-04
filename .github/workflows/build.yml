@@ -99,7 +99,7 @@ jobs:
         run: choco install innosetup -y --no-progress --limit-output
         shell: pwsh
       - name: Build and package / 构建与打包
-        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-release.ps1 -CI
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/packaging/build-release.ps1 -CI
         shell: pwsh
       - name: Create draft release / 创建草稿 Release
         uses: softprops/action-gh-release@v2

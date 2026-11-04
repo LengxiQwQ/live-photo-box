@@ -265,10 +265,15 @@ lpb_result convert_image_file_v2(lpb_context* context,const char* source_path,co
         if(status!=LPB_RESULT_OK)return status;
         if(!original_jpeg_metadata::attach(encoded,mapped.original_markers))return LPB_RESULT_INVALID_ARGUMENT;
         containers::heif_primary_properties properties;heic_image_facts actual;metadata observed;uint32_t primary{};
-        if(!containers::observe_primary_item_properties(encoded,properties,error)||properties.orientation!=1||properties.has_clean_aperture||
+        // The encoder may pad a small or unaligned coded image and describe
+        // the visible rectangle with a clean aperture. The container observer
+        // validates its bounds and reports visible dimensions, which must also
+        // agree with libheif's primary owner and the normalized input surface.
+        if(!containers::observe_primary_item_properties(encoded,properties,error)||properties.orientation!=1||
             properties.width!=pixels.width||properties.height!=pixels.height||
             !containers::read_primary_xmp(encoded,primary,observed.xmp,error)||primary!=properties.item_id||
-            inspect_heic_bytes(context,encoded,actual)!=LPB_RESULT_OK||!actual.auxiliaries.empty()||actual.hdr_relevant||actual.bit_depth!=8||
+            inspect_heic_bytes(context,encoded,actual)!=LPB_RESULT_OK||actual.primary_item_id!=primary||
+            actual.width!=pixels.width||actual.height!=pixels.height||!actual.auxiliaries.empty()||actual.hdr_relevant||actual.bit_depth!=8||
             actual.color.has_nclx||actual.color.has_icc!=!mapped.icc.empty()) {
             set_error(context,"[PostValidation] Actual HEIF owner/geometry/color graph differs from the mapped ordinary image.");return LPB_RESULT_INVALID_ARGUMENT;
         }

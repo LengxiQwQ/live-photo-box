@@ -179,21 +179,21 @@ cd live-photo-box
 
 | 脚本 | 产物 |
 |------|------|
-| `scripts/build-dev.ps1` | 未打包开发版（GUI + CLI），输出到 `publish/` |
-| `scripts/build-cli-release.ps1` | 独立 CLI 单文件包（`publish/Live-Photo-Box-v{版本}-x64-cli.zip`） |
-| `scripts/build-release.ps1` | 完整发布三件套：便携版 zip + CLI zip + 安装包 |
+| `scripts/packaging/build-dev.ps1` | 未打包开发版（GUI + CLI），输出到 `publish/` |
+| `scripts/packaging/build-cli-release.ps1` | 独立 CLI 单文件包（`publish/Live-Photo-Box-v{版本}-x64-cli.zip`） |
+| `scripts/packaging/build-release.ps1` | 完整发布三件套：便携版 zip + CLI zip + 安装包 |
 
-> 脚本支持 `-CI` 参数，供 GitHub Actions 等 CI 环境使用（不弹 `pause` 等待）。
+> 打包脚本会构建 Native 并检查产物。Native 冒烟测试可以单独运行，打包时不会自动执行。脚本支持 `-CI` 参数，供 GitHub Actions 等 CI 环境使用（不弹 `pause` 等待）。
 
 本地验证请在仓库根目录依次运行 Native smoke test、解决方案测试和 CLI 全流程测试：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/native/build-native.ps1 -Configuration Release -Architecture x64 -RunTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/native/test-native-smoke.ps1
 dotnet test
 python scripts/testing/run-cli-integration-test.py
 ```
 
-创建发布标签前，以上三项必须全部通过。`scripts/build-release.ps1` 也会自动构建 Native，并检查 GUI 与 CLI 产物中存在 `LivePhotoBox.Native.dll`。
+创建发布标签前，以上三项必须全部通过。`scripts/packaging/build-release.ps1` 也会自动构建 Native，并检查 GUI 与 CLI 产物中存在 `LivePhotoBox.Native.dll`。
 
 ---
 

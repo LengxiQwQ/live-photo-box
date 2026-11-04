@@ -271,6 +271,13 @@ namespace LivePhotoBox.ViewModels
         };
         public Visibility SamsungVersionVisibility => SelectedModeIndex == 5 ? Visibility.Visible : Visibility.Collapsed;
         public Visibility HuaweiVersionVisibility => SelectedModeIndex == 6 ? Visibility.Visible : Visibility.Collapsed;
+
+        // 双文件协议（Apple Live Photo、vivo 旧版双文件）在合成页下拉框中的可见性（受设置中开发者实验开关控制）
+        public Visibility DualFileProtocolsVisibility =>
+            AppSettingsService.GetValue(AppSettingsService.KeyEnableExperimentalMergeDualFile, false)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+
         public int SamsungVersionIndex
         {
             get => Math.Clamp(AppSettingsService.GetValue(nameof(SamsungVersionIndex), 1), 0, 1);
@@ -288,7 +295,13 @@ namespace LivePhotoBox.ViewModels
             {
                 int value = AppSettingsService.GetValue(nameof(SelectedModeIndex), 2);
                 // Fusion 已隐藏（index 0），若历史设置仍为 0，则回退到 Motion Photo V2。
-                return value == 0 ? 2 : value;
+                if (value == 0) return 2;
+                // 若实验开关未启用，但当前设置为双文件（7 Apple 或 8 vivo legacy），安全回退到 2 (Motion Photo V2)
+                if (!AppSettingsService.GetValue(AppSettingsService.KeyEnableExperimentalMergeDualFile, false) && (value == 7 || value == 8))
+                {
+                    return 2;
+                }
+                return value;
             }
             set
             {
@@ -727,8 +740,22 @@ namespace LivePhotoBox.ViewModels
             };
 
             // 响应全局设置清除：刷新所有持久化属性 + 清空命名片段
+            // 响应单项设置变更（如开发者调试工具中开启/关闭合成双文件实验功能）
+            AppSettingsService.SettingChanged += key =>
+            {
+                if (key == AppSettingsService.KeyEnableExperimentalMergeDualFile)
+                {
+                    OnPropertyChanged(nameof(DualFileProtocolsVisibility));
+                    OnPropertyChanged(nameof(SelectedModeIndex));
+                    OnPropertyChanged(nameof(SelectedProtocolDisplayName));
+                    RefreshAvailableOutputFormats(SelectedModeIndex);
+                }
+            };
+
+            // 响应全局设置清除：刷新所有持久化属性 + 清空命名片段
             AppSettingsService.SettingsCleared += () =>
             {
+                OnPropertyChanged(nameof(DualFileProtocolsVisibility));
                 OnPropertyChanged(nameof(SelectedModeIndex));
                 RefreshAvailableOutputFormats(SelectedModeIndex);
                 OnPropertyChanged(nameof(OutputFormatIndex));

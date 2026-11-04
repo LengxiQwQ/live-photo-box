@@ -178,21 +178,21 @@ The repo ships ready-made PowerShell build scripts (`scripts/`) for both GUI and
 
 | Script | Produces |
 |--------|----------|
-| `scripts/build-dev.ps1` | Unpackaged dev build (GUI + CLI) into `publish/` |
-| `scripts/build-cli-release.ps1` | Standalone single-file CLI zip (`publish/Live-Photo-Box-v{version}-x64-cli.zip`) |
-| `scripts/build-release.ps1` | Full release trio: portable zip + CLI zip + installer |
+| `scripts/packaging/build-dev.ps1` | Unpackaged dev build (GUI + CLI) into `publish/` |
+| `scripts/packaging/build-cli-release.ps1` | Standalone single-file CLI zip (`publish/Live-Photo-Box-v{version}-x64-cli.zip`) |
+| `scripts/packaging/build-release.ps1` | Full release trio: portable zip + CLI zip + installer |
 
-> Scripts accept `-CI` for GitHub Actions and other CI environments (no `pause` prompt).
+> Packaging builds Native and checks the generated files. The Native smoke test runs separately on demand. Scripts accept `-CI` for GitHub Actions and other CI environments (no `pause` prompt).
 
 For local verification, run the Native smoke test and the solution/CLI test suites from the repository root:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/native/build-native.ps1 -Configuration Release -Architecture x64 -RunTests
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/native/test-native-smoke.ps1
 dotnet test
 python scripts/testing/run-cli-integration-test.py
 ```
 
-All three commands must pass before creating a release tag. `scripts/build-release.ps1` also invokes the Native build and checks that `LivePhotoBox.Native.dll` is present in GUI and CLI outputs.
+All three commands must pass before creating a release tag. `scripts/packaging/build-release.ps1` also invokes the Native build and checks that `LivePhotoBox.Native.dll` is present in GUI and CLI outputs.
 
 ---
 

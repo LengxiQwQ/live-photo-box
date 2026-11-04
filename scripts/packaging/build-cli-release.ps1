@@ -1,6 +1,6 @@
-# LivePhotoBox CLI-Only Release Build — 编译 + 打包独立 CLI zip（不含 GUI）
-# 用法: powershell -ExecutionPolicy Bypass -File build-cli-release.ps1
-#       powershell -ExecutionPolicy Bypass -File build-cli-release.ps1 -CI  (GitHub Actions)
+﻿# LivePhotoBox CLI-Only Release Build — 编译 + 打包独立 CLI zip（不含 GUI）
+# 用法: powershell -ExecutionPolicy Bypass -File scripts/packaging/build-cli-release.ps1
+#       powershell -ExecutionPolicy Bypass -File scripts/packaging/build-cli-release.ps1 -CI  (GitHub Actions)
 #
 # 产物: publish\Live-Photo-Box-v{version}-x64-cli.zip
 # 内容: livephotobox-boot.exe + 4 个 Go shim 别名 + Tools\ (外部工具链)
@@ -61,14 +61,14 @@ function Invoke-ReliableZip {
     }
 }
 
-$projectRoot = Split-Path -Parent $PSScriptRoot
+$projectRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Set-Location $projectRoot
 
 [Console]::OutputEncoding = [Text.Encoding]::UTF8
 chcp 65001 > $null
 
 try {
-    & "$PSScriptRoot\native\build-native.ps1" -Configuration Release -Architecture x64 -RunTests
+    & "$projectRoot\scripts\native\build-native.ps1" -Configuration Release -Architecture x64
 }
 catch {
     Write-Host "NATIVE BUILD FAILED - $($_.Exception.Message)" -ForegroundColor Red
@@ -161,8 +161,8 @@ $kb = (Get-ChildItem $outDir -Recurse -ErrorAction SilentlyContinue | Measure-Ob
 Write-Host "       Final size: $('{0:N0}' -f $kb) KB" -ForegroundColor Green
 
 # 3.5 拷贝 PATH 辅助脚本（用户可一键把本目录加入用户 PATH）
-Copy-Item 'scripts\install\add-to-path.cmd'      "$outDir\add-to-path.cmd"      -Force
-Copy-Item 'scripts\install\remove-from-path.cmd' "$outDir\remove-from-path.cmd" -Force
+Copy-Item 'scripts\packaging\add-to-path.cmd'      "$outDir\add-to-path.cmd"      -Force
+Copy-Item 'scripts\packaging\remove-from-path.cmd' "$outDir\remove-from-path.cmd" -Force
 Write-Host '       PATH helper scripts (add/remove-to-path.cmd) copied' -ForegroundColor Green
 
 # ── 3. 打包 zip ───────────────────────────────────────────────

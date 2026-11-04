@@ -519,8 +519,8 @@
                                     <ComboBoxItem x:Uid="MergePage_Protocol_Vivo"/>
                                     <ComboBoxItem x:Uid="MergePage_Protocol_Samsung"/>
                                     <ComboBoxItem x:Uid="MergePage_Protocol_Huawei"/>
-                                    <ComboBoxItem x:Uid="MergePage_Protocol_Apple"/>
-                                    <ComboBoxItem x:Uid="MergePage_Protocol_VivoLegacy"/>
+                                    <ComboBoxItem x:Uid="MergePage_Protocol_Apple" Visibility="{x:Bind ViewModel.DualFileProtocolsVisibility, Mode=OneWay}"/>
+                                    <ComboBoxItem x:Uid="MergePage_Protocol_VivoLegacy" Visibility="{x:Bind ViewModel.DualFileProtocolsVisibility, Mode=OneWay}"/>
                                 </ComboBox>
                             </Grid>
                             <Grid Height="32" ColumnSpacing="8">

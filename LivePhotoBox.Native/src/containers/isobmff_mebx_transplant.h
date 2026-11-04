@@ -68,6 +68,9 @@ bool validate_isobmff_mebx_transplants(std::span<const uint8_t> source,
 // video sample entry, without inheriting source metadata or auxiliary tracks.
 bool preserve_isobmff_copy_display_geometry(std::span<const uint8_t> source,
     std::span<const uint8_t> stage, std::vector<uint8_t>& output, bool& changed) noexcept;
+
+// The color-managed encode does not yet map QuickTime track apertures.
+bool supports_isobmff_color_conversion_geometry(std::span<const uint8_t> source) noexcept;
 bool preserve_isobmff_copy_timing(std::span<const uint8_t> source,
     std::span<const uint8_t> stage, std::vector<uint8_t>& output, bool& changed, const char** failure = nullptr) noexcept;
 // Internal audio-only staging and identity-bound replacement. Originals and
@@ -107,7 +110,8 @@ bool capture_isobmff_static_metadata_evidence(std::span<const uint8_t> source,
     std::span<const uint8_t> output, isobmff_static_metadata_evidence& evidence,
     std::span<const isobmff_media_data_range> source_mdats = {},
     std::span<const isobmff_media_data_range> output_mdats = {},
-    const char** rejection_reason = nullptr, bool auxiliary_copy = false) noexcept;
+    const char** rejection_reason = nullptr, bool auxiliary_copy = false,
+    bool inspect_copy_only_movie_metadata = false) noexcept;
 
 // Streaming Copy proof: validate actual MEBX/auxv/opaque mett tables/references against original
 // file mdat ranges, normalize only relocated chunk offsets, compare complete

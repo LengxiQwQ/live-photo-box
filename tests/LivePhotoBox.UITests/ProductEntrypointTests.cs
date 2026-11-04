@@ -8,6 +8,47 @@ namespace LivePhotoBox.UITests;
 
 public sealed partial class ScanPairingInteractionTests
 {
+    [Fact]
+    public async Task ProductEntrypoints_SplitHlgToH264ExportsSdrWithHdrWarning()
+    {
+        string root = RequiredEnvironment("LPB_UI_TEST_INPUT_ROOT");
+        string samples = RequiredEnvironment("LIVEPHOTOBOX_TEST_SAMPLES_DIR");
+        string evidence = NewOutputDirectory(root, "hlg-h264");
+        string input = Path.Combine(evidence, "input"); Directory.CreateDirectory(input);
+        string output = Path.Combine(evidence, "output"); Directory.CreateDirectory(output);
+        foreach (string source in new[] { "vivo.jpg", "oppo.jpg" }) File.Copy(Path.Combine(samples, source), Path.Combine(input, source));
+        var before = Directory.GetFiles(input).ToDictionary(p => p, p => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(p))));
+        await using var app = await Flawright.Flawright.LaunchAsync(new LaunchOptions { ApplicationPath = RequiredEnvironment("LPB_UI_TEST_APP_PATH") });
+        var page = await app.Browser.NewPageAsync();
+        using var automation = new FlaUI.UIA3.UIA3Automation();
+        var window = FindLaunchedWindow(automation);
+        window.Patterns.Window.Pattern.SetWindowVisualState(WindowVisualState.Maximized);
+        await page.GetByTestId("NavSplit").ClickAsync();
+        FindById(window, "ProtocolComboBox").AsComboBox().Select(0);
+        FindById(window, "SplitOutputFormatComboBox").AsComboBox().Select(3);
+        FindById(window, "AfterCompletionCombo").AsComboBox().Select(0);
+        await page.GetByTestId("ScanInputDirectory").FillAsync(input);
+        await page.GetByTestId("SplitTaskListView").Locator("controltype:ListItem").Expect().ToHaveCountAsync(2);
+        await page.GetByTestId("ScanOutputDirectory").FillAsync(output);
+        await page.GetByTestId("StartSplitButton").ClickAsync();
+        await WaitForAsync(() => window.FindFirstDescendant(cf => cf.ByAutomationId("CloseButton")) is { IsOffscreen: false }, 180);
+        await page.ScreenshotAsync(Path.Combine(evidence, "summary.png"));
+        window.FindFirstDescendant(cf => cf.ByAutomationId("CloseButton"))!.Click();
+        var statuses = page.GetByTestId("SplitTaskListView").GetByTestId("ScanDiagnosticStatus");
+        var texts = await statuses.AllInnerTextsAsync();
+        Assert.Contains("Success", texts);
+        int warning = Array.FindIndex(texts.ToArray(), text => text.Contains("isolation", StringComparison.OrdinalIgnoreCase));
+        Assert.True(warning >= 0);
+        await statuses.Nth(warning).ClickAsync();
+        string details = await page.GetByTestId("ErrorDetailText").InnerTextAsync();
+        Assert.Contains("HDR", details); Assert.Contains("Unverified", details);
+        Assert.Equal(2, Directory.GetFiles(Path.Combine(output, "Unverified"), "*", SearchOption.AllDirectories).Length);
+        Assert.Equal(2, Directory.GetFiles(output).Length);
+        foreach (var (path, hash) in before) Assert.Equal(hash, Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(path))));
+        await page.ScreenshotAsync(Path.Combine(evidence, "hdr-warning.png"));
+        File.WriteAllText(Path.Combine(evidence, "evidence.json"), JsonSerializer.Serialize(new { texts, details, before }));
+    }
+
     [Theory]
     [InlineData("Merge", 2)]
     [InlineData("Split", 1)]
@@ -147,10 +188,12 @@ public sealed partial class ScanPairingInteractionTests
             {
                 var formats = FindById(window, "OutputFormatComboBox").AsComboBox();
                 formats.Expand();
-                var disabled = formats.Items.Where(i => !i.IsEnabled).ToArray();
-                Assert.Equal(3, disabled.Length);
-                Assert.All(disabled, i => Assert.NotNull(i.FindFirstDescendant(cf => cf.ByName(
-                    "This target protocol does not accept this media format. Select an available format."))));
+                await WaitForAsync(() => formats.Items.Length == 2);
+                var choices = formats.Items;
+                Assert.Equal(2, choices.Length);
+                Assert.All(choices, item => Assert.True(item.IsEnabled));
+                Assert.Contains(choices, item => item.FindFirstDescendant(cf => cf.ByName("JPG [Embedded MOV (H.265)]")) is not null);
+                Assert.Contains(choices, item => item.FindFirstDescendant(cf => cf.ByName("HEIC [Embedded MOV (H.265)]")) is not null);
                 formats.Collapse();
             }
             await page.GetByTestId("ScanInputDirectory").FillAsync(input);

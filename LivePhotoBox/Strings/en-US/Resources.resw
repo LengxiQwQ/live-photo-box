@@ -4622,4 +4622,6 @@ Inputs: {1}
   <data name="ScanDiagnostic_NoPreview" xml:space="preserve"><value>Preview unavailable</value></data>
   <data name="QueueStats_Tasks" xml:space="preserve"><value>Tasks: {0}</value></data>
   <data name="QueueStats_Unselected" xml:space="preserve"><value>Unselected: {0}</value></data>
+  <data name="SettingsPage_Debug_EnableMergeDualFileHeader.Text" xml:space="preserve"><value>Support dual-file protocols in Merge (Experimental)</value></data>
+  <data name="SettingsPage_Debug_EnableMergeDualFileDesc.Text" xml:space="preserve"><value>Show Apple Live Photo and vivo legacy dual-file protocols in the Merge page. When disabled, only single-file packaging protocols are shown.</value></data>
 </root>

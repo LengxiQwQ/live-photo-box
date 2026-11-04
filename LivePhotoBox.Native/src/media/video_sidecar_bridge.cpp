@@ -281,8 +281,15 @@ video_sidecar_bridge_result run_video_sidecar_transcode(
             return outcome;
         }
     }
+    const bool hlg_to_sdr = compatible_profile && target_codec == LPB_VIDEO_CODEC_H264 &&
+        source_profile.bit_depth_luma == 10U && source_profile.bit_depth_chroma == 10U &&
+        source_profile.color_primaries == 9U && source_profile.transfer_characteristics == 18U &&
+        source_profile.matrix_coefficients == 9U;
+    const bool output_color_valid = !hlg_to_sdr ||
+        (outcome.sidecar_result.color_range == 1 && outcome.sidecar_result.color_primaries == 1 &&
+         outcome.sidecar_result.color_transfer == 1 && outcome.sidecar_result.color_matrix == 1);
     if (outcome.sidecar_result.output_width == 0U || outcome.sidecar_result.output_height == 0U ||
-        outcome.sidecar_result.output_pixel_depth != expected_pixel_depth || outcome.sidecar_result.video_frames == 0U ||
+        !output_color_valid || outcome.sidecar_result.output_pixel_depth != (hlg_to_sdr ? 8U : expected_pixel_depth) || outcome.sidecar_result.video_frames == 0U ||
         outcome.sidecar_result.output_bytes == 0U ||
         outcome.sidecar_result.time_base_numerator <= 0 || outcome.sidecar_result.time_base_denominator <= 0 ||
         !valid_string(outcome.sidecar_result.encoder_name, sizeof(outcome.sidecar_result.encoder_name)) ||

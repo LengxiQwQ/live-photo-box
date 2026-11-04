@@ -2014,7 +2014,8 @@ bool copy_opaque_timed_track(std::span<const uint8_t> data,track_record& track,
 }
 
 bool scoped_inventory(std::span<const uint8_t> data, const file_record& file,
-    std::array<static_boxes, 4>& scopes, bool auxiliary_copy=false,const char** reason=nullptr) {
+    std::array<static_boxes, 4>& scopes, bool auxiliary_copy=false,const char** reason=nullptr,
+    bool inspect_copy_only_movie_metadata=false) {
     const auto* video = unique_video(file);
     bool valid = false;
     const auto* audio = unique_audio(file, valid);
@@ -2033,7 +2034,8 @@ bool scoped_inventory(std::span<const uint8_t> data, const file_record& file,
         (audio != nullptr && !classified_media_tree(data, *audio, false, file.mdats,auxiliary_copy,reason))) return false;
     const auto check=[&](bool ok,const char* value){if(!ok&&reason)*reason=value;return ok;};
     return check(static_inventory(data, 0U, data.size(), false, scopes[0], true),"top static metadata") &&
-        check(static_inventory(data, file.moov_start + file.moov_header_size, file.moov_end, false, scopes[1], false, true,auxiliary_copy),"movie static metadata") &&
+        check(static_inventory(data, file.moov_start + file.moov_header_size, file.moov_end, false, scopes[1], false, true,
+            auxiliary_copy || inspect_copy_only_movie_metadata),"movie static metadata") &&
         check(static_inventory(data, video->start + 8U, video->end, true, scopes[2]),"primary track static metadata") &&
         (audio == nullptr || check(static_inventory(data, audio->start + 8U, audio->end, false, scopes[3]),"audio static metadata"));
 }
@@ -2104,7 +2106,7 @@ bool capture_isobmff_static_metadata_evidence(std::span<const uint8_t> source,
     std::span<const uint8_t> output, isobmff_static_metadata_evidence& evidence,
     std::span<const isobmff_media_data_range> source_mdats,
     std::span<const isobmff_media_data_range> output_mdats, const char** rejection_reason,
-    bool auxiliary_copy) noexcept {
+    bool auxiliary_copy, bool inspect_copy_only_movie_metadata) noexcept {
     evidence = {};
     const auto reason = [&](const char* value) { if (rejection_reason != nullptr) *rejection_reason = value; };
     reason("container hierarchy/sample tables");
@@ -2124,8 +2126,8 @@ bool capture_isobmff_static_metadata_evidence(std::span<const uint8_t> source,
         std::array<static_boxes, 4> s{}, t{};
         static_boxes sh, th;
         reason("scoped static metadata/media-tree classification");
-        if (!scoped_inventory(source, input, s,auxiliary_copy,rejection_reason) ||
-            !scoped_inventory(output, target, t,auxiliary_copy,rejection_reason)) return false;
+        if (!scoped_inventory(source, input, s,auxiliary_copy,rejection_reason,inspect_copy_only_movie_metadata) ||
+            !scoped_inventory(output, target, t,auxiliary_copy,rejection_reason,inspect_copy_only_movie_metadata)) return false;
         if(auxiliary_copy) {
             std::vector<track_record*> sa,ta;
             if(!copy_additional_tracks(source,input,sa)||!copy_additional_tracks(output,target,ta)||sa.size()!=ta.size()||
@@ -2276,6 +2278,22 @@ bool map_isobmff_handler_names(std::span<const uint8_t> source, std::span<const 
         if (!patch_handler_names(source, before, output, after, false,true)) { output.clear(); return false; }
         return true;
     } catch (...) { output.clear(); return false; }
+}
+
+bool supports_isobmff_color_conversion_geometry(std::span<const uint8_t> source) noexcept {
+    try {
+        file_record input{};
+        if (!parse_file(source, input)) return false;
+        const auto* video = unique_video(input);
+        if (!video) return false;
+        isobmff_box_header track{};
+        static_boxes children;
+        if (!try_read_box_header(source.data(), video->start, video->end, track) ||
+            !children_of(source, video->start + track.header_size, video->end, children)) return false;
+        return std::none_of(children.begin(), children.end(), [&](const auto& child) {
+            return box_type(source, child.start, "tapt");
+        });
+    } catch (...) { return false; }
 }
 
 bool preserve_isobmff_copy_display_geometry(std::span<const uint8_t> source,

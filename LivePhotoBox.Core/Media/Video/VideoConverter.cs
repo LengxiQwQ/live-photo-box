@@ -236,7 +236,8 @@ public sealed class VideoConverter : IVideoConverter
                 : byteIdenticalPassthrough
                     ? ConversionOperationKind.Passthrough
                     : ConversionOperationKind.ContainerRemux;
-            PreservationOutcome preservationOutcome = !isRemux
+            PreservationOutcome preservationOutcome = backendDiagnostics.HdrDegradedToSdr
+                ? PreservationOutcome.DegradedToSdr : !isRemux
                 ? (backendDiagnostics.StreamCopied ? PreservationOutcome.PartiallyPreserved : PreservationOutcome.Reencoded)
                 : byteIdenticalPassthrough || provedCopy
                     ? PreservationOutcome.Preserved
@@ -302,7 +303,8 @@ public sealed class VideoConverter : IVideoConverter
                             ? ConversionComponentOutcome.Preserved
                             : ConversionComponentOutcome.Degraded,
                         ColorIcc = provedCopy ? ConversionComponentOutcome.Preserved : ConversionComponentOutcome.NotEvaluated,
-                        HdrGainMap = ConversionComponentOutcome.NotApplicable,
+                        HdrGainMap = backendDiagnostics.HdrDegradedToSdr
+                            ? ConversionComponentOutcome.Degraded : ConversionComponentOutcome.NotApplicable,
                         Auxiliary = ConversionComponentOutcome.NotApplicable,
                         // Existing probe checks remain compatibility diagnostics; R1 does not
                         // promote them into component-preservation evidence.
@@ -490,7 +492,7 @@ public sealed class VideoConverter : IVideoConverter
             : IsMinimalLibav(diagnostics)
                 ? !diagnostics.IdentityValid || diagnostics.InputProfile == "Unknown"
                     ? ConversionCapability.Unknown
-                    : diagnostics.InputRequiresHighPrecision
+                    : diagnostics.InputRequiresHighPrecision && !diagnostics.HdrDegradedToSdr
                         ? ConversionCapability.VideoTranscodeHdr10Bit
                         : ConversionCapability.VideoTranscodeSdr
                 : diagnostics.Backend == VideoBackend.WindowsMediaFoundation

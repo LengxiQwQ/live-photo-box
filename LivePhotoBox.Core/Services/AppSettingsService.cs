@@ -141,6 +141,7 @@ namespace LivePhotoBox.Services
             {
                 settings.Values[key] = value;
                 LogService.Debug($"AppSettings: {key} = {value}", LogSource.System);
+                SettingChanged?.Invoke(key);
                 return;
             }
 
@@ -148,6 +149,7 @@ namespace LivePhotoBox.Services
             _jsonStore[key] = value;
             LogService.Debug($"AppSettings: {key} = {value}", LogSource.System);
             PersistJsonStore();
+            SettingChanged?.Invoke(key);
         }
 
         /// <summary>
@@ -160,6 +162,7 @@ namespace LivePhotoBox.Services
             {
                 settings.Values.Remove(key);
                 LogService.Debug($"AppSettings: removed {key}", LogSource.System);
+                SettingChanged?.Invoke(key);
                 return;
             }
 
@@ -168,8 +171,19 @@ namespace LivePhotoBox.Services
             {
                 LogService.Debug($"AppSettings: removed {key}", LogSource.System);
                 PersistJsonStore();
+                SettingChanged?.Invoke(key);
             }
         }
+
+        /// <summary>
+        /// 合成页面是否支持双文件协议（Apple Live Photo、vivo 旧版双文件）的实验功能开关键名。
+        /// </summary>
+        public const string KeyEnableExperimentalMergeDualFile = "IsExperimentalMergeDualFileEnabled";
+
+        /// <summary>
+        /// 单项设置值变更后触发的事件。参数为变更的设置键名。
+        /// </summary>
+        public static event Action<string>? SettingChanged;
 
         /// <summary>
         /// 清空所有设置后触发的事件。各 ViewModel 订阅此事件以刷新 UI 状态。

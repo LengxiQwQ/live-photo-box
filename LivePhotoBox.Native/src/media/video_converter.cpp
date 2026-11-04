@@ -2715,9 +2715,12 @@ lpb_result transcode_video_file(
     isobmff_static_metadata_evidence preflight_evidence{};
     const char* rejection_reason = "metadata read";
     if (read_metadata_bytes(semantic_reader, preflight_metadata, preflight_mdats)) {
+        // A best-effort transcode can omit bounded, recognized inline movie
+        // annotations that have only a copy mapping. Validate their structure
+        // here without enabling the Copy track rules or transplanting them.
         const bool static_valid = capture_isobmff_static_metadata_evidence(
             preflight_metadata, preflight_metadata, preflight_evidence, preflight_mdats, preflight_mdats, &rejection_reason,
-            target_codec == LPB_VIDEO_CODEC_COPY);
+            target_codec == LPB_VIDEO_CODEC_COPY, compatible_profile && target_codec != LPB_VIDEO_CODEC_COPY);
         if (!static_valid) {
             const bool is_corrupt_structure = (rejection_reason != nullptr &&
                 (std::strcmp(rejection_reason, "top static metadata") == 0 ||
@@ -2822,6 +2825,18 @@ lpb_result transcode_video_file(
             set_error(context, "Unsupported: minimal-libav requires an exact supported 8-bit or 10-bit source depth; no output was created.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
+        const bool hlg_to_sdr = compatible_profile && target_codec == LPB_VIDEO_CODEC_H264 &&
+            semantic_profile.bit_depth_luma == 10U && semantic_profile.bit_depth_chroma == 10U &&
+            semantic_profile.color_primaries == 9U && semantic_profile.transfer_characteristics == 18U &&
+            semantic_profile.matrix_coefficients == 9U;
+        auto expected_profile = semantic_profile;
+        if (hlg_to_sdr) {
+            expected_profile.classification = video_profile_class::ordinary_sdr;
+            expected_profile.bit_depth_luma = expected_profile.bit_depth_chroma = 8U;
+            expected_profile.chroma_format = 1U;
+            expected_profile.color_primaries = expected_profile.transfer_characteristics = expected_profile.matrix_coefficients = 1U;
+            expected_profile.full_range = 0U;
+        }
         char selected_identity[64]{};
         if (!sidecar_identity('s', "?", "?", semantic_profile, nullptr,
                 selected_identity, sizeof(selected_identity))) {
@@ -2860,6 +2875,10 @@ lpb_result transcode_video_file(
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         has_mebx = !source_mebx_facts.empty();
+        if (hlg_to_sdr && !supports_isobmff_color_conversion_geometry(source_bytes)) {
+            set_error(context, "Unsupported: HLG compatibility conversion cannot safely map this track display aperture; no output was created.");
+            return LPB_RESULT_UNSUPPORTED;
+        }
 
         windows_owned_output stage_a;
         windows_owned_output stage_b;
@@ -3047,16 +3066,16 @@ lpb_result transcode_video_file(
             stage_a_facts.width == expected_w && stage_a_facts.height == expected_h &&
             stage_a_facts.rotation_degrees == expected_rot &&
             (compatible_profile || stage_a_facts.has_audio == src_facts.has_audio) &&
-            stage_a_profile.classification == semantic_profile.classification &&
-            stage_a_profile.bit_depth_luma == semantic_profile.bit_depth_luma &&
-            stage_a_profile.bit_depth_chroma == semantic_profile.bit_depth_chroma &&
-            stage_a_profile.chroma_format == semantic_profile.chroma_format &&
+            stage_a_profile.classification == expected_profile.classification &&
+            stage_a_profile.bit_depth_luma == expected_profile.bit_depth_luma &&
+            stage_a_profile.bit_depth_chroma == expected_profile.bit_depth_chroma &&
+            stage_a_profile.chroma_format == expected_profile.chroma_format &&
             sidecar_facts.output_pixel_depth == stage_a_profile_depth &&
-            stage_a_profile.color_primaries == semantic_profile.color_primaries &&
-            stage_a_profile.transfer_characteristics == semantic_profile.transfer_characteristics &&
-            stage_a_profile.matrix_coefficients == semantic_profile.matrix_coefficients &&
-            stage_a_profile.full_range_known != 0U && semantic_profile.full_range_known != 0U &&
-            stage_a_profile.full_range == semantic_profile.full_range &&
+            stage_a_profile.color_primaries == expected_profile.color_primaries &&
+            stage_a_profile.transfer_characteristics == expected_profile.transfer_characteristics &&
+            stage_a_profile.matrix_coefficients == expected_profile.matrix_coefficients &&
+            stage_a_profile.full_range_known != 0U && expected_profile.full_range_known != 0U &&
+            stage_a_profile.full_range == expected_profile.full_range &&
             sidecar_facts.color_range == stage_a_expected_range &&
             sidecar_facts.color_primaries == stage_a_profile.color_primaries &&
             sidecar_facts.color_transfer == stage_a_profile.transfer_characteristics &&
@@ -3116,6 +3135,7 @@ lpb_result transcode_video_file(
             publish_stage=&stage_b;final_staged_reader=stage_b.reader();
         }
 
+        if (!hlg_to_sdr)
         {
             std::vector<uint8_t> staged_for_meta;
             if (!read_all_bytes(final_staged_reader, staged_for_meta)) {
@@ -3287,18 +3307,18 @@ lpb_result transcode_video_file(
             output_facts.rotation_degrees == expected_rot &&
             output_facts.has_audio == src_facts.has_audio &&
             expected_sample_entry &&
-            output_profile.classification == semantic_profile.classification &&
-            output_profile.bit_depth_luma == semantic_profile.bit_depth_luma &&
-            output_profile.bit_depth_chroma == semantic_profile.bit_depth_chroma &&
-            output_profile.chroma_format == semantic_profile.chroma_format &&
+            output_profile.classification == expected_profile.classification &&
+            output_profile.bit_depth_luma == expected_profile.bit_depth_luma &&
+            output_profile.bit_depth_chroma == expected_profile.bit_depth_chroma &&
+            output_profile.chroma_format == expected_profile.chroma_format &&
             sidecar_facts.output_pixel_depth == output_profile_depth &&
-            output_profile.color_primaries == semantic_profile.color_primaries &&
-            output_profile.transfer_characteristics == semantic_profile.transfer_characteristics &&
-            (output_profile.matrix_coefficients == semantic_profile.matrix_coefficients ||
-             (compatible_profile && ((output_profile.matrix_coefficients == 5 && semantic_profile.matrix_coefficients == 6) ||
-                                     (output_profile.matrix_coefficients == 6 && semantic_profile.matrix_coefficients == 5)))) &&
-            output_profile.full_range_known != 0U && semantic_profile.full_range_known != 0U &&
-            output_profile.full_range == semantic_profile.full_range &&
+            output_profile.color_primaries == expected_profile.color_primaries &&
+            output_profile.transfer_characteristics == expected_profile.transfer_characteristics &&
+            (output_profile.matrix_coefficients == expected_profile.matrix_coefficients ||
+             (compatible_profile && ((output_profile.matrix_coefficients == 5 && expected_profile.matrix_coefficients == 6) ||
+                                     (output_profile.matrix_coefficients == 6 && expected_profile.matrix_coefficients == 5)))) &&
+            output_profile.full_range_known != 0U && expected_profile.full_range_known != 0U &&
+            output_profile.full_range == expected_profile.full_range &&
             sidecar_facts.color_range == expected_range &&
             sidecar_facts.color_primaries == output_profile.color_primaries &&
             sidecar_facts.color_transfer == output_profile.transfer_characteristics &&
@@ -3396,8 +3416,15 @@ lpb_result transcode_video_file(
         set_sidecar_diagnostics(validated_identity, mf_fallback ? "Validated minimal-libav/libx264; metadata and timing verified." :
             has_mebx ? success_reason.data() : bridge.reason.data());
         if (compatible_profile && out_diagnostics != nullptr) {
+            // The sidecar can now encode PCM to AAC itself. Derive the receipt
+            // from independently parsed source/final sample entries as well as
+            // the older Native audio stage, rather than claiming audio Copy.
+            std::vector<uint32_t> source_non_aac, final_non_aac;
+            const bool sidecar_audio_transcoded = sidecar_container == LPB_VIDEO_CONTAINER_MP4 &&
+                isobmff_audio_tracks_requiring_aac(source_bytes, source_non_aac) && !source_non_aac.empty() &&
+                isobmff_audio_tracks_requiring_aac(metadata_readback, final_non_aac) && final_non_aac.empty();
             const bool pcm_to_aac = (src_facts.has_audio != 0 && stage_a_facts.has_audio == 0 &&
-                sidecar_container == LPB_VIDEO_CONTAINER_MP4 && output_facts.has_audio != 0);
+                sidecar_container == LPB_VIDEO_CONTAINER_MP4 && output_facts.has_audio != 0) || sidecar_audio_transcoded;
             if (pcm_to_aac || sibling_audio_transcoded || bridge.stream_copied) {
                 char compat_diag[128]{};
                 std::snprintf(compat_diag, sizeof(compat_diag),
@@ -3409,7 +3436,7 @@ lpb_result transcode_video_file(
                 std::array<char, sizeof(out_diagnostics->fallback_reason)> detail{};
                 std::memcpy(detail.data(), out_diagnostics->fallback_reason, detail.size());
                 std::snprintf(out_diagnostics->fallback_reason, sizeof(out_diagnostics->fallback_reason),
-                    "%s;%s", compat_diag, detail.data());
+                    "%s;%s;%s", compat_diag, mf_fallback ? "controlled fallback" : "no fallback", detail.data());
             }
         }
         return LPB_RESULT_OK;
