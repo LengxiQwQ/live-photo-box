@@ -26,6 +26,7 @@ public sealed partial class ScanPairingInteractionTests
         await page.GetByTestId("Nav" + workflow).ClickAsync();
         await page.GetByTestId("ScanInputDirectory").FillAsync(input);
         await WaitForAsync(() => FindById(window, "ScanInputDirectory").IsEnabled);
+        await ExpandDiagnosticsAsync(window);
         var list = FindById(window, workflow + "DiagnosticListView");
         var row = list.FindAllDescendants(cf => cf.ByControlType(ControlType.ListItem))
             .FirstOrDefault(item => item.FindFirstDescendant(cf => cf.ByName(primaryName)) is not null);
@@ -93,6 +94,9 @@ public sealed partial class ScanPairingInteractionTests
         foreach (string key in new[] { "PairingMethodIndex", "SplitMatchProtocolIndex", "AfterCompletionActionIndex", "SplitAfterCompletionActionIndex", "SplitProtocolIndex", "OutputFormatIndex", "SplitOutputFormatIndex" })
             settings[key] = 0;
         settings["SelectedModeIndex"] = 2;
+        settings["LanguageIndex"] = 1;
+        settings["IsHistoryPageVisible"] = true;
+        settings["SplitThreadCount"] = 1;
         settings["OverwriteExisting"] = false;
         settings["SplitOverwriteExisting"] = false;
         settings["IsRecursiveScanEnabled"] = false;
@@ -133,6 +137,15 @@ public sealed partial class ScanPairingInteractionTests
         Assert.True(condition(), "The expected real UI state did not arrive before the deadline.");
     }
 
+    private static async Task ExpandDiagnosticsAsync(AutomationElement window)
+    {
+        await WaitForAsync(() => window.FindFirstDescendant(cf => cf.ByAutomationId("DiagnosticToggleButton")) is { IsOffscreen: false });
+        var button = FindById(window, "DiagnosticToggleButton");
+        if (button.Patterns.Toggle.Pattern.ToggleState.Value != ToggleState.On) button.Click();
+        await WaitForAsync(() => window.FindFirstDescendant(cf => cf.ByAutomationId("MergeDiagnosticListView")) is { IsOffscreen: false }
+            || window.FindFirstDescendant(cf => cf.ByAutomationId("SplitDiagnosticListView")) is { IsOffscreen: false });
+    }
+
     private static string NewOutputDirectory(string root, string name)
     {
         string parent = Path.Combine(root, name);
@@ -145,10 +158,14 @@ public sealed partial class ScanPairingInteractionTests
     }
 
     [Fact]
-    public async Task Merge_RealInputLockStopsBatchBeforeAnyWriter()
+    public async Task Merge_RealInputLockIsIsolatedAndProtectsAllOriginals()
     {
         string root = RequiredEnvironment("LPB_UI_TEST_INPUT_ROOT");
-        string input = Path.Combine(root, "execution");
+        string input = Path.Combine(root, "merge-locked-input"); Directory.CreateDirectory(input);
+        foreach (string name in new[] { "a", "b", "c" })
+            foreach (string extension in new[] { ".jpg", ".mp4" })
+                if (!File.Exists(Path.Combine(input, name + extension)))
+                    File.Copy(Path.Combine(root, "ordinary", "pair" + extension), Path.Combine(input, name + extension));
         await using var app = await Flawright.Flawright.LaunchAsync(new LaunchOptions { ApplicationPath = RequiredEnvironment("LPB_UI_TEST_APP_PATH") });
         var page = await app.Browser.NewPageAsync();
         using var automation = new FlaUI.UIA3.UIA3Automation();
@@ -158,20 +175,21 @@ public sealed partial class ScanPairingInteractionTests
         await page.GetByTestId("ScanInputDirectory").FillAsync(input);
         var ready = page.GetByTestId("MergeTaskListView").Locator("controltype:ListItem");
         await ready.Expect().ToHaveCountAsync(3);
-        string output = NewOutputDirectory(root, "locked-output");
+        string output = NewOutputDirectory(root, "merge-postscan-lock-output");
         await page.GetByTestId("ScanOutputDirectory").FillAsync(output);
         var before = Directory.GetFiles(input).ToDictionary(f => f, f => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(f))));
         using (var held = new FileStream(Path.Combine(input, "b.jpg"), FileMode.Open, FileAccess.Read, FileShare.None))
         {
             await page.GetByTestId("StartMergeButton").ClickAsync();
-            var statuses = page.GetByTestId("MergeDiagnosticListView").GetByTestId("ScanDiagnosticStatus");
-            await statuses.Expect().ToHaveCountAsync(1);
-            await statuses.First.ClickAsync();
-            Assert.Contains("Input protection", await page.GetByTestId("ErrorDetailText").InnerTextAsync());
-            await ready.Expect().ToHaveCountAsync(3);
-            Assert.Empty(Directory.GetFiles(output, "*", SearchOption.AllDirectories));
-            Assert.True(await page.GetByTestId("ScanInputDirectory").IsEnabledAsync());
-            await page.ScreenshotAsync(Path.Combine(root, "screenshots", "Merge-real-lock.png"));
+            await WaitForAsync(() => window.FindFirstDescendant(cf => cf.ByName("Total: 3 tasks. Succeeded: 2, Failed: 1.")) is not null, 60);
+            window.FindFirstDescendant(cf => cf.ByAutomationId("CloseButton"))!.Click();
+            var statuses = await page.GetByTestId("MergeTaskListView").GetByTestId("ScanDiagnosticStatus").AllInnerTextsAsync();
+            Assert.Equal(new[] { "Success", "Merge failed", "Success" }, statuses);
+            Assert.Equal(2, Directory.GetFiles(output).Length);
+            await page.GetByTestId("MergeTaskListView").GetByTestId("ScanDiagnosticStatus").Nth(1).ClickAsync();
+            Assert.Contains("Inspection", await page.GetByTestId("ErrorDetailText").InnerTextAsync());
+            await page.ScreenshotAsync(Path.Combine(output, "ui-locked-input.png"));
+            File.WriteAllText(Path.Combine(output, "ui-statuses.json"), JsonSerializer.Serialize(statuses));
         }
         foreach (var (file, hash) in before) Assert.Equal(hash, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(file))));
     }
@@ -211,6 +229,7 @@ public sealed partial class ScanPairingInteractionTests
         await input.FillAsync(Path.Combine(root, "missing-root"));
         await Task.Delay(250);
         await page.GetByTestId("ScanButton").ClickAsync();
+        await ExpandDiagnosticsAsync(window);
         await page.GetByTestId(workflow + "DiagnosticListView").GetByTestId("ScanDiagnosticStatus").Expect().ToHaveCountAsync(workflow == "Merge" ? 1 : 2);
         await ready.Expect().ToHaveCountAsync(count);
         await input.FillAsync(initial);
@@ -235,6 +254,7 @@ public sealed partial class ScanPairingInteractionTests
         var ready = page.GetByTestId("MergeTaskListView").Locator("controltype:ListItem");
         var statuses = page.GetByTestId("MergeDiagnosticListView").GetByTestId("ScanDiagnosticStatus");
         await input.FillAsync(Path.Combine(root, "unmatched-only"));
+        await ExpandDiagnosticsAsync(window);
         await statuses.Expect().ToHaveCountAsync(1);
         await ready.Expect().ToHaveCountAsync(0);
         Assert.True(await page.GetByTestId("StartMergeButton").IsDisabledAsync());

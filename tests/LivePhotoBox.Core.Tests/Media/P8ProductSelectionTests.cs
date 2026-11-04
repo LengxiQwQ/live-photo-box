@@ -52,12 +52,19 @@ public sealed class P8ProductSelectionTests
     }
 
     [Theory]
-    [InlineData(1, 1)]
-    [InlineData(1, 2)]
-    [InlineData(2, 3)]
+    [InlineData(1, 0)]
+    [InlineData(2, 1)]
+    [InlineData(3, 3)]
     [InlineData(-1, 0)]
-    public void SplitAdapterRejectsTargetWriters(int target, int format) =>
+    public void SplitAdapterRejectsUnavailableTargetFormats(int target, int format) =>
         Assert.Throws<NotSupportedException>(() => ProductSelectionAdapter.Split(target, format));
+
+    [Theory]
+    [InlineData(1, 1, SplitMediaFormat.AppleJpegMov)]
+    [InlineData(1, 2, SplitMediaFormat.AppleHeicMov)]
+    [InlineData(2, 3, SplitMediaFormat.VivoJpegMp4)]
+    public void SplitAdapterSelectsImplementedDualFileWriter(int target, int format, SplitMediaFormat expected) =>
+        Assert.Equal(expected, ProductSelectionAdapter.Split(target, format));
 
     [Fact]
     public async Task InvalidTypedSplitRejectsBeforeReadingSourceOrCreatingOutput()

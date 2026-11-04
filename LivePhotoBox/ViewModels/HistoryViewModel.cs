@@ -500,6 +500,7 @@ public sealed record ProductHistoryCard(string Title, string Summary, string Out
         string status = outcome.Status switch
         {
             ProductOperationStatus.Success => ResourceService.GetString("ProductOutcome_Success"),
+            ProductOperationStatus.Warning => ResourceService.GetString("ProductOutcome_Warning"),
             ProductOperationStatus.Unsupported => ResourceService.GetString("ProductOutcome_Unsupported"),
             ProductOperationStatus.Cancelled => ResourceService.GetString("ProductOutcome_Cancelled"),
             _ => ResourceService.GetString("ProductOutcome_Failed")
@@ -509,6 +510,8 @@ public sealed record ProductHistoryCard(string Title, string Summary, string Out
         string selection = ResourceService.Format("ProductHistory_Selection", outcome.RequestedSelection.TargetProtocol?.ToString() ?? "—",
             outcome.RequestedSelection.OutputFormat?.ToString() ?? outcome.RequestedSelection.SplitFormat?.ToString() ?? ResourceService.GetString("ProductHistory_Default"));
         string summary = ResourceService.Format("ProductHistory_Summary", selection, string.Join("; ", outcome.Inputs), outcome.Diagnostic.Stage, outcome.Diagnostic.Category, outcome.Diagnostic.Message);
+        if (outcome.SourcePostProcessing is { } after)
+            summary += $"\n{ResourceService.GetString("ProductOutcome_SourceAction")}: {after.Action}/{after.Status}; {after.Destination}; {after.Reason}";
         string outputs = outcome.CommittedOutputs.Count == 0 ? ResourceService.GetString("ProductHistory_NoOutput")
             : ResourceService.GetString("ProductHistory_Outputs") + "\n" + string.Join("\n", outcome.CommittedOutputs.Select(x => $"{x.Role}: {x.Path}"));
         var evidence = new StringBuilder(ResourceService.GetString("ProductHistory_HistoricalScope"));

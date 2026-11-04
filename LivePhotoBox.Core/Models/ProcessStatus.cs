@@ -12,6 +12,8 @@ namespace LivePhotoBox.Models
         // 任务处理失败
         Failed,
         // 任务被用户取消
-        Cancelled
+        Cancelled,
+        // 可安全导出，但仍有未确认部分；输出位于隔离目录。
+        Warning
     }
 }

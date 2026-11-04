@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -4575,7 +4575,7 @@ Inputs: {1}
   <data name="MergeDiagnostic_DirectoryEnumerationFailed" xml:space="preserve"><value>Directory enumeration failed.</value></data>
   <data name="SplitDiagnostic_InspectionFailed" xml:space="preserve"><value>Single-file live photo inspection failed.</value></data>
   <data name="SplitDiagnostic_ReadFailed" xml:space="preserve"><value>File read failed.</value></data>
-  <data name="ScanDiagnostic_Header.Text" xml:space="preserve"><value>scan diagnostics and unselected files (click status for details)</value></data>
+  <data name="ScanDiagnostic_Header.Text" xml:space="preserve"><value>Unselected items</value></data>
   <data name="ScanStatus_NotSelected" xml:space="preserve"><value>Not selected</value></data>
   <data name="ScanStatus_Partial" xml:space="preserve"><value>Scan partially completed; see diagnostics for unreadable inputs</value></data>
   <data name="ScanDiagnostic_InputFailed" xml:space="preserve"><value>This input or relationship failed a read, format, or identity check. See the reason below.</value></data>
@@ -4597,4 +4597,29 @@ Inputs: {1}
   <data name="SplitPage_Match_Apple_Hint" xml:space="preserve">
     <value>Match confirmed Apple image/video identities</value>
   </data>
+  <data name="ProductOutcome_Warning" xml:space="preserve"><value>Exported to isolation (review needed)</value></data>
+  <data name="ProductWarning_StoredDirection" xml:space="preserve"><value>Source image direction was unspecified; stored pixels were used. Original shooting direction is unverified.</value></data>
+  <data name="ProductWarning_UnknownDirection" xml:space="preserve"><value>Image direction is unverified; usable media was retained, but display direction is not guaranteed.</value></data>
+  <data name="ProductWarning_UnknownCover" xml:space="preserve"><value>Source cover time is unverified; a safe initial time was used. The original cover is not guaranteed.</value></data>
+  <data name="ProductWarning_Hdr" xml:space="preserve"><value>Usable media was exported safely, but HDR appearance was not fully retained.</value></data>
+  <data name="ProductWarning_Isolation" xml:space="preserve"><value>Actual isolated output location (originals retained)</value></data>
+  <data name="ProductWarning_Count" xml:space="preserve"><value>{0} isolated exports</value></data>
+  <data name="Status_MergeCompletedSummaryWithWarnings" xml:space="preserve"><value>Total: {0} tasks. Time: {1}. Succeeded: {2}, Failed: {3}, Isolated: {4}.</value></data>
+  <data name="Status_SplitCompletedSummaryWithWarnings" xml:space="preserve"><value>Total: {0} tasks. Time: {1}. Succeeded: {2}, Failed: {3}, Isolated: {4}.</value></data>
+  <data name="ProductWarning_SourceAction" xml:space="preserve"><value>Source post-processing incomplete; see details</value></data>
+  <data name="MergePage_Protocol_Apple.Content" xml:space="preserve"><value>Apple Live Photo</value></data>
+  <data name="MergePage_Protocol_VivoLegacy.Content" xml:space="preserve"><value>vivo legacy dual file</value></data>
+  <data name="MergePage_Protocol_Apple_Hint" xml:space="preserve"><value>JPEG/HEIC + MOV; device acceptance pending</value></data>
+  <data name="MergePage_Protocol_VivoLegacy_Hint" xml:space="preserve"><value>JPEG + MP4; device acceptance pending</value></data>
+  <data name="Queue_Filter_Warning.Text" xml:space="preserve"><value>Needs review</value></data>
+  <data name="Queue_WarningCountLabel.Text" xml:space="preserve"><value>Needs review</value></data>
+  <data name="ProductWarning_IncompatibleFormat" xml:space="preserve"><value>This target protocol does not accept this media format. Select an available format.</value></data>
+  <data name="ProductOutcome_SourceAction" xml:space="preserve"><value>Source post-processing</value></data>
+  <data name="ScanDiagnostic_Expand" xml:space="preserve"><value>Expand</value></data>
+  <data name="ScanDiagnostic_ExpandLabel.Text" xml:space="preserve"><value>Expand</value></data>
+  <data name="ScanDiagnostic_Collapse" xml:space="preserve"><value>Collapse</value></data>
+  <data name="ScanDiagnostic_Preview" xml:space="preserve"><value>Preview</value></data>
+  <data name="ScanDiagnostic_NoPreview" xml:space="preserve"><value>Preview unavailable</value></data>
+  <data name="QueueStats_Tasks" xml:space="preserve"><value>Tasks: {0}</value></data>
+  <data name="QueueStats_Unselected" xml:space="preserve"><value>Unselected: {0}</value></data>
 </root>

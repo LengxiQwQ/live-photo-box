@@ -4,6 +4,16 @@
 
 ---
 
+## Current rebuilt behavior
+
+`merge`, `split`, `convert`, and `protocols` use the rebuilt Native runtime. Apple (`apple`) and legacy vivo (`vivo-legacy`) are available merge targets; split supports `none`, `apple`, and `vivo`. Fusion remains deferred. The registered `cover` / `keyphoto` and `repair` commands currently return `rebuilt_not_ready` before writing; their examples below describe reserved interfaces, not available processing capabilities.
+
+The queue and JSON distinguish green completed exports, yellow isolated exports requiring review, red errors, and cancellation. Yellow files go under `Unverified/<operation-id>/` below the requested output directory; the JSON reports the actual output paths, warnings, and isolation directory. Yellow exports retain their originals, never overwrite existing files, and do not count as green success. Unknown vendor-private fields alone do not require isolation. Ordinary naming conflicts continue to use unique filenames.
+
+Exit codes for merge/split: `0` green completion, `2` yellow-only completion, `1` errors (with independent completed exports retained), `130` cancellation. Batch JSON reports separate success, warning, error, and source post-processing results. Read the status and diagnostics as well as the exit code; other commands may define their own nonzero codes.
+
+`--after move:PATH` and `--after recycle` apply only to green results from this operation whose source and output identities remain valid. Missing or replaced files, archive conflicts, yellow results, and failures never authorize source actions. No separate export undo command is required because exports retain originals by default.
+
 ## Overview
 
 Live Photo Box is available in two forms — a graphical interface and a command line. The command-line entry point `livephotobox` (alias `lpb`) is designed for scripting, AI, and automation. For everyday interactive use, please use the graphical interface, available on [Microsoft Store](https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full) and [GitHub Releases](https://github.com/lengxiqwq/live-photo-box/releases).
@@ -146,26 +156,12 @@ Run `lpb protocols` to view this interactively, or `lpb protocols --json` for st
 | vivo Live Photo | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
 | Samsung Motion Photo | ✅ | ✖️ | ✅ | ✖️ | ✖️ |
 | HUAWEI Moving Photo | ✅ | ✖️ | ✅ | ✖️ | ✅ |
+| Apple Live Photo | ✖️ | ✅ | ✖️ | ✅ | ✖️ |
+| vivo legacy dual file | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
 
 `✅` — supported &nbsp;|&nbsp; `✖️` — not supported
 
-**Merge — device support:**
-
-| Protocol | Devices | Status |
-|---|---|---|
-| Google Micro Video (v1) | Windows / Xiaomi (legacy MIUI) / Pixel | ✅ Supported |
-| Google Motion Photo (v2) | Windows / Xiaomi / Pixel | ✅ Supported |
-| OPPO O-Live Photo | Windows / Xiaomi / OPPO | ✅ Supported |
-| vivo Live Photo | Windows / vivo (≥ X300) | 🟡 In testing |
-| Samsung Motion Photo | Windows / Samsung | ✅ Supported |
-| HUAWEI Moving Photo | HUAWEI / Honor | ✅ Supported |
-
-**Split — device support:**
-
-| Protocol | Devices | Status |
-|---|---|---|
-| Apple Live Photo | iPhone / iPad | ✅ Supported |
-| vivo Live Photo | vivo (≤ X200) | 🟡 In testing |
+**Device acceptance:** the format matrix describes implemented writers, not phone/photo-app acceptance. Apple, legacy/modern vivo, Google variants, Samsung mpv2/mpv3, and Huawei v6/Honor v2 require their own device results. Current scoped computer checks do not substitute for that acceptance. `protocols --json` reports writer availability, defaults, and target versions separately.
 
 **Split — protocol × format compatibility:**
 
@@ -234,7 +230,7 @@ The primary command. Supports two operating modes:
 
 | Option | Description |
 |--------|-------------|
-| `-p, --protocol <p>` | Target protocol (default `motion photo`): `micro video` (v1), `motion photo` (v2), `oppo`, `vivo`, `samsung`, `huawei`. Run `lpb protocols` for the full matrix. Multi-word names also work without spaces (no quotes needed): `microvideo`, `motionphoto` |
+| `-p, --protocol <p>` | Target protocol (default `motion photo`): `micro video` (v1), `motion photo` (v2), `oppo`, `vivo`, `samsung`, `huawei`, `apple`, `vivo-legacy`. Run `lpb protocols` for the full matrix. Multi-word names also work without spaces (no quotes needed): `microvideo`, `motionphoto` |
 | `-f, --format <f>` | Output container (default: first available for the protocol): `jpg+mp4`, `jpg+mov`, `heic+mp4`, `heic+mov`, `heic+mp4-h265` |
 | `-n, --naming <rule>` | Output filename rule. Default: single pair = `suffix`, batch = `keep`. `keep`, `suffix`, or `custom:TEMPLATE` (tokens below) |
 
@@ -279,7 +275,7 @@ When `-o` is omitted, output never lands in the terminal's current directory —
 
 #### `--all-variants` — Generate every protocol × format combo
 
-Generates all 14 supported combinations (7 protocols × their available formats) in one command. Ideal for developer QA and testing.
+Generates the currently enabled target/format combinations in one command (Fusion is excluded); use `protocols --json` for the current catalog. Ideal for developer QA and testing.
 
 ```powershell
 # Default: writes to {image_dir}/{name}_variants/
@@ -330,7 +326,7 @@ The three scan modes are exclusive and never fall back to one another. `name` do
 
 Broken files, unmatched inputs and conflicts remain separate scan diagnostics rather than executable tasks; independent valid groups continue. `--include-live` adds only successfully inspected single-file live photos and cannot reintroduce broken or conflicted inputs.
 
-Batch merge and split JSON include `scanStatus`, `scanSummary` and `scanDiagnostics`. Diagnostics expose `code`, `severity`, `stage`, `primaryPath`, `relatedPaths` and the reason. Split records protocol-filtered files as `ProtocolFiltered`. `scanStatus: completed` describes scan completion; also inspect the overall `status` and diagnostic severity. Informational unmatched/filtered entries alone are not task failures. Scan errors or processing failures return exit code 1 while keeping independent successful outputs; cancellation returns 130. Zero-ready results retain diagnostics. Failure to establish batch input protection stops the entire batch before writing; protection is never bypassed.
+Batch merge and split JSON include `scanStatus`, `scanSummary` and `scanDiagnostics`. Diagnostics expose `code`, `severity`, `stage`, `primaryPath`, `relatedPaths` and the reason. Split records protocol-filtered files as `ProtocolFiltered`. `scanStatus: completed` describes scan completion; also inspect the overall `status` and diagnostic severity. Informational unmatched/filtered entries alone are not task failures. Scan errors or processing failures return exit code 1 while keeping independent successful outputs; cancellation returns 130. Zero-ready results retain diagnostics. An unreadable individual input is reported for that item while independent readable items continue; failures of shared output or transaction safety can stop the dependent operation.
 
 #### Naming Templates
 
@@ -353,13 +349,13 @@ Batch merge and split JSON include `scanStatus`, `scanSummary` and `scanDiagnost
 | Recycle source files | `lpb merge -d ./Photos -p motionphoto --after recycle -y` |
 | Leave source files unchanged (default) | `lpb merge -d ./Photos -p motionphoto --after none -y` |
 
-Only source files from **successfully** merged pairs are affected.
+Only source files from **green completed** pairs with valid identity receipts are affected; isolated or failed items are retained. This applies to single and batch commands.
 
 ---
 
 ### `split` — Split and export neutral media
 
-Uses Inspector → Extractor → Cleaner → Neutral for single-file sources and confirmed Apple/legacy vivo pairs. Dual-file inputs are cleaned and converted rather than copied as already separate. The current output protocol is `none`; Apple/legacy vivo target writing belongs to a later step.
+Uses Inspector → Extractor → Cleaner → Neutral for single-file sources and confirmed Apple/legacy vivo pairs. Dual-file inputs are cleaned and converted rather than copied as already separate. Output protocols are `none` (neutral media), `apple` (JPEG/HEIC + MOV), and `vivo` (legacy JPEG + MP4).
 
 | Mode | Arguments | Use case |
 |------|-----------|----------|

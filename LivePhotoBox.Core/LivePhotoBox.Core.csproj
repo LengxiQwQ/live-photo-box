@@ -12,7 +12,7 @@
     <NoWarn>$(NoWarn);MVVMTK0045</NoWarn>
     <NativeRuntimeIdentifier>win-x64</NativeRuntimeIdentifier>
     <NativeArtifactsDir>$(MSBuildThisFileDirectory)..\artifacts\native\$(Configuration)\$(NativeRuntimeIdentifier)</NativeArtifactsDir>
-    <VideoSidecarBuildId Condition="'$(VideoSidecarBuildId)' == ''">r4-hevc-v2</VideoSidecarBuildId>
+    <VideoSidecarBuildId Condition="'$(VideoSidecarBuildId)' == ''">r4-hevc-v3-aac</VideoSidecarBuildId>
   </PropertyGroup>
 
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows'))">

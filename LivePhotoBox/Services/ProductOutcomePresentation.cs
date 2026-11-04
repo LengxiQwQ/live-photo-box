@@ -8,6 +8,8 @@ namespace LivePhotoBox.Services;
 // Presentation only. Historical execution diagnostics never authorize a writer.
 internal static class ProductOutcomePresentation
 {
+    internal static string WarningSummary(int count) => count > 0 ? " · " + ResourceService.Format("ProductWarning_Count", count) : string.Empty;
+
     internal static string Status(ProductOperationOutcome outcome)
     {
         string status = ResourceService.GetString("ProductOutcome_" + outcome.Status);
@@ -23,7 +25,7 @@ internal static class ProductOutcomePresentation
     {
         var lines = new List<string> { Status(outcome), outcome.Diagnostic.Message };
         var selection = outcome.RequestedSelection;
-        string requested = string.Join(" / ", new[] { selection.TargetProtocol?.ToString(), selection.OutputFormat?.ToString(), selection.SplitFormat?.ToString() }.Where(value => value is not null));
+        string requested = string.Join(" / ", new[] { selection.TargetProtocol?.ToString(), selection.OutputFormat?.ToString(), selection.SplitFormat?.ToString(), selection.TargetVersion?.ToString() }.Where(value => value is not null));
         lines.Add($"{ResourceService.GetString("ProductOutcome_Selection")}: {requested}");
         lines.Add($"{ResourceService.GetString("ProductOutcome_PreparationScope")}");
         if (outcome.PreparationExecution?.Image is { } image)
@@ -41,6 +43,8 @@ internal static class ProductOutcomePresentation
         lines.Add(ResourceService.GetString("ProductOutcome_TargetPreservationUnknown"));
         lines.Add($"{ResourceService.GetString("ProductOutcome_Diagnostic")}: {outcome.Diagnostic.Stage}/{outcome.Diagnostic.Category}");
         lines.AddRange(outcome.CommittedOutputs.Select(output => output.Path));
+        if (outcome.SourcePostProcessing is { } after)
+            lines.Add($"{ResourceService.GetString("ProductOutcome_SourceAction")}: {after.Action}/{after.Status}; {after.Destination}; {after.Reason}");
         if (!string.IsNullOrWhiteSpace(outcome.HistoryWarning)) lines.Add(outcome.HistoryWarning);
         if (!string.IsNullOrWhiteSpace(capabilityDiagnostic)) lines.Add(capabilityDiagnostic);
         return string.Join(Environment.NewLine, lines.Where(line => !string.IsNullOrWhiteSpace(line)));

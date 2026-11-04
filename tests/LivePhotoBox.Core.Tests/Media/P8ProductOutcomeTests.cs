@@ -15,6 +15,37 @@ namespace LivePhotoBox.Core.Tests.Media;
 
 public sealed class P8ProductOutcomeTests
 {
+    [Fact]
+    public void ProductBoundaryDistinguishesEnvironmentInternalIoAndCancellation()
+    {
+        Assert.Equal(ProductFailureCategory.Environment, ProductOutcomeCompletion.Failure(new DllNotFoundException("missing component"), ProductOperationStage.Inspection).Category);
+        Assert.Equal(ProductFailureCategory.Internal, ProductOutcomeCompletion.Failure(new InvalidOperationException("internal invariant"), ProductOperationStage.Writer).Category);
+        Assert.Equal(ProductFailureCategory.Io, ProductOutcomeCompletion.Failure(new UnauthorizedAccessException("denied"), ProductOperationStage.Extraction).Category);
+        Assert.Equal(ProductFailureCategory.Cancelled, ProductOutcomeCompletion.Failure(new OperationCanceledException(), ProductOperationStage.Writer).Category);
+    }
+
+    [Fact]
+    public async Task OrdinarySingleImageIsAClassifiedRefusalWithoutThrowingInspectionExceptions()
+    {
+        using var workspace = new TestFixtureWorkspace();
+        var raised = new System.Collections.Concurrent.ConcurrentBag<SourceInspectionException>();
+        EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> observer = (_, e) =>
+        { if (e.Exception is SourceInspectionException inspection) raised.Add(inspection); };
+        AppDomain.CurrentDomain.FirstChanceException += observer;
+        try
+        {
+            string output = Path.Combine(workspace.RootDirectory, "no-output");
+            var result = await LivePhotoMergeRunnerService.ProcessSinglePairWithOutcomeAsync(
+                Image(), "", "ordinary", 1, Options(output), CancellationToken.None);
+            Assert.Equal(ProductOperationStatus.Unsupported, result.Status);
+            Assert.Contains("No motion video", result.Details);
+            Assert.Empty(result.CommittedOutputs);
+            Assert.False(Directory.Exists(output));
+            Assert.Empty(raised);
+        }
+        finally { AppDomain.CurrentDomain.FirstChanceException -= observer; }
+    }
+
     [Theory]
     [InlineData(SourceInspectionFailureCategory.Unsupported, "Unsupported")]
     [InlineData(SourceInspectionFailureCategory.Malformed, "Failed")]

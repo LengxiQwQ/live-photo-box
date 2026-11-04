@@ -2,6 +2,16 @@
 
 [![最新发布](https://img.shields.io/github/v/release/lengxiqwq/live-photo-box?style=flat-square&color=0078D7&label=%E6%9C%80%E6%96%B0%E5%8F%91%E5%B8%83)](https://github.com/lengxiqwq/live-photo-box/releases) [![许可证](https://img.shields.io/badge/许可证-GPL%203.0-blue?style=flat-square)](https://github.com/lengxiqwq/live-photo-box/blob/main/LICENSE) [![平台](https://img.shields.io/badge/平台-Windows%2010%20%7C%2011-0078D7?style=flat-square&logo=windows11)](https://github.com/lengxiqwq/live-photo-box) [![项目仓库](https://img.shields.io/badge/%E9%A1%B9%E7%9B%AE%E4%BB%93%E5%BA%93-GitHub-0078D7?style=flat-square&logo=github)](https://github.com/lengxiqwq/live-photo-box) [![反馈](https://img.shields.io/badge/反馈-Issues-red?style=flat-square)](https://github.com/lengxiqwq/live-photo-box/issues)
 
+## 当前 Rebuilt 行为
+
+`merge`、`split`、`convert` 和 `protocols` 使用现行 Native 处理路径。合成已接通 `apple` 和 `vivo-legacy`；拆分支持 `none`、`apple`、`vivo`。Fusion 延期。已注册的 `cover`／`keyphoto` 和 `repair` 当前会在写入前返回 `rebuilt_not_ready`；下方相关示例仅说明保留的接口，不表示该处理能力已经可用。
+
+沿用现有队列状态和点击详情：绿色是已通过；黄色是安全导出但仍需确认；红色是没有安全可用处理路径的错误。黄色产物导出到请求目录下独立的 `Unverified/<操作标识>/` 文件夹，JSON 给出实际输出、警告及隔离目录。黄色不计为绿色成功，不覆盖已有文件，不处理其来源；普通命名冲突继续避让。未知厂商私有字段本身不触发隔离。
+
+合成／拆分退出码：`0` 绿色完成；`2` 仅有黄色隔离结果；`1` 存在错误（独立正常项的成品保留）；`130` 取消。批量 JSON 分开报告成功、黄色、错误和来源后处理，需同时查看状态、原因和实际文件位置。其他命令的非零退出码按自身说明解释。
+
+`--after move:目录` 和 `--after recycle` 只处理本次绿色完成且来源／成品身份仍有效的文件。缺失、替换、归档冲突、黄色或失败结果不能授权来源操作。默认导出保留原件，不另建撤销导出命令。
+
 ---
 
 ## 概述
@@ -146,26 +156,12 @@ lpb cover photo.jpg --at 1.5 -y
 | vivo Live Photo | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
 | Samsung Motion Photo | ✅ | ✖️ | ✅ | ✖️ | ✖️ |
 | HUAWEI Moving Photo | ✅ | ✖️ | ✅ | ✖️ | ✅ |
+| Apple Live Photo | ✖️ | ✅ | ✖️ | ✅ | ✖️ |
+| vivo 旧版双文件 | ✅ | ✖️ | ✖️ | ✖️ | ✖️ |
 
 `✅` — 支持 &nbsp;|&nbsp; `✖️` — 不支持
 
-**合成 — 设备支持：**
-
-| 协议 | 支持设备 | 状态 |
-|---|---|---|
-| Google Micro Video (v1) | Windows / 小米 (旧版 MIUI) / Pixel | ✅ 可用 |
-| Google Motion Photo (v2) | Windows / 小米 / Pixel | ✅ 可用 |
-| OPPO O-Live Photo | Windows / 小米 / OPPO | ✅ 可用 |
-| vivo Live Photo | Windows / vivo（≥ X300） | 🟡 测试中 |
-| Samsung Motion Photo | Windows / Samsung | ✅ 可用 |
-| HUAWEI Moving Photo | 华为 / 荣耀 | ✅ 可用 |
-
-**拆分 — 设备支持：**
-
-| 协议 | 支持机型 | 状态 |
-|---|---|---|
-| Apple Live Photo | iPhone / iPad | ✅ 可用 |
-| vivo Live Photo | vivo（≤ X200） | 🟡 测试中 |
+**设备接受范围：**格式矩阵表示已实现的写入能力，不等于手机相册已经通过。Apple、vivo 新旧、Google 各版本、Samsung mpv2/mpv3、Huawei v6/Honor v2 均需对应设备结果；定向电脑检查不能代签。`protocols --json` 分开报告已实现目标、默认值和目标版本。
 
 **拆分 — 协议 × 格式兼容矩阵：**
 
@@ -330,7 +326,7 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 
 坏文件、孤立项和冲突保存在独立扫描诊断中，不伪造成待执行任务，其他正常独立组继续。`--include-live` 只补入已成功识别的单文件实况照片，不重新接纳坏项或冲突项。
 
-批量合成和拆分的 `--json` 输出包含 `scanStatus`、`scanSummary`、`scanDiagnostics`。诊断列出 `code`、`severity`、`stage`、`primaryPath`、`relatedPaths` 和原因；拆分按 `--pairing` 排除的文件记录为 `ProtocolFiltered`。`scanStatus: completed` 只表示扫描结束，仍须检查总 `status` 和诊断严重度。仅孤立/过滤等说明项不算任务失败；存在扫描错误或处理失败时退出码为 1，正常组的成功产物保留；取消为 130，零可执行项也保留诊断。正式写入前批量原件保护失败时停止整批，不能绕过保护继续写入。
+批量合成和拆分的 `--json` 输出包含 `scanStatus`、`scanSummary`、`scanDiagnostics`。诊断列出 `code`、`severity`、`stage`、`primaryPath`、`relatedPaths` 和原因；拆分按 `--pairing` 排除的文件记录为 `ProtocolFiltered`。`scanStatus: completed` 只表示扫描结束，仍须检查总 `status` 和诊断严重度。仅孤立/过滤等说明项不算任务失败；存在扫描错误或处理失败时退出码为 1，正常组的成功产物保留；取消为 130，零可执行项也保留诊断。单个输入不可读取时按该项报告，其他独立可读项继续；共享输出或事务安全无法保证时停止依赖它的操作。
 
 #### 命名模板速查
 
@@ -353,13 +349,13 @@ lpb merge photo.jpg video.mp4 -p motionphoto --key-timestamp 1:30.500 -y
 | 移入回收站 | `lpb merge -d ./Photos -p motionphoto --after recycle -y` |
 | 保留源文件（默认） | `lpb merge -d ./Photos -p motionphoto --after none -y` |
 
-仅**合成成功**的文件对的源文件会受影响。
+仅本次**绿色完成**且身份凭据仍有效的文件对来源会受影响；黄色、失败项保留。单项和批量采用同一规则。
 
 ---
 
 ### `split` — 拆分与无协议转换
 
-沿用 Inspector → Extractor → Cleaner → Neutral，把单文件实况照片或明确配对的 Apple/旧 vivo 双文件导出为独立、已去来源绑定的图片与视频。双文件仍实际清理和转换，不能直接复制并宣布完成。当前目标协议仅 `none`；Apple/旧 vivo 目标写入属于后续步骤。
+沿用 Inspector → Extractor → Cleaner → Neutral，把单文件实况照片或明确配对的 Apple/旧 vivo 双文件导出为独立、已去来源绑定的图片与视频。双文件仍实际清理和转换，不能直接复制并宣布完成。目标协议支持 `none`（中性媒体）、`apple`（JPEG/HEIC + MOV）和 `vivo`（旧版 JPEG + MP4）。
 
 | 模式 | 参数 | 使用场景 |
 |------|------|----------|

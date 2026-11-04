@@ -10,6 +10,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Windows.Graphics.Imaging;
+using Windows.Media.Editing;
 using Windows.Storage;
 using Windows.Storage.FileProperties;
 using Windows.Storage.Streams;
@@ -23,7 +24,7 @@ namespace LivePhotoBox.Services
      *
      * 缩略图服务。为文件列表提供异步缩略图加载与缓存，支持三种来源：
      * 普通图片（JPG/PNG，Shell API）、HEIC（BitmapDecoder 解码缩放）、
-     * 视频（FFmpeg 抽第一帧，支持硬件加速）。
+     * 视频（Windows 内置缩略图/首帧预览，不启动外部进程）。
      * 使用两级缓存防止重复加载，SemaphoreSlim 限制并发（照片 4 路，视频按硬件调整）。
      */
     public static class ThumbnailService
@@ -477,12 +478,58 @@ namespace LivePhotoBox.Services
             }
         }
 
-        // 视频缩略图提取：使用 FFmpeg 抽取第一帧作为缩略图，
-        // 避免 Windows Shell API 返回应用图标的问题。
-        // 根据用户设置中选中的显卡自动添加硬件加速。
-        private static Task<ImageSource?> LoadVideoThumbnailAsync(string videoPath, Microsoft.UI.Dispatching.DispatcherQueue dispatcher, int version)
+        // UI preview only: accept actual Shell image thumbnails, never application
+        // icons. If the Shell has no preview, ask the Windows media decoder for a frame.
+        private static async Task<ImageSource?> LoadVideoThumbnailAsync(string videoPath, Microsoft.UI.Dispatching.DispatcherQueue dispatcher, int version)
         {
-            return Task.FromResult<ImageSource?>(null);
+            try
+            {
+                var file = await StorageFile.GetFileFromPathAsync(videoPath);
+                using var thumbnail = await file.GetThumbnailAsync(ThumbnailMode.VideosView, 128, ThumbnailOptions.UseCurrentScale);
+                if (thumbnail is { Type: ThumbnailType.Image, Size: > 0 })
+                    return await CreateVideoPreviewAsync(thumbnail, videoPath, dispatcher, version);
+
+                var composition = new MediaComposition();
+                try
+                {
+                    composition.Clips.Add(await MediaClip.CreateFromFileAsync(file));
+                    using var frame = await composition.GetThumbnailAsync(TimeSpan.Zero, 128, 0, VideoFramePrecision.NearestFrame);
+                    return await CreateVideoPreviewAsync(frame, videoPath, dispatcher, version);
+                }
+                finally { composition.Clips.Clear(); }
+            }
+            catch (Exception ex)
+            {
+                LogService.FileOp($"Video thumbnail unavailable: {videoPath}: {ex.Message}", LogLevel.Warning);
+                return null;
+            }
+        }
+
+        private static Task<ImageSource?> CreateVideoPreviewAsync(IRandomAccessStream stream, string path,
+            Microsoft.UI.Dispatching.DispatcherQueue dispatcher, int version)
+        {
+            var completion = new TaskCompletionSource<ImageSource?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            if (!dispatcher.TryEnqueue(async () =>
+            {
+                try
+                {
+                    var bitmap = new BitmapImage { DecodePixelWidth = 128 };
+                    stream.Seek(0);
+                    await bitmap.SetSourceAsync(stream);
+                    if (version == Volatile.Read(ref _cacheVersion))
+                    {
+                        _thumbnailCache[path] = bitmap;
+                        completion.TrySetResult(bitmap);
+                    }
+                    else completion.TrySetResult(null);
+                }
+                catch (Exception ex)
+                {
+                    LogService.FileOp($"Video thumbnail display failed: {ex.Message}", LogLevel.Warning);
+                    completion.TrySetResult(null);
+                }
+            })) completion.TrySetResult(null);
+            return completion.Task;
         }
 
         // 清空所有缩略图缓存并递增版本号，使进行中的旧版本加载结果被丢弃。

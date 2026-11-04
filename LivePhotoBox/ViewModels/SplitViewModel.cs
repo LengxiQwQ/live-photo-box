@@ -1,4 +1,4 @@
-﻿/*
+/*
  * SplitViewModel.cs
  *
  * SplitPage（拆分页面）的视图模型，负责将单文件实况照片拆分为图片与视频。
@@ -13,6 +13,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using LivePhotoBox.Collections;
+using System.Collections.ObjectModel;
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
@@ -125,6 +126,7 @@ namespace LivePhotoBox.ViewModels
         public int PendingCount => Tasks.Count(t => t.Status == ProcessStatus.Pending);
         public int ProcessingCount => Tasks.Count(t => t.Status == ProcessStatus.Processing);
         public int SuccessCount => Tasks.Count(t => t.Status == ProcessStatus.Success);
+        public int WarningCount => Tasks.Count(t => t.Status == ProcessStatus.Warning);
         public int FailedCount => Tasks.Count(t => t.Status == ProcessStatus.Failed);
         // 已取消 = 尚未开始即被取消（Cancelled 状态）+ 处理中被打断被取消（IsCancelled 标记，
         // 保留 Processing 状态显示、颜色中性）。
@@ -136,9 +138,9 @@ namespace LivePhotoBox.ViewModels
                 ? ResourceService.Format("SplitPage_StatusTotal", TotalCount)
                 : string.Empty;
 
-        // 队列标题后的扫描统计："识别 5，跳过 3"
-        public string ScanStatsText => RecognizedCount > 0 || SkippedCount > 0
-            ? $"{ResourceService.Format("SplitPage_ScanRecognized", RecognizedCount)}  •  {ResourceService.Format("SplitPage_ScanSkipped", SkippedCount)}"
+        // Match the two visible lists: executable task rows and unselected rows.
+        public string ScanStatsText => Tasks.Count > 0 || ScanDiagnostics.Count > 0
+            ? $"{ResourceService.Format("QueueStats_Tasks", Tasks.Count)}  •  {ResourceService.Format("QueueStats_Unselected", ScanDiagnostics.Count)}"
             : string.Empty;
 
         // 底部状态栏耗时：扫描阶段显示扫描用时（扫描结束后冻结），
@@ -206,7 +208,7 @@ namespace LivePhotoBox.ViewModels
                 if (_splitStoppedByUser)
                     return ResourceService.GetString("Status_StoppedSimple");
                 if (_splitDone && Progress >= 100)
-                    return ResourceService.GetString("Status_DoneSimple");
+                    return ResourceService.GetString("Status_DoneSimple") + ProductOutcomePresentation.WarningSummary(WarningCount);
                 // Idle / Ready — 使用 SetStatus 设置的文字
                 return Status;
             }
@@ -216,6 +218,7 @@ namespace LivePhotoBox.ViewModels
 
         public Visibility FooterTotalVisible => TotalCount > 0 ? Visibility.Visible : Visibility.Collapsed;
         public Visibility FooterSuccessVisible => SuccessCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility FooterWarningVisible => WarningCount > 0 ? Visibility.Visible : Visibility.Collapsed;
         public Visibility FooterFailedVisible => FailedCount > 0 ? Visibility.Visible : Visibility.Collapsed;
         public Visibility FooterUnprocessedVisible => (!_splitStoppedByUser && PendingCount > 0) ? Visibility.Visible : Visibility.Collapsed;
         public Visibility FooterCancelledVisible => (_splitStoppedByUser && CancelledCount > 0) ? Visibility.Visible : Visibility.Collapsed;
@@ -226,6 +229,7 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(ProcessingCount));
             OnPropertyChanged(nameof(SuccessCount));
             OnPropertyChanged(nameof(FailedCount));
+            OnPropertyChanged(nameof(WarningCount));
             OnPropertyChanged(nameof(CancelledCount));
             OnPropertyChanged(nameof(ActiveTaskCountText));
             OnPropertyChanged(nameof(ElapsedTimeText));
@@ -236,6 +240,7 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(FooterTotalVisible));
             OnPropertyChanged(nameof(FooterSuccessVisible));
             OnPropertyChanged(nameof(FooterFailedVisible));
+            OnPropertyChanged(nameof(FooterWarningVisible));
             OnPropertyChanged(nameof(FooterUnprocessedVisible));
             OnPropertyChanged(nameof(FooterCancelledVisible));
         }
@@ -260,6 +265,7 @@ namespace LivePhotoBox.ViewModels
             {
                 AppSettingsService.SetValue("SplitProtocolIndex", value);
                 LogService.Split($"Split protocol changed to index: {value}");
+                RefreshAvailableOutputFormats(value);
                 OnPropertyChanged();
             }
         }
@@ -412,6 +418,20 @@ namespace LivePhotoBox.ViewModels
 
         // ── 转换设置 ──
 
+        // 可用的输出格式列表（由当前协议动态决定，仅包含当前协议支持的项）。
+        public ObservableCollection<OutputFormatOptionItem> AvailableOutputFormats { get; } = [];
+
+        [ObservableProperty]
+        private OutputFormatOptionItem? _selectedOutputFormat;
+
+        partial void OnSelectedOutputFormatChanged(OutputFormatOptionItem? value)
+        {
+            if (value is not null && value.Id != OutputFormatIndex)
+            {
+                OutputFormatIndex = value.Id;
+            }
+        }
+
         // 输出格式索引（全局：0=默认原样 / 1=JPG+MOV(H265) / 2=HEIC+MOV(H265) / 3=JPG+MP4(H264)）。
         public int OutputFormatIndex
         {
@@ -420,8 +440,77 @@ namespace LivePhotoBox.ViewModels
             {
                 AppSettingsService.SetValue("SplitOutputFormatIndex", value);
                 LogService.Split($"Output format changed to index: {value}");
+                if (SelectedOutputFormat?.Id != value)
+                {
+                    SelectedOutputFormat = AvailableOutputFormats.FirstOrDefault(f => f.Id == value);
+                }
                 OnPropertyChanged();
             }
+        }
+
+        public void RefreshAvailableOutputFormats(int protocolIndex)
+        {
+            int[] available = ProtocolFormatMatrix.GetAvailableSplitFormats(protocolIndex);
+            AvailableOutputFormats.Clear();
+            foreach (int formatIndex in available)
+            {
+                AvailableOutputFormats.Add(CreateSplitFormatOption(formatIndex));
+            }
+
+            int targetFormat = available.Contains(OutputFormatIndex)
+                ? OutputFormatIndex
+                : ProtocolFormatMatrix.GetDefaultSplitFormat(protocolIndex);
+
+            if (targetFormat != OutputFormatIndex)
+            {
+                OutputFormatIndex = targetFormat;
+            }
+            else
+            {
+                SelectedOutputFormat = AvailableOutputFormats.FirstOrDefault(f => f.Id == targetFormat);
+            }
+            OnPropertyChanged(nameof(OutputFormatIndex));
+        }
+
+        private static OutputFormatOptionItem CreateSplitFormatOption(int formatIndex)
+        {
+            string nameKey = formatIndex switch
+            {
+                ProtocolFormatMatrix.SplitFormatKeep => "SplitPage_OutputFormat_Default.Content",
+                ProtocolFormatMatrix.SplitFormatJpgMov => "SplitPage_OutputFormat_JpgMov.Content",
+                ProtocolFormatMatrix.SplitFormatHeicMov => "SplitPage_OutputFormat_HeicMov.Content",
+                ProtocolFormatMatrix.SplitFormatJpgMp4 => "SplitPage_OutputFormat_JpgMp4.Content",
+                _ => string.Empty
+            };
+
+            string hintKey = formatIndex switch
+            {
+                ProtocolFormatMatrix.SplitFormatKeep => "SplitPage_FormatHint_Default",
+                ProtocolFormatMatrix.SplitFormatJpgMov => "SplitPage_FormatHint_JpgMov",
+                ProtocolFormatMatrix.SplitFormatHeicMov => "SplitPage_FormatHint_HeicMov",
+                ProtocolFormatMatrix.SplitFormatJpgMp4 => "SplitPage_FormatHint_JpgMp4",
+                _ => string.Empty
+            };
+
+            string fallbackName = formatIndex switch
+            {
+                ProtocolFormatMatrix.SplitFormatKeep => "默认（原样拆分）",
+                ProtocolFormatMatrix.SplitFormatJpgMov => "JPG + MOV (H.265)",
+                ProtocolFormatMatrix.SplitFormatHeicMov => "HEIC + MOV (H.265)",
+                ProtocolFormatMatrix.SplitFormatJpgMp4 => "JPG + MP4 (H.264)",
+                _ => string.Empty
+            };
+
+            string name = ResourceService.GetString(nameKey);
+            if (string.IsNullOrWhiteSpace(name) || name == nameKey)
+                name = fallbackName;
+
+            return new OutputFormatOptionItem
+            {
+                Id = formatIndex,
+                DisplayName = name,
+                Hint = ResourceService.GetString(hintKey)
+            };
         }
 
         // 命名规则：始终使用自定义模板模式（不再提供选择）。
@@ -597,19 +686,24 @@ namespace LivePhotoBox.ViewModels
         public SplitViewModel()
         {
             SetStatus("SplitPage_Status_Ready");
+            RefreshAvailableOutputFormats(ProtocolIndex);
             _uiUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
             _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
 
-            ScanDiagnostics.CollectionChanged += (_, _) =>
+            ScanDiagnostics.CollectionChanged += (_, change) =>
             {
+                int first = Math.Max(0, change.NewStartingIndex >= 0 ? change.NewStartingIndex : change.OldStartingIndex);
+                for (int i = first; i < ScanDiagnostics.Count; i++) ScanDiagnostics[i].Index = i + 1;
                 OnPropertyChanged(nameof(HasScanDiagnostics));
                 OnPropertyChanged(nameof(ScanDiagnosticsCount));
+                OnPropertyChanged(nameof(ScanStatsText));
                 UpdateIsQueueEmpty(Tasks.Count + ScanDiagnostics.Count);
             };
 
             // 扫描添加任务时自动同步到显示列表
             Tasks.CollectionChanged += (_, change) =>
             {
+                OnPropertyChanged(nameof(ScanStatsText));
                 // A previous terminal summary must not hide newly appended work.
                 // Existing successes stay successful and are skipped by the runner.
                 if (!IsProcessing && change.NewItems is not null &&
@@ -629,6 +723,7 @@ namespace LivePhotoBox.ViewModels
             AppSettingsService.SettingsCleared += () =>
             {
                 OnPropertyChanged(nameof(ProtocolIndex));
+                RefreshAvailableOutputFormats(ProtocolIndex);
                 OnPropertyChanged(nameof(MatchProtocolIndex));
                 OnPropertyChanged(nameof(OutputFormatIndex));
                 OnPropertyChanged(nameof(NamingRuleIndex));
@@ -788,7 +883,7 @@ namespace LivePhotoBox.ViewModels
                     int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
                     double elapsed = _stopwatch.Elapsed.TotalSeconds;
 
-                    SetStatus("Status_SplitCompletedSummary", total, elapsed, succeeded, failed);
+                    SetStatus("Status_SplitCompletedSummaryWithWarnings", total, elapsed, succeeded, failed, WarningCount);
                     LogService.Split($"Split completed: {succeeded} succeeded, {failed} failed in {elapsed:F1}s");
 
                     // 批量处理完成 → 弹系统通知（便携/注册失败渠道静默跳过）
@@ -922,7 +1017,7 @@ namespace LivePhotoBox.ViewModels
             {
                 InputDirectories = folderPaths.ToArray(),
                 ExplicitFiles = filePaths.Concat(replace ? Array.Empty<string>() :
-                    oldTasks.Where(t => t.Status != ProcessStatus.Success).SelectMany(t => new[] { t.SourcePath, t.SecondaryPath }).Where(p => p != null).Select(p => p!)
+                    oldTasks.Where(t => t.Status is not (ProcessStatus.Success or ProcessStatus.Warning)).SelectMany(t => new[] { t.SourcePath, t.SecondaryPath }).Where(p => p != null).Select(p => p!)
                         .Concat(ScanDiagnostics.Where(d => d.IsImage || d.IsVideo).SelectMany(d => d.RelatedPaths.Prepend(d.PrimaryPath)))).ToArray(),
                 Recursive = AppSettingsService.GetValue("IsRecursiveScanEnabled", false)
             };
@@ -949,7 +1044,7 @@ namespace LivePhotoBox.ViewModels
                     foreach (var item in selected.Where(i => targetProtocol != null && MapNativeProtocol(i.Protocol) != targetProtocol.Value))
                         diagnostics.Add(LivePhotoScanSupport.Info(item.FilePath, "ProtocolFiltered", "This source protocol is not selected."));
                     selected.RemoveAll(i => targetProtocol != null && MapNativeProtocol(i.Protocol) != targetProtocol.Value);
-                    var updated = replace ? new List<SplitTask>() : oldTasks.Where(t => t.Status == ProcessStatus.Success).ToList();
+                    var updated = replace ? new List<SplitTask>() : oldTasks.Where(t => t.Status is ProcessStatus.Success or ProcessStatus.Warning).ToList();
                     foreach (var item in selected)
                     {
                         if (updated.Any(t => string.Equals(t.SourcePath, item.FilePath, StringComparison.OrdinalIgnoreCase))) continue;
@@ -1123,7 +1218,7 @@ namespace LivePhotoBox.ViewModels
                 var stack = new StackPanel { Spacing = 12 };
                 stack.Children.Add(new TextBlock
                 {
-                    Text = ResourceService.Format("Msg_SplitCompletedSummary", total, succeeded, failed),
+                    Text = ResourceService.Format("Msg_SplitCompletedSummary", total, succeeded, failed) + ProductOutcomePresentation.WarningSummary(WarningCount),
                     FontSize = 16,
                     TextWrapping = TextWrapping.Wrap
                 });
@@ -1155,12 +1250,12 @@ namespace LivePhotoBox.ViewModels
                 int total = Tasks.Count;
                 int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
                 int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
-                int unprocessed = total - succeeded - failed;
+                int unprocessed = total - succeeded - failed - WarningCount;
 
                 var stack = new StackPanel { Spacing = 12 };
                 stack.Children.Add(new TextBlock
                 {
-                    Text = ResourceService.Format("Msg_SplitCancelledSummary", total, succeeded, failed, unprocessed),
+                    Text = ResourceService.Format("Msg_SplitCancelledSummary", total, succeeded, failed, unprocessed) + ProductOutcomePresentation.WarningSummary(WarningCount),
                     FontSize = 16,
                     TextWrapping = TextWrapping.Wrap
                 });
@@ -1216,6 +1311,8 @@ namespace LivePhotoBox.ViewModels
             bool overwriteExisting = OverwriteExisting;
             string? inputDirectory = AppSettingsService.GetValue("IsOutputPreserveSubfolderStructure", false)
                 ? InputDirectory : null;
+            int sourceAction = AfterCompletionActionIndex;
+            string sourceArchive = OriginalDirectory;
             var succeededThisRun = new System.Collections.Concurrent.ConcurrentBag<SplitTask>();
             string capabilityDiagnostic = ProductOutcomePresentation.CapabilityDiagnostic(() => ProductCapabilityQuery.Query(outputFormat));
 
@@ -1224,14 +1321,14 @@ namespace LivePhotoBox.ViewModels
                 Directory.CreateDirectory(outputDir);
                 await Task.Run(async () =>
                 {
-                    var tasksToProcess = Tasks.Where(t => t.Status != ProcessStatus.Success).ToList();
+                    var tasksToProcess = Tasks.Where(t => t.Status is not (ProcessStatus.Success or ProcessStatus.Warning)).ToList();
                     using var originals = new SourceInputProtection(Tasks.SelectMany(t => new[] { t.SourcePath, t.SecondaryPath }));
 
                     int maxParallel = AppSettingsService.GetValue("SplitThreadCount", 4);
 
                     var semaphore = new SemaphoreSlim(maxParallel, maxParallel);
                     var pendingTasks = new List<Task>();
-                    int localCompletedCount = tasksToProcess.Count == Tasks.Count ? 0 : Tasks.Count(task => task.Status == ProcessStatus.Success);
+                    int localCompletedCount = Tasks.Count - tasksToProcess.Count;
                     _completedTasksCount = localCompletedCount;
                     var lockObj = new object();
 
@@ -1312,14 +1409,14 @@ namespace LivePhotoBox.ViewModels
                                 {
                                     task.LastOutcome = outcome;
                                     task.OutcomeSummary = outcome is null ? detailMessage : ProductOutcomePresentation.Describe(outcome, capabilityDiagnostic);
-                                    task.OutputImagePath = isSuccess ? outputImagePath : string.Empty;
-                                    task.OutputVideoPath = isSuccess ? outputVideoPath : string.Empty;
+                                    task.OutputImagePath = outcome?.HasUsableOutputs == true ? outputImagePath : string.Empty;
+                                    task.OutputVideoPath = outcome?.HasUsableOutputs == true ? outputVideoPath : string.Empty;
                                     if (isCanceled)
                                         UpdateTaskCancelled(task, detailMessage);
                                     else
                                     {
-                                        task.OutputImagePath = isSuccess ? outputImagePath : string.Empty;
-                                        task.OutputVideoPath = isSuccess ? outputVideoPath : string.Empty;
+                                        task.OutputImagePath = outcome?.HasUsableOutputs == true ? outputImagePath : string.Empty;
+                                        task.OutputVideoPath = outcome?.HasUsableOutputs == true ? outputVideoPath : string.Empty;
                                         UpdateTaskCompleted(task, isSuccess, detailMessage, currentCompleted);
                                     }
                                 }
@@ -1399,7 +1496,7 @@ namespace LivePhotoBox.ViewModels
                 int total = Tasks.Count;
                 int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
                 int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
-                int unprocessed = total - succeeded - failed;
+                int unprocessed = total - succeeded - failed - WarningCount;
                 double elapsed = _stopwatch.Elapsed.TotalSeconds;
                 LogService.Split($"Processing cancelled by user after {elapsed:F1}s, completed {_completedTasksCount}/{TotalCount}");
                 SetStatus("Status_SplitStoppedSummary", total, elapsed, succeeded, failed, unprocessed);
@@ -1413,42 +1510,66 @@ namespace LivePhotoBox.ViewModels
             {
                 _stopwatch.Stop();
                 bool wasCancelled = _cancelledByUser;
-                FinalizeRunState();
 
                 // ── 完成后处理原始文件 ──
                 if (!wasCancelled && !_splitOperationFailed)
                 {
-                    if (AfterCompletionActionIndex == 1) // 移动到指定目录
-                    {
-                        var moveDir = OriginalDirectory;
-                        if (!string.IsNullOrWhiteSpace(moveDir))
+                    if (sourceAction is 1 or 2)
+                        foreach (var task in succeededThisRun)
                         {
-                            try { Directory.CreateDirectory(moveDir); }
-                            catch (Exception ex) { LogService.Split($"Failed to create original dir: {ex.Message}", LogLevel.Warning); }
-                            foreach (var path in succeededThisRun.SelectMany(t => new[] { t.SourcePath, t.SecondaryPath }).Where(p => p != null).Distinct(StringComparer.OrdinalIgnoreCase))
-                            {
-                                try { if (File.Exists(path)) File.Move(path!, Path.Combine(moveDir, Path.GetFileName(path!))); } catch (Exception ex) { LogService.Split($"Failed to archive source: {ex.Message}", LogLevel.Warning); }
-                            }
-                        }
-                    }
-                    else if (AfterCompletionActionIndex == 2) // 回收站
-                    {
-                        foreach (var path in succeededThisRun.SelectMany(t => new[] { t.SourcePath, t.SecondaryPath }).Where(p => p != null).Distinct(StringComparer.OrdinalIgnoreCase))
-                        {
+                            if (token.IsCancellationRequested) break;
                             try
                             {
-                                if (File.Exists(path))
-                                    await MoveFileToRecycleBinAsync(path!);
+                                var outcome = task.LastOutcome ?? throw new IOException("Missing completion receipt.");
+                                var paths = new[] { task.SourcePath, task.SecondaryPath }.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p!).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                                string? moveDir = sourceAction == 1 ? sourceArchive : null;
+                                if (sourceAction == 1 && string.IsNullOrWhiteSpace(moveDir))
+                                    throw new IOException("Archive directory is missing; originals retained.");
+                                var guard = outcome.SourceActionGuard ?? throw new IOException("Source action identity receipt is unavailable; originals retained.");
+                                using var committedProtection = new SourceInputProtection(outcome.CommittedOutputs.Select(o => o.Path));
+                                guard.Validate(outcome, paths, moveDir);
+                                if (moveDir is not null) Directory.CreateDirectory(moveDir);
+                                foreach (string path in paths)
+                                {
+                                    token.ThrowIfCancellationRequested();
+                                    guard.ValidateSource(outcome, path);
+                                    if (moveDir is not null) File.Move(path, Path.Combine(moveDir, Path.GetFileName(path)));
+                                    else await MoveFileToRecycleBinAsync(path, outcome);
+                                }
+                                task.LastOutcome = ProductOutcomeCompletion.Record(outcome with
+                                { SourcePostProcessing = new(moveDir is null ? "recycle" : "move", "completed", "", moveDir) });
+                                task.OutcomeSummary = ProductOutcomePresentation.Describe(task.LastOutcome, capabilityDiagnostic);
+                            }
+                            catch (OperationCanceledException) when (token.IsCancellationRequested)
+                            {
+                                if (task.LastOutcome is { } completed)
+                                {
+                                    task.LastOutcome = ProductOutcomeCompletion.Record(completed with
+                                    { SourcePostProcessing = new(sourceAction == 1 ? "move" : "recycle", "cancelled", "Cancelled by user.",
+                                        sourceAction == 1 ? sourceArchive : null) });
+                                    task.OutcomeSummary = ProductOutcomePresentation.Describe(task.LastOutcome, capabilityDiagnostic);
+                                }
+                                break;
                             }
                             catch (Exception ex)
                             {
-                                LogService.Split($"Failed to move source file to recycle bin: {ex.Message}", LogLevel.Warning, ex);
+                                if (task.LastOutcome is { } completed)
+                                    task.LastOutcome = ProductOutcomeCompletion.Record(completed with
+                                    { SourcePostProcessing = new(sourceAction == 1 ? "move" : "recycle", "failed", ex.Message,
+                                        sourceAction == 1 ? sourceArchive : null) });
+                                task.OutcomeSummary += Environment.NewLine + ResourceService.GetString("ProductWarning_SourceAction") + ": " + ex.Message;
+                                task.Details = ResourceService.GetString("ProductWarning_SourceAction");
+                                task.Status = ProcessStatus.Warning;
+                                NotifyStatsChanged();
+                                LogService.Split("Source post-processing failed: " + ex.Message, LogLevel.Warning, ex);
                             }
                         }
-                    }
                 }
 
                 // 关闭中不弹对话框，避免在窗口销毁期间操作 XamlRoot。
+                wasCancelled = _cancelledByUser;
+                FinalizeRunState();
+
                 if (Tasks.Count > 0 && !_isCleaningUp && !_splitOperationFailed)
                 {
                     try
@@ -1466,79 +1587,8 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
-        // 将文件移动到回收站（真正进回收站，可恢复）。
-        // 通过 P/Invoke SHFileOperationW（FOF_ALLOWUNDO）实现，效果等同资源管理器删除。
-        private static Task MoveFileToRecycleBinAsync(string path)
-        {
-            var dispatcher = App.MainWindow?.DispatcherQueue;
-            if (dispatcher == null)
-            {
-                LogService.Split("Recycle bin unavailable: MainWindow DispatcherQueue is null", LogLevel.Warning);
-                return Task.CompletedTask;
-            }
-
-            var tcs = new TaskCompletionSource<object?>();
-            bool enqueued = dispatcher.TryEnqueue(() =>
-            {
-                try
-                {
-                    if (SendToRecycleBin(path))
-                        tcs.SetResult(null);
-                    else
-                        tcs.SetException(new InvalidOperationException($"SHFileOperationW failed for {path}"));
-                }
-                catch (Exception ex)
-                {
-                    tcs.SetException(ex);
-                }
-            });
-
-            if (!enqueued)
-            {
-                LogService.Split($"Recycle bin unavailable: failed to enqueue to UI thread for {path}", LogLevel.Warning);
-                return Task.CompletedTask;
-            }
-
-            return tcs.Task;
-        }
-
-        // 调用 shell 将单个文件送入回收站，返回是否成功。
-        private static bool SendToRecycleBin(string path)
-        {
-            var op = new SHFILEOPSTRUCT
-            {
-                wFunc = FO_DELETE,
-                pFrom = path + "\0\0",
-                fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT
-            };
-            return SHFileOperationW(ref op) == 0;
-        }
-
-        // ── 回收站 P/Invoke（SHFileOperationW）────────────────
-        private const uint FO_DELETE = 0x0003;
-        private const ushort FOF_ALLOWUNDO = 0x0040;
-        private const ushort FOF_NOCONFIRMATION = 0x0010;
-        private const ushort FOF_SILENT = 0x0004;
-
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        private struct SHFILEOPSTRUCT
-        {
-            public IntPtr hwnd;
-            public uint wFunc;
-            [MarshalAs(UnmanagedType.LPWStr)]
-            public string pFrom;
-            [MarshalAs(UnmanagedType.LPWStr)]
-            public string pTo;
-            public ushort fFlags;
-            [MarshalAs(UnmanagedType.Bool)]
-            public bool fAnyOperationsAborted;
-            public IntPtr hNameMappings;
-            [MarshalAs(UnmanagedType.LPWStr)]
-            public string lpszProgressTitle;
-        }
-
-        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-        private static extern int SHFileOperationW(ref SHFILEOPSTRUCT lpFileOp);
+        private static Task MoveFileToRecycleBinAsync(string path, ProductOperationOutcome outcome) =>
+            Task.Run(() => SourceRecycleBinService.Recycle(outcome, path));
 
         #endregion
 
@@ -1570,6 +1620,7 @@ namespace LivePhotoBox.ViewModels
         private void UpdateTaskCancelled(SplitTask task, string detailMessage)
         {
             task.IsCancelled = true;
+            task.Status = ProcessStatus.Cancelled;
             task.ProgressText = "0%";
             task.Details = detailMessage;
             NotifyStatsChanged();
@@ -1578,7 +1629,7 @@ namespace LivePhotoBox.ViewModels
         // 更新任务完成状态（成功/失败），如果所有任务完成则触发 ProcessingCompletedForScroll 事件。
         private void UpdateTaskCompleted(SplitTask task, bool isSuccess, string detailMessage, int completedCount)
         {
-            task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
+            task.Status = task.LastOutcome?.Status == ProductOperationStatus.Warning ? ProcessStatus.Warning : isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
             task.ProgressText = isSuccess ? "100%" : "0%";
             task.Details = detailMessage;
             NotifyStatsChanged();
@@ -1636,7 +1687,7 @@ namespace LivePhotoBox.ViewModels
                 }
             }
             catch (Exception ex) { LogService.Split($"OpenSplitOriginalDir error: {ex.Message}", LogLevel.Error, ex); }
-            return Task.CompletedTask;
+            return Task.FromException(new IOException("Recycle bin UI dispatcher is unavailable; originals retained."));
         }
 
         #endregion

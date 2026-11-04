@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Services;
@@ -46,10 +46,11 @@ namespace LivePhotoBox.Models
         #region Computed Properties
 
         // 任务失败且有错误详情时返回 true（用于 UI 显示错误图标）
-        public bool HasErrorDetails => Status == ProcessStatus.Failed && !string.IsNullOrWhiteSpace(Details);
+        public bool HasErrorDetails => Status is (ProcessStatus.Failed or ProcessStatus.Warning) && !string.IsNullOrWhiteSpace(Details);
 
-        // 任务是否已成功完成（"打开输出位置"等仅完成态可用的操作以此判断）
+        // 仅绿色计为成功；黄色允许定位实际隔离输出，但不授权来源后处理。
         public bool IsSuccess => Status == ProcessStatus.Success;
+        public bool HasOutput => Status is ProcessStatus.Success or ProcessStatus.Warning;
 
         // 队列中显示的状态文字：失败时只显示"合成失败"（简短、不截断），
         // 完整错误详情在点击后弹出的 TeachingTip 中查看；其余状态沿用原详情文案。
@@ -125,6 +126,7 @@ namespace LivePhotoBox.Models
         {
             OnPropertyChanged(nameof(HasErrorDetails));
             OnPropertyChanged(nameof(IsSuccess));
+            OnPropertyChanged(nameof(HasOutput));
             OnPropertyChanged(nameof(DisplayStatusText));
         }
 

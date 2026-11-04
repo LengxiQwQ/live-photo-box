@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -4617,7 +4617,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="MergeDiagnostic_DirectoryEnumerationFailed" xml:space="preserve"><value>目录枚举失败</value></data>
   <data name="SplitDiagnostic_InspectionFailed" xml:space="preserve"><value>单文件实况解析未通过</value></data>
   <data name="SplitDiagnostic_ReadFailed" xml:space="preserve"><value>文件读取异常</value></data>
-  <data name="ScanDiagnostic_Header.Text" xml:space="preserve"><value>项扫描诊断与未选用项（点击状态查看详情）</value></data>
+  <data name="ScanDiagnostic_Header.Text" xml:space="preserve"><value>未选用项目</value></data>
   <data name="ScanStatus_NotSelected" xml:space="preserve"><value>未选用</value></data>
   <data name="ScanStatus_Partial" xml:space="preserve"><value>扫描部分完成，可查看未读取项的原因</value></data>
   <data name="ScanDiagnostic_InputFailed" xml:space="preserve"><value>此文件或候选关系未通过读取、格式或身份校验。具体原因如下。</value></data>
@@ -4639,4 +4639,29 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="SplitPage_Match_Apple_Hint" xml:space="preserve">
     <value>按原生配对标识确认图片与视频</value>
   </data>
+  <data name="ProductOutcome_Warning" xml:space="preserve"><value>已隔离导出（需确认）</value></data>
+  <data name="ProductWarning_StoredDirection" xml:space="preserve"><value>来源未声明图片方向；按存储像素安全导出，无法保证原拍摄方向。</value></data>
+  <data name="ProductWarning_UnknownDirection" xml:space="preserve"><value>图片方向尚未确认；保留可用媒体，显示方向未保证。</value></data>
+  <data name="ProductWarning_UnknownCover" xml:space="preserve"><value>来源封面时间未确认；已使用安全的起始时间，未保证原封面。</value></data>
+  <data name="ProductWarning_Hdr" xml:space="preserve"><value>已安全导出可用媒体，但未完整保留HDR效果。</value></data>
+  <data name="ProductWarning_Isolation" xml:space="preserve"><value>实际隔离输出位置（原件保留）</value></data>
+  <data name="ProductWarning_Count" xml:space="preserve"><value>隔离导出 {0} 个</value></data>
+  <data name="Status_MergeCompletedSummaryWithWarnings" xml:space="preserve"><value>共 {0} 个任务，耗时 {1}，成功 {2} 个，失败 {3} 个，隔离导出 {4} 个</value></data>
+  <data name="Status_SplitCompletedSummaryWithWarnings" xml:space="preserve"><value>共 {0} 个任务，耗时 {1}，成功 {2} 个，失败 {3} 个，隔离导出 {4} 个</value></data>
+  <data name="ProductWarning_SourceAction" xml:space="preserve"><value>来源后处理未完成，请查看详情</value></data>
+  <data name="MergePage_Protocol_Apple.Content" xml:space="preserve"><value>Apple Live Photo</value></data>
+  <data name="MergePage_Protocol_VivoLegacy.Content" xml:space="preserve"><value>vivo 旧版双文件</value></data>
+  <data name="MergePage_Protocol_Apple_Hint" xml:space="preserve"><value>JPEG/HEIC + MOV；相册兼容待真机验证</value></data>
+  <data name="MergePage_Protocol_VivoLegacy_Hint" xml:space="preserve"><value>JPEG + MP4；相册兼容待真机验证</value></data>
+  <data name="Queue_Filter_Warning.Text" xml:space="preserve"><value>需确认</value></data>
+  <data name="Queue_WarningCountLabel.Text" xml:space="preserve"><value>需确认</value></data>
+  <data name="ProductWarning_IncompatibleFormat" xml:space="preserve"><value>此目标协议不接受这种媒体格式，请选择可用格式。</value></data>
+  <data name="ProductOutcome_SourceAction" xml:space="preserve"><value>来源后处理</value></data>
+  <data name="ScanDiagnostic_Expand" xml:space="preserve"><value>展开</value></data>
+  <data name="ScanDiagnostic_ExpandLabel.Text" xml:space="preserve"><value>展开</value></data>
+  <data name="ScanDiagnostic_Collapse" xml:space="preserve"><value>收起</value></data>
+  <data name="ScanDiagnostic_Preview" xml:space="preserve"><value>预览</value></data>
+  <data name="ScanDiagnostic_NoPreview" xml:space="preserve"><value>暂无预览</value></data>
+  <data name="QueueStats_Tasks" xml:space="preserve"><value>任务 {0} 项</value></data>
+  <data name="QueueStats_Unselected" xml:space="preserve"><value>未选用 {0} 项</value></data>
 </root>

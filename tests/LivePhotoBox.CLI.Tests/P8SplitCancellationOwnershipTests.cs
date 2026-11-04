@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using LivePhotoBox.Cli.Commands;
 using LivePhotoBox.Services;
+using LivePhotoBox.Media.Models;
 using Xunit;
 
 namespace LivePhotoBox.Cli.Tests;
@@ -186,10 +187,15 @@ public sealed class P8SplitCancellationOwnershipTests
         {
             string image = Path.Combine(root, "live.jpg"), video = Path.Combine(root, "live.mov"), archive = Path.Combine(root, "archive");
             File.WriteAllBytes(image, [1, 2, 3]);File.WriteAllBytes(video, [4, 5, 6]);
+            string output = Path.Combine(root, "committed.jpg"); File.WriteAllBytes(output, [7, 8, 9]);
+            ProductCommittedArtifact[] artifacts = [new() { Role = "TargetLivePhoto", Path = output }];
+            var guard = ProductSourceActionGuard.Capture([image, video], artifacts);
+            var outcome = new ProductOperationOutcome { Status = ProductOperationStatus.Success, Inputs = [image, video],
+                CommittedOutputs = artifacts, SourceActionGuard = guard };
             using (File.Open(video, FileMode.Open, FileAccess.Read, FileShare.Read))
             {
                 var method = typeof(MergeCommand).GetMethod("ApplySourceAction", BindingFlags.NonPublic | BindingFlags.Static)!;
-                var result = method.Invoke(null, [image, video, archive, CancellationToken.None]);
+                var result = method.Invoke(null, [image, video, outcome, archive, CancellationToken.None]);
                 using var json = JsonDocument.Parse(JsonSerializer.Serialize(result));
                 Assert.Equal("failed", json.RootElement.GetProperty("Status").GetString());
                 Assert.Equal("moved", json.RootElement.GetProperty("Files")[0].GetProperty("Status").GetString());
@@ -206,7 +212,7 @@ public sealed class P8SplitCancellationOwnershipTests
         string after = "none", bool preserveSubdirs = false)
     {
         object?[] args = [null, new DirectoryInfo(inputRoot), "all", "none", "keep", new DirectoryInfo(output),
-            "keep", false, 1, true, true, false, false, false, false, preserveSubdirs, after, false, null, token];
+            "keep", false, 1, true, true, false, false, false, false, preserveSubdirs, after, false, null, token, null];
         return CaptureInvocation(typeof(SplitCommand), args);
     }
 

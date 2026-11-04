@@ -36,6 +36,7 @@ public sealed partial class ScanPairingInteractionTests : IDisposable
             await page.GetByTestId("ScanInputDirectory").FillAsync(Path.Combine(inputRoot, workflow.ToLowerInvariant()));
             var ready = page.GetByTestId(workflow + "TaskListView").Locator("controltype:ListItem");
             await ready.Expect().ToHaveCountAsync(readyCount);
+            await ExpandDiagnosticsAsync(window);
             var statuses = page.GetByTestId(workflow + "DiagnosticListView").GetByTestId("ScanDiagnosticStatus");
             await statuses.Expect().ToHaveCountAsync(2);
             Assert.True(await page.GetByTestId("Start" + workflow + "Button").IsEnabledAsync());
@@ -223,6 +224,7 @@ public sealed partial class ScanPairingInteractionTests : IDisposable
                 }
                 finally { FlaUI.Core.Input.Mouse.Up(FlaUI.Core.Input.MouseButton.Left); }
                 await ready.Expect().ToHaveCountAsync(2);
+                await ExpandDiagnosticsAsync(window);
                 await page.GetByTestId(workflow + "DiagnosticListView").Locator("controltype:ListItem").Expect().ToHaveCountAsync(1);
             }
             await page.BringToFrontAsync();

@@ -7,7 +7,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.CommandLine;
@@ -632,17 +631,17 @@ namespace LivePhotoBox.Cli.Commands
                 var outcome = await LivePhotoSplitService.SplitWithOutcomeAsync(
                     sourcePath, outputDir, ProductSelectionAdapter.Split(protocolIndex, formatIndex), ct,
                     inputDirectory: null, outputBaseName: outputBaseName, overwriteExisting: overwrite, secondaryPath: companionPath, keyTimestampUs: keyTimestampUs);
-                if (json) PrintJson(ProjectSingleOutcome(sourcePath, outcome, capability));
+                var afterAction = outcome.IsSuccess && (afterMoveDir is not null || afterRecycle)
+                    ? MergeCommand.ApplySourceAction(sourcePath, companionPath ?? "", outcome, afterMoveDir, ct) : null;
+                if (json) PrintJson(ProjectSingleOutcome(sourcePath, outcome, capability, afterAction));
                 else
                 {
                     if (outcome.IsSuccess) CliConsole.WriteLine("Done", CliConsole.Success);
                     else CliConsole.WriteErrorLine($"{OutcomeStatus(outcome)}: {outcome.Details}");
                     PrintOutcome(outcome);
                 }
-                if (outcome.IsSuccess)
-                    foreach (var path in new[] { sourcePath, companionPath }.Where(p => p != null).Distinct(StringComparer.OrdinalIgnoreCase))
-                        ApplyAfterAction(path!, afterMoveDir, afterRecycle, json);
-                return outcome.ExitCode;
+                if (afterAction?.Status == "failed") { if (!json) CliConsole.WriteErrorLine("Source post-processing failed: " + afterAction.Reason); return 1; }
+                return afterAction?.Status == "cancelled" ? 130 : outcome.ExitCode;
             }
             catch (OperationCanceledException)
             {
@@ -706,7 +705,7 @@ namespace LivePhotoBox.Cli.Commands
                     entry.ImageOutput = CommittedPath(outcome, "PrimaryImage"); entry.VideoOutput = CommittedPath(outcome, "MotionVideo");
                     entry.Reason = outcome.IsSuccess ? "" : outcome.Details; entry.HistoryWarning = outcome.HistoryWarning;
                     if (outcome.Status == ProductOperationStatus.Cancelled) throw new OperationCanceledException(ct);
-                    if (outcome.IsSuccess) Interlocked.Increment(ref ok); else Interlocked.Increment(ref fail);
+                    if (outcome.IsSuccess) Interlocked.Increment(ref ok); else if (outcome.Status != ProductOperationStatus.Warning) Interlocked.Increment(ref fail);
                     int count = Interlocked.Increment(ref completed);
                     if (!json) { Console.WriteLine($"[{count}/{variants.Length}] {entry.Status}  {v.Label}  {entry.Reason}"); PrintOutcome(outcome); }
                 }
@@ -722,9 +721,9 @@ namespace LivePhotoBox.Cli.Commands
             bool cancelled = false;
             try { await Task.WhenAll(tasks); } catch (OperationCanceledException) { cancelled = true; }
             if (json) PrintJson(new { command = "split", mode = "all-variants", output = variantsDir,
-                status = cancelled ? "cancelled" : "completed", scanned = variants.Length, split = ok, failed = fail, files = entries });
+                status = cancelled ? "cancelled" : "completed", scanned = variants.Length, split = ok, failed = fail, warnings = entries.Count(e => e.Status == "warning"), files = entries });
             else Console.WriteLine($"{(cancelled ? "Cancelled" : "Done")}: {ok} SUCCESS, {fail} FAIL, {variants.Length} total");
-            return cancelled ? 130 : fail > 0 ? 1 : 0;
+            return cancelled ? 130 : fail > 0 ? 1 : entries.Any(e => e.Status == "warning") ? 2 : 0;
         }
 
         private static async Task<int> SplitBatchAsync(
@@ -960,6 +959,7 @@ namespace LivePhotoBox.Cli.Commands
                             outputBaseName: outputBaseName,
                             overwriteExisting: overwrite, secondaryPath: task.SecondaryPath);
 
+                        task.Outcome = outcome;
                         if (task.Json != null) { task.Json.Outcome = outcome; task.Json.Status = OutcomeStatus(outcome);
                             task.Json.ImageOutput = CommittedPath(outcome, "PrimaryImage"); task.Json.VideoOutput = CommittedPath(outcome, "MotionVideo");
                             task.Json.Reason = outcome.IsSuccess ? "" : outcome.Details; task.Json.HistoryWarning = outcome.HistoryWarning; }
@@ -968,6 +968,13 @@ namespace LivePhotoBox.Cli.Commands
                         {
                             task.Status = ProcessStatus.Cancelled;
                             throw new OperationCanceledException(ct);
+                        }
+                        if (outcome.Status == ProductOperationStatus.Warning)
+                        {
+                            task.Status = ProcessStatus.Warning;
+                            int count = Interlocked.Increment(ref completed);
+                            if (!json) CliConsole.WriteLine($"[{count}/{tasks.Count}] WARNING  {Path.GetFileName(task.SourcePath)}  ({outcome.Details})", CliConsole.Notice);
+                            return;
                         }
                         if (!outcome.IsSuccess)
                         {
@@ -1043,73 +1050,23 @@ namespace LivePhotoBox.Cli.Commands
 
             originals.Dispose();
 
-            // 6. After-completion actions (only on successful tasks)
-            if (!string.IsNullOrEmpty(afterMoveDir))
-            {
-                if (!json)
+            int afterFailed = 0;
+            if (afterMoveDir is not null || afterRecycle)
+                foreach (var task in tasks.Where(t => t.Status == ProcessStatus.Success))
                 {
-                    if (CliConsole.UseColor)
+                    var action = MergeCommand.ApplySourceAction(task.SourcePath, task.SecondaryPath ?? "", task.Outcome!, afterMoveDir, ct);
+                    if (task.Json is not null) task.Json.AfterAction = action;
+                    if (action.Status == "failed")
                     {
-                        Console.WriteLine();
-                        Console.Write("Moving source files to '");
-                        CliConsole.Write(afterMoveDir, CliConsole.PathGreen);
-                        Console.WriteLine("'...");
+                        afterFailed++;
+                        if (!json) CliConsole.WriteErrorLine("Source post-processing failed: " + action.Reason);
                     }
-                    else
+                    if (action.Status == "cancelled")
                     {
-                        Console.WriteLine($"\nMoving source files to '{afterMoveDir}'...");
+                        if (json) PrintBatchJson(inputDir, outputDir, tasks.Count, ok, fail, 0, jsonFiles, scanDiagnostics, scanSummary, "cancelled");
+                        return 130;
                     }
                 }
-                Directory.CreateDirectory(afterMoveDir);
-                int moved = 0;
-                foreach (var path in tasks.Where(t => t.Status == ProcessStatus.Success).SelectMany(t => new[] { t.SourcePath, t.SecondaryPath }).Where(p => p != null).Distinct(StringComparer.OrdinalIgnoreCase))
-                {
-                    try
-                    {
-                        if (File.Exists(path!))
-                        {
-                            File.Move(path!, Path.Combine(afterMoveDir, Path.GetFileName(path!)));
-                            moved++;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        if (!json) CliConsole.WriteErrorLine($"WARN: Failed to move '{Path.GetFileName(path!)}': {ex.Message}");
-                    }
-                }
-                if (!json)
-                {
-                    Console.Write("Moved ");
-                    CliConsole.Write(moved.ToString(), CliConsole.Highlight);
-                    Console.WriteLine(" source files.");
-                }
-            }
-            else if (afterRecycle)
-            {
-                if (!json) Console.WriteLine("\nMoving source files to recycle bin...");
-                int recycled = 0;
-                foreach (var path in tasks.Where(t => t.Status == ProcessStatus.Success).SelectMany(t => new[] { t.SourcePath, t.SecondaryPath }).Where(p => p != null).Distinct(StringComparer.OrdinalIgnoreCase))
-                {
-                    try
-                    {
-                        if (File.Exists(path!))
-                        {
-                            MoveToRecycleBin(path!);
-                            recycled++;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        if (!json) CliConsole.WriteErrorLine($"WARN: Failed to recycle '{Path.GetFileName(path!)}': {ex.Message}");
-                    }
-                }
-                if (!json)
-                {
-                    Console.Write("Recycled ");
-                    CliConsole.Write(recycled.ToString(), CliConsole.Highlight);
-                    Console.WriteLine(" source files.");
-                }
-            }
 
             // 7. Summary
             if (json)
@@ -1125,37 +1082,9 @@ namespace LivePhotoBox.Cli.Commands
                 Console.Write(" FAIL, ");
                 CliConsole.Write(tasks.Count.ToString(), CliConsole.Highlight);
                 Console.WriteLine(" total");
+                Console.WriteLine($"{tasks.Count(t => t.Status == ProcessStatus.Warning)} isolated exports (not counted as SUCCESS).");
             }
-            return (fail > 0 || hasScanErrors) ? 1 : 0;
-        }
-
-        private static void ApplyAfterAction(string sourcePath, string? afterMoveDir, bool afterRecycle, bool json)
-        {
-            if (!string.IsNullOrEmpty(afterMoveDir))
-            {
-                Directory.CreateDirectory(afterMoveDir);
-                try
-                {
-                    if (File.Exists(sourcePath))
-                        File.Move(sourcePath, Path.Combine(afterMoveDir, Path.GetFileName(sourcePath)));
-                }
-                catch (Exception ex)
-                {
-                    if (!json) CliConsole.WriteErrorLine($"WARN: Failed to move '{Path.GetFileName(sourcePath)}': {ex.Message}");
-                }
-            }
-            else if (afterRecycle)
-            {
-                try
-                {
-                    if (File.Exists(sourcePath))
-                        MoveToRecycleBin(sourcePath);
-                }
-                catch (Exception ex)
-                {
-                    if (!json) CliConsole.WriteErrorLine($"WARN: Failed to recycle '{Path.GetFileName(sourcePath)}': {ex.Message}");
-                }
-            }
+            return (fail > 0 || afterFailed > 0 || hasScanErrors) ? 1 : tasks.Any(t => t.Status == ProcessStatus.Warning) ? 2 : 0;
         }
 
         // 序列化 JSON 到 stdout（脚本模式 --json 用，方便脚本稳定解析，不受文件名长度/终端宽度影响）。
@@ -1181,7 +1110,9 @@ namespace LivePhotoBox.Cli.Commands
                 mode = "batch",
                 input,
                 output,
-                status = scanStatus == "cancelled" ? "cancelled" : (scanStatus == "failed" || failed > 0 || (scanDiagnostics != null && scanDiagnostics.Any(d => d.Severity == ScanDiagnosticSeverity.Error))) ? "failed" : "completed",
+                status = scanStatus == "cancelled" ? "cancelled" : (scanStatus == "failed" || failed > 0 || files.Any(f => f.AfterAction?.Status == "failed") || (scanDiagnostics != null && scanDiagnostics.Any(d => d.Severity == ScanDiagnosticSeverity.Error))) ? "failed" : files.Any(f => f.Status == "warning") ? "warning" : "completed",
+                warnings = files.Count(f => f.Status == "warning"),
+                afterFailed = files.Count(f => f.AfterAction?.Status == "failed"),
                 scanned,
                 split,
                 failed,
@@ -1213,6 +1144,7 @@ namespace LivePhotoBox.Cli.Commands
             public string BaseName = "";
             public ProcessStatus Status = ProcessStatus.Pending;
             public string Details = "";
+            public ProductOperationOutcome? Outcome;
             public SplitJsonFileEntry? Json = null; // 脚本模式（--json）关联的 JSON 结果条目
         }
 
@@ -1227,16 +1159,19 @@ namespace LivePhotoBox.Cli.Commands
             public string ImageOutput { get; set; } = "";
             public string VideoOutput { get; set; } = "";
             public ProductOperationOutcome? Outcome { get; set; }
+            public string Color => Outcome?.Status == ProductOperationStatus.Cancelled ? "neutral" : Status is "merged" or "split" ? "green" : Status == "warning" ? "yellow" : Status is "failed" or "unsupported" ? "red" : "neutral";
             public string? HistoryWarning { get; set; }
+            public MergeCommand.SourceActionResult? AfterAction { get; set; }
             public ProductCapabilityAssessment? Capability { get; set; }
         }
 
         private static string OutcomeStatus(ProductOperationOutcome outcome) => outcome.IsSuccess ? "split" : outcome.Status.ToString().ToLowerInvariant();
-        private static string CommittedPath(ProductOperationOutcome outcome, string role) => outcome.IsSuccess ? outcome.CommittedOutputs.FirstOrDefault(item => item.Role == role)?.Path ?? "" : "";
-        internal static object ProjectSingleOutcome(string input, ProductOperationOutcome outcome, ProductCapabilityAssessment? capability = null) =>
+        private static string CommittedPath(ProductOperationOutcome outcome, string role) => outcome.HasUsableOutputs ? outcome.CommittedOutputs.FirstOrDefault(item => item.Role == role)?.Path ?? "" : "";
+        internal static object ProjectSingleOutcome(string input, ProductOperationOutcome outcome, ProductCapabilityAssessment? capability = null, object? afterAction = null) =>
             new { command = "split", mode = "single", input, imageOutput = CommittedPath(outcome, "PrimaryImage"),
                 videoOutput = CommittedPath(outcome, "MotionVideo"), status = OutcomeStatus(outcome),
-                reason = outcome.IsSuccess ? "" : outcome.Details, outcome, capability, historyWarning = outcome.HistoryWarning };
+                color = outcome.Status == ProductOperationStatus.Cancelled ? "neutral" : outcome.IsSuccess ? "green" : outcome.Status == ProductOperationStatus.Warning ? "yellow" : "red",
+                isolationDirectory = outcome.IsolationDirectory, warnings = outcome.Warnings, reason = outcome.IsSuccess ? "" : outcome.Details, outcome, capability, afterAction, historyWarning = outcome.HistoryWarning };
 
         private static void PrintOutcome(ProductOperationOutcome outcome)
         {
@@ -1255,42 +1190,5 @@ namespace LivePhotoBox.Cli.Commands
             if (!string.IsNullOrEmpty(outcome.HistoryWarning)) CliConsole.WriteErrorLine($"WARN: {outcome.HistoryWarning}");
         }
 
-        // ══════════════════════════════════════════════════════════════
-        //  Recycle Bin via SHFileOperationW
-        // ══════════════════════════════════════════════════════════════
-
-        private const uint FO_DELETE = 0x0003;
-        private const ushort FOF_ALLOWUNDO = 0x0040;
-        private const ushort FOF_NOCONFIRMATION = 0x0010;
-        private const ushort FOF_SILENT = 0x0004;
-
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        private struct SHFILEOPSTRUCT
-        {
-            public IntPtr hwnd;
-            public uint wFunc;
-            public string pFrom;
-            public string pTo;
-            public ushort fFlags;
-            public bool fAnyOperationsAborted;
-            public IntPtr hNameMappings;
-            public string lpszProgressTitle;
-        }
-
-        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-        private static extern int SHFileOperationW(ref SHFILEOPSTRUCT lpFileOp);
-
-        private static void MoveToRecycleBin(string path)
-        {
-            var shf = new SHFILEOPSTRUCT
-            {
-                wFunc = FO_DELETE,
-                pFrom = path + "\0\0",
-                fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT,
-            };
-            int result = SHFileOperationW(ref shf);
-            if (result != 0)
-                throw new IOException($"SHFileOperationW failed with code {result}");
-        }
     }
 }

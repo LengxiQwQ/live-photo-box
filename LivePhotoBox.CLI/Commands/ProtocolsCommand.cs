@@ -1,6 +1,7 @@
 using LivePhotoBox.Cli.Infrastructure;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
+using LivePhotoBox.Interop;
 using System;
 using System.CommandLine;
 using System.Linq;
@@ -21,16 +22,20 @@ namespace LivePhotoBox.Cli.Commands
             "Windows / vivo (≥ x300)",                // 4 vivo
             "Windows / Samsung",                      // 5 samsung
             "HUAWEI / Honor",                         // 6 huawei
+            "Apple",
+            "vivo (legacy dual file)",
         ];
 
         // true = supported, false = in testing
         private static readonly bool[] MergeSupported =
-            [false, true, true, true, false, false, true];
+            [false, false, false, false, false, false, false, false, false];
 
         // Rebuilt exposes only the protocol-free neutral split path; target writers are deferred to P9.
         private static readonly (string Name, string Devices, bool Supported)[] SplitProtocols =
         [
-            ("None (split only)",  "Any device", true),
+            ("None (split only)",  "Protocol-free media", true),
+            ("Apple", "Apple", false),
+            ("vivo (legacy)", "vivo", false),
         ];
 
         public static Command Create()
@@ -91,7 +96,7 @@ namespace LivePhotoBox.Cli.Commands
             Console.WriteLine();
             WriteLegend();
             Console.WriteLine();
-            WriteIndexLine("Protocol indices: ", "micro video=1  motion photo=2  oppo=3  vivo=4  samsung=5  huawei=6");
+            WriteIndexLine("Protocol indices: ", "micro video=1  motion photo=2  oppo=3  vivo=4  samsung=5  huawei=6  apple=7  vivo-legacy=8");
             WriteIndexLine("Format indices:   ", "jpg+mp4=0  jpg+mov=1  heic+mp4=2  heic+mov=3  heic+mp4-h265=4");
             Console.WriteLine();
 
@@ -105,7 +110,7 @@ namespace LivePhotoBox.Cli.Commands
                 SplitProtocols.Select(p => p.Supported).ToArray());
 
             PrintSplitFormatMatrix();
-            WriteIndexLine("Split protocol indices: ", "none=0");
+            WriteIndexLine("Split protocol indices: ", "none=0  apple=1  vivo=2");
             WriteIndexLine("Split format indices:   ", "keep=0  jpg+mov=1  heic+mov=2  jpg+mp4=3");
 
             // Repair — fixes metadata; no protocol choice involved.
@@ -202,12 +207,12 @@ namespace LivePhotoBox.Cli.Commands
                 else
                 {
                     CliConsole.Write("🟡", CliConsole.Notice);
-                    Console.Write(" In testing");
+                    Console.Write(" Device acceptance pending");
                 }
             }
             else
             {
-                Console.Write(supported ? "✅ Supported" : "🟡 In testing");
+                Console.Write(supported ? "✅ Supported" : "🟡 Device acceptance pending");
             }
         }
 
@@ -269,6 +274,7 @@ namespace LivePhotoBox.Cli.Commands
 
         private static void PrintJson()
         {
+            var runtime = NativeRuntime.Probe();
             var protocols = new object[ProtocolFormatMatrix.Matrix.Length - 1];
             for (int p = 1; p < ProtocolFormatMatrix.Matrix.Length; p++)
             {
@@ -283,7 +289,11 @@ namespace LivePhotoBox.Cli.Commands
                     name = ProtocolNameResolver.ProtocolNames[p],
                     displayName = ProtocolNameResolver.ProtocolDisplayNames[p],
                     devices = MergeDevices[p],
-                    status = MergeSupported[p] ? "Supported" : "In testing",
+                    status = MergeSupported[p] ? "Supported" : "Device acceptance pending",
+                    writerAvailable = true,
+                    defaultFormat = ProtocolFormatMatrix.FormatNames[ProtocolFormatMatrix.GetDefaultFormat(p)],
+                    versions = p == 5 ? new[] { "mpv2", "mpv3" } : p == 6 ? new[] { "v6", "honor-v2" } : new[] { "default" },
+                    defaultVersion = p == 5 ? "mpv3" : p == 6 ? "v6" : "default",
                     formats = Array.FindAll(formats, f => f != null)
                 };
             }
@@ -302,7 +312,9 @@ namespace LivePhotoBox.Cli.Commands
                     index = s,
                     name = SplitProtocols[s].Name,
                     devices = SplitProtocols[s].Devices,
-                    status = SplitProtocols[s].Supported ? "Supported" : "In testing",
+                    status = SplitProtocols[s].Supported ? "Supported" : "Device acceptance pending",
+                    writerAvailable = true,
+                    defaultFormat = SplitCommand.SplitFormatNames[ProtocolFormatMatrix.GetDefaultSplitFormat(s)],
                     formats = Array.FindAll(formats, f => f != null)
                 };
             }
@@ -311,7 +323,8 @@ namespace LivePhotoBox.Cli.Commands
             {
                 backendMode = "rebuilt",
                 protocolCommands = "rebuilt",
-                notice = "Native media conversion and merge/split paths are active; neutral split exports protocol-free files.",
+                notice = "Implemented target catalog; each source request still requires Native validation. Device acceptance is not implied.",
+                runtime = new { available = runtime.IsAvailable, diagnostic = runtime.Diagnostic },
                 protocols,
                 split
             }, new JsonSerializerOptions { WriteIndented = true });
@@ -321,8 +334,11 @@ namespace LivePhotoBox.Cli.Commands
         private static void PrintBackendNotice()
         {
             CliConsole.WriteLine("Engine: Rebuilt (Native)", CliConsole.Accent);
+            var runtime = NativeRuntime.Probe();
+            if (!runtime.IsAvailable)
+                CliConsole.WriteLine("Native runtime unavailable: " + runtime.Diagnostic, CliConsole.Error);
             CliConsole.WriteLine(
-                "Native media conversion and merge/split paths are active; neutral split exports protocol-free files.",
+                "Implemented target catalog; validate the actual source request. Split exports protocol-free media or Apple/legacy vivo pairs. Device acceptance is not implied.",
                 CliConsole.Notice);
         }
     }

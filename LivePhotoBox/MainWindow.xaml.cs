@@ -389,14 +389,10 @@ namespace LivePhotoBox
 
         private bool _isShuttingDown;
 
-        private async void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
+        private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
         {
             if (_isShuttingDown) return;
             _isShuttingDown = true;
-
-            // 拦截默认关闭动作：WinUI 3 中异步安全退出的官方规范模式
-            // （AppWindow.Closing 没有 Deferral 机制，必须通过 Cancel = true 拦截，异步处理后再调 Application.Current.Exit）
-            args.Cancel = true;
 
             LogService.Info("MainWindow AppWindow.Closing triggered. Starting graceful shutdown.", LogSource.UI);
 
@@ -410,12 +406,6 @@ namespace LivePhotoBox
             _successFlashCts = null;
             ClearTaskbarProgress();
 
-            // 2. 使用 WinUI 3 原生 API 隐藏窗口，给用户最快速的关闭体验，同时保持 Dispatcher 存活以完成后台清理
-            sender.Hide();
-
-            // 3. 提前写入正常退出标记
-            LogService.MarkCleanShutdown();
-
             // 4. 触发 ViewModel 的状态清理（此操作会触发 CancellationToken，安全结束 ffmpeg/exiftool 进程）
             try
             {
@@ -426,11 +416,9 @@ namespace LivePhotoBox
                 LogService.Warn($"Error during ViewModel.Cleanup on shutdown: {ex.Message}", source: LogSource.UI);
             }
 
-            // 5. 给予子进程短暂的时间响应取消信号并安全释放句柄
-            await Task.Delay(300);
-
-            // 6. 调用 WinUI 3 官方应用程序退出方法，安全卸载 XAML 框架并结束进程
-            Application.Current.Exit();
+            LogService.MarkCleanShutdown();
+            // 不取消、隐藏或另外结束消息循环；让这次原生窗口关闭正常完成，
+            // XAML 及其调试诊断组件按窗口生命周期释放资源。
         }
 
         // 响应 AppViewModel 属性变更：状态栏可见性、任务栏进度条

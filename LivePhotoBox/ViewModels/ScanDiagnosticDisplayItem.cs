@@ -2,10 +2,14 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media;
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace LivePhotoBox.ViewModels
 {
@@ -15,6 +19,28 @@ namespace LivePhotoBox.ViewModels
     /// </summary>
     public sealed partial class ScanDiagnosticDisplayItem : ObservableObject
     {
+        [ObservableProperty]
+        private int index;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(ThumbnailPlaceholderVisibility))]
+        [NotifyPropertyChangedFor(nameof(ThumbnailDescription))]
+        private ImageSource? thumbnail;
+
+        private bool _thumbnailRequested;
+        public Visibility ThumbnailPlaceholderVisibility => Thumbnail is null ? Visibility.Visible : Visibility.Collapsed;
+        public string ThumbnailGlyph => IsDirectory ? "\uE8B7" : IsVideo ? "\uE714" : IsImage ? "\uE91B" : "\uE7C3";
+        public string ThumbnailDescription => ResourceService.GetString(Thumbnail is null ? "ScanDiagnostic_NoPreview" : "ScanDiagnostic_Preview") + ": " + DisplayFileName;
+
+        // Only realized diagnostic rows request the existing bounded thumbnail loader.
+        // Broken/unsupported media keeps a type icon rather than a permanent loading label.
+        public async Task LoadThumbnailAsync(DispatcherQueue dispatcher)
+        {
+            if (_thumbnailRequested || (!IsImage && !IsVideo)) return;
+            _thumbnailRequested = true;
+            Thumbnail = await ThumbnailService.LoadAsync(PrimaryPath, dispatcher);
+        }
+
         public required string DiagnosticCode { get; init; }
         public required string PrimaryPath { get; init; }
         public IReadOnlyList<string> RelatedPaths { get; init; } = Array.Empty<string>();
@@ -56,7 +82,7 @@ namespace LivePhotoBox.ViewModels
 
             ProcessStatus status = d.Severity == ScanDiagnosticSeverity.Error
                 ? ProcessStatus.Failed
-                : ProcessStatus.Pending;
+                : d.Severity == ScanDiagnosticSeverity.Warning ? ProcessStatus.Warning : ProcessStatus.Pending;
 
             string statusText = d.DiagnosticCode switch
             {

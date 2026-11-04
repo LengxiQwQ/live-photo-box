@@ -109,6 +109,7 @@ namespace LivePhotoBox.Views
 
             UpdateTaskQueueColumnsForSurfaceWidth(MergeTaskListSurface.ActualWidth);
             AdaptiveFileName.RefreshDescendants(MergeTaskListView);
+            AdaptiveFileName.RefreshDescendants(MergeDiagnosticListView);
         }
 
         // 订阅当前队列项的内容变化；只在数据变化时重新测量，绝不在分隔条逐像素移动时测量。
@@ -229,6 +230,12 @@ namespace LivePhotoBox.Views
                 }
             }
 
+            foreach (var diagnostic in ViewModel.ScanDiagnostics)
+            {
+                sizeMinimum = Math.Max(sizeMinimum, MeasureText(diagnostic.DisplayFileSize, 11, semiBold: false) + textSafety);
+                statusMinimum = Math.Max(statusMinimum, 8 + 6 + MeasureText(diagnostic.DisplayStatusText, 11, semiBold: true) + textSafety);
+            }
+
             double actionsMinimum = Math.Max(72, MeasureText(QueueActionsHeader) + textSafety);
             if (allowShrink)
             {
@@ -323,7 +330,7 @@ namespace LivePhotoBox.Views
             comboBox.Loaded -= ProtocolComboBox_Loaded;
 
             string[] names = new string[comboBox.Items.Count];
-            string[] hintKeys = ["MergePage_Protocol_Fusion_Hint", "MergePage_Protocol_V1_Hint", "MergePage_Protocol_V2_Hint", "MergePage_Protocol_Oppo_Hint", "MergePage_Protocol_Vivo_Hint", "MergePage_Protocol_Samsung_Hint", "MergePage_Protocol_Huawei_Hint"];
+            string[] hintKeys = ["MergePage_Protocol_Fusion_Hint", "MergePage_Protocol_V1_Hint", "MergePage_Protocol_V2_Hint", "MergePage_Protocol_Oppo_Hint", "MergePage_Protocol_Vivo_Hint", "MergePage_Protocol_Samsung_Hint", "MergePage_Protocol_Huawei_Hint", "MergePage_Protocol_Apple_Hint", "MergePage_Protocol_VivoLegacy_Hint"];
 
             double maxNameWidth = 0;
             double fontSize = comboBox.FontSize > 0 && !double.IsNaN(comboBox.FontSize)
@@ -418,9 +425,7 @@ namespace LivePhotoBox.Views
             // 5. 选择项改变时也同步重置，双重保险
             comboBox.SelectionChanged += (_, _) => ResetToCollapsedState();
 
-            // 6. 协议切换时，HEIC 格式项仅对 V2（index 1）可用
-            comboBox.SelectionChanged += (_, _) => UpdateOutputFormatOptions(comboBox.SelectedIndex);
-            UpdateOutputFormatOptions(comboBox.SelectedIndex);
+
         }
 
         // 配对方式下拉框：与拆分页协议版本一致的双栏样式（主标题 + 适配机型副标题）。
@@ -513,149 +518,21 @@ namespace LivePhotoBox.Views
             comboBox.SelectionChanged += (_, _) => ResetToCollapsedState();
         }
 
-        // 每项输出格式在各个协议下的可用性。
-        // 协议-格式兼容矩阵已提取到 ProtocolFormatMatrix（Core 项目）
-        // 格式索引: 0=JPG_MP4, 1=JPG_MOV, 2=HEIC_MP4, 3=HEIC_MOV
-        // 协议索引: 0=Fusion, 1=V1, 2=V2, 3=OPPO, 4=VIVO, 5=Samsung, 6=HUAWEI
-        private static readonly bool[][] ProtocolFormatMap = ProtocolFormatMatrix.Matrix;
 
-        // 根据选中的协议切换导出格式下拉框中各项的可见性
-        private void UpdateOutputFormatOptions(int protocolIndex)
+
+
+
+        private void OutputFormatComboBox_DropDownOpened(object? sender, object e)
         {
-            if (OutputFormatComboBox == null) return;
-            if (protocolIndex < 0 || protocolIndex >= ProtocolFormatMap.Length) return;
-
-            var available = ProtocolFormatMap[protocolIndex];
-            int newSelected = OutputFormatComboBox.SelectedIndex;
-
-            // 先更新每项可见性
-            for (int i = 0; i < OutputFormatComboBox.Items.Count && i < available.Length; i++)
-            {
-                if (OutputFormatComboBox.Items[i] is ComboBoxItem item)
-                {
-                    item.Visibility = available[i] ? Visibility.Visible : Visibility.Collapsed;
-                }
-            }
-
-            // 如果当前选中项在新协议下不可用，自动切到第一项（JPG MP4）
-            if (newSelected >= 0 && newSelected < available.Length && !available[newSelected])
-            {
-                OutputFormatComboBox.SelectedIndex = 0;
-            }
-
-            // 按协议 + 格式选择语义化的提示 key
-            void SetFormatHint(int formatIndex, string hintKey)
-            {
-                if (OutputFormatComboBox.Items.Count <= formatIndex) return;
-                if (OutputFormatComboBox.Items[formatIndex] is not ComboBoxItem item) return;
-                if (item.Tag is not (TextBlock _, TextBlock hint)) return;
-                hint.Text = ResourceService.GetString(hintKey);
-            }
-
-            string JpegMp4Hint() => "MergePage_FormatHint_BestCompat";
-            string JpegMovHint() => "MergePage_FormatHint_GoodCompat";
-            string HeicMp4Hint() => "MergePage_FormatHint_Efficient";
-            string HeicMovHint() => "MergePage_FormatHint_GoogleOnly";
-            string HeicH265Hint() => "MergePage_FormatHint_HEVC";
-
-            SetFormatHint(0, JpegMp4Hint());
-            SetFormatHint(1, JpegMovHint());
-            SetFormatHint(2, HeicMp4Hint());
-            SetFormatHint(3, HeicMovHint());
-            SetFormatHint(4, HeicH265Hint());
+            foreach (var item in ViewModel.AvailableOutputFormats)
+                item.IsExpanded = true;
         }
 
-        // 输出格式下拉框加载完成后注入兼容性说明副标题
-        private void OutputFormatComboBox_Loaded(object sender, RoutedEventArgs e)
+        private void OutputFormatComboBox_DropDownClosed(object? sender, object e)
         {
-            if (sender is not ComboBox comboBox) return;
-            comboBox.Loaded -= OutputFormatComboBox_Loaded;
-
-            double fontSize = comboBox.FontSize > 0 && !double.IsNaN(comboBox.FontSize)
-                ? comboBox.FontSize : 14.0;
-
-            string[] hintKeys =
-            [
-                "MergePage_FormatHint_BestCompat",
-                "MergePage_FormatHint_GoodCompat",
-                "MergePage_FormatHint_Efficient",
-                "MergePage_FormatHint_GoogleOnly",
-                "MergePage_FormatHint_HEVC",
-            ];
-            // Adding hintKeys for future format items (keep in sync with XAML ComboBoxItems)
-
-            for (int i = 0; i < comboBox.Items.Count && i < hintKeys.Length; i++)
-            {
-                if (comboBox.Items[i] is ComboBoxItem item)
-                {
-                    string name = (item.Content as string) ?? "";
-                    var nameBlock = new TextBlock
-                    {
-                        Text = name,
-                        FontSize = fontSize,
-                        FontWeight = FontWeights.Normal
-                    };
-
-                    string hint = ResourceService.GetString(hintKeys[i]);
-                    var hintBlock = new TextBlock
-                    {
-                        Text = hint,
-                        FontSize = 11,
-                        Opacity = 0.65,
-                        Margin = new Thickness(0, 1, 0, 0),
-                        TextWrapping = TextWrapping.Wrap,
-                        MaxWidth = 180,
-                        Visibility = Visibility.Collapsed
-                    };
-
-                    var panel = new StackPanel
-                    {
-                        Spacing = 2,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        HorizontalAlignment = HorizontalAlignment.Left,
-                        Children = { nameBlock, hintBlock }
-                    };
-
-                    item.Content = panel;
-                    item.Tag = (nameBlock, hintBlock);
-                }
-            }
-
-            // 展开时显示副标题
-            comboBox.DropDownOpened += (_, _) =>
-            {
-                foreach (var obj in comboBox.Items)
-                {
-                    if (obj is ComboBoxItem item && item.Tag is (TextBlock nameBlock, TextBlock hintBlock))
-                    {
-                        nameBlock.FontWeight = FontWeights.SemiBold;
-                        hintBlock.Visibility = Visibility.Visible;
-                    }
-                }
-            };
-
-            // 收起时恢复
-            void ResetToCollapsedState()
-            {
-                foreach (var obj in comboBox.Items)
-                {
-                    if (obj is ComboBoxItem item && item.Tag is (TextBlock nameBlock, TextBlock hintBlock))
-                    {
-                        nameBlock.FontWeight = FontWeights.Normal;
-                        hintBlock.Visibility = Visibility.Collapsed;
-                    }
-                }
-            }
-
-            comboBox.DropDownClosed += (_, _) => ResetToCollapsedState();
-            comboBox.SelectionChanged += (_, _) => ResetToCollapsedState();
-
-            // 输出格式加载完成后再同步一次协议对应的格式提示（协议加载更早，当时 OutputFormat Tag 未就绪）
-            UpdateOutputFormatOptions(ProtocolComboBox.SelectedIndex);
+            foreach (var item in ViewModel.AvailableOutputFormats)
+                item.IsExpanded = false;
         }
-
-
-        // 页面加载完成后附加自动滚动器，绑定 ViewModel 事件
         private void MergePage_Loaded(object sender, RoutedEventArgs e)
         {
             AttachMergeShortcuts();
@@ -705,6 +582,7 @@ namespace LivePhotoBox.Views
         // 页面卸载时分离自动滚动器，解绑 ViewModel 事件
         private void MergePage_Unloaded(object sender, RoutedEventArgs e)
         {
+            ErrorDetailTip.Dismiss();
             DetachMergeShortcuts();
             _scrollToTopHelper?.Detach();
 
@@ -737,6 +615,8 @@ namespace LivePhotoBox.Views
         // 响应 ViewModel 属性变更，通知自动滚动器状态变化
         private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
+            if (e.PropertyName == nameof(ViewModel.ScanDiagnosticsCount))
+                ScheduleTaskQueueMinimumRefresh(allowShrink: true);
             if (e.PropertyName == nameof(ViewModel.IsScanning))
             {
                 if (ViewModel.IsScanning)
@@ -1109,7 +989,7 @@ namespace LivePhotoBox.Views
         private void Flyout_OpenOutputFolder_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not MenuFlyoutItem { DataContext: MergeTask task }) return;
-            if (task.Status != ProcessStatus.Success) return;
+            if (task.Status is not (ProcessStatus.Success or ProcessStatus.Warning)) return;
             if (!string.IsNullOrWhiteSpace(task.OutputPath) && File.Exists(task.OutputPath))
             {
                 FilePickerService.RevealInExplorer(task.OutputPath);
@@ -1436,6 +1316,24 @@ namespace LivePhotoBox.Views
         // ── 全屏预览 ──────────────────────────────────
 
         // 缩略图按钮点击：在 Lightbox 中全屏预览文件（含 Live Photo 配对视频播放）
+        private void DiagnosticToggle_Changed(object sender, RoutedEventArgs e)
+        {
+            if (MergeDiagnosticListView is null || DiagnosticToggleIcon is null) return;
+            ErrorDetailTip.Dismiss();
+            bool expanded = DiagnosticToggleButton.IsChecked == true;
+            MergeDiagnosticListView.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+            DiagnosticToggleIcon.Glyph = expanded ? "\uE70E" : "\uE70D";
+            DiagnosticToggleText.Text = ResourceService.GetString(expanded ? "ScanDiagnostic_Collapse" : "ScanDiagnostic_Expand");
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(DiagnosticToggleButton, DiagnosticToggleText.Text);
+            AdaptiveFileName.RefreshDescendants(MergeDiagnosticListView);
+        }
+
+        private async void DiagnosticRow_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is FrameworkElement { DataContext: ScanDiagnosticDisplayItem item })
+                await item.LoadThumbnailAsync(DispatcherQueue);
+        }
+
         private void ThumbnailButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button { Tag: string path } || string.IsNullOrWhiteSpace(path)) return;
@@ -1463,28 +1361,11 @@ namespace LivePhotoBox.Views
             }
             else return;
 
-            // TeachingTip 箭头指向状态文字前面的状态圆点（横向 StackPanel 的第一个子元素），
-            // 比指向整块文字更贴合"状态"位置。
-            FrameworkElement tipTarget = element;
-            if (element.Parent is Microsoft.UI.Xaml.Controls.StackPanel statusPanel
-                && statusPanel.Children.Count > 0
-                && statusPanel.Children[0] is FrameworkElement dot)
-            {
-                tipTarget = dot;
-            }
-            else if (element.Parent is Grid statusGrid && statusGrid.Children.OfType<Border>().FirstOrDefault() is Border diagnosticDot)
-                tipTarget = diagnosticDot;
-
-            if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == tipTarget) { ErrorDetailTip.IsOpen = false; return; }
+            e.Handled = true;
             ErrorDetailTip.Title = ResourceService.GetString("ProductOutcome_ResultTitle");
             ErrorDetailText.Text = summary;
-            ErrorDetailTip.Target = tipTarget;
-            ErrorDetailTip.IsOpen = true;
+            ErrorDetailTip.ToggleAt(element, element.DataContext is ScanDiagnosticDisplayItem);
         }
-
-        // 错误详情提示关闭时清除目标引用
-        private void ErrorDetailTip_Closed(TeachingTip sender, TeachingTipClosedEventArgs args) =>
-            ErrorDetailTip.Target = null;
 
         // 跳转到合并相关设置
         private void GoToMergeSettings_Click(object sender, RoutedEventArgs e)
@@ -1512,6 +1393,7 @@ namespace LivePhotoBox.Views
             {
                 "Pending" => ProcessStatus.Pending,
                 "Success" => ProcessStatus.Success,
+                "Warning" => ProcessStatus.Warning,
                 "Failed" => ProcessStatus.Failed,
                 _ => null
             };
@@ -1547,6 +1429,7 @@ namespace LivePhotoBox.Views
                 {
                     "Pending" => (ProcessStatus?)ProcessStatus.Pending,
                     "Success" => (ProcessStatus?)ProcessStatus.Success,
+                    "Warning" => (ProcessStatus?)ProcessStatus.Warning,
                     "Failed" => (ProcessStatus?)ProcessStatus.Failed,
                     _ => null
                 };

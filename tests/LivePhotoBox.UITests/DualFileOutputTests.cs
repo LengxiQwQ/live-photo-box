@@ -9,7 +9,7 @@ namespace LivePhotoBox.UITests;
 public sealed partial class ScanPairingInteractionTests
 {
     [Theory]
-    [InlineData(1, ".HEIC", ".MOV")]
+    [InlineData(1, ".JPG", ".MOV")]
     [InlineData(2, ".JPG", ".MP4")]
     public async Task DualFileTargetSelectionPublishesBothMembers(int protocol, string imageExtension, string extension)
     {

@@ -15,6 +15,7 @@ using System.IO;
 using System.Collections.Generic;
 
 using System.Text;
+using System.Linq;
 
 using System.Threading;
 
@@ -135,6 +136,8 @@ namespace LivePhotoBox.Services
             LivePhotoSplitResult? result = null;
 
             IReadOnlyList<NotCarriedItem> targetNotes = [];
+            IReadOnlyList<string> warnings = [];
+            string? isolationDirectory = null;
 
             Exception? failure = null;
 
@@ -155,7 +158,18 @@ namespace LivePhotoBox.Services
                     throw new NotSupportedException("Protocol-free media has no live cover binding to override.");
 
                 MediaFormatRequirement requirement = SplitMediaRequirements.Get(format);
-                if (targetProfile is not null) requirement = requirement with
+                if (await ProductInputAssessment.RejectionAsync(sourcePath, secondaryPath, token).ConfigureAwait(false) is { } refusal)
+                {
+                    var error = refusal.ToException(); // Retained only for callers of the strict legacy API.
+                    var diagnostic = ProductOutcomeCompletion.Failure(error, ProductOperationStage.Inspection);
+                    var rejected = ProductOutcomeCompletion.Record(baseline with
+                    {
+                        CompletedUtc = DateTimeOffset.UtcNow,
+                        Status = ProductOutcomeCompletion.Status(error, diagnostic), Diagnostic = diagnostic
+                    });
+                    return new SplitAttempt(rejected, null, error);
+                }
+                if (format != SplitMediaFormat.KeepSource) requirement = requirement with
                     { UnspecifiedImageOrientationHandling = UnspecifiedImageOrientationHandling.UseStoredPixels };
 
                 stage = ProductOperationStage.Inspection;
@@ -166,13 +180,15 @@ namespace LivePhotoBox.Services
 
                     inputDirectory, outputBaseName, overwriteExisting,
 
-                    secondaryPath, bundle => prepared = bundle, boundary => stage = boundary, targetProfile, keyTimestampUs, notes => targetNotes = notes)).ConfigureAwait(false);
+                    secondaryPath, bundle => prepared = bundle, boundary => stage = boundary, targetProfile, keyTimestampUs, notes => targetNotes = notes,
+                    baseline.OperationId, (items, directory) => { warnings = items; isolationDirectory = directory; })).ConfigureAwait(false);
 
                 terminal = baseline with
 
                 {
 
-                    Status = ProductOperationStatus.Success,
+                    Status = warnings.Count > 0 ? ProductOperationStatus.Warning : ProductOperationStatus.Success,
+                    Warnings = warnings, IsolationDirectory = isolationDirectory,
 
                     PreparationSemantics = prepared?.Semantics,
 
@@ -196,7 +212,13 @@ namespace LivePhotoBox.Services
 
                     },
 
-                    Diagnostic = new() { Stage = ProductOperationStage.Publication, Message = ResourceService.GetString("SplitPage_Task_Success") }
+                    SourceActionGuard = warnings.Count == 0 ? LivePhotoMergeRunnerService.CaptureSourceActionGuard(baseline.Inputs, new[]
+                    {
+                        new ProductCommittedArtifact { Role = "PrimaryImage", Path = result.ImageOutputPath },
+                        new ProductCommittedArtifact { Role = "MotionVideo", Path = result.VideoOutputPath }
+                    }) : null,
+                    Diagnostic = new() { Stage = ProductOperationStage.Publication, Message = isolationDirectory is null
+                        ? ResourceService.GetString("SplitPage_Task_Success") : ProductExportAssessment.Details(warnings, isolationDirectory) }
 
                 };
 
@@ -260,7 +282,8 @@ namespace LivePhotoBox.Services
 
             Action<NeutralMediaBundle>? onPrepared = null,
 
-            Action<ProductOperationStage>? onStage = null, OutputProfile? targetProfile = null, long? keyTimestampUs = null, Action<IReadOnlyList<NotCarriedItem>>? onTargetNotes = null)
+            Action<ProductOperationStage>? onStage = null, OutputProfile? targetProfile = null, long? keyTimestampUs = null, Action<IReadOnlyList<NotCarriedItem>>? onTargetNotes = null,
+            Guid operationId = default, Action<IReadOnlyList<string>, string?>? onAssessment = null)
 
         {
 
@@ -305,6 +328,25 @@ namespace LivePhotoBox.Services
 
 
             onStage?.Invoke(ProductOperationStage.Publication);
+            var coverNotes = new List<NotCarriedItem>();
+            if (targetProfile is not null)
+            {
+                long cover = LivePhotoMergeRunnerService.ResolveNeutralCoverTimestamp(bundle.Semantics.Timing,
+                    keyTimestampUs, PreservationPolicy.BestEffort, coverNotes);
+                bundle = bundle with { Semantics = bundle.Semantics with
+                    { Timing = bundle.Semantics.Timing with { CoverTimestampUs = cover } } };
+                onPrepared?.Invoke(bundle);
+            }
+            var warnings = ProductExportAssessment.Warnings(bundle, coverNotes, targetProfile is not null);
+            string? isolationDirectory = null;
+            if (warnings.Count > 0)
+            {
+                isolationDirectory = ProductExportAssessment.IsolationDirectory(outputDirectory, operationId);
+                outputDirectory = isolationDirectory;
+                overwriteExisting = false;
+                inputDirectory = null;
+            }
+            onAssessment?.Invoke(warnings, isolationDirectory);
 
             string imageExtension = bundle.PrimaryImage.ImageContainer == ImageContainer.Heic ? ".HEIC" : ".JPG";
 
@@ -336,23 +378,13 @@ namespace LivePhotoBox.Services
 
             {
 
-                long cover = LivePhotoMergeRunnerService.ResolveNeutralCoverTimestamp(bundle.Semantics.Timing,
-
-                    keyTimestampUs, PreservationPolicy.BestEffort);
-
-                bundle = bundle with { Semantics = bundle.Semantics with
-
-                    { Timing = bundle.Semantics.Timing with { CoverTimestampUs = cover } } };
-
-                onPrepared?.Invoke(bundle);
-
                 onStage?.Invoke(ProductOperationStage.Writer);
 
                 var receipt = await StructuredTargetWriterService.WriteAsync(bundle, targetProfile,
 
                     imageOutputPath, workspace.RootDirectory, overwriteExisting, token).ConfigureAwait(false);
 
-                onTargetNotes?.Invoke(receipt.NotCarried);
+                onTargetNotes?.Invoke(coverNotes.Concat(receipt.NotCarried).ToArray());
 
                 return new LivePhotoSplitResult { ImageOutputPath = receipt.FinalPath,
 

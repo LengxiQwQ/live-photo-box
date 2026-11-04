@@ -167,6 +167,36 @@ public sealed class P8ProductHistoryTests
     }
 
     [Fact]
+    public void DualFileMergeHistoryRetainsLatestSourceActionResult()
+    {
+        using var files = new HistoryFiles();
+        string path = Path.Combine(files.Root, "app-dual-source-action.log");
+        var media = SuccessfulSplit() with { Operation = ProductOperationKind.Merge,
+            RequestedSelection = new() { TargetProtocol = TargetProtocol.AppleLivePhoto } };
+        Assert.True(ProductOutcomeHistoryStore.Append(path, media));
+        var after = media with { SourcePostProcessing = new("move", "failed", "archive conflict", "archive") };
+        Assert.True(ProductOutcomeHistoryStore.Append(path, after));
+        var read = Assert.Single(ProductOutcomeHistoryStore.Read(files.Root));
+        Assert.Equal(media.OperationId, read.OperationId);
+        Assert.Equal(ProductOperationStatus.Success, read.Status);
+        Assert.Equal("failed", read.SourcePostProcessing!.Status);
+        Assert.Equal("archive conflict", read.SourcePostProcessing.Reason);
+        Assert.Null(read.SourceActionGuard); // persisted history is never mutation authority
+        Assert.Equal(2, read.CommittedOutputs.Count);
+    }
+
+    [Fact]
+    public void NullWarningListAndMalformedSourceActionAreRejectedAsHistoryData()
+    {
+        using var files = new HistoryFiles();
+        string path = Path.Combine(files.Root, "app-malformed-post-action.log");
+        Assert.False(ProductOutcomeHistoryStore.Append(path, SuccessfulSplit() with { Warnings = null! }));
+        Assert.False(ProductOutcomeHistoryStore.Append(path, SuccessfulSplit() with
+            { SourcePostProcessing = new("permanent-delete", "completed", "", null) }));
+        Assert.Empty(ProductOutcomeHistoryStore.Read(files.Root));
+    }
+
+    [Fact]
     public void ValidMergeRequiresOnlyHistoricalTargetRoleAndDoesNotInspectCurrentExistence()
     {
         using var files = new HistoryFiles();

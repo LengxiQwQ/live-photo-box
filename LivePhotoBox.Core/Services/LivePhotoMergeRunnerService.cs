@@ -117,12 +117,12 @@ namespace LivePhotoBox.Services
             Action<IMergeTaskInfo>? onTaskStarted,
             Action<IMergeTaskInfo, ProductOperationOutcome, int>? onTaskCompleted)
         {
-            using var inputProtection = new BatchInputProtection(tasks);
+            using var inputProtection = new SourceInputProtection(tasks.SelectMany(t => new[] { t.ImagePath, t.VideoPath }));
             Directory.CreateDirectory(options.OutputDirectory);
             int completedCount = 0;
             int batchSize = Math.Max(1, options.MaxDegreeOfParallelism);
             long? previousBatchStart = null;
-            foreach (var batch in tasks.Where(task => task.Status != ProcessStatus.Success).Chunk(batchSize))
+            foreach (var batch in tasks.Where(task => task.Status is not (ProcessStatus.Success or ProcessStatus.Warning)).Chunk(batchSize))
             {
                 if (previousBatchStart is long previous)
                 {
@@ -154,39 +154,6 @@ namespace LivePhotoBox.Services
 
                 await Task.WhenAll(runningTasks).ConfigureAwait(false);
             }
-        }
-
-        // Protect future queue members too: an earlier output must never be
-        // allowed to overwrite another task's not-yet-started original.
-        private sealed class BatchInputProtection : IDisposable
-        {
-            private readonly List<FileStream> leases = new();
-            internal BatchInputProtection(IReadOnlyCollection<IMergeTaskInfo> tasks)
-            {
-                try
-                {
-                    foreach (string path in tasks.SelectMany(task => new[] { task.ImagePath, task.VideoPath })
-                        .Where(path => !string.IsNullOrEmpty(path)).Select(Path.GetFullPath)
-                        .Distinct(StringComparer.OrdinalIgnoreCase))
-                    {
-                        // Missing inputs still receive their normal per-item failure.
-                        // Existing objects must be protected before any writer starts.
-                        if (File.Exists(path))
-                        {
-                            try
-                            {
-                                leases.Add(File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read));
-                            }
-                            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-                            {
-                                LogService.Merge($"Could not acquire shared read lease for '{path}': {ex.Message}", LogLevel.Debug);
-                            }
-                        }
-                    }
-                }
-                catch { Dispose(); throw; }
-            }
-            public void Dispose() { foreach (var lease in leases) lease.Dispose(); }
         }
 
         private static async Task<ProductOperationOutcome> ProcessSinglePairRebuiltAsync(
@@ -222,12 +189,26 @@ namespace LivePhotoBox.Services
             NeutralMediaBundle? prepared = null;
             ProductCommittedArtifact[] committedOutputs = [];
             var notCarried = new List<NotCarriedItem>();
+            IReadOnlyList<string> warnings = [];
+            string? isolationDirectory = null;
             ProductOperationStage stage = ProductOperationStage.Selection;
             ProductOperationOutcome terminal;
             try
             {
                 token.ThrowIfCancellationRequested();
                 ArgumentNullException.ThrowIfNull(options.OutputProfile);
+                if (await ProductInputAssessment.RejectionAsync(imagePath,
+                    string.IsNullOrEmpty(videoPath) ? null : videoPath, token).ConfigureAwait(false) is { } refusal)
+                {
+                    var diagnostic = ProductOutcomeCompletion.Failure(refusal.ToException(), ProductOperationStage.Inspection);
+                    return ProductOutcomeCompletion.Record(baseline with
+                    {
+                        CompletedUtc = DateTimeOffset.UtcNow,
+                        Status = refusal.Category == LivePhotoBox.Media.Inspection.SourceInspectionFailureCategory.Unsupported
+                            ? ProductOperationStatus.Unsupported : ProductOperationStatus.Failed,
+                        Diagnostic = diagnostic
+                    });
+                }
                 var orientationHandling = options.UnspecifiedImageOrientationHandling;
                 if (options.StructuredOptions.PreservationPolicy == PreservationPolicy.BestEffort &&
                     orientationHandling == UnspecifiedImageOrientationHandling.Reject)
@@ -266,6 +247,11 @@ namespace LivePhotoBox.Services
                 {
                     Timing = bundle.Semantics.Timing with { CoverTimestampUs = presentationTimestampUs }
                 } };
+                warnings = ProductExportAssessment.Warnings(bundle, notCarried);
+                if (warnings.Count > 0)
+                    isolationDirectory = ProductExportAssessment.IsolationDirectory(
+                        options.OutputFilePath is { } explicitPath ? Path.GetDirectoryName(Path.GetFullPath(explicitPath))! : options.OutputDirectory,
+                        baseline.OperationId);
 
                 stage = ProductOperationStage.Selection;
                 string outputName = ExistingTargetWriterAdapter.CreateOutputFileName(
@@ -276,7 +262,13 @@ namespace LivePhotoBox.Services
                     customPattern: options.NamingRuleIndex == 2 ? options.CustomNamingPattern : null,
                     taskIndex: options.NamingRuleIndex == 2 ? taskIndex : null);
 
-                if (options.OutputFilePath != null)
+                if (isolationDirectory is not null)
+                {
+                    Directory.CreateDirectory(isolationDirectory);
+                    finalOutputPath = Path.Combine(isolationDirectory,
+                        options.OutputFilePath is { } requestedFile ? Path.GetFileName(requestedFile) : outputName);
+                }
+                else if (options.OutputFilePath != null)
                 {
                     finalOutputPath = options.OutputFilePath;
                     Directory.CreateDirectory(Path.GetDirectoryName(finalOutputPath)!);
@@ -308,7 +300,7 @@ namespace LivePhotoBox.Services
                 stage = ProductOperationStage.Writer;
                 var published = await StructuredTargetWriterService.WriteAsync(
                     bundle, options.OutputProfile, finalOutputPath, workspace.RootDirectory,
-                    options.OverwriteExisting, token,
+                    isolationDirectory is null && options.OverwriteExisting, token,
                     preservationPolicy: options.StructuredOptions.PreservationPolicy,
                     huaweiVariant: options.StructuredOptions.HuaweiVariant,
                     samsungVariant: options.StructuredOptions.SamsungVariant,
@@ -338,13 +330,16 @@ namespace LivePhotoBox.Services
                 LogService.Merge($"Rebuilt merge completed for {baseName}: {finalOutputPath} ({stopwatch.Elapsed.TotalSeconds:F2}s)");
                 terminal = baseline with
                 {
-                    Status = ProductOperationStatus.Success,
+                    Status = warnings.Count > 0 ? ProductOperationStatus.Warning : ProductOperationStatus.Success,
+                    Warnings = warnings, IsolationDirectory = isolationDirectory,
                     PreparationSemantics = bundle.Semantics,
                     PreparationManifest = bundle.Manifest,
                     PreparationExecution = bundle.PreparationExecution,
                     CommittedOutputs = committedOutputs,
+                    SourceActionGuard = warnings.Count == 0 ? CaptureSourceActionGuard(baseline.Inputs, committedOutputs) : null,
                     NotCarried = notCarried,
-                    Diagnostic = new() { Stage = ProductOperationStage.Publication, Message = ResourceService.GetString("Task_Success") }
+                    Diagnostic = new() { Stage = ProductOperationStage.Publication, Message = isolationDirectory is null
+                        ? ResourceService.GetString("Task_Success") : ProductExportAssessment.Details(warnings, isolationDirectory) }
                 };
             }
             catch (Exception ex)
@@ -374,6 +369,12 @@ namespace LivePhotoBox.Services
             // Includes workspace disposal and reservation release. No earlier
             // success record can escape if cleanup itself throws.
             return ProductOutcomeCompletion.Record(terminal with { CompletedUtc = DateTimeOffset.UtcNow });
+        }
+
+        internal static ProductSourceActionGuard? CaptureSourceActionGuard(IEnumerable<string> inputs, IEnumerable<ProductCommittedArtifact> outputs)
+        {
+            try { return ProductSourceActionGuard.Capture(inputs, outputs); }
+            catch (Exception ex) { LogService.Warn("Source post-processing unavailable; export retained. " + ex.Message); return null; }
         }
 
         internal static long ResolveNeutralCoverTimestamp(

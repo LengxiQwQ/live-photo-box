@@ -126,7 +126,10 @@ internal static class ProductOutcomeHistoryStore
         value.StartedUtc != default && value.CompletedUtc >= value.StartedUtc &&
         Enum.IsDefined(value.Operation) && Enum.IsDefined(value.Status) &&
         value.FinalTargetPreservation == ProductTargetPreservation.Unknown &&
-        value.RequestedSelection != null && value.Inputs != null && value.CommittedOutputs != null &&
+        value.RequestedSelection != null && value.Inputs != null && value.CommittedOutputs != null && value.Warnings != null &&
+        (value.SourcePostProcessing is null ||
+            (value.SourcePostProcessing.Action is "move" or "recycle" && value.SourcePostProcessing.Status is "completed" or "failed" or "cancelled" &&
+             value.SourcePostProcessing.Reason is not null)) &&
         value.Diagnostic != null && Enum.IsDefined(value.Diagnostic.Stage) && Enum.IsDefined(value.Diagnostic.Category) &&
         value.PreparationEvidenceScope == "PreparedNeutral" &&
         (value.PreparationExecution == null ||
@@ -138,7 +141,8 @@ internal static class ProductOutcomeHistoryStore
 
     private static bool HasValidCommittedOutputs(ProductOperationOutcome value)
     {
-        if (value.Status != ProductOperationStatus.Success) return value.CommittedOutputs.Count == 0;
+        if (value.Status is not (ProductOperationStatus.Success or ProductOperationStatus.Warning)) return value.CommittedOutputs.Count == 0;
+        if (value.Status == ProductOperationStatus.Warning && (string.IsNullOrWhiteSpace(value.IsolationDirectory) || value.Warnings.Count == 0)) return false;
         // Validate the schema's terminal shape, without consulting current files or
         // promoting historical paths into current identity/preservation evidence.
         var outputs = value.CommittedOutputs;
@@ -147,7 +151,9 @@ internal static class ProductOutcomeHistoryStore
             ProductOperationKind.Split => outputs.Count == 2 &&
                 outputs.Count(x => x.Role == "PrimaryImage") == 1 &&
                 outputs.Count(x => x.Role == "MotionVideo") == 1,
-            ProductOperationKind.Merge => outputs.Count == 1 && outputs[0].Role == "TargetLivePhoto",
+            ProductOperationKind.Merge => (outputs.Count == 1 && outputs[0].Role == "TargetLivePhoto") ||
+                (value.RequestedSelection.TargetProtocol is TargetProtocol.AppleLivePhoto or TargetProtocol.VivoLegacyDualFile &&
+                 outputs.Count == 2 && outputs.Count(x => x.Role == "PrimaryImage") == 1 && outputs.Count(x => x.Role == "MotionVideo") == 1),
             _ => false
         };
         if (!rolesValid) return false;

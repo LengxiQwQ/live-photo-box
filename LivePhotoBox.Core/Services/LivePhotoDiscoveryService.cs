@@ -118,7 +118,13 @@ namespace LivePhotoBox.Services
 
                     if (result.Diagnostics.Count > 0)
 
-                        diagnostics.AddRange(result.Diagnostics.Where(d => d.Severity == ScanDiagnosticSeverity.Error));
+                        foreach (var diagnostic in result.Diagnostics.Where(d => d.Severity == ScanDiagnosticSeverity.Error))
+                        {
+                            // CID and vivo discovery inspect the same members. Report the same
+                            // refusal once while preserving different pairing/container failures.
+                            if (!diagnostics.Any(existing => SameDiagnostic(existing, diagnostic)))
+                                diagnostics.Add(diagnostic);
+                        }
 
                 }
 
@@ -287,6 +293,15 @@ namespace LivePhotoBox.Services
         }
 
 
+
+        private static bool SameDiagnostic(ScanDiagnostic left, ScanDiagnostic right) =>
+            left.DiagnosticCode == right.DiagnosticCode && left.Severity == right.Severity && left.Stage == right.Stage &&
+            string.Equals(left.PrimaryPath, right.PrimaryPath, StringComparison.OrdinalIgnoreCase) &&
+            left.RelatedPaths.SequenceEqual(right.RelatedPaths, StringComparer.OrdinalIgnoreCase) &&
+            left.GroupKey == right.GroupKey && left.MessageKey == right.MessageKey &&
+            (left.MessageArgs ?? Array.Empty<object>()).SequenceEqual(right.MessageArgs ?? Array.Empty<object>()) &&
+            left.Summary == right.Summary && left.RawCategory == right.RawCategory &&
+            left.RawStage == right.RawStage && left.RawCapability == right.RawCapability && left.LogMessage == right.LogMessage;
 
         private static bool HasError(IEnumerable<ScanDiagnostic> diagnostics, string path) => diagnostics.Any(d =>
 

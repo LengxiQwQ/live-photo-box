@@ -12,6 +12,7 @@ namespace LivePhotoBox.Cli.Models
 {
     internal sealed class CliMergeTask : IMergeTaskInfo
     {
+        internal LivePhotoBox.Media.Models.ProductOperationOutcome? Outcome { get; set; }
         public int Index { get; set; }
         public string ImagePath { get; set; } = string.Empty;
         public string VideoPath { get; set; } = string.Empty;

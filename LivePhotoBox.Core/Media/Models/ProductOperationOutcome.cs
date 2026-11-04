@@ -10,14 +10,14 @@ using LivePhotoBox.Protocols.Cleaning;
 namespace LivePhotoBox.Media.Models;
 
 internal enum ProductOperationKind { Split, Merge }
-internal enum ProductOperationStatus { Success, Unsupported, Failed, Cancelled }
+internal enum ProductOperationStatus { Success, Unsupported, Failed, Cancelled, Warning }
 internal enum ProductTargetPreservation { Unknown }
 internal enum ProductOperationStage
 {
     Unknown, Selection, Discovery, Inspection, Extraction, Cleaning, ImageConversion,
     VideoConversion, Writer, Publication, Cleanup
 }
-internal enum ProductFailureCategory { Unknown, Unsupported, Io, Cancelled, Inspection, Conversion, Cleanup }
+internal enum ProductFailureCategory { Unknown, Unsupported, Io, Cancelled, Inspection, Conversion, Cleanup, Environment, Internal }
 
 internal sealed record ProductRequestedSelection
 {
@@ -66,6 +66,8 @@ internal sealed record NotCarriedItem
     public required PreservationOutcome Outcome { get; init; }
 }
 
+internal sealed record ProductSourcePostProcessing(string Action, string Status, string Reason, string? Destination);
+
 internal sealed record ProductOperationOutcome
 {
     public int SchemaVersion { get; init; } = 1;
@@ -84,10 +86,15 @@ internal sealed record ProductOperationOutcome
     public NeutralPreparationExecution? PreparationExecution { get; init; }
     public ProductTargetPreservation FinalTargetPreservation { get; init; } = ProductTargetPreservation.Unknown;
     public IReadOnlyList<NotCarriedItem> NotCarried { get; init; } = [];
+    public IReadOnlyList<string> Warnings { get; init; } = [];
+    public string? IsolationDirectory { get; init; }
+    public ProductSourcePostProcessing? SourcePostProcessing { get; init; }
     public ProductOperationDiagnostic Diagnostic { get; init; } = new();
     [JsonIgnore] public string? HistoryWarning { get; init; }
+    [JsonIgnore] internal ProductSourceActionGuard? SourceActionGuard { get; init; }
     [JsonIgnore] public bool IsSuccess => Status == ProductOperationStatus.Success;
-    [JsonIgnore] public int ExitCode => Status == ProductOperationStatus.Cancelled ? 130 : IsSuccess ? 0 : 1;
+    [JsonIgnore] public bool HasUsableOutputs => (IsSuccess || Status == ProductOperationStatus.Warning) && CommittedOutputs.Count > 0;
+    [JsonIgnore] public int ExitCode => Status == ProductOperationStatus.Cancelled ? 130 : Status == ProductOperationStatus.Warning ? 2 : IsSuccess ? 0 : 1;
     [JsonIgnore] public string Details => Diagnostic.Message;
 }
 
@@ -123,13 +130,15 @@ internal static class ProductOutcomeCompletion
         {
             Stage = inspection is not null ? ProductOperationStage.Inspection : cleaner is not null ? ProductOperationStage.Cleaning : stage,
             Category = exception is OperationCanceledException ? ProductFailureCategory.Cancelled :
+                exception is RebuiltPipelineNotReadyException or DllNotFoundException or EntryPointNotFoundException or BadImageFormatException ||
+                truth?.FailureCategory == ConversionFailureCategory.BackendUnavailable ? ProductFailureCategory.Environment :
                 truth?.FailureCategory == ConversionFailureCategory.Unsupported || exception is NotSupportedException ||
                 inspection?.Category == SourceInspectionFailureCategory.Unsupported || cleaner?.Category == CleanerFailureCategory.UnsupportedProtocol ||
                 (stage == ProductOperationStage.Selection && exception is ArgumentException)
                     ? ProductFailureCategory.Unsupported : cleaner is not null ? ProductFailureCategory.Cleanup :
                 inspection is not null || (stage == ProductOperationStage.Inspection && exception is InvalidDataException)
-                    ? ProductFailureCategory.Inspection : exception is IOException ? ProductFailureCategory.Io :
-                truth is not null ? ProductFailureCategory.Conversion : ProductFailureCategory.Unknown,
+                    ? ProductFailureCategory.Inspection : exception is IOException or UnauthorizedAccessException ? ProductFailureCategory.Io :
+                truth is not null ? ProductFailureCategory.Conversion : ProductFailureCategory.Internal,
             Message = exception.Message,
             ConversionStage = truth?.FailureStage,
             ConversionCategory = truth?.FailureCategory,

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * MergeViewModel.cs
  *
  * MergePage（合成页面）的视图模型，负责将图片与视频合成为实况照片。
@@ -11,6 +11,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using LivePhotoBox.Collections;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
@@ -68,7 +69,7 @@ namespace LivePhotoBox.ViewModels
         // Requested protocol only; actual backend is reported by the terminal outcome.
         protected override string ProcessingStatusText =>
             ResourceService.Format("Status_Running") + " | " +
-            LivePhotoProtocol.FromIndex(SelectedModeIndex).DisplayName;
+            SelectedProtocolDisplayName;
 
         #region Observable Properties
 
@@ -129,6 +130,7 @@ namespace LivePhotoBox.ViewModels
         public int PendingCount => Tasks.Count(t => t.Status == ProcessStatus.Pending);
         public int ProcessingCount => Tasks.Count(t => t.Status == ProcessStatus.Processing);
         public int SuccessCount => Tasks.Count(t => t.Status == ProcessStatus.Success);
+        public int WarningCount => Tasks.Count(t => t.Status == ProcessStatus.Warning);
         public int FailedCount => Tasks.Count(t => t.Status == ProcessStatus.Failed);
         // 已取消 = 尚未开始即被取消（Cancelled 状态）+ 处理中被打断被取消（IsCancelled 标记，
         // 保留 Processing 状态显示、颜色中性）。
@@ -140,9 +142,9 @@ namespace LivePhotoBox.ViewModels
                 ? ResourceService.Format("MergePage_StatusTotal", TotalPairsCount)
                 : string.Empty;
 
-        // 队列标题后的扫描统计："匹配 5，未匹配 3"
-        public string ScanStatsText => TotalPairsCount > 0 || StandaloneImagesCount > 0 || StandaloneVideosCount > 0
-            ? $"{ResourceService.Format("MergePage_ScanMatched", TotalPairsCount)}  •  {ResourceService.Format("MergePage_ScanUnmatched", StandaloneImagesCount + StandaloneVideosCount)}"
+        // Match the two visible lists: executable task rows and unselected rows.
+        public string ScanStatsText => Tasks.Count > 0 || ScanDiagnostics.Count > 0
+            ? $"{ResourceService.Format("QueueStats_Tasks", Tasks.Count)}  •  {ResourceService.Format("QueueStats_Unselected", ScanDiagnostics.Count)}"
             : string.Empty;
 
         // 底部状态栏耗时：扫描阶段显示扫描用时（扫描结束后冻结），
@@ -203,7 +205,7 @@ namespace LivePhotoBox.ViewModels
                     // 已暂停（暂停完成，等待用户点击继续）
                     if (IsPaused)
                         return ResourceService.GetString("Status_Paused") + " | " +
-                               LivePhotoProtocol.FromIndex(SelectedModeIndex).DisplayName;
+                               SelectedProtocolDisplayName;
                     // 暂停中（等待当前任务结束再进入暂停）
                     if (_isPausing)
                         return ResourceService.GetString("Status_Pausing");
@@ -212,7 +214,7 @@ namespace LivePhotoBox.ViewModels
                 if (_mergeStoppedByUser)
                     return ResourceService.GetString("Status_StoppedSimple");
                 if (_mergeDone && Progress >= 100)
-                    return ResourceService.GetString("Status_DoneSimple");
+                    return ResourceService.GetString("Status_DoneSimple") + ProductOutcomePresentation.WarningSummary(WarningCount);
                 // Idle / Ready — 使用 SetStatus 设置的文字（如 "初始化"、"扫描完成：..."）
                 return Status;
             }
@@ -222,6 +224,7 @@ namespace LivePhotoBox.ViewModels
 
         public Visibility FooterTotalVisible => TotalPairsCount > 0 ? Visibility.Visible : Visibility.Collapsed;
         public Visibility FooterSuccessVisible => SuccessCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility FooterWarningVisible => WarningCount > 0 ? Visibility.Visible : Visibility.Collapsed;
         public Visibility FooterFailedVisible => FailedCount > 0 ? Visibility.Visible : Visibility.Collapsed;
         public Visibility FooterUnprocessedVisible => (!_mergeStoppedByUser && PendingCount > 0) ? Visibility.Visible : Visibility.Collapsed;
         public Visibility FooterCancelledVisible => (_mergeStoppedByUser && CancelledCount > 0) ? Visibility.Visible : Visibility.Collapsed;
@@ -232,6 +235,7 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(ProcessingCount));
             OnPropertyChanged(nameof(SuccessCount));
             OnPropertyChanged(nameof(FailedCount));
+            OnPropertyChanged(nameof(WarningCount));
             OnPropertyChanged(nameof(CancelledCount));
             OnPropertyChanged(nameof(ActiveTaskCountText));
             OnPropertyChanged(nameof(ElapsedTimeText));
@@ -242,6 +246,7 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(FooterTotalVisible));
             OnPropertyChanged(nameof(FooterSuccessVisible));
             OnPropertyChanged(nameof(FooterFailedVisible));
+            OnPropertyChanged(nameof(FooterWarningVisible));
             OnPropertyChanged(nameof(FooterUnprocessedVisible));
             OnPropertyChanged(nameof(FooterCancelledVisible));
         }
@@ -259,6 +264,24 @@ namespace LivePhotoBox.ViewModels
         public BulkObservableCollection<MergeTask> Tasks { get; } = [];
 
         // 当前选中的合并模式（协议）索引，持久化存储到设置中。
+        public string SelectedProtocolDisplayName => SelectedModeIndex switch
+        {
+            7 => "Apple Live Photo", 8 => "vivo (legacy)",
+            _ => LivePhotoProtocol.FromIndex(SelectedModeIndex).DisplayName
+        };
+        public Visibility SamsungVersionVisibility => SelectedModeIndex == 5 ? Visibility.Visible : Visibility.Collapsed;
+        public Visibility HuaweiVersionVisibility => SelectedModeIndex == 6 ? Visibility.Visible : Visibility.Collapsed;
+        public int SamsungVersionIndex
+        {
+            get => Math.Clamp(AppSettingsService.GetValue(nameof(SamsungVersionIndex), 1), 0, 1);
+            set { AppSettingsService.SetValue(nameof(SamsungVersionIndex), value); OnPropertyChanged(); }
+        }
+        public int HuaweiVersionIndex
+        {
+            get => Math.Clamp(AppSettingsService.GetValue(nameof(HuaweiVersionIndex), 0), 0, 1);
+            set { AppSettingsService.SetValue(nameof(HuaweiVersionIndex), value); OnPropertyChanged(); }
+        }
+
         public int SelectedModeIndex
         {
             get
@@ -270,6 +293,11 @@ namespace LivePhotoBox.ViewModels
             set
             {
                 AppSettingsService.SetValue(nameof(SelectedModeIndex), value);
+                OnPropertyChanged(nameof(SamsungVersionVisibility));
+                OnPropertyChanged(nameof(HuaweiVersionVisibility));
+                OnPropertyChanged(nameof(SelectedProtocolDisplayName));
+                RefreshAvailableOutputFormats(value);
+
                 LogService.Merge($"Live Photo format changed to index: {value}");
                 OnPropertyChanged();
             }
@@ -399,7 +427,21 @@ namespace LivePhotoBox.ViewModels
 
         // ── 转换设置 ──
 
-        // 输出格式索引（0=JPG+MP4, 1=JPG+MOV, 2=HEIC+MP4, 3=HEIC+MOV）。
+        // 可用的输出格式列表（由当前协议动态决定，仅包含当前协议支持的项）。
+        public ObservableCollection<OutputFormatOptionItem> AvailableOutputFormats { get; } = [];
+
+        [ObservableProperty]
+        private OutputFormatOptionItem? _selectedOutputFormat;
+
+        partial void OnSelectedOutputFormatChanged(OutputFormatOptionItem? value)
+        {
+            if (value is not null && value.Id != OutputFormatIndex)
+            {
+                OutputFormatIndex = value.Id;
+            }
+        }
+
+        // 输出格式索引（0=JPG+MP4, 1=JPG+MOV, 2=HEIC+MP4, 3=HEIC+MOV, 4=HEIC+MP4(H.265)）。
         public int OutputFormatIndex
         {
             get => AppSettingsService.GetValue(nameof(OutputFormatIndex), 0);
@@ -407,8 +449,74 @@ namespace LivePhotoBox.ViewModels
             {
                 AppSettingsService.SetValue(nameof(OutputFormatIndex), value);
                 LogService.Merge($"Output format changed to index: {value}");
+                if (SelectedOutputFormat?.Id != value)
+                {
+                    SelectedOutputFormat = AvailableOutputFormats.FirstOrDefault(f => f.Id == value);
+                }
                 OnPropertyChanged();
             }
+        }
+
+        public void RefreshAvailableOutputFormats(int protocolIndex)
+        {
+            int[] available = ProtocolFormatMatrix.GetAvailableFormats(protocolIndex);
+            AvailableOutputFormats.Clear();
+            foreach (int formatIndex in available)
+            {
+                AvailableOutputFormats.Add(CreateMergeFormatOption(formatIndex));
+            }
+
+            int targetFormat = available.Contains(OutputFormatIndex)
+                ? OutputFormatIndex
+                : ProtocolFormatMatrix.GetDefaultFormat(protocolIndex);
+
+            if (targetFormat != OutputFormatIndex)
+            {
+                OutputFormatIndex = targetFormat;
+            }
+            else
+            {
+                SelectedOutputFormat = AvailableOutputFormats.FirstOrDefault(f => f.Id == targetFormat);
+            }
+            OnPropertyChanged(nameof(OutputFormatIndex));
+        }
+
+        private static OutputFormatOptionItem CreateMergeFormatOption(int formatIndex)
+        {
+            string nameKey = formatIndex switch
+            {
+                ProtocolFormatMatrix.FormatJpgMp4 => "MergePage_OutputFormat_JPEG_MP4.Content",
+                ProtocolFormatMatrix.FormatJpgMov => "MergePage_OutputFormat_JPEG_MOV.Content",
+                ProtocolFormatMatrix.FormatHeicMp4 => "MergePage_OutputFormat_HEIC_MP4.Content",
+                ProtocolFormatMatrix.FormatHeicMov => "MergePage_OutputFormat_HEIC_MOV.Content",
+                ProtocolFormatMatrix.FormatHeicMp4H265 => "MergePage_OutputFormat_HEIC_MP4_H265.Content",
+                _ => string.Empty
+            };
+
+            string hintKey = formatIndex switch
+            {
+                ProtocolFormatMatrix.FormatJpgMp4 => "MergePage_FormatHint_BestCompat",
+                ProtocolFormatMatrix.FormatJpgMov => "MergePage_FormatHint_GoodCompat",
+                ProtocolFormatMatrix.FormatHeicMp4 => "MergePage_FormatHint_Efficient",
+                ProtocolFormatMatrix.FormatHeicMov => "MergePage_FormatHint_GoogleOnly",
+                ProtocolFormatMatrix.FormatHeicMp4H265 => "MergePage_FormatHint_HEVC",
+                _ => string.Empty
+            };
+
+            string fallbackName = formatIndex >= 0 && formatIndex < ProtocolFormatMatrix.FormatNames.Length
+                ? ProtocolFormatMatrix.FormatNames[formatIndex]
+                : string.Empty;
+
+            string name = ResourceService.GetString(nameKey);
+            if (string.IsNullOrWhiteSpace(name) || name == nameKey)
+                name = fallbackName;
+
+            return new OutputFormatOptionItem
+            {
+                Id = formatIndex,
+                DisplayName = name,
+                Hint = ResourceService.GetString(hintKey)
+            };
         }
 
         // 命名规则：始终使用自定义模板模式（不再提供选择）。
@@ -585,19 +693,24 @@ namespace LivePhotoBox.ViewModels
         public MergeViewModel()
         {
             SetStatus("Status_Init");
+            RefreshAvailableOutputFormats(SelectedModeIndex);
             _uiUpdateTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
             _uiUpdateTimer.Tick += UiUpdateTimer_Tick;
 
-            ScanDiagnostics.CollectionChanged += (_, _) =>
+            ScanDiagnostics.CollectionChanged += (_, change) =>
             {
+                int first = Math.Max(0, change.NewStartingIndex >= 0 ? change.NewStartingIndex : change.OldStartingIndex);
+                for (int i = first; i < ScanDiagnostics.Count; i++) ScanDiagnostics[i].Index = i + 1;
                 OnPropertyChanged(nameof(HasScanDiagnostics));
                 OnPropertyChanged(nameof(ScanDiagnosticsCount));
+                OnPropertyChanged(nameof(ScanStatsText));
                 UpdateIsQueueEmpty(Tasks.Count + ScanDiagnostics.Count);
             };
 
             // 扫描添加任务时自动同步到显示列表
             Tasks.CollectionChanged += (_, change) =>
             {
+                OnPropertyChanged(nameof(ScanStatsText));
                 // A previous terminal summary must not hide newly appended work.
                 // Existing successes stay successful and are skipped by the runner.
                 if (!IsProcessing && change.NewItems is not null &&
@@ -617,6 +730,7 @@ namespace LivePhotoBox.ViewModels
             AppSettingsService.SettingsCleared += () =>
             {
                 OnPropertyChanged(nameof(SelectedModeIndex));
+                RefreshAvailableOutputFormats(SelectedModeIndex);
                 OnPropertyChanged(nameof(OutputFormatIndex));
                 OnPropertyChanged(nameof(NamingRuleIndex));
                 OnPropertyChanged(nameof(CustomNamingPattern));
@@ -811,7 +925,7 @@ namespace LivePhotoBox.ViewModels
                     int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
                     double elapsed = _stopwatch.Elapsed.TotalSeconds;
 
-                    SetStatus("Status_MergeCompletedSummary", total, elapsed, succeeded, failed);
+                    SetStatus("Status_MergeCompletedSummaryWithWarnings", total, elapsed, succeeded, failed, WarningCount);
                     LogService.Merge($"Merge completed: {succeeded} succeeded, {failed} failed in {elapsed:F1}s");
 
                     // 批量处理完成 → 弹系统通知（便携/注册失败渠道静默跳过）
@@ -909,7 +1023,7 @@ namespace LivePhotoBox.ViewModels
         {
             if (IsProcessing || IsScanning || _isCleaningUp || (folderPaths.Count == 0 && filePaths.Count == 0)) return;
             var oldTasks = Tasks.ToList();
-            var oldPending = oldTasks.Where(t => t.Status != ProcessStatus.Success).ToList();
+            var oldPending = oldTasks.Where(t => t.Status is not (ProcessStatus.Success or ProcessStatus.Warning)).ToList();
             var options = new MergeScanOptions
             {
                 InputDirectories = folderPaths.ToArray(),
@@ -943,10 +1057,10 @@ namespace LivePhotoBox.ViewModels
                         string.Equals(task.ImagePath, pair.ImagePath, StringComparison.OrdinalIgnoreCase) ||
                         string.Equals(task.VideoPath, pair.VideoPath, StringComparison.OrdinalIgnoreCase);
                     var diagnostics = result.Diagnostics.ToList();
-                    var updated = replace ? new List<MergeTask>() : oldTasks.Where(t => t.Status == ProcessStatus.Success).ToList();
+                    var updated = replace ? new List<MergeTask>() : oldTasks.Where(t => t.Status is ProcessStatus.Success or ProcessStatus.Warning).ToList();
                     foreach (var pair in result.Pairs)
                     {
-                        if (!replace && oldTasks.Any(t => SamePair(t, pair) && t.Status == ProcessStatus.Success)) continue;
+                        if (!replace && oldTasks.Any(t => SamePair(t, pair) && t.Status is (ProcessStatus.Success or ProcessStatus.Warning))) continue;
                         if (!replace && oldTasks.Any(t => Overlaps(t, pair) && !SamePair(t, pair)))
                         {
                             diagnostics.Add(QueueConflict(pair.ImagePath, new[] { pair.VideoPath }));
@@ -1149,7 +1263,7 @@ namespace LivePhotoBox.ViewModels
 
                 stack.Children.Add(new TextBlock
                 {
-                    Text = ResourceService.Format("Msg_MergeCompletedSummary", total, succeeded, failed),
+                    Text = ResourceService.Format("Msg_MergeCompletedSummary", total, succeeded, failed) + ProductOutcomePresentation.WarningSummary(WarningCount),
                     FontSize = 16,
                     TextWrapping = TextWrapping.Wrap
                 });
@@ -1182,7 +1296,7 @@ namespace LivePhotoBox.ViewModels
                 int total = Tasks.Count;
                 int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
                 int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
-                int unprocessed = total - succeeded - failed;
+                int unprocessed = total - succeeded - failed - WarningCount;
 
                 var stack = new StackPanel
                 {
@@ -1200,7 +1314,7 @@ namespace LivePhotoBox.ViewModels
 
                 stack.Children.Add(new TextBlock
                 {
-                    Text = ResourceService.Format("Msg_MergeCancelledSummary", total, succeeded, failed, unprocessed),
+                    Text = ResourceService.Format("Msg_MergeCancelledSummary", total, succeeded, failed, unprocessed) + ProductOutcomePresentation.WarningSummary(WarningCount),
                     FontSize = 16,
                     TextWrapping = TextWrapping.Wrap
                 });
@@ -1258,16 +1372,18 @@ namespace LivePhotoBox.ViewModels
 
             var token = GetProcessingToken();
             string outputDir = OutputDirectory;
+            int sourceAction = AfterCompletionActionIndex;
+            string sourceArchive = OriginalDirectory;
             var succeededThisRun = new System.Collections.Concurrent.ConcurrentBag<MergeTask>();
             bool operationFailed = false;
-            int alreadySucceeded = Tasks.Count(task => task.Status == ProcessStatus.Success);
+            int alreadySucceeded = Tasks.Count(task => task.Status is ProcessStatus.Success or ProcessStatus.Warning);
             _completedTasksCount = alreadySucceeded;
             string capabilityDiagnostic = ProductOutcomePresentation.CapabilityDiagnostic(() => ProductCapabilityQuery.Query(outputProfile));
 
             try
             {
                 Directory.CreateDirectory(outputDir);
-                var tasksToProcess = Tasks.Where(t => t.Status != ProcessStatus.Success).ToList();
+                var tasksToProcess = Tasks.Where(t => t.Status is not (ProcessStatus.Success or ProcessStatus.Warning)).ToList();
                 bool hasHeic = tasksToProcess.Any(t => HeicConverterService.IsHeicFile(t.ImagePath));
                 int maxParallel = hasHeic
                     ? AppSettingsService.GetValue("MergeThreadCount", 4)
@@ -1277,6 +1393,11 @@ namespace LivePhotoBox.ViewModels
                 {
                     OutputDirectory = outputDir,
                     OutputProfile = outputProfile,
+                    StructuredOptions = new()
+                    {
+                        SamsungVariant = SamsungVersionIndex == 0 ? SamsungTargetVariant.Mpv2 : SamsungTargetVariant.Mpv3,
+                        HuaweiVariant = HuaweiVersionIndex == 0 ? HuaweiTargetVariant.HuaweiV6 : HuaweiTargetVariant.HonorV2
+                    },
                     NamingRuleIndex = NamingRuleIndex,
                     CustomNamingPattern = CustomNamingPattern,
                     MaxDegreeOfParallelism = maxParallel,
@@ -1304,7 +1425,7 @@ namespace LivePhotoBox.ViewModels
                 int total = Tasks.Count;
                 int succeeded = Tasks.Count(t => t.Status == ProcessStatus.Success);
                 int failed = Tasks.Count(t => t.Status == ProcessStatus.Failed);
-                int unprocessed = total - succeeded - failed;
+                int unprocessed = total - succeeded - failed - WarningCount;
                 double elapsed = _stopwatch.Elapsed.TotalSeconds;
                 LogService.Merge($"Processing cancelled by user after {elapsed:F1}s, completed {_completedTasksCount}/{TotalPairsCount}");
                 SetStatus("Status_MergeStoppedSummary", total, elapsed, succeeded, failed, unprocessed);
@@ -1326,42 +1447,63 @@ namespace LivePhotoBox.ViewModels
             {
                 _stopwatch.Stop();
                 bool wasCancelled = _cancelledByUser;
-                FinalizeRunState();
 
                 if (!wasCancelled && !operationFailed)
                 {
-                    if (AfterCompletionActionIndex == 1)
-                    {
-                        var moveDir = OriginalDirectory;
-                        if (!string.IsNullOrWhiteSpace(moveDir))
-                        {
-                            try { Directory.CreateDirectory(moveDir); }
-                            catch (Exception ex) { LogService.Merge($"Failed to create original dir: {ex.Message}", LogLevel.Warning); }
-                            foreach (var task in succeededThisRun)
-                            {
-                                try { if (File.Exists(task.ImagePath)) File.Move(task.ImagePath, Path.Combine(moveDir, Path.GetFileName(task.ImagePath))); } catch { }
-                                if (!string.IsNullOrEmpty(task.VideoPath))
-                                    try { if (File.Exists(task.VideoPath)) File.Move(task.VideoPath, Path.Combine(moveDir, Path.GetFileName(task.VideoPath))); } catch { }
-                            }
-                        }
-                    }
-                    else if (AfterCompletionActionIndex == 2)
-                    {
+                    if (sourceAction is 1 or 2)
                         foreach (var task in succeededThisRun)
                         {
+                            if (token.IsCancellationRequested) break;
                             try
                             {
-                                if (File.Exists(task.ImagePath)) await MoveFileToRecycleBinAsync(task.ImagePath);
-                                if (!string.IsNullOrEmpty(task.VideoPath) && File.Exists(task.VideoPath))
-                                    await MoveFileToRecycleBinAsync(task.VideoPath);
+                                var outcome = task.LastOutcome ?? throw new IOException("Missing completion receipt.");
+                                var paths = new[] { task.ImagePath, task.VideoPath }.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => p!).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                                string? moveDir = sourceAction == 1 ? sourceArchive : null;
+                                if (sourceAction == 1 && string.IsNullOrWhiteSpace(moveDir))
+                                    throw new IOException("Archive directory is missing; originals retained.");
+                                var guard = outcome.SourceActionGuard ?? throw new IOException("Source action identity receipt is unavailable; originals retained.");
+                                using var committedProtection = new SourceInputProtection(outcome.CommittedOutputs.Select(o => o.Path));
+                                guard.Validate(outcome, paths, moveDir);
+                                if (moveDir is not null) Directory.CreateDirectory(moveDir);
+                                foreach (string path in paths)
+                                {
+                                    token.ThrowIfCancellationRequested();
+                                    guard.ValidateSource(outcome, path);
+                                    if (moveDir is not null) File.Move(path, Path.Combine(moveDir, Path.GetFileName(path)));
+                                    else await MoveFileToRecycleBinAsync(path, outcome);
+                                }
+                                task.LastOutcome = ProductOutcomeCompletion.Record(outcome with
+                                { SourcePostProcessing = new(moveDir is null ? "recycle" : "move", "completed", "", moveDir) });
+                                task.OutcomeSummary = ProductOutcomePresentation.Describe(task.LastOutcome, capabilityDiagnostic);
+                            }
+                            catch (OperationCanceledException) when (token.IsCancellationRequested)
+                            {
+                                if (task.LastOutcome is { } completed)
+                                {
+                                    task.LastOutcome = ProductOutcomeCompletion.Record(completed with
+                                    { SourcePostProcessing = new(sourceAction == 1 ? "move" : "recycle", "cancelled", "Cancelled by user.",
+                                        sourceAction == 1 ? sourceArchive : null) });
+                                    task.OutcomeSummary = ProductOutcomePresentation.Describe(task.LastOutcome, capabilityDiagnostic);
+                                }
+                                break;
                             }
                             catch (Exception ex)
                             {
-                                LogService.Merge($"Failed to move source file to recycle bin: {ex.Message}", LogLevel.Warning, ex);
+                                if (task.LastOutcome is { } completed)
+                                    task.LastOutcome = ProductOutcomeCompletion.Record(completed with
+                                    { SourcePostProcessing = new(sourceAction == 1 ? "move" : "recycle", "failed", ex.Message,
+                                        sourceAction == 1 ? sourceArchive : null) });
+                                task.OutcomeSummary += Environment.NewLine + ResourceService.GetString("ProductWarning_SourceAction") + ": " + ex.Message;
+                                task.Details = ResourceService.GetString("ProductWarning_SourceAction");
+                                task.Status = ProcessStatus.Warning;
+                                NotifyStatsChanged();
+                                LogService.Merge("Source post-processing failed: " + ex.Message, LogLevel.Warning, ex);
                             }
                         }
-                    }
                 }
+
+                wasCancelled = _cancelledByUser;
+                FinalizeRunState();
 
                 if (Tasks.Count > 0 && !_isCleaningUp && !operationFailed)
                 {
@@ -1394,7 +1536,7 @@ namespace LivePhotoBox.ViewModels
             {
                 mergeTask.LastOutcome = outcome;
                 mergeTask.OutcomeSummary = ProductOutcomePresentation.Describe(outcome, capabilityDiagnostic);
-                mergeTask.OutputPath = outcome.IsSuccess ? outcome.CommittedOutputs.FirstOrDefault()?.Path ?? string.Empty : string.Empty;
+                mergeTask.OutputPath = outcome.HasUsableOutputs ? outcome.CommittedOutputs.FirstOrDefault()?.Path ?? string.Empty : string.Empty;
                 string details = ProductOutcomePresentation.Status(outcome);
                 if (outcome.Status == ProductOperationStatus.Cancelled)
                     UpdateTaskCancelled(mergeTask, details);
@@ -1428,81 +1570,8 @@ namespace LivePhotoBox.ViewModels
 
 
 
-        // 将文件移动到回收站（真正进回收站，可恢复）。
-        // 通过 P/Invoke SHFileOperationW（FOF_ALLOWUNDO）实现，效果等同资源管理器删除。
-        // SHFileOperationW 必须在 STA 线程（UI 线程）调用，所以先调度到主窗口 DispatcherQueue。
-        private static Task MoveFileToRecycleBinAsync(string path)
-        {
-            var dispatcher = App.MainWindow?.DispatcherQueue;
-            if (dispatcher == null)
-            {
-                LogService.Merge("Recycle bin unavailable: MainWindow DispatcherQueue is null", LogLevel.Warning);
-                return Task.CompletedTask;
-            }
-
-            var tcs = new TaskCompletionSource<object?>();
-            bool enqueued = dispatcher.TryEnqueue(() =>
-            {
-                try
-                {
-                    if (SendToRecycleBin(path))
-                        tcs.SetResult(null);
-                    else
-                        tcs.SetException(new InvalidOperationException($"SHFileOperationW failed for {path}"));
-                }
-                catch (Exception ex)
-                {
-                    tcs.SetException(ex);
-                }
-            });
-
-            if (!enqueued)
-            {
-                LogService.Merge($"Recycle bin unavailable: failed to enqueue to UI thread for {path}", LogLevel.Warning);
-                return Task.CompletedTask;
-            }
-
-            return tcs.Task;
-        }
-
-        // 调用 shell 将单个文件送入回收站，返回是否成功。
-        // pFrom 必须以双 null 结尾；FOF_ALLOWUNDO 表示允许撤销（进回收站而非永久删除）。
-        private static bool SendToRecycleBin(string path)
-        {
-            var op = new SHFILEOPSTRUCT
-            {
-                wFunc = FO_DELETE,
-                pFrom = path + "\0\0",
-                fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_SILENT
-            };
-            return SHFileOperationW(ref op) == 0;
-        }
-
-        // ── 回收站 P/Invoke（SHFileOperationW）────────────────
-        private const uint FO_DELETE = 0x0003;
-        private const ushort FOF_ALLOWUNDO = 0x0040;
-        private const ushort FOF_NOCONFIRMATION = 0x0010;
-        private const ushort FOF_SILENT = 0x0004;
-
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-        private struct SHFILEOPSTRUCT
-        {
-            public IntPtr hwnd;
-            public uint wFunc;
-            [MarshalAs(UnmanagedType.LPWStr)]
-            public string pFrom;
-            [MarshalAs(UnmanagedType.LPWStr)]
-            public string pTo;
-            public ushort fFlags;
-            [MarshalAs(UnmanagedType.Bool)]
-            public bool fAnyOperationsAborted;
-            public IntPtr hNameMappings;
-            [MarshalAs(UnmanagedType.LPWStr)]
-            public string lpszProgressTitle;
-        }
-
-        [DllImport("shell32.dll", CharSet = CharSet.Unicode)]
-        private static extern int SHFileOperationW(ref SHFILEOPSTRUCT lpFileOp);
+        private static Task MoveFileToRecycleBinAsync(string path, ProductOperationOutcome outcome) =>
+            Task.Run(() => SourceRecycleBinService.Recycle(outcome, path));
 
         #endregion
 
@@ -1532,6 +1601,7 @@ namespace LivePhotoBox.ViewModels
         private void UpdateTaskCancelled(MergeTask task, string detailMessage)
         {
             task.IsCancelled = true;
+            task.Status = ProcessStatus.Cancelled;
             task.Details = detailMessage;
             NotifyStatsChanged();
         }
@@ -1539,7 +1609,7 @@ namespace LivePhotoBox.ViewModels
         // 更新任务完成状态（成功/失败），如果所有任务完成则触发 ProcessingCompletedForScroll 事件。
         private void UpdateTaskCompleted(MergeTask task, bool isSuccess, string detailMessage, int completedCount)
         {
-            task.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
+            task.Status = task.LastOutcome?.Status == ProductOperationStatus.Warning ? ProcessStatus.Warning : isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
             task.Details = detailMessage;
             NotifyStatsChanged();
 
@@ -1596,7 +1666,7 @@ namespace LivePhotoBox.ViewModels
                 }
             }
             catch (Exception ex) { LogService.Merge($"OpenMergeOriginalDir error: {ex.Message}", LogLevel.Error, ex); }
-            return Task.CompletedTask;
+            return Task.FromException(new IOException("Recycle bin UI dispatcher is unavailable; originals retained."));
         }
 
         #endregion

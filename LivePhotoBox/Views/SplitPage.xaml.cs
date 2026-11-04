@@ -110,6 +110,7 @@ namespace LivePhotoBox.Views
 
             UpdateTaskQueueColumnsForSurfaceWidth(SplitTaskListSurface.ActualWidth);
             AdaptiveFileName.RefreshDescendants(SplitTaskListView);
+            AdaptiveFileName.RefreshDescendants(SplitDiagnosticListView);
         }
 
         private void AttachTaskQueueMeasurements()
@@ -224,6 +225,12 @@ namespace LivePhotoBox.Views
                     double statusTextWidth = MeasureText(task.DisplayStatusText, 11, semiBold: true);
                     statusMinimum = Math.Max(statusMinimum, 8 + 6 + statusTextWidth + textSafety);
                 }
+            }
+
+            foreach (var diagnostic in ViewModel.ScanDiagnostics)
+            {
+                sizeMinimum = Math.Max(sizeMinimum, MeasureText(diagnostic.DisplayFileSize, 11, semiBold: false) + textSafety);
+                statusMinimum = Math.Max(statusMinimum, 8 + 6 + MeasureText(diagnostic.DisplayStatusText, 11, semiBold: true) + textSafety);
             }
 
             double actionsMinimum = Math.Max(72, MeasureText(QueueActionsHeader) + textSafety);
@@ -394,9 +401,9 @@ namespace LivePhotoBox.Views
             comboBox.DropDownClosed += (_, _) => ResetToCollapsedState();
             comboBox.SelectionChanged += (_, _) => ResetToCollapsedState();
 
-            // 协议切换时，联动输出格式下拉框
-            comboBox.SelectionChanged += (_, _) => UpdateOutputFormatOptions(comboBox.SelectedIndex);
-            UpdateOutputFormatOptions(comboBox.SelectedIndex);
+
+
+
         }
 
         // 匹配方式下拉框加载完成后注入品牌说明副标题（首项"所有单文件"，其余复用 MergePage 协议项提示）。
@@ -486,181 +493,21 @@ namespace LivePhotoBox.Views
             comboBox.SelectionChanged += (_, _) => ResetToCollapsedState();
         }
 
-        // 拆分页的协议-格式可用性矩阵。
-        // 协议索引: 0=无协议, 1=Apple, 2=vivo
-        // 下拉项位置: 0=默认原样, 1=HEIC+MOV, 2=JPG+MOV, 3=JPG+MP4
-        // 全局 formatIndex 仍为 0=默认原样 / 1=JPG+MOV / 2=HEIC+MOV / 3=JPG+MP4（下方映射转换）
-        private static readonly bool[][] SplitFormatMap =
-        [
-            [true,  true,  true,  true ],  // 无协议：全部可用
-            [false, true,  true,  false],  // Apple：HEIC+MOV / JPG+MOV
-            [false, false, false, true ],  // vivo：JPG+MP4
-        ];
 
-        // 下拉项位置 → 全局 formatIndex
-        private static int VisualFormatIndexToSemantic(int visualIndex) => visualIndex switch
+
+
+
+        private void OutputFormatComboBox_DropDownOpened(object? sender, object e)
         {
-            0 => 0,  // 默认原样
-            1 => 2,  // HEIC+MOV
-            2 => 1,  // JPG+MOV
-            3 => 3,  // JPG+MP4
-            _ => -1,
-        };
-
-        // 全局 formatIndex → 下拉项位置
-        private static int SemanticFormatIndexToVisual(int semanticIndex) => semanticIndex switch
-        {
-            0 => 0,
-            1 => 2,  // JPG+MOV
-            2 => 1,  // HEIC+MOV
-            3 => 3,
-            _ => -1,
-        };
-
-        // 将持久化的全局 formatIndex 还原到下拉位置，并按当前协议刷新可见性。
-        private void SyncOutputFormatSelection()
-        {
-            if (OutputFormatComboBox == null || ProtocolComboBox == null) return;
-
-            OutputFormatComboBox.SelectedIndex = SemanticFormatIndexToVisual(ViewModel.OutputFormatIndex);
-            UpdateOutputFormatOptions(ProtocolComboBox.SelectedIndex);
+            foreach (var item in ViewModel.AvailableOutputFormats)
+                item.IsExpanded = true;
         }
 
-        // Rebuilt 的拆分阶段只导出清洗后的中性媒体，不显示也不接受目标协议 Writer 选项。
-        private void ApplySplitBackendOptions()
+        private void OutputFormatComboBox_DropDownClosed(object? sender, object e)
         {
-            if (ProtocolComboBox == null) return;
-
-            UpdateOutputFormatOptions(ProtocolComboBox.SelectedIndex);
+            foreach (var item in ViewModel.AvailableOutputFormats)
+                item.IsExpanded = false;
         }
-
-        // 根据选中的协议切换导出格式下拉框中各项的可见性
-        private void UpdateOutputFormatOptions(int protocolIndex)
-        {
-            if (OutputFormatComboBox == null) return;
-            if (protocolIndex < 0 || protocolIndex >= SplitFormatMap.Length) return;
-
-            var available = SplitFormatMap[protocolIndex];
-            int newSelected = OutputFormatComboBox.SelectedIndex;
-
-            for (int i = 0; i < OutputFormatComboBox.Items.Count && i < available.Length; i++)
-            {
-                if (OutputFormatComboBox.Items[i] is ComboBoxItem item)
-                {
-                    item.Visibility = available[i] ? Visibility.Visible : Visibility.Collapsed;
-                }
-            }
-
-            // Unknown persisted values stay unselected until the user chooses a valid value.
-            // Do not silently turn an unknown media requirement into "keep source".
-            if (newSelected < 0 || newSelected >= available.Length) return;
-
-            // Known selections that become unavailable after a protocol change use its visible default.
-            if (!available[newSelected])
-            {
-                for (int i = 0; i < available.Length; i++)
-                {
-                    if (available[i])
-                    {
-                        OutputFormatComboBox.SelectedIndex = i;
-                        break;
-                    }
-                }
-            }
-        }
-
-        // 输出格式下拉框加载完成后注入兼容性说明副标题
-        private void OutputFormatComboBox_Loaded(object sender, RoutedEventArgs e)
-        {
-            if (sender is not ComboBox comboBox) return;
-            comboBox.Loaded -= OutputFormatComboBox_Loaded;
-
-            double fontSize = comboBox.FontSize > 0 && !double.IsNaN(comboBox.FontSize)
-                ? comboBox.FontSize : 14.0;
-
-            string[] hintKeys =
-            [
-                "SplitPage_FormatHint_Default",
-                "SplitPage_FormatHint_HeicMov",
-                "SplitPage_FormatHint_JpgMov",
-                "SplitPage_FormatHint_JpgMp4",
-            ];
-
-            for (int i = 0; i < comboBox.Items.Count && i < hintKeys.Length; i++)
-            {
-                if (comboBox.Items[i] is ComboBoxItem item)
-                {
-                    string name = (item.Content as string) ?? "";
-                    var nameBlock = new TextBlock
-                    {
-                        Text = name,
-                        FontSize = fontSize,
-                        FontWeight = FontWeights.Normal
-                    };
-
-                    string hint = ResourceService.GetString(hintKeys[i]);
-                    var hintBlock = new TextBlock
-                    {
-                        Text = hint,
-                        FontSize = 11,
-                        Opacity = 0.65,
-                        Margin = new Thickness(0, 1, 0, 0),
-                        TextWrapping = TextWrapping.Wrap,
-                        MaxWidth = 180,
-                        Visibility = Visibility.Collapsed
-                    };
-
-                    var panel = new StackPanel
-                    {
-                        Spacing = 2,
-                        VerticalAlignment = VerticalAlignment.Center,
-                        HorizontalAlignment = HorizontalAlignment.Left,
-                        Children = { nameBlock, hintBlock }
-                    };
-
-                    item.Content = panel;
-                    item.Tag = (nameBlock, hintBlock);
-                }
-            }
-
-            comboBox.DropDownOpened += (_, _) =>
-            {
-                foreach (var obj in comboBox.Items)
-                {
-                    if (obj is ComboBoxItem item && item.Tag is (TextBlock nameBlock, TextBlock hintBlock))
-                    {
-                        nameBlock.FontWeight = FontWeights.SemiBold;
-                        hintBlock.Visibility = Visibility.Visible;
-                    }
-                }
-            };
-
-            void ResetToCollapsedState()
-            {
-                foreach (var obj in comboBox.Items)
-                {
-                    if (obj is ComboBoxItem item && item.Tag is (TextBlock nameBlock, TextBlock hintBlock))
-                    {
-                        nameBlock.FontWeight = FontWeights.Normal;
-                        hintBlock.Visibility = Visibility.Collapsed;
-                    }
-                }
-            }
-
-            comboBox.DropDownClosed += (_, _) => ResetToCollapsedState();
-            comboBox.SelectionChanged += (_, _) => ResetToCollapsedState();
-
-            // 将用户选中的下拉位置同步回 ViewModel（全局 formatIndex）
-            comboBox.SelectionChanged += (_, _) =>
-            {
-                if (comboBox.SelectedIndex >= 0)
-                    ViewModel.OutputFormatIndex = VisualFormatIndexToSemantic(comboBox.SelectedIndex);
-            };
-
-            SyncOutputFormatSelection();
-        }
-
-        // 页面加载完成后附加自动滚动器，绑定 ViewModel 事件
         private void SplitPage_Loaded(object sender, RoutedEventArgs e)
         {
             AttachSplitShortcuts();
@@ -685,9 +532,7 @@ namespace LivePhotoBox.Views
                 NamingResetBtnText.Visibility = Visibility.Visible;
             }
 
-            SyncOutputFormatSelection();
 
-            ApplySplitBackendOptions();
 
             if (!_backendSettingsHooked)
             {
@@ -718,6 +563,7 @@ namespace LivePhotoBox.Views
         // 页面卸载时分离自动滚动器，解绑 ViewModel 事件
         private void SplitPage_Unloaded(object sender, RoutedEventArgs e)
         {
+            ErrorDetailTip.Dismiss();
             DetachSplitShortcuts();
             _scrollToTopHelper?.Detach();
 
@@ -748,7 +594,6 @@ namespace LivePhotoBox.Views
         private void OnProcessingBackendSettingsChanged(object? sender, EventArgs e)
         {
             if (!IsLoaded) return;
-            _ = DispatcherQueue.TryEnqueue(ApplySplitBackendOptions);
         }
 
         // 任务开始处理时通知自动滚动器定位
@@ -762,6 +607,8 @@ namespace LivePhotoBox.Views
         // 响应 ViewModel 属性变更，通知自动滚动器状态变化
         private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
+            if (e.PropertyName == nameof(ViewModel.ScanDiagnosticsCount))
+                ScheduleTaskQueueMinimumRefresh(allowShrink: true);
             if (e.PropertyName == nameof(ViewModel.IsScanning))
             {
                 if (ViewModel.IsScanning)
@@ -1116,7 +963,7 @@ namespace LivePhotoBox.Views
         private void Flyout_OpenOutputFolder_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not MenuFlyoutItem { DataContext: SplitTask task }) return;
-            if (task.Status != ProcessStatus.Success) return;
+            if (task.Status is not (ProcessStatus.Success or ProcessStatus.Warning)) return;
             if (!string.IsNullOrWhiteSpace(task.OutputImagePath) && File.Exists(task.OutputImagePath))
             {
                 FilePickerService.RevealInExplorer(task.OutputImagePath);
@@ -1439,6 +1286,24 @@ namespace LivePhotoBox.Views
             return false;
         }
 
+        private void DiagnosticToggle_Changed(object sender, RoutedEventArgs e)
+        {
+            if (SplitDiagnosticListView is null || DiagnosticToggleIcon is null) return;
+            ErrorDetailTip.Dismiss();
+            bool expanded = DiagnosticToggleButton.IsChecked == true;
+            SplitDiagnosticListView.Visibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+            DiagnosticToggleIcon.Glyph = expanded ? "\uE70E" : "\uE70D";
+            DiagnosticToggleText.Text = ResourceService.GetString(expanded ? "ScanDiagnostic_Collapse" : "ScanDiagnostic_Expand");
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(DiagnosticToggleButton, DiagnosticToggleText.Text);
+            AdaptiveFileName.RefreshDescendants(SplitDiagnosticListView);
+        }
+
+        private async void DiagnosticRow_Loaded(object sender, RoutedEventArgs e)
+        {
+            if (sender is FrameworkElement { DataContext: ScanDiagnosticDisplayItem item })
+                await item.LoadThumbnailAsync(DispatcherQueue);
+        }
+
         private void ThumbnailButton_Click(object sender, RoutedEventArgs e)
         {
             if (sender is not Button { DataContext: SplitTask task }) return;
@@ -1462,30 +1327,12 @@ namespace LivePhotoBox.Views
             }
             else return;
 
-            // TeachingTip 箭头指向状态文字前面的状态圆点（横向 StackPanel 的第一个子元素），
-            // 比指向整块文字更贴合"状态"位置。
-            FrameworkElement tipTarget = element;
-            if (element.Parent is Microsoft.UI.Xaml.Controls.StackPanel statusPanel
-                && statusPanel.Children.Count > 0
-                && statusPanel.Children[0] is FrameworkElement dot)
-            {
-                tipTarget = dot;
-            }
-            else if (element.Parent is Grid statusGrid && statusGrid.Children.OfType<Border>().FirstOrDefault() is Border diagnosticDot)
-                tipTarget = diagnosticDot;
-
-            if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == tipTarget) { ErrorDetailTip.IsOpen = false; return; }
+            e.Handled = true;
             ErrorDetailTip.Title = ResourceService.GetString("ProductOutcome_ResultTitle");
             ErrorDetailText.Text = summary;
-            ErrorDetailTip.Target = tipTarget;
-            ErrorDetailTip.IsOpen = true;
+            ErrorDetailTip.ToggleAt(element, element.DataContext is ScanDiagnosticDisplayItem);
         }
 
-        // 错误详情提示关闭时清除目标引用
-        private void ErrorDetailTip_Closed(TeachingTip sender, TeachingTipClosedEventArgs args) =>
-            ErrorDetailTip.Target = null;
-
-        // 跳转到拆分相关设置
         private void GoToSplitSettings_Click(object sender, RoutedEventArgs e)
         {
             if (App.MainWindow is MainWindow mainWindow)
@@ -1511,6 +1358,7 @@ namespace LivePhotoBox.Views
             {
                 "Pending" => ProcessStatus.Pending,
                 "Success" => ProcessStatus.Success,
+                "Warning" => ProcessStatus.Warning,
                 "Failed" => ProcessStatus.Failed,
                 _ => null
             };
@@ -1545,6 +1393,7 @@ namespace LivePhotoBox.Views
                 {
                     "Pending" => (ProcessStatus?)ProcessStatus.Pending,
                     "Success" => (ProcessStatus?)ProcessStatus.Success,
+                    "Warning" => (ProcessStatus?)ProcessStatus.Warning,
                     "Failed" => (ProcessStatus?)ProcessStatus.Failed,
                     _ => null
                 };

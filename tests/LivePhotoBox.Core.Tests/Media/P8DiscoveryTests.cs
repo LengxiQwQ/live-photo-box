@@ -16,6 +16,24 @@ namespace LivePhotoBox.Core.Tests.Media;
 public sealed class P8DiscoveryTests
 {
     [Fact]
+    public async Task SplitDiscovery_MalformedMemberIsReportedOnceAcrossPairingPasses()
+    {
+        using var workspace = new TestFixtureWorkspace();
+        string broken = Path.Combine(workspace.RootDirectory, "broken.jpg");
+        File.WriteAllText(broken, "not media");
+        var (image, video) = CopyVivoPair(workspace);
+
+        var result = await LivePhotoDiscoveryService.ScanAsync(workspace.RootDirectory, DiscoveryScanMode.SplitOnly);
+
+        var error = Assert.Single(result.Diagnostics, d => d.PrimaryPath == broken);
+        Assert.Equal(ScanDiagnosticSeverity.Error, error.Severity);
+        Assert.Equal("SingleFileInspectionFailed", error.DiagnosticCode);
+        var pair = Assert.Single(result.DualFilePairs);
+        Assert.Equal(image, pair.Image.FilePath);
+        Assert.Equal(video, pair.Video.FilePath);
+    }
+
+    [Fact]
     [Trait("Category", "RealSamples")]
     public void MergeScan_RealVivoPair_ReachesNativeConfirmedPair()
     {
@@ -84,9 +102,11 @@ public sealed class P8DiscoveryTests
         Assert.Equal(SourceInspectionStage.Pairing, ex.Stage);
 
         string independentImage = Path.Combine(workspace.RootDirectory, "independent.jpg");
-        string independentVideo = Path.Combine(workspace.RootDirectory, "independent.mp4");
-        SyntheticProtocolFixtures.CreateVivoLegacyDualJpeg(independentImage);
-        SyntheticProtocolFixtures.CreateVivoLegacyDualMp4(independentVideo);
+        string independentVideo = Path.Combine(workspace.RootDirectory, "independent.mov");
+        // Use a complete independent camera pair, so this conflict/isolation
+        // test does not depend on the validity of marker-only synthetic media.
+        File.Copy(TestSampleResolver.ResolveSample("苹果-双文件.JPG"), independentImage);
+        File.Copy(TestSampleResolver.ResolveSample("苹果-双文件.MOV"), independentVideo);
         var result = await LivePhotoDiscoveryService.ScanAsync(workspace.RootDirectory, DiscoveryScanMode.MergeOnly);
         Assert.Equal(LivePhotoType.None, result.Items.Single(i => i.FilePath == image).LivePhotoType);
         Assert.Equal(LivePhotoType.None, result.Items.Single(i => i.FilePath == duplicate).LivePhotoType);
