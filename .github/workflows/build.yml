@@ -17,6 +17,12 @@ on:
       - '!.gitattributes'
       - '!.editorconfig'
   workflow_dispatch:
+    inputs:
+      scope:
+        description: 'Verification scope for branch runs'
+        type: choice
+        options: [Build, Full]
+        default: Build
 
 # Verification must not be able to modify the repository or Actions state.
 permissions:
@@ -32,7 +38,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 75
     env:
-      VERIFY_SCOPE: ${{ startsWith(github.ref, 'refs/tags/') && 'Release' || 'Build' }}
+      VERIFY_SCOPE: ${{ startsWith(github.ref, 'refs/tags/') && 'Release' || inputs.scope || 'Build' }}
     steps:
       - name: Checkout / 拉取代码
         uses: actions/checkout@v4
@@ -49,6 +55,7 @@ jobs:
             artifacts/deps
             artifacts/cache
             ~/AppData/Local/vcpkg/downloads
+            ~/AppData/Local/vcpkg/archives
           key: native-deps-v3-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'build/native/**', 'scripts/native/restore-*.ps1', 'scripts/native/build-hevc-codecs.py') }}
       - name: Verify build and tests / 构建与测试门禁
         shell: pwsh
@@ -59,7 +66,7 @@ jobs:
           -Configuration Release
           -AllowBroadTests
       - name: Upload Native symbols / 上传 Native 符号
-        if: always()
+        if: always() && startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@v4
         with:
           name: LivePhotoBox-Native-Symbols-${{ github.run_number }}
@@ -90,6 +97,7 @@ jobs:
             artifacts/deps
             artifacts/cache
             ~/AppData/Local/vcpkg/downloads
+            ~/AppData/Local/vcpkg/archives
           key: native-deps-v3-${{ runner.os }}-${{ hashFiles('vcpkg.json', 'build/native/**', 'scripts/native/restore-*.ps1', 'scripts/native/build-hevc-codecs.py') }}
       - name: Setup Go / 安装 Go
         uses: actions/setup-go@v5

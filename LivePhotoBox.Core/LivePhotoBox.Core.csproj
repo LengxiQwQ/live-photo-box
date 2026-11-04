@@ -42,9 +42,8 @@
   </ItemGroup>
 
   <!--
-    CMake is the canonical Native build. For standalone managed
-    builds, invoke CMake through build-native.ps1. Full solution builds
-    the solution's Native project forwards to this same CMake build.
+    Core prepares Native for both solution and standalone managed builds.
+    The Native IDE project remains available for explicit C++ builds.
   -->
   <Target Name="BuildLivePhotoBoxNative"
           BeforeTargets="PrepareForBuild"

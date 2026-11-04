@@ -6,9 +6,6 @@ MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LivePhotoBox", "LivePhotoBox\\LivePhotoBox.csproj", "{C031F8F3-E645-431A-9DF7-74A03063BF2A}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "LivePhotoBox.Core", "LivePhotoBox.Core\LivePhotoBox.Core.csproj", "{3B124EE5-4C88-49A6-B9E8-4C0F16BD5CE3}"
-	ProjectSection(ProjectDependencies) = postProject
-		{8E2FB569-3F86-40C4-87BD-DFE33F607785} = {8E2FB569-3F86-40C4-87BD-DFE33F607785}
-	EndProjectSection
 EndProject
 Project("{BC8A1FFA-BEE3-4634-8014-F334798102B3}") = "LivePhotoBox.Native", "LivePhotoBox.Native\LivePhotoBox.Native.vcxproj", "{8E2FB569-3F86-40C4-87BD-DFE33F607785}"
 EndProject
@@ -39,9 +36,7 @@ Global
 		{3B124EE5-4C88-49A6-B9E8-4C0F16BD5CE3}.Release|x64.ActiveCfg = Release|Any CPU
 		{3B124EE5-4C88-49A6-B9E8-4C0F16BD5CE3}.Release|x64.Build.0 = Release|Any CPU
 		{8E2FB569-3F86-40C4-87BD-DFE33F607785}.Debug|x64.ActiveCfg = Debug|x64
-		{8E2FB569-3F86-40C4-87BD-DFE33F607785}.Debug|x64.Build.0 = Debug|x64
 		{8E2FB569-3F86-40C4-87BD-DFE33F607785}.Release|x64.ActiveCfg = Release|x64
-		{8E2FB569-3F86-40C4-87BD-DFE33F607785}.Release|x64.Build.0 = Release|x64
 		{19DD1B04-D2A0-4D72-A1D2-447A61A515B2}.Debug|x64.ActiveCfg = Debug|Any CPU
 		{19DD1B04-D2A0-4D72-A1D2-447A61A515B2}.Debug|x64.Build.0 = Debug|Any CPU
 		{19DD1B04-D2A0-4D72-A1D2-447A61A515B2}.Release|x64.ActiveCfg = Release|Any CPU

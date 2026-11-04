@@ -1,6 +1,8 @@
 # Windows x64 构建与调试
 
-正式构建入口是根目录的 Visual Studio 解决方案。Native 工程是 CMake 转调入口，Core、GUI、CLI 使用同一套 Native 构建；不要手工添加第三方库或维护另一份 C++ 编译清单。
+正式构建入口是根目录的 Visual Studio 解决方案。解决方案和独立托管项目都由 Core 调用 CMake 准备 Native，避免并行构建重复争用 Native 锁。Native 工程保留在解决方案内供编辑、调试和单独构建。不要手工添加第三方库或维护另一份 C++ 编译清单。
+
+GitHub Actions 在普通代码推送时检查 Release x64 解决方案构建并运行 CodeQL。需要较广的 Core/CLI 回归时，可手动运行 Build & Release 并选择 Full。正式版本标签执行 Release 验证，随后打包并创建草稿。仅修改普通文档会跳过构建工作流。
 
 ## 开发环境
 
