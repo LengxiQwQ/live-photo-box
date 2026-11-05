@@ -81,3 +81,8 @@ bool rewrite_jpeg_gainmap_primary_xmp_to_heif(std::string_view,uint64_t source_g
 bool observe_target_xmp_packets(std::string_view standard,std::string_view extension,
  std::string_view guid,target_xmp_observation&,xmp_observation_failure&) noexcept;
 }
+
+namespace lpb::media {
+bool rewrite_samsung_repair_xmp(std::string_view,uint64_t video_resource,uint64_t primary_padding,
+    uint64_t gainmap_length,uint32_t orientation,uint32_t width,uint32_t height,std::string&,xmp_observation_failure&) noexcept;
+}

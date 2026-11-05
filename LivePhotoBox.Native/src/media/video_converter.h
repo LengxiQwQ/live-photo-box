@@ -30,7 +30,7 @@ bool software_video_encoder_available(lpb_context* context, lpb_video_codec code
 lpb_result probe_video_file(
     lpb_context* context,
     const char* video_path,
-    lpb_video_item_facts* out_video_facts) noexcept;
+    lpb_video_item_facts* out_video_facts, uint32_t* reflection = nullptr) noexcept;
 
 lpb_result remux_video_file(
     lpb_context* context,
@@ -51,6 +51,7 @@ lpb_result transcode_video_file(
     size_t encoder_buf_len,
     lpb_video_backend_diagnostics* out_diagnostics = nullptr,
     lpb_video_preservation_result_v1* out_preservation = nullptr,
-    lpb_video_preservation_result_v2* out_complete_proof = nullptr) noexcept;
+    lpb_video_preservation_result_v2* out_complete_proof = nullptr,
+    bool repair_orientation = false) noexcept;
 
 } // namespace lpb::media

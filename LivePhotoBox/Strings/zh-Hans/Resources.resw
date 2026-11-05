@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -736,7 +736,7 @@
     <value>队列为空</value>
   </data>
   <data name="RepairPage_EmptyQueueDesc.Text" xml:space="preserve">
-    <value>将 iPhone 拍摄的实况照片导入文件夹，点击扫描自动诊断 Windows 端常见的旋转、拉伸与缩略图异常，一键无损修复。</value>
+    <value>将 iPhone 拍摄的实况照片导入文件夹，点击扫描自动诊断 Windows 端常见的旋转、拉伸与缩略图异常，修复时导出新文件，视频会重新编码。</value>
   </data>
   <data name="RepairPage_EmptyQueueHint_Part1.Text" xml:space="preserve">
     <value>您可以点击 </value>
@@ -1241,14 +1241,9 @@
     <value>它能修复什么？</value>
   </data>
   <data name="HomePage_RepairTutorial_Step1_Desc.Text" xml:space="preserve">
-    <value>将 iPhone 实况照片导出后，常见的显示异常包括：
+    <value>可检查 JPEG 方向、已确认的嵌入缩略图和预览图、HEIC 方向标签和 MOV 显示矩阵。
 
-1. 多余缩略图及横向拉伸（iOS 17.3 之前）：
-Apple 曾嵌入低分辨率缩略图来改善兼容性，但该缩略图带有方向标签，Windows 误将其当作横图处理，导致缩略图被异常拉宽或压扁。
-iOS 17.3 起已不再内嵌。通过 jpegtran 无损旋转并剥离残留缩略图即可修复。
-
-2. 前摄实况照片的视频部分画面会旋转：
-iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正确显示角度，但 Windows 并不识别此标签。通过 FFmpeg 重编码即可修正。</value>
+JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠正 EXIF。视频会重新编码，将旋转或镜像应用到画面，并保留声音及可确认的 Apple 配对和封面。无法安全处理的内容会说明原因。</value>
   </data>
   <data name="HomePage_RepairTutorial_Step2_Title.Text" xml:space="preserve">
     <value>扫描并查看诊断</value>
@@ -1271,14 +1266,14 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>确认无误后，选择输出模式：
 
 · 输出到目录 — 修复结果保存到指定文件夹，原文件不受影响（推荐首次使用）
-· 替换原文件 — 直接在原文件上修复，建议提前做好备份
+· 源目录副本 — 在来源文件夹生成修复副本，原文件保留
 
 点击「开始修复」，程序全自动处理：
-· JPEG → jpegtran 无损旋转 + 剥离多余缩略图
+· JPEG → 无损转正并清理已确认的嵌入缩略图和预览图
 · HEIC → 修正错误的 Orientation 标签
-· 视频 → FFmpeg 重编码消除旋转矩阵
+· 视频 → 转正旋转和镜像，保留声音并重建已确认的 Apple 配对与封面
 
-完成后打开输出文件夹，照片已经恢复正常啦 ~</value>
+完成后可查看每项结果和输出位置。黄色项仍有未确认内容，导出至隔离目录。</value>
   </data>
   <data name="HomePage_RepairTutorial_Reassurance.Text" xml:space="preserve">
     <value>非 iPhone 拍摄的照片一般无需修复，扫描和修复也不会对正常照片造成任何影响，请放心使用。
@@ -1291,7 +1286,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>点击右侧按钮，即可体验内置预设，直观了解完整修复流程</value>
   </data>
   <data name="HomePage_RepairUsage.Text" xml:space="preserve">
-    <value>选择要修复的图片文件夹，程序会自动识别缩略图错误的图片并无损修复。</value>
+    <value>选择要修复的文件夹，扫描方向和嵌入缩略图问题，并导出修复副本。</value>
   </data>
   <data name="HomePage_KeyPhotoTitle.Text" xml:space="preserve">
     <value>主图切换</value>
@@ -1390,7 +1385,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>尚未选择输入文件夹</value>
   </data>
   <data name="RepairPage_Msg_NoInputDirectory" xml:space="preserve">
-    <value>请先选择需要修复的图片文件夹。程序会自动扫描目录，识别出因设备兼容性导致在 Windows 上出现缩略图旋转或拉伸问题的图片，并进行无损修复。</value>
+    <value>请选择需要修复的文件夹并扫描。程序会诊断方向和嵌入缩略图问题，修复时导出新文件，保留原件。</value>
   </data>
   <data name="MergePage_Msg_NoOutputDirectoryTitle" xml:space="preserve">
     <value>尚未设置保存目录</value>
@@ -2068,7 +2063,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>输出到目录</value>
   </data>
   <data name="RepairPage_OutputSwitch.OffContent" xml:space="preserve">
-    <value>替换原文件</value>
+    <value>源目录副本</value>
   </data>
   <data name="SettingsPage_ScanThumbnailToggleLabel.Text" xml:space="preserve">
     <value>在修复页扫描时同步加载视频缩略图</value>
@@ -2089,7 +2084,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>控制灯箱预览时同时解码 HEIC 缩略图的最大数量。设为 1 逐张解码，设为较高值利用 GPU 并行解码以加速浏览</value>
   </data>
   <data name="RepairPage_GroupHeaderPairs" xml:space="preserve">
-    <value>实况照片组合</value>
+    <value>实况照片</value>
   </data>
   <data name="RepairPage_GroupHeaderStandaloneImg" xml:space="preserve">
     <value>单独照片</value>
@@ -2149,7 +2144,7 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>已跳过（HEIC/HEIF）</value>
   </data>
   <data name="RepairPage_Task_SkippedNonApple" xml:space="preserve">
-    <value>已跳过（非Apple照片）</value>
+    <value>已跳过（非 Apple/Samsung）</value>
   </data>
   <data name="RepairPage_Task_SkippedDuration" xml:space="preserve">
     <value>已跳过（时长超过3.5秒）</value>
@@ -2176,13 +2171,13 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
     <value>关</value>
   </data>
   <data name="SettingsPage_AppleOnlyScanLabel.Text" xml:space="preserve">
-    <value>仅修复 Apple 设备拍摄的实况照片</value>
+    <value>仅修复 Apple 和 Samsung 实况照片</value>
   </data>
   <data name="SettingsPage_AppleOnlyScanDesc.Text" xml:space="preserve">
-    <value>开启后仅扫描 Apple 实况照片（iPhone/iPad）。通过 ContentIdentifier UUID（照片与其配对视频都携带）识别，没有该标识的文件将在诊断结果中显示跳过</value>
+    <value>默认开启，仅处理已识别的 Apple 实况照片和 Samsung 动态照片，其他厂商默认跳过。关闭后可对其他已支持的文件执行修复。</value>
   </data>
   <data name="RepairPage_Diagnosis_NonApple" xml:space="preserve">
-    <value>非 Apple 照片</value>
+    <value>非 Apple/Samsung 照片</value>
   </data>
   <data name="RepairPage_LivePhotoVideoMissing" xml:space="preserve">
     <value>实况照片（视频缺失）</value>
@@ -4666,4 +4661,41 @@ iPhone 前置摄像头将纵向像素横向存储，依赖方向标签指示正�
   <data name="QueueStats_Unselected" xml:space="preserve"><value>未选用 {0} 项</value></data>
   <data name="SettingsPage_Debug_EnableMergeDualFileHeader.Text" xml:space="preserve"><value>合成页面支持双文件协议（实验功能）</value></data>
   <data name="SettingsPage_Debug_EnableMergeDualFileDesc.Text" xml:space="preserve"><value>在合成页面的协议列表中显示 Apple Live Photo 和 vivo 旧版双文件（JPG+MOV / JPG+MP4）。关闭后合成页面仅保留单文件封装协议。</value></data>
+  <data name="RepairPage_Task_Warning" xml:space="preserve"><value>隔离导出</value></data>
+  <data name="RepairPage_Reason_Rotation" xml:space="preserve">
+    <value>旋转 {0}°</value>
+  </data>
+  <data name="RepairPage_Reason_PhotoRotation" xml:space="preserve">
+    <value>照片旋转 {0}°</value>
+  </data>
+  <data name="RepairPage_Reason_MainVideoRotation" xml:space="preserve">
+    <value>主视频旋转 {0}°</value>
+  </data>
+  <data name="RepairPage_Reason_AutoplayRotation" xml:space="preserve">
+    <value>短视频旋转 {0}°</value>
+  </data>
+  <data name="RepairPage_Reason_PhotoMirror" xml:space="preserve">
+    <value>照片镜像</value>
+  </data>
+  <data name="RepairPage_Reason_HeicConflict" xml:space="preserve">
+    <value>HEIC 方向冲突</value>
+  </data>
+  <data name="RepairPage_Reason_Thumbnail" xml:space="preserve">
+    <value>多余缩略图/预览图</value>
+  </data>
+  <data name="RepairPage_Reason_VideoMirror" xml:space="preserve">
+    <value>视频镜像</value>
+  </data>
+  <data name="RepairPage_Reason_Orientation" xml:space="preserve">
+    <value>方向异常</value>
+  </data>
+  <data name="RepairPage_Reason_Normal" xml:space="preserve">
+    <value>正常</value>
+  </data>
+  <data name="RepairPage_Reason_ReadError" xml:space="preserve">
+    <value>读取失败</value>
+  </data>
+  <data name="RepairPage_Reason_OtherDevice" xml:space="preserve">
+    <value>其他厂商，跳过</value>
+  </data>
 </root>

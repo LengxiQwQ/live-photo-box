@@ -1,4 +1,4 @@
-/*
+﻿/*
  * SettingsPage.xaml.cs
  *
  * 设置页面（现代版）的代码后置。
@@ -243,21 +243,11 @@ namespace LivePhotoBox.Views
                 closeText: ResourceService.GetString("Msg_Cancel"));
             if (!confirmed) return;
 
-            string? processPath = Environment.ProcessPath;
-            if (!string.IsNullOrWhiteSpace(processPath))
+            ApplicationShutdown.Request(() =>
             {
-                try
-                {
-                    Process.Start(new ProcessStartInfo(processPath) { UseShellExecute = true });
-                }
-                catch (Exception ex)
-                {
-                    LogService.Error($"Failed to restart app: {ex.Message}", ex, LogSource.UI);
-                    return;
-                }
-            }
-
-            Application.Current.Exit();
+                if (Environment.ProcessPath is { } executable)
+                    Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true });
+            });
         }
 
         // 打开 Microsoft Store 应用页面，优先唤起 Store 应用，降级到浏览器
@@ -1004,26 +994,20 @@ namespace LivePhotoBox.Views
                     LogService.Info("Update UI: Background preparation complete.", LogSource.System);
                 });
 
-                if (App.MainWindow != null)
+                ApplicationShutdown.RegisterAfterDrain(async () =>
                 {
-                    App.MainWindow.Closed += async (_, _) =>
-                    {
-                        LogService.Info("Update UI: Window closed — executing pending update.", LogSource.System);
-                        await prepareTask;
-                        if (preparedPath != null)
-                            UpdateService.ExecutePreparedInstaller(preparedPath, capturedIsSetup);
-                    };
-                }
+                    await prepareTask;
+                    if (preparedPath != null) UpdateService.ExecutePreparedInstaller(preparedPath, capturedIsSetup);
+                });
                 return;
             }
 
             // 「立即重启并更新」
             LogService.Info("Update UI: User chose 'Restart now'.", LogSource.System);
-            UpdateService.LaunchInstaller(downloadedPath, isSetup);
+            ApplicationShutdown.Request(() => UpdateService.LaunchInstaller(downloadedPath, isSetup));
 
-            // 退出应用（给安装/替换脚本让路）
-            LogService.MarkCleanShutdown();
-            Application.Current.Exit();
+            // The unified shutdown coordinator owns the completion marker.
+
         }
 
         /// <summary>

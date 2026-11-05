@@ -545,14 +545,16 @@ namespace LivePhotoBox.ViewModels
 
         // 释放子 ViewModel 资源：停止 DispatcherTimer、解除 Tick 回调、
         // 取消 CancellationToken、释放 ManualResetEventSlim、清空任务集合。
-        // 在窗口关闭时由 MainWindow.Closed 调用。
-        public void Cleanup()
+        // 由统一关闭流程在后台任务结束后调用。
+        private static void CleanupEach(params Action[] actions)
         {
-            Merge.Cleanup();
-            Split.Cleanup();
-            Repair.Cleanup();
-            Edit.Cleanup();
+            foreach (var action in actions)
+                try { action(); }
+                catch (Exception error) { ApplicationShutdown.RecordCleanupFailure(error); }
         }
+
+        public void RequestStop() => CleanupEach(Merge.RequestStop, Split.RequestStop, Repair.RequestStop);
+        public void Cleanup() => CleanupEach(Merge.Cleanup, Split.Cleanup, Repair.Cleanup, Edit.Cleanup);
 
         #endregion
     }

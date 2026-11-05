@@ -1,4 +1,4 @@
-/*
+﻿/*
  * WorkViewModelBase.cs
  *
  * 工作流型页面（拆分/修复/合成）的抽象基类。
@@ -134,10 +134,10 @@ namespace LivePhotoBox.ViewModels
         }
 
         // 输入配置是否可编辑（处理中和扫描中不可编辑：扫描正在使用输入目录，禁止改动）。
-        public bool CanEditInputConfiguration => !IsProcessing && !IsScanning;
+        public bool CanEditInputConfiguration => !ApplicationShutdown.IsClosing && !IsProcessing && !IsScanning;
         // 输出配置是否可编辑（处理中不可编辑；扫描中是否可编辑由子类决定）。
         // 默认扫描中锁定，合成页覆写为仅处理中锁定，允许扫描时改输出目录。
-        public virtual bool CanEditOutputConfiguration => !IsProcessing && !IsScanning;
+        public virtual bool CanEditOutputConfiguration => !ApplicationShutdown.IsClosing && !IsProcessing && !IsScanning;
 
         // 是否可以开始处理（默认 true，子类可重写限制）。
         public virtual bool IsProcessingAllowed => true;
@@ -250,8 +250,21 @@ namespace LivePhotoBox.ViewModels
         // 注意：ProgressBarState 已由 OnIsScanningChanged(true) 设为 Scanning，此处不覆盖。
         private int _scanSessionVersion;
 
+        private WorkLifetime.Lease? _scanLease;
+        private WorkLifetime.Lease? _runLease;
+        public void RequestStop()
+        {
+            _isCleaningUp = true;
+            _cancelledByUser = true;
+            _scanSessionVersion++;
+            _scanCancellationTokenSource?.Cancel();
+            _cancellationTokenSource?.Cancel();
+            PauseEvent.Set();
+        }
+
         protected void BeginScanSession()
         {
+            _scanLease = ApplicationShutdown.Work.TryBegin(GetType().Name + ".scan");
             _scanSessionVersion++;
             _scanCancelledByUser = false;
             _scanProcessed = 0;
@@ -350,6 +363,7 @@ namespace LivePhotoBox.ViewModels
         // 初始化运行状态，标记 IsProcessing=true，调用子类钩子。
         protected void InitializeRunState()
         {
+            _runLease = ApplicationShutdown.Work.TryBegin(GetType().Name + ".convert");
             IsProcessing = true;
             IsPaused = false;
             _isPausing = false;
@@ -361,6 +375,9 @@ namespace LivePhotoBox.ViewModels
         // 结束运行状态，根据完成情况设置进度条颜色，释放资源。
         protected void FinalizeRunState()
         {
+            _runLease?.Dispose();
+            _runLease = null;
+            if (_isCleaningUp || ApplicationShutdown.IsClosing) return;
             IsProcessing = false;
             IsPaused = false;
 
@@ -371,41 +388,23 @@ namespace LivePhotoBox.ViewModels
             // 在重置 _cancelledByUser 之前调用，让子类能检测到取消状态
             OnFinalizeRunState();
 
-            // 关闭中：跳过 UI 状态更新，只做资源释放
-            if (!_isCleaningUp)
+            if (_cancelledByUser)
             {
-                if (_cancelledByUser)
-                {
-                    ProgressBarState = Models.ProgressBarState.Cancelled;
-                    _cancelledByUser = false;
-                }
-                else
-                {
-                    ProgressBarState = Progress >= 100 ? Models.ProgressBarState.Success : Models.ProgressBarState.Idle;
-                }
-
-                PauseEvent.Set();
-                _cancellationTokenSource?.Dispose();
-                _cancellationTokenSource = null;
-                NotifyStatusChanged();
+                ProgressBarState = Models.ProgressBarState.Cancelled;
+                _cancelledByUser = false;
             }
-            else
-            {
-                // 关闭流程：先 Set 再 Dispose，保证不会在 Dispose 后还被调用。
-                // CleanupTokens() 可能已经在 UI 线程调用了 Dispose，
-                // 这里做防御性捕获。
-                PauseEvent.Set();
-                _cancellationTokenSource?.Dispose();
-                _cancellationTokenSource = null;
-                try { PauseEvent.Dispose(); } catch (ObjectDisposedException) { }
-            }
+            else ProgressBarState = Progress >= 100 ? Models.ProgressBarState.Success : Models.ProgressBarState.Idle;
+            PauseEvent.Set();
+            _cancellationTokenSource?.Dispose();
+            _cancellationTokenSource = null;
+            NotifyStatusChanged();
         }
 
         // 获取或创建新的处理取消 Token。
         protected CancellationToken GetProcessingToken()
         {
             _cancellationTokenSource?.Dispose();
-            _cancellationTokenSource = new CancellationTokenSource();
+            _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(ApplicationShutdown.Work.Token);
             return _cancellationTokenSource.Token;
         }
 
@@ -431,7 +430,7 @@ namespace LivePhotoBox.ViewModels
         protected CancellationToken GetScanningToken()
         {
             _scanCancellationTokenSource?.Dispose();
-            _scanCancellationTokenSource = new CancellationTokenSource();
+            _scanCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(ApplicationShutdown.Work.Token);
             return _scanCancellationTokenSource.Token;
         }
 
@@ -440,18 +439,11 @@ namespace LivePhotoBox.ViewModels
         // 因此 PauseEvent.Dispose() 两边都加 try-catch 防御 ObjectDisposedException。
         protected void CleanupTokens()
         {
-            _isCleaningUp = true;
-            _scanCancellationTokenSource?.Cancel();
             _scanCancellationTokenSource?.Dispose();
             _scanCancellationTokenSource = null;
-            _cancellationTokenSource?.Cancel();
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = null;
-            PauseEvent.Set();
-            // PauseEvent 包裹原生 WaitHandle。正常路径（处理已完成）FinalizeRunState
-            // 不负责释放它，由这里 Dispose；中途关闭路径 FinalizeRunState 也会尝试
-            // Dispose，两边都防御 ObjectDisposedException。
-            try { PauseEvent.Dispose(); } catch (ObjectDisposedException) { }
+            PauseEvent.Dispose();
         }
 
         #endregion

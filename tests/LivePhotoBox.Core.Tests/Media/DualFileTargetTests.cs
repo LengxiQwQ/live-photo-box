@@ -11,11 +11,13 @@ namespace LivePhotoBox.Core.Tests.Media;
 
 public sealed class DualFileTargetTests
 {
-    [Fact]
-    public async Task MinimumApplePairPublishesValidMovieAndCleansItsOnlyCid()
+    [Theory]
+    [InlineData(0L)]
+    [InlineData(200000L)]
+    public async Task MinimumApplePairPublishesValidMovieAndCleansItsOnlyCid(long cover)
     {
         using var folder = new P9TargetTestInputs.Folder(nameof(MinimumApplePairPublishesValidMovieAndCleansItsOnlyCid));
-        var bundle = P9TargetTestInputs.Bundle(folder.Path, mov: true);
+        var bundle = P9TargetTestInputs.Bundle(folder.Path, cover: cover, mov: true);
         string image = Path.Combine(folder.Path, "target.jpg");
         var receipt = await StructuredTargetWriterService.WriteAsync(bundle,
             OutputProfile.Create(TargetProtocol.AppleLivePhoto, OutputMediaFormat.JpegMov), image,
@@ -23,6 +25,10 @@ public sealed class DualFileTargetTests
         Assert.NotNull(receipt.VideoPath);
         var facts = await new SourceInspector().InspectAsync(image, receipt.VideoPath);
         Assert.Equal(SourceProtocol.AppleLivePhoto, facts.Protocol);
+        Assert.Equal(cover, facts.Timing.CoverTimestampUs);
+        var videoFacts = await new SourceInspector().InspectAsync(receipt.VideoPath!);
+        Assert.Equal(facts.PairingIdentifier, videoFacts.PairingIdentifier);
+        Assert.Equal(cover, videoFacts.Timing.CoverTimestampUs);
         using var workspace = new MediaWorkspace();
         var neutral = await new NeutralMediaService().CreateNeutralBundleAsync(image, receipt.VideoPath, workspace,
             SplitMediaRequirements.Get(SplitMediaFormat.KeepSource), PreservationPolicy.BestEffort);

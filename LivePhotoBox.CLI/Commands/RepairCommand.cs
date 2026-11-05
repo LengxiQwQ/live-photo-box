@@ -1,8 +1,8 @@
-/*
+﻿/*
  * RepairCommand.cs
  *
  * 修复命令：分析并修复实况照片/视频的元数据问题（旋转、缩略图、HEIC 方向、视频旋转）。
- * 当前处于 Rebuilt-only 架构，Native 修复能力未就绪（P8 阶段实现），运行时返回 rebuilt_not_ready。
+ * 使用 Native 诊断和修复服务，按逐项结果发布新文件。
  */
 
 using LivePhotoBox.Cli.Infrastructure;
@@ -39,20 +39,20 @@ namespace LivePhotoBox.Cli.Commands
             var noHeicOpt = new Option<bool>("--no-heic") { Description = "Disable HEIC/HEIF orientation fix." };
             var noVideoOpt = new Option<bool>("--no-video") { Description = "Disable video rotation bake." };
 
-            var allDevicesOpt = new Option<bool>("--all-devices") { Description = "Repair files from all devices. Default: only Apple Live Photos (ContentIdentifier UUID) are repaired." };
+            var allDevicesOpt = new Option<bool>("--all-devices") { Description = "Repair files from all devices. Default: Apple Live Photos and Samsung Motion Photos are repaired; other devices are skipped." };
 
             var repairLongVideosOpt = new Option<bool>("--repair-long-videos") { Description = "Also repair videos longer than 3.5s (not real live photos). Default: skipped." };
 
             var copyPerfectOpt = new Option<bool>("--copy-perfect") { Description = "Also copy files that need no repair to the output folder (batch mode only)." };
 
-            var parallelOpt = new Option<int>("--parallel", "-j") { DefaultValueFactory = _ => Math.Min(Environment.ProcessorCount, 5), Description = "How many files to process at once (1-64). More = faster CPU usage." };
+            var parallelOpt = new Option<int>("--parallel", "-j") { DefaultValueFactory = _ => Math.Min(Environment.ProcessorCount, 5), Description = "Accepted for CLI compatibility (1-64). Repair currently processes file pairs sequentially." };
             var yesOpt = new Option<bool>("--yes", "-y") { Description = "Skip confirmation prompts. Useful for scripts / automation." };
             var jsonOpt = new Option<bool>("--json") { Description = "Output machine-readable JSON to stdout (implies --yes)." };
 
             var dryRunOpt = new Option<bool>("--dry-run") { Description = "Preview: show what would be done, don't actually process files." };
 
             var verboseOpt = new Option<bool>("--verbose", "-v") { Description = "Show per-file status messages instead of summary only." };
-            var overwriteOpt = new Option<bool>("--overwrite", "-w") { Description = "Replace existing files. Without this, name conflicts get auto-renamed (photo.jpg -> photo (2).jpg)." };
+            var overwriteOpt = new Option<bool>("--overwrite", "-w") { Description = "Unavailable for repair. Output name conflicts are resolved by choosing a new name." };
             var recursiveOpt = new Option<bool>("--recursive", "-r") { Description = "Also scan subdirectories inside the input folder." };
             var preserveSubdirsOpt = new Option<bool>("--preserve-subdirs", "-s") { Description = "Keep source subdirectory structure in the output folder." };
             var cmd = new Command("repair",
@@ -176,19 +176,101 @@ namespace LivePhotoBox.Cli.Commands
             bool overwrite, bool recursive, bool preserveSubdirs,
             CancellationToken ct)
         {
-            try
+            if (overwrite || (copyPerfect && dir == null))
             {
-                return await ProcessingPipelineRouter.RunAsync<int>("repair", () =>
-                    throw new RebuiltPipelineNotReadyException("repair"));
-            }
-            catch (RebuiltPipelineNotReadyException exception)
-            {
+                string message = overwrite
+                    ? "Repair creates new files. --overwrite is unavailable."
+                    : "--copy-perfect requires a batch input directory.";
                 if (json)
-                    Console.WriteLine(JsonSerializer.Serialize(new { status = "failed", errorCode = "rebuilt_not_ready", operation = exception.Operation, error = exception.Message }));
+                    Console.WriteLine(JsonSerializer.Serialize(new { status = "failed", error = message }));
                 else
-                    CliConsole.WriteErrorLine($"Error: {exception.Message}");
+                    CliConsole.WriteErrorLine(message);
                 return 1;
             }
+
+            string root = dir?.FullName ?? Path.GetDirectoryName(Path.GetFullPath(singlePath!))!;
+            string destination = output?.FullName ?? (dir == null
+                ? root : Path.Combine(root, new DirectoryInfo(root).Name + "_repaired"));
+            string destinationPrefix = Path.TrimEndingDirectorySeparator(destination) + Path.DirectorySeparatorChar;
+            var files = singlePath != null
+                ? new[] { Path.GetFullPath(singlePath) }
+                : Directory.EnumerateFiles(root, "*", new EnumerationOptions
+                {
+                    RecurseSubdirectories = recursive,
+                    IgnoreInaccessible = true,
+                    AttributesToSkip = FileAttributes.ReparsePoint
+                }).Where(path =>
+                    (string.Equals(root, destination, StringComparison.OrdinalIgnoreCase) ||
+                     !path.StartsWith(destinationPrefix, StringComparison.OrdinalIgnoreCase)) &&
+                    (ImageExtensions.Contains(Path.GetExtension(path)) || VideoExtensions.Contains(Path.GetExtension(path))))
+                  .ToArray();
+
+            if (!yes && !dryRun && !json && !Console.IsInputRedirected)
+            {
+                Console.Write("Create repaired image copies? [y/N] ");
+                if (!string.Equals(Console.ReadLine()?.Trim(), "y", StringComparison.OrdinalIgnoreCase))
+                    return 0;
+            }
+
+            var options = new RepairOptions
+            {
+                FixImageRotation = !noRotate,
+                StripImageThumbnail = !noThumbnail,
+                FixHeicOrientation = !noHeic,
+                FixVideoRotation = !noVideo
+            };
+
+            var results = new List<object>();
+            int succeeded = 0, failed = 0, skipped = 0, warned = 0, planned = 0, copied = 0;
+            foreach (string file in files)
+            {
+                ct.ThrowIfCancellationRequested();
+                string extension = Path.GetExtension(file);
+                LivePhotoRepairService.RepairResult result;
+                string folder = preserveSubdirs && dir != null
+                    ? Path.Combine(destination, Path.GetRelativePath(root, Path.GetDirectoryName(file)!))
+                    : destination;
+                try
+                {
+                    if (ImageExtensions.Contains(extension))
+                        result = noRotate && noThumbnail && noHeic && noVideo
+                            ? new("skipped", "All image repair options were disabled.")
+                            : await LivePhotoRepairService.RepairImageFileAsync(file, folder, allDevices, dryRun, options, ct, copyPerfect);
+                    else
+                        result = await LivePhotoRepairService.RepairVideoFileAsync(
+                            file, folder, allDevices, repairLongVideos, dryRun, dir != null, options, ct, copyPerfect);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    result = new("failed", ex.Message);
+                }
+
+                switch (result.Status)
+                {
+                    case "success": succeeded++; break;
+                    case "failed": failed++; break;
+                    case "warning": warned++; break;
+                    case "planned": planned++; break;
+                    case "copied": copied++; break;
+                    default: skipped++; break;
+                }
+                string? color = result.Status switch
+                {
+                    "success" => "green",
+                    "warning" => "yellow",
+                    "failed" => "red",
+                    _ => null
+                };
+                results.Add(new { file, status = result.Status, color, message = result.Message, image = result.Image, video = result.Video });
+                if (!json && (verbose || singlePath != null || result.Status != "skipped"))
+                    Console.WriteLine($"[{result.Status}] {file} — {result.Message} {result.Image} {result.Video}");
+            }
+
+            if (json)
+                Console.WriteLine(JsonSerializer.Serialize(new { succeeded, failed, skipped, warned, planned, copied, results }));
+            else
+                Console.WriteLine($"Repaired: {succeeded}, warning: {warned}, failed: {failed}, skipped: {skipped}, planned: {planned}, copied: {copied}");
+            return failed == 0 ? 0 : 1;
         }
     }
 }

@@ -1,4 +1,4 @@
-namespace LivePhotoBox.Models
+﻿namespace LivePhotoBox.Models
 {
     // 表示照片/视频的诊断问题类型。
     public enum RepairIssueType
@@ -17,6 +17,12 @@ namespace LivePhotoBox.Models
         public RepairIssueType IssueType { get; set; }
         // 问题描述文本
         public string IssueDescription { get; set; } = string.Empty;
+        // Structured diagnosis for concise, localized queue labels; raw diagnostics remain in IssueDescription.
+        public int ImageOrientation { get; set; } = 1;
+        public bool NeedsImageOrientationRepair { get; set; }
+        public bool HasHeicOrientationConflict { get; set; }
+        public int AutoplayVideoRotationAngle { get; set; }
+        public bool NeedsEmbeddedVideoTransform { get; set; }
         // 检测到的旋转角度（0/90/180/270）
         public int RotationAngle { get; set; } = 0;
         // 是否需要修复（NeedsStrip 或 NeedsRebuild）
@@ -27,6 +33,7 @@ namespace LivePhotoBox.Models
         public string HeicOriginalRotation { get; set; } = string.Empty;
         // Whether this file is a video (MOV/MP4).
         public bool IsVideo { get; set; } = false;
+        public bool IsSamsungMotionPhoto { get; set; }
         // Video rotation angle from QuickTime Rotation tag (0/90/180/270).
         public int VideoRotationAngle { get; set; } = 0;
         // Video track transformation: "flip_vertical", "flip_horizontal", or "" if none.

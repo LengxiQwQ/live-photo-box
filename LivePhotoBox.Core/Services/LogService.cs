@@ -1,4 +1,4 @@
-using LivePhotoBox.Models;
+﻿using LivePhotoBox.Models;
 using LivePhotoBox.Media.Models;
 using System;
 using System.Collections.Concurrent;
@@ -146,6 +146,13 @@ namespace LivePhotoBox.Services
 
         // Gracefully shuts down the logging service.
         // Writes the CLEAN SHUTDOWN marker, flushes all pending entries, and stops the flush loop.
+        internal static bool LastSessionShutdownTimedOut { get; private set; }
+        internal static void RecordShutdownTimeout()
+        {
+            if (_currentLogPath != null)
+                File.WriteAllText(_currentLogPath + ".timeout", $"FORCED SHUTDOWN TIMEOUT {DateTimeOffset.UtcNow:O}; recovery retained.");
+        }
+
         public static void MarkCleanShutdown()
         {
             if (string.IsNullOrEmpty(_currentLogPath)) return;
@@ -578,6 +585,11 @@ namespace LivePhotoBox.Services
                     tail = reader.ReadToEnd();
                 }
 
+                if (File.Exists(PreviousLogPath + ".timeout"))
+                {
+                    LastSessionShutdownTimedOut = true;
+                    return;
+                }
                 if (!tail.Contains(CleanShutdownMarker, StringComparison.Ordinal))
                 {
                     LastSessionCrashed = true;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Globalization;
@@ -873,6 +873,18 @@ public static class NativeMediaService
         },CancellationToken.None);
     }
 
+    internal static Task<(VideoFacts Facts, uint Reflection)> ProbeVideoRepairAsync(string path, CancellationToken token)
+    {
+        return Task.Run(() =>
+        {
+            using var context = NativeContext.Create(token);
+            var native = new NativeVideoItemFacts { StructSize = (uint)Marshal.SizeOf<NativeVideoItemFacts>() };
+            var result = NativeMethods.ProbeVideoRepair(context.Handle, path, ref native, out uint reflection);
+            context.ThrowIfFailed(result);
+            return (MapFromNativeVideoFacts(native), reflection);
+        }, token);
+    }
+
     public static Task<VideoFacts> ProbeVideoAsync(
         string videoPath,
         CancellationToken cancellationToken = default)
@@ -984,6 +996,20 @@ public static class NativeMediaService
         }, cancellationToken);
     }
 
+    internal static Task<(uint Changes, NativeRegisteredOutputEvidence? Evidence)> RepairImageExifAsync(
+        string source, string? output, uint actions, CancellationToken token)
+    {
+        return Task.Run(() =>
+        {
+            using var context = NativeContext.Create(token);
+            var result = NativeMethods.RepairImageExif(context.Handle, source, output, actions, out uint changed);
+            context.ThrowIfFailed(result);
+            var evidence = changed != 0 && output != null
+                ? CaptureRegisteredOutputEvidence(context, output, MediaArtifactKind.PrimaryImage) : null;
+            return (changed, evidence);
+        }, token);
+    }
+
     public static Task TransformJpegLosslesslyAsync(
         string inputImagePath,
         string outputImagePath,
@@ -1062,7 +1088,7 @@ public static class NativeMediaService
         VideoCodec targetCodec,
         int crf,
         CancellationToken cancellationToken = default,
-        PreservationPolicy preservationPolicy = PreservationPolicy.Strict)
+        PreservationPolicy preservationPolicy = PreservationPolicy.Strict, bool repairOrientation = false)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
@@ -1077,7 +1103,7 @@ public static class NativeMediaService
                 };
                 var preservationRequest = new NativeVideoPreservationRequestV1
                 {
-                    StructSize = 16, ApiVersion = 1, Policy = (uint)preservationPolicy
+                    StructSize = 16, ApiVersion = repairOrientation ? 2u : 1u, Policy = (uint)preservationPolicy
                 };
                 if (sizeof(NativeVideoPreservationResultV2) != 192)
                     throw new InvalidDataException("Complete video proof ABI layout mismatch.");
@@ -1255,6 +1281,31 @@ public static class NativeMediaService
         }
 
         return result;
+    }
+
+    internal static IReadOnlyDictionary<string, NativeRegisteredOutputEvidence> CaptureSamsungRepairOutputs(
+        NativeContext context,string workspace,string? finalPath)
+    {
+        var allowed=new Dictionary<string,MediaArtifactKind>(StringComparer.OrdinalIgnoreCase);
+        foreach(string stem in new[]{"main","autoplay"})
+            foreach(string suffix in new[]{"source","video","encoded","verified"})
+                allowed.Add(Path.GetFullPath(Path.Combine(workspace,$"{stem}-{suffix}.mp4")),MediaArtifactKind.MotionVideo);
+        if(finalPath!=null)allowed.Add(Path.GetFullPath(finalPath),MediaArtifactKind.PrimaryImage);
+        var outputs=new Dictionary<string,NativeRegisteredOutputEvidence>(StringComparer.OrdinalIgnoreCase);
+        foreach(var record in QueryContextStagedOutputs(context.Handle))
+        {
+            string path=Path.GetFullPath(record.FinalPath);
+            if(!allowed.TryGetValue(path,out var role)||role!=record.ArtifactRole||record.LinkCount!=1||record.FileSize==0||outputs.ContainsKey(path))
+                throw new InvalidDataException("Samsung repair returned an unbound or duplicate output receipt.");
+            var expected=new WindowsFileIdentity {VolumeSerialNumber=record.VolumeSerial,FileIndex=record.FileIndex,LinkCount=record.LinkCount,FileAttributes=0};
+            using var handle=WindowsOwnedFilePublisher.OpenOwnedStagedFile(path,expected);
+            var evidence=WindowsOwnedFilePublisher.CaptureOwnedHandleEvidence(handle,path,expected,CancellationToken.None);
+            if((ulong)evidence.ByteLength!=record.FileSize)throw new InvalidDataException("Samsung repair staging size changed.");
+            var result=new NativeRegisteredOutputEvidence(evidence.FileIdentity,evidence.ByteLength,evidence.Sha256);
+            WorkspaceOwnershipRegistry.RegisterCreatedFile(path,result.FileIdentity,result.ByteLength,result.Sha256,role.ToString());
+            outputs.Add(path,result);
+        }
+        return outputs;
     }
 
     internal static NativeRegisteredOutputEvidence CaptureRegisteredOutputEvidence(

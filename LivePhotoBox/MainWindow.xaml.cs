@@ -199,15 +199,7 @@ namespace LivePhotoBox
                 if (aw != null) aw.Title = localizedTitle;
             };
 
-            // 拦截窗口关闭事件，提供“秒关”体验并防止后台线程崩溃
-            Closed += (_, _) =>
-            {
-                if (!_isShuttingDown)
-                {
-                    LogService.Info("MainWindow closed natively.", LogSource.UI);
-                    LogService.MarkCleanShutdown();
-                }
-            };
+            Closed += (_, _) => ApplicationShutdown.OnWindowClosed();
 
             // 启用自定义标题栏
             ExtendsContentIntoTitleBar = true;
@@ -391,34 +383,26 @@ namespace LivePhotoBox
 
         private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
         {
-            if (_isShuttingDown) return;
+            if (ApplicationShutdown.ReadyToClose) return;
+            args.Cancel = true;
+            ApplicationShutdown.Request();
+        }
+
+        internal void HideForShutdown()
+        {
             _isShuttingDown = true;
+            AppWindow.Hide();
+        }
 
-            LogService.Info("MainWindow AppWindow.Closing triggered. Starting graceful shutdown.", LogSource.UI);
-
-            // 1. 同步保存当前状态并清理可能引发崩溃的系统资源
+        internal void ReleaseWindowResourcesForShutdown()
+        {
             RemoveSettingsShortcutHook();
             SaveWindowLayout();
             CleanupAcrylicController();
-            
             _successFlashCts?.Cancel();
             _successFlashCts?.Dispose();
             _successFlashCts = null;
             ClearTaskbarProgress();
-
-            // 4. 触发 ViewModel 的状态清理（此操作会触发 CancellationToken，安全结束 ffmpeg/exiftool 进程）
-            try
-            {
-                ViewModel.Cleanup();
-            }
-            catch (Exception ex)
-            {
-                LogService.Warn($"Error during ViewModel.Cleanup on shutdown: {ex.Message}", source: LogSource.UI);
-            }
-
-            LogService.MarkCleanShutdown();
-            // 不取消、隐藏或另外结束消息循环；让这次原生窗口关闭正常完成，
-            // XAML 及其调试诊断组件按窗口生命周期释放资源。
         }
 
         // 响应 AppViewModel 属性变更：状态栏可见性、任务栏进度条

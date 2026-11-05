@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -737,7 +737,7 @@ Do you want to restart now?</value>
     <value>Queue Empty</value>
   </data>
   <data name="RepairPage_EmptyQueueDesc.Text" xml:space="preserve">
-    <value>Import iPhone Live Photos into a folder, then click Scan to auto-diagnose common Windows display issues (rotation, stretching, thumbnail anomalies) and fix them losslessly.</value>
+    <value>Import iPhone Live Photos into a folder, then click Scan to auto-diagnose common Windows display issues (rotation, stretching, thumbnail anomalies) and export repaired copies. Video repair re-encodes the picture.</value>
   </data>
   <data name="RepairPage_EmptyQueueHint_Part1.Text" xml:space="preserve">
     <value>Click </value>
@@ -1242,15 +1242,9 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>What Does It Fix?</value>
   </data>
   <data name="HomePage_RepairTutorial_Step1_Desc.Text" xml:space="preserve">
-    <value>After exporting iPhone Live Photos, common display issues include:
+    <value>Checks JPEG orientation, confirmed embedded thumbnails and previews, HEIC orientation tags and MOV display matrices.
 
-1. Stretched Thumbnail with Extra Embedded Data (pre‑iOS 17.3):
-Apple embedded a low-resolution thumbnail for compatibility, but it carried an orientation tag that Windows misinterpreted as landscape, causing the thumbnail to be stretched or squished.
-iOS 17.3 and later no longer embed this data.
-Fixed by lossless jpegtran rotation and stripping the leftover embedded thumbnail.
-
-2. Front camera Live Photo video portion may rotate:
-The iPhone front camera stores portrait pixels horizontally, relying on an orientation tag for correct display — but Windows ignores it. Corrected via FFmpeg re-encoding.</value>
+JPEG rotation requires a complete lossless transform. HEIC EXIF follows a confirmed container display transform. Video is re-encoded to apply rotation or reflection while retaining audio and confirmed Apple pairing and cover. Unsupported cases include an explanation.</value>
   </data>
   <data name="HomePage_RepairTutorial_Step2_Title.Text" xml:space="preserve">
     <value>Scan &amp; Review Diagnosis</value>
@@ -1273,12 +1267,12 @@ The "Diagnosis" column on the right shows the specific issue for each photo. Cli
     <value>Once confirmed, select an output mode:
 
 · Output to Directory — Repaired files are saved to a separate folder, keeping originals untouched (recommended for first use)
-· Replace Original — Repairs files in place; please back up first
+· Copy Beside Source — Create repaired copies beside the originals
 
 Click "Start Repair" and the app will handle everything automatically:
-· JPEG → jpegtran lossless rotation + strip extra thumbnails
+· JPEG → lossless rotation and confirmed thumbnail and preview cleanup
 · HEIC → correct erroneous Orientation tags
-· Video → FFmpeg re-encode to remove rotation matrix
+· Video → normalize rotation and mirror transforms, retain audio, and rebuild confirmed Apple pairing and cover
 
 Open the output folder when done — your photos are back to normal ~</value>
   </data>
@@ -1391,7 +1385,7 @@ Open the output folder when done — your photos are back to normal ~</value>
     <value>Input Folder Not Selected</value>
   </data>
   <data name="RepairPage_Msg_NoInputDirectory" xml:space="preserve">
-    <value>Please select a folder containing images to be repaired. The app will automatically scan for images with thumbnail rotation or stretching issues caused by device compatibility and perform a lossless repair.</value>
+    <value>Select a folder and scan for orientation and embedded thumbnail issues. Repair exports new files and preserves originals.</value>
   </data>
   <data name="MergePage_Msg_NoOutputDirectoryTitle" xml:space="preserve">
     <value>Save Directory Not Set</value>
@@ -2068,7 +2062,7 @@ Then click "Start Split".</value>
     <value>To Output Dir</value>
   </data>
   <data name="RepairPage_OutputSwitch.OffContent" xml:space="preserve">
-    <value>Replace Original</value>
+    <value>Copy Beside Source</value>
   </data>
   <data name="SettingsPage_ScanThumbnailToggleLabel.Text" xml:space="preserve">
     <value>Load video thumbnails during scan</value>
@@ -2089,7 +2083,7 @@ Then click "Start Split".</value>
     <value>Maximum number of HEIC thumbnails decoded in parallel during lightbox preview. Set to 1 for sequential decoding, higher values leverage GPU for faster browsing.</value>
   </data>
   <data name="RepairPage_GroupHeaderPairs" xml:space="preserve">
-    <value>Live Photo Pairs</value>
+    <value>Live Photos</value>
   </data>
   <data name="RepairPage_GroupHeaderStandaloneImg" xml:space="preserve">
     <value>Standalone Photos</value>
@@ -2149,7 +2143,7 @@ Then click "Start Split".</value>
     <value>Skipped (HEIC/HEIF)</value>
   </data>
   <data name="RepairPage_Task_SkippedNonApple" xml:space="preserve">
-    <value>Skipped (non-Apple)</value>
+    <value>Skipped (not Apple/Samsung)</value>
   </data>
   <data name="RepairPage_Task_SkippedDuration" xml:space="preserve">
     <value>Skipped (duration &gt; 3.5s)</value>
@@ -2176,13 +2170,13 @@ Then click "Start Split".</value>
     <value>Off</value>
   </data>
   <data name="SettingsPage_AppleOnlyScanLabel.Text" xml:space="preserve">
-    <value>Only Repair Apple Live Photos</value>
+    <value>Only repair Apple and Samsung Live Photos</value>
   </data>
   <data name="SettingsPage_AppleOnlyScanDesc.Text" xml:space="preserve">
-    <value>Only scan Apple Live Photos (iPhone/iPad). Detection uses the ContentIdentifier UUID — present in both the still image and its paired video. Files without it are skipped in the diagnosis results.</value>
+    <value>Enabled by default. Repair recognized Apple Live Photos and Samsung Motion Photos; skip other devices. Disable to repair other supported files.</value>
   </data>
   <data name="RepairPage_Diagnosis_NonApple" xml:space="preserve">
-    <value>Non-Apple Photo</value>
+    <value>Not an Apple/Samsung photo</value>
   </data>
   <data name="RepairPage_LivePhotoVideoMissing" xml:space="preserve">
     <value>Live Photo (video missing)</value>
@@ -4624,4 +4618,41 @@ Inputs: {1}
   <data name="QueueStats_Unselected" xml:space="preserve"><value>Unselected: {0}</value></data>
   <data name="SettingsPage_Debug_EnableMergeDualFileHeader.Text" xml:space="preserve"><value>Support dual-file protocols in Merge (Experimental)</value></data>
   <data name="SettingsPage_Debug_EnableMergeDualFileDesc.Text" xml:space="preserve"><value>Show Apple Live Photo and vivo legacy dual-file protocols in the Merge page. When disabled, only single-file packaging protocols are shown.</value></data>
+  <data name="RepairPage_Task_Warning" xml:space="preserve"><value>Isolated Output</value></data>
+  <data name="RepairPage_Reason_Rotation" xml:space="preserve">
+    <value>Rotation {0}°</value>
+  </data>
+  <data name="RepairPage_Reason_PhotoRotation" xml:space="preserve">
+    <value>Photo rotation {0}°</value>
+  </data>
+  <data name="RepairPage_Reason_MainVideoRotation" xml:space="preserve">
+    <value>Main video rotation {0}°</value>
+  </data>
+  <data name="RepairPage_Reason_AutoplayRotation" xml:space="preserve">
+    <value>Autoplay rotation {0}°</value>
+  </data>
+  <data name="RepairPage_Reason_PhotoMirror" xml:space="preserve">
+    <value>Photo mirror</value>
+  </data>
+  <data name="RepairPage_Reason_HeicConflict" xml:space="preserve">
+    <value>HEIC orientation conflict</value>
+  </data>
+  <data name="RepairPage_Reason_Thumbnail" xml:space="preserve">
+    <value>Embedded thumbnail/preview</value>
+  </data>
+  <data name="RepairPage_Reason_VideoMirror" xml:space="preserve">
+    <value>Video mirror</value>
+  </data>
+  <data name="RepairPage_Reason_Orientation" xml:space="preserve">
+    <value>Orientation issue</value>
+  </data>
+  <data name="RepairPage_Reason_Normal" xml:space="preserve">
+    <value>Normal</value>
+  </data>
+  <data name="RepairPage_Reason_ReadError" xml:space="preserve">
+    <value>Read failed</value>
+  </data>
+  <data name="RepairPage_Reason_OtherDevice" xml:space="preserve">
+    <value>Other device, skipped</value>
+  </data>
 </root>

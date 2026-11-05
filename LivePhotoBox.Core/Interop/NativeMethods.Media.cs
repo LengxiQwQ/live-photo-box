@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -10,6 +10,18 @@ namespace LivePhotoBox.Interop;
 
 internal static partial class NativeMethods
 {
+    [LibraryImport(LibraryName, EntryPoint = "lpb_repair_samsung_v1", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult RepairSamsung(nint context,string source,string workspace,string? output,
+        ref NativeSamsungRepairRequest request,ref NativeSamsungRepairResult result);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_repair_image_exif", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult RepairImageExif(
+        nint context, string source, string? output, uint actions, out uint changed);
+
     [LibraryImport(LibraryName, EntryPoint = "lpb_get_hdr_gainmap_metadata_proof_v2")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -202,6 +214,12 @@ internal static partial class NativeMethods
         nint context,
         nint extractionPlan,
         ulong generation);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_probe_video_repair", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult ProbeVideoRepair(
+        nint context, string source, ref NativeVideoItemFacts facts, out uint reflection);
 
     [LibraryImport(LibraryName, EntryPoint = "lpb_probe_video", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
@@ -694,4 +712,19 @@ internal sealed class NativeHdrGainMapConversionTransaction : IDisposable
             context.Dispose();
         }
     }
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeSamsungRepairRequest
+{
+    public uint StructSize, ApiVersion, Actions, Reserved;
+    public NativeFileIdentity ExpectedIdentity;
+    public fixed byte SourceSha256[32];
+}
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeSamsungRepairResult
+{
+    public uint StructSize, ApiVersion, Changed, Reencoded;
+    public uint ImageOrientation, MainRotation, AutoplayRotation, Flags;
+    public fixed byte Details[2048];
 }

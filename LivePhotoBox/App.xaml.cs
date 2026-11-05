@@ -1,4 +1,4 @@
-/*
+﻿/*
  * App.xaml.cs
  *
  * 应用程序入口点。继承 Microsoft.UI.Xaml.Application，负责全局初始化：
@@ -237,6 +237,15 @@ namespace LivePhotoBox
         protected override void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
         {
             LogService.Info("Main window launch started.", LogSource.UI);
+            try
+            {
+                foreach (string issue in LivePhotoBox.Interop.WindowsSplitOutputPublisher.RecoverPublications()) LogService.Warn(issue);
+                foreach (string issue in LivePhotoBox.Interop.WindowsSplitOutputPublisher.ReconcileSourceActions()) LogService.Warn(issue);
+            }
+            catch (Exception error) when (error is System.IO.IOException or UnauthorizedAccessException)
+            {
+                LogService.Warn($"Startup recovery unavailable; affected publication will remain blocked: {error.Message}");
+            }
             MainWindow = new MainWindow();
 
             // 注册系统通知服务（商店/MSIX 版依赖 manifest 中的 toast 激活 COM 扩展，Register() 才能注册成功；
@@ -267,11 +276,12 @@ namespace LivePhotoBox
         // 在 DispatcherQueue 上执行，保证 UI 线程安全。
         private static void OnNotificationActivationRequested(string? tag)
         {
-            if (MainWindow is not LivePhotoBox.MainWindow win) return;
+            if (ApplicationShutdown.IsClosing || MainWindow is not LivePhotoBox.MainWindow win) return;
             win.DispatcherQueue.TryEnqueue(() =>
             {
                 try
                 {
+                    if (ApplicationShutdown.IsClosing) return;
                     win.ActivateFromNotification();
                     win.NavigateFromNotification(tag);
                 }

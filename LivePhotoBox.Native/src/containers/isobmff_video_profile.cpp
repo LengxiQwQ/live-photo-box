@@ -1278,6 +1278,28 @@ bool read_overlay(void* user, uint64_t offset, std::span<uint8_t> output) noexce
 
 } // namespace
 
+bool normalize_samsung_autoplay_color(std::span<const uint8_t> source,std::vector<uint8_t>& output,bool& changed) noexcept {
+    output.assign(source.begin(),source.end());changed=false;
+    try {
+        lpb::memory_random_access input{source};isobmff_video_profile actual;
+        video_profile_failure failure{};video_profile_diagnostic diagnostic{};video_profile_box_layout layout;
+        if(inspect_isobmff_video_profile_impl(input.view(),actual,failure,&diagnostic,&layout))return true;
+        if(failure!=video_profile_failure::ambiguous||diagnostic!=video_profile_diagnostic::color_description||
+            actual.codec_fourcc!=0x68766331u||actual.bit_depth_luma!=8||actual.bit_depth_chroma!=8||
+            actual.color_primaries!=1||actual.transfer_characteristics!=1||actual.matrix_coefficients!=1||
+            actual.bitstream_color_primaries!=5||actual.bitstream_transfer_characteristics!=6||actual.bitstream_matrix_coefficients!=5||
+            !actual.bitstream_full_range_present||!actual.bitstream_full_range)return true;
+        const size_t at=static_cast<size_t>(layout.moov_offset)+layout.codec_config_offset;
+        if(at>source.size()||layout.codec_config_size>source.size()-at)return false;
+        std::vector<uint8_t> config;
+        if(!patch_hvcc_sps_cicp(source.subspan(at,layout.codec_config_size),1,1,1,config)||config.size()!=layout.codec_config_size)return false;
+        std::copy(config.begin(),config.end(),output.begin()+at);
+        lpb::memory_random_access repaired{output};isobmff_video_profile verified;
+        if(!inspect_isobmff_video_profile(repaired.view(),verified,failure,&diagnostic))return false;
+        changed=true;return true;
+    }catch(...){return false;}
+}
+
 media_foundation_cicp_patch_mode select_media_foundation_cicp_patch_mode(
     const isobmff_video_profile& actual,
     const isobmff_video_profile& source_profile) noexcept

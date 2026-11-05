@@ -3471,6 +3471,14 @@ lpb_result inspect_source(
                 out_facts->motion_video.file_range.length = secondary_size;
                 out_facts->motion_video.source_index = 1;
                 strncpy_s(out_facts->pairing_identifier, image_content_id.c_str(), _TRUNCATE);
+                bool cover_present = false;
+                int64_t cover_us = -1;
+                if (!inspect_isobmff_still_image_time(sec_data, cover_present, cover_us)) {
+                    set_error(context, "Apple still-image-time is malformed or ambiguous.");
+                    return LPB_RESULT_INVALID_ARGUMENT;
+                }
+                out_facts->timing.cover_timestamp_us = cover_present ? cover_us : -1;
+
 
                 if (out_residues) {
                     std::string fp_0011, fp_0017, fp_0025, fp_002b;
@@ -5338,6 +5346,13 @@ lpb_result inspect_source(
         std::string apple_cid;
         if (extract_apple_cid_from_video(context, primary_data, apple_cid)) {
             strncpy_s(out_facts->pairing_identifier, apple_cid.c_str(), _TRUNCATE);
+            bool cover_present = false;
+            int64_t cover_us = -1;
+            if (!inspect_isobmff_still_image_time(primary_data, cover_present, cover_us)) {
+                set_error(context, "Apple still-image-time is malformed or ambiguous.");
+                return LPB_RESULT_INVALID_ARGUMENT;
+            }
+            out_facts->timing.cover_timestamp_us = cover_present ? cover_us : -1;
         }
         std::string vivo_id;
         if (extract_vivo_id_from_video(primary_data, vivo_id)) {
@@ -6870,3 +6885,53 @@ bool observe_target_xmp_packets(std::string_view standard,std::string_view exten
     }catch(...){failure=xmp_observation_failure::malformed;return false;}
 }
 } // namespace lpb::media
+
+namespace lpb::media {
+bool rewrite_samsung_repair_xmp(std::string_view xml,uint64_t video_resource,uint64_t padding,
+    uint64_t gainmap_length,uint32_t orientation,uint32_t width,uint32_t height,std::string& output,xmp_observation_failure& failure) noexcept {
+    try {
+        std::string padded;
+        if(!rewrite_target_primary_padding(xml,padding,padded,failure,true))return false;
+        target_xmp_observation observed;
+        if(!observe_target_xmp(padded,observed,failure)||!observed.directory_present||observed.micro_claim||observed.foreign_claim)return false;
+        std::vector<xmp_node> nodes;container_directory_info directory;
+        if(!scan_xmp_tree(padded,nodes,true)||!find_container_directory(nodes,directory)||directory.items.size()!=observed.items.size())return false;
+        if(orientation>1)for(const auto& node:nodes) {
+            constexpr std::string_view recipe="http://ns.adobe.com/camera-raw-settings/1.0/";
+            if(node.resolved_uri==recipe)return false;
+            for(const auto& attr:node.attributes)if(attr.resolved_uri==recipe)return false;
+        }
+        struct edit {size_t at,length;std::string value;};std::vector<edit> edits;
+        const auto property=[&](const xmp_node& owner,std::string_view ns,std::string_view key,uint64_t replacement,bool required) {
+            std::string_view value;auto result=get_node_property_value_checked(nodes,owner,ns,key,value);
+            if(result==node_property_result::absent&&owner.parent_index!=k_no_parent&&node_is(nodes[owner.parent_index],rdf_namespace,"li"))
+                result=get_node_property_value_checked(nodes,nodes[owner.parent_index],ns,key,value);
+            if(result==node_property_result::absent)return !required;
+            if(result!=node_property_result::present)return false;
+            const size_t at=static_cast<size_t>(value.data()-padded.data());if(at>padded.size()||value.size()>padded.size()-at)return false;
+            edits.push_back({at,value.size(),std::to_string(replacement)});return true;
+        };
+        bool video=false;
+        for(size_t i=0;i<observed.items.size();++i) {
+            const auto& item=observed.items[i];const auto& node=nodes[directory.items[i].node_index];
+            if(item.semantic=="MotionPhoto") {if(video||!property(node,google_item_namespace,"Length",video_resource,true))return false;video=true;}
+            else if(item.semantic=="GainMap"&&item.mime=="image/jpeg") {
+                if(!gainmap_length||!property(node,google_item_namespace,"Length",gainmap_length,true))return false;
+            }
+        }
+        if(!video)return false;
+        if(orientation>1)for(const auto& node:nodes)if(node_is(node,rdf_namespace,"Description")) {
+            if(!property(node,"http://ns.adobe.com/tiff/1.0/","Orientation",1,false)||
+               !property(node,"http://ns.adobe.com/tiff/1.0/","ImageWidth",orientation>=5?height:width,false)||
+               !property(node,"http://ns.adobe.com/tiff/1.0/","ImageLength",orientation>=5?width:height,false)||
+               !property(node,"http://ns.adobe.com/exif/1.0/","PixelXDimension",orientation>=5?height:width,false)||
+               !property(node,"http://ns.adobe.com/exif/1.0/","PixelYDimension",orientation>=5?width:height,false))return false;
+        }
+        std::sort(edits.begin(),edits.end(),[](const auto&a,const auto&b){return a.at>b.at;});output=padded;size_t bound=output.size();
+        for(const auto& edit:edits){if(edit.at+edit.length>bound)return false;output.replace(edit.at,edit.length,edit.value);bound=edit.at;}
+        target_xmp_observation after;
+        return observe_target_xmp(output,after,failure)&&after.items.size()==observed.items.size()&&
+            after.cover_present==observed.cover_present&&after.cover_us==observed.cover_us&&after.hdr_claim==observed.hdr_claim;
+    }catch(...){failure=xmp_observation_failure::malformed;return false;}
+}
+}

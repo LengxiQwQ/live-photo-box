@@ -22,14 +22,14 @@ internal static class W3HeifSyntheticBuilder
     internal static byte[] Build(
         IReadOnlyList<W3SyntheticItem> items,
         IReadOnlyList<W3SyntheticReference> references,
-        ushort primaryId = 1)
+        ushort primaryId = 1, bool primaryDimensions = false)
     {
         if (items.Count == 0) throw new ArgumentException("At least one item is required.", nameof(items));
 
         byte[] ftyp = Box("ftyp", Concat(Ascii("heic"), U32(0), Ascii("mif1")));
-        byte[] metaWithoutOffsets = BuildMeta(items, references, primaryId, payloadStart: 0);
+        byte[] metaWithoutOffsets = BuildMeta(items, references, primaryId, payloadStart: 0, primaryDimensions);
         uint payloadStart = checked((uint)(ftyp.Length + metaWithoutOffsets.Length + 8));
-        byte[] meta = BuildMeta(items, references, primaryId, payloadStart);
+        byte[] meta = BuildMeta(items, references, primaryId, payloadStart, primaryDimensions);
         if (meta.Length != metaWithoutOffsets.Length)
             throw new InvalidOperationException("Synthetic meta size changed after iloc offset calculation.");
 
@@ -46,14 +46,14 @@ internal static class W3HeifSyntheticBuilder
         IReadOnlyList<W3SyntheticItem> items,
         IReadOnlyList<W3SyntheticReference> references,
         ushort primaryId,
-        uint payloadStart)
+        uint payloadStart, bool primaryDimensions)
     {
         var children = new List<byte[]>
         {
             Box("pitm", Concat(new byte[] { 0, 0, 0, 0 }, U16(primaryId))),
             BuildIinf(items),
             BuildIref(references),
-            BuildIprp(items),
+            BuildIprp(items, primaryId, primaryDimensions),
             BuildIloc(items, payloadStart)
         };
         return Box("meta", Concat(new byte[] { 0, 0, 0, 0 }, Concat(children.ToArray())));
@@ -100,21 +100,22 @@ internal static class W3HeifSyntheticBuilder
         return Box("iref", Concat(new byte[] { 0, 0, 0, 0 }, Concat(boxes)));
     }
 
-    private static byte[] BuildIprp(IReadOnlyList<W3SyntheticItem> items)
+    private static byte[] BuildIprp(IReadOnlyList<W3SyntheticItem> items, ushort primaryId, bool primaryDimensions)
     {
         var auxiliaryItems = items.Where(item => !string.IsNullOrWhiteSpace(item.AuxiliaryType)).ToArray();
         var properties = auxiliaryItems.Select(item =>
             Box("auxC", Concat(new byte[] { 0, 0, 0, 0 }, Encoding.UTF8.GetBytes(item.AuxiliaryType!), new byte[] { 0 }))).ToArray();
-        byte[] ipco = Box("ipco", Concat(properties));
+        byte[] ipco = Box("ipco", Concat(properties.Concat(primaryDimensions ? new[] { Box("ispe", Concat(new byte[4], U32(16), U32(16))) } : Array.Empty<byte[]>()).ToArray()));
 
         var ipmaBody = new List<byte> { 0, 0, 0, 0 };
-        ipmaBody.AddRange(U32(checked((uint)auxiliaryItems.Length)));
+        ipmaBody.AddRange(U32(checked((uint)(auxiliaryItems.Length + (primaryDimensions ? 1 : 0)))));
         for (int i = 0; i < auxiliaryItems.Length; i++)
         {
             ipmaBody.AddRange(U16(auxiliaryItems[i].Id));
             ipmaBody.Add(1);
             ipmaBody.Add(checked((byte)(i + 1)));
         }
+        if (primaryDimensions) { ipmaBody.AddRange(U16(primaryId)); ipmaBody.Add(1); ipmaBody.Add(checked((byte)(auxiliaryItems.Length + 1))); }
         byte[] ipma = Box("ipma", ipmaBody.ToArray());
         return Box("iprp", Concat(ipco, ipma));
     }

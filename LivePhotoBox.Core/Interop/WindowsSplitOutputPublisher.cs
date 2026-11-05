@@ -52,7 +52,7 @@ internal sealed record SplitPublicationTraceEvent(
 /// exact file object and are updated through an exclusive handle; absent
 /// targets are published by a full-path, kernel no-replace rename.
 /// </summary>
-internal static class WindowsSplitOutputPublisher
+internal static partial class WindowsSplitOutputPublisher
 {
     private const int BufferSize = 128 * 1024;
     private const int FileRenameInfoClass = 3;
@@ -283,6 +283,7 @@ internal static class WindowsSplitOutputPublisher
         private readonly List<OutputSlot> _slots;
         private bool _committed;
         private bool _rolledBack;
+        private PublicationJournal? _journal;
         public PublishedOwnedFile? SingleReceipt { get; private set; }
 
         public SplitOutputPublicationTransaction(
@@ -324,6 +325,7 @@ internal static class WindowsSplitOutputPublisher
             }
 
             _targetDirectory = imageDirectory;
+            RecoverPublications(_targetDirectory);
             _slots = finalPaths.Select(path => new OutputSlot(Path.GetFullPath(path))).ToList();
         }
 
@@ -454,6 +456,10 @@ internal static class WindowsSplitOutputPublisher
             if (_slots.Count == 0 || _slots.Exists(slot => slot.Stage == null || slot.Baseline == null))
                 throw new InvalidOperationException("Every staged output and target baseline must be ready before commit.");
 
+            // Durable before the first rename/truncate. Recovery copies outlive
+            // delete-pending rollback handles and abrupt process termination.
+            _journal = PublicationJournal.Create(_slots, _targetDirectory);
+
             foreach (OutputSlot slot in _slots)
             {
                 token.ThrowIfCancellationRequested();
@@ -505,6 +511,7 @@ internal static class WindowsSplitOutputPublisher
 
             // Linearization point. No later filesystem operation can require
             // rollback; only already-flushed handle release remains.
+            _journal.Complete();
             _committed = true;
         }
 
@@ -808,6 +815,7 @@ internal static class WindowsSplitOutputPublisher
                 }
             }
 
+            if (failures.Count == 0) _journal?.Complete();
             return failures.Count switch
             {
                 0 => null,
@@ -920,6 +928,7 @@ internal static class WindowsSplitOutputPublisher
                 if (slot.Baseline?.Backup is { HandleDisposedByProof: false } backup)
                     CloseHandleNoThrow(backup.Handle);
             }
+            _journal?.Dispose();
         }
     }
 

@@ -82,4 +82,8 @@ const char* jpeg_backend_version() noexcept;
 
 
 
+// Repair-only complete marker transport after graph ownership was established.
+lpb_result normalize_repair_jpeg_bytes(lpb_context*, std::span<const uint8_t>,
+    uint32_t effective_orientation, bool strip_thumbnail, std::vector<uint8_t>&, bool& reencoded) noexcept;
+
 } // namespace lpb::media

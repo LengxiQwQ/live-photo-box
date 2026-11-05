@@ -55,7 +55,9 @@ enum lpb_video_sidecar_request_flag_v1
     LPB_VIDEO_SIDECAR_REQUEST_COMPATIBLE_PROFILE = 1U << 2U,
     // Private Native media preparation requirement: every video sample is independently decodable.
     LPB_VIDEO_SIDECAR_REQUEST_ALL_INTRA = 1U << 3U,
-    LPB_VIDEO_SIDECAR_REQUEST_AAC_AUDIO = 1U << 4U
+    LPB_VIDEO_SIDECAR_REQUEST_AAC_AUDIO = 1U << 4U,
+    LPB_VIDEO_SIDECAR_REQUEST_FLIP_HORIZONTAL = 1U << 5U,
+    LPB_VIDEO_SIDECAR_REQUEST_FLIP_VERTICAL = 1U << 6U
 };
 
 enum lpb_video_sidecar_container_v1

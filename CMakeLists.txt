@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.28)
+﻿cmake_minimum_required(VERSION 3.28)
 project(LivePhotoBoxNative LANGUAGES CXX)
 
 if(NOT WIN32 OR NOT MSVC OR NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
@@ -67,6 +67,7 @@ set(LPB_MEDIA_SOURCES
   LivePhotoBox.Native/src/media/heic_backend.cpp
   LivePhotoBox.Native/src/media/hdr_gainmap_conversion.cpp
   LivePhotoBox.Native/src/media/jpeg_backend.cpp
+  LivePhotoBox.Native/src/media/samsung_repair.cpp
   LivePhotoBox.Native/src/media/image_converter.cpp
   LivePhotoBox.Native/src/media/image_converter_v2.cpp
   LivePhotoBox.Native/src/media/media_api.cpp

@@ -1,4 +1,4 @@
-using Microsoft.UI.Dispatching;
+﻿using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System;
@@ -81,7 +81,7 @@ namespace LivePhotoBox.Services
             if (!_started)
             {
                 _started = true;
-                _workerCts = new CancellationTokenSource();
+                _workerCts = CancellationTokenSource.CreateLinkedTokenSource(ApplicationShutdown.Work.Token);
                 for (int i = 0; i < WorkerCount; i++)
                 {
                     var workerId = i;
@@ -188,6 +188,24 @@ namespace LivePhotoBox.Services
                 _bgItems = snapshot;
                 _bgNextIndex = 0;
             }
+        }
+
+        internal static async Task StopAsync()
+        {
+            _flushTimer?.Stop();
+            _workerCts?.Cancel();
+            Reset();
+            var tasks = _workerTasks.Where(t => t != null).Cast<Task>().ToArray();
+            try { await Task.WhenAll(tasks); }
+            catch (OperationCanceledException) { }
+            _workerCts?.Dispose();
+        }
+
+        private static async Task<T> RunThumbnailAsync<T>(Func<Task<T>> load)
+        {
+            using var operation = ApplicationShutdown.Work.TryBegin("thumbnail.decode");
+            if (operation is null) throw new OperationCanceledException(ApplicationShutdown.Work.Token);
+            return await load().ConfigureAwait(false);
         }
 
         public static void Reset()
@@ -332,13 +350,12 @@ namespace LivePhotoBox.Services
 
                     if (HeicConverterService.IsHeicFile(request.Path))
                     {
-                        (data, width, height) = await ThumbnailProviderFactory.Current
-                            .LoadHeicThumbnailAsync(request.Path, 112)
+                        (data, width, height) = await RunThumbnailAsync(() => ThumbnailProviderFactory.Current.LoadHeicThumbnailAsync(request.Path, 112))
                             .WaitAsync(attemptToken);
                     }
                     else if (!ThumbnailService.IsVideoFilePath(request.Path))
                     {
-                        (data, width, height) = await LoadPhotoDataAsync(request.Path, 112)
+                        (data, width, height) = await RunThumbnailAsync(() => LoadPhotoDataAsync(request.Path, 112))
                             .WaitAsync(attemptToken);
                     }
                     else if (ThumbnailService.IsVideoFilePath(request.Path))

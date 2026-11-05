@@ -33,6 +33,6 @@ video_sidecar_bridge_result run_video_sidecar_transcode(
     int32_t crf,
     bool native_transplants_mebx,
     const isobmff_video_profile& source_profile,
-    bool compatible_profile = false, bool all_intra = false, bool aac_audio = false) noexcept;
+    bool compatible_profile = false, bool all_intra = false, bool aac_audio = false, uint32_t reflection = 0) noexcept;
 
 } // namespace lpb::media

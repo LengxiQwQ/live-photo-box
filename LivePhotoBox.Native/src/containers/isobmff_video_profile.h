@@ -121,3 +121,9 @@ video_conversion_owner select_video_conversion_owner(
     requested_video_codec target) noexcept;
 
 } // namespace lpb::media
+
+namespace lpb::media {
+// Source-bound Samsung repair only: make the stale autoplay SPS agree with
+// its explicit container CICP, which controls independent source display.
+bool normalize_samsung_autoplay_color(std::span<const uint8_t>,std::vector<uint8_t>&,bool&) noexcept;
+}

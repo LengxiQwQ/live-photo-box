@@ -14,6 +14,8 @@ namespace LivePhotoBox.ViewModels
         // IsScanning 属性变更时：更新 ProgressBarState 和 ScanButtonStyle，并调用子类钩子。
         partial void OnIsScanningChanged(bool value)
         {
+            if (!value) { _scanLease?.Dispose(); _scanLease = null; }
+            if (_isCleaningUp) return;
             OnPropertyChanged(nameof(ScanButtonStyle));
             OnPropertyChanged(nameof(IsScanIndeterminate));
             if (value)

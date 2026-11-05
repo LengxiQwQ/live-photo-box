@@ -51,13 +51,13 @@ public sealed class AppleSplitRegressionTests
     }
 
     [Fact]
-    public async Task RebuiltSplit_RejectsTargetProtocolWriterOptions()
+    public async Task AppleTarget_MissingSourceReportsReadFailureWithoutPublishing()
     {
         string outputDirectory = Path.Combine(Path.GetTempPath(), $"lpb-neutral-split-{Guid.NewGuid():N}");
 
         try
         {
-            var exception = await Assert.ThrowsAsync<NotSupportedException>(() =>
+            var exception = await Assert.ThrowsAsync<LivePhotoBox.Media.Inspection.SourceInspectionException>(() =>
                 LivePhotoSplitService.SplitAsync(
                     Path.Combine(outputDirectory, "missing.jpg"),
                     outputDirectory,
@@ -65,7 +65,9 @@ public sealed class AppleSplitRegressionTests
                     outputFormatIndex: ProtocolFormatMatrix.SplitFormatJpgMov,
                     CancellationToken.None));
 
-            Assert.Contains("protocol-free neutral media", exception.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Equal(LivePhotoBox.Media.Inspection.SourceInspectionFailureCategory.Io, exception.Category);
+            Assert.Equal(LivePhotoBox.Media.Inspection.SourceInspectionStage.Read, exception.Stage);
+            Assert.Contains("Primary file", exception.Message, StringComparison.OrdinalIgnoreCase);
             Assert.False(Directory.Exists(outputDirectory));
         }
         finally

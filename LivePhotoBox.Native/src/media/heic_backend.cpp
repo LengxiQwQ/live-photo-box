@@ -307,6 +307,15 @@ lpb_result decode_heic_primary_file(lpb_context* context, const char* input_path
     return LPB_RESULT_OK;
 }
 
+lpb_result decode_heic_item_file(lpb_context* context,const char* path,uint32_t id,pixel_surface& output,bool stored_geometry) noexcept {
+    output={};std::vector<uint8_t> bytes;
+    if(!context||!path||!id||!read_file_bounded(utf8_to_path(path),bytes))return LPB_RESULT_INVALID_ARGUMENT;
+    heif_context_owner file;heif_handle_owner image;
+    if(!file.value||!okay(heif_context_read_from_memory_without_copy(file.value,bytes.data(),bytes.size(),nullptr))||
+        !okay(heif_context_get_image_handle(file.value,id,&image.value))||!image.value)return LPB_RESULT_UNSUPPORTED;
+    return decode_image_handle(context,image.value,output,stored_geometry);
+}
+
 lpb_result decode_heic_auxiliary_file(lpb_context* context, const char* input_path,
     uint32_t auxiliary_item_id, pixel_surface& output, heic_auxiliary_facts* out_facts,bool stored_geometry) noexcept {
     output = {};

@@ -1257,10 +1257,16 @@
                                                     </Grid>
                                                 </Border>
 
-                                                <StackPanel Grid.Column="2" VerticalAlignment="Center">
-                                                    <TextBlock controls:AdaptiveFileName.FileName="{x:Bind DisplayFileName}" FontSize="12"
-                                                               ToolTipService.ToolTip="{x:Bind PrimaryPath}"/>
-                                                </StackPanel>
+                                                <Button Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Stretch"
+                                                        AutomationProperties.AutomationId="ScanDiagnosticFileName"
+                                                        AutomationProperties.Name="{x:Bind DisplayFileName}"
+                                                        Click="FileGroupButton_Click" Tag="{x:Bind PrimaryPath}"
+                                                        Background="Transparent" BorderThickness="0" Padding="0"
+                                                        MinWidth="0" MinHeight="0" CornerRadius="4"
+                                                        HorizontalContentAlignment="Stretch"
+                                                        ToolTipService.ToolTip="{x:Bind PrimaryPath}">
+                                                    <TextBlock controls:AdaptiveFileName.FileName="{x:Bind DisplayFileName}" FontSize="12"/>
+                                                </Button>
 
                                                 <TextBlock Grid.Column="3" Text="{x:Bind DisplayFileSize}" FontSize="11"
                                                            Foreground="{ThemeResource TextFillColorTertiaryBrush}"

@@ -4,9 +4,14 @@
 
 #include "media/jpeg_marker.h"
 
+#include "containers/heif_internal.h"
+#include "metadata/exif.h"
+
 #include "media/jpeg_observation.h"
 
 #include "media/image_exif_mapping.h"
+#include "media/xmp_observation.h"
+#include "media/pixel_orientation.h"
 
 #include "foundation/internal.h"
 
@@ -242,19 +247,93 @@ bool valid_rgb_layout(uint32_t width, uint32_t height, std::span<const uint8_t> 
 
 // It does not grant a complete metadata/thumbnail mapping proof to old callers.
 
-bool map_dct_dimensions(std::span<const uint8_t> source,std::span<uint8_t> output,bool swap) noexcept {
+// Only documented, segment-owned preview signatures grant deletion authority.
+// Unknown APP markers, MPF images, MakerNotes and trailers are never inferred.
+bool preview_segment(uint8_t marker, std::span<const uint8_t> payload, size_t& jpeg_offset) {
+    jpeg_offset = 0;
+    const auto starts = [&](const char* text, size_t size) {
+        return payload.size() >= size && std::memcmp(payload.data(), text, size) == 0;
+    };
+    if (marker == 0xe2) {
+        if (starts("QVGA\0", 5)) { jpeg_offset = 5; return true; }
+        if (starts("BGTH", 4)) { jpeg_offset = 4; return true; }
+        if (starts("XMTH", 4)) { jpeg_offset = 9; return true; }
+        return starts("\xff\xd8\xff", 3);
+    }
+    return marker == 0xe3 && starts("\xff\xd8\xff\xdb", 4);
+}
+
+bool strip_jpeg_previews(std::vector<uint8_t>& bytes, bool& changed) {
+    changed = false;
+    struct edit { size_t begin{}, end{}; std::vector<uint8_t> replacement; };
+    std::vector<edit> edits;
+    lpb::memory_random_access source{bytes}; uint64_t eoi{};
+    const bool valid = lpb::media::walk_jpeg_markers(source.view(), eoi,
+        [&](const lpb::media::jpeg_marker_range& marker) {
+            const auto payload = std::span<const uint8_t>(bytes).subspan(
+                static_cast<size_t>(marker.payload), static_cast<size_t>(marker.length));
+            size_t offset{}; bool remove = preview_segment(marker.marker, payload, offset);
+            if (marker.marker == 0xe0 && payload.size() >= 5 && !std::memcmp(payload.data(), "JFXX\0", 5)) {
+                if (payload.size() < 6) return false;
+                if (payload[5] == 0x10) { offset = 6; remove = true; }
+                else if (payload[5] == 0x11 || payload[5] == 0x13) {
+                    if (payload.size() < 8 || !payload[6] || !payload[7]) return false;
+                    const size_t pixels = size_t(payload[6]) * payload[7];
+                    if (payload.size() != 8 + (payload[5] == 0x11 ? 768 + pixels : 3 * pixels)) return false;
+                    edits.push_back({static_cast<size_t>(marker.start), static_cast<size_t>(marker.payload + marker.length), {}});
+                    return true;
+                } else return false;
+            }
+            if (remove) {
+                if (offset >= payload.size()) return false;
+                lpb::memory_random_access embedded{payload.subspan(offset)};
+                lpb::media::jpeg_observation observed; lpb::media::jpeg_observation_failure why{}; uint64_t bad{};
+                if (!lpb::media::observe_jpeg(embedded.view(), observed, why, bad, {true,true,false,true}) ||
+                    observed.eoi_end != payload.size() - offset) return false;
+                edits.push_back({static_cast<size_t>(marker.start), static_cast<size_t>(marker.payload + marker.length), {}});
+            }
+            if (marker.marker == 0xe0 && payload.size() >= 5 && !std::memcmp(payload.data(), "JFIF\0", 5)) {
+                if (payload.size() < 14) return false;
+                const size_t pixels = size_t(payload[12]) * payload[13];
+                if ((!payload[12]) != (!payload[13]) || payload.size() != 14 + 3 * pixels) return false;
+                if (pixels) {
+                    std::vector<uint8_t> replacement{0xff,0xe0,0,16};
+                    replacement.insert(replacement.end(), payload.begin(), payload.begin() + 14);
+                    replacement[16] = replacement[17] = 0;
+                    edits.push_back({static_cast<size_t>(marker.start), static_cast<size_t>(marker.payload + marker.length), std::move(replacement)});
+                }
+            }
+            return true;
+        });
+    if (!valid || eoi != bytes.size()) return false;
+    for (auto edit = edits.rbegin(); edit != edits.rend(); ++edit) {
+        bytes.erase(bytes.begin() + edit->begin, bytes.begin() + edit->end);
+        bytes.insert(bytes.begin() + edit->begin, edit->replacement.begin(), edit->replacement.end());
+    }
+    changed = !edits.empty(); return true;
+}
+
+bool map_dct_dimensions(std::span<const uint8_t> source,std::span<uint8_t> output,bool swap,bool normalize_exif) noexcept {
 
     try {
 
         struct image { uint32_t width{},height{};size_t exif_offset{};std::vector<uint8_t> exif; } before,after;
 
-        const auto observe=[](std::span<const uint8_t> bytes,image& facts) {
+        const auto observe=[normalize_exif](std::span<const uint8_t> bytes,image& facts) {
 
             lpb::memory_random_access input{bytes};uint64_t eoi{};bool sof=false,exif=false;
 
             const bool valid=lpb::media::walk_jpeg_markers(input.view(),eoi,[&](const lpb::media::jpeg_marker_range& marker) {
 
                 const auto payload=bytes.subspan(static_cast<size_t>(marker.payload),static_cast<size_t>(marker.length));
+
+                size_t preview_offset{};
+                if(normalize_exif && preview_segment(marker.marker, payload, preview_offset))return false;
+                if(normalize_exif && marker.marker==0xe0 && payload.size()>=5) {
+                    if(!std::memcmp(payload.data(),"JFXX\0",5))return false;
+                    if(!std::memcmp(payload.data(),"JFIF\0",5) &&
+                        (payload.size()<14 || payload[12]!=0 || payload[13]!=0))return false;
+                }
 
                 if(marker.marker==0xc0||marker.marker==0xc1||marker.marker==0xc2) {
 
@@ -288,7 +367,7 @@ bool map_dct_dimensions(std::span<const uint8_t> source,std::span<uint8_t> outpu
 
         uint32_t orientation{};lpb::media::exif_observation exif;lpb::media::jpeg_observation_failure why{};
 
-        if(!lpb::media::observe_exif(before.exif,orientation,exif,why,true)||orientation>1)return false;
+        if(!lpb::media::observe_exif(before.exif,orientation,exif,why,true)||(!normalize_exif&&orientation>1))return false;
 
         auto mapped=before.exif;auto tiff=std::span<uint8_t>(mapped).subspan(6);const bool be=exif.big_endian;
 
@@ -327,6 +406,23 @@ bool map_dct_dimensions(std::span<const uint8_t> source,std::span<uint8_t> outpu
             return true;
 
         };
+
+        if(normalize_exif) {
+            // Do not rotate a primary while leaving an unverified preview behind.
+            const size_t root=exif.ifd0_offset;
+            if(root>tiff.size() || tiff.size()-root<6)return false;
+            const auto count=read(root,2);
+            if(count>(tiff.size()-root-6)/12 || read(root+2+count*12,4)!=0)return false;
+            for(size_t i=0;i<count;++i) {
+                const size_t entry=root+2+i*12;
+                const auto tag=read(entry,2);
+                if(tag==0x201 || tag==0x202)return false;
+                if(tag!=0x112)continue;
+                if(read(entry+2,2)!=3 || read(entry+4,4)!=1 || read(entry+8,2)!=orientation)return false;
+                tiff[entry+8]=be?0:1;
+                tiff[entry+9]=be?1:0;
+            }
+        }
 
         if(!patch(exif.ifd0_offset,true)||(exif.exif_ifd_offset&&!patch(exif.exif_ifd_offset,false)))return false;
 
@@ -370,6 +466,66 @@ int to_turbo_transform(int32_t value) noexcept {
 
 
 
+// All offsets are TIFF-relative except the parser's absolute entry positions.
+bool repair_exif(std::span<uint8_t> bytes, uint32_t wanted_orientation, bool strip,
+                 uint32_t& changed) {
+    using namespace lpb::media;
+    uint32_t orientation{};
+    exif_observation facts;
+    jpeg_observation_failure failure{};
+    if (!observe_exif(bytes, orientation, facts, failure, true, true)) return false;
+
+    constexpr size_t tiff = 6;
+    tiff_ifd root;
+    if (!parse_ifd(bytes.data(), bytes.size(), tiff, facts.ifd0_offset, facts.big_endian, &root))
+        return false;
+    if (wanted_orientation && orientation != wanted_orientation) {
+        for (const auto& entry : root.entries) {
+            if (entry.tag != 0x112) continue;
+            if (entry.type != 3 || entry.count != 1) return false;
+            bytes[entry.absolute_pos + 8] = facts.big_endian ? 0 : static_cast<uint8_t>(wanted_orientation);
+            bytes[entry.absolute_pos + 9] = facts.big_endian ? static_cast<uint8_t>(wanted_orientation) : 0;
+            changed |= 2;
+        }
+    }
+
+    if (!strip || !root.next_ifd_offset) return true;
+    tiff_ifd thumbnail;
+    if (!parse_ifd(bytes.data(), bytes.size(), tiff, root.next_ifd_offset, facts.big_endian, &thumbnail) ||
+        thumbnail.next_ifd_offset) return false;
+
+    uint32_t offset = 0, length = 0;
+    for (const auto& entry : thumbnail.entries) {
+        if (entry.tag == 0x201 || entry.tag == 0x202) {
+            if (entry.type != 4 || entry.count != 1) return false;
+            (entry.tag == 0x201 ? offset : length) = entry.value_offset;
+            continue;
+        }
+        switch (entry.tag) {
+        case 0x100: case 0x101: case 0x103: case 0x106: case 0x112: case 0x11a:
+        case 0x11b: case 0x128: case 0x213: break;
+        default: return false;
+        }
+    }
+    if (!offset || !length || offset > bytes.size() - tiff ||
+        length > bytes.size() - tiff - offset) return false;
+    const uint64_t end = static_cast<uint64_t>(offset) + length;
+    for (const auto& [start, finish] : facts.occupied_tiff_ranges)
+        if (offset < finish && start < end) return false;
+    lpb::memory_random_access reader{bytes.subspan(tiff + offset, length)};
+    jpeg_observation jpeg;
+    uint64_t bad{};
+    if (!observe_jpeg(reader.view(), jpeg, failure, bad, {true, false, false, false}) ||
+        jpeg.eoi_end != length) return false;
+
+    const size_t next = root.absolute_pos + 2 + root.entries.size() * 12;
+    std::fill_n(bytes.begin() + next, 4, uint8_t{});
+    std::fill_n(bytes.begin() + thumbnail.absolute_pos, 6 + thumbnail.entries.size() * 12, uint8_t{});
+    std::fill_n(bytes.begin() + tiff + offset, length, uint8_t{});
+    changed |= 1;
+    return true;
+}
+
 } // namespace
 
 
@@ -377,6 +533,114 @@ int to_turbo_transform(int32_t value) noexcept {
 namespace lpb::media {
 
 
+
+lpb_result normalize_repair_jpeg_bytes(lpb_context* context, std::span<const uint8_t> input,
+    uint32_t orientation, bool strip, std::vector<uint8_t>& output, bool& reencoded) noexcept {
+    output.clear(); reencoded = false;
+    try {
+        if (orientation > 8) return LPB_RESULT_UNSUPPORTED;
+        const bool normalize = orientation != 0;
+        lpb::memory_random_access memory{input}; jpeg_observation observed; jpeg_observation_failure why{}; uint64_t bad{};
+        if (!observe_jpeg(memory.view(), observed, why, bad, {true,true,true,true}) || observed.eoi_end != input.size())
+            return LPB_RESULT_UNSUPPORTED;
+        std::vector<uint8_t> exif = observed.exif_payload;
+        if (!exif.empty()) {
+            uint32_t changes{};
+            if (strip && !repair_exif(exif, 0, true, changes)) return LPB_RESULT_UNSUPPORTED;
+            uint32_t old_orientation{}; exif_observation facts;
+            if (!observe_exif(exif, old_orientation, facts, why, true, true)) return LPB_RESULT_UNSUPPORTED;
+            const bool be = facts.big_endian;
+            const auto get = [&](size_t pos, size_t n) { uint32_t value{}; for(size_t i=0;i<n;++i)value |= uint32_t(exif[pos+i])<<((be?n-i-1:i)*8); return value; };
+            const auto put = [&](size_t pos, size_t n, uint32_t value) { for(size_t i=0;i<n;++i)exif[pos+i]=uint8_t(value>>((be?n-i-1:i)*8)); };
+            const size_t root=6+facts.ifd0_offset, count=get(root,2), next=root+2+12*count;
+            const uint32_t thumb_ifd=get(next,4);
+            if (orientation > 1 && thumb_ifd) {
+                tiff_ifd directory;
+                if(!parse_ifd(exif.data(),exif.size(),6,thumb_ifd,be,&directory)||directory.next_ifd_offset)return LPB_RESULT_UNSUPPORTED;
+                uint32_t offset{},length{};size_t offset_entry{},length_entry{};
+                for(const auto& e:directory.entries) {
+                    if(e.tag==0x201){if(e.type!=4||e.count!=1)return LPB_RESULT_UNSUPPORTED;offset=e.value_offset;offset_entry=e.absolute_pos+8;}
+                    if(e.tag==0x202){if(e.type!=4||e.count!=1)return LPB_RESULT_UNSUPPORTED;length=e.value_offset;length_entry=e.absolute_pos+8;}
+                }
+                if(!offset||!length||6ULL+offset+length>exif.size())return LPB_RESULT_UNSUPPORTED;
+                for(const auto& range:facts.occupied_tiff_ranges)
+                    if(offset<range.second&&range.first<uint64_t(offset)+length)return LPB_RESULT_UNSUPPORTED;
+                std::vector<uint8_t> thumbnail;bool thumbnail_reencoded{};
+                if(normalize_repair_jpeg_bytes(context,std::span<const uint8_t>(exif).subspan(6+offset,length),orientation,true,thumbnail,thumbnail_reencoded)!=LPB_RESULT_OK)
+                    return LPB_RESULT_UNSUPPORTED;
+                reencoded |= thumbnail_reencoded;
+                std::fill(exif.begin()+6+offset,exif.begin()+6+offset+length,uint8_t{});
+                uint32_t new_offset=offset;
+                if(thumbnail.size()<=length)std::copy(thumbnail.begin(),thumbnail.end(),exif.begin()+6+offset);
+                else {
+                    const size_t old_end=6+size_t(offset)+length;
+                    const bool tail=std::all_of(exif.begin()+old_end,exif.end(),[](uint8_t value){return value==0;})&&
+                        std::none_of(facts.occupied_tiff_ranges.begin(),facts.occupied_tiff_ranges.end(),[&](const auto& range){return range.second>offset;});
+                    if(tail)exif.resize(6+offset);
+                    else new_offset=static_cast<uint32_t>(exif.size()-6);
+                    exif.insert(exif.end(),thumbnail.begin(),thumbnail.end());
+                }
+                put(offset_entry,4,new_offset);put(length_entry,4,static_cast<uint32_t>(thumbnail.size()));
+                if(orientation>=5) {
+                    const tiff_entry *width=nullptr,*height=nullptr;
+                    for(const auto& e:directory.entries){if(e.tag==0x100)width=&e;if(e.tag==0x101)height=&e;}
+                    if(width&&height){const size_t nw=width->type==3?2:4,nh=height->type==3?2:4;
+                        const auto w=get(width->absolute_pos+8,nw),h=get(height->absolute_pos+8,nh);
+                        put(width->absolute_pos+8,nw,h);put(height->absolute_pos+8,nh,w);}
+                }
+                for(const auto& e:directory.entries)if(e.tag==0x112)put(e.absolute_pos+8,2,1);
+            }
+            // The already normalized thumbnail no longer participates in the
+            // primary mapping guard. Restore its exact directory link below.
+            put(next,4,0);
+            if(normalize)for(size_t i=0;i<count;++i){const size_t e=root+2+i*12;if(get(e,2)==0x112)put(e+8,2,orientation);}
+            target_primary_observation mapping;mapping.width=observed.width;mapping.height=observed.height;mapping.orientation=orientation;
+            if(normalize&&!map_image_exif_orientation(exif,mapping))return LPB_RESULT_UNSUPPORTED;
+            put(next,4,thumb_ifd);
+        }
+        if(exif.size()>65533)return LPB_RESULT_UNSUPPORTED;
+        std::vector<uint8_t> coded;
+        if(orientation<=1) coded.assign(input.begin(),input.end());
+        else {
+            constexpr int ops[]{TJXOP_NONE,TJXOP_NONE,TJXOP_HFLIP,TJXOP_ROT180,TJXOP_VFLIP,TJXOP_TRANSPOSE,TJXOP_ROT90,TJXOP_TRANSVERSE,TJXOP_ROT270};
+            tjhandle codec=tjInitTransform();unsigned char* transformed=nullptr;unsigned long size{};
+            tjtransform transform{};transform.op=ops[orientation];transform.options=TJXOPT_PERFECT|TJXOPT_COPYNONE;
+            const int status=codec?tjTransform(codec,input.data(),static_cast<unsigned long>(input.size()),1,&transformed,&size,&transform,TJFLAG_ACCURATEDCT):-1;
+            if(codec)tjDestroy(codec);
+            if(status==0&&transformed&&size)coded.assign(transformed,transformed+size);
+            if(transformed)tjFree(transformed);
+            if(coded.empty()) {
+                jpeg_rgb_image decoded;
+                if(decode_jpeg_rgb_bytes(context,input,decoded)!=LPB_RESULT_OK)return LPB_RESULT_UNSUPPORTED;
+                pixel_surface surface;surface.width=decoded.width;surface.height=decoded.height;surface.channels=3;
+                surface.signal_bit_depth=surface.storage_bit_depth=8;surface.stride=uint64_t(surface.width)*3;surface.pixels=std::move(decoded.pixels);
+                if(!normalize_pixel_orientation(surface,orientation)||encode_rgb_jpeg_bytes(context,surface.width,surface.height,surface.pixels,92,{},coded)!=LPB_RESULT_OK)
+                    return LPB_RESULT_UNSUPPORTED;
+                reencoded=true;
+            }
+        }
+        // Carry original metadata markers exactly, replacing only the primary
+        // EXIF packet. The surrounding Samsung writer remaps XMP/MPF lengths.
+        output={0xff,0xd8};uint64_t eoi{};
+        if(!walk_jpeg_markers(memory.view(),eoi,[&](const jpeg_marker_range& m){
+            if((m.marker<0xe0||m.marker>0xef)&&m.marker!=0xfe)return true;
+            if(m.after_scan)return false;
+            auto p=input.subspan(static_cast<size_t>(m.payload),static_cast<size_t>(m.length));
+            if(m.marker==0xe1&&p.size()>=6&&!std::memcmp(p.data(),"Exif\0\0",6)) {
+                output.insert(output.end(),{0xff,0xe1,uint8_t((exif.size()+2)>>8),uint8_t(exif.size()+2)});
+                output.insert(output.end(),exif.begin(),exif.end());
+            }else output.insert(output.end(),input.begin()+m.start,input.begin()+m.payload+m.length);
+            return true;
+        }))return LPB_RESULT_UNSUPPORTED;
+        lpb::memory_random_access encoded{coded};std::vector<std::pair<size_t,size_t>> remove;
+        if(!walk_jpeg_markers(encoded.view(),eoi,[&](const jpeg_marker_range& m){
+            if((m.marker>=0xe0&&m.marker<=0xef)||m.marker==0xfe)remove.emplace_back(static_cast<size_t>(m.start),static_cast<size_t>(m.payload+m.length));return true;
+        }))return LPB_RESULT_UNSUPPORTED;
+        size_t start=2;for(const auto& [a,b]:remove){output.insert(output.end(),coded.begin()+start,coded.begin()+a);start=b;}
+        output.insert(output.end(),coded.begin()+start,coded.end());
+        return LPB_RESULT_OK;
+    } catch (...) {set_error(context,"Samsung JPEG normalization could not retain the complete image metadata.");return LPB_RESULT_INTERNAL_ERROR;}
+}
 
 const char* jpeg_backend_version() noexcept {
 
@@ -802,9 +1066,9 @@ lpb_result transform_jpeg_losslessly(lpb_context* context, const char* input_pat
 
     }
 
-    const int operation = to_turbo_transform(transform);
-
-    if (operation < 0) { set_error(context, "Unsupported JPEG lossless transform operation."); return LPB_RESULT_INVALID_ARGUMENT; }
+    const bool normalize_exif = transform == LPB_JPEG_TRANSFORM_NORMALIZE_EXIF;
+    int operation = to_turbo_transform(transform);
+    if (!normalize_exif && operation < 0) { set_error(context, "Unsupported JPEG lossless transform operation."); return LPB_RESULT_INVALID_ARGUMENT; }
 
 
 
@@ -824,9 +1088,8 @@ lpb_result transform_jpeg_losslessly(lpb_context* context, const char* input_pat
 
     // A physical transform plus a retained non-default EXIF Orientation would
 
-    // double-rotate at display time. R4 intentionally fails closed until a
-
-    // project-owned Exif rewrite can make that semantic update atomically.
+    // double-rotate at display time. Only the explicit EXIF normalization
+    // operation may transform pixels and reset the authoritative tag together.
 
     lpb_preservation_observation observation{};
 
@@ -848,7 +1111,7 @@ lpb_result transform_jpeg_losslessly(lpb_context* context, const char* input_pat
 
         (observation.flags & LPB_POBS_EXIF_PARSE_ERROR) != 0 ||
 
-        (observation.orientation != 0 && observation.orientation != 1)) {
+        (!normalize_exif && observation.orientation != 0 && observation.orientation != 1)) {
 
         set_error(context, "JPEG lossless transform refuses non-default or unverifiable EXIF Orientation to prevent double rotation.");
 
@@ -882,6 +1145,32 @@ lpb_result transform_jpeg_losslessly(lpb_context* context, const char* input_pat
 
 
 
+    if (normalize_exif) {
+        // EXIF values describe the complete display transform, including mirrors.
+        constexpr int operations[]{-1, -1, TJXOP_HFLIP, TJXOP_ROT180, TJXOP_VFLIP,
+            TJXOP_TRANSPOSE, TJXOP_ROT90, TJXOP_TRANSVERSE, TJXOP_ROT270};
+        lpb::memory_random_access input{source};
+        jpeg_observation jpeg;
+        jpeg_observation_failure failure{};
+        uint64_t bad_offset{};
+        if (!observe_jpeg(input.view(), jpeg, failure, bad_offset, {true, false, false, false}) ||
+            jpeg.orientation < 2 || jpeg.orientation > 8 ||
+            jpeg.mpf || observation.orientation != jpeg.orientation) {
+            set_error(context, "JPEG repair requires a single unambiguous EXIF orientation without competing XMP or MPF metadata.");
+            return LPB_RESULT_UNSUPPORTED;
+        }
+        if (!jpeg.xmp.empty()) {
+            std::string mapped;
+            xmp_observation_failure xml_failure{};
+            if (!rewrite_neutral_image_xmp(jpeg.xmp, "image/jpeg", "image/jpeg",
+                jpeg.orientation, jpeg.width, jpeg.height, mapped, xml_failure) || mapped != jpeg.xmp) {
+                set_error(context, "JPEG rotation cannot retain XMP with unmapped active geometry or orientation.");
+                return LPB_RESULT_UNSUPPORTED;
+            }
+        }
+        operation = operations[jpeg.orientation];
+    }
+
     tjhandle codec = tjInitTransform();
 
     if (!codec) { set_error(context, "libjpeg-turbo transform initialization failed."); return LPB_RESULT_INTERNAL_ERROR; }
@@ -914,7 +1203,7 @@ lpb_result transform_jpeg_losslessly(lpb_context* context, const char* input_pat
 
     const bool swaps_dimensions=operation==TJXOP_ROT90||operation==TJXOP_ROT270||operation==TJXOP_TRANSPOSE||operation==TJXOP_TRANSVERSE;
 
-    if(!map_dct_dimensions(source,std::span<uint8_t>(transformed,static_cast<size_t>(transformed_size)),swaps_dimensions)) {
+    if(!map_dct_dimensions(source,std::span<uint8_t>(transformed,static_cast<size_t>(transformed_size)),swaps_dimensions,normalize_exif)) {
 
         tjFree(transformed);
 
@@ -976,4 +1265,88 @@ lpb_result transform_jpeg_losslessly(lpb_context* context, const char* input_pat
 
 
 
+
 } // namespace lpb::media
+
+
+LPB_API lpb_result LPB_CALL lpb_repair_image_exif(
+    lpb_context* context, const char* source_path, const char* output_path,
+    uint32_t actions, uint32_t* changed)
+{
+    if (!context || !source_path || !changed || !actions || (actions & ~3u) ||
+        (output_path && paths_alias(source_path, output_path))) return LPB_RESULT_INVALID_ARGUMENT;
+    *changed = 0;
+    const auto unsupported = [&](const char* message) {
+        set_error(context, message);
+        return LPB_RESULT_UNSUPPORTED;
+    };
+    try {
+        windows_readonly_source lease;
+        const auto source = utf8_to_path(source_path);
+        std::vector<uint8_t> bytes;
+        if (!lease.open(source) || !lease.read_all_bounded(4, kMaxCompressedBytes, bytes))
+            return unsupported("Image repair input could not be pinned or read.");
+
+        uint32_t actual{};
+        if (bytes[0] == 0xff && bytes[1] == 0xd8) {
+            lpb::memory_random_access input{bytes};
+            lpb::media::jpeg_observation jpeg;
+            lpb::media::jpeg_observation_failure failure{};
+            uint64_t bad{};
+            if (!lpb::media::observe_jpeg(input.view(), jpeg, failure, bad, {true, true, false, true}) ||
+                jpeg.eoi_end != bytes.size())
+                return unsupported("JPEG repair requires a complete standalone codestream without MPF or appended data.");
+            if ((actions & 1) && !jpeg.exif_payload.empty() &&
+                !repair_exif(std::span<uint8_t>(bytes).subspan(jpeg.exif_segment_end - jpeg.exif_payload.size(),
+                    jpeg.exif_payload.size()), 0, true, actual))
+                return unsupported("The EXIF thumbnail is not an independently owned JPEG thumbnail.");
+            if (actions & 1) {
+                bool previews{};
+                if (!strip_jpeg_previews(bytes, previews))
+                    return unsupported("JPEG preview ownership or complete embedded image could not be verified.");
+                if (previews) actual |= 1;
+            }
+        } else {
+            lpb::containers::heif_primary_properties primary;
+            std::string error;
+            if (!lpb::containers::observe_primary_item_properties(bytes, primary, error))
+                return unsupported(error.c_str());
+            if (!primary.exif_payload.empty()) {
+                const auto wanted = (actions & 2) && primary.has_display_transform ? primary.orientation : 0;
+                if (!repair_exif(primary.exif_payload, wanted, actions & 1, actual))
+                    return unsupported("HEIF primary EXIF orientation or thumbnail ownership could not be verified.");
+                if (actual && !lpb::containers::replace_primary_exif_payload(bytes, primary.exif_payload, error))
+                    return unsupported(error.empty() ? "Could not verify primary EXIF extent replacement." : error.c_str());
+            }
+            if (actions & 1) {
+                bool thumbnails{};
+                if (!lpb::containers::strip_primary_thumbnails(bytes, thumbnails, error))
+                    return unsupported(error.c_str());
+                if (thumbnails) actual |= 1;
+            }
+        }
+
+        const auto cancelled = lpb_context_check_cancelled(context);
+        if (cancelled != LPB_RESULT_OK) return cancelled;
+        if (!actual || !output_path) {
+            *changed = actual;
+            return LPB_RESULT_OK;
+        }
+        if (!lease.verify_same_identity(source)) return unsupported("Image repair source identity changed.");
+
+        windows_owned_output output;
+        const auto destination = utf8_to_path(output_path);
+        if (!output.create(destination, L"lpb-repair-exif") || !output.write_all(bytes) ||
+            lpb_context_check_cancelled(context) != LPB_RESULT_OK ||
+            !output.publish_registered_no_replace(context, LPB_ARTIFACT_PRIMARY_IMAGE, destination)) {
+            static_cast<void>(abort_owned_output_and_report(context, output, "Could not publish repaired EXIF output."));
+            const auto status = lpb_context_check_cancelled(context);
+            return status == LPB_RESULT_OK ? LPB_RESULT_INTERNAL_ERROR : status;
+        }
+        *changed = actual;
+        return LPB_RESULT_OK;
+    } catch (...) {
+        set_error(context, "Unexpected failure while repairing primary EXIF metadata.");
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+}

@@ -1,4 +1,4 @@
-/*
+﻿/*
  * SplitViewModel.cs
  *
  * SplitPage（拆分页面）的视图模型，负责将单文件实况照片拆分为图片与视频。
@@ -845,6 +845,7 @@ namespace LivePhotoBox.ViewModels
         // <inheritdoc/>
         protected override void OnFinalizeRunState()
         {
+            if (_isCleaningUp) return;
             _uiUpdateTimer.Stop();
 
             if (_cancelledByUser)
@@ -951,6 +952,7 @@ namespace LivePhotoBox.ViewModels
         // <inheritdoc/>
         protected override void OnScanningEnded()
         {
+            if (ApplicationShutdown.IsClosing) return;
             base.OnScanningEnded();
             _scanCancellationTokenSource?.Dispose();
             _scanCancellationTokenSource = null;
@@ -1010,7 +1012,7 @@ namespace LivePhotoBox.ViewModels
 
         private async Task ScanInputsAsync(IReadOnlyList<string> folderPaths, IReadOnlyList<string> filePaths, bool replace)
         {
-            if (IsProcessing || IsScanning || _isCleaningUp || (folderPaths.Count == 0 && filePaths.Count == 0)) return;
+            if (ApplicationShutdown.IsClosing || IsProcessing || IsScanning || _isCleaningUp || (folderPaths.Count == 0 && filePaths.Count == 0)) return;
             var oldTasks = Tasks.ToList();
             var targetProtocol = MatchProtocolType;
             var options = new MergeScanOptions
@@ -1141,6 +1143,7 @@ namespace LivePhotoBox.ViewModels
         [RelayCommand(AllowConcurrentExecutions = true)]
         private async Task ToggleProcessAsync()
         {
+            if (ApplicationShutdown.IsClosing) return;
             if (IsScanning) return;
             if (IsProcessing)
             {
@@ -1528,6 +1531,8 @@ namespace LivePhotoBox.ViewModels
                                 var guard = outcome.SourceActionGuard ?? throw new IOException("Source action identity receipt is unavailable; originals retained.");
                                 using var committedProtection = new SourceInputProtection(outcome.CommittedOutputs.Select(o => o.Path));
                                 guard.Validate(outcome, paths, moveDir);
+                                if (ApplicationShutdown.IsClosing) break;
+                                using var sourceActionJournal = new LivePhotoBox.Interop.WindowsSplitOutputPublisher.SourceActionJournal(paths, moveDir);
                                 if (moveDir is not null) Directory.CreateDirectory(moveDir);
                                 foreach (string path in paths)
                                 {
@@ -1536,6 +1541,7 @@ namespace LivePhotoBox.ViewModels
                                     if (moveDir is not null) File.Move(path, Path.Combine(moveDir, Path.GetFileName(path)));
                                     else await MoveFileToRecycleBinAsync(path, outcome);
                                 }
+                                sourceActionJournal.Complete();
                                 task.LastOutcome = ProductOutcomeCompletion.Record(outcome with
                                 { SourcePostProcessing = new(moveDir is null ? "recycle" : "move", "completed", "", moveDir) });
                                 task.OutcomeSummary = ProductOutcomePresentation.Describe(task.LastOutcome, capabilityDiagnostic);

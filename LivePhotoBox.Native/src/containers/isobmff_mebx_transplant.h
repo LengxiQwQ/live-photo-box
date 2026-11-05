@@ -79,6 +79,11 @@ bool isobmff_audio_tracks_requiring_aac(std::span<const uint8_t> source, std::ve
 bool extract_isobmff_audio_track(std::span<const uint8_t> source, uint32_t id, std::vector<uint8_t>& output) noexcept;
 bool replace_isobmff_audio_track(std::span<const uint8_t> source, uint32_t id,
     std::span<const uint8_t> encoded, std::vector<uint8_t>& output) noexcept;
+// Repair-only replacement retains the original movie, audio and metadata
+// tracks; only the unique video track/sample payload becomes newly encoded.
+bool extract_isobmff_main_video(std::span<const uint8_t>,std::vector<uint8_t>&) noexcept;
+bool replace_isobmff_main_video(std::span<const uint8_t> source,
+    std::span<const uint8_t> encoded,std::vector<uint8_t>& output) noexcept;
 bool combine_isobmff_video_audio(std::span<const uint8_t> video,
     std::span<const uint8_t> audio, std::vector<uint8_t>& output) noexcept;
 bool preserve_isobmff_additional_tracks(std::span<const uint8_t> source,

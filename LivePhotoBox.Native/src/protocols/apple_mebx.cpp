@@ -981,6 +981,36 @@ lpb_result apple_movie(lpb_context* ctx, const std::vector<uint8_t>& input, int6
     if(!canonicalize_apple_input(input,normalized)) {
         set_error(ctx,"Apple MOV input cannot be safely reorganized into a single mdat."); return LPB_RESULT_UNSUPPORTED;
     }
+    if (cover < 0) {
+        // A missing source cover must not become a fabricated zero-time cover.
+        // Keep the known pairing ID without adding any timed metadata track.
+        size_t moov_start{}, moov_length{}, moov_body{};
+        if (!find_box_local(normalized.data(), 0, normalized.size(), "moov", moov_start, moov_length, moov_body) ||
+            moov_body != moov_start + 8) return LPB_RESULT_INVALID_ARGUMENT;
+        auto children = parse_children(normalized.data(), moov_body, moov_start + moov_length);
+        auto meta = build_apple_content_identifier_meta(id.c_str(), true);
+        if (meta.empty()) return LPB_RESULT_INVALID_ARGUMENT;
+        std::vector<uint8_t> movie(8, 0);
+        const int64_t delta = static_cast<int64_t>(meta.size());
+        for (auto& child : children) {
+            if (child.type == "meta") {
+                set_error(ctx, "Untimed Apple repair requires a metadata-free prepared movie.");
+                return LPB_RESULT_UNSUPPORTED;
+            }
+            if (child.type == "trak" &&
+                !shift_trak_chunk_offsets(child.data, moov_start + moov_length, static_cast<int>(delta)))
+                return LPB_RESULT_INVALID_ARGUMENT;
+            movie.insert(movie.end(), child.data.begin(), child.data.end());
+        }
+        movie.insert(movie.end(), meta.begin(), meta.end());
+        if (movie.size() > INT32_MAX) return LPB_RESULT_UNSUPPORTED;
+        write_be32(movie.data(), static_cast<int32_t>(movie.size()));
+        write_type(movie.data(), 4, "moov");
+        output.assign(normalized.begin(), normalized.begin() + moov_start);
+        output.insert(output.end(), movie.begin(), movie.end());
+        output.insert(output.end(), normalized.begin() + moov_start + moov_length, normalized.end());
+        return LPB_RESULT_OK;
+    }
     size_t size=0;
     auto invoke=[&](uint8_t* out,size_t cap) {
         return append_mebx_tracks_impl(ctx,normalized.data(),normalized.size(),static_cast<double>(cover)/1000000.0,id.c_str(),out,cap,&size,true);

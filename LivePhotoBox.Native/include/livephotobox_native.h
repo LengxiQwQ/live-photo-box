@@ -811,7 +811,7 @@ typedef struct lpb_video_backend_diagnostics
  * Not coded A/V, codec config or whole-file identity. */
 typedef struct lpb_video_preservation_request_v1 {
     uint32_t struct_size;
-    uint32_t api_version;
+    uint32_t api_version; // 1: conversion; 2: same-codec/container orientation repair.
     uint32_t policy;
     uint32_t reserved;
 } lpb_video_preservation_request_v1;
@@ -1249,6 +1249,10 @@ LPB_API lpb_result LPB_CALL lpb_test_sha256_file(
  * Probes a video file natively (ISOBMFF box tree traversal: moov/trak/stsd/tkhd/stts/mvhd)
  * to populate format facts (dimensions, duration, fps, rotation, codec, audio).
  */
+// Reflection is 0 for none, 1 for horizontal, or 2 for vertical.
+LPB_API lpb_result LPB_CALL lpb_probe_video_repair(
+    lpb_context* context, const char* path, lpb_video_item_facts* facts, uint32_t* reflection);
+
 LPB_API lpb_result LPB_CALL lpb_probe_video(
     lpb_context* context,
     const char* video_path,
@@ -1289,8 +1293,16 @@ typedef enum lpb_jpeg_transform
     LPB_JPEG_TRANSFORM_FLIP_HORIZONTAL = 3,
     LPB_JPEG_TRANSFORM_FLIP_VERTICAL = 4,
     LPB_JPEG_TRANSFORM_TRANSPOSE = 5,
-    LPB_JPEG_TRANSFORM_TRANSVERSE = 6
+    LPB_JPEG_TRANSFORM_TRANSVERSE = 6,
+    LPB_JPEG_TRANSFORM_NORMALIZE_EXIF = 7
 } lpb_jpeg_transform;
+
+// Repair selected image metadata in a new output. Action and change
+// bits: 1 removes confirmed thumbnails/previews, 2 aligns HEIF EXIF orientation.
+// With null output the structural checks run in memory without writing.
+LPB_API lpb_result LPB_CALL lpb_repair_image_exif(
+    lpb_context* context, const char* source, const char* output,
+    uint32_t actions, uint32_t* changed);
 
 LPB_API lpb_result LPB_CALL lpb_transform_jpeg_losslessly(
     lpb_context* context,
@@ -1419,6 +1431,24 @@ typedef struct lpb_file_identity
     uint64_t file_size;
     uint32_t link_count;
 } lpb_file_identity;
+
+// Repair-only Samsung single-file normalization. Actions follow the existing
+// repair toggles: 1 JPEG direction, 2 thumbnail cleanup, 4 HEIF direction,
+// 8 main plus autoplay video direction. Null output performs diagnosis only.
+typedef struct lpb_samsung_repair_request_v1 {
+    uint32_t struct_size, api_version, actions, reserved;
+    lpb_file_identity expected_identity;
+    uint8_t source_sha256[32];
+} lpb_samsung_repair_request_v1;
+typedef struct lpb_samsung_repair_result_v1 {
+    uint32_t struct_size, api_version, changed, reencoded;
+    uint32_t image_orientation, main_rotation, autoplay_rotation, flags;
+    char details[2048];
+} lpb_samsung_repair_result_v1;
+LPB_API lpb_result LPB_CALL lpb_repair_samsung_v1(lpb_context*, const char* source,
+    const char* workspace_directory, const char* output,
+    const lpb_samsung_repair_request_v1*, lpb_samsung_repair_result_v1*);
+
 
 /* Target Writer v1: x64 alignment8 / managed Pack8. Existing PODs unchanged. */
 typedef struct lpb_target_writer_plan lpb_target_writer_plan;

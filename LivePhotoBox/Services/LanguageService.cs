@@ -1,4 +1,4 @@
-using LivePhotoBox.Models;
+﻿using LivePhotoBox.Models;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Windows.ApplicationModel.Resources;
@@ -167,8 +167,7 @@ namespace LivePhotoBox.Services
                     if (restart)
                     {
                         LogService.Info("Application restart requested after language change.", LogSource.Settings);
-                        LogService.MarkCleanShutdown();
-                        Microsoft.Windows.AppLifecycle.AppInstance.Restart("");
+                        ApplicationShutdown.Request(() => Microsoft.Windows.AppLifecycle.AppInstance.Restart(""));
                     }
                 }
                 finally

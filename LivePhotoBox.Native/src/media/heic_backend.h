@@ -71,6 +71,8 @@ lpb_result inspect_heic_file(lpb_context* context, const char* input_path,
     heic_image_facts& output) noexcept;
 lpb_result decode_heic_primary_file(lpb_context* context, const char* input_path,
     pixel_surface& output, heic_image_facts* out_facts = nullptr, bool stored_geometry = false) noexcept;
+// Repair caller has already bound this exact image item through the source graph.
+lpb_result decode_heic_item_file(lpb_context*,const char*,uint32_t,pixel_surface&,bool stored_geometry) noexcept;
 lpb_result decode_heic_auxiliary_file(lpb_context* context, const char* input_path,
     uint32_t auxiliary_item_id, pixel_surface& output, heic_auxiliary_facts* out_facts = nullptr, bool stored_geometry = false) noexcept;
 lpb_result encode_heic_file(lpb_context* context, const char* output_path,

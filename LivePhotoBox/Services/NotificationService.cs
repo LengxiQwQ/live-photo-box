@@ -1,4 +1,4 @@
-/*
+﻿/*
  * NotificationService.cs
  *
  * 系统通知服务 — 任务队列完成后弹出 Windows Toast 通知。
@@ -95,6 +95,8 @@ namespace LivePhotoBox.Services
         // 仅当任务持续时间超过阈值时触发。
         public static void ShowBatchCompleted(string feature, int succeeded, int failed, double elapsedSeconds, string? outputDir = null)
         {
+            if (ApplicationShutdown.IsClosing) return;
+
             if (_registerFailed) return;
             if (!_initialized) return;
 

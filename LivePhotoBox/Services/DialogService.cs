@@ -1,4 +1,4 @@
-/*
+﻿/*
  * DialogService.cs
  *
  * 全局对话框服务。统一封装 ContentDialog 的创建和显示，
@@ -27,6 +27,20 @@ namespace LivePhotoBox.Services
     /// </summary>
     public static class DialogService
     {
+        private static readonly System.Collections.Generic.HashSet<ContentDialog> Active = [];
+        internal static void CancelForShutdown()
+        {
+            foreach (var dialog in new System.Collections.Generic.List<ContentDialog>(Active)) dialog.Hide();
+        }
+
+        private static async Task<ContentDialogResult> ShowTrackedAsync(ContentDialog dialog)
+        {
+            if (ApplicationShutdown.IsClosing) return ContentDialogResult.None;
+            Active.Add(dialog);
+            try { return await dialog.ShowAsync(); }
+            finally { Active.Remove(dialog); }
+        }
+
         /// <summary>
         /// 将 content 参数统一为 UIElement。
         /// </summary>
@@ -56,7 +70,7 @@ namespace LivePhotoBox.Services
                 XamlRoot = xamlRoot,
                 RequestedTheme = theme ?? App.CurrentTheme
             };
-            await dialog.ShowAsync();
+            await ShowTrackedAsync(dialog);
         }
 
         /// <summary>
@@ -81,7 +95,7 @@ namespace LivePhotoBox.Services
                 XamlRoot = xamlRoot,
                 RequestedTheme = theme ?? App.CurrentTheme
             };
-            return await dialog.ShowAsync() == ContentDialogResult.Primary;
+            return await ShowTrackedAsync(dialog) == ContentDialogResult.Primary;
         }
 
         /// <summary>
@@ -93,7 +107,7 @@ namespace LivePhotoBox.Services
             object content)
         {
             dialog.Content = WrapContent(content);
-            return await dialog.ShowAsync();
+            return await ShowTrackedAsync(dialog);
         }
     }
 }

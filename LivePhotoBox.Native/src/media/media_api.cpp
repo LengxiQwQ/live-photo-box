@@ -1569,6 +1569,13 @@ LPB_API lpb_result LPB_CALL lpb_clean_source_protocol_with_cleanup_plan(
     }
 }
 
+LPB_API lpb_result LPB_CALL lpb_probe_video_repair(
+    lpb_context* context, const char* path, lpb_video_item_facts* facts, uint32_t* reflection)
+{
+    if (!context || !reflection) return LPB_RESULT_INVALID_ARGUMENT;
+    return probe_video_file(context, path, facts, reflection);
+}
+
 LPB_API lpb_result LPB_CALL lpb_probe_video(
     lpb_context* context,
     const char* video_path,
@@ -1644,14 +1651,14 @@ LPB_API lpb_result LPB_CALL lpb_transcode_video_v4(
     if(proof && proof->struct_size==sizeof(*proof)) {
         *proof={};proof->struct_size=sizeof(*proof);proof->api_version=2;
     }
-    if(!context||!valid||!request||request->struct_size!=sizeof(*request)||request->api_version!=1||
+    if(!context||!valid||!request||request->struct_size!=sizeof(*request)||(request->api_version!=1&&request->api_version!=2)||
         request->policy>2||request->reserved!=0||!diagnostics||diagnostics->struct_size!=sizeof(*diagnostics)) {
         if(context)set_error(context,"Complete video proof request/result has an incompatible size, version, policy or reserved field.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     proof->metadata.struct_size=sizeof(proof->metadata);proof->metadata.api_version=1;proof->metadata.policy=request->policy;
     const auto result=transcode_video_file(context,input,output,container,codec,crf,nullptr,0,diagnostics,
-        &proof->metadata,codec==LPB_VIDEO_CODEC_COPY?proof:nullptr);
+        &proof->metadata,codec==LPB_VIDEO_CODEC_COPY?proof:nullptr,request->api_version==2);
     if(result!=LPB_RESULT_OK) {
         *proof={};proof->struct_size=sizeof(*proof);proof->api_version=2;
     }

@@ -54,9 +54,15 @@ bool same_mastering(const AVMasteringDisplayMetadata& a, const AVMasteringDispla
 
 template <typename T>
 void rotate_plane_cw(const T* src, int src_stride, int src_w, int src_h,
-                     T* dst, int dst_stride, int rot_cw)
+                     T* dst, int dst_stride, int rot_cw, uint32_t reflection)
 {
-    if (rot_cw == 90) {
+    if (reflection) {
+        for (int y = 0; y < src_h; ++y) {
+            const T* src_row = src + static_cast<ptrdiff_t>(y) * src_stride;
+            T* dst_row = dst + static_cast<ptrdiff_t>(reflection == 2 ? src_h - 1 - y : y) * dst_stride;
+            for (int x = 0; x < src_w; ++x) dst_row[reflection == 1 ? src_w - 1 - x : x] = src_row[x];
+        }
+    } else if (rot_cw == 90) {
         for (int y = 0; y < src_h; ++y) {
             const T* src_row = src + static_cast<ptrdiff_t>(y) * src_stride;
             for (int x = 0; x < src_w; ++x) {
@@ -81,27 +87,28 @@ void rotate_plane_cw(const T* src, int src_stride, int src_w, int src_h,
     }
 }
 
-bool rotate_frame(const AVFrame* src, AVFrame* dst, int rot_cw, unsigned int depth)
+bool rotate_frame(const AVFrame* src, AVFrame* dst, int rot_cw, unsigned int depth, uint32_t reflection)
 {
     const auto* descriptor = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(src->format));
     if (!descriptor || !(descriptor->flags & AV_PIX_FMT_FLAG_PLANAR) ||
         (descriptor->flags & (AV_PIX_FMT_FLAG_RGB | AV_PIX_FMT_FLAG_PAL | AV_PIX_FMT_FLAG_HWACCEL)) ||
         descriptor->nb_components != 3 || src->format != dst->format ||
-        (rot_cw != 90 && rot_cw != 180 && rot_cw != 270)) return false;
+        (!reflection && rot_cw != 90 && rot_cw != 180 && rot_cw != 270)) return false;
     for (int p = 0; p < 3; ++p) {
         if (descriptor->comp[p].plane != p || !src->data[p] || !dst->data[p]) return false;
         const int w = p == 0 ? src->width : AV_CEIL_RSHIFT(src->width, descriptor->log2_chroma_w);
         const int h = p == 0 ? src->height : AV_CEIL_RSHIFT(src->height, descriptor->log2_chroma_h);
         const int dw = p == 0 ? dst->width : AV_CEIL_RSHIFT(dst->width, descriptor->log2_chroma_w);
         const int dh = p == 0 ? dst->height : AV_CEIL_RSHIFT(dst->height, descriptor->log2_chroma_h);
-        if (dw != (rot_cw == 180 ? w : h) || dh != (rot_cw == 180 ? h : w)) return false;
+        const bool swap = rot_cw == 90 || rot_cw == 270;
+        if (dw != (swap ? h : w) || dh != (swap ? w : h)) return false;
         const int unit = depth > 8U ? 2 : 1;
         if (descriptor->comp[p].step != unit || src->linesize[p] % unit || dst->linesize[p] % unit ||
             std::abs(int64_t(src->linesize[p])) < int64_t(w)*unit ||
             std::abs(int64_t(dst->linesize[p])) < int64_t(dw)*unit) return false;
         if (unit == 2) rotate_plane_cw(reinterpret_cast<const uint16_t*>(src->data[p]),src->linesize[p]/2,w,h,
-            reinterpret_cast<uint16_t*>(dst->data[p]),dst->linesize[p]/2,rot_cw);
-        else rotate_plane_cw(src->data[p],src->linesize[p],w,h,dst->data[p],dst->linesize[p],rot_cw);
+            reinterpret_cast<uint16_t*>(dst->data[p]),dst->linesize[p]/2,rot_cw,reflection);
+        else rotate_plane_cw(src->data[p],src->linesize[p],w,h,dst->data[p],dst->linesize[p],rot_cw,reflection);
     }
     return true;
 }
@@ -763,7 +770,8 @@ int transcode_impl(
         request->crf < 0 || request->crf > 51 ||
         (request->flags & ~(LPB_VIDEO_SIDECAR_REQUEST_NATIVE_TRANSPLANTS_MEBX |
             LPB_VIDEO_SIDECAR_REQUEST_NATIVE_SOURCE_PROFILE |
-            LPB_VIDEO_SIDECAR_REQUEST_COMPATIBLE_PROFILE | LPB_VIDEO_SIDECAR_REQUEST_ALL_INTRA | LPB_VIDEO_SIDECAR_REQUEST_AAC_AUDIO)) != 0U ||
+            LPB_VIDEO_SIDECAR_REQUEST_COMPATIBLE_PROFILE | LPB_VIDEO_SIDECAR_REQUEST_ALL_INTRA | LPB_VIDEO_SIDECAR_REQUEST_AAC_AUDIO |
+            LPB_VIDEO_SIDECAR_REQUEST_FLIP_HORIZONTAL | LPB_VIDEO_SIDECAR_REQUEST_FLIP_VERTICAL)) != 0U ||
         request->reserved[0] != 0U || request->reserved[1] != 0U || request->reserved[2] != 0U)
     {
         return LPB_VIDEO_SIDECAR_INVALID_ARGUMENT;
@@ -983,7 +991,13 @@ int transcode_impl(
             }
         }
     }
-    if (is_stream_copy && rot_cw != 0)
+    const bool flip_horizontal = (request->flags & LPB_VIDEO_SIDECAR_REQUEST_FLIP_HORIZONTAL) != 0;
+    const bool flip_vertical = (request->flags & LPB_VIDEO_SIDECAR_REQUEST_FLIP_VERTICAL) != 0;
+    if (flip_horizontal && flip_vertical) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+    const uint32_t reflection = flip_horizontal ? 1u : flip_vertical ? 2u : 0u;
+    if (reflection) rot_cw = 0;
+    const bool transform_pixels = rot_cw != 0 || reflection != 0;
+    if (is_stream_copy && transform_pixels)
     {
         return LPB_VIDEO_SIDECAR_UNSUPPORTED;
     }
@@ -1121,7 +1135,7 @@ int transcode_impl(
         operation_result = av_dict_copy(&output_video->metadata, input_video->metadata, 0);
     }
     if (operation_result >= 0) operation_result = av_dict_set(&output_video->metadata, "encoder", selected_encoder_name, 0);
-    if (rot_cw != 0) {
+    if (transform_pixels) {
         (void)av_dict_set(&output_video->metadata, "rotate", nullptr, 0);
         (void)av_dict_set(&output->metadata, "rotate", nullptr, 0);
     }
@@ -1133,7 +1147,7 @@ int transcode_impl(
     if (!is_stream_copy) {
         for (int index = 0; index < input_video->codecpar->nb_coded_side_data; ++index) {
             const auto* side = &input_video->codecpar->coded_side_data[index];
-            if (rot_cw != 0 && side->type == AV_PKT_DATA_DISPLAYMATRIX) continue;
+            if (transform_pixels && side->type == AV_PKT_DATA_DISPLAYMATRIX) continue;
             if (hlg_to_sdr && (side->type == AV_PKT_DATA_MASTERING_DISPLAY_METADATA ||
                 side->type == AV_PKT_DATA_CONTENT_LIGHT_LEVEL || side->type == AV_PKT_DATA_ICC_PROFILE)) continue;
             AVPacketSideData* target_side = av_packet_side_data_new(
@@ -1147,8 +1161,32 @@ int transcode_impl(
                 return LPB_VIDEO_SIDECAR_INTERNAL_ERROR;
             }
             std::memcpy(target_side->data, side->data, side->size);
+            if (transform_pixels && side->type == AV_PKT_DATA_FRAME_CROPPING) {
+                if (side->size != 16) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+                const auto read_le = [](const uint8_t* data) {
+                    return uint32_t(data[0]) | (uint32_t(data[1]) << 8) |
+                        (uint32_t(data[2]) << 16) | (uint32_t(data[3]) << 24);
+                };
+                std::array<uint32_t, 4> crop{};
+                for (size_t i = 0; i < crop.size(); ++i) crop[i] = read_le(side->data + i * 4);
+                if (uint64_t(crop[0]) + crop[1] >= uint64_t(input_video->codecpar->height) ||
+                    uint64_t(crop[2]) + crop[3] >= uint64_t(input_video->codecpar->width))
+                    return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+                if (reflection == 1) std::swap(crop[2], crop[3]);
+                else if (reflection == 2) std::swap(crop[0], crop[1]);
+                else if (rot_cw == 90) crop = {crop[2], crop[3], crop[1], crop[0]};
+                else if (rot_cw == 180) crop = {crop[1], crop[0], crop[3], crop[2]};
+                else if (rot_cw == 270) crop = {crop[3], crop[2], crop[0], crop[1]};
+                for (size_t i = 0; i < crop.size(); ++i)
+                    for (size_t j = 0; j < 4; ++j)
+                        target_side->data[i * 4 + j] = static_cast<uint8_t>(crop[i] >> (j * 8));
+            }
         }
     }
+
+    if (!is_stream_copy && request->target_container == LPB_VIDEO_SIDECAR_CONTAINER_MOV &&
+        request->target_codec == LPB_VIDEO_SIDECAR_CODEC_HEVC)
+        output_video->codecpar->codec_tag = MKTAG('h', 'v', 'c', '1');
 
     std::vector<int> stream_map(input->nb_streams, -1);
     PcmAacPipeline audio_pipeline;
@@ -1285,10 +1323,10 @@ int transcode_impl(
     if (!is_stream_copy)
     {
         AVFrame* decoded_raw = av_frame_alloc();
-        AVFrame* pre_rotated_raw = rot_cw != 0 ? av_frame_alloc() : nullptr;
+        AVFrame* pre_rotated_raw = transform_pixels ? av_frame_alloc() : nullptr;
         AVFrame* converted_raw = av_frame_alloc();
         if (decoded_raw == nullptr || converted_raw == nullptr ||
-            (rot_cw != 0 && pre_rotated_raw == nullptr))
+            (transform_pixels && pre_rotated_raw == nullptr))
         {
             if (decoded_raw != nullptr) av_frame_free(&decoded_raw);
             if (pre_rotated_raw != nullptr) av_frame_free(&pre_rotated_raw);
@@ -1298,7 +1336,7 @@ int transcode_impl(
         decoded.reset(decoded_raw);
         pre_rotated.reset(pre_rotated_raw);
         converted.reset(converted_raw);
-        if (rot_cw != 0)
+        if (transform_pixels)
         {
             pre_rotated->format = encoder_context->pix_fmt;
             pre_rotated->width = decoder_context->width;
@@ -1330,8 +1368,8 @@ int transcode_impl(
             decoder_context->width,
             decoder_context->height,
             decoder_context->pix_fmt,
-            rot_cw != 0 ? decoder_context->width : encoder_context->width,
-            rot_cw != 0 ? decoder_context->height : encoder_context->height,
+            transform_pixels ? decoder_context->width : encoder_context->width,
+            transform_pixels ? decoder_context->height : encoder_context->height,
             encoder_context->pix_fmt,
             SWS_BICUBIC,
             nullptr,
@@ -1567,8 +1605,8 @@ int transcode_impl(
                 coefficients, full_range, 0, 1 << 16, 1 << 16) < 0)
             return LPB_VIDEO_SIDECAR_UNSUPPORTED;
     }
-                AVFrame* scale_dst = rot_cw != 0 ? pre_rotated.get() : converted.get();
-                if (rot_cw != 0)
+                AVFrame* scale_dst = transform_pixels ? pre_rotated.get() : converted.get();
+                if (transform_pixels)
                 {
                     operation_result = av_frame_make_writable(pre_rotated.get());
                     if (operation_result < 0)
@@ -1581,9 +1619,9 @@ int transcode_impl(
                 {
                     return LPB_VIDEO_SIDECAR_ENCODE_FAILURE;
                 }
-                if (rot_cw != 0)
+                if (transform_pixels)
                 {
-                    if (!rotate_frame(pre_rotated.get(), converted.get(), rot_cw, pixel_depth(encoder_context->pix_fmt))) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+                    if (!rotate_frame(pre_rotated.get(), converted.get(), rot_cw, pixel_depth(encoder_context->pix_fmt), reflection)) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
                 }
                 const int64_t frame_timestamp = decoded->pts != AV_NOPTS_VALUE ? decoded->pts : decoded->best_effort_timestamp;
                 converted->pts = frame_timestamp == AV_NOPTS_VALUE
@@ -1686,8 +1724,8 @@ int transcode_impl(
                 result_info->library_error = operation_result;
                 return LPB_VIDEO_SIDECAR_INTERNAL_ERROR;
             }
-            AVFrame* drain_scale_dst = rot_cw != 0 ? pre_rotated.get() : converted.get();
-            if (rot_cw != 0)
+            AVFrame* drain_scale_dst = transform_pixels ? pre_rotated.get() : converted.get();
+            if (transform_pixels)
             {
                 operation_result = av_frame_make_writable(pre_rotated.get());
                 if (operation_result < 0)
@@ -1700,9 +1738,9 @@ int transcode_impl(
             {
                 return LPB_VIDEO_SIDECAR_ENCODE_FAILURE;
             }
-            if (rot_cw != 0)
+            if (transform_pixels)
             {
-                if (!rotate_frame(pre_rotated.get(), converted.get(), rot_cw, pixel_depth(encoder_context->pix_fmt))) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
+                if (!rotate_frame(pre_rotated.get(), converted.get(), rot_cw, pixel_depth(encoder_context->pix_fmt), reflection)) return LPB_VIDEO_SIDECAR_UNSUPPORTED;
             }
             const int64_t frame_timestamp = decoded->pts != AV_NOPTS_VALUE ? decoded->pts : decoded->best_effort_timestamp;
             converted->pts = frame_timestamp == AV_NOPTS_VALUE

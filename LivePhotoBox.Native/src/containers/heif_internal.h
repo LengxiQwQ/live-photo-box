@@ -76,9 +76,23 @@ bool rewrite_primary_exif(std::span<const uint8_t> input,std::span<const uint8_t
     std::vector<uint8_t>& output,std::string& error) noexcept;
 
 
+// Same-length replacement of the unique primary-owned TIFF bytes.
+bool replace_primary_exif_payload(std::span<uint8_t> input,
+    std::span<const uint8_t> exif_payload, std::string& error) noexcept;
+
+// Remove only primary-owned thmb items and their exclusively owned dependencies.
+// Retained item extents stay byte-identical. No in-place source-file mutation.
+bool strip_primary_thumbnails(std::vector<uint8_t>& input, bool& changed,
+    std::string& error) noexcept;
+
+struct heif_repair_encoded_item { uint32_t id{};std::vector<uint8_t> encoded; };
+bool repair_display_item_ids(std::span<const uint8_t>,std::vector<uint32_t>&,std::string&) noexcept;
+bool replace_repair_encoded_items(std::vector<uint8_t>&,const std::vector<heif_repair_encoded_item>&,std::string&) noexcept;
+
 struct heif_primary_properties {
     uint32_t item_id{}, width{}, height{}, orientation{};
     bool has_clean_aperture{};
+    bool has_display_transform{};
     bool stored_geometry_compatible{};
     lpb_media_range ordinary_sef_range{}; // Validated final top-level sefd body, never an EOF magic match.
     std::string item_type;

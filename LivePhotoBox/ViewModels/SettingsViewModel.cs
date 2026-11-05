@@ -1,4 +1,4 @@
-/*
+﻿/*
  * SettingsViewModel.cs
  *
  * SettingsPage（设置页面）的视图模型，管理应用的所有设置项。
@@ -193,20 +193,11 @@ namespace LivePhotoBox.ViewModels
                 if (App.MainWindow is MainWindow mainWindow)
                     mainWindow.IsRestartingAfterLayoutReset = true;
 
-                // 自动重启，使重置立即生效
-                string? processPath = Environment.ProcessPath;
-                if (!string.IsNullOrWhiteSpace(processPath))
+                ApplicationShutdown.Request(() =>
                 {
-                    try
-                    {
-                        Process.Start(new ProcessStartInfo(processPath) { UseShellExecute = true });
-                    }
-                    catch (Exception ex)
-                    {
-                        LogService.Error($"Failed to restart after layout reset: {ex.Message}", ex, LogSource.Settings);
-                    }
-                }
-                Application.Current.Exit();
+                    if (Environment.ProcessPath is { } executable)
+                        Process.Start(new ProcessStartInfo(executable) { UseShellExecute = true });
+                });
             }
         }
 

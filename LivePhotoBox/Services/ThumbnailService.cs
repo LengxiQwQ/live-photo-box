@@ -1,4 +1,4 @@
-using Microsoft.UI.Xaml;
+﻿using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System;
@@ -85,7 +85,7 @@ namespace LivePhotoBox.Services
         // 返回: 加载完成的 ImageSource，失败或取消返回 null。
         public static Task<ImageSource?> LoadAsync(string imagePath, Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
         {
-            if (string.IsNullOrWhiteSpace(imagePath)) return Task.FromResult<ImageSource?>(null);
+            if (ApplicationShutdown.IsClosing || string.IsNullOrWhiteSpace(imagePath)) return Task.FromResult<ImageSource?>(null);
 
             dispatcher ??= Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
             if (dispatcher == null) return Task.FromResult<ImageSource?>(null);
@@ -146,6 +146,9 @@ namespace LivePhotoBox.Services
 
         private static async Task<ImageSource?> RunBackgroundVideoLoadAsync(string videoPath, Microsoft.UI.Dispatching.DispatcherQueue dispatcher, int version)
         {
+            using var shutdownLease = ApplicationShutdown.Work.TryBegin("thumbnail.load");
+            if (shutdownLease is null) return null;
+
             try
             {
                 await _videoLoadLimiter.WaitAsync().ConfigureAwait(false);
@@ -186,12 +189,15 @@ namespace LivePhotoBox.Services
 
         private static async Task<ImageSource?> LoadCoreAsync(string imagePath, Microsoft.UI.Dispatching.DispatcherQueue dispatcher, int version)
         {
+            using var shutdownLease = ApplicationShutdown.Work.TryBegin("thumbnail.load");
+            if (shutdownLease is null) return null;
+
             try
             {
                 // 视频走独立信号量（不抢照片通道），支持取消排队
                 if (IsVideoFile(imagePath))
                 {
-                    var cts = new CancellationTokenSource();
+                    var cts = CancellationTokenSource.CreateLinkedTokenSource(ApplicationShutdown.Work.Token);
                     _videoLoadCts[imagePath] = cts;
                     bool acquired = false;
 
@@ -252,7 +258,7 @@ namespace LivePhotoBox.Services
                                             var bitmap = new BitmapImage();
                                             await bitmap.SetSourceAsync(thumbnail);
 
-                                            if (version == Volatile.Read(ref _cacheVersion))
+                                            if (!ApplicationShutdown.IsClosing && version == Volatile.Read(ref _cacheVersion))
                                             {
                                                 _thumbnailCache[imagePath] = bitmap;
                                                 tcs.TrySetResult(bitmap);
@@ -291,7 +297,7 @@ namespace LivePhotoBox.Services
                                         var bitmap = new BitmapImage();
                                         using var ms = new MemoryStream(data);
                                         bitmap.SetSource(ms.AsRandomAccessStream());
-                                        if (version == Volatile.Read(ref _cacheVersion))
+                                        if (!ApplicationShutdown.IsClosing && version == Volatile.Read(ref _cacheVersion))
                                         {
                                             _thumbnailCache[imagePath] = bitmap;
                                             tcs.TrySetResult(bitmap);
@@ -349,7 +355,7 @@ namespace LivePhotoBox.Services
                             var bitmap = new BitmapImage();
                             await bitmap.SetSourceAsync(thumbnail);
 
-                            if (version == Volatile.Read(ref _cacheVersion))
+                            if (!ApplicationShutdown.IsClosing && version == Volatile.Read(ref _cacheVersion))
                             {
                                 _thumbnailCache[imagePath] = bitmap;
                                 tcs.TrySetResult(bitmap);
@@ -444,7 +450,7 @@ namespace LivePhotoBox.Services
                             using var fileStream = new FileStream(tempJpegPath, FileMode.Open, FileAccess.Read);
                             bitmapImage.SetSource(fileStream.AsRandomAccessStream());
 
-                            if (version == Volatile.Read(ref _cacheVersion))
+                            if (!ApplicationShutdown.IsClosing && version == Volatile.Read(ref _cacheVersion))
                             {
                                 _thumbnailCache[imagePath] = bitmapImage;
                                 tcs.TrySetResult(bitmapImage);
@@ -516,7 +522,7 @@ namespace LivePhotoBox.Services
                     var bitmap = new BitmapImage { DecodePixelWidth = 128 };
                     stream.Seek(0);
                     await bitmap.SetSourceAsync(stream);
-                    if (version == Volatile.Read(ref _cacheVersion))
+                    if (!ApplicationShutdown.IsClosing && version == Volatile.Read(ref _cacheVersion))
                     {
                         _thumbnailCache[path] = bitmap;
                         completion.TrySetResult(bitmap);
@@ -595,12 +601,15 @@ namespace LivePhotoBox.Services
             Action<ImageSource?> assignThumbnail,
             uint targetSize = 80)
         {
+            void Assign(ImageSource? image) { if (!ApplicationShutdown.IsClosing) assignThumbnail(image); }
+            if (ApplicationShutdown.IsClosing) return null;
+
             if (string.IsNullOrWhiteSpace(imagePath)) return null;
 
             // 先查全局缓存——避免重复解码（尤其 HEIC，单次解码耗时 100-300ms）
             if (_thumbnailCache.TryGetValue(imagePath, out var cached))
             {
-                assignThumbnail(cached);
+                Assign(cached);
                 return cached;
             }
 
@@ -615,8 +624,13 @@ namespace LivePhotoBox.Services
             // 视频：无法提前知道宽高比，1.5× 兜底，后续可加 ffprobe 取真实尺寸
             uint videoDecodeSize = (uint)(decodeSize * 1.5);
 
+            var shutdownLease = ApplicationShutdown.Work.TryBegin("thumbnail.background");
+            if (shutdownLease is null) return null;
             _ = System.Threading.Tasks.Task.Run(async () =>
             {
+                using var lifetime = shutdownLease;
+                try
+                {
                 // 视频走独立慢速信号量，不阻塞照片加载
                 if (IsVideoFile(path))
                 {
@@ -629,7 +643,7 @@ namespace LivePhotoBox.Services
                         {
                             if (_thumbnailCache.TryGetValue(path, out var vidCached))
                             {
-                                _ = dispatcher?.TryEnqueue(() => assignThumbnail(vidCached));
+                                _ = dispatcher?.TryEnqueue(() => Assign(vidCached));
                                 return;
                             }
                             var (data, w, h) = await LoadVideoThumbnailDataAsync(path, videoDecodeSize);
@@ -644,18 +658,18 @@ namespace LivePhotoBox.Services
                                         using var ms = new MemoryStream(data);
                                         bmp.SetSource(ms.AsRandomAccessStream());
                                         _thumbnailCache[path] = bmp;
-                                        assignThumbnail(bmp);
+                                        Assign(bmp);
                                     }
                                     catch
                                     {
                                         // SetSource 失败 → 回调 null 以触发 UI 刷新，后续 getter 会自动重试
-                                        assignThumbnail(null);
+                                        Assign(null);
                                     }
                                 });
                             }
                             else
                             {
-                                _ = dispatcher?.TryEnqueue(() => assignThumbnail(null));
+                                _ = dispatcher?.TryEnqueue(() => Assign(null));
                             }
                         }
                         finally { _videoLoadLimiter.Release(); }
@@ -670,7 +684,7 @@ namespace LivePhotoBox.Services
                 // ── 照片路径 ──
                 // 注册可取消令牌：快速滚动时新请求会取消最旧的排队请求
                 _tryGetOrLoadInFlight[path] = 0;
-                var photoCts = new CancellationTokenSource();
+                var photoCts = CancellationTokenSource.CreateLinkedTokenSource(ApplicationShutdown.Work.Token);
                 _photoLoadCts[path] = photoCts;
 
                 try // 外层 finally — 无论成功/失败/取消，都清理追踪
@@ -685,7 +699,7 @@ namespace LivePhotoBox.Services
                     }
                     catch (OperationCanceledException)
                     {
-                        _ = dispatcher?.TryEnqueue(() => assignThumbnail(null));
+                        _ = dispatcher?.TryEnqueue(() => Assign(null));
                         return; // 外层 finally 仍然执行
                     }
 
@@ -695,7 +709,7 @@ namespace LivePhotoBox.Services
                         // 双重检查：等信号量期间可能已被其他请求加载
                         if (_thumbnailCache.TryGetValue(path, out var photoCached))
                         {
-                            _ = dispatcher?.TryEnqueue(() => assignThumbnail(photoCached));
+                            _ = dispatcher?.TryEnqueue(() => Assign(photoCached));
                             return;
                         }
 
@@ -725,12 +739,12 @@ namespace LivePhotoBox.Services
                                     bitmapImage.SetSource(stream.AsRandomAccessStream());
                                     _thumbnailCache[path] = bitmapImage;
                                     _failCounts.TryRemove(path, out _); // 加载成功 → 清零失败计数
-                                    assignThumbnail(bitmapImage);
+                                    Assign(bitmapImage);
                                 }
                                 catch
                                 {
                                     // SetSource 失败 → 回调 null 触发重试
-                                    assignThumbnail(null);
+                                    Assign(null);
                                 }
                             });
                         }
@@ -740,7 +754,7 @@ namespace LivePhotoBox.Services
                             int fails = _failCounts.AddOrUpdate(path, 1, (_, c) => c + 1);
                             if (fails <= MaxFailRetries)
                             {
-                                _ = dispatcher?.TryEnqueue(() => assignThumbnail(null));
+                                _ = dispatcher?.TryEnqueue(() => Assign(null));
                             }
                             // 超过 MaxFailRetries 次 → 静默放弃，不再重试
                         }
@@ -756,6 +770,8 @@ namespace LivePhotoBox.Services
                     photoCts.Dispose();
                     _tryGetOrLoadInFlight.TryRemove(path, out _);
                 }
+                }
+                catch (Exception error) { LogService.Warn($"Background thumbnail failed: {error.Message}"); }
             });
 
             return null;

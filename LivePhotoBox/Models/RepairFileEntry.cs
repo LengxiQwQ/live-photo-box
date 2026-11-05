@@ -140,7 +140,9 @@ namespace LivePhotoBox.Models
         {
             get
             {
-                // 无需修复的文件直接视为成功（绿色）；避免依赖多语言字符串比较
+                if (Status is ProcessStatus.Failed or ProcessStatus.Warning) return Status;
+                if (IsDiagnosisError) return ProcessStatus.Failed;
+                // A verified healthy input needs no mutation.
                 if (!NeedsRepair || AnalysisResult?.IssueType == RepairIssueType.Perfect)
                 {
                     return ProcessStatus.Success;
@@ -150,7 +152,7 @@ namespace LivePhotoBox.Models
         }
 
         // 任务失败且有错误详情时返回 true（用于 UI 显示错误图标）
-        public bool HasErrorDetails => Status == ProcessStatus.Failed && !string.IsNullOrWhiteSpace(Details);
+        public bool HasErrorDetails => Status is ProcessStatus.Failed or ProcessStatus.Warning && !string.IsNullOrWhiteSpace(Details);
 
         // 诊断阶段报错 → 诊断结果文字标红 + 可点击查看详情
         public bool IsDiagnosisError => AnalysisResult?.IssueType == RepairIssueType.Error;

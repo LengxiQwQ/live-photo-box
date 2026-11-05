@@ -1,4 +1,5 @@
 #include "containers/isobmff_mebx_transplant.h"
+#include "containers/isobmff_video_profile.h"
 #include "containers/remux_byte_proof.h"
 #include "containers/isobmff_track_graph.h"
 #include "containers/isobmff_video_profile.h"
@@ -503,7 +504,7 @@ bool self_contained_reference(std::span<const uint8_t> data, const isobmff_box_h
 }
 
 bool parse_track(std::span<const uint8_t> data, size_t trak_start, size_t trak_end,
-    std::span<const isobmff_media_data_range> mdats, track_record& output) noexcept {
+    std::span<const isobmff_media_data_range> mdats, track_record& output, bool repair_empty_metadata = false) noexcept {
     output = {};
     if (!box_type(data, trak_start, "trak") || trak_start > trak_end || trak_end > data.size()) return false;
     isobmff_box_header trak{};
@@ -537,6 +538,8 @@ bool parse_track(std::span<const uint8_t> data, size_t trak_start, size_t trak_e
 
     if (output.stbl_start == output.stbl_end && output.media_duration == 0U &&
         std::memcmp(output.handler,"soun",4U)==0) return true;
+    if (repair_empty_metadata && output.stbl_start == output.stbl_end &&
+        std::memcmp(output.handler,"meta",4U)==0) return true;
     uint32_t description_count = 0;
     if (!parse_sample_descriptions(data, output.stbl_start, output.stbl_end,
             output.is_mebx, output.sample_entry_offset, description_count)) return false;
@@ -580,7 +583,7 @@ bool parse_track(std::span<const uint8_t> data, size_t trak_start, size_t trak_e
 }
 
 bool parse_file(std::span<const uint8_t> data, file_record& output,
-    std::span<const isobmff_media_data_range> real_mdats = {}) noexcept {
+    std::span<const isobmff_media_data_range> real_mdats = {}, bool repair_empty_metadata = false) noexcept {
     output = {};
     if (data.size() < 16U) return false;
     try {
@@ -614,7 +617,7 @@ bool parse_file(std::span<const uint8_t> data, file_record& output,
             if (!try_read_box_header(data.data(), child, output.moov_end, box)) return false;
             if (box_type(data, child, "trak")) {
                 track_record track{};
-                if (!parse_track(data, child, child + box.size, output.mdats, track)) return false;
+                if (!parse_track(data, child, child + box.size, output.mdats, track, repair_empty_metadata)) return false;
                 if (std::any_of(output.tracks.begin(), output.tracks.end(), [&](const track_record& prior) {
                         return prior.track_id == track.track_id;
                     })) return false;
@@ -1823,14 +1826,13 @@ bool timed_header(std::span<const uint8_t> data, const isobmff_box_header& box,
     std::memcpy(result.data() + 8U + new_prefix, data.data() + body + prefix, tail);
     if (movie && projection) write_u32(result.data() + result.size() - 4U, 0U);
     if (track && projection) {
-        constexpr uint8_t be_identity[36] = {
-            0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00
-        };
-        const bool rotated_matrix = std::memcmp(data.data() + body + prefix + 16U, be_identity, sizeof(be_identity)) != 0;
+        const size_t matrix = body + prefix + 16U;
+        const bool transposes_axes = read_u32(data.data() + matrix) == 0U &&
+            read_u32(data.data() + matrix + 16U) == 0U &&
+            read_u32(data.data() + matrix + 4U) != 0U &&
+            read_u32(data.data() + matrix + 12U) != 0U;
         std::memset(result.data() + 8U + new_prefix + 16U, 0, 36U);
-        if (rotated_matrix) {
+        if (transposes_axes) {
             const uint32_t w = read_u32(data.data() + body + prefix + 52U);
             const uint32_t h = read_u32(data.data() + body + prefix + 56U);
             write_u32(result.data() + 8U + new_prefix + 52U, std::min(w, h));
@@ -2723,6 +2725,37 @@ bool extract_isobmff_audio_track(std::span<const uint8_t> source,uint32_t id,std
     }catch(...){output.clear();return false;}
 }
 
+bool extract_isobmff_main_video(std::span<const uint8_t> source,std::vector<uint8_t>& output) noexcept {
+    output.clear();
+    try {
+        file_record file{};if(!parse_file(source,file,{},true)||file.moov_header_size!=8U)return false;
+        const auto* it=unique_video(file);
+        if(!it)return false;
+        // Every retained source track must have bounded, disjoint sample ranges
+        // before a video-only decoder view may be used.
+        std::vector<std::pair<uint64_t,uint64_t>> ranges;
+        for(const auto& track:file.tracks) {
+            if(track.stbl_start==track.stbl_end&&std::memcmp(track.handler,"meta",4U)==0)continue;
+            isobmff_sample_table_layout table;uint64_t bad{};
+            if(!inspect_isobmff_strict_sample_table(source,track.stbl_box_start,track.stbl_end,file.mdats,0U,table,bad))return false;
+            for(const auto& chunk:table.chunks)ranges.emplace_back(chunk.offset,chunk.offset+chunk.size);
+        }
+        std::sort(ranges.begin(),ranges.end());for(size_t i=1;i<ranges.size();++i)if(ranges[i].first<ranges[i-1].second)return false;
+        isobmff_box_header mv{};size_t m=0;
+        if(!unique_child(source,file.moov_start+8U,file.moov_end,"mvhd",mv,m))return false;
+        std::vector<uint8_t> movie(8U);std::memcpy(movie.data()+4U,"moov",4U);
+        movie.insert(movie.end(),source.begin()+m,source.begin()+m+mv.size);
+        movie.insert(movie.end(),source.begin()+it->start,source.begin()+it->end);
+        if(movie.size()>UINT32_MAX)return false;write_u32(movie.data(),uint32_t(movie.size()));
+        const int64_t growth=int64_t(movie.size())-int64_t(file.moov_end-file.moov_start);
+        if(growth&&!shift_chunk_offsets(movie,0U,file.moov_end,growth))return false;
+        output.insert(output.end(),source.begin(),source.begin()+file.moov_start);
+        output.insert(output.end(),movie.begin(),movie.end());
+        output.insert(output.end(),source.begin()+file.moov_end,source.end());
+        file_record actual{};return parse_file(output,actual)&&actual.tracks.size()==1U&&actual.tracks[0].track_id==it->track_id;
+    }catch(...){output.clear();return false;}
+}
+
 bool replace_isobmff_audio_track(std::span<const uint8_t> source,uint32_t id,
     std::span<const uint8_t> encoded,std::vector<uint8_t>& output) noexcept {
     output.clear();
@@ -2826,6 +2859,124 @@ bool replace_isobmff_audio_track(std::span<const uint8_t> source,uint32_t id,
         for(const auto& t:sf.tracks)if(t.track_id!=id) {
             const auto f=std::find_if(final.tracks.begin(),final.tracks.end(),[&](const auto& x){return x.track_id==t.track_id;});
             if(f==final.tracks.end())return false;auto a=t,b=*f;
+            if(!inspect_isobmff_strict_sample_table(source,t.stbl_box_start,t.stbl_end,sf.mdats,0U,a.sample_table,bad)||
+                !inspect_isobmff_strict_sample_table(output,f->stbl_box_start,f->stbl_end,final.mdats,0U,b.sample_table,bad)||!compare_payloads(source,a,output,b))return false;
+        }
+        return true;
+    }catch(...){output.clear();return false;}
+}
+
+// Samsung repair preserves every other source track and replaces only video.
+bool replace_isobmff_main_video(std::span<const uint8_t> source,
+    std::span<const uint8_t> encoded,std::vector<uint8_t>& output) noexcept {
+    output.clear();
+    try {
+        file_record sf{},ef{};
+        if(!parse_file(source,sf,{},true)||!parse_file(encoded,ef)||sf.moov_header_size!=8U)return false;
+        const auto* original=unique_video(sf);const auto* transformed=unique_video(ef);
+        if(!original||!transformed)return false;
+        const uint32_t id=original->track_id;
+        const auto& audio=*transformed;
+        isobmff_sample_table_layout table{};uint64_t bad=0;
+        if(!inspect_isobmff_strict_sample_table(encoded,audio.stbl_box_start,audio.stbl_end,ef.mdats,0U,table,bad)||!table.sample_count)return false;
+        std::vector<uint8_t> track(encoded.begin()+audio.start,encoded.begin()+audio.end);
+        if(!rebase_track_movie_durations(track,ef.movie_time_scale,sf.movie_time_scale))return false;
+        isobmff_box_header source_header{},current_header{};
+        if(!try_read_box_header(source.data(),original->start,original->end,source_header)||
+            !try_read_box_header(track.data(),0,track.size(),current_header))return false;
+        std::vector<uint8_t> mapped;
+        if(!map_header_parent(source,source_header,track,current_header,mapped))return false;
+        isobmff_box_header old_tk{},new_tk{};size_t old_at{},new_at{};
+        if(!unique_child(track,8U,track.size(),"tkhd",old_tk,old_at)||!unique_child(mapped,8U,mapped.size(),"tkhd",new_tk,new_at)||old_tk.size<44U||new_tk.size<44U)return false;
+        std::memcpy(mapped.data()+new_at+new_tk.size-44U,track.data()+old_at+old_tk.size-44U,44U);
+        bool source_qt=false,target_qt=false;
+        if(!quicktime_file(source,source_qt)||!quicktime_file(encoded,target_qt))return false;
+        if(!normalize_mapped_track_handler_names(source,*original,mapped,source_qt,target_qt))return false;
+        track.swap(mapped);
+        static_boxes source_children,ordinary;
+        if(!children_of(source,original->start+8U,original->end,source_children))return false;
+        for(const auto& child:source_children)if(box_type(source,child.start,"tref")||box_type(source,child.start,"udta")||box_type(source,child.start,"meta")||box_type(source,child.start,"uuid")) {
+            if(!box_type(source,child.start,"tref")&&(box_type(source,child.start,"uuid")?child.size<child.header_size+16U:!offset_free_static(source,child,true)))return false;
+            ordinary.push_back(child);
+        }
+        std::vector<uint8_t> with_metadata;
+        if(!rewrite_static_parent(source,ordinary,track,0U,track.size(),nullptr,nullptr,with_metadata))return false;
+        track.swap(with_metadata);
+        isobmff_box_header tk{};size_t k=0;
+        if(!unique_child(track,8U,track.size(),"tkhd",tk,k))return false;
+        const size_t body=k+tk.header_size;
+        write_u32(track.data()+body+(track[body]?20U:12U),id);
+        std::vector<uint8_t> movie(source.begin()+sf.moov_start,source.begin()+sf.moov_end);
+        isobmff_box_header old{original->start-sf.moov_start,original->end-original->start,8U};
+        const int64_t growth=int64_t(track.size())-int64_t(old.size);
+        // Relocate the unrelated source tables before inserting the replacement.
+        // Encoded audio addresses are rewritten against its own appended mdat.
+        if(growth&&!shift_chunk_offsets(movie,0U,sf.moov_end,growth))return false;
+        std::vector<uint8_t> replaced;
+        if(!replace_child_bytes(movie,isobmff_box_header{0U,movie.size(),8U},old,track,replaced))return false;
+        movie.swap(replaced);
+        // Locate by stable identity after header-size changes, without granting
+        // temporary addresses authority over sample bytes.
+        static_boxes children;if(!children_of(movie,8U,movie.size(),children))return false;
+        size_t start=0,end=0;
+        uint64_t duration=0;
+        for(const auto& child:children)if(box_type(movie,child.start,"trak")) {
+            isobmff_box_header h{};size_t at=0;uint32_t tid=0;
+            if(!unique_child(movie,child.start+child.header_size,child.start+child.size,"tkhd",h,at)||!read_track_id(movie,h,tid))return false;
+            const size_t b=at+h.header_size;const auto v=movie[b];const size_t d=b+(v?28U:20U);
+            if(v>1U||d+(v?8U:4U)>at+h.size)return false;
+            duration=std::max(duration,v?read_u64(movie.data()+d):uint64_t(read_u32(movie.data()+d)));
+            if(tid==id){start=child.start;end=child.start+child.size;}
+        }
+        if(!end)return false;
+        isobmff_box_header md{},mi{},st{},co{};size_t at=0;
+        if(!unique_child(movie,start+8U,end,"mdia",md,at)||!unique_child(movie,md.start+md.header_size,md.start+md.size,"minf",mi,at)||
+            !unique_child(movie,mi.start+mi.header_size,mi.start+mi.size,"stbl",st,at)||
+            !unique_child(movie,st.start+st.header_size,st.start+st.size,"stco",co,at,false))return false;
+        if(!co.size&&!unique_child(movie,st.start+st.header_size,st.start+st.size,"co64",co,at))return false;
+        const size_t width=box_type(movie,co.start,"stco")?4U:8U;
+        if(co.size!=co.header_size+8U+table.chunks.size()*width)return false;
+        uint64_t payload_size=0;
+        for(const auto& c:table.chunks)if(!safe_add_u64(payload_size,c.size,payload_size))return false;
+        const uint64_t header=payload_size<=UINT32_MAX-8U?8U:16U;
+        uint64_t payload_at=0;
+        uint64_t total_without_audio=0;
+        if(sf.moov_end-sf.moov_start>source.size()||
+            !safe_add_u64(source.size()-(sf.moov_end-sf.moov_start),movie.size(),total_without_audio)||
+            !safe_add_u64(total_without_audio,header,payload_at))return false;
+        std::vector<uint8_t> payload;
+        for(size_t i=0;i<table.chunks.size();++i) {
+            const auto& c=table.chunks[i];const size_t field=at+co.header_size+8U+i*width;
+            if(width==4U){if(payload_at>UINT32_MAX)return false;write_u32(movie.data()+field,uint32_t(payload_at));}
+            else write_u64(movie.data()+field,payload_at);
+            if(c.offset>encoded.size()||c.size>encoded.size()-c.offset||!safe_add_u64(payload_at,c.size,payload_at))return false;
+            payload.insert(payload.end(),encoded.begin()+size_t(c.offset),encoded.begin()+size_t(c.offset+c.size));
+        }
+        isobmff_box_header mv{};size_t m=0;
+        if(!unique_child(movie,8U,movie.size(),"mvhd",mv,m))return false;
+        const size_t mb=m+mv.header_size;const auto version=movie[mb];
+        if(version>1U||!write_movie_duration_field(movie.data()+mb+(version?24U:16U),version?8U:4U,duration))return false;
+        output.insert(output.end(),source.begin(),source.begin()+sf.moov_start);
+        output.insert(output.end(),movie.begin(),movie.end());output.insert(output.end(),source.begin()+sf.moov_end,source.end());
+        const size_t tail=output.size();output.resize(tail+size_t(header));
+        write_u32(output.data()+tail,header==8U?uint32_t(payload_size+8U):1U);std::memcpy(output.data()+tail+4U,"mdat",4U);
+        if(header==16U)write_u64(output.data()+tail+8U,payload_size+16U);
+        output.insert(output.end(),payload.begin(),payload.end());
+        file_record final{};if(!parse_file(output,final,{},true)||final.tracks.size()!=sf.tracks.size())return false;
+        isobmff_track_graph graph{};
+        if(!inspect_isobmff_track_graph(std::span<const uint8_t>(output).subspan(final.moov_start,final.moov_end-final.moov_start),graph))return false;
+        const auto replacement=std::find_if(final.tracks.begin(),final.tracks.end(),[&](const auto& t){return t.track_id==id;});
+        if(replacement==final.tracks.end())return false;
+        auto encoded_record=audio,actual_record=*replacement;encoded_record.sample_table=table;
+        if(!inspect_isobmff_strict_sample_table(output,replacement->stbl_box_start,replacement->stbl_end,final.mdats,0U,actual_record.sample_table,bad)||
+            !compare_payloads(encoded,encoded_record,output,actual_record))return false;
+        for(const auto& t:sf.tracks)if(t.track_id!=id) {
+            const auto f=std::find_if(final.tracks.begin(),final.tracks.end(),[&](const auto& x){return x.track_id==t.track_id;});
+            if(f==final.tracks.end())return false;auto a=t,b=*f;
+            if(t.stbl_start==t.stbl_end&&std::memcmp(t.handler,"meta",4U)==0) {
+                if(f->end-f->start!=t.end-t.start||!std::equal(source.begin()+t.start,source.begin()+t.end,output.begin()+f->start))return false;
+                continue;
+            }
             if(!inspect_isobmff_strict_sample_table(source,t.stbl_box_start,t.stbl_end,sf.mdats,0U,a.sample_table,bad)||
                 !inspect_isobmff_strict_sample_table(output,f->stbl_box_start,f->stbl_end,final.mdats,0U,b.sample_table,bad)||!compare_payloads(source,a,output,b))return false;
         }

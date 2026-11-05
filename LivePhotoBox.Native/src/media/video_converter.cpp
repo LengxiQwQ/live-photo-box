@@ -42,6 +42,11 @@
 #pragma comment(lib, "mfreadwrite.lib")
 #pragma comment(lib, "mfuuid.lib")
 
+namespace lpb::target {
+lpb_result apple_movie(lpb_context*, const std::vector<uint8_t>&, int64_t,
+    const std::string&, std::vector<uint8_t>&);
+}
+
 namespace fs = std::filesystem;
 
 namespace lpb::media {
@@ -263,8 +268,9 @@ static bool read_all_bytes(const lpb::random_access_reader& source,
 static lpb_result probe_video_reader(
     lpb_context* context,
     const lpb::random_access_reader& source,
-    lpb_video_item_facts* out_video_facts) noexcept
+    lpb_video_item_facts* out_video_facts, uint32_t* reflection = nullptr) noexcept
 {
+    if (reflection) *reflection = 0;
     std::memset(out_video_facts, 0, sizeof(lpb_video_item_facts));
     out_video_facts->struct_size = sizeof(lpb_video_item_facts);
     out_video_facts->is_present = 1;
@@ -356,6 +362,7 @@ static lpb_result probe_video_reader(
         }
 
         // Loop over tracks (trak)
+        bool saw_repair_video_track = false;
         size_t pos = 8;
         while (pos < moov_end) {
             size_t trak_pos = find_child_box(moov_data, pos, moov_end, "trak");
@@ -399,6 +406,11 @@ static lpb_result probe_video_reader(
                             }
                         }
                     } else if (std::memcmp(handler_type, "vide", 4) == 0) {
+                        if (reflection && saw_repair_video_track) {
+                            set_error(context, "Video repair cannot select an authoritative transform from multiple video tracks.");
+                            return LPB_RESULT_UNSUPPORTED;
+                        }
+                        saw_repair_video_track = true;
                         // tkhd describes track/display geometry, not coded pixel
                         // dimensions (e.g. non-square pasp scales its width).
                         const size_t tkhd_pos = find_child_box(moov_data, trak_pos + 8, trak_end, "tkhd");
@@ -420,14 +432,26 @@ static lpb_result probe_video_reader(
                                 (static_cast<uint32_t>(bytes[2]) << 8U) | static_cast<uint32_t>(bytes[3]);
                         };
                         const uint32_t matrix_a = matrix_value(0U), matrix_b = matrix_value(1U), matrix_c = matrix_value(3U), matrix_d = matrix_value(4U);
+                        const auto x = matrix_value(6U), y = matrix_value(7U);
+                        const uint64_t width = matrix_value(9U), height = matrix_value(10U);
+                        const uint64_t normal_x = (matrix_a == 0xffff0000U ? width : 0) +
+                            (matrix_c == 0xffff0000U ? height : 0);
+                        const uint64_t normal_y = (matrix_b == 0xffff0000U ? width : 0) +
+                            (matrix_d == 0xffff0000U ? height : 0);
+                        const bool translation = (x == 0U && y == 0U) ||
+                            (reflection && x == normal_x && y == normal_y);
                         const bool affine = matrix_value(2U) == 0U && matrix_value(5U) == 0U &&
-                            matrix_value(6U) == 0U && matrix_value(7U) == 0U && matrix_value(8U) == 0x40000000U;
+                            translation && matrix_value(8U) == 0x40000000U;
                         if (affine && matrix_a == 0x00010000U && matrix_b == 0U && matrix_c == 0U && matrix_d == 0x00010000U) out_video_facts->rotation_degrees = 0;
                         else if (affine && matrix_a == 0U && matrix_b == 0x00010000U && matrix_c == 0xFFFF0000U && matrix_d == 0U) out_video_facts->rotation_degrees = 90;
                         else if (affine && matrix_a == 0xFFFF0000U && matrix_b == 0U && matrix_c == 0U && matrix_d == 0xFFFF0000U) out_video_facts->rotation_degrees = 180;
                         else if (affine && matrix_a == 0U && matrix_b == 0xFFFF0000U && matrix_c == 0x00010000U && matrix_d == 0U) out_video_facts->rotation_degrees = 270;
+                        else if (reflection && affine && matrix_b == 0U && matrix_c == 0U &&
+                            matrix_a == 0xFFFF0000U && matrix_d == 0x00010000U) *reflection = 1;
+                        else if (reflection && affine && matrix_b == 0U && matrix_c == 0U &&
+                            matrix_a == 0x00010000U && matrix_d == 0xFFFF0000U) *reflection = 2;
                         else {
-                            set_error(context, "Unsupported: video track transform is not matrix_a supported cardinal rotation."); return LPB_RESULT_INVALID_ARGUMENT;
+                            set_error(context, "Unsupported: video track matrix is not a supported rotation or reflection."); return LPB_RESULT_INVALID_ARGUMENT;
                         }
 
                         // Parse mdhd for timescale
@@ -554,7 +578,7 @@ static lpb_result probe_video_reader(
 lpb_result probe_video_file(
     lpb_context* context,
     const char* video_path,
-    lpb_video_item_facts* out_video_facts) noexcept
+    lpb_video_item_facts* out_video_facts, uint32_t* reflection) noexcept
 {
     if (!video_path || !out_video_facts) {
         set_error(context, "Invalid arguments for video probe.");
@@ -578,7 +602,7 @@ lpb_result probe_video_file(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
-    return probe_video_reader(context, file.reader(), out_video_facts);
+    return probe_video_reader(context, file.reader(), out_video_facts, reflection);
 }
 
 // Metadata receipt capture for streaming remux must not materialize mdat.
@@ -2639,7 +2663,7 @@ lpb_result transcode_video_file(
     size_t encoder_buf_len,
     lpb_video_backend_diagnostics* out_diagnostics,
     lpb_video_preservation_result_v1* out_preservation,
-    lpb_video_preservation_result_v2* out_complete_proof) noexcept
+    lpb_video_preservation_result_v2* out_complete_proof, bool repair_orientation) noexcept
 {
     set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_UNKNOWN, LPB_VIDEO_HARDWARE_UNKNOWN,
         false, "", "No backend selected.");
@@ -2667,7 +2691,9 @@ lpb_result transcode_video_file(
     lpb::random_access_reader semantic_reader = source_lease.reader();
     lpb_video_item_facts src_facts = {0};
     src_facts.struct_size = sizeof(lpb_video_item_facts);
-    lpb_result probe_res = probe_video_reader(context, semantic_reader, &src_facts);
+    uint32_t reflection{};
+    lpb_result probe_res = probe_video_reader(context, semantic_reader, &src_facts,
+        repair_orientation ? &reflection : nullptr);
     if (probe_res != LPB_RESULT_OK) {
         return probe_res;
     }
@@ -2709,12 +2735,27 @@ lpb_result transcode_video_file(
     set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_UNKNOWN, LPB_VIDEO_HARDWARE_UNKNOWN,
         false, source_profile_identity, "Native strict source profile parsed; conversion owner not selected.");
 
-    const bool compatible_profile = (out_preservation != nullptr && out_preservation->policy >= 1);
+    const bool compatible_profile = repair_orientation || (out_preservation != nullptr && out_preservation->policy >= 1);
+    lpb_source_media_facts repair_source{};
+    if (repair_orientation) {
+        repair_source.struct_size = sizeof(repair_source);
+        if (lpb_inspect_media(context, input_video_path, nullptr, &repair_source) != LPB_RESULT_OK)
+            return LPB_RESULT_INVALID_ARGUMENT;
+        isobmff_reader_observation inspected;
+        isobmff_reader_diagnostic diagnostic;
+        if (!inspect_isobmff_reader(semantic_reader, true, inspected, diagnostic)) {
+            set_error(context, diagnostic.detail);
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+    }
     std::vector<uint8_t> preflight_metadata;
     std::vector<isobmff_media_data_range> preflight_mdats;
     isobmff_static_metadata_evidence preflight_evidence{};
     const char* rejection_reason = "metadata read";
-    if (read_metadata_bytes(semantic_reader, preflight_metadata, preflight_mdats)) {
+    if (repair_orientation) {
+        // The structural reader binds the media selected for repair. Opaque
+        // private tracks are not an exact-preservation obligation.
+    } else if (read_metadata_bytes(semantic_reader, preflight_metadata, preflight_mdats)) {
         // A best-effort transcode can omit bounded, recognized inline movie
         // annotations that have only a copy mapping. Validate their structure
         // here without enabling the Copy track rules or transplanting them.
@@ -2745,7 +2786,13 @@ lpb_result transcode_video_file(
     else if (target_codec == LPB_VIDEO_CODEC_H264) requested = requested_video_codec::h264;
     else if (target_codec == LPB_VIDEO_CODEC_HEVC) requested = requested_video_codec::hevc;
     const video_conversion_owner original_owner = select_video_conversion_owner(semantic_profile, requested);
-    video_conversion_owner owner = original_owner;
+    if (repair_orientation && ((src_facts.rotation_degrees == 0 && !reflection) || target_codec != strict_source_codec ||
+        target_container != src_facts.container)) {
+        set_error(context, "Orientation repair requires a detected rotation and the original codec and container.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    video_conversion_owner owner = repair_orientation && original_owner == video_conversion_owner::media_foundation_software
+        ? video_conversion_owner::minimal_libav_sidecar : original_owner;
     // MP4 compatible export normalizes actual non-AAC audio through the
     // existing per-track AAC route while stream-copying the video. Strict
     // retains its exact-copy contract; AAC inputs still use project remux.
@@ -2761,7 +2808,7 @@ lpb_result transcode_video_file(
     bool mf_fallback = false;
     mf_deployment_probe deployment{};
     isobmff_video_presentation_timeline fallback_source_timeline{};
-    if (original_owner == video_conversion_owner::media_foundation_software &&
+    if (owner == video_conversion_owner::media_foundation_software &&
         target_codec == LPB_VIDEO_CODEC_H264) {
         deployment = probe_software_video_encoder(context, target_codec);
         if (deployment.state != mf_deployment_state::available) {
@@ -2825,7 +2872,9 @@ lpb_result transcode_video_file(
             set_error(context, "Unsupported: minimal-libav requires an exact supported 8-bit or 10-bit source depth; no output was created.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
-        const bool hlg_to_sdr = compatible_profile && target_codec == LPB_VIDEO_CODEC_H264 &&
+        // Repair must not silently downgrade HDR: keep the source profile or fail
+        // validation. Explicit target conversion retains its existing SDR route.
+        const bool hlg_to_sdr = !repair_orientation && compatible_profile && target_codec == LPB_VIDEO_CODEC_H264 &&
             semantic_profile.bit_depth_luma == 10U && semantic_profile.bit_depth_chroma == 10U &&
             semantic_profile.color_primaries == 9U && semantic_profile.transfer_characteristics == 18U &&
             semantic_profile.matrix_coefficients == 9U;
@@ -2884,6 +2933,7 @@ lpb_result transcode_video_file(
         windows_owned_output stage_b;
         windows_owned_output stage_c;
         windows_owned_output stage_audio;
+        windows_owned_output apple_stage;
         bool stage_a_cleanup_attempted = false;
         bool stage_a_cleanup_confirmed = false;
         DWORD stage_a_cleanup_error = ERROR_SUCCESS;
@@ -2902,6 +2952,7 @@ lpb_result transcode_video_file(
             return stage_a_cleanup_confirmed;
         };
         auto fail_sidecar = [&](lpb_result result, const char* message) noexcept {
+            const bool apple_stage_cleaned = apple_stage.abort_and_confirm();
             const bool stage_a_cleaned = abort_stage_a();
             lpb_file_identity stage_b_identity{};
             std::string stage_b_staging_path;
@@ -2912,7 +2963,7 @@ lpb_result transcode_video_file(
             const bool stage_audio_cleaned = stage_audio.abort_and_confirm();
             const bool stage_b_cleaned = stage_b.abort_and_confirm();
             const DWORD stage_b_cleanup_error = stage_b_cleaned ? ERROR_SUCCESS : GetLastError();
-            if (stage_a_cleaned && stage_b_cleaned && stage_c_cleaned && stage_audio_cleaned) {
+            if (stage_a_cleaned && stage_b_cleaned && stage_c_cleaned && stage_audio_cleaned && apple_stage_cleaned) {
                 // A nested operation (owned MOV remux) already supplied the
                 // precise failure. Null means preserve it, not replace it with
                 // set_error's generic "Unknown native error" fallback.
@@ -2969,7 +3020,7 @@ lpb_result transcode_video_file(
             context, semantic_reader, stage_a, sidecar_container, target_codec, crf,
             has_mebx,
             semantic_profile,
-            compatible_profile);
+            compatible_profile, false, false, reflection);
         if (bridge.native_result != LPB_RESULT_OK) {
             const auto& failed_sidecar = bridge.sidecar_result;
             const bool sidecar_missing = std::strncmp(bridge.reason.data(), "BackendUnavailable:",
@@ -3055,7 +3106,7 @@ lpb_result transcode_video_file(
                 return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                     "OutputValidation: controlled H264 Stage A failed exact source-frame interval timing; no retry.");
         }
-        const bool rotated = (target_codec != LPB_VIDEO_CODEC_COPY) && src_facts.rotation_degrees != 0;
+        const bool rotated = (target_codec != LPB_VIDEO_CODEC_COPY) && (src_facts.rotation_degrees != 0 || reflection);
         const uint32_t expected_w = rotated && (src_facts.rotation_degrees == 90 || src_facts.rotation_degrees == 270) ? src_facts.height : src_facts.width;
         const uint32_t expected_h = rotated && (src_facts.rotation_degrees == 90 || src_facts.rotation_degrees == 270) ? src_facts.width : src_facts.height;
         const int32_t expected_rot = rotated ? 0 : src_facts.rotation_degrees;
@@ -3135,7 +3186,7 @@ lpb_result transcode_video_file(
             publish_stage=&stage_b;final_staged_reader=stage_b.reader();
         }
 
-        if (!hlg_to_sdr)
+        if (!hlg_to_sdr && !repair_orientation)
         {
             std::vector<uint8_t> staged_for_meta;
             if (!read_all_bytes(final_staged_reader, staged_for_meta)) {
@@ -3221,7 +3272,7 @@ lpb_result transcode_video_file(
         }
 
         bool sibling_audio_transcoded = false;
-        if (compatible_profile) {
+        if (compatible_profile && !repair_orientation) {
             std::vector<uint8_t> current, retained;
             if (read_all_bytes(final_staged_reader, current) &&
                 preserve_isobmff_additional_tracks(source_bytes, current, retained, bridge.stream_copied?0U:static_cast<uint32_t>(src_facts.rotation_degrees))) {
@@ -3386,6 +3437,33 @@ lpb_result transcode_video_file(
                 return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
                     "OutputValidation: compatible transcode changed visible sample correspondence or presentation intervals.");
         }
+        if (repair_orientation && repair_source.pairing_identifier[0] != 0) {
+            std::vector<uint8_t> restored;
+            if (lpb::target::apple_movie(context, metadata_readback,
+                repair_source.timing.cover_timestamp_us, repair_source.pairing_identifier, restored) != LPB_RESULT_OK)
+                return fail_sidecar(LPB_RESULT_INVALID_ARGUMENT, nullptr);
+            if (!apple_stage.create(p_out, L"lpb-repair-apple", L".mov", true) ||
+                !apple_stage.write_all(restored) || !apple_stage.ready_to_consume())
+                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR, "Cannot stage repaired Apple metadata.");
+            lpb_source_media_facts verified{};
+            verified.struct_size = sizeof(verified);
+            const auto stage_path = path_to_utf8(apple_stage.path());
+            const auto inspected_result = inspect_source(context, stage_path.c_str(), nullptr, &verified, nullptr, true);
+            if (inspected_result != LPB_RESULT_OK)
+                return fail_sidecar(inspected_result, nullptr);
+            if (std::strcmp(verified.pairing_identifier, repair_source.pairing_identifier) != 0 ||
+                verified.timing.cover_timestamp_us != repair_source.timing.cover_timestamp_us) {
+                char reason[384]{};
+                std::snprintf(reason, sizeof(reason), "Repaired Apple metadata differs: CID=%s/%s; cover=%lld/%lld.",
+                    verified.pairing_identifier, repair_source.pairing_identifier,
+                    static_cast<long long>(verified.timing.cover_timestamp_us),
+                    static_cast<long long>(repair_source.timing.cover_timestamp_us));
+                return fail_sidecar(LPB_RESULT_INVALID_ARGUMENT, reason);
+            }
+            if (!publish_stage->abort_and_confirm())
+                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR, "Cannot retire consumed video staging.");
+            publish_stage = &apple_stage;
+        }
         const lpb_result metadata_cancel = lpb_context_check_cancelled(context);
         if (metadata_cancel != LPB_RESULT_OK) return fail_sidecar(metadata_cancel,
             "Video conversion was cancelled after metadata verification and before publication.");
@@ -3408,13 +3486,17 @@ lpb_result transcode_video_file(
             strncpy_s(out_encoder_used, encoder_buf_len, backend_encoder, _TRUNCATE);
         }
         std::array<char, 256> success_reason{};
-        if (has_mebx) {
+        if (repair_orientation) {
+            static_cast<void>(_snprintf_s(success_reason.data(), success_reason.size(), _TRUNCATE,
+                "repair: omitted auxiliary video=%u, metadata=%u, other=%u; Apple binding restored when known.",
+                bridge.dropped_aux_video, bridge.dropped_mebx, bridge.dropped_other));
+        } else if (has_mebx) {
             static_cast<void>(_snprintf_s(success_reason.data(), success_reason.size(), _TRUNCATE,
                 "Native preserved %zu MEBX tracks; FFmpeg %s; no fallback.",
                 source_mebx_facts.size(), sidecar_facts.library_version));
         }
         set_sidecar_diagnostics(validated_identity, mf_fallback ? "Validated minimal-libav/libx264; metadata and timing verified." :
-            has_mebx ? success_reason.data() : bridge.reason.data());
+            (has_mebx || repair_orientation) ? success_reason.data() : bridge.reason.data());
         if (compatible_profile && out_diagnostics != nullptr) {
             // The sidecar can now encode PCM to AAC itself. Derive the receipt
             // from independently parsed source/final sample entries as well as

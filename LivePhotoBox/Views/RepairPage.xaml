@@ -1,4 +1,4 @@
-<!-- 实况照片修复页：扫描目录，诊断配对问题并执行修复 -->
+﻿<!-- 实况照片修复页：扫描目录，诊断配对问题并执行修复 -->
 <Page
     x:Class="LivePhotoBox.Views.RepairPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -68,13 +68,13 @@
 
                                 <TextBlock x:Uid="RepairPage_InputLabel" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75" Visibility="{x:Bind ViewModel.InputLabelVisibility, Mode=OneWay}"/>
                                 <TextBlock x:Uid="RepairPage_InputOutputLabel" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Visibility="{x:Bind ViewModel.InputOutputLabelVisibility, Mode=OneWay}"/>
-                                <TextBox x:Uid="RepairPage_InputBox" Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"/>
+                                <TextBox x:Uid="RepairPage_InputBox" AutomationProperties.AutomationId="RepairInputDirectory" Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"/>
                                 <Button x:Uid="RepairPage_BrowseBtn1" Grid.Row="0" Grid.Column="2" Command="{x:Bind ViewModel.PickInputDirectoryCommand}" IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"/>
                                 <Button x:Uid="RepairPage_OpenInputBtn" Grid.Row="0" Grid.Column="3" Command="{x:Bind ViewModel.OpenRepairInputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch" Visibility="{x:Bind ViewModel.InputLabelVisibility, Mode=OneWay}"/>
                                 <Button x:Uid="RepairPage_OpenInputOutputBtn" Grid.Row="0" Grid.Column="3" Command="{x:Bind ViewModel.OpenRepairInputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch" Visibility="{x:Bind ViewModel.InputOutputLabelVisibility, Mode=OneWay}"/>
 
                                 <TextBlock x:Uid="RepairPage_OutputLabel" Grid.Row="1" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75" Margin="0,12,0,0" Visibility="{x:Bind ViewModel.OutputGridVisibility, Mode=OneWay}"/>
-                                <TextBox x:Uid="RepairPage_OutputBox" Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.OutputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" Margin="0,12,0,0" Visibility="{x:Bind ViewModel.OutputGridVisibility, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"/>
+                                <TextBox x:Uid="RepairPage_OutputBox" AutomationProperties.AutomationId="RepairOutputDirectory" Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.OutputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" Margin="0,12,0,0" Visibility="{x:Bind ViewModel.OutputGridVisibility, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"/>
                                 <Button x:Uid="RepairPage_BrowseBtn2" Grid.Row="1" Grid.Column="2" Command="{x:Bind ViewModel.PickOutputDirectoryCommand}" Margin="0,12,0,0" Visibility="{x:Bind ViewModel.OutputGridVisibility, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.CanEditOutputConfiguration, Mode=OneWay}"/>
                                 <Button x:Uid="RepairPage_OpenOutputBtn" Grid.Row="1" Grid.Column="3" Command="{x:Bind ViewModel.OpenRepairOutputFolderCommand}" Margin="8,12,0,0" HorizontalAlignment="Stretch" Visibility="{x:Bind ViewModel.OutputGridVisibility, Mode=OneWay}"/>
                             </Grid>
@@ -112,7 +112,7 @@
                             <TextBlock Grid.Row="0" Grid.Column="0" x:Uid="RepairPage_StatTotalPhotos" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" VerticalAlignment="Center"/>
                             <TextBlock Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.TotalPhotosCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Margin="6,0,0,0"/>
                             <TextBlock Grid.Row="1" Grid.Column="0" x:Uid="RepairPage_StatPaired" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12" VerticalAlignment="Center" Margin="0,4,0,0"/>
-                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.TotalPairsCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Margin="6,4,0,0"/>
+                            <TextBlock AutomationProperties.AutomationId="RepairLivePhotoCount" Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.TotalPairsCount, Mode=OneWay}" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" Margin="6,4,0,0"/>
                         </Grid>
 
                         <!-- 第二对：正常 / 单独照片（共享列宽，上下数字左对齐） -->
@@ -152,7 +152,7 @@
                                     Orientation="Horizontal" Spacing="8"
                                     VerticalAlignment="Center" HorizontalAlignment="Right" Margin="16,0,0,0">
                             <TextBlock x:Uid="RepairPage_OutputModeLabel" FontSize="14" VerticalAlignment="Center"/>
-                            <ToggleSwitch x:Uid="RepairPage_OutputSwitch"
+                            <ToggleSwitch x:Uid="RepairPage_OutputSwitch" AutomationProperties.AutomationId="RepairOutputMode"
                                           IsOn="{x:Bind ViewModel.IsOutputToDirectory, Mode=TwoWay}"
                                           FontSize="14"/>
                             <Button x:Uid="RepairPage_HelpBtn" Height="34" Width="34" Padding="0"
@@ -196,7 +196,7 @@
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    Visibility="{x:Bind ViewModel.FilterBarVisibility, Mode=OneWay}"/>
                         <StackPanel Orientation="Horizontal" Spacing="4">
-                            <DropDownButton x:Name="FilterDropDown" x:Uid="RepairPage_FilterButton"
+                            <DropDownButton AutomationProperties.AutomationId="RepairTypeFilter" x:Name="FilterDropDown" x:Uid="RepairPage_FilterButton"
                                             Content="{x:Bind ViewModel.CombinedFilterText, Mode=OneWay}"
                                             Height="34" FontSize="14"
                                             Visibility="{x:Bind ViewModel.FilterBarVisibility, Mode=OneWay}"
@@ -207,7 +207,7 @@
                                         <MenuFlyoutItem IsEnabled="False" FontWeight="SemiBold"/>
                                         <MenuFlyoutItem Tag="TypeFilter_0"
                                                         Command="{x:Bind ViewModel.SetTypeFilterCommand}" CommandParameter="0"/>
-                                        <MenuFlyoutItem Tag="TypeFilter_1"
+                                        <MenuFlyoutItem AutomationProperties.AutomationId="RepairLivePhotoFilter" Tag="TypeFilter_1"
                                                         Command="{x:Bind ViewModel.SetTypeFilterCommand}" CommandParameter="1"/>
                                         <MenuFlyoutItem Tag="TypeFilter_2"
                                                         Command="{x:Bind ViewModel.SetTypeFilterCommand}" CommandParameter="2"/>
@@ -248,7 +248,7 @@
 
                         <Button x:Uid="RepairPage_StartButton"
                                 Content="{x:Bind ViewModel.ActionBtnText, Mode=OneWay}"
-                                Command="{x:Bind ViewModel.ToggleProcessCommand}"
+                                AutomationProperties.AutomationId="StartRepairButton" Command="{x:Bind ViewModel.ToggleProcessCommand}"
                                 Style="{StaticResource AccentButtonStyle}"
                                 IsEnabled="{x:Bind ViewModel.IsProcessingAllowed, Mode=OneWay}"
                                 MinWidth="100" Height="36" FontSize="14"
@@ -420,7 +420,7 @@
                                                     HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
                                         </Grid>
 
-                                        <TextBlock Grid.Row="0" Grid.Column="3" Margin="8,0,0,0" Text="{x:Bind File1IssueDescription, Mode=OneWay}" Foreground="{x:Bind File1IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="{x:Bind File1IsDiagnosisError, Mode=OneWay}" Tapped="IssueDescription_Tapped" Tag="1"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="3" Margin="8,0,0,0" Text="{x:Bind File1IssueDescription, Mode=OneWay}" Foreground="{x:Bind File1IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="IssueDescription_Tapped" Tag="1"/>
 
                                         <TextBlock Grid.Row="0" Grid.Column="4" Margin="10,0,0,0" Text="{x:Bind File1DisplayStatusText, Mode=OneWay}" Foreground="{x:Bind File1DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" HorizontalAlignment="Left" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="1"/>
 
@@ -447,7 +447,7 @@
                                                     HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
                                         </Grid>
 
-                                        <TextBlock Grid.Row="2" Grid.Column="3" Margin="8,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2IssueDescription, Mode=OneWay}" Foreground="{x:Bind File2IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="{x:Bind File2IsDiagnosisError, Mode=OneWay}" Tapped="IssueDescription_Tapped" Tag="2"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="3" Margin="8,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2IssueDescription, Mode=OneWay}" Foreground="{x:Bind File2IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="IssueDescription_Tapped" Tag="2"/>
 
                                         <TextBlock Grid.Row="2" Grid.Column="4" Margin="10,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2DisplayStatusText, Mode=OneWay}" Foreground="{x:Bind File2DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" HorizontalAlignment="Left" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="2"/>
                                     </Grid>

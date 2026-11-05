@@ -36,14 +36,14 @@ namespace LivePhotoBox.Cli.Tests
         }
 
         [Fact]
-        public async Task Repair_ExistingFolderWithoutDash_FailsWithRebuiltNotReady()
+        public async Task Repair_ExistingFolderWithoutDash_ReportsEmptyBatch()
         {
             string dir = CliTestHost.CreateTempDir("lpb_test_repair_");
             try
             {
                 var r = await CliTestHost.RunAsync(RepairCommand.Create(), dir, "--dry-run", "--json");
-                Assert.Equal(1, r.ExitCode);
-                Assert.Contains("rebuilt_not_ready", r.StdOut);
+                Assert.Equal(0, r.ExitCode);
+                Assert.Contains("\"results\":[]", r.StdOut);
             }
             finally { Directory.Delete(dir, recursive: true); }
         }
