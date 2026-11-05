@@ -145,11 +145,13 @@ namespace LivePhotoBox.Models
             ? new Thickness(8, 14, 8, 14)
             : new Thickness(8, 7, 8, 8);
 
-        // Row 0 固定高度 — 单独=48(容纳缩略图), 配对=38(纯文字行)
-        public GridLength Row0Height => IsPaired ? new GridLength(38) : new GridLength(48);
+        // 保留原有最小行高，诊断换行时允许行高自然增加。
+        public GridLength Row0Height => GridLength.Auto;
+        public double Row0MinHeight => IsPaired ? 38 : 48;
 
-        // Row 2 固定高度 — 单独=0, 配对=38(对称 Row0)
-        public GridLength Row2Height => IsPaired ? new GridLength(38) : new GridLength(0);
+        // 配对的第二行同样允许换行；单独文件不占第二行。
+        public GridLength Row2Height => IsPaired ? GridLength.Auto : new GridLength(0);
+        public double Row2MinHeight => IsPaired ? 38 : 0;
 
         // 配对状态变更时刷新布局相关的绑定属性
         partial void OnIsPairedChanged(bool value)
@@ -157,6 +159,8 @@ namespace LivePhotoBox.Models
             OnPropertyChanged(nameof(GridPadding));
             OnPropertyChanged(nameof(Row0Height));
             OnPropertyChanged(nameof(Row2Height));
+            OnPropertyChanged(nameof(Row0MinHeight));
+            OnPropertyChanged(nameof(Row2MinHeight));
         }
 
         // 配对缩略图可见性 — 仅配对时 Visible（配合大缩略图 56×56）
@@ -191,24 +195,26 @@ namespace LivePhotoBox.Models
             ? AggregateStatus(File1Entry?.Status ?? ProcessStatus.Pending, File2Entry.Status)
             : File1Entry?.Status ?? ProcessStatus.Pending;
 
-        // File1 在队列中显示的状态文字：失败时只显示"修复失败"（简短、不截断），
-        // 完整错误详情在点击后弹出的 TeachingTip 中查看；其余状态沿用原详情文案。
-        public string File1DisplayStatusText => File1Status switch
-        {
-            ProcessStatus.Failed => ResourceService.GetString("RepairPage_Task_Failed"),
-            ProcessStatus.Warning => ResourceService.GetString("RepairPage_Task_Warning"),
-            ProcessStatus.Success => ResourceService.GetString("Status_RepairSuccess"),
-            _ => File1Details
-        };
+        // 读取失败和实际修复结果分别显示；完整诊断保留在点击详情中。
+        public string File1DisplayStatusText => GetDisplayStatusText(File1Entry, File1Status, File1Details);
 
         // File2 在队列中显示的状态文字（规则同 File1）。
-        public string File2DisplayStatusText => File2Status switch
+        public string File2DisplayStatusText => GetDisplayStatusText(File2Entry, File2Status, File2Details);
+
+        private static string GetDisplayStatusText(RepairFileEntry? entry, ProcessStatus status, string details)
         {
-            ProcessStatus.Failed => ResourceService.GetString("RepairPage_Task_Failed"),
-            ProcessStatus.Warning => ResourceService.GetString("RepairPage_Task_Warning"),
-            ProcessStatus.Success => ResourceService.GetString("Status_RepairSuccess"),
-            _ => File2Details
-        };
+            if (entry?.IsDiagnosisError == true)
+                return ResourceService.GetString("RepairPage_Reason_ReadError");
+            if (entry?.AnalysisResult?.IssueType == RepairIssueType.Limited && status == ProcessStatus.Pending)
+                return ResourceService.GetString("RepairPage_Reason_Limited");
+            return status switch
+            {
+                ProcessStatus.Failed => ResourceService.GetString("RepairPage_Task_Failed"),
+                ProcessStatus.Warning => ResourceService.GetString("RepairPage_Task_Warning"),
+                ProcessStatus.Success when entry?.NeedsRepair == true => ResourceService.GetString("Status_RepairSuccess"),
+                _ => details
+            };
+        }
 
         // 汇总两个 Entry 的状态：处理中 > 待处理 > 失败 > 成功 > 已取消。
         private static ProcessStatus AggregateStatus(ProcessStatus a, ProcessStatus b)

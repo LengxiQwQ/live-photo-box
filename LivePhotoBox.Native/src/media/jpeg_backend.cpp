@@ -263,7 +263,7 @@ bool preview_segment(uint8_t marker, std::span<const uint8_t> payload, size_t& j
     return marker == 0xe3 && starts("\xff\xd8\xff\xdb", 4);
 }
 
-bool strip_jpeg_previews(std::vector<uint8_t>& bytes, bool& changed) {
+bool strip_jpeg_previews(std::vector<uint8_t>& bytes, bool& changed, bool preserve_offsets = false) {
     changed = false;
     struct edit { size_t begin{}, end{}; std::vector<uint8_t> replacement; };
     std::vector<edit> edits;
@@ -297,6 +297,9 @@ bool strip_jpeg_previews(std::vector<uint8_t>& bytes, bool& changed) {
                 const size_t pixels = size_t(payload[12]) * payload[13];
                 if ((!payload[12]) != (!payload[13]) || payload.size() != 14 + 3 * pixels) return false;
                 if (pixels) {
+                    // A JFIF RGB thumbnail cannot be removed in place without
+                    // changing its declared segment size (and possibly indexes).
+                    if (preserve_offsets) return false;
                     std::vector<uint8_t> replacement{0xff,0xe0,0,16};
                     replacement.insert(replacement.end(), payload.begin(), payload.begin() + 14);
                     replacement[16] = replacement[17] = 0;
@@ -305,8 +308,17 @@ bool strip_jpeg_previews(std::vector<uint8_t>& bytes, bool& changed) {
             }
             return true;
         });
-    if (!valid || eoi != bytes.size()) return false;
+    if (!valid || (!preserve_offsets && eoi != bytes.size())) return false;
     for (auto edit = edits.rbegin(); edit != edits.rend(); ++edit) {
+        if (preserve_offsets) {
+            // Replace only a proven, segment-owned preview with an empty COM
+            // segment of the same length. MPF/XMP/trailer offsets stay exact.
+            size_t code = edit->begin;
+            while (bytes[code] == 0xff) ++code; // retain legal marker fill bytes
+            bytes[code] = 0xfe;
+            std::fill(bytes.begin() + code + 3, bytes.begin() + edit->end, uint8_t{});
+            continue;
+        }
         bytes.erase(bytes.begin() + edit->begin, bytes.begin() + edit->end);
         bytes.insert(bytes.begin() + edit->begin, edit->replacement.begin(), edit->replacement.end());
     }
@@ -501,11 +513,9 @@ bool repair_exif(std::span<uint8_t> bytes, uint32_t wanted_orientation, bool str
             (entry.tag == 0x201 ? offset : length) = entry.value_offset;
             continue;
         }
-        switch (entry.tag) {
-        case 0x100: case 0x101: case 0x103: case 0x106: case 0x112: case 0x11a:
-        case 0x11b: case 0x128: case 0x213: break;
-        default: return false;
-        }
+        // Ordinary and opaque thumbnail metadata are not deletion authority.
+        // observe_exif already validated their graph and non-overlapping ranges;
+        // retain them byte-for-byte instead of requiring a camera-tag whitelist.
     }
     if (!offset || !length || offset > bytes.size() - tiff ||
         length > bytes.size() - tiff - offset) return false;
@@ -520,8 +530,9 @@ bool repair_exif(std::span<uint8_t> bytes, uint32_t wanted_orientation, bool str
 
     const size_t next = root.absolute_pos + 2 + root.entries.size() * 12;
     std::fill_n(bytes.begin() + next, 4, uint8_t{});
-    std::fill_n(bytes.begin() + thumbnail.absolute_pos, 6 + thumbnail.entries.size() * 12, uint8_t{});
-    std::fill_n(bytes.begin() + tiff + offset, length, uint8_t{});
+    // Unlink IFD1 without erasing its storage. Other metadata can retain opaque
+    // references, and indexes/trailers must not move. The detached thumbnail is
+    // no longer discoverable through the primary EXIF graph.
     changed |= 1;
     return true;
 }
@@ -1293,16 +1304,16 @@ LPB_API lpb_result LPB_CALL lpb_repair_image_exif(
             lpb::media::jpeg_observation jpeg;
             lpb::media::jpeg_observation_failure failure{};
             uint64_t bad{};
-            if (!lpb::media::observe_jpeg(input.view(), jpeg, failure, bad, {true, true, false, true}) ||
-                jpeg.eoi_end != bytes.size())
-                return unsupported("JPEG repair requires a complete standalone codestream without MPF or appended data.");
+            if (!lpb::media::observe_jpeg(input.view(), jpeg, failure, bad, {true, true, true, true}))
+                return unsupported("JPEG repair could not verify the primary codestream and metadata structure.");
+            const bool preserve_offsets = jpeg.mpf || jpeg.eoi_end != bytes.size();
             if ((actions & 1) && !jpeg.exif_payload.empty() &&
                 !repair_exif(std::span<uint8_t>(bytes).subspan(jpeg.exif_segment_end - jpeg.exif_payload.size(),
                     jpeg.exif_payload.size()), 0, true, actual))
                 return unsupported("The EXIF thumbnail is not an independently owned JPEG thumbnail.");
             if (actions & 1) {
                 bool previews{};
-                if (!strip_jpeg_previews(bytes, previews))
+                if (!strip_jpeg_previews(bytes, previews, preserve_offsets))
                     return unsupported("JPEG preview ownership or complete embedded image could not be verified.");
                 if (previews) actual |= 1;
             }

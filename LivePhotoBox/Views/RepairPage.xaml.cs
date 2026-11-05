@@ -130,6 +130,7 @@ namespace LivePhotoBox.Views
         // 页面卸载时分离自动滚动器、移除滚动事件、停止定时器、解绑 ViewModel 事件
         private void RepairPage_Unloaded(object sender, RoutedEventArgs e)
         {
+            ErrorDetailTip.Dismiss();
             DetachRepairShortcuts();
             _scrollToTopHelper?.Detach();
 
@@ -585,14 +586,10 @@ namespace LivePhotoBox.Views
             bool isFile2 = element.Tag is string tag && tag == "2";
             ProcessStatus status = isFile2 ? task.File2Status : task.File1Status;
             string details = isFile2 ? task.File2Details : task.File1Details;
-            bool hasError = isFile2 ? task.File2HasErrorDetails : task.File1HasErrorDetails;
-
             if (status is not (ProcessStatus.Failed or ProcessStatus.Warning or ProcessStatus.Success) ||
                 string.IsNullOrWhiteSpace(details)) return;
-            if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == element) { ErrorDetailTip.IsOpen = false; return; }
             ErrorDetailText.Text = details;
-            ErrorDetailTip.Target = element;
-            ErrorDetailTip.IsOpen = true;
+            ErrorDetailTip.ToggleAt(element);
         }
 
         // 点击问题描述文本显示诊断详情
@@ -605,10 +602,8 @@ namespace LivePhotoBox.Views
             var entry = isFile2 ? task.File2Entry : task.File1Entry;
             string issueDesc = entry?.AnalysisResult?.IssueDescription ?? "";
             if (string.IsNullOrWhiteSpace(issueDesc)) return;
-            if (ErrorDetailTip.IsOpen && ErrorDetailTip.Target == element) { ErrorDetailTip.IsOpen = false; return; }
             ErrorDetailText.Text = issueDesc;
-            ErrorDetailTip.Target = element;
-            ErrorDetailTip.IsOpen = true;
+            ErrorDetailTip.ToggleAt(element);
         }
 
         // 加载视口中可见的视频缩略图
@@ -666,10 +661,6 @@ namespace LivePhotoBox.Views
                 Interlocked.Exchange(ref _lastContainerChangeTick, Environment.TickCount64);
             }
         }
-
-        // 错误详情提示关闭时清除目标引用
-        private void ErrorDetailTip_Closed(TeachingTip sender, TeachingTipClosedEventArgs args) =>
-            ErrorDetailTip.Target = null;
 
         private bool _filterDropDownWidthLocked;
 

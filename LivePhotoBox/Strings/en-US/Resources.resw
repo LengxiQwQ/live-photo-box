@@ -4652,6 +4652,9 @@ Inputs: {1}
   <data name="RepairPage_Reason_ReadError" xml:space="preserve">
     <value>Read failed</value>
   </data>
+  <data name="RepairPage_Reason_Limited" xml:space="preserve">
+    <value>Repair unconfirmed</value>
+  </data>
   <data name="RepairPage_Reason_OtherDevice" xml:space="preserve">
     <value>Other device, skipped</value>
   </data>

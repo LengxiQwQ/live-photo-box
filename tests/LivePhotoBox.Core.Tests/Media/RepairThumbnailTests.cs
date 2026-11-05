@@ -10,6 +10,109 @@ public sealed class RepairThumbnailTests
 {
     [Fact]
     [Trait("Category", "RealSamples")]
+    public async Task LegacyDualJpeg_DiagnosesAndExportsWithRenamedConfirmedCompanion()
+    {
+        using var folder = new P9TargetTestInputs.Folder(nameof(LegacyDualJpeg_DiagnosesAndExportsWithRenamedConfirmedCompanion));
+        string source = Path.Combine(folder.Path, "photo.jpg"), video = Path.Combine(folder.Path, "renamed-video.mp4");
+        File.Copy(TestSampleResolver.ResolveSample("vivo双文件.jpg"), source);
+        File.Copy(TestSampleResolver.ResolveSample("vivo双文件.mp4"), video);
+        byte[] imageBytes = File.ReadAllBytes(source), videoBytes = File.ReadAllBytes(video);
+        var diagnosis = await LivePhotoBox.Services.LivePhotoRepairService.AnalyzeFileAsync(source);
+        Assert.NotEqual(LivePhotoBox.Models.RepairIssueType.Error, diagnosis.IssueType);
+        Assert.NotEqual(LivePhotoBox.Models.RepairIssueType.Limited, diagnosis.IssueType);
+        var repair = await LivePhotoBox.Services.LivePhotoRepairService.RepairImageFileAsync(
+            source, folder.Path, true, false, new LivePhotoBox.Models.RepairOptions(), default, copyPerfect: true);
+        Assert.True(repair.Status is "success" or "copied", repair.Message);
+        Assert.NotNull(repair.Image);
+        Assert.NotNull(repair.Video);
+        Assert.Equal(videoBytes, File.ReadAllBytes(repair.Video!));
+        var confirmed = await NativeMediaService.InspectMediaForDiscoveryAsync(repair.Image!, repair.Video, default);
+        Assert.Equal(LivePhotoBox.Media.Models.SourceProtocol.VivoLegacyDualFile, confirmed.Facts?.Protocol);
+        Assert.Equal(imageBytes, File.ReadAllBytes(source));
+        Assert.Equal(videoBytes, File.ReadAllBytes(video));
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task LegacyDualJpeg_MissingOrDuplicateCompanionIsNotAnImageReadFailure()
+    {
+        using var folder = new P9TargetTestInputs.Folder(nameof(LegacyDualJpeg_MissingOrDuplicateCompanionIsNotAnImageReadFailure));
+        string source = Path.Combine(folder.Path, "photo.jpg");
+        File.Copy(TestSampleResolver.ResolveSample("vivo双文件.jpg"), source);
+        Assert.Equal(LivePhotoBox.Models.RepairIssueType.Limited,
+            (await LivePhotoBox.Services.LivePhotoRepairService.AnalyzeFileAsync(source)).IssueType);
+        File.Copy(TestSampleResolver.ResolveSample("vivo双文件.mp4"), Path.Combine(folder.Path, "first.mp4"));
+        File.Copy(TestSampleResolver.ResolveSample("vivo双文件.mp4"), Path.Combine(folder.Path, "second.mp4"));
+        Assert.Equal(LivePhotoBox.Models.RepairIssueType.Limited,
+            (await LivePhotoBox.Services.LivePhotoRepairService.AnalyzeFileAsync(source)).IssueType);
+        var repair = await LivePhotoBox.Services.LivePhotoRepairService.RepairImageFileAsync(
+            source, folder.Path, true, false, new LivePhotoBox.Models.RepairOptions(), default);
+        Assert.Equal("failed", repair.Status);
+        Assert.Null(repair.Image);
+        Assert.Null(repair.Video);
+        Assert.Equal(3, Directory.GetFiles(folder.Path).Length);
+    }
+    [Fact]
+    public async Task AppendedMedia_PreviewCleanupPreservesEveryOffsetAndTailByte()
+    {
+        using var folder = new P9TargetTestInputs.Folder(nameof(AppendedMedia_PreviewCleanupPreservesEveryOffsetAndTailByte));
+        byte[] primary = P9TargetTestInputs.Image;
+        byte[] payload = Encoding.ASCII.GetBytes("QVGA\0").Concat(primary).ToArray();
+        int size = payload.Length + 2;
+        byte[] tail = P9TargetTestInputs.Video;
+        byte[] bytes = primary[..2].Concat(new byte[] {255,226,(byte)(size >> 8),(byte)size})
+            .Concat(payload).Concat(primary[2..]).Concat(tail).ToArray();
+        string source = Path.Combine(folder.Path, "source.jpg"), output = Path.Combine(folder.Path, "output.jpg");
+        File.WriteAllBytes(source, bytes);
+        Assert.True((await NativeMediaService.ProbeImageExifRepairAsync(source, 1, default)).Supported);
+        Assert.Equal(1u, (await NativeMediaService.RepairImageExifAsync(source, output, 1, default)).Changes);
+        byte[] actual = File.ReadAllBytes(output);
+        byte[] expected = bytes.ToArray();
+        expected[3] = 0xfe;
+        Array.Clear(expected, 6, payload.Length);
+        Assert.Equal(expected, actual);
+        Assert.Equal(tail, actual[^tail.Length..]);
+        Assert.Equal(0u, (await NativeMediaService.ProbeImageExifRepairAsync(output, 1, default)).Changes);
+        Assert.Equal(bytes, File.ReadAllBytes(source));
+    }
+
+    [Theory]
+    [InlineData("vivo.jpg")]
+    [InlineData("小米.jpg")]
+    [InlineData("OPPO.jpg")]
+    [InlineData("一加.jpg")]
+    [InlineData("红米老款-GV1.JPG")]
+    [InlineData("华为-Mate80.jpg")]
+    [InlineData("荣耀.jpg")]
+    [Trait("Category", "RealSamples")]
+    public async Task AllDevicesScan_DoesNotRejectCompositeJpegAsStandalone(string name)
+    {
+        string source = TestSampleResolver.ResolveSample(name);
+        byte[] hash = SHA256.HashData(File.ReadAllBytes(source));
+        var analysis = await LivePhotoBox.Services.LivePhotoRepairService.AnalyzeFileAsync(source);
+        Assert.NotEqual(LivePhotoBox.Models.RepairIssueType.Error, analysis.IssueType);
+        Assert.NotEqual(LivePhotoBox.Models.RepairIssueType.NonApple, analysis.IssueType);
+        Assert.DoesNotContain("standalone", analysis.IssueDescription);
+        Assert.Equal(hash, SHA256.HashData(File.ReadAllBytes(source)));
+    }
+
+    [Fact]
+    public async Task UnsupportedPreview_IsAProbeResultRatherThanAnException()
+    {
+        using var folder = new P9TargetTestInputs.Folder(nameof(UnsupportedPreview_IsAProbeResultRatherThanAnException));
+        byte[] primary = P9TargetTestInputs.Image;
+        byte[] bytes = primary[..2].Concat(new byte[] {255,226,0,7,255,216,255,219,0}).Concat(primary[2..]).ToArray();
+        string source = Path.Combine(folder.Path, "source.jpg");
+        File.WriteAllBytes(source, bytes);
+        var probe = await NativeMediaService.ProbeImageExifRepairAsync(source, 1, default);
+        Assert.False(probe.Supported);
+        Assert.NotEmpty(probe.Diagnostic!);
+        var analysis = await LivePhotoBox.Services.LivePhotoRepairService.AnalyzeFileAsync(source);
+        Assert.Equal(LivePhotoBox.Models.RepairIssueType.Limited, analysis.IssueType);
+        Assert.Equal(bytes, File.ReadAllBytes(source));
+    }
+    [Fact]
+    [Trait("Category", "RealSamples")]
     public async Task AppleHeif_RemovesThumbnailGraphButRetainsEveryOtherItemByte()
     {
         using var folder = new P9TargetTestInputs.Folder(nameof(AppleHeif_RemovesThumbnailGraphButRetainsEveryOtherItemByte));

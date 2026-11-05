@@ -142,6 +142,7 @@ namespace LivePhotoBox.Models
             {
                 if (Status is ProcessStatus.Failed or ProcessStatus.Warning) return Status;
                 if (IsDiagnosisError) return ProcessStatus.Failed;
+                if (AnalysisResult?.IssueType == RepairIssueType.Limited) return ProcessStatus.Warning;
                 // A verified healthy input needs no mutation.
                 if (!NeedsRepair || AnalysisResult?.IssueType == RepairIssueType.Perfect)
                 {
@@ -154,7 +155,7 @@ namespace LivePhotoBox.Models
         // 任务失败且有错误详情时返回 true（用于 UI 显示错误图标）
         public bool HasErrorDetails => Status is ProcessStatus.Failed or ProcessStatus.Warning && !string.IsNullOrWhiteSpace(Details);
 
-        // 诊断阶段报错 → 诊断结果文字标红 + 可点击查看详情
+        // 诊断阶段的读取问题；仅状态列标红，诊断文字保持普通颜色。
         public bool IsDiagnosisError => AnalysisResult?.IssueType == RepairIssueType.Error;
 
         // 详情变更时刷新 DisplayStatus 和 HasErrorDetails

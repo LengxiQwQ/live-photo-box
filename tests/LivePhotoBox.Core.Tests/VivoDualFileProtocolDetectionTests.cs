@@ -13,6 +13,17 @@ public sealed class VivoDualFileProtocolDetectionTests
 {
     [Fact]
     [Trait("Category", "RealSamples")]
+    public async Task FilterAppleDevices_OrphanVivoBeforeApple_ContinuesWithoutInspectionException()
+    {
+        string vivo = ResolveSample("vivo双文件.jpg");
+        string apple = ResolveSample("苹果双文件.HEIC");
+        var filtered = await LivePhotoMetadataMatcher.FilterAppleDevicesAsync([vivo, apple]);
+
+        Assert.Equal(apple, Assert.Single(filtered));
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
     public async Task DetectDualFileProtocol_RealVivoPair_ReturnsVivo()
     {
         LivePhotoProtocolType protocol = await LivePhotoMetadataMatcher.DetectDualFileProtocolAsync(

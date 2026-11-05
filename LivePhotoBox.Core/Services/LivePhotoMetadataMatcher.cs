@@ -339,20 +339,13 @@ namespace LivePhotoBox.Services
             foreach (var path in filePaths)
             {
                 token.ThrowIfCancellationRequested();
-                try
-                {
-                    SourceMediaFacts facts = await inspector.InspectAsync(path, null, token).ConfigureAwait(false);
-                    if (!string.IsNullOrWhiteSpace(facts.PairingIdentifier) || facts.Protocol == SourceProtocol.AppleLivePhoto)
-                        appleFiles.Add(path);
-                }
-                catch (SourceInspectionException ex) when (
-                    ex.Category == SourceInspectionFailureCategory.Unsupported &&
-                    ex.Stage == SourceInspectionStage.Protocol)
-                {
-                    // A source that explicitly does not implement Apple
-                    // pairing is simply outside this optional filter.  Other
-                    // categories must fail closed.
-                }
+                // This optional filter does not establish repair authority.
+                // Keep rejected inputs for the caller's per-file diagnosis;
+                // an orphan vivo image is not an exceptional Apple candidate.
+                var inspected = await inspector.InspectForDiscoveryAsync(path, null, token).ConfigureAwait(false);
+                if (inspected.Facts is { } facts &&
+                    (!string.IsNullOrWhiteSpace(facts.PairingIdentifier) || facts.Protocol == SourceProtocol.AppleLivePhoto))
+                    appleFiles.Add(path);
             }
             return appleFiles;
         }

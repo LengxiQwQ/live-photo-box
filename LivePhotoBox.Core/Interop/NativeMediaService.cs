@@ -996,6 +996,21 @@ public static class NativeMediaService
         }, cancellationToken);
     }
 
+    internal sealed record ImageExifRepairProbe(bool Supported, uint Changes, string? Diagnostic);
+
+    // Expected file/capability limitations are data during discovery, not exceptions.
+    internal static Task<ImageExifRepairProbe> ProbeImageExifRepairAsync(string source, uint actions, CancellationToken token)
+        => Task.Run(() =>
+        {
+            using var context = NativeContext.Create(token);
+            var result = NativeMethods.RepairImageExif(context.Handle, source, null, actions, out uint changed);
+            token.ThrowIfCancellationRequested();
+            if (result == NativeResult.Unsupported)
+                return new ImageExifRepairProbe(false, 0, context.GetLastError());
+            context.ThrowIfFailed(result);
+            return new ImageExifRepairProbe(true, changed, null);
+        }, token);
+
     internal static Task<(uint Changes, NativeRegisteredOutputEvidence? Evidence)> RepairImageExifAsync(
         string source, string? output, uint actions, CancellationToken token)
     {

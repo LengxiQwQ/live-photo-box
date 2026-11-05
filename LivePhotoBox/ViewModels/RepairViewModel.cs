@@ -1489,6 +1489,10 @@ namespace LivePhotoBox.ViewModels
                 // 完美文件，没有任何问题 → 已跳过（无需处理）
                 details = ResourceService.GetString("RepairPage_Task_SkippedNoIssue");
             }
+            else if (analysis.IssueType is RepairIssueType.Limited or RepairIssueType.Error)
+            {
+                details = analysis.IssueDescription;
+            }
             else
             {
                 details = ResourceService.GetString("RepairPage_Task_Skipped");
@@ -1501,7 +1505,7 @@ namespace LivePhotoBox.ViewModels
                 IsImage = isImage,
                 IssueDescription = FormatDiagnosisLabels(analysis),
                 NeedsRepair = analysis.NeedsRepair,
-                Status = ProcessStatus.Pending,
+                Status = analysis.IssueType == RepairIssueType.Error ? ProcessStatus.Failed : ProcessStatus.Pending,
                 Details = details,
                 AnalysisResult = analysis
             };
@@ -1516,6 +1520,7 @@ namespace LivePhotoBox.ViewModels
             }
             if (analysis.IssueType == RepairIssueType.Error) return Label("ReadError");
             if (analysis.IssueType == RepairIssueType.NonApple) return Label("OtherDevice");
+            if (analysis.IssueType == RepairIssueType.Limited) return Label("Limited");
             var labels = new List<string>();
             if (analysis.NeedsImageOrientationRepair && analysis.RotationAngle != 0)
                 labels.Add(Label(analysis.IsSamsungMotionPhoto ? "PhotoRotation" : "Rotation", analysis.RotationAngle));
@@ -1764,7 +1769,9 @@ namespace LivePhotoBox.ViewModels
                     {
                         foreach (var entry in task.Entries)
                         {
-                            entry.Status = entry.IsDiagnosisError ? ProcessStatus.Failed : ProcessStatus.Success;
+                            // No repair was attempted for these diagnostic-only items.
+                            entry.Status = entry.IsDiagnosisError ? ProcessStatus.Failed
+                                : entry.AnalysisResult?.IssueType == RepairIssueType.Limited ? ProcessStatus.Pending : ProcessStatus.Success;
                             Interlocked.Increment(ref _completedEntriesCount);
                         }
                         continue;

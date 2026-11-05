@@ -4681,7 +4681,7 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
     <value>HEIC 方向冲突</value>
   </data>
   <data name="RepairPage_Reason_Thumbnail" xml:space="preserve">
-    <value>多余缩略图/预览图</value>
+    <value>多余缩略图</value>
   </data>
   <data name="RepairPage_Reason_VideoMirror" xml:space="preserve">
     <value>视频镜像</value>
@@ -4694,6 +4694,9 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
   </data>
   <data name="RepairPage_Reason_ReadError" xml:space="preserve">
     <value>读取失败</value>
+  </data>
+  <data name="RepairPage_Reason_Limited" xml:space="preserve">
+    <value>修复待确认</value>
   </data>
   <data name="RepairPage_Reason_OtherDevice" xml:space="preserve">
     <value>其他厂商，跳过</value>

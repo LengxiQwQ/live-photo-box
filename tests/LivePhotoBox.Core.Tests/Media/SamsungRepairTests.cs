@@ -52,16 +52,31 @@ public sealed class SamsungRepairTests
         Assert.Equal("planned",result.Status);Assert.Empty(Directory.GetFiles(folder.Path));
         Assert.Equal(hash,Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(source))));
     }
-    [Fact]
+    [Theory]
+    [InlineData("vivo.jpg")]
+    [InlineData("vivo双文件.jpg")]
     [Trait("Category","RealSamples")]
-    public async Task DefaultDeviceFilter_SkipsOtherMotionPhotoVendors()
+    public async Task DefaultDeviceFilter_SkipsOtherMotionPhotoVendors(string name)
     {
         using var folder=new P9TargetTestInputs.Folder(nameof(DefaultDeviceFilter_SkipsOtherMotionPhotoVendors));
-        string source=TestSampleResolver.ResolveSample("vivo.jpg");
+        string source=TestSampleResolver.ResolveSample(name);
+        string hash=Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(source)));
         var result=await LivePhotoRepairService.RepairImageFileAsync(source,folder.Path,false,false,new RepairOptions(),default);
         Assert.Equal("skipped",result.Status);Assert.Empty(Directory.GetFiles(folder.Path));
         var analysis=await LivePhotoRepairService.AnalyzeFileAsync(source,default,defaultDevicesOnly:true);
         Assert.Equal(RepairIssueType.NonApple,analysis.IssueType);
+        Assert.False(analysis.NeedsRepair);
+        Assert.Equal(hash,Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(source))));
+    }
+
+    [Fact]
+    public async Task DefaultDeviceFilter_DoesNotTreatMalformedJpegAsOutOfScope()
+    {
+        using var folder=new P9TargetTestInputs.Folder(nameof(DefaultDeviceFilter_DoesNotTreatMalformedJpegAsOutOfScope));
+        string source=Path.Combine(folder.Path,"broken.jpg");
+        File.WriteAllBytes(source,[0xff,0xd8,0xff]);
+        var analysis=await LivePhotoRepairService.AnalyzeFileAsync(source,default,defaultDevicesOnly:true);
+        Assert.Equal(RepairIssueType.Error,analysis.IssueType);
     }
 
 }

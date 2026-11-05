@@ -377,9 +377,9 @@
                                         </Grid.ColumnDefinitions>
 
                                         <Grid.RowDefinitions>
-                                            <RowDefinition Height="{x:Bind Row0Height, Mode=OneWay}"/>
+                                            <RowDefinition Height="{x:Bind Row0Height, Mode=OneWay}" MinHeight="{x:Bind Row0MinHeight, Mode=OneWay}"/>
                                             <RowDefinition Height="Auto"/>
-                                            <RowDefinition Height="{x:Bind Row2Height, Mode=OneWay}"/>
+                                            <RowDefinition Height="{x:Bind Row2Height, Mode=OneWay}" MinHeight="{x:Bind Row2MinHeight, Mode=OneWay}"/>
                                         </Grid.RowDefinitions>
 
                                         <!-- Row 0: 序号1 -->
@@ -420,7 +420,7 @@
                                                     HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
                                         </Grid>
 
-                                        <TextBlock Grid.Row="0" Grid.Column="3" Margin="8,0,0,0" Text="{x:Bind File1IssueDescription, Mode=OneWay}" Foreground="{x:Bind File1IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="IssueDescription_Tapped" Tag="1"/>
+                                        <TextBlock Grid.Row="0" Grid.Column="3" Margin="8,0,0,0" Text="{x:Bind File1IssueDescription, Mode=OneWay}" Foreground="{ThemeResource TextFillColorPrimaryBrush}" FontSize="13" VerticalAlignment="Center" TextWrapping="Wrap" IsTapEnabled="True" Tapped="IssueDescription_Tapped" Tag="1"/>
 
                                         <TextBlock Grid.Row="0" Grid.Column="4" Margin="10,0,0,0" Text="{x:Bind File1DisplayStatusText, Mode=OneWay}" Foreground="{x:Bind File1DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" HorizontalAlignment="Left" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="1"/>
 
@@ -447,7 +447,7 @@
                                                     HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
                                         </Grid>
 
-                                        <TextBlock Grid.Row="2" Grid.Column="3" Margin="8,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2IssueDescription, Mode=OneWay}" Foreground="{x:Bind File2IsDiagnosisError, Converter={StaticResource BoolToDiagnosisErrorBrushConverter}, Mode=OneWay}" FontSize="13" VerticalAlignment="Center" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="IssueDescription_Tapped" Tag="2"/>
+                                        <TextBlock Grid.Row="2" Grid.Column="3" Margin="8,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2IssueDescription, Mode=OneWay}" Foreground="{ThemeResource TextFillColorPrimaryBrush}" FontSize="13" VerticalAlignment="Center" TextWrapping="Wrap" IsTapEnabled="True" Tapped="IssueDescription_Tapped" Tag="2"/>
 
                                         <TextBlock Grid.Row="2" Grid.Column="4" Margin="10,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2DisplayStatusText, Mode=OneWay}" Foreground="{x:Bind File2DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" HorizontalAlignment="Left" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="2"/>
                                     </Grid>
@@ -641,16 +641,15 @@
 
         </Grid>
 
-        <TeachingTip x:Name="ErrorDetailTip"
+        <controls:ErrorDetailTeachingTip x:Name="ErrorDetailTip"
                      IsLightDismissEnabled="False"
-                     PreferredPlacement="Left"
-                     Closed="ErrorDetailTip_Closed">
+                     PreferredPlacement="Left">
             <TeachingTip.Content>
                 <ScrollViewer MaxHeight="360" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Auto">
                     <TextBlock x:Name="ErrorDetailText" MaxWidth="520" TextWrapping="Wrap" IsTextSelectionEnabled="True" Margin="0,0,36,0"/>
                 </ScrollViewer>
             </TeachingTip.Content>
-        </TeachingTip>
+        </controls:ErrorDetailTeachingTip>
 
     </Grid>
 </Page>
