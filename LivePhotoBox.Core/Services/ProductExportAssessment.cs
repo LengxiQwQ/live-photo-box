@@ -28,8 +28,12 @@ internal static class ProductExportAssessment
         return warnings.Distinct().ToArray();
     }
 
-    internal static string IsolationDirectory(string requestedDirectory, Guid operationId) =>
-        Path.Combine(Path.GetFullPath(requestedDirectory), "Unverified", operationId.ToString("N"));
+    internal static string IsolationDirectory(string requestedDirectory, Guid operationId)
+    {
+        string folderName = ResourceService.GetString("OutputDir_Quarantined");
+        if (string.IsNullOrWhiteSpace(folderName)) folderName = "Quarantine";
+        return Path.Combine(Path.GetFullPath(requestedDirectory), folderName);
+    }
 
     internal static string Details(IReadOnlyList<string> warnings, string directory) =>
         ResourceService.GetString("ProductOutcome_Warning") + Environment.NewLine +

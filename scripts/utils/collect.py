@@ -10,7 +10,7 @@
        views/clones:          按日期 upsert（14 天内刷新，窗口外保留）
        referrers/paths/repo:  快照追加（带 fetched_at，历史全保留）
   4. 渲染趋势图   → insights/chart.svg + chart-dark.svg（浅/深色自适应）
-  5. 更新 README  → README.md / README.zh-CN.md 的 <!-- INSIGHTS:START/END --> 区块
+  5. 更新 README  → README.md / README.en.md 的 <!-- INSIGHTS:START/END --> 区块
 
 环境变量：
   TRAFFIC_TOKEN     必需：带 public_repo/repo scope 的 PAT（GITHUB_TOKEN 无法读 traffic API）
@@ -311,8 +311,8 @@ def main() -> None:
     cn = fetched.astimezone(dt.timezone(dt.timedelta(hours=8)))
     updated_at = cn.strftime("%Y-%m-%d") + " (UTC+8)"
 
-    update_readme(root, render_section(metrics, refs, paths, updated_at, "en", repo), "README.md")
-    update_readme(root, render_section(metrics, refs, paths, updated_at, "zh", repo), "README.zh-CN.md")
+    update_readme(root, render_section(metrics, refs, paths, updated_at, "zh", repo), "README.md")
+    update_readme(root, render_section(metrics, refs, paths, updated_at, "en", repo), "README.en.md")
 
     log("done")
 

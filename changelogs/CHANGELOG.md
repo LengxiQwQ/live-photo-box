@@ -1,197 +1,205 @@
-# Live Photo Box Changelog
-
-> Current version: **v2.2.1**
-> Project started: 2026-03-27
-> Tech stack: WinUI 3 + .NET 9 + C# 13
+# Live Photo Box 版本历史
 
 ---
 
-## v2.2.x — HDR Support, Split Protocol Conversion & CLI Split/Repair
+<p align="center">
+  📖 语言 / Language: &nbsp;<strong>简体中文</strong> &nbsp;·&nbsp; <a href="CHANGELOG.en.md">English</a>
+</p>
 
-> **v2.2.1** (2026-08-25) **[Feature]** System toast notifications, CLI `cover` command, taskbar progress indicator, interactive guided tutorial; **[Optimize]** window layout memory, unified Repair page status bar, queue experience, proportional splitter resizing, and automatic recovery from stalled background tools; **[Fix]** resource-browser freezes, queue/Lightbox/subfolder-scanning/CLI channel display issues
->
-> **v2.2.0** (2026-08-17) **[Feature]** Split page redesigned to mirror the Merge page — batch split & protocol conversion (Apple dual-file; vivo dual-file in testing, ≤ X200) and lossless HEIC splitting; full HDR support — HDR survives protocol conversion, Apple & Google gain maps convert both ways; CLI gains `split` / `repair` commands with `--json` script output, friendlier errors, and direct folder arguments; **[Optimize]** Fusion protocol (the author's universal format, aimed at any-device playback) temporarily retired for polishing; changelog & CLI manual open as rendered web pages; Merge page opens not-yet-created output folders
+---
 
-## v2.1.x — Multi-Brand Compatibility, Page Redesign & CLI
+> 当前版本：**v2.2.1**
+> 项目开始：2026-03-27
+> 技术栈：WinUI 3 + .NET 9 + C# 13
 
-> **v2.1.5** (2026-08-13) **[Feature]** About-page "CLI Manual" button, one-click CLI PATH add/remove scripts, install-channel detection (Store/installer/Scoop/portable + CLI marker), `lpb protocols` device-compatibility tables, WinGet auto-sync of new releases; **[Optimize]** CLI update reliability (auto-retry + resume + SHA256 verify), command names trimmed to 4, `lpb info` becomes `--info` (shows install & log locations), separate CLI logs for easier troubleshooting
->
-> **v2.1.4** (2026-08-12) **[Feature]** CLI adds `info`/`--version` environment info, `--key-timestamp` for custom key photo position, and a manual update mode (install-specific guidance, WinGet installs directed to winget, pending listing); **[Optimize]** colorized CLI output; **[Fix]** temp-file collisions in parallel batch merges
->
-> **v2.1.3** (2026-08-08) **[Fix]** Corrupted HUAWEI live photo video export fixed; CLI output-default & leftover-folder fixes — single-pair writes next to the photo, batch writes into a `{folder}_<protocol>` subfolder, never the terminal's cwd, `-w` overwrites in place, `--dry-run` creates no folders; **[Optimize]** Edit-page export pipeline improved — Samsung HEIC cover replacement, OPPO pure-video extraction, single-file still-frame export (testing pending); vivo X300 merging adjusted for better vivo Gallery compatibility (still testing)
->
-> **v2.1.2** (2026-08-04) **[Feature]** CLI merge supports positional file args with image/video auto-detection, plus --all-variants to generate every protocol×format combo; **[Redesign]** About page restructured — Store page / changelog / check-update entries, reworked update window; smaller installer (samples no longer bundled); protocol settings simplified (HUAWEI unified on v6_f); **[Fix]** UI/features following system language after in-app switch, corrected output format option label on the Merge page
->
-> **v2.1.1** (2026-08-03) **[Feature]** **Brand-new CLI mode** — `livephotobox` command-line tool: merge/protocols commands, six aliases (lpb etc.), single-pair + batch, naming templates, AI/script automation, 100% shared core with GUI; **[Feature]** HUAWEI/Honor Moving Photo playback & cover replacement, HEIC+H.265 (HEVC) output with lossless HEVC passthrough, HUAWEI HarmonyOS 4.0 V3 protocol; **[Refactor]** Project split into shared Core + GUI + CLI; **[Fix]** HUAWEI JPEG/HEIC merging, unified 3-part version display
->
-> **v2.1.0** (2026-07-30) **[Redesign]** Merge page epic redesign — left settings + right queue layout, protocol picker, format filtering, custom naming, source file management; **[Feature]** New vivo/Samsung/HUAWEI live photo support, Fusion Mode works across brands + Windows Photos; Edit page supports all protocols, OPPO dual cover modes, drag-and-drop pairing setting; About page redesigned; **[Fix]** Window title, feedback button link
+---
 
-## v2.0.x — LivePhotoEdit Page & Toolchain Rewrite
+## v2.2.x — HDR 支持、拆分协议转换与 CLI 拆分/修复
 
-> **v2.0.2** (2026-07-23) **[Feature]** Multi-format export (JPEG/PNG/WebP), video/GIF export; export progress overhaul — clear per-step labels, persistent checkmark, one-click open output folder, red X + error bubble on failure; LIVE badge now fixed blue; **[Optimize]** File browser redesign, live photo detection improvements, visual refresh, export all frames inline instead of popup, unified three-state progress panel (spinner/success/error); **[Fix]** Alt+Tab window title, drag overlay overlap, export menu gray-out logic, error popups replaced with inline display
+> **v2.2.1** (2026-08-25) **[新增]** 系统通知、CLI `cover` 命令、任务栏进度条、交互式引导教程；**[优化]** 窗口布局记忆、修复页状态栏统一、队列体验、比例拖拽与后台工具超时自恢复；**[修复]** 资源浏览卡死、队列/灯箱/扫描子文件夹/CLI 渠道显示等多项问题
 >
-> **v2.0.1** (2026-07-21) **[Performance]** Edit page performance significantly improved — instant click response, no crash on rapid switching, faster HEIC thumbnails, timeline VRAM drastically reduced; refresh button smart-switches to clear button
->
-> **v2.0.0** (2026-07-18) **[Major Release]** New LivePhotoEdit page — timeline, export frames, replace cover, view properties; folder drag-and-drop on all pages; timeline mode setting; enhanced log viewer; fixed packaging tools missing & language switching bug
+> **v2.2.0** (2026-08-17) **[新增]** 拆分页大重构 — 完全镜像合成页布局，批量拆分与协议转换（Apple 双文件、vivo 双文件测试中 ≤ X200）、HEIC 无损拆分保留 10-bit / HDR 与元数据；全面支持 HDR 效果 — 转换协议不丢 HDR，Apple 与 Google 增益图互转；CLI 新增 `split` / `repair` 命令、`--json` 脚本输出、更友好的报错与异常提示、文件夹直接传参；**[优化]** 融合协议（作者自创的统一格式，旨在所有设备可查看）暂时下线打磨、更新日志与 CLI 手册浏览器打开网页版、合成页可直接打开未创建的输出目录
 
-## v1.15.x — Auto Update & Pairing Enhancement
+## v2.1.x — 多品牌兼容、页面重构与 CLI 命令行
 
-> **v1.15.3** (2026-07-03) **[Fix]** Empty queue hint, settings scroll-to-section, startup animation removal, empty queue UX
+> **v2.1.5** (2026-08-13) **[新增]** 关于页「CLI 手册」按钮、CLI 一键加入/移出 PATH 脚本、安装渠道识别（商店/安装包/Scoop/便携 + 是否含 CLI 标注）、`lpb protocols` 协议设备兼容表、WinGet 自动同步新版本；**[优化]** CLI 更新可靠性提升（自动重试 + 断点续传 + SHA256 校验）、命令快捷名精简至 4 个、`lpb info` 调整为 `--info`（新增安装与日志位置）、CLI 日志独立存放便于排查
 >
-> **v1.15.2** (2026-07-03) **[New]** Repair options dialog, lightbox overhaul, installer size 80% smaller, skipped items detailed reasons, scroll-to-top button
+> **v2.1.4** (2026-08-12) **[新增]** CLI 新增 `info`/`--version` 环境信息、`--key-timestamp` 自定义封面时间与手动更新模式（按安装方式提示，WinGet 安装引导 winget，待上架）；**[优化]** CLI 彩色输出改版；**[修复]** 批量并发合成临时文件冲突
 >
-> **v1.15.1** (2026-07-02) **[Fix]** Unpackaged-mode bugs, auto-update UX, startup time reduced from 4-5s to 1-2s
+> **v2.1.3** (2026-08-08) **[修复]** 华为实况导出视频损坏修复；CLI 输出默认值与残留目录修复 — 单文件输出到照片所在目录、批量输出到 `{目录}_{协议}` 子文件夹，不再落到终端目录，`-w` 直接覆盖，`--dry-run` 不再创建目录；**[优化]** 编辑页导出流程改进 — 三星 HEIC 重设封面、OPPO 原厂文件视频提取、单文件封面帧导出（真机验证中）；vivo X300 合成调整 — 改善 vivo 相册兼容性（仍在测试中）
 >
-> **v1.15.0** (2026-07-01) **[Release]** Auto-update, metadata matching, Apple-only repair filter, external tool checker
+> **v2.1.2** (2026-08-04) **[新增]** CLI merge 支持位置参数自动识别图片/视频，新增 --all-variants 一键生成全部协议×格式组合；**[重构]** 关于页内容重构 — 商店页面/更新日志/检查更新入口、更新窗口改版；安装包更小（示例照片不再内置）；协议设置精简（华为统一 v6_f 格式）；**[修复]** 应用内切换语言后部分功能跟随系统语言、合成页输出格式选项标注更正
+>
+> **v2.1.1** (2026-08-03) **[新增]** **全新命令行模式** — `livephotobox` 命令行工具：merge/protocols 命令、六种别名（lpb 等）、单对+批量、命名模板、AI/脚本自动化，GUI 与 CLI 共用 100% 核心；**[新增]** 华为/荣耀实况照片播放与封面替换、HEIC+H.265(HEVC) 输出（HEVC 源无损直拷）、华为 HarmonyOS 4.0 V3 协议；**[重构]** 项目拆分为共享核心库 + GUI + CLI 三部分；**[修复]** 华为协议 JPEG/HEIC 合成、版本号三段显示统一
+>
+> **v2.1.0** (2026-07-30) **[重构]** 合成页史诗级重构 — 左设置右队列布局、协议选择/格式过滤/命名模板/原始文件归类；**[新增]** vivo(单双文件)/三星/华为实况照片合成，融合模式一文件兼容多品牌相册+Windows；编辑页适配全协议、OPPO 两种封面、拖拽配对设置；关于页重构；**[修复]** 窗口标题、反馈按钮跳转
 
-## v1.14.x — Release Fixes
+## v2.0.x — LivePhotoEdit 页面与工具链重构
 
-This release encountered MSIX packaging issues, external tool path errors, oversized installer, background toggle not rendering, and unpackaged mode failures — resolved over 10 iterations.
+> **v2.0.2** (2026-07-23) **[新增]** 多格式导出（JPEG/PNG/WebP）、视频/GIF 导出；导出进度焕新 — 每步操作有清晰提示、完成后绿勾常驻、一键打开输出文件夹、失败红叉+气泡查看报错；LIVE 徽标颜色固定为蓝色；**[优化]** 资源浏览重新设计、实况照片检测优化、界面视觉统一刷新、导出所有帧不再弹窗、进度面板三种状态（进行中/成功/失败）统一管理；**[修复]** Alt+Tab 窗口名称异常、拖拽提示重叠、导出菜单灰显逻辑、导出错误不再弹窗改为内联显示
+>
+> **v2.0.1** (2026-07-21) **[性能]** 编辑页面性能大幅提升 — 点击文件即时响应、快速切换不再闪退、HEIC 缩略图加载提速、时间线显存骤降；刷新/清空按钮自动切换
+>
+> **v2.0.0** (2026-07-18) **[重大发布]** 新增实况照片编辑页面 — 时间线、导出帧、封面替换、属性查看；全部页面支持文件夹拖拽；时间线模式切换；日志查看增强；修复安装包工具缺失及语言切换无效
 
-> **v1.14.10** (2026-06-29) **[Release]** Official release — all issues resolved, version finalized
->
-> v1.14.9 (2026-06-28) **[Fix]** MSIX packaging fix, Release Notes finalized, build tool updates
->
-> v1.14.8 (2026-06-28) **[Tooling]** CI/CD auto build & release — GitHub Actions + Inno Setup installer
->
-> v1.14.7 (2026-06-28) **[Docs]** Bilingual README, GitHub SVG badges, project screenshots
->
-> v1.14.6 (2026-06-27) **[New]** Unpackaged mode support — bootstrap script + sideload packaging
->
-> v1.14.5 (2026-06-27) **[Stability]** CrashHandler + ViewModels update, stability improvements
->
-> v1.14.4 (2026-06-27) **[Optimize]** **Installer size reduced significantly** — ffmpeg full→essentials (308→156 MB), removed jhead
->
-> v1.14.3 (2026-06-27) **[Fix]** ExternalToolLocator rewrite, tool detection path fix
->
-> v1.14.2 (2026-06-27) **[Fix]** Settings page background toggle Acrylic theme rendering fix
->
-> v1.14.1 (2026-06-26) **[Fix]** External tool path fix, LivePhotoSplitService path unification
->
-> v1.14.0 (2026-06-26) **[Release]** Release candidate: repair samples, split/merge service finalization
+## v1.15.x — 自动更新与配对增强
 
-## v1.13.x — Feature Complete
+> **v1.15.3** (2026-07-03) **[修复]** 修复页空队列提示不消失、设置页跳转定位、启动动画移除、空队列引导优化
+>
+> **v1.15.2** (2026-07-03) **[新增]** 修复选项对话框、灯箱全面升级、安装包体积骤降80%、修复页"已跳过"细分、队列回到顶部按钮
+>
+> **v1.15.1** (2026-07-02) **[修复]** 非打包模式大量 bug 修复、自动更新体验优化、启动时间从4-5秒缩短至1-2秒
+>
+> **v1.15.0** (2026-07-01) **[发布]** 新增自动更新、元数据组合匹配、仅修复 Apple 照片筛选、外部工具检测器
 
-v1.13 marks the feature-complete milestone — three Live Photo protocols, smart metadata matcher, Lightbox, and Acrylic settings page all in place.
+## v1.14.x — 发布修复
 
-> **v1.13.5** (2026-06-26) **[Refactor]** Combo→Merge full rename (52 files) + unified converters + development docs
->
-> v1.13.4 (2026-06-25) **[New]** LightboxPreview control (fullscreen image viewer), preview service integration
->
-> **v1.13.3** (2026-06-24) **[New]** Smart metadata pairing engine — LivePhotoMetadataMatcher (415 lines)
->
-> v1.13.2 (2026-06-24) **[UI]** Modern settings page (Backdrop/AcrylicVisibility converters), App.xaml theme unification
->
-> v1.13.1 (2026-06-23) **[New]** ImagePreviewService fullscreen preview + Acrylic settings page
->
-> **v1.13.0** (2026-06-23) **[Refactor]** **Three Live Photo protocols** — MicroVideo V1 / MotionPhoto V2 / OPPO Live Photo detection & parsing (+694 lines)
+此版本为发布候选，遇到了 MSIX 打包故障、外部工具调用异常、安装包过大、设置背景控件不显示、Unpackaged 无法运行等问题，经 10 轮迭代修复后正式发布。
 
-## v1.12.x — Service Refactoring & Tools
-
-> v1.12.7 (2026-06-22) **[Optimize]** RepairAnalysisResult deep analysis, LivePhotoConstants system, thumbnail/filename optimization
+> **v1.14.10** (2026-06-29) **[发布]** 正式发布版 — 所有问题修复完毕，版本定稿
 >
-> **v1.12.6** (2026-06-21) **[New]** EncoderHelper (270 lines, unified ffmpeg params) + LivePhotoBatchRunnerService batch engine
+> v1.14.9 (2026-06-28) **[修复]** MSIX 打包问题修复、Release Notes 定稿、构建工具更新
 >
-> v1.12.5 (2026-06-20) **[Refactor]** HEIC decoder rewrite, Combo queue optimization, TaskListScrollHelper
+> v1.14.8 (2026-06-28) **[工具]** CI/CD 自动构建发版 — GitHub Actions + Inno Setup 安装脚本
 >
-> **v1.12.4** (2026-06-20) **[Performance]** ExifTool daemon mode — PersistentExifTool, batch repair performance breakthrough
+> v1.14.7 (2026-06-28) **[文件]** 中英双语 README 、GitHub SVG 徽章、项目截屏
 >
-> v1.12.3 (2026-06-19) **[New]** BannerPreset model, unified progress bar state across all pages
+> v1.14.6 (2026-06-27) **[新增]** Unpackaged 模式支持 — 引导脚本 + sideload 旁加载打包
 >
-> v1.12.2 (2026-06-18) **[Refactor]** Log system overhaul — CrashHandler + log trio + ComboBoxHelper + SessionStateManager
+> v1.14.5 (2026-06-27) **[稳定]** CrashHandler + ViewModels 更新、应用稳定性加固
 >
-> v1.12.1 (2026-06-17) **[UI]** Hardware acceleration settings UI (QSV/NVENC/AMF toggles), full string update
+> v1.14.4 (2026-06-27) **[优化]** **安装包大幅减少** — ffmpeg full→essentials（308→156 MB）、移除 jhead
 >
-> v1.12.0 (2026-06-15) **[Refactor]** **Service layer overhaul** — AppLogService/CrashLogWriter/CrashLogService split (+1299 lines)
-
-## v1.11.x — Core Services
-
-> **v1.11.1** (2026-06-13) **[Performance]** Hardware acceleration detection — HardwareService (Intel QSV / NVIDIA NVENC / AMD AMF)
+> v1.14.3 (2026-06-27) **[修复]** ExternalToolLocator 重写、工具探测路径修复
 >
-> **v1.11.0** (2026-06-12) **[New]** FFmpeg video transcoding engine for Split service — VideoTranscodeService (486 lines)
-
-## v1.10.x — HEIC Transcoding
-
-> v1.10.1 (2026-06-11) **[Docs]** Merge/split tutorial images, hover preview, sample assets
+> v1.14.2 (2026-06-27) **[修复]** 设置页背景切换控件 Acrylic 主题显示 BUG 修复
 >
-> **v1.10.0** (2026-06-10) **[New]** HEIC transcoding service — HeicConverterService HEIC→JPEG decoding
-
-## v1.9.x — Model Refactoring
-
-> v1.9.2 (2026-06-08) **[UI]** ViewModel localization strings overhaul, cross-page layout adaptation
+> v1.14.1 (2026-06-26) **[修复]** 外部工具调用路径修复、LivePhotoSplitService 路径统一
 >
-> v1.9.1 (2026-06-07) **[New]** LivePhotoBatchRunnerService batch processing prototype, MergeTask batch handling
+> v1.14.0 (2026-06-26) **[发布]** 发布候选：修复样本、拆分/合并服务最终定型
+
+## v1.13.x — 功能完成
+
+v1.13 为功能完成里程碑，三大实况照片协议、智能配对引擎、Lightbox 灯箱、Acrylic 设置页全部就位。
+
+> **v1.13.5** (2026-06-26) **[重构]** Combo→Merge 全库重命名（52 文件）+ 统一转换器 + 开发文档体系
 >
-> v1.9.0 (2026-06-05) **[Refactor]** **Model layer refactoring** — RepairAnalysisResult, MergeTask/SplitTask model unification, AppLogEntry system
-
-## v1.8.x — Status Bar Control
-
-> v1.8.1 (2026-05-25) **[Optimize]** BulkObservableCollection scan performance, ScanDirectoryButton removed
+> v1.13.4 (2026-06-25) **[新增]** LightboxPreview 灯箱控件（全屏图片查看）、预览服务集成
 >
-> **v1.8.0** (2026-05-23) **[New]** PageStatusBar control + ScanDirectoryButton directory picker
-
-## v1.7.x — UI Polish
-
-> v1.7.2 (2026-05-22) **[New]** Merge/split sample assets, scan progress model
+> **v1.13.3** (2026-06-24) **[新增]** 智能元数据配对引擎 — LivePhotoMetadataMatcher（415 行）
 >
-> v1.7.1 (2026-05-20) **[UI]** Full page XAML layout/code-behind/string refinement
+> v1.13.2 (2026-06-24) **[UI]** 现代设置页 UI（Backdrop/AcrylicVisibility 转换器）、App.xaml 主题统一
 >
-> v1.7.0 (2026-05-13) **[Docs]** README rewrite (Logo, badges, screenshots), solution restructure
-
-## v1.6.x — Repair Engine
-
-> v1.6.1 (2026-04-10) **[UI]** Home/About page layout & strings finalized, README rebrand
+> v1.13.1 (2026-06-23) **[新增]** ImagePreviewService 大图预览 + Acrylic 亚克力设置页
 >
-> **v1.6.0** (2026-04-10) **[New]** Repair engine — LivePhotoRepairService full repair analysis logic
+> **v1.13.0** (2026-06-23) **[重构]** **三大实况照片协议** — MicroVideo V1 / MotionPhoto V2 / OPPO Live Photo 识别与解析（+694 行）
 
-## v1.5.x — First Beta
+## v1.12.x — 服务重构与工具优化
 
-> **v1.5.0** (2026-04-10) **[Release]** **First Microsoft Store beta** — exiftool/jpegtran tool integration, Home page finalized
-
-## v1.4.x — Split Service
-
-> v1.4.2 (2026-04-09) **[Optimize]** RepairService iteration, ComboPage UI layout refresh, AppViewModel strings
+> v1.12.7 (2026-06-22) **[优化]** RepairAnalysisResult 深度修复分析、LivePhotoConstants 常量体系、缩略图/文件名全面优化
 >
-> **v1.4.1** (2026-04-09) **[New]** LivePhotoRepairTask model, LivePhotoRepairService (+531 lines)
+> **v1.12.6** (2026-06-21) **[新增]** EncoderHelper 编码器（270 行统一 ffmpeg 参数）+ LivePhotoBatchRunnerService 批处理引擎
 >
-> **v1.4.0** (2026-04-08) **[New]** Split service — LivePhotoSplitService (201 lines), SplitPage layout restructuring
+> v1.12.5 (2026-06-20) **[重构]** HEIC 解码器重写、Combo 队列优化、TaskListScrollHelper 滚动辅助、工具类模块化
+>
+> **v1.12.4** (2026-06-20) **[性能]** ExifTool 常驻模式 — PersistentExifTool 守护进程，批量修复性能飞跃
+>
+> v1.12.3 (2026-06-19) **[新增]** BannerPreset 横幅预设模型、全页面进度条状态统一集成
+>
+> v1.12.2 (2026-06-18) **[重构]** 日志系统翻新 — CrashHandler + 日志三件套 + ComboBoxHelper + SessionStateManager
+>
+> v1.12.1 (2026-06-17) **[UI]** 硬件加速设置页 UI（QSV/NVENC/AMF 开关）、字符串全量更新
+>
+> v1.12.0 (2026-06-15) **[重构]** **服务层全面重构** — AppLogService/CrashLogWriter/CrashLogService 拆分（+1299 行）
 
-## v1.3.x — Structure Standardization
+## v1.11.x — 核心服务
 
-> v1.3.1 (2026-04-07) **[UI]** ConsolePage → **KeyPhotoPage** (cover frame replacement), navigation update
+> **v1.11.1** (2026-06-13) **[性能]** 硬件加速检测 — HardwareService（Intel QSV / NVIDIA NVENC / AMD AMF）
 >
-> **v1.3.0** (2026-04-07) **[Refactor]** Structure standardization — locale folder rename en-US→en / zh-CN→zh-Hans
+> **v1.11.0** (2026-06-12) **[新增]** 为拆分服务增加 FFmpeg 视频转码引擎 — VideoTranscodeService（486 行）
 
-## v1.2.x — Architecture Refactoring
+## v1.10.x — HEIC 转码
 
-> v1.2.5 (2026-04-06) **[UI]** Full app icon set (all sizes), 3D icon, About icon update
+> v1.10.1 (2026-06-11) **[文档]** 合并/拆分教程图片、悬浮预览、示例素材入库
 >
-> v1.2.4 (2026-04-05) **[New]** CrashLogService, version detection in About page, FeedbackService
->
-> v1.2.3 (2026-04-05) **[New]** LivePhotoSplitTask model, BulkObservableCollection performance, scan + thumbnail preview
->
-> **v1.2.2** (2026-04-03) **[Refactor]** **Project rename** — LivePhotoStudio → **LivePhotoBox**, 45 files renamed
->
-> v1.2.1 (2026-04-03) **[Refactor]** Architecture deepening: FilePicker/Thumbnail/Scan services, old SharedViewModel removed
->
-> **v1.2.0** (2026-04-03) **[Refactor]** **Major architecture refactoring** — Services layer (AppSettings/Language/Composition) + AppViewModel MVVM
+> **v1.10.0** (2026-06-10) **[新增]** HEIC 转码服务 — HeicConverterService HEIC→JPEG 解码
 
-## v1.1.x — Localization & Settings
+## v1.9.x — 模型重构
 
-> v1.1.1 (2026-03-30) **[New]** Complete settings page, SharedViewModel config management, settings persistence
+> v1.9.2 (2026-06-08) **[UI]** ViewModel 本地化字符串全面梳理、语言/布局跨页面适配
 >
-> **v1.1.0** (2026-03-29) **[New]** Multilingual resource files, replaced hardcoded strings with LanguageService architecture
-
-## v1.0.x — First Complete Version
-
-> **v1.0.0** (2026-03-29) **[Release]** **First complete version** — Merge + Split + Repair features fully functional
-
-## v0.x — Initial Build
-
-> v0.4.0 (2026-03-29) **[New]** Combo/Repair/Split pages fully connected, merge task model refactoring
+> v1.9.1 (2026-06-07) **[新增]** LivePhotoBatchRunnerService 批处理雏形、MergeTask 批量处理
 >
-> v0.3.0 (2026-03-28) **[New]** ComboPage merge logic, SharedViewModel 406 lines, LivePhotoTask model
+> v1.9.0 (2026-06-05) **[重构]** **模型层重构** — RepairAnalysisResult、MergeTask/SplitTask 模型统一、AppLogEntry 体系
+
+## v1.8.x — 状态栏控件
+
+> v1.8.1 (2026-05-25) **[优化]** BulkObservableCollection 扫描性能优化、ScanDirectoryButton 废弃移除
 >
-> v0.2.0 (2026-03-27) **[New]** MainWindow layout, About page, Home page, Console debug page, GitHub CI workflow
+> **v1.8.0** (2026-05-23) **[新增]** PageStatusBar 状态栏控件 + ScanDirectoryButton 目录选择器
+
+## v1.7.x — UI 精细化
+
+> v1.7.2 (2026-05-22) **[新增]** 合并/拆分示例样本文件、合成/修复扫描进度模型
 >
-> **v0.1.0** (2026-03-27) **[Init]** WinUI 3 + .NET 9 project scaffold, Split/Combo/Repair page skeletons, 30 initial files
+> v1.7.1 (2026-05-20) **[UI]** 全页面 XAML 布局/代码隐藏/字符串逐页精细化打磨
+>
+> v1.7.0 (2026-05-13) **[文档]** 多轮 README 重写（Logo、徽章、截屏）、解决方案重组
+
+## v1.6.x — 修复引擎
+
+> v1.6.1 (2026-04-10) **[UI]** Home 页/About 页布局与字符串终稿、README 品牌重塑
+>
+> **v1.6.0** (2026-04-10) **[新增]** 修复引擎 — LivePhotoRepairService 完整修复分析逻辑
+
+## v1.5.x — 首个内测版
+
+> **v1.5.0** (2026-04-10) **[发布]** **首个 Microsoft Store 内测版** — exiftool/jpegtran 工具集成、Home 首页定稿
+
+## v1.4.x — 拆分服务
+
+> v1.4.2 (2026-04-09) **[优化]** RepairService 迭代、ComboPage UI 布局翻新、AppViewModel 字符串接入
+>
+> **v1.4.1** (2026-04-09) **[新增]** LivePhotoRepairTask 修复任务模型、LivePhotoRepairService（+531 行）
+>
+> **v1.4.0** (2026-04-08) **[新增]** 拆分服务 — LivePhotoSplitService（201 行）完整实现、SplitPage 布局重构
+
+## v1.3.x — 结构标准化
+
+> v1.3.1 (2026-04-07) **[UI]** ConsolePage → **KeyPhotoPage（封面更换）**、导航栏更新
+>
+> **v1.3.0** (2026-04-07) **[重构]** 结构标准化 — 多语言文件夹 en-US→en / zh-CN→zh-Hans
+
+## v1.2.x — 架构重构
+
+> v1.2.5 (2026-04-06) **[UI]** 应用图标全套（所有尺寸+缩放）、3D 图标、About 图标更新
+>
+> v1.2.4 (2026-04-05) **[新增]** 崩溃日志 CrashLogService、版本检测 About 页、FeedbackService 反馈
+>
+> v1.2.3 (2026-04-05) **[新增]** LivePhotoSplitTask 拆分模型、BulkObservableCollection 集合性能优化、扫描+缩略图预览
+>
+> **v1.2.2** (2026-04-03) **[重构]** **项目重命名** — LivePhotoStudio → **LivePhotoBox**，45 文件全库重命名
+>
+> v1.2.1 (2026-04-03) **[重构]** 架构深化：FilePicker/Thumbnail/Scan 服务全面接入，旧 SharedViewModel 移除
+>
+> **v1.2.0** (2026-04-03) **[重构]** **重大架构重构** — 引入 Services 层（AppSettings/Language/Composition）+ AppViewModel MVVM
+
+## v1.1.x — 多语言与设置
+
+> v1.1.1 (2026-03-30) **[新增]** 完整设置页全部实现、SharedViewModel 配置管理、设置持久化
+>
+> **v1.1.0** (2026-03-29) **[新增]** 多语言资源文件，替换以前的硬编码，使用 LanguageService 代码架构
+
+## v1.0.x — 首个完整版
+
+> **v1.0.0** (2026-03-29) **[发布]** **首个完整版** — 合成+拆分+修复三功能首次完整可用，MainWindow 后台逻辑完备
+
+## v0.x — 初始构建
+
+> v0.4.0 (2026-03-29) **[新增]** Combo/Repair/Split 三页面全部打通，合成任务模型重构
+>
+> v0.3.0 (2026-03-28) **[新增]** ComboPage 合成页核心逻辑、SharedViewModel 406 行、LivePhotoTask 任务模型
+>
+> v0.2.0 (2026-03-27) **[新增]** MainWindow 布局、About 页、Home 首页、Console 调试日志页、GitHub CI 工作流
+>
+> **v0.1.0** (2026-03-27) **[新建]** WinUI 3 + .NET 9 项目脚手架搭建，Split/Combo/Repair 三页面骨架，30 个初始文件

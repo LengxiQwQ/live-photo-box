@@ -1967,3 +1967,7 @@ LPB_API lpb_result LPB_CALL lpb_inspect_video_inventory_v1(lpb_context* context,
         return LPB_RESULT_OK;
     }catch(...){return LPB_RESULT_INTERNAL_ERROR;}
 }
+
+LPB_API lpb_result LPB_CALL lpb_discover_pairing_hint_v1(lpb_context* context,const char* source,lpb_pairing_hint_v1* hint) {
+    return lpb::media::discover_pairing_hint(context,source,hint);
+}

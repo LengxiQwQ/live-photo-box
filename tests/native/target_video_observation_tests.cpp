@@ -85,6 +85,23 @@ int main(){
    t[moov_start+tm.size()-1]^=1;
    require(!lpb::media::prove_remux_bytes(a.view(),b.view(),tf,tm),"wrong stco/co64 relocation byte rejected");
   }
+  {
+   bytes h(8);append(h,txt("mdir"));append(h,txt("appl"));h.resize(24);append(h,txt("MetadataHandler"));h.push_back(0);
+   bytes value(8);value[3]=21;value.push_back(7); // ordinary integer tempo, not text
+   bytes m(4);append(m,atom("hdlr",h));append(m,atom("ilst",atom("tmpo",atom("data",value))));
+   require(check(atom("moov",atom("udta",atom("meta",m))),F::none),"ordinary iTunes integer and named handler");
+   auto bounded=m;append(bounded,atom("uuid",bytes(16,0)));
+   require(check(atom("moov",atom("meta",bounded)),F::none),"bounded UUID inside classified meta");
+   append(bounded,atom("uuid",bytes(16,0)));
+   require(check(atom("moov",atom("meta",bounded)),F::ambiguous),"duplicate UUID inside meta");
+   auto duplicate=m;append(duplicate,atom("ilst",atom("tmpo",atom("data",value))));
+   require(check(atom("moov",atom("meta",duplicate)),F::ambiguous),"shadow iTunes property owner");
+   auto truncated=atom("moov",atom("meta",m));truncated.pop_back();
+   require(check(truncated,F::malformed),"truncated ordinary iTunes meta");
+   bytes unknown=m;append(unknown,atom("iloc",bytes(8)));
+   require(check(atom("moov",atom("meta",unknown)),F::unsupported),"unknown item ownership is not opaque metadata");
+
+  }
   require(check(atom("moov",atom("udta")),F::none),"empty ordinary udta");
   require(check(atom("moov",atom("trak",atom("udta",atom("tagc",txt("com.example.ordinary"))))),F::none),"bounded ordinary track label stays opaque");
   require(check(atom("moov",atom("udta",atom("xxxx",txt("com.apple.quicktime.content.identifier")))),F::none),"opaque value text grants no binding authority");

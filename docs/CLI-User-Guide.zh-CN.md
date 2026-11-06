@@ -1,5 +1,13 @@
 # Live Photo Box CLI — 使用指南
 
+---
+
+<p align="center">
+  📖 语言 / Language: &nbsp;<strong>简体中文</strong> &nbsp;·&nbsp; <a href="CLI-User-Guide.en.md">English</a>
+</p>
+
+---
+
 [![最新发布](https://img.shields.io/github/v/release/lengxiqwq/live-photo-box?style=flat-square&color=0078D7&label=%E6%9C%80%E6%96%B0%E5%8F%91%E5%B8%83)](https://github.com/lengxiqwq/live-photo-box/releases) [![许可证](https://img.shields.io/badge/许可证-GPL%203.0-blue?style=flat-square)](https://github.com/lengxiqwq/live-photo-box/blob/main/LICENSE) [![平台](https://img.shields.io/badge/平台-Windows%2010%20%7C%2011-0078D7?style=flat-square&logo=windows11)](https://github.com/lengxiqwq/live-photo-box) [![项目仓库](https://img.shields.io/badge/%E9%A1%B9%E7%9B%AE%E4%BB%93%E5%BA%93-GitHub-0078D7?style=flat-square&logo=github)](https://github.com/lengxiqwq/live-photo-box) [![反馈](https://img.shields.io/badge/反馈-Issues-red?style=flat-square)](https://github.com/lengxiqwq/live-photo-box/issues)
 
 ## 当前 Rebuilt 行为
@@ -783,9 +791,14 @@ JSON 为 UTF-8 编码；脚本读取时请按 UTF-8 解码（如 Python `json.lo
 
 ## 获取帮助
 
-- **文档：** [English](https://github.com/lengxiqwq/live-photo-box/blob/main/docs/CLI-User-Guide.md) · [简体中文](https://github.com/lengxiqwq/live-photo-box/blob/main/docs/CLI-User-Guide.zh-CN.md)
+- **文档：** [English](https://github.com/lengxiqwq/live-photo-box/blob/main/docs/CLI-User-Guide.en.md) · [简体中文](https://github.com/lengxiqwq/live-photo-box/blob/main/docs/CLI-User-Guide.zh-CN.md)
 - **Bug 反馈 / 功能建议：** [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues)
 - **最新版本下载：** [GitHub Releases](https://github.com/lengxiqwq/live-photo-box/releases)
 - **项目仓库：** [github.com/lengxiqwq/live-photo-box](https://github.com/lengxiqwq/live-photo-box)
 
 如果这个项目对你有帮助，欢迎在 GitHub 上点个 ⭐ Star。
+
+
+### 修复结果的动作与真实输出
+
+`repair --json` 保留旧字段与退出码，新增 `completion`、`actions`、`reasons`、`publishedOutputs`、`historyRecorded`。`actions` 中的状态区分 `not_selected`、`not_needed`、`completed`、`not_completed`、`not_checked`、`planned`；只有已实际发布的文件才进入 `publishedOutputs`，其中 `Kind` 区分 `repaired`、`copy`、`isolated_repaired`、`isolated_copy`。没有输出的 warning 不表示已经隔离；原样副本也不等于已修复。warning 保持原有退出码 0，因此退出码 0 不代表全部修复，应查看逐项动作与输出。终态记录以 `LPB_REPAIR_OUTCOME_V1` 写入既有日志；记录失败不改变已完成的媒体处理结果。

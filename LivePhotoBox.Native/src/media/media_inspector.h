@@ -8,6 +8,8 @@
 
 namespace lpb::media {
 
+lpb_result discover_pairing_hint(lpb_context*, const char*, lpb_pairing_hint_v1*) noexcept;
+
 enum class gainmap_metadata_kind : int32_t { unknown = 0, apple = 1, iso = 2 };
 
 struct gainmap_metadata_facts {

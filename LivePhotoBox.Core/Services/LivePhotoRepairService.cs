@@ -1,4 +1,5 @@
 ﻿using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Inspection;
@@ -15,9 +16,44 @@ namespace LivePhotoBox.Services
     /// 实况照片修复服务。
     /// 文件诊断与执行使用 Native，统一按新文件发布。
     /// </summary>
-    public static class LivePhotoRepairService
+    public static partial class LivePhotoRepairService
     {
-        internal sealed record RepairResult(string Status, string Message, string? Image = null, string? Video = null);
+        internal sealed record RepairResult(string Status, string Message, string? Image = null, string? Video = null)
+        {
+            internal RepairLimitation[] Limitations { get; init; } = [];
+            internal bool? HistoryRecorded { get; init; }
+            internal RepairActionResult[] Actions { get; init; } = [];
+            internal RepairPublishedOutput[] PublishedOutputs => CreatePublishedOutputs(this);
+            internal string Completion => Status == "warning" ? PublishedOutputs.Length == 0 ? "not_completed" : "partial_or_unverified"
+                : Status == "success" ? "completed" : Status == "healthy" ? "not_needed" : Status;
+            internal string OutcomeKey => Status == "warning" ? PublishedOutputs.Length == 0 ? "warning_no_output"
+                : PublishedOutputs.All(x => x.Kind == "isolated_copy") ? "warning_copy" : "warning_isolated" : Status;
+            // Published members can have different actual actions even though
+            // publication and isolation are decided for the whole pair.
+            internal string? ImageStatus { get; init; }
+            internal string? VideoStatus { get; init; }
+            internal ProcessStatus ProcessStatus => Status switch
+            {
+                "success" or "healthy" => Models.ProcessStatus.Success,
+                "warning" => Models.ProcessStatus.Warning,
+                "failed" => Models.ProcessStatus.Failed,
+                _ => Models.ProcessStatus.Pending
+            };
+        }
+
+        private static string Text(string key, string fallback, params object[] values)
+        {
+            string format = ResourceService.GetString(key);
+            if (format == key) format = fallback;
+            return string.Format(System.Globalization.CultureInfo.CurrentCulture, format, values);
+        }
+
+        private static string GetIsolationDirectory(string baseDirectory)
+        {
+            string folderName = ResourceService.GetString("OutputDir_Quarantined");
+            if (string.IsNullOrWhiteSpace(folderName)) folderName = "Quarantine";
+            return Path.Combine(baseDirectory, folderName);
+        }
 
         // Native has recognized a legacy vivo image, but single-file inspection
         // cannot confirm its companion. This is enough to exclude it from the
@@ -27,7 +63,7 @@ namespace LivePhotoBox.Services
                 Stage: SourceInspectionStage.Pairing, Capability: NativeRuntime.VivoLegacyCapability };
 
         private static async Task<(SourceInspectionResult Inspection, string? Companion)> InspectRepairSourceAsync(
-            string path, bool defaultDevicesOnly, CancellationToken token)
+            string path, bool defaultDevicesOnly, CancellationToken token, RepairBatchContext batch)
         {
             var inspection = await NativeMediaService.InspectMediaForDiscoveryAsync(path, null, token);
             if (defaultDevicesOnly || !IsLegacyVivoPairingRequirement(inspection.Failure))
@@ -35,8 +71,17 @@ namespace LivePhotoBox.Services
 
             SourceInspectionResult? matched = null;
             string? companion = null;
-            foreach (string candidate in Directory.EnumerateFiles(Path.GetDirectoryName(Path.GetFullPath(path))!))
+            var candidates = await batch.CandidatesAsync(path, token, SourceProtocol.VivoLegacyDualFile);
+            int images = 0;
+            foreach (var candidate in candidates)
+                if (Path.GetExtension(candidate.Path).ToLowerInvariant() is ".jpg" or ".jpeg") images++;
+            if (images > 1)
+                return (SourceInspectionResult.Rejected(new(SourceInspectionFailureCategory.Ambiguous,
+                    SourceInspectionStage.Pairing, NativeRuntime.VivoLegacyCapability,
+                    "More than one image has this confirmed legacy pairing identifier; no companion was selected.")), null);
+            foreach (var candidateEntry in candidates)
             {
+                string candidate = candidateEntry.Path;
                 token.ThrowIfCancellationRequested();
                 if (Path.GetExtension(candidate).ToLowerInvariant() is not (".mp4" or ".mov")) continue;
                 var pair = await NativeMediaService.InspectMediaForDiscoveryAsync(path, candidate, token);
@@ -51,13 +96,15 @@ namespace LivePhotoBox.Services
             return matched == null ? (inspection, null) : (matched, companion);
         }
 
-        internal static async Task<RepairResult> RepairImageFileAsync(
-            string sourcePath, string outputDirectory, bool allDevices, bool dryRun, RepairOptions options, CancellationToken token, bool copyPerfect = false)
+        private static async Task<RepairResult> RepairImageFileCoreAsync(
+            string sourcePath, string outputDirectory, bool allDevices, bool dryRun, RepairOptions options, CancellationToken token, bool copyPerfect = false, RepairBatchContext? batch = null)
         {
+            using var localBatch = batch == null ? new RepairBatchContext() : null;
+            batch ??= localBatch!;
             sourcePath = Path.GetFullPath(sourcePath);
             using var sourceDirectory = WindowsOwnedFilePublisher.PinDirectoryAncestors(Path.GetDirectoryName(sourcePath)!);
             using var sourceLease = File.Open(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
-            var (inspection, confirmedCompanion) = await InspectRepairSourceAsync(sourcePath, !allDevices, token);
+            var (inspection, confirmedCompanion) = await InspectRepairSourceAsync(sourcePath, !allDevices, token, batch);
             if (inspection.Facts is not { } source)
             {
                 if (!allDevices && IsLegacyVivoPairingRequirement(inspection.Failure))
@@ -65,10 +112,23 @@ namespace LivePhotoBox.Services
                 return new("failed", inspection.Failure?.Reason ?? "Cannot inspect input.");
             }
             if (source.Protocol is SourceProtocol.SamsungMotionPhotoJpeg or SourceProtocol.SamsungMotionPhotoHeic)
-                return await RepairSamsungAsync(sourcePath,outputDirectory,dryRun,options,token,copyPerfect);
+            {
+                var samsung = await RepairSamsungAsync(sourcePath,outputDirectory,dryRun,options,token,copyPerfect);
+                batch.RecordPublished(samsung.Image, samsung.Video);
+                return samsung;
+            }
+            if (source.Protocol == SourceProtocol.HuaweiMovingPhoto)
+            {
+                if (!allDevices) return new("skipped", "Skipped by default Apple/Samsung repair scope.");
+                var huawei = await RepairHuaweiAsync(sourcePath, outputDirectory, dryRun, options, token, copyPerfect);
+                batch.RecordPublished(huawei.Image, huawei.Video);
+                return huawei;
+            }
             var container = source.PrimaryImage.Container;
             bool jpeg = container == ImageContainer.Jpeg;
-            bool apple = source.Protocol == SourceProtocol.AppleLivePhoto;
+            bool apple = source.Protocol == SourceProtocol.AppleLivePhoto ||
+                (!string.IsNullOrEmpty(source.PairingIdentifier) &&
+                 (await NativePairingHint.ReadAsync(sourcePath, token))?.Protocol == SourceProtocol.AppleLivePhoto);
             bool legacyPair = source.Protocol == SourceProtocol.VivoLegacyDualFile;
             if (!apple && !allDevices)
                 return new("skipped", "Default repair scope is Apple and Samsung Live Photos. Use --all-devices for supported standalone images.");
@@ -83,26 +143,28 @@ namespace LivePhotoBox.Services
             bool composite = jpeg && source.PrimaryImage.ByteLength != sourceLease.Length;
             bool incompleteRotation = rotate && composite;
             if (incompleteRotation) rotate = false;
-            if (before.ExifParseError || before.CodestreamError)
-                return new("failed", "Image EXIF or codestream cannot be verified.");
+            if (before.CodestreamError)
+                return new("failed", "Image codestream cannot be verified.");
+            bool limitedExif = before.ExifParseError;
+            if (limitedExif) { incompleteRotation |= rotate; rotate = false; }
 
             uint actions = (options.StripImageThumbnail ? 1u : 0u) |
                 (!jpeg && options.FixHeicOrientation ? 2u : 0u);
             var metadataProbe = actions == 0 ? new NativeMediaService.ImageExifRepairProbe(true, 0, null)
                 : await NativeMediaService.ProbeImageExifRepairAsync(sourcePath, actions, token);
-            uint metadata = metadataProbe.Changes;
-            if (rotate && (before.Orientation > 8 || before.HasExtendedXmp))
-                return new("failed", "JPEG has competing or unsupported orientation metadata.");
+            uint metadata = limitedExif ? 0 : metadataProbe.Changes;
+            if (rotate && before.Orientation > 8) { incompleteRotation = true; rotate = false; }
 
             string? videoPath = confirmedCompanion;
             if (apple)
             {
-                foreach (string candidate in Directory.EnumerateFiles(Path.GetDirectoryName(sourcePath)!))
+                foreach (var candidateEntry in await batch.CandidatesAsync(sourcePath, token, SourceProtocol.AppleLivePhoto, source.PairingIdentifier))
                 {
+                    string candidate = candidateEntry.Path;
                     if (string.Equals(candidate, sourcePath, StringComparison.OrdinalIgnoreCase)) continue;
                     string candidateExtension = Path.GetExtension(candidate).ToLowerInvariant();
                     if (candidateExtension is not (".mov" or ".jpg" or ".jpeg" or ".heic" or ".heif")) continue;
-                    var inspected = await NativeMediaService.InspectMediaForDiscoveryAsync(candidate, null, token);
+                    var inspected = candidateEntry.Inspection;
                     if (!string.Equals(inspected.Facts?.PairingIdentifier, source.PairingIdentifier, StringComparison.OrdinalIgnoreCase))
                         continue;
                     if (candidateExtension != ".mov")
@@ -115,7 +177,7 @@ namespace LivePhotoBox.Services
 
             using var videoLease = videoPath == null ? null : File.Open(videoPath, FileMode.Open, FileAccess.Read, FileShare.Read);
             var pair = videoPath == null ? null : await NativeMediaService.InspectMediaAsync(sourcePath, videoPath, token);
-            if (pair != null && (pair.Protocol != source.Protocol ||
+            if (pair != null && (pair.Protocol != (apple ? SourceProtocol.AppleLivePhoto : source.Protocol) ||
                 !string.Equals(pair.PairingIdentifier, source.PairingIdentifier, StringComparison.OrdinalIgnoreCase) ||
                 (legacyPair && pair.SecondarySha256 != source.SecondarySha256)))
                 return new("failed", "The image/video pair could not be confirmed.");
@@ -129,7 +191,7 @@ namespace LivePhotoBox.Services
                 {
                     (video, reflection) = await NativeMediaService.ProbeVideoRepairAsync(videoPath, token);
                 }
-                catch (InvalidOperationException ex) when (rotate || metadata != 0)
+                catch (InvalidOperationException ex)
                 {
                     videoWarning = ex.Message;
                 }
@@ -139,26 +201,41 @@ namespace LivePhotoBox.Services
             if (incompletePairedVideo) rotateVideo = false;
             bool copy = !rotate && metadata == 0 && !rotateVideo;
             bool uncheckedEmbeddedVideo = videoPath == null && options.FixVideoRotation && source.MotionVideo?.IsPresent == true;
-            bool incomplete = incompleteRotation || incompletePairedVideo || uncheckedEmbeddedVideo || !metadataProbe.Supported;
+            bool incomplete = incompleteRotation || incompletePairedVideo || uncheckedEmbeddedVideo || !metadataProbe.Supported || limitedExif || videoWarning != null ||
+                (apple && videoPath == null && options.FixVideoRotation);
+            if (copy && incomplete)
+            {
+                string? unchangedCopy = null;
+                if (copyPerfect && !dryRun)
+                {
+                    unchangedCopy = await PublishSingleCopyAsync(sourcePath, GetIsolationDirectory(outputDirectory), sourceLease, token);
+                    batch.RecordPublished(unchangedCopy);
+                }
+                return new RepairResult(dryRun ? "planned" : "warning", "所选动作未完成，原内容保留。 " + metadataProbe.Diagnostic + " " + videoWarning, unchangedCopy)
+                { Actions = ActionResults(options, 0, (incompleteRotation ? 1u : 0u) | (!metadataProbe.Supported || limitedExif ? 6u : 0u) |
+                    (incompletePairedVideo || uncheckedEmbeddedVideo || videoWarning != null || (apple && videoPath == null) ? 8u : 0u), dryRun),
+                    Limitations = PairLimitations(apple && videoPath == null, false, false) };
+            }
             if (copy && !incomplete && (!copyPerfect || (apple && videoPath == null)))
-                return new("skipped", "No selected repair is needed.");
+                return new("healthy", "Selected checks completed; no selected repair is needed.");
 
             var changes = new System.Collections.Generic.List<string>(4);
-            if (rotate) changes.Add($"Apply EXIF orientation {before.Orientation} losslessly and reset it to 1.");
-            if ((metadata & 1) != 0) changes.Add("Remove confirmed embedded thumbnails and previews.");
-            if ((metadata & 2) != 0) changes.Add("Align primary EXIF orientation with the HEIF display transform.");
+            if (rotate) changes.Add(Text("Repair_Action_ImageRotation", "Apply EXIF orientation {0} losslessly and reset it to 1.", before.Orientation));
+            if ((metadata & 1) != 0) changes.Add(Text("Repair_Action_Thumbnail", "Remove confirmed embedded thumbnails and previews."));
+            if ((metadata & 2) != 0) changes.Add(Text("Repair_Action_Heif", "Align primary EXIF orientation with the HEIF display transform."));
             if (rotateVideo) changes.Add(DescribeVideoTransform(video!, reflection));
-            if (copy) changes.Add("Copy the image and any confirmed companion unchanged.");
-            if (incompleteRotation) changes.Add("Image rotation was not performed: attached media requires structural reassembly. Original orientation and attached media are retained.");
-            if (incompletePairedVideo) changes.Add("Paired video rotation was not performed; the original video and its pairing metadata are retained.");
-            if (uncheckedEmbeddedVideo) changes.Add("Embedded video orientation was not repaired; its original bytes are retained.");
-            if (!metadataProbe.Supported) changes.Add($"Thumbnail/orientation metadata repair could not be verified: {metadataProbe.Diagnostic}");
+            if (copy) changes.Add(Text("Repair_Action_Copy", "Copy the image and any confirmed companion unchanged."));
+            if (incompleteRotation) changes.Add(Text("Repair_Limited_Image", "Image rotation was not performed: its metadata or attached-media layout cannot safely be transformed. Original orientation is retained."));
+            if (limitedExif) changes.Add(Text("Repair_Limited_Exif", "EXIF could not be fully diagnosed; original image bytes are retained."));
+            if (incompletePairedVideo) changes.Add(Text("Repair_Limited_PairedVideo", "Paired video rotation was not performed; the original video and its pairing metadata are retained."));
+            if (uncheckedEmbeddedVideo) changes.Add(Text("Repair_Limited_Embedded", "Embedded video orientation was not repaired; its original bytes are retained."));
+            if (!metadataProbe.Supported) changes.Add(Text("Repair_Limited_Metadata", "Thumbnail/orientation metadata repair could not be verified: {0}", metadataProbe.Diagnostic ?? ""));
             bool isolate = incomplete || (apple && videoPath == null) || videoWarning != null ||
                 (rotateVideo && pair?.Timing.CoverTimestampUs < 0);
-            if (apple && videoPath == null) changes.Add("Apple MOV companion was not found. Output will be isolated.");
-            if (videoWarning != null) changes.Add($"MOV rotation could not be verified: {videoWarning}");
+            if (apple && videoPath == null) changes.Add(Text("Repair_Limited_Companion", "Apple MOV companion was not found. Output will be isolated."));
+            if (videoWarning != null) changes.Add(Text("Repair_Limited_VideoProbe", "MOV rotation could not be verified: {0}", videoWarning));
             if (rotateVideo && pair?.Timing.CoverTimestampUs < 0)
-                changes.Add("Source cover time is unknown. No cover timestamp will be invented.");
+                changes.Add(Text("Repair_Limited_Cover", "Source cover time is unknown. No cover timestamp will be invented."));
             string action = string.Join(" ", changes);
             if (dryRun) return new("planned", action);
 
@@ -185,13 +262,16 @@ namespace LivePhotoBox.Services
                         throw new IOException("Could not verify Native JPEG repair output ownership.", attempt.OutputEvidenceFailure);
                     staged = rotated;
                 }
-                catch (InvalidOperationException ex) when (evidence != null)
+                catch (InvalidOperationException ex)
                 {
                     rotate = false;
+                    incompleteRotation = true;
                     isolate = true;
                     changes.RemoveAt(0);
-                    changes.Add($"JPEG rotation was skipped: {ex.Message}");
+                    changes.Add(Text("Repair_Limited_JpegRotation", "JPEG rotation was skipped: {0}", ex.Message));
                     action = string.Join(" ", changes);
+                    if (evidence == null) staged = sourcePath;
+                    if (evidence == null && !rotateVideo) return new RepairResult("warning", action + " No repair completed; no unchanged copy was published.") { Actions = ActionResults(options, 0, 1, false) };
                 }
             }
             using var stagedLease = File.Open(staged, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -199,6 +279,7 @@ namespace LivePhotoBox.Services
 
             string? stagedVideo = videoPath;
             FileStream? stagedVideoLease = null;
+            bool videoMetadataVerified = true;
             try
             {
                 if (rotateVideo)
@@ -206,18 +287,24 @@ namespace LivePhotoBox.Services
                     stagedVideo = workspace.AllocateFilePath("repair", Path.GetExtension(videoPath!));
                     try
                     {
-                        stagedVideoLease = await RotateVideoAsync(videoPath!, stagedVideo, video!, PreservationPolicy.Strict, token);
-                        action += " Video re-encoded; primary audio retained; Apple pairing and cover rebuilt. Unrelated auxiliary tracks were omitted.";
+                        var repairedVideo = await RotateVideoAsync(videoPath!, stagedVideo, video!, token);
+                        stagedVideoLease = repairedVideo.Lease;
+                        videoMetadataVerified = repairedVideo.MetadataVerified;
+                        isolate |= !repairedVideo.MetadataVerified;
+                        action += Text("Repair_Action_PairedVideo", " Video re-encoded; primary audio retained; Apple pairing and cover rebuilt. Unrelated auxiliary tracks were omitted.");
+                        if (!repairedVideo.MetadataVerified) action += Text("Repair_Limited_Preservation", " Source metadata preservation was not fully verified; output is isolated.");
                     }
                     catch (InvalidOperationException ex) when (evidence != null)
                     {
                         stagedVideo = videoPath;
                         rotateVideo = false;
                         isolate = true;
-                        action += $" Video rotation could not be verified: {ex.Message}";
+                        action += Text("Repair_Limited_VideoRotation", " Video rotation could not be verified: {0}", ex.Message);
                     }
                 }
-                if (isolate) outputDirectory = Path.Combine(outputDirectory, "_isolated");
+                if (!copy && evidence == null && !rotateVideo)
+                    return new("failed", "No repair completed; no unchanged output was published. " + action);
+                if (isolate) outputDirectory = GetIsolationDirectory(outputDirectory);
 
                 var after = await NativeMediaService.CapturePreservationObservationAsync(
                     staged, source.Protocol, container, token);
@@ -225,7 +312,7 @@ namespace LivePhotoBox.Services
                 if (composite && !await HasUnchangedAppendedMediaAsync(sourceLease, stagedLease, source.PrimaryImage.ByteLength, token))
                     return new("failed", "Appended media bytes or their positions changed during metadata repair.");
                 bool swapsDimensions = rotate && before.Orientation >= 5;
-                if ((rotate && after.Orientation != 1) || after.ExifParseError || after.CodestreamError ||
+                if ((rotate && after.Orientation != 1) || after.ExifParseError != before.ExifParseError || after.CodestreamError ||
                     (jpeg && !rotate && before.ImageCodestreamSha256 != after.ImageCodestreamSha256) ||
                     (metadata != 0 && (await NativeMediaService.RepairImageExifAsync(staged, null, actions, token)).Changes != 0) ||
                     before.GpsSha256 != after.GpsSha256 || before.IccSha256 != after.IccSha256 ||
@@ -233,25 +320,24 @@ namespace LivePhotoBox.Services
                     result.PrimaryImage.Width != (swapsDimensions ? source.PrimaryImage.Height : source.PrimaryImage.Width) ||
                     result.PrimaryImage.Height != (swapsDimensions ? source.PrimaryImage.Width : source.PrimaryImage.Height) ||
                     !string.Equals(result.PairingIdentifier, source.PairingIdentifier, StringComparison.OrdinalIgnoreCase) ||
-                    result.Protocol != source.Protocol ||
+                    result.Protocol != (pair?.Protocol ?? source.Protocol) ||
                     (pair != null && (result.Protocol != pair.Protocol ||
                         result.Timing.CoverTimestampUs != pair.Timing.CoverTimestampUs ||
                         (!rotateVideo && result.SecondarySha256 != pair.SecondarySha256))))
                     return new("failed", "The staged image or Apple pair did not pass repair validation.");
 
                 Directory.CreateDirectory(outputDirectory);
-                string stem = Path.GetFileNameWithoutExtension(sourcePath) + "_repaired";
-                string imageFinal;
-                string? videoFinal;
+                string stem = Path.GetFileNameWithoutExtension(sourcePath);
+                string imageFinal = Path.Combine(outputDirectory, stem + Path.GetExtension(sourcePath));
+                string? videoFinal = videoPath == null ? null : Path.Combine(outputDirectory, stem + Path.GetExtension(videoPath));
                 int index = 1;
-                do
+                while (Path.Exists(imageFinal) || (videoFinal != null && Path.Exists(videoFinal)))
                 {
-                    string name = index == 1 ? stem : $"{stem} ({index})";
+                    string name = $"{stem} ({index})";
                     imageFinal = Path.Combine(outputDirectory, name + Path.GetExtension(sourcePath));
                     videoFinal = videoPath == null ? null : Path.Combine(outputDirectory, name + Path.GetExtension(videoPath));
                     index++;
                 }
-                while (Path.Exists(imageFinal) || (videoFinal != null && Path.Exists(videoFinal)));
 
                 if (videoFinal != null)
                     await WindowsSplitOutputPublisher.PublishAsync(staged, stagedVideo!, imageFinal, videoFinal, false, null, token);
@@ -259,7 +345,19 @@ namespace LivePhotoBox.Services
                     await WindowsSplitOutputPublisher.PublishSingleAsync(
                         imageFinal, false, (stream, ct) => stagedLease.CopyToAsync(stream, ct), null, token);
 
-                return new(isolate ? "warning" : copy ? "copied" : "success", action, imageFinal, videoFinal);
+                batch.RecordPublished(imageFinal, videoFinal);
+                return new(isolate ? "warning" : copy ? "copied" : "success", action, imageFinal, videoFinal)
+                {
+                    ImageStatus = evidence == null ? "copied" :
+                        incompleteRotation || limitedExif || !metadataProbe.Supported ? "warning" : "success",
+                    VideoStatus = videoFinal == null ? null : !rotateVideo ? "copied" :
+                        !videoMetadataVerified || pair?.Timing.CoverTimestampUs < 0 ? "warning" : "success",
+                    Limitations = PairLimitations(apple && videoPath == null, rotateVideo && pair?.Timing.CoverTimestampUs < 0, !videoMetadataVerified),
+                    Actions = ActionResults(options, (rotate ? 1u : 0u) | ((metadata & 1) != 0 ? 2u : 0u) |
+                        ((metadata & 2) != 0 ? 4u : 0u) | (rotateVideo ? 8u : 0u),
+                        (incompleteRotation ? 1u : 0u) | ((!metadataProbe.Supported || limitedExif) ? 6u : 0u) |
+                        (incompletePairedVideo || uncheckedEmbeddedVideo || videoWarning != null || (apple && videoPath == null) ? 8u : 0u), false)
+                };
             }
             finally
             {
@@ -271,6 +369,42 @@ namespace LivePhotoBox.Services
             (options.FixImageRotation?1u:0u)|(options.StripImageThumbnail?2u:0u)|
             (options.FixHeicOrientation?4u:0u)|(options.FixVideoRotation?8u:0u);
 
+        private static async Task<RepairResult> RepairHuaweiAsync(string source, string directory,
+            bool dryRun, RepairOptions options, CancellationToken token, bool copyPerfect)
+        {
+            using var workspace = new MediaWorkspace();
+            string? staged = dryRun ? null : workspace.AllocateFilePath("huawei", Path.GetExtension(source));
+            var repair = await NativeHuaweiRepair.RunAsync(source, staged, SamsungActions(options), token);
+            if (!repair.Supported) return new RepairResult("failed", repair.Details);
+            string details = Text("Repair_Action_Huawei", "已识别华为实况结构；按所选选项处理照片和内嵌视频，保留声音与 HDR 信息。") + " " + repair.Details;
+            if (repair.Changed == 0)
+            {
+                if (repair.Pending != 0)
+                {
+                    details = Text("Repair_Huawei_NoAction", "文件可读取；部分所选检查或修复尚未完成，没有将未改动文件标为修复成功。") + " " + details;
+                    if (!copyPerfect || dryRun) return new RepairResult(dryRun ? "planned" : "warning", details) { Actions = ActionResults(options, repair.Changed, repair.Pending, dryRun) };
+                    using var retained = File.Open(source, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    return new RepairResult("warning", details, await PublishSingleCopyAsync(source, GetIsolationDirectory(directory), retained, token)) { Actions = ActionResults(options, repair.Changed, repair.Pending, dryRun) };
+                }
+                if (!copyPerfect) return new RepairResult("healthy", details) { Actions = ActionResults(options, repair.Changed, repair.Pending, dryRun) };
+                if (dryRun) return new RepairResult("planned", details) { Actions = ActionResults(options, repair.Changed, repair.Pending, dryRun) };
+                using var original = File.Open(source, FileMode.Open, FileAccess.Read, FileShare.Read);
+                return new RepairResult("copied", details, await PublishSingleCopyAsync(source, directory, original, token)) { Actions = ActionResults(options, repair.Changed, repair.Pending, dryRun) };
+            }
+            if (dryRun) return new RepairResult("planned", details) { Actions = ActionResults(options, repair.Changed, repair.Pending, dryRun) };
+            if (repair.Evidence == null) throw new IOException("Huawei repair has no verified output receipt.");
+            using var lease = File.Open(staged!, FileMode.Open, FileAccess.Read, FileShare.Read);
+            await VerifyStageAsync(lease, repair.Evidence, token);
+            if (repair.Pending != 0)
+            {
+                directory = GetIsolationDirectory(directory);
+                details += " " + Text("Repair_Huawei_Partial", "已完成可安全处理的照片或视频修复；仍有未完成检查或修复，输出至隔离目录。");
+            }
+            string final = await PublishSingleCopyAsync(source, directory, lease, token);
+            return new RepairResult(repair.Pending != 0 ? "warning" : "success", details, final) { Actions = ActionResults(options, repair.Changed, repair.Pending, dryRun) };
+        }
+
+
         private static async Task<RepairResult> RepairSamsungAsync(string source,string directory,
             bool dryRun,RepairOptions options,CancellationToken token,bool copyPerfect)
         {
@@ -279,7 +413,19 @@ namespace LivePhotoBox.Services
             var repair=await NativeSamsungRepair.RunAsync(source,workspace.RootDirectory,staged,SamsungActions(options),token);
             if(repair.Changed==0)
             {
-                if(!copyPerfect)return new("skipped","No selected Samsung repair is needed.");
+                if (repair.IsPartial)
+                {
+                    string? retainedCopy = null;
+                    if (copyPerfect && !dryRun)
+                    {
+                        using var retained = File.Open(source, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        retainedCopy = await PublishSingleCopyAsync(source, GetIsolationDirectory(directory), retained, token);
+                    }
+                    return new RepairResult(dryRun ? "planned" : "warning", repair.Details, retainedCopy)
+                    { Actions = ActionResults(options, 0, SamsungActions(options) & 7u, dryRun),
+                      Limitations = [new("image_preservation_unverified", "照片修复后的媒体保留检查未通过，原照片保留。") ] };
+                }
+                if(!copyPerfect)return new("healthy","Selected Samsung checks completed; no selected repair is needed.");
                 if(dryRun)return new("planned","Copy the Samsung dynamic photo unchanged.");
                 using var original=File.Open(source,FileMode.Open,FileAccess.Read,FileShare.Read);
                 string copy=await PublishSingleCopyAsync(source,directory,original,token);
@@ -289,34 +435,60 @@ namespace LivePhotoBox.Services
             if(repair.Evidence is null)throw new IOException("Samsung repair has no verified output receipt.");
             using var lease=File.Open(staged!,FileMode.Open,FileAccess.Read,FileShare.Read);
             await VerifyStageAsync(lease,repair.Evidence,token);
-            if(repair.IsPartial)directory=Path.Combine(directory,"_isolated");
+            if(repair.IsPartial)directory=GetIsolationDirectory(directory);
             string final=await PublishSingleCopyAsync(source,directory,lease,token);
             var encoded=new System.Collections.Generic.List<string>();
             if((repair.Reencoded&1)!=0)encoded.Add("photo/HDR images");
             if((repair.Reencoded&8)!=0)encoded.Add("main video");
             if((repair.Reencoded&16)!=0)encoded.Add("autoplay video");
-            return new(repair.IsPartial?"warning":"success",repair.Details+" Re-encoded: "+(encoded.Count==0?"none":string.Join(", ",encoded))+".",final);
+            return new(repair.IsPartial?"warning":"success",repair.Details+" Re-encoded: "+(encoded.Count==0?"none":string.Join(", ",encoded))+".",final) { Actions = ActionResults(options, (repair.Changed & 15) | ((repair.Changed & 16) != 0 ? 8u : 0u), repair.IsPartial ? SamsungActions(options) & 7u : 0u, false),
+                Limitations = repair.IsPartial ? [new("image_preservation_unverified", "照片修复后的媒体保留检查未通过，原照片保留。") ] : [] };
         }
 
-        internal static async Task<RepairResult> RepairVideoFileAsync(string sourcePath, string outputDirectory,
+        private static async Task<RepairResult> RepairVideoFileCoreAsync(string sourcePath, string outputDirectory,
             bool allDevices, bool repairLongVideos, bool dryRun, bool batch, RepairOptions options, CancellationToken token,
-            bool copyPerfect = false)
+            bool copyPerfect = false, RepairBatchContext? batchContext = null)
         {
             if (!options.FixVideoRotation) return new("skipped", "Video rotation repair was disabled.");
+            using var localBatch = batchContext == null ? new RepairBatchContext() : null;
+            batchContext ??= localBatch!;
             sourcePath = Path.GetFullPath(sourcePath);
             string directory = Path.GetDirectoryName(sourcePath)!;
             using var sourceDirectory = WindowsOwnedFilePublisher.PinDirectoryAncestors(directory);
             using var sourceLease = File.Open(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read);
             var source = await NativeMediaService.InspectMediaAsync(sourcePath, null, token);
+            var hint = string.IsNullOrEmpty(source.PairingIdentifier) ? null : await NativePairingHint.ReadAsync(sourcePath, token);
+            if (hint?.Protocol == SourceProtocol.VivoLegacyDualFile)
+            {
+                if (!allDevices) return new("skipped", "Legacy vivo video is outside the default Apple/Samsung repair scope.");
+                var candidates = await batchContext.CandidatesAsync(sourcePath, token, SourceProtocol.VivoLegacyDualFile, hint.Identifier);
+                string? image = null; int videos = 0;
+                foreach (var candidate in candidates)
+                {
+                    if (Path.GetExtension(candidate.Path).ToLowerInvariant() is ".jpg" or ".jpeg")
+                    {
+                        if (image != null) return new("failed", "More than one image has this legacy pairing identifier.");
+                        image = candidate.Path;
+                    }
+                    else videos++;
+                }
+                if (videos != 1) return new("failed", "Legacy video pairing is ambiguous.");
+                if (image == null) return new("failed", "Legacy video companion is missing; no safe standalone binding rewrite is available.");
+                return batch ? new("skipped", "Legacy video is processed with its paired image.")
+                    : await RepairImageFileAsync(image, outputDirectory, allDevices, dryRun, options, token, copyPerfect, batchContext);
+            }
             bool isolate = !string.IsNullOrEmpty(source.PairingIdentifier);
+            if (isolate && hint?.Protocol != SourceProtocol.AppleLivePhoto)
+                return new("failed", "Video pairing ownership could not be classified safely.");
             if (isolate)
             {
                 string? imagePath = null;
-                foreach (string candidate in Directory.EnumerateFiles(directory))
+                foreach (var candidateEntry in await batchContext.CandidatesAsync(sourcePath, token, SourceProtocol.AppleLivePhoto, source.PairingIdentifier))
                 {
+                    string candidate = candidateEntry.Path;
                     string ext = Path.GetExtension(candidate).ToLowerInvariant();
                     if (ext is not (".jpg" or ".jpeg" or ".heic" or ".heif")) continue;
-                    var inspected = await NativeMediaService.InspectMediaForDiscoveryAsync(candidate, null, token);
+                    var inspected = candidateEntry.Inspection;
                     if (!string.Equals(inspected.Facts?.PairingIdentifier, source.PairingIdentifier, StringComparison.OrdinalIgnoreCase))
                         continue;
                     if (imagePath != null) return new("failed", "More than one image has this Apple pairing identifier.");
@@ -324,7 +496,7 @@ namespace LivePhotoBox.Services
                 }
                 if (imagePath != null)
                     return batch ? new("skipped", "Apple MOV is processed with its paired image.")
-                        : await RepairImageFileAsync(imagePath, outputDirectory, allDevices, dryRun, options, token);
+                        : await RepairImageFileAsync(imagePath, outputDirectory, allDevices, dryRun, options, token, copyPerfect, batchContext);
             }
             else if (!allDevices)
                 return new("skipped", "Default repair scope is Apple and Samsung Live Photos. Use --all-devices for supported standalone videos.");
@@ -335,55 +507,49 @@ namespace LivePhotoBox.Services
             if (video.RotationDegrees == 0 && reflection == 0)
             {
                 if (!copyPerfect || isolate)
-                    return new("skipped", "No video orientation normalization needed.");
+                    return new("healthy", "Video orientation check completed; no normalization needed.");
                 if (dryRun) return new("planned", "Copy the video unchanged.");
                 string copied = await PublishSingleCopyAsync(sourcePath, outputDirectory, sourceLease, token);
+                batchContext.RecordPublished(copied);
                 return new("copied", "Copied the video unchanged.", Video: copied);
             }
             string action = DescribeVideoTransform(video, reflection);
             if (isolate)
             {
                 action += " Apple image companion was not found. Output will be isolated.";
-                outputDirectory = Path.Combine(outputDirectory, "_isolated");
+                outputDirectory = GetIsolationDirectory(outputDirectory);
             }
             if (dryRun) return new("planned", action);
 
             using var workspace = new MediaWorkspace();
             string staged = workspace.AllocateFilePath("repair", Path.GetExtension(sourcePath));
-            FileStream repairedStage;
-            try
+            var repairedVideo = await RotateVideoAsync(sourcePath, staged, video, token);
+            using var stage = repairedVideo.Lease;
+            if (!repairedVideo.MetadataVerified)
             {
-                repairedStage = await RotateVideoAsync(sourcePath, staged, video, PreservationPolicy.Strict, token);
-            }
-            catch (InvalidOperationException ex) when (!isolate &&
-                ex.Message.Contains("movie/track/media header metadata differs", StringComparison.Ordinal))
-            {
-                // The checked Libav transform can still preserve display geometry.
-                // Publish the best-effort artifact only in isolation.
-                repairedStage = await RotateVideoAsync(sourcePath, staged, video, PreservationPolicy.BestEffort, token);
+                if (!isolate) outputDirectory = GetIsolationDirectory(outputDirectory);
                 isolate = true;
-                outputDirectory = Path.Combine(outputDirectory, "_isolated");
-                action += " Some source metadata could not be verified.";
+                action += Text("Repair_Limited_Preservation", " Source metadata preservation was not fully verified; output is isolated.");
             }
-            using var stage = repairedStage;
-            action += " Video re-encoded; only primary audio/video and confirmed Apple pairing/cover are carried.";
+            action += Text("Repair_Action_Video", " Video re-encoded; only primary audio/video and confirmed Apple pairing/cover are carried.");
             var result = await NativeMediaService.InspectMediaAsync(staged, null, token);
             if (!string.Equals(result.PairingIdentifier, source.PairingIdentifier, StringComparison.OrdinalIgnoreCase) ||
                 (!string.IsNullOrEmpty(source.PairingIdentifier) && result.Timing.CoverTimestampUs != source.Timing.CoverTimestampUs))
                 return new("failed", "The repaired video did not preserve the Apple pairing identifier and cover.");
 
             string final = await PublishSingleCopyAsync(sourcePath, outputDirectory, stage, token);
-            return new(isolate ? "warning" : "success", action, Video: final);
+            batchContext.RecordPublished(final);
+            return new(isolate ? "warning" : "success", action, Video: final) { Actions = ActionResults(options, 8, 0, false), Limitations = PairLimitations(false, false, !repairedVideo.MetadataVerified) };
         }
 
         private static async Task<string> PublishSingleCopyAsync(string sourcePath, string outputDirectory,
             Stream stage, CancellationToken token)
         {
             Directory.CreateDirectory(outputDirectory);
-            string stem = Path.GetFileNameWithoutExtension(sourcePath) + "_repaired";
+            string stem = Path.GetFileNameWithoutExtension(sourcePath);
             string extension = Path.GetExtension(sourcePath);
             string final = Path.Combine(outputDirectory, stem + extension);
-            for (int index = 2; Path.Exists(final); index++)
+            for (int index = 1; Path.Exists(final); index++)
                 final = Path.Combine(outputDirectory, $"{stem} ({index}){extension}");
             await WindowsSplitOutputPublisher.PublishSingleAsync(final, false,
                 (stream, ct) => stage.CopyToAsync(stream, ct), null, token);
@@ -392,18 +558,20 @@ namespace LivePhotoBox.Services
 
         private static string DescribeVideoTransform(VideoFacts video, uint reflection) => reflection switch
         {
-            1 => "Apply the horizontal display reflection to video frames.",
-            2 => "Apply the vertical display reflection to video frames.",
-            _ => $"Apply the display rotation ({video.RotationDegrees} degrees) to video frames."
+            1 => Text("Repair_Action_Horizontal", "Apply the horizontal display reflection to video frames."),
+            2 => Text("Repair_Action_Vertical", "Apply the vertical display reflection to video frames."),
+            _ => Text("Repair_Action_Rotation", "Apply the display rotation ({0} degrees) to video frames.", video.RotationDegrees)
         };
 
-        private static async Task<FileStream> RotateVideoAsync(string source, string staged, VideoFacts before,
-            PreservationPolicy policy, CancellationToken token)
+        private sealed record VideoRepairStage(FileStream Lease, bool MetadataVerified);
+
+        private static async Task<VideoRepairStage> RotateVideoAsync(string source, string staged, VideoFacts before,
+            CancellationToken token)
         {
             if (before.Codec is not (VideoCodec.H264 or VideoCodec.Hevc))
                 throw new InvalidOperationException("Video rotation requires an H.264 or HEVC input.");
             var attempt = await NativeMediaService.TranscodeVideoAttemptAsync(
-                source, staged, before.Container, before.Codec, 18, token, policy, repairOrientation: true);
+                source, staged, before.Container, before.Codec, 18, token, PreservationPolicy.BestEffort, repairOrientation: true);
             token.ThrowIfCancellationRequested();
             if (!attempt.Succeeded)
                 throw new InvalidOperationException(attempt.LastError ?? "Native video rotation failed.", attempt.FailureException);
@@ -420,7 +588,7 @@ namespace LivePhotoBox.Services
                     after.Width != (swap ? before.Height : before.Width) ||
                     after.Height != (swap ? before.Width : before.Height))
                     throw new InvalidOperationException("Repaired video geometry or audio did not pass validation.");
-                return lease;
+                return new(lease, attempt.MetadataPreservation != null);
             }
             catch
             {
@@ -458,9 +626,16 @@ namespace LivePhotoBox.Services
         public static async Task<RepairAnalysisResult> AnalyzeFileAsync(
             string filePath, CancellationToken token = default, bool defaultDevicesOnly = false)
         {
+            using var batch = new RepairBatchContext();
+            return await AnalyzeFileInBatchAsync(filePath, token, defaultDevicesOnly, batch);
+        }
+
+        internal static async Task<RepairAnalysisResult> AnalyzeFileInBatchAsync(
+            string filePath, CancellationToken token, bool defaultDevicesOnly, RepairBatchContext batch)
+        {
             try
             {
-                return await AnalyzeFileCoreAsync(filePath, token, defaultDevicesOnly);
+                return await AnalyzeFileCoreAsync(filePath, token, defaultDevicesOnly, batch);
             }
             catch (Exception ex) when (ex is IOException or InvalidOperationException)
             {
@@ -468,10 +643,10 @@ namespace LivePhotoBox.Services
             }
         }
 
-        private static async Task<RepairAnalysisResult> AnalyzeFileCoreAsync(string filePath, CancellationToken token, bool defaultDevicesOnly)
+        internal static async Task<RepairAnalysisResult> AnalyzeFileCoreAsync(string filePath, CancellationToken token, bool defaultDevicesOnly, RepairBatchContext batch)
         {
             token.ThrowIfCancellationRequested();
-            var (discovery, _) = await InspectRepairSourceAsync(filePath, defaultDevicesOnly, token);
+            var (discovery, _) = await InspectRepairSourceAsync(filePath, defaultDevicesOnly, token, batch);
             if (discovery.Facts is not { } facts)
             {
                 if (defaultDevicesOnly && IsLegacyVivoPairingRequirement(discovery.Failure))
@@ -511,7 +686,8 @@ namespace LivePhotoBox.Services
                 var repair=await NativeSamsungRepair.RunAsync(filePath,workspace.RootDirectory,null,15,token);
                 analysis.IsSamsungMotionPhoto=true;
                 analysis.ImageOrientation=(int)repair.ImageOrientation;
-                analysis.NeedsImageOrientationRepair=(repair.Changed&5)!=0;
+                analysis.NeedsImageOrientationRepair=(repair.Changed&1)!=0;
+                analysis.HasHeicOrientationConflict=(repair.Changed&4)!=0;
                 analysis.RotationAngle=repair.ImageOrientation switch {3 or 4=>180,5 or 6=>90,7 or 8=>270,_=>0};
                 analysis.AutoplayVideoRotationAngle=(int)repair.AutoplayRotation;
                 analysis.NeedsEmbeddedVideoTransform=(repair.Changed&8)!=0;
@@ -521,6 +697,23 @@ namespace LivePhotoBox.Services
                 analysis.IssueDescription=repair.Details;
                 return analysis;
             }
+            if (facts.Protocol == SourceProtocol.HuaweiMovingPhoto)
+            {
+                var repair = await NativeHuaweiRepair.RunAsync(filePath, null, 15, token);
+                analysis.ImageOrientation = (int)repair.ImageOrientation;
+                analysis.HasThumbnail = (repair.Changed & 2) != 0;
+                analysis.HasHeicOrientationConflict = (repair.Changed & 4) != 0;
+                analysis.NeedsImageOrientationRepair = (repair.Changed & 1) != 0;
+                analysis.VideoRotationAngle = (int)repair.MainRotation;
+                analysis.NeedsEmbeddedVideoTransform = ((repair.Changed | repair.Pending) & 8) != 0;
+                analysis.VideoTrackTransform = repair.Reflection == 1 ? "flip_horizontal" : repair.Reflection == 2 ? "flip_vertical" : "";
+                analysis.IssueType = !repair.Supported ? RepairIssueType.Error
+                    : repair.Changed != 0 ? ((repair.Changed & 13) != 0 ? RepairIssueType.NeedsRebuild : RepairIssueType.NeedsStrip)
+                    : repair.Pending != 0 ? RepairIssueType.Limited : RepairIssueType.Perfect;
+                analysis.IssueDescription = Text("Repair_Action_Huawei", "已识别华为实况结构；按所选选项处理照片和内嵌视频，保留声音与 HDR 信息。") + " " + repair.Details;
+                return analysis;
+            }
+            analysis.VideoCheckIncomplete = facts.MotionVideo?.IsPresent == true;
             var observedImage = await NativeMediaService.CapturePreservationObservationAsync(
                 filePath, facts.Protocol, facts.PrimaryImage.Container, token);
             var metadataProbe = await NativeMediaService.ProbeImageExifRepairAsync(filePath, 3, token);
@@ -532,11 +725,36 @@ namespace LivePhotoBox.Services
             bool jpegRotation = facts.PrimaryImage.Container == ImageContainer.Jpeg && observedImage.Orientation > 1;
             analysis.NeedsImageOrientationRepair = jpegRotation;
             analysis.RotationAngle = observedImage.Orientation switch { 3 or 4 => 180, 5 or 6 => 90, 7 or 8 => 270, _ => 0 };
-            if (!metadataProbe.Supported)
+            if (observedImage.CodestreamError)
+            {
+                analysis.IssueType = RepairIssueType.Error;
+                analysis.IssueDescription = "Image codestream cannot be verified.";
+                return analysis;
+            }
+            if (!metadataProbe.Supported || observedImage.ExifParseError)
             {
                 analysis.IssueType = RepairIssueType.Limited;
                 analysis.IssueDescription = $"照片可读取，但无法确认安全的元数据修复方法。未将其判为损坏或无需修复。{metadataProbe.Diagnostic}";
                 return analysis;
+            }
+            if (facts.Protocol == SourceProtocol.AppleLivePhoto ||
+                (!string.IsNullOrEmpty(facts.PairingIdentifier) &&
+                 (await NativePairingHint.ReadAsync(filePath, token))?.Protocol == SourceProtocol.AppleLivePhoto))
+            {
+                var candidates = await batch.CandidatesAsync(filePath, token, SourceProtocol.AppleLivePhoto, facts.PairingIdentifier);
+                int images = 0, videos = 0;
+                foreach (var candidate in candidates)
+                {
+                    if (Path.GetExtension(candidate.Path).Equals(".mov", StringComparison.OrdinalIgnoreCase)) videos++;
+                    else images++;
+                }
+                if (images != 1 || videos != 1)
+                {
+                    analysis.IssueType = RepairIssueType.Limited;
+                    analysis.VideoCheckIncomplete = true;
+                    analysis.IssueDescription = "照片可读取，但未能唯一确认配对视频；尚未完成视频检查。";
+                    return analysis;
+                }
             }
             analysis.IssueType = jpegRotation || (metadata & 2) != 0 ? RepairIssueType.NeedsRebuild
                 : analysis.HasThumbnail ? RepairIssueType.NeedsStrip : RepairIssueType.Perfect;
@@ -557,7 +775,7 @@ namespace LivePhotoBox.Services
             RepairResult result = analysis.IsVideo
                 ? await RepairVideoFileAsync(sourcePath, folder, true, true, false, false, options, token)
                 : await RepairImageFileAsync(sourcePath, folder, true, false, options, token);
-            return (result.Status is "success" or "copied" or "warning",
+            return (result.Status is "success" or "copied" || (result.Status == "warning" && result.PublishedOutputs.Length != 0),
                 $"{result.Message} {result.Image} {result.Video}");
         }
 

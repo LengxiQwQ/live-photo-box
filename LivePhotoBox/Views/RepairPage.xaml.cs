@@ -575,9 +575,484 @@ namespace LivePhotoBox.Views
             PreviewTask(task);
         }
 
-        // ── 错误详情提示 ──────────────────────────────────
+        // ── 操作列按钮处理 ──────────────────────────────────
 
-        // 点击状态文本显示错误详情 TeachingTip（同时支持 File1 和 File2）
+        // "在文件夹中查看"直接定位按钮（兼容旧调用）
+        private void ShowInFolder_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement { Tag: RepairTask task }) return;
+
+            string? targetPath = task.File1Entry?.PublishedOutputs.FirstOrDefault()?.Path
+                ?? task.File2Entry?.PublishedOutputs.FirstOrDefault()?.Path
+                ?? task.File1Path;
+
+            if (string.IsNullOrWhiteSpace(targetPath)) return;
+
+            if (File.Exists(targetPath) || Directory.Exists(targetPath))
+            {
+                FilePickerService.RevealInExplorer(targetPath);
+            }
+            else if (!string.IsNullOrWhiteSpace(task.File1Path) && File.Exists(task.File1Path))
+            {
+                FilePickerService.RevealInExplorer(task.File1Path);
+            }
+        }
+
+        // Row 0（照片）专属在文件夹中查看
+        private void ShowInFolder_File1_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement { Tag: RepairTask task }) return;
+
+            string? targetPath = task.File1Entry?.PublishedOutputs.FirstOrDefault()?.Path
+                ?? task.File1Path;
+
+            if (string.IsNullOrWhiteSpace(targetPath)) return;
+
+            if (File.Exists(targetPath) || Directory.Exists(targetPath))
+            {
+                FilePickerService.RevealInExplorer(targetPath);
+            }
+            else if (!string.IsNullOrWhiteSpace(task.File1Path) && File.Exists(task.File1Path))
+            {
+                FilePickerService.RevealInExplorer(task.File1Path);
+            }
+        }
+
+        // Row 2（视频）专属在文件夹中查看
+        private void ShowInFolder_File2_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement { Tag: RepairTask task }) return;
+
+            string? targetPath = task.File2Entry?.PublishedOutputs.FirstOrDefault()?.Path
+                ?? task.File2Path;
+
+            if (string.IsNullOrWhiteSpace(targetPath)) return;
+
+            if (File.Exists(targetPath) || Directory.Exists(targetPath))
+            {
+                FilePickerService.RevealInExplorer(targetPath);
+            }
+            else if (!string.IsNullOrWhiteSpace(task.File2Path) && File.Exists(task.File2Path))
+            {
+                FilePickerService.RevealInExplorer(task.File2Path);
+            }
+        }
+
+        private void Flyout_OpenOutputFolder_Click(object sender, RoutedEventArgs e)
+        {
+            OpenTargetOutputFolder();
+        }
+
+        private void Flyout_OpenOutputFolder_File1_Click(object sender, RoutedEventArgs e)
+        {
+            OpenTargetOutputFolder();
+        }
+
+        private void Flyout_OpenOutputFolder_File2_Click(object sender, RoutedEventArgs e)
+        {
+            OpenTargetOutputFolder();
+        }
+
+        private void OpenTargetOutputFolder()
+        {
+            try
+            {
+                string targetDir = ViewModel.GetEffectiveOutputDirectory();
+                if (string.IsNullOrWhiteSpace(targetDir)) return;
+
+                if (!Directory.Exists(targetDir))
+                {
+                    Directory.CreateDirectory(targetDir);
+                }
+
+                FilePickerService.OpenFolderInExplorer(targetDir);
+            }
+            catch (Exception ex)
+            {
+                LogService.Repair($"OpenTargetOutputFolder error: {ex.Message}", LogLevel.Error, ex);
+            }
+        }
+
+        private void Flyout_ShowSourceInFolder_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement { Tag: RepairTask task }) return;
+
+            string? sourcePath = task.File1Path ?? task.File2Path;
+            if (!string.IsNullOrWhiteSpace(sourcePath) && File.Exists(sourcePath))
+            {
+                FilePickerService.RevealInExplorer(sourcePath);
+            }
+        }
+
+        private void Flyout_ShowSourceInFolder_File1_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement { Tag: RepairTask task }) return;
+
+            string? sourcePath = task.File1Path;
+            if (!string.IsNullOrWhiteSpace(sourcePath) && File.Exists(sourcePath))
+            {
+                FilePickerService.RevealInExplorer(sourcePath);
+            }
+        }
+
+        private void Flyout_ShowSourceInFolder_File2_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement { Tag: RepairTask task }) return;
+
+            string? sourcePath = task.File2Path;
+            if (!string.IsNullOrWhiteSpace(sourcePath) && File.Exists(sourcePath))
+            {
+                FilePickerService.RevealInExplorer(sourcePath);
+            }
+        }
+
+        private void Flyout_Preview_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement { Tag: RepairTask task }) return;
+            PreviewTask(task);
+        }
+
+        private void Flyout_DeleteTask_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement { Tag: RepairTask task }) return;
+            ViewModel.RemoveTask(task);
+        }
+
+        private void Flyout_DeleteTask_File1_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement { Tag: RepairTask task }) return;
+            ViewModel.RemoveTaskSlot(task, 1);
+        }
+
+        private void Flyout_DeleteTask_File2_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not FrameworkElement { Tag: RepairTask task }) return;
+            ViewModel.RemoveTaskSlot(task, 2);
+        }
+
+        // ── 诊断与状态详情提示（严格分离，各司其职） ─────────────────
+
+        // 提取已隔离的具体白话原因
+        private static string ExtractIsolationReason(RepairFileEntry? entry, string? details)
+        {
+            if (!string.IsNullOrWhiteSpace(details))
+            {
+                var lines = details.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+
+                // 1. 优先提取明确的“未完成／待确认原因：”行
+                foreach (var rawLine in lines)
+                {
+                    string line = rawLine.Trim();
+                    if (line.Contains("未完成／待确认原因：") || line.Contains("未完成/待确认原因："))
+                    {
+                        int colonIdx = line.IndexOf('：');
+                        if (colonIdx >= 0 && colonIdx + 1 < line.Length)
+                        {
+                            string reason = line[(colonIdx + 1)..].Trim();
+                            if (!string.IsNullOrEmpty(reason)) return reason;
+                        }
+                    }
+                }
+
+                // 2. 匹配包含隔离原因关键词的行
+                foreach (var rawLine in lines)
+                {
+                    string line = rawLine.Trim();
+                    if (line.Contains("隔离") || line.Contains("保留证明") || line.Contains("未获完整保留") ||
+                        line.Contains("配对 MOV") || line.Contains("未完成保留验证") || line.Contains("保留原方向") ||
+                        line.Contains("保留原视频") || line.Contains("保留原照片"))
+                    {
+                        int colonIdx = line.IndexOf('：');
+                        if (colonIdx >= 0 && colonIdx + 1 < line.Length && (line.StartsWith("结果") || line.StartsWith("配对结果") || line.StartsWith("未完成")))
+                        {
+                            string sub = line[(colonIdx + 1)..].Trim();
+                            if (!string.IsNullOrEmpty(sub)) return sub;
+                        }
+                        return line;
+                    }
+                }
+            }
+
+            if (entry?.ExecutionOutcomeKey is { } key && key.StartsWith("warning", StringComparison.Ordinal))
+            {
+                string? outcomeStr = ResourceService.GetString("Repair_Outcome_" + key);
+                if (!string.IsNullOrWhiteSpace(outcomeStr)) return outcomeStr;
+            }
+
+            return ResourceService.GetString("RepairTip_DefaultIsolationReason")
+                ?? "来源元数据保留验证未完全通过，为保护原文件安全已导出至隔离目录。";
+        }
+
+        // 专属于“诊断结果”列的提示框：仅展示文件诊断发现了什么问题
+        private static string FormatDiagnosisTip(RepairFileEntry? entry, ProcessStatus status, string rawDetails)
+        {
+            if (entry == null) return string.Empty;
+
+            string prefixDiag = ResourceService.GetString("RepairTip_DiagnosisPrefix") ?? "诊断：";
+            string reasonPrefix = ResourceService.GetString("RepairTip_ReasonPrefix") ?? "原因：";
+
+            var ar = entry.AnalysisResult;
+            if (ar != null)
+            {
+                if (ar.IssueType == RepairIssueType.Perfect)
+                {
+                    return prefixDiag + (ResourceService.GetString("RepairTip_Perfect") ?? "检查正常，文件无需修复。");
+                }
+                if (ar.IssueType is RepairIssueType.NonApple or RepairIssueType.OtherDevice)
+                {
+                    return prefixDiag + (ResourceService.GetString("RepairTip_NonApple") ?? "非苹果或三星动态照片，跳过修复。");
+                }
+                if (ar.IssueType == RepairIssueType.Error || entry.IsDiagnosisError)
+                {
+                    return reasonPrefix + LocalizeErrorMessage(!string.IsNullOrWhiteSpace(rawDetails) ? rawDetails : ar.IssueDescription);
+                }
+
+                var reasons = new List<string>();
+                if (ar.NeedsImageOrientationRepair && ar.RotationAngle != 0)
+                    reasons.Add(string.Format(ResourceService.GetString("RepairTip_Rotation") ?? "照片方向包含 {0}° 旋转", ar.RotationAngle));
+                if (ar.HasThumbnail)
+                    reasons.Add(ResourceService.GetString("RepairTip_Thumbnail") ?? "包含多余内嵌缩略图，可精简体积");
+                if (ar.HasHeicOrientationConflict)
+                    reasons.Add(ResourceService.GetString("RepairTip_Conflict") ?? "HEIF 方向信息存在冲突");
+                if (ar.VideoRotationAngle != 0)
+                    reasons.Add(string.Format(ResourceService.GetString("RepairTip_VideoRotation") ?? "实况视频包含 {0}° 旋转", ar.VideoRotationAngle));
+                if (ar.VideoTrackTransform == "flip_vertical")
+                    reasons.Add(ResourceService.GetString("Tag_FlipVertical") ?? "视频上下翻转");
+                else if (ar.VideoTrackTransform == "flip_horizontal")
+                    reasons.Add(ResourceService.GetString("Tag_FlipHorizontal") ?? "视频左右翻转");
+                else if (ar.NeedsEmbeddedVideoTransform && ar.VideoRotationAngle == 0)
+                    reasons.Add(ResourceService.GetString("Tag_VideoOrientationMirror") ?? "视频镜像标签");
+
+                if (reasons.Count > 0)
+                {
+                    string separator = prefixDiag.EndsWith(' ') ? "; " : "；";
+                    string endPeriod = prefixDiag.EndsWith(' ') ? "." : "。";
+                    return prefixDiag + string.Join(separator, reasons) + endPeriod;
+                }
+
+                return prefixDiag + (ResourceService.GetString("RepairTip_Perfect") ?? "检查正常，文件无需修复。");
+            }
+
+            if (entry.IsDiagnosisError || status == ProcessStatus.Failed)
+            {
+                return reasonPrefix + LocalizeErrorMessage(rawDetails);
+            }
+
+            return prefixDiag + (ResourceService.GetString("RepairTip_Perfect") ?? "检查正常，文件无需修复。");
+        }
+
+        // 专属于“状态”列的提示框：仅展示当前状态与执行结果（为什么隔离/为什么失败/处理结果等）
+        private static string FormatStatusTip(RepairFileEntry? entry, ProcessStatus status, string rawDetails)
+        {
+            if (entry == null) return string.Empty;
+
+            var lines = new List<string>();
+            string statusPrefix = ResourceService.GetString("RepairTip_StatusPrefix") ?? "状态：";
+            string reasonPrefix = ResourceService.GetString("RepairTip_ReasonPrefix") ?? "原因：";
+            string outcomePrefix = ResourceService.GetString("RepairTip_OutcomePrefix") ?? "结果：";
+
+            // 1. 已取消
+            if (entry.IsCancelled)
+            {
+                lines.Add(statusPrefix + (ResourceService.GetString("Repair_Status_Cancelled") ?? "已取消。"));
+                lines.Add(reasonPrefix + (ResourceService.GetString("RepairTip_CancelledDesc") ?? "用户已手动停止或取消修复任务。"));
+                return string.Join(Environment.NewLine, lines);
+            }
+
+            // 2. 正在修复中
+            if (status == ProcessStatus.Processing)
+            {
+                lines.Add(statusPrefix + (ResourceService.GetString("Repair_Status_Processing") ?? "正在修复中..."));
+                return string.Join(Environment.NewLine, lines);
+            }
+
+            // 3. 已隔离（明确指出为什么隔离）
+            bool isIsolated = status == ProcessStatus.Warning ||
+                              entry.ExecutionStatus is "warning" or "isolated" ||
+                              (entry.ExecutionStatus?.StartsWith("isolated", StringComparison.Ordinal) == true) ||
+                              entry.PublishedOutputs.Any(x => x.Kind.StartsWith("isolated", StringComparison.Ordinal));
+
+            if (isIsolated)
+            {
+                lines.Add(statusPrefix + (ResourceService.GetString("Repair_Status_Isolated") ?? "已隔离。"));
+                string reason = ExtractIsolationReason(entry, rawDetails);
+                lines.Add(reasonPrefix + reason);
+                return string.Join(Environment.NewLine, lines);
+            }
+
+            // 4. 修复失败（明确指出为什么失败）
+            if (status == ProcessStatus.Failed || entry.ExecutionStatus == "failed" || entry.IsDiagnosisError)
+            {
+                lines.Add(statusPrefix + (ResourceService.GetString("Repair_Status_Failed") ?? "修复失败。"));
+                string errorMsg = LocalizeErrorMessage(rawDetails);
+                lines.Add(reasonPrefix + errorMsg);
+                return string.Join(Environment.NewLine, lines);
+            }
+
+            // 5. 修复完成
+            if (entry.ExecutionStatus == "success" || (status == ProcessStatus.Success && entry.NeedsRepair))
+            {
+                lines.Add(statusPrefix + (ResourceService.GetString("Repair_Status_Completed") ?? "修复完成。"));
+                lines.Add(outcomePrefix + (ResourceService.GetString("RepairTip_CompletedDesc") ?? "已按修复规则成功修复并导出，原文件保持不变。"));
+                return string.Join(Environment.NewLine, lines);
+            }
+
+            // 6. 无需修复
+            if (entry.ExecutionStatus is "healthy" or "not_needed" || !entry.NeedsRepair || entry.AnalysisResult?.IssueType == RepairIssueType.Perfect)
+            {
+                lines.Add(statusPrefix + (ResourceService.GetString("Repair_Status_NoRepairNeeded") ?? "无需修复。"));
+                lines.Add(outcomePrefix + (ResourceService.GetString("RepairTip_NoRepairNeededDesc") ?? "文件检查正常，不需要执行修复。"));
+                return string.Join(Environment.NewLine, lines);
+            }
+
+            // 7. 已跳过
+            if (entry.ExecutionStatus == "skipped")
+            {
+                lines.Add(statusPrefix + (ResourceService.GetString("RepairTip_Status_Skipped") ?? "已跳过，原文件保持不变。"));
+                return string.Join(Environment.NewLine, lines);
+            }
+
+            // 8. 等待修复
+            if (entry.NeedsRepair && status == ProcessStatus.Pending)
+            {
+                lines.Add(statusPrefix + (ResourceService.GetString("Repair_Status_Waiting") ?? "等待修复。"));
+                lines.Add(outcomePrefix + (ResourceService.GetString("RepairTip_WaitingDesc") ?? "点击“开始修复”后将按设定的规则进行修复。"));
+                return string.Join(Environment.NewLine, lines);
+            }
+
+            // 默认回退
+            lines.Add(statusPrefix + (ResourceService.GetString("Repair_Status_Waiting") ?? "等待修复。"));
+            return string.Join(Environment.NewLine, lines);
+        }
+
+        // 兼容旧调用的全量包装
+        private static string FormatRepairTipDetails(RepairFileEntry? entry, ProcessStatus status, string rawDetails)
+        {
+            return FormatDiagnosisTip(entry, status, rawDetails);
+        }
+
+        private static string LocalizeErrorMessage(string? error)
+        {
+            if (string.IsNullOrWhiteSpace(error))
+                return ResourceService.GetString("RepairTip_Error") ?? "文件读取或结构校验失败，无法安全修复。";
+
+            if (error.Contains("being used by another process", StringComparison.OrdinalIgnoreCase) ||
+                error.Contains("Sharing violation", StringComparison.OrdinalIgnoreCase) ||
+                error.Contains("占用", StringComparison.OrdinalIgnoreCase))
+            {
+                return ResourceService.GetString("RepairTip_FileInUse") ?? "文件正被其他程序占用，请关闭相关程序后重试。";
+            }
+            if (error.Contains("Access to the path", StringComparison.OrdinalIgnoreCase) ||
+                error.Contains("UnauthorizedAccess", StringComparison.OrdinalIgnoreCase) ||
+                error.Contains("Access is denied", StringComparison.OrdinalIgnoreCase) ||
+                error.Contains("拒绝访问", StringComparison.OrdinalIgnoreCase) ||
+                error.Contains("权限", StringComparison.OrdinalIgnoreCase))
+            {
+                return ResourceService.GetString("RepairTip_AccessDenied") ?? "访问被拒绝，请检查文件读写权限。";
+            }
+            if (error.Contains("space on the disk", StringComparison.OrdinalIgnoreCase) ||
+                error.Contains("空间不足", StringComparison.OrdinalIgnoreCase))
+            {
+                return ResourceService.GetString("RepairTip_DiskFull") ?? "磁盘空间不足，无法保存修复后的文件。";
+            }
+            if (error.Contains("FileNotFound", StringComparison.OrdinalIgnoreCase) ||
+                error.Contains("Could not find file", StringComparison.OrdinalIgnoreCase) ||
+                error.Contains("未找到", StringComparison.OrdinalIgnoreCase))
+            {
+                return ResourceService.GetString("RepairTip_FileNotFound") ?? "未找到源文件，请确认文件是否存在。";
+            }
+
+            return ResourceService.GetString("RepairTip_Error") ?? "文件读取或结构校验失败，无法安全修复。";
+        }
+
+        private static (string? prefix, string content) SplitLabelAndContent(string line)
+        {
+            if (string.IsNullOrWhiteSpace(line)) return (null, line);
+
+            // 优先匹配中文全角冒号 "："
+            int zhIndex = line.IndexOf('：');
+            if (zhIndex > 0 && zhIndex <= 10)
+            {
+                return (line.Substring(0, zhIndex + 1), line.Substring(zhIndex + 1).TrimStart());
+            }
+
+            // 匹配英文冒号加空格 ": "
+            int enIndex = line.IndexOf(": ", System.StringComparison.Ordinal);
+            if (enIndex > 0 && enIndex <= 15)
+            {
+                return (line.Substring(0, enIndex + 2), line.Substring(enIndex + 2).TrimStart());
+            }
+
+            return (null, line);
+        }
+
+        private void SetErrorDetailContent(string tipText)
+        {
+            ErrorDetailPanel.Children.Clear();
+            if (string.IsNullOrWhiteSpace(tipText)) return;
+
+            var lines = tipText.Split(new[] { "\r\n", "\r", "\n" }, System.StringSplitOptions.RemoveEmptyEntries);
+            var grid = new Grid();
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+            int rowIndex = 0;
+            foreach (var rawLine in lines)
+            {
+                string line = rawLine.Trim();
+                if (string.IsNullOrEmpty(line)) continue;
+
+                grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+                var (prefix, content) = SplitLabelAndContent(line);
+
+                if (!string.IsNullOrEmpty(prefix))
+                {
+                    var lbl = new TextBlock
+                    {
+                        Text = prefix,
+                        FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                        Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                        VerticalAlignment = VerticalAlignment.Top,
+                        Margin = new Thickness(0, 2, 4, 2)
+                    };
+                    var val = new TextBlock
+                    {
+                        Text = content,
+                        TextWrapping = TextWrapping.Wrap,
+                        IsTextSelectionEnabled = true,
+                        VerticalAlignment = VerticalAlignment.Top,
+                        Margin = new Thickness(0, 2, 0, 2)
+                    };
+                    Grid.SetRow(lbl, rowIndex);
+                    Grid.SetColumn(lbl, 0);
+                    Grid.SetRow(val, rowIndex);
+                    Grid.SetColumn(val, 1);
+                    grid.Children.Add(lbl);
+                    grid.Children.Add(val);
+                }
+                else
+                {
+                    var tb = new TextBlock
+                    {
+                        Text = line,
+                        TextWrapping = TextWrapping.Wrap,
+                        IsTextSelectionEnabled = true,
+                        VerticalAlignment = VerticalAlignment.Top,
+                        Margin = new Thickness(0, 2, 0, 2)
+                    };
+                    Grid.SetRow(tb, rowIndex);
+                    Grid.SetColumn(tb, 0);
+                    Grid.SetColumnSpan(tb, 2);
+                    grid.Children.Add(tb);
+                }
+
+                rowIndex++;
+            }
+
+            ErrorDetailPanel.Children.Add(grid);
+        }
+
+        // 点击状态文本显示状态详情 TeachingTip（专属于状态与执行结果，明确为什么隔离/失败等）
         private void StatusTextBlock_Tapped(object sender, TappedRoutedEventArgs e)
         {
             if (sender is not FrameworkElement element) return;
@@ -586,13 +1061,14 @@ namespace LivePhotoBox.Views
             bool isFile2 = element.Tag is string tag && tag == "2";
             ProcessStatus status = isFile2 ? task.File2Status : task.File1Status;
             string details = isFile2 ? task.File2Details : task.File1Details;
-            if (status is not (ProcessStatus.Failed or ProcessStatus.Warning or ProcessStatus.Success) ||
-                string.IsNullOrWhiteSpace(details)) return;
-            ErrorDetailText.Text = details;
+            var entry = isFile2 ? task.File2Entry : task.File1Entry;
+            string tipText = FormatStatusTip(entry, status, details);
+            if (string.IsNullOrWhiteSpace(tipText)) return;
+            SetErrorDetailContent(tipText);
             ErrorDetailTip.ToggleAt(element);
         }
 
-        // 点击问题描述文本显示诊断详情
+        // 点击问题描述文本显示诊断详情 TeachingTip（专属于诊断，仅展示检查发现的问题）
         private void IssueDescription_Tapped(object sender, TappedRoutedEventArgs e)
         {
             if (sender is not FrameworkElement element) return;
@@ -600,9 +1076,11 @@ namespace LivePhotoBox.Views
 
             bool isFile2 = element.Tag is string tag && tag == "2";
             var entry = isFile2 ? task.File2Entry : task.File1Entry;
-            string issueDesc = entry?.AnalysisResult?.IssueDescription ?? "";
-            if (string.IsNullOrWhiteSpace(issueDesc)) return;
-            ErrorDetailText.Text = issueDesc;
+            ProcessStatus status = isFile2 ? task.File2Status : task.File1Status;
+            string details = isFile2 ? task.File2Details : task.File1Details;
+            string tipText = FormatDiagnosisTip(entry, status, details);
+            if (string.IsNullOrWhiteSpace(tipText)) return;
+            SetErrorDetailContent(tipText);
             ErrorDetailTip.ToggleAt(element);
         }
 

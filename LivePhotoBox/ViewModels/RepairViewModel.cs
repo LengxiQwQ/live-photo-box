@@ -38,7 +38,7 @@ namespace LivePhotoBox.ViewModels
         public override string PageStatusTag => "Repair";
 
         // 处理中状态的多语言资源键。
-        protected override string ProcessingStatusKey => "Status_Running";
+        protected override string ProcessingStatusKey => "RepairPage_Status_Running";
 
         // 输入目录路径。赋值后自动触发扫描（若当前允许）。
         [ObservableProperty]
@@ -259,7 +259,7 @@ namespace LivePhotoBox.ViewModels
         // ── 底部栏统一属性 ──
 
         // 待处理任务（Task 维度：一个配对格子算一个待处理项）。
-        public int PendingCount => Tasks.Count(t => t.Status == ProcessStatus.Pending);
+        public int PendingCount => Tasks.Count(t => t.Entries.Any(e => e.Status == ProcessStatus.Pending && e.ExecutionStatus == null && !e.IsCancelled));
         // 处理中任务。
         public int ProcessingCount => Tasks.Count(t => t.Status == ProcessStatus.Processing);
         // 已完成任务（Task 维度：格子里两个 Entry 都完成即算完成）。
@@ -476,7 +476,7 @@ namespace LivePhotoBox.ViewModels
         }
 
         protected override string ProcessingStatusText =>
-            ResourceService.Format("Status_Running") + GetHardwareSuffix();
+            ResourceService.Format("RepairPage_Status_Running") + GetHardwareSuffix();
 
         protected override void OnScanStateChanged(bool isScanning)
         {
@@ -536,6 +536,15 @@ namespace LivePhotoBox.ViewModels
         {
             _repairStoppedByUser = false;
             _repairDone = false;
+            foreach (var task in Tasks) task.ResetOperationResult();
+            OpenRepairOutputFolderCommand.NotifyCanExecuteChanged();
+            foreach (var entry in Tasks.SelectMany(t => t.Entries))
+            {
+                entry.ExecutionStatus = null;
+                entry.ExecutionOutcomeKey = null;
+                entry.PublishedOutputs = [];
+                entry.IsCancelled = false;
+            }
             _stopwatch = Stopwatch.StartNew();
 
             // 进度按 Entry（文件）算，不是按 Task（格子）算 — 配对格子里的两个文件各算一个
@@ -543,7 +552,7 @@ namespace LivePhotoBox.ViewModels
             bool copyPerfect = IsOutputToDirectory && AppSettingsService.GetValue("IsCopyPerfectToOutput", false);
             var allRepairEntries = Tasks.SelectMany(t => t.Entries)
                 .Where(e => e.Status != ProcessStatus.Success)
-                .Where(e => e.NeedsRepair || (copyPerfect && e.AnalysisResult?.IssueType == RepairIssueType.Perfect))
+                .Where(e => e.NeedsRepair || e.AnalysisResult?.IssueType == RepairIssueType.Limited || (copyPerfect && e.AnalysisResult?.IssueType == RepairIssueType.Perfect))
                 .ToList();
             _totalRepairEntries = allRepairEntries.Count;
 
@@ -572,7 +581,7 @@ namespace LivePhotoBox.ViewModels
                 var cancelledText = ResourceService.GetString("Task_Cancelled");
                 foreach (var entry in Tasks.SelectMany(t => t.Entries))
                 {
-                    if (entry.Status is not (ProcessStatus.Success or ProcessStatus.Failed))
+                    if (entry.ExecutionStatus == null && entry.Status is not (ProcessStatus.Success or ProcessStatus.Failed))
                     {
                         entry.IsCancelled = true;
                         entry.Details = cancelledText;
@@ -598,14 +607,14 @@ namespace LivePhotoBox.ViewModels
 
                     int totalEntries = Tasks.Sum(t => t.Entries.Count);
                     int succeeded = Tasks.SelectMany(t => t.Entries)
-                        .Count(e => e.Status == ProcessStatus.Success && (e.AnalysisResult == null || e.AnalysisResult.IssueType != RepairIssueType.Perfect));
+                        .Count(e => e.ExecutionStatus == "success");
                     int skipped = Tasks.SelectMany(t => t.Entries)
-                        .Count(e => e.AnalysisResult != null && e.AnalysisResult.IssueType == RepairIssueType.Perfect);
+                        .Count(e => e.ExecutionStatus is "healthy" or "skipped" or "copied");
                     int failed = Tasks.SelectMany(t => t.Entries)
                         .Count(e => e.Status == ProcessStatus.Failed);
                     double elapsed = _stopwatch.Elapsed.TotalSeconds;
 
-                    SetStatus("Status_RepairCompletedSummary", totalEntries, elapsed, succeeded, skipped, failed);
+                    SetDirectStatus(RepairSummaryText());
                     LogService.Repair($"Repair completed: {succeeded} repaired, {skipped} skipped, {failed} failed in {elapsed:F1}s");
 
                     // 批量处理完成 → 弹系统通知（便携/注册失败渠道静默跳过）
@@ -692,7 +701,13 @@ namespace LivePhotoBox.ViewModels
         /// <summary>
         /// 当前修复选项（用户在启动对话框中选择），默认全部开启。
         /// </summary>
-        public RepairOptions RepairOptions { get; set; } = new();
+        public RepairOptions RepairOptions { get; set; } = new()
+        {
+            FixImageRotation = true,
+            FixVideoRotation = true,
+            FixHeicOrientation = false,
+            StripImageThumbnail = false
+        };
 
         public override string ActionBtnText
         {
@@ -727,9 +742,9 @@ namespace LivePhotoBox.ViewModels
             {
                 int total = Tasks.Sum(t => t.Entries.Count);
                 int succeeded = Tasks.SelectMany(t => t.Entries)
-                    .Count(e => e.Status == ProcessStatus.Success && (e.AnalysisResult == null || e.AnalysisResult.IssueType != RepairIssueType.Perfect));
+                    .Count(e => e.ExecutionStatus == "success");
                 int skipped = Tasks.SelectMany(t => t.Entries)
-                    .Count(e => e.AnalysisResult != null && e.AnalysisResult.IssueType == RepairIssueType.Perfect);
+                    .Count(e => e.ExecutionStatus is "healthy" or "skipped" or "copied");
                 int failed = Tasks.SelectMany(t => t.Entries)
                     .Count(e => e.Status == ProcessStatus.Failed);
                 int unprocessed = total - succeeded - skipped - failed;
@@ -737,7 +752,7 @@ namespace LivePhotoBox.ViewModels
                 var stack = new StackPanel { Spacing = 12 };
                 stack.Children.Add(new TextBlock
                 {
-                    Text = ResourceService.Format("Msg_RepairCancelledSummary", total, succeeded, skipped, failed, unprocessed),
+                    Text = RepairSummaryText(),
                     FontSize = 16,
                     TextWrapping = TextWrapping.Wrap
                 });
@@ -768,16 +783,16 @@ namespace LivePhotoBox.ViewModels
             {
                 int total = Tasks.Sum(t => t.Entries.Count);
                 int succeeded = Tasks.SelectMany(t => t.Entries)
-                    .Count(e => e.Status == ProcessStatus.Success && (e.AnalysisResult == null || e.AnalysisResult.IssueType != RepairIssueType.Perfect));
+                    .Count(e => e.ExecutionStatus == "success");
                 int skipped = Tasks.SelectMany(t => t.Entries)
-                    .Count(e => e.AnalysisResult != null && e.AnalysisResult.IssueType == RepairIssueType.Perfect);
+                    .Count(e => e.ExecutionStatus is "healthy" or "skipped" or "copied");
                 int failed = Tasks.SelectMany(t => t.Entries)
                     .Count(e => e.Status == ProcessStatus.Failed);
 
                 var stack = new StackPanel { Spacing = 12 };
                 stack.Children.Add(new TextBlock
                 {
-                    Text = ResourceService.Format("Msg_RepairCompletedSummary", total, succeeded, skipped, failed),
+                    Text = RepairSummaryText(),
                     FontSize = 16,
                     TextWrapping = TextWrapping.Wrap
                 });
@@ -853,6 +868,7 @@ namespace LivePhotoBox.ViewModels
             Progress = 0;
             ProgressText = "0/0";
 
+            using var scanBatchContext = new RepairBatchContext();
             SetStatus("Status_Scanning");
             BeginScanSession();
             await Task.Yield();
@@ -916,6 +932,12 @@ namespace LivePhotoBox.ViewModels
                         var observed=await LivePhotoBox.Interop.NativeMediaService.InspectMediaForDiscoveryAsync(images[0],null,token);
                         canPair=observed.Facts?.Protocol is not (LivePhotoBox.Media.Models.SourceProtocol.SamsungMotionPhotoJpeg or
                             LivePhotoBox.Media.Models.SourceProtocol.SamsungMotionPhotoHeic);
+                        if (canPair)
+                        {
+                            var confirmed = await LivePhotoBox.Interop.NativeMediaService.InspectMediaForDiscoveryAsync(images[0],videos[0],token);
+                            canPair = confirmed.Facts?.Protocol is LivePhotoBox.Media.Models.SourceProtocol.AppleLivePhoto or
+                                LivePhotoBox.Media.Models.SourceProtocol.VivoLegacyDualFile;
+                        }
                     }
                     if(canPair)pairList.Add((images[0],videos[0],group.Key));
                     else
@@ -1016,7 +1038,7 @@ namespace LivePhotoBox.ViewModels
                                 foreach (var entry in task.Entries)
                                 {
                                     if (entry.NeedsRepair) thumbError++;
-                                    else thumbCorrect++;
+                                    else if (entry.AnalysisResult?.IssueType == RepairIssueType.Perfect) thumbCorrect++;
                                 }
                             }
                             ThumbCorrectCount += thumbCorrect;
@@ -1053,8 +1075,8 @@ namespace LivePhotoBox.ViewModels
                             int wi = batchStart + bi;
                             var (imagePath, videoPath, baseName, _) = pairedWorkItems[wi];
 
-                            var imageTask = AnalyzeFileAndCreateEntry(imagePath!, heicRepairEnabled, token, appleFiles);
-                            var videoTask = AnalyzeFileAndCreateEntry(videoPath!, heicRepairEnabled, token, appleFiles);
+                            var imageTask = AnalyzeFileAndCreateEntry(imagePath!, heicRepairEnabled, token, appleFiles, scanBatchContext);
+                            var videoTask = AnalyzeFileAndCreateEntry(videoPath!, heicRepairEnabled, token, appleFiles, scanBatchContext);
 
                             batchTasks[bi] = (wi, imagePath, videoPath, baseName, imageTask, videoTask);
                         }
@@ -1158,7 +1180,7 @@ namespace LivePhotoBox.ViewModels
                         if (imagePath != null)
                         {
                             imageEntry = await AnalyzeFileAndCreateEntry(
-                                imagePath, heicRepairEnabled, token, appleFiles);
+                                imagePath, heicRepairEnabled, token, appleFiles, scanBatchContext);
                             if (imageEntry != null)
                             {
                                 entryIndex++; processedCount++;
@@ -1184,7 +1206,7 @@ namespace LivePhotoBox.ViewModels
                         if (videoPath != null)
                         {
                             videoEntry = await AnalyzeFileAndCreateEntry(
-                                videoPath, heicRepairEnabled, token, appleFiles);
+                                videoPath, heicRepairEnabled, token, appleFiles, scanBatchContext);
                             if (videoEntry != null)
                             {
                                 entryIndex++; processedCount++;
@@ -1343,7 +1365,7 @@ namespace LivePhotoBox.ViewModels
                             UpdateLivePhotoCounts();
 
                             // 同步更新计数器
-                            ThumbCorrectCount = rebuilt.Sum(t => t.Entries.Count(e => !e.NeedsRepair));
+                            ThumbCorrectCount = rebuilt.Sum(t => t.Entries.Count(e => e.AnalysisResult?.IssueType == RepairIssueType.Perfect));
                             ThumbErrorCount = rebuilt.Sum(t => t.Entries.Count(e => e.NeedsRepair));
                             Progress = capturedTotalFiles == 0 ? 0 : 100;
                             ProgressText = $"{capturedTotalFiles}/{capturedTotalFiles}";
@@ -1433,7 +1455,7 @@ namespace LivePhotoBox.ViewModels
         private async Task<RepairFileEntry?> AnalyzeFileAndCreateEntry(
             string filePath,
             bool heicRepairEnabled, CancellationToken token,
-            HashSet<string>? appleFiles = null)
+            HashSet<string>? appleFiles = null, RepairBatchContext? batchContext = null)
         {
             bool isImage = !(filePath.EndsWith(".mov", StringComparison.OrdinalIgnoreCase)
                           || filePath.EndsWith(".mp4", StringComparison.OrdinalIgnoreCase));
@@ -1445,7 +1467,9 @@ namespace LivePhotoBox.ViewModels
             // HEIC修复开关只管"修不修"，不管"匹不匹配" — 诊断和配对始终执行
             try
             {
-                analysis = await LivePhotoRepairService.AnalyzeFileAsync(filePath, token, defaultDevicesOnly: appleFiles != null);
+                analysis = batchContext == null
+                    ? await LivePhotoRepairService.AnalyzeFileAsync(filePath, token, defaultDevicesOnly: appleFiles != null)
+                    : await LivePhotoRepairService.AnalyzeFileInBatchAsync(filePath, token, appleFiles != null, batchContext);
             }
             catch (OperationCanceledException)
             {
@@ -1453,26 +1477,21 @@ namespace LivePhotoBox.ViewModels
             }
 
             // HEIC 修复关闭时：标记跳过但保留原始诊断文本，让用户知道照片有什么问题
-            bool isSkippedHeic = isHeicFile && !heicRepairEnabled && analysis.NeedsRepair && !analysis.IsSamsungMotionPhoto;
-            if (isSkippedHeic)
-            {
-                analysis.IssueType = RepairIssueType.Perfect;
-                // 不覆盖 IssueDescription — 保留原始诊断（旋转角度、缩略图等）
-            }
+            bool isSkippedHeic = isHeicFile && !heicRepairEnabled && !analysis.IsSamsungMotionPhoto && analysis.IssueType != RepairIssueType.Error;
 
-            // Apple/Samsung 设备筛选：开启后其他厂商标记跳过，保留原始诊断
-            bool isSkippedNonApple = analysis.IssueType != RepairIssueType.Error && !analysis.IsSamsungMotionPhoto && appleFiles != null && !appleFiles.Contains(filePath);
-            if (isSkippedNonApple)
+            // Apple/Samsung 设备筛选：开启后排除 Apple 和 Samsung 以外的其他厂商，标记跳过并保留原始诊断
+            bool isSkippedOtherDevice = analysis.IssueType != RepairIssueType.Error && !analysis.IsSamsungMotionPhoto && appleFiles != null && !appleFiles.Contains(filePath);
+            if (isSkippedOtherDevice)
             {
-                analysis.IssueType = RepairIssueType.NonApple;
+                analysis.IssueType = RepairIssueType.OtherDevice;
                 // 不覆盖 IssueDescription — 保留原始诊断
             }
 
             // 根据分析结果确定队列状态详情文本：需修复显示"等待修复"，跳过则写明原因
             string details;
-            if (isSkippedNonApple)
+            if (isSkippedOtherDevice)
             {
-                // 非 Apple 设备文件 → 已跳过（非Apple照片）
+                // 其他厂商设备文件（非 Apple/Samsung） → 已跳过（非 Apple/Samsung）
                 details = ResourceService.GetString("RepairPage_Task_SkippedNonApple");
             }
             else if (isSkippedHeic)
@@ -1504,37 +1523,107 @@ namespace LivePhotoBox.ViewModels
                 FilePath = filePath,
                 IsImage = isImage,
                 IssueDescription = FormatDiagnosisLabels(analysis),
-                NeedsRepair = analysis.NeedsRepair,
+                NeedsRepair = analysis.NeedsRepair && !isSkippedHeic,
+                IsImageRepairDisabled = isSkippedHeic,
                 Status = analysis.IssueType == RepairIssueType.Error ? ProcessStatus.Failed : ProcessStatus.Pending,
                 Details = details,
                 AnalysisResult = analysis
             };
         }
 
+        // 将中括号及其内部文本封装为原子标签块：内部使用不换行空格与零宽连接符（Word Joiner \u2060），
+        // 彻底禁止排版引擎在中括号内部断行。一行空间不足时，排版引擎只能在标签之间的普通空格处换行，
+        // 确保整个 [标签] 完整掉到下一行，绝不被跨行撕裂。
+        private static string MakeAtomicTag(string tagContent)
+        {
+            if (string.IsNullOrEmpty(tagContent)) return "[]";
+            string inner = tagContent.Replace(' ', '\u00A0');
+            string text = "[" + inner + "]";
+            return string.Join("\u2060", text.ToCharArray());
+        }
+
         private static string FormatDiagnosisLabels(RepairAnalysisResult analysis)
         {
-            string Label(string key, params object[] args)
-            {
-                string text = ResourceService.GetString("RepairPage_Reason_" + key);
-                return "[" + (args.Length == 0 ? text : string.Format(text, args)) + "]";
-            }
-            if (analysis.IssueType == RepairIssueType.Error) return Label("ReadError");
-            if (analysis.IssueType == RepairIssueType.NonApple) return Label("OtherDevice");
-            if (analysis.IssueType == RepairIssueType.Limited) return Label("Limited");
+            if (analysis.IssueType == RepairIssueType.Error)
+                return MakeAtomicTag(ResourceService.GetString("Tag_ReadError"));
+            if (analysis.IssueType is RepairIssueType.NonApple or RepairIssueType.OtherDevice)
+                return MakeAtomicTag(ResourceService.GetString("Tag_NonApple"));
+
             var labels = new List<string>();
+
+            // 照片旋转与镜像
             if (analysis.NeedsImageOrientationRepair && analysis.RotationAngle != 0)
-                labels.Add(Label(analysis.IsSamsungMotionPhoto ? "PhotoRotation" : "Rotation", analysis.RotationAngle));
-            if (analysis.NeedsImageOrientationRepair && analysis.ImageOrientation is (2 or 4 or 5 or 7)) labels.Add(Label("PhotoMirror"));
-            if (analysis.HasHeicOrientationConflict) labels.Add(Label("HeicConflict"));
-            if (analysis.HasThumbnail) labels.Add(Label("Thumbnail"));
+                labels.Add(MakeAtomicTag(ResourceService.Format("Tag_RotationLabel", analysis.RotationAngle)));
+            if (analysis.NeedsImageOrientationRepair && analysis.ImageOrientation is (2 or 4 or 5 or 7))
+                labels.Add(MakeAtomicTag(ResourceService.GetString("Tag_OrientationMirror")));
+            if (analysis.HasHeicOrientationConflict)
+                labels.Add(MakeAtomicTag(ResourceService.GetString("Tag_OrientationAngleMismatch")));
+
+            // 缩略图
+            if (analysis.HasThumbnail)
+                labels.Add(MakeAtomicTag(ResourceService.GetString("Tag_ExtraThumbnail")));
+
+            // 视频旋转与变换
             if (analysis.VideoRotationAngle != 0)
-                labels.Add(Label(analysis.IsSamsungMotionPhoto ? "MainVideoRotation" : "Rotation", analysis.VideoRotationAngle));
-            if (analysis.AutoplayVideoRotationAngle != 0) labels.Add(Label("AutoplayRotation", analysis.AutoplayVideoRotationAngle));
-            if (analysis.VideoTrackTransform != "" || (analysis.NeedsEmbeddedVideoTransform &&
-                analysis.VideoRotationAngle == 0 && analysis.AutoplayVideoRotationAngle == 0))
-                labels.Add(Label("VideoMirror"));
-            if (labels.Count == 0) labels.Add(Label(analysis.NeedsRepair ? "Orientation" : "Normal"));
+                labels.Add(MakeAtomicTag(ResourceService.Format("Tag_VideoRotation", analysis.VideoRotationAngle)));
+            if (analysis.VideoTrackTransform == "flip_vertical")
+                labels.Add(MakeAtomicTag(ResourceService.GetString("Tag_FlipVertical")));
+            else if (analysis.VideoTrackTransform == "flip_horizontal")
+                labels.Add(MakeAtomicTag(ResourceService.GetString("Tag_FlipHorizontal")));
+            else if (analysis.NeedsEmbeddedVideoTransform && analysis.VideoRotationAngle == 0)
+                labels.Add(MakeAtomicTag(ResourceService.GetString("Tag_VideoOrientationMirror")));
+
+            if (labels.Count == 0)
+            {
+                labels.Add(analysis.NeedsRepair
+                    ? MakeAtomicTag(ResourceService.GetString("Tag_RotationLabel"))
+                    : MakeAtomicTag(ResourceService.GetString("Tag_Status_Normal")));
+            }
+
             return string.Join(" ", labels);
+        }
+
+        public void RemoveTask(RepairTask task)
+        {
+            if (task == null || IsScanning || IsProcessing) return;
+            Tasks.Remove(task);
+            FilteredTasks.Remove(task);
+            TotalPhotosCount = Tasks.Sum(t => t.Entries.Count);
+            TotalPairsCount = Tasks.Count(t => t.IsPaired);
+            StandaloneImagesCount = Tasks.Count(t => !t.IsPaired && t.File1IsImage);
+            StandaloneVideosCount = Tasks.Count(t => !t.IsPaired && !t.File1IsImage);
+            if (Tasks.Count == 0 && !IsProcessing && !IsScanning)
+            {
+                ClearState();
+            }
+            else
+            {
+                ApplyFilter();
+            }
+        }
+
+        // 从修复队列中移除任务的特定槽位（槽位1为照片/首文件，槽位2为视频）
+        public void RemoveTaskSlot(RepairTask task, int slot)
+        {
+            if (task == null || IsScanning || IsProcessing) return;
+
+            if (!task.IsPaired)
+            {
+                RemoveTask(task);
+                return;
+            }
+
+            task.RemoveSlot(slot);
+
+            TotalPhotosCount = Tasks.Sum(t => t.Entries.Count);
+            TotalPairsCount = Tasks.Count(t => t.IsPaired);
+            StandaloneImagesCount = Tasks.Count(t => !t.IsPaired && t.File1IsImage);
+            StandaloneVideosCount = Tasks.Count(t => !t.IsPaired && !t.File1IsImage);
+
+            if (Tasks.Count == 0 && !IsProcessing && !IsScanning)
+            {
+                ClearState();
+            }
         }
 
         // 切换次要操作（暂停/继续 或 清空列表），取决于当前处理状态。
@@ -1557,6 +1646,49 @@ namespace LivePhotoBox.ViewModels
         // 选项会根据当前任务列表自动启用/禁用：若列表中没有需要该项修复的文件，
         // 对应复选框会变灰，提示用户无需选择。
         // 用户勾选后点击"开始修复"返回 true，点击"取消"返回 false。
+                // 构造带 SemiBold 标题、数量标签和详细说明文本的复选框
+        private static CheckBox CreateOptionCheckBox(string title, string description, string countText, bool isChecked)
+        {
+            var contentPanel = new StackPanel { Spacing = 2, Margin = new Thickness(0, 0, 0, 6) };
+            var headerPanel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+
+            var titleBlock = new TextBlock
+            {
+                Text = title,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+                FontSize = 13.5
+            };
+            var countBlock = new TextBlock
+            {
+                Text = countText,
+                FontSize = 12,
+                Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorTertiaryBrush"],
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            headerPanel.Children.Add(titleBlock);
+            headerPanel.Children.Add(countBlock);
+
+            var descBlock = new TextBlock
+            {
+                Text = description,
+                FontSize = 12,
+                Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources["TextFillColorSecondaryBrush"],
+                TextWrapping = TextWrapping.Wrap
+            };
+
+            contentPanel.Children.Add(headerPanel);
+            contentPanel.Children.Add(descBlock);
+
+            return new CheckBox
+            {
+                Content = contentPanel,
+                IsChecked = isChecked,
+                IsEnabled = true,
+                Margin = new Thickness(16, 2, 0, 2),
+                HorizontalAlignment = HorizontalAlignment.Stretch
+            };
+        }
+
         private async Task<bool> ShowRepairOptionsDialogAsync()
         {
             if (App.MainWindow?.Content?.XamlRoot == null)
@@ -1576,78 +1708,64 @@ namespace LivePhotoBox.ViewModels
                     var ar = entry.AnalysisResult;
                     if (ar == null) continue;
 
-                    // 已跳过的文件不统计，与实际修复时的过滤逻辑保持一致
-                    if (!entry.NeedsRepair) continue;
-
-                    string ext = Path.GetExtension(entry.FilePath)?.ToLowerInvariant() ?? "";
-                    bool isHeic = ext == ".heic" || ext == ".heif";
-                    bool isVideo = ar.IsVideo;
-
-                    if (ar.IssueType == RepairIssueType.NeedsRebuild)
-                    {
-                        if (isVideo) videoCount++;
-                        else if (isHeic) heicCount++;
-                        else jpegRotationCount++;
-                    }
-                    if (ar.HasThumbnail)
-                        thumbCount++;
+                    uint mask = RepairQueuePolicy.ActionMask(ar, entry.IsImageRepairDisabled, Path.GetExtension(entry.FilePath).ToLowerInvariant() is ".heic" or ".heif");
+                    if ((mask & 1) != 0) jpegRotationCount++;
+                    if ((mask & 2) != 0) thumbCount++;
+                    if ((mask & 4) != 0) heicCount++;
+                    if ((mask & 8) != 0) videoCount++;
                 }
             }
 
-            string countFmt = ResourceService.GetString("RepairOptions_CountFormat");
+            string countFmt = ResourceService.GetString("RepairOptions_CountFormat") ?? "（{0}项）";
 
             // ── 图片修复选项 ──
             var imgHeader = new TextBlock
             {
-                Text = "🖼️ " + ResourceService.GetString("RepairOptions_ImageSection"),
-                FontSize = 15,
-                FontWeight = new Windows.UI.Text.FontWeight { Weight = 600 },
+                Text = "🖼️ " + (ResourceService.GetString("RepairOptions_ImageSection") ?? "图片修复"),
+                FontSize = 14.5,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 Margin = new Thickness(0, 0, 0, 4)
             };
-            var cbRotation = new CheckBox
-            {
-                Content = ResourceService.GetString("RepairOptions_FixImageRotation") + string.Format(countFmt, jpegRotationCount),
-                IsChecked = RepairOptions.FixImageRotation,
-                IsEnabled = jpegRotationCount > 0,
-                Margin = new Thickness(16, 0, 0, 0)
-            };
-            var cbThumbnail = new CheckBox
-            {
-                Content = ResourceService.GetString("RepairOptions_StripImageThumbnail") + string.Format(countFmt, thumbCount),
-                IsChecked = RepairOptions.StripImageThumbnail,
-                IsEnabled = thumbCount > 0,
-                Margin = new Thickness(16, 0, 0, 0)
-            };
-            var cbHeic = new CheckBox
-            {
-                Content = ResourceService.GetString("RepairOptions_FixHeicOrientation") + string.Format(countFmt, heicCount),
-                IsChecked = RepairOptions.FixHeicOrientation,
-                IsEnabled = heicCount > 0,
-                Margin = new Thickness(16, 0, 0, 0)
-            };
+
+            var cbRotation = CreateOptionCheckBox(
+                ResourceService.GetString("RepairOptions_FixImageRotation_Title") ?? "JPEG 画面转正（无损）",
+                ResourceService.GetString("RepairOptions_FixImageRotation_Desc") ?? "无损物理旋转底层像素，解决在 Windows 上横躺或倒立问题。",
+                string.Format(countFmt, jpegRotationCount),
+                RepairOptions.FixImageRotation);
+
+            var cbHeic = CreateOptionCheckBox(
+                ResourceService.GetString("RepairOptions_FixHeicOrientation_Title") ?? "HEIC 方向对齐（元数据）",
+                ResourceService.GetString("RepairOptions_FixHeicOrientation_Desc") ?? "对齐 EXIF 与容器旋转标记，解决跨设备显示角度冲突错位。",
+                string.Format(countFmt, heicCount),
+                RepairOptions.FixHeicOrientation);
+
+            var cbThumbnail = CreateOptionCheckBox(
+                ResourceService.GetString("RepairOptions_StripImageThumbnail_Title") ?? "内嵌缩略图瘦身清理",
+                ResourceService.GetString("RepairOptions_StripImageThumbnail_Desc") ?? "清理相机内嵌的冗余缩略图，精简文件体积，不影响画质。",
+                string.Format(countFmt, thumbCount),
+                RepairOptions.StripImageThumbnail);
 
             // ── 视频修复选项 ──
             var videoHeader = new TextBlock
             {
-                Text = "🎬 " + ResourceService.GetString("RepairOptions_VideoSection"),
-                FontSize = 15,
-                FontWeight = new Windows.UI.Text.FontWeight { Weight = 600 },
+                Text = "🎬 " + (ResourceService.GetString("RepairOptions_VideoSection") ?? "视频修复"),
+                FontSize = 14.5,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
                 Margin = new Thickness(0, 8, 0, 4)
             };
-            var cbVideoRotation = new CheckBox
-            {
-                Content = ResourceService.GetString("RepairOptions_FixVideoRotation") + string.Format(countFmt, videoCount),
-                IsChecked = RepairOptions.FixVideoRotation,
-                IsEnabled = videoCount > 0,
-                Margin = new Thickness(16, 0, 0, 0)
-            };
+
+            var cbVideoRotation = CreateOptionCheckBox(
+                ResourceService.GetString("RepairOptions_FixVideoRotation_Title") ?? "实况视频画面转正",
+                ResourceService.GetString("RepairOptions_FixVideoRotation_Desc") ?? "将旋转角度应用到实际画面并去除旋转标签，解决横屏播放。",
+                string.Format(countFmt, videoCount),
+                RepairOptions.FixVideoRotation);
 
             // ── 构建对话框内容 ──
-            var panel = new StackPanel { Spacing = 4 };
+            var panel = new StackPanel { Spacing = 4, MaxWidth = 460 };
             panel.Children.Add(imgHeader);
             panel.Children.Add(cbRotation);
-            panel.Children.Add(cbThumbnail);
             panel.Children.Add(cbHeic);
+            panel.Children.Add(cbThumbnail);
             panel.Children.Add(videoHeader);
             panel.Children.Add(cbVideoRotation);
 
@@ -1666,10 +1784,10 @@ namespace LivePhotoBox.ViewModels
             if (result != ContentDialogResult.Primary)
                 return false;
 
-            // 读取用户选择（禁用的选项保持默认值 true）
+            // 读取用户选择（未勾选时保持对应布尔值）
             RepairOptions.FixImageRotation = cbRotation.IsChecked ?? true;
-            RepairOptions.StripImageThumbnail = cbThumbnail.IsChecked ?? true;
-            RepairOptions.FixHeicOrientation = cbHeic.IsChecked ?? true;
+            RepairOptions.StripImageThumbnail = cbThumbnail.IsChecked ?? false;
+            RepairOptions.FixHeicOrientation = cbHeic.IsChecked ?? false;
             RepairOptions.FixVideoRotation = cbVideoRotation.IsChecked ?? true;
 
             // 如果什么都没勾选，提示并返回 false
@@ -1743,6 +1861,21 @@ namespace LivePhotoBox.ViewModels
             }
         }
 
+        private string RepairSummaryText()
+        {
+            var entries = Tasks.SelectMany(t => t.Entries).ToArray();
+            return ResourceService.Format("Repair_ResultSummary", entries.Length,
+                entries.Count(e => e.ExecutionStatus == "success" && !e.PublishedOutputs.Any(x => x.Kind.StartsWith("isolated", StringComparison.Ordinal))),
+                entries.Count(e => e.ExecutionStatus == "healthy"),
+                entries.Count(e => e.PublishedOutputs.Any(x => x.Kind == "isolated_repaired")),
+                entries.Count(e => e.ExecutionStatus == "warning" && e.PublishedOutputs.Length == 0),
+                entries.Count(e => e.PublishedOutputs.Any(x => x.Kind == "copy")),
+                entries.Count(e => e.PublishedOutputs.Any(x => x.Kind == "isolated_copy")),
+                entries.Count(e => e.ExecutionStatus == "skipped"),
+                entries.Count(e => e.Status == ProcessStatus.Failed),
+                entries.Count(e => e.ExecutionStatus == null && e.Status != ProcessStatus.Failed));
+        }
+
         private async Task RunTasksAsync()
         {
             CancellationToken token = GetProcessingToken();
@@ -1758,6 +1891,7 @@ namespace LivePhotoBox.ViewModels
                 FixHeicOrientation = RepairOptions.FixHeicOrientation,
                 FixVideoRotation = RepairOptions.FixVideoRotation
             };
+            using var batchContext = new RepairBatchContext();
             _totalRepairEntries = Tasks.Sum(task => task.Entries.Count);
             try
             {
@@ -1765,13 +1899,21 @@ namespace LivePhotoBox.ViewModels
                 {
                     token.ThrowIfCancellationRequested();
                     await Task.Run(() => PauseEvent.Wait(token), token);
-                    if (!task.Entries.Any(entry => entry.NeedsRepair) && !copyPerfect)
+                    if (!task.Entries.Any(entry => RepairQueuePolicy.ShouldExecute(
+                        entry.AnalysisResult?.IssueType, entry.IsImageRepairDisabled, copyPerfect)))
                     {
                         foreach (var entry in task.Entries)
                         {
                             // No repair was attempted for these diagnostic-only items.
-                            entry.Status = entry.IsDiagnosisError ? ProcessStatus.Failed
-                                : entry.AnalysisResult?.IssueType == RepairIssueType.Limited ? ProcessStatus.Pending : ProcessStatus.Success;
+                            entry.ExecutionStatus = RepairQueuePolicy.DiagnosticOutcome(entry.AnalysisResult?.IssueType, entry.IsImageRepairDisabled);
+                            var diagnosisResult = new LivePhotoRepairService.RepairResult(entry.ExecutionStatus,
+                                entry.AnalysisResult?.IssueDescription ?? "")
+                            { Actions = LivePhotoRepairService.ActionResults(options, 0, 0, false,
+                                entry.ExecutionStatus == "healthy" ? "not_needed" : "not_checked") };
+                            diagnosisResult = LivePhotoRepairService.EnsureRecorded(entry.FilePath, options, diagnosisResult);
+                            entry.Details = LivePhotoRepairService.DescribeResult(diagnosisResult);
+                            entry.Status = entry.ExecutionStatus == "failed" ? ProcessStatus.Failed
+                                : entry.ExecutionStatus == "healthy" ? ProcessStatus.Success : ProcessStatus.Pending;
                             Interlocked.Increment(ref _completedEntriesCount);
                         }
                         continue;
@@ -1782,21 +1924,19 @@ namespace LivePhotoBox.ViewModels
                     try
                     {
                         var input = task.Entries.FirstOrDefault(entry => entry.IsImage) ?? task.Entries[0];
-                        LivePhotoRepairService.RepairResult result = input.IsImage
+                        var effectiveOptions = RepairQueuePolicy.OptionsFor(options, input.IsImageRepairDisabled);
+                        LivePhotoRepairService.RepairResult result = !RepairQueuePolicy.HasSelectedAction(effectiveOptions)
+                            ? new("skipped", ResourceService.GetString("RepairPage_Task_Skipped"))
+                            : input.IsImage
                             ? await LivePhotoRepairService.RepairImageFileAsync(
-                                input.FilePath, destination, allDevices, false, options, token, copyPerfect)
+                                input.FilePath, destination, allDevices, false, effectiveOptions, token, copyPerfect, batchContext)
                             : await LivePhotoRepairService.RepairVideoFileAsync(
-                                input.FilePath, destination, allDevices, longVideos, false, false, options, token, copyPerfect);
-                        string detail = string.Join(Environment.NewLine, result.Message, result.Image, result.Video).Trim();
+                                input.FilePath, destination, allDevices, longVideos, false, false, effectiveOptions, token, copyPerfect, batchContext);
+                        result = LivePhotoRepairService.EnsureRecorded(input.FilePath, effectiveOptions, result);
+                        task.ApplyRepairResult(result);
+                        OpenRepairOutputFolderCommand.NotifyCanExecuteChanged();
                         foreach (var entry in task.Entries)
                         {
-                            entry.Status = result.Status switch
-                            {
-                                "failed" => ProcessStatus.Failed,
-                                "warning" => ProcessStatus.Warning,
-                                _ => ProcessStatus.Success
-                            };
-                            entry.Details = detail;
                             _taskProcessingStartTimes.Remove(entry);
                             Interlocked.Increment(ref _completedEntriesCount);
                         }
@@ -1847,6 +1987,7 @@ namespace LivePhotoBox.ViewModels
         // 更新 Entry 为"处理中"状态，记录开始时间，触发滚动事件。
         private void UpdateEntryStarted(RepairFileEntry entry, RepairTask parentTask)
         {
+            entry.ExecutionStatus = null;
             entry.Status = ProcessStatus.Processing;
             entry.Details = ResourceService.GetString("Task_Processing");
             _taskProcessingStartTimes[entry] = DateTimeOffset.UtcNow;
@@ -1856,6 +1997,7 @@ namespace LivePhotoBox.ViewModels
         // 更新 Entry 为"已完成/失败"状态，触发完成滚动事件（若全部完成）。
         private void UpdateEntryCompleted(RepairFileEntry entry, bool isSuccess, string detailMessage)
         {
+            entry.ExecutionStatus = isSuccess ? "success" : "failed";
             entry.Status = isSuccess ? ProcessStatus.Success : ProcessStatus.Failed;
             entry.Details = detailMessage;
             _taskProcessingStartTimes.Remove(entry);
@@ -1922,30 +2064,60 @@ namespace LivePhotoBox.ViewModels
             catch (Exception ex) { LogService.Repair($"OpenRepairInput error: {ex.Message}", LogLevel.Error, ex); }
         }
 
+        // 获取实际的目标输出主目录（若启用独立输出目录，优先使用已设置的目录或默认修复目录；否则使用输入目录）。
+        public string GetEffectiveOutputDirectory()
+        {
+            if (IsOutputToDirectory)
+            {
+                if (!string.IsNullOrWhiteSpace(OutputDirectory))
+                    return OutputDirectory;
+
+                if (!string.IsNullOrWhiteSpace(InputDirectory))
+                {
+                    string sub = ResourceService.GetString("OutputDir_RepairedPhotos");
+                    if (string.IsNullOrWhiteSpace(sub)) sub = "已修复照片";
+                    return Path.Combine(InputDirectory, sub);
+                }
+            }
+
+            return InputDirectory ?? string.Empty;
+        }
+
         // 判断是否可以打开修复输出文件夹。
+        // 只要能解析出有效输出目录或有输入/输出设置，始终允许点击（不再置灰；若尚未创建则在点击时自动创建）。
         private bool CanOpenRepairOutputFolder()
         {
-            return DirectoryHelper.CanOpenFolder(GetRepairResultFolderPath());
+            return !string.IsNullOrWhiteSpace(GetEffectiveOutputDirectory()) ||
+                   !string.IsNullOrWhiteSpace(OutputDirectory) ||
+                   !string.IsNullOrWhiteSpace(InputDirectory);
         }
 
-        // 获取修复结果所在的文件夹路径（依据 IsOutputToDirectory 决定）。
+        // 获取修复结果所在的文件夹路径（保留旧逻辑供需要时参考）。
         private string GetRepairResultFolderPath()
         {
-            return IsOutputToDirectory ? OutputDirectory : InputDirectory;
+            return GetEffectiveOutputDirectory();
         }
 
-        // 在文件管理器中打开修复输出文件夹。
+        // 在文件管理器中打开修复输出主目录（绝不深入隔离子目录，且目录不存在时自动创建）。
         private void OpenRepairOutputFolder()
         {
             try
             {
-                var folderPath = GetRepairResultFolderPath();
+                string folderPath = GetEffectiveOutputDirectory();
                 if (string.IsNullOrWhiteSpace(folderPath)) return;
+
+                // 若输出目录尚未创建，自动创建，绝不置灰或报错
                 if (!Directory.Exists(folderPath))
+                {
                     Directory.CreateDirectory(folderPath);
+                }
+
                 FilePickerService.OpenFolderInExplorer(folderPath);
             }
-            catch (Exception ex) { LogService.Repair($"OpenRepairOutput error: {ex.Message}", LogLevel.Error, ex); }
+            catch (Exception ex)
+            {
+                LogService.Repair($"OpenRepairOutput error: {ex.Message}", LogLevel.Error, ex);
+            }
         }
     }
 }

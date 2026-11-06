@@ -118,8 +118,8 @@ namespace LivePhotoBox.Services
                 return;
 
             // "仅后台通知"开关（设置页"通知与声音"）：开启后，应用在前台时不弹通知。
-            // 默认关闭（false）= 不管在前台后台都通知。
-            if (AppSettingsService.GetValue("IsBackgroundOnlyNotification", false)
+            // 默认开启（true）= 应用在前台时不通知。
+            if (AppSettingsService.GetValue("IsBackgroundOnlyNotification", true)
                 && IsAppInForeground())
             {
                 LogService.Debug("Notification suppressed: app is in foreground (background-only mode)", LogSource.App);

@@ -546,7 +546,7 @@ namespace lpb::media {
 
 
 lpb_result normalize_repair_jpeg_bytes(lpb_context* context, std::span<const uint8_t> input,
-    uint32_t orientation, bool strip, std::vector<uint8_t>& output, bool& reencoded) noexcept {
+    uint32_t orientation, bool strip, std::vector<uint8_t>& output, bool& reencoded, bool perfect_only) noexcept {
     output.clear(); reencoded = false;
     try {
         if (orientation > 8) return LPB_RESULT_UNSUPPORTED;
@@ -577,7 +577,7 @@ lpb_result normalize_repair_jpeg_bytes(lpb_context* context, std::span<const uin
                 for(const auto& range:facts.occupied_tiff_ranges)
                     if(offset<range.second&&range.first<uint64_t(offset)+length)return LPB_RESULT_UNSUPPORTED;
                 std::vector<uint8_t> thumbnail;bool thumbnail_reencoded{};
-                if(normalize_repair_jpeg_bytes(context,std::span<const uint8_t>(exif).subspan(6+offset,length),orientation,true,thumbnail,thumbnail_reencoded)!=LPB_RESULT_OK)
+                if(normalize_repair_jpeg_bytes(context,std::span<const uint8_t>(exif).subspan(6+offset,length),orientation,true,thumbnail,thumbnail_reencoded,perfect_only)!=LPB_RESULT_OK)
                     return LPB_RESULT_UNSUPPORTED;
                 reencoded |= thumbnail_reencoded;
                 std::fill(exif.begin()+6+offset,exif.begin()+6+offset+length,uint8_t{});
@@ -621,6 +621,7 @@ lpb_result normalize_repair_jpeg_bytes(lpb_context* context, std::span<const uin
             if(status==0&&transformed&&size)coded.assign(transformed,transformed+size);
             if(transformed)tjFree(transformed);
             if(coded.empty()) {
+                if(perfect_only)return LPB_RESULT_UNSUPPORTED;
                 jpeg_rgb_image decoded;
                 if(decode_jpeg_rgb_bytes(context,input,decoded)!=LPB_RESULT_OK)return LPB_RESULT_UNSUPPORTED;
                 pixel_surface surface;surface.width=decoded.width;surface.height=decoded.height;surface.channels=3;
@@ -1164,20 +1165,16 @@ lpb_result transform_jpeg_losslessly(lpb_context* context, const char* input_pat
         jpeg_observation jpeg;
         jpeg_observation_failure failure{};
         uint64_t bad_offset{};
-        if (!observe_jpeg(input.view(), jpeg, failure, bad_offset, {true, false, false, false}) ||
+        if (!observe_jpeg(input.view(), jpeg, failure, bad_offset, {true, true, false, false}) ||
             jpeg.orientation < 2 || jpeg.orientation > 8 ||
             jpeg.mpf || observation.orientation != jpeg.orientation) {
             set_error(context, "JPEG repair requires a single unambiguous EXIF orientation without competing XMP or MPF metadata.");
             return LPB_RESULT_UNSUPPORTED;
         }
-        if (!jpeg.xmp.empty()) {
-            std::string mapped;
-            xmp_observation_failure xml_failure{};
-            if (!rewrite_neutral_image_xmp(jpeg.xmp, "image/jpeg", "image/jpeg",
-                jpeg.orientation, jpeg.width, jpeg.height, mapped, xml_failure) || mapped != jpeg.xmp) {
-                set_error(context, "JPEG rotation cannot retain XMP with unmapped active geometry or orientation.");
-                return LPB_RESULT_UNSUPPORTED;
-            }
+        if ((!jpeg.xmp.empty() || !jpeg.extended_xmp.empty()) &&
+            !validate_jpeg_repair_xmp(jpeg.xmp,jpeg.extended_xmp,jpeg.extended_guid,jpeg.orientation,jpeg.width,jpeg.height)) {
+            set_error(context,"JPEG rotation cannot retain XMP with unmapped active geometry or orientation.");
+            return LPB_RESULT_UNSUPPORTED;
         }
         operation = operations[jpeg.orientation];
     }
@@ -1280,6 +1277,53 @@ lpb_result transform_jpeg_losslessly(lpb_context* context, const char* input_pat
 } // namespace lpb::media
 
 
+
+namespace lpb::media {
+lpb_result repair_image_exif_bytes(lpb_context* context, std::vector<uint8_t>& bytes, uint32_t actions, uint32_t& changed) {
+    const auto unsupported = [&](const char* message) { set_error(context,message); return LPB_RESULT_UNSUPPORTED; };
+        changed = 0;
+        if (bytes[0] == 0xff && bytes[1] == 0xd8) {
+            lpb::memory_random_access input{bytes};
+            lpb::media::jpeg_observation jpeg;
+            lpb::media::jpeg_observation_failure failure{};
+            uint64_t bad{};
+            if (!lpb::media::observe_jpeg(input.view(), jpeg, failure, bad, {true, true, true, true}))
+                return unsupported("JPEG repair could not verify the primary codestream and metadata structure.");
+            const bool preserve_offsets = jpeg.mpf || jpeg.eoi_end != bytes.size();
+            if ((actions & 1) && !jpeg.exif_payload.empty() &&
+                !repair_exif(std::span<uint8_t>(bytes).subspan(jpeg.exif_segment_end - jpeg.exif_payload.size(),
+                    jpeg.exif_payload.size()), 0, true, changed))
+                return unsupported("The EXIF thumbnail is not an independently owned JPEG thumbnail.");
+            if (actions & 1) {
+                bool previews{};
+                if (!strip_jpeg_previews(bytes, previews, preserve_offsets))
+                    return unsupported("JPEG preview ownership or complete embedded image could not be verified.");
+                if (previews) changed |= 1;
+            }
+        } else {
+            lpb::containers::heif_primary_properties primary;
+            std::string error;
+            if (!lpb::containers::observe_primary_item_properties(bytes, primary, error))
+                return unsupported(error.c_str());
+            if (!primary.exif_payload.empty()) {
+                const auto wanted = (actions & 2) && primary.has_display_transform ? primary.orientation : 0;
+                if (!repair_exif(primary.exif_payload, wanted, actions & 1, changed))
+                    return unsupported("HEIF primary EXIF orientation or thumbnail ownership could not be verified.");
+                if (changed && !lpb::containers::replace_primary_exif_payload(bytes, primary.exif_payload, error))
+                    return unsupported(error.empty() ? "Could not verify primary EXIF extent replacement." : error.c_str());
+            }
+            if (actions & 1) {
+                bool thumbnails{};
+                if (!lpb::containers::strip_primary_thumbnails(bytes, thumbnails, error))
+                    return unsupported(error.c_str());
+                if (thumbnails) changed |= 1;
+            }
+        }
+
+    return LPB_RESULT_OK;
+}
+}
+
 LPB_API lpb_result LPB_CALL lpb_repair_image_exif(
     lpb_context* context, const char* source_path, const char* output_path,
     uint32_t actions, uint32_t* changed)
@@ -1299,43 +1343,8 @@ LPB_API lpb_result LPB_CALL lpb_repair_image_exif(
             return unsupported("Image repair input could not be pinned or read.");
 
         uint32_t actual{};
-        if (bytes[0] == 0xff && bytes[1] == 0xd8) {
-            lpb::memory_random_access input{bytes};
-            lpb::media::jpeg_observation jpeg;
-            lpb::media::jpeg_observation_failure failure{};
-            uint64_t bad{};
-            if (!lpb::media::observe_jpeg(input.view(), jpeg, failure, bad, {true, true, true, true}))
-                return unsupported("JPEG repair could not verify the primary codestream and metadata structure.");
-            const bool preserve_offsets = jpeg.mpf || jpeg.eoi_end != bytes.size();
-            if ((actions & 1) && !jpeg.exif_payload.empty() &&
-                !repair_exif(std::span<uint8_t>(bytes).subspan(jpeg.exif_segment_end - jpeg.exif_payload.size(),
-                    jpeg.exif_payload.size()), 0, true, actual))
-                return unsupported("The EXIF thumbnail is not an independently owned JPEG thumbnail.");
-            if (actions & 1) {
-                bool previews{};
-                if (!strip_jpeg_previews(bytes, previews, preserve_offsets))
-                    return unsupported("JPEG preview ownership or complete embedded image could not be verified.");
-                if (previews) actual |= 1;
-            }
-        } else {
-            lpb::containers::heif_primary_properties primary;
-            std::string error;
-            if (!lpb::containers::observe_primary_item_properties(bytes, primary, error))
-                return unsupported(error.c_str());
-            if (!primary.exif_payload.empty()) {
-                const auto wanted = (actions & 2) && primary.has_display_transform ? primary.orientation : 0;
-                if (!repair_exif(primary.exif_payload, wanted, actions & 1, actual))
-                    return unsupported("HEIF primary EXIF orientation or thumbnail ownership could not be verified.");
-                if (actual && !lpb::containers::replace_primary_exif_payload(bytes, primary.exif_payload, error))
-                    return unsupported(error.empty() ? "Could not verify primary EXIF extent replacement." : error.c_str());
-            }
-            if (actions & 1) {
-                bool thumbnails{};
-                if (!lpb::containers::strip_primary_thumbnails(bytes, thumbnails, error))
-                    return unsupported(error.c_str());
-                if (thumbnails) actual |= 1;
-            }
-        }
+        const auto repaired = lpb::media::repair_image_exif_bytes(context, bytes, actions, actual);
+        if(repaired != LPB_RESULT_OK)return repaired;
 
         const auto cancelled = lpb_context_check_cancelled(context);
         if (cancelled != LPB_RESULT_OK) return cancelled;

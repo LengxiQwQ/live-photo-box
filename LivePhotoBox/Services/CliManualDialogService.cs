@@ -29,15 +29,15 @@ namespace LivePhotoBox.Services
     public static class CliManualDialogService
     {
         // ── 常量：本地手册文件名（与应用 exe 同目录） ──────────────────────
-        private const string LocalFileEn = "CLI-User-Guide.md";
+        private const string LocalFileEn = "CLI-User-Guide.en.md";
         private const string LocalFileZh = "CLI-User-Guide.zh-CN.md";
 
         // GitHub raw 兜底抓取地址（master 分支，HttpClient 秒开）
-        private const string RawUrlEn = "https://raw.githubusercontent.com/LengxiQwQ/live-photo-box/master/docs/CLI-User-Guide.md";
+        private const string RawUrlEn = "https://raw.githubusercontent.com/LengxiQwQ/live-photo-box/master/docs/CLI-User-Guide.en.md";
         private const string RawUrlZh = "https://raw.githubusercontent.com/LengxiQwQ/live-photo-box/master/docs/CLI-User-Guide.zh-CN.md";
 
         // GitHub 网页版手册地址（"用浏览器打开"入口，让普通用户看到渲染格式）
-        private const string BlobUrlEn = "https://github.com/LengxiQwQ/live-photo-box/blob/master/docs/CLI-User-Guide.md";
+        private const string BlobUrlEn = "https://github.com/LengxiQwQ/live-photo-box/blob/master/docs/CLI-User-Guide.en.md";
         private const string BlobUrlZh = "https://github.com/LengxiQwQ/live-photo-box/blob/master/docs/CLI-User-Guide.zh-CN.md";
 
         // 手册内相对链接的基准地址（如 [说明](../README.md) → GitHub 网页版）

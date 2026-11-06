@@ -74,10 +74,16 @@ struct inspector {
         if(b.end-start>=4&&u32(data.data()+start)==0)start+=4; // ISO FullBox; QT omits it.
         std::vector<box> list;if(!children(start,b.end,list))return false;
         const box *handler=nullptr,*keys=nullptr,*ilst=nullptr;
+        std::set<std::string> uuid_types;
         for(const auto& c:list) {
             // Padding is legal container scaffolding, including repeated free
             // space. Its bounded opaque bytes do not declare metadata keys.
             if(c.type=="free"||c.type=="skip")continue;
+            if(c.type=="uuid") {
+                if(c.end-c.body>=16&&!uuid_types.emplace(text(c.body,c.body+16)).second)
+                    return fail(target_video_failure::ambiguous,c.at,"Duplicate metadata UUID ownership");
+                if(!uuid(c,"meta"))return false; continue;
+            }
             const box** slot=c.type=="hdlr"?&handler:c.type=="keys"?&keys:c.type=="ilst"?&ilst:nullptr;
             if(!slot)return fail(target_video_failure::unsupported,c.at,"Unknown meta child ownership: "+c.type);
             if(*slot)return fail(target_video_failure::ambiguous,c.at,"Duplicate meta child: "+c.type);
@@ -93,16 +99,21 @@ struct inspector {
             if(!fullzero(*handler,24)||u32(data.data()+handler->body+4)||
                u32(data.data()+handler->body+16)||u32(data.data()+handler->body+20))
                 return fail(target_video_failure::malformed,handler->at,"Invalid iTunes metadata handler");
-            for(size_t p=handler->body+24;p<handler->end;++p)if(data[p])return fail(target_video_failure::unsupported,p,"Unknown iTunes handler name");
+            // Handler names are bounded descriptive bytes, not binding authority.
             std::vector<box> ordinary;if(!children(ilst->body,ilst->end,ordinary))return false;
             std::set<std::string> tags;
             for(const auto& item:ordinary) {
-                const bool known=item.type==std::string("\xa9" "too",4)||item.type==std::string("\xa9" "nam",4)||
-                    item.type==std::string("\xa9" "cmt",4)||item.type==std::string("\xa9" "cpy",4)||item.type==std::string("\xa9" "ART",4);
-                if(!known||!tags.insert(item.type).second)return fail(target_video_failure::unsupported,item.at,"Unknown or duplicate iTunes property");
+                if(!tags.insert(item.type).second)return fail(target_video_failure::ambiguous,item.at,"Duplicate iTunes property");
+                // Free-form properties declare their own namespace/name. Until
+                // classified they cannot be treated as anonymous literal data.
+                if(item.type=="----")return fail(target_video_failure::unsupported,item.at,"Free-form iTunes property requires namespace classification");
+                if(item.type=="keys"||item.type=="ilst"||item.type=="meta"||item.type=="hdlr")
+                    return fail(target_video_failure::malformed,item.at,"Shadow metadata owner in iTunes property list");
                 std::vector<box> values;if(!children(item.body,item.end,values)||values.size()!=1||values[0].type!="data"||
-                    values[0].end-values[0].body<8||u32(data.data()+values[0].body)!=1||u32(data.data()+values[0].body+4))
-                    return fail(target_video_failure::malformed,item.at,"Invalid ordinary iTunes text ownership");
+                    values[0].end-values[0].body<8||data[values[0].body]!=0)
+                    return fail(target_video_failure::malformed,item.at,"Invalid ordinary iTunes data ownership");
+                // The remaining 24-bit type, locale and payload are bounded
+                // literal data (text, integers, artwork, etc.), never box/key authority.
             }
             return true;
         }
@@ -115,8 +126,6 @@ struct inspector {
                (text(handler->body+12,handler->body+16)!="appl"&&text(handler->body+12,handler->body+16)!=std::string_view("\0\0\0\0",4)&&text(handler->body+12,handler->body+16)!="    ")||
                u32(data.data()+handler->body+16)||u32(data.data()+handler->body+20))
                 return fail(target_video_failure::unsupported,handler->at,"Unclassified empty metadata handler");
-            for(size_t p=handler->body+24;p<handler->end;++p)if(data[p])
-                return fail(target_video_failure::unsupported,handler->at,"Unclassified metadata handler name");
             return true;
         }
         if(!handler||!keys||!ilst)return fail(target_video_failure::malformed,b.at,"Incomplete mdta keys/ilst ownership");

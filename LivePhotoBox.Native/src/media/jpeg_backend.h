@@ -84,6 +84,12 @@ const char* jpeg_backend_version() noexcept;
 
 // Repair-only complete marker transport after graph ownership was established.
 lpb_result normalize_repair_jpeg_bytes(lpb_context*, std::span<const uint8_t>,
-    uint32_t effective_orientation, bool strip_thumbnail, std::vector<uint8_t>&, bool& reencoded) noexcept;
+    uint32_t effective_orientation, bool strip_thumbnail, std::vector<uint8_t>&, bool& reencoded,
+    bool perfect_only = false) noexcept;
+
+// Work on an already bounded image. Failed attempts do not grant authority to
+// publish the mutated buffer; callers use a candidate and retain the original.
+lpb_result repair_image_exif_bytes(lpb_context*, std::vector<uint8_t>&,
+    uint32_t actions, uint32_t& changed);
 
 } // namespace lpb::media

@@ -39,7 +39,8 @@ inline bool preserved_sei_type(uint32_t type) noexcept {
 }
 
 inline bool collect_packet_sei(std::span<const uint8_t> packet, unsigned length_bytes,
-    bool hevc, std::vector<preserved_sei_message>& metadata, bool reject_codec_owned = false) {
+    bool hevc, std::vector<preserved_sei_message>& metadata, bool reject_codec_owned = false,
+    uint32_t verified_encoder_transfer = UINT32_MAX) {
     metadata.clear();
     if (length_bytes < 1U || length_bytes > 4U) return false;
     size_t position = 0U;
@@ -104,6 +105,10 @@ inline bool collect_packet_sei(std::span<const uint8_t> packet, unsigned length_
                     if (!vivid && !hdr10plus && !captions) return false;
                 }
                 metadata.push_back({payload_type, {rbsp.begin() + p, rbsp.begin() + p + payload_size}});
+            } else if (payload_type == 147U && verified_encoder_transfer != UINT32_MAX &&
+                payload_size == 1U && rbsp[p] == verified_encoder_transfer) {
+                // Encoder-generated alternative_transfer_characteristics is
+                // redundant only when it matches the independently read CICP.
             } else if (reject_codec_owned || (payload_type != 0U && payload_type != 3U && payload_type != 6U &&
                 payload_type != 128U && payload_type != 129U && payload_type != 130U && payload_type != 132U))
                 return false; // Includes pic_timing: field/repeat semantics are not regenerated.

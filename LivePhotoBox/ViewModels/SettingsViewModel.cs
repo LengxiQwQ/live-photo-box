@@ -467,9 +467,9 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Notification sound index changed to: {value}", LogSource.Settings);
         }
 
-        // 仅后台通知开关（默认关闭）：开启后，应用在前台时不弹出通知。
+        // 仅后台通知开关（默认开启）：开启后，应用在前台时不弹出通知。
         [ObservableProperty]
-        private bool _isBackgroundOnlyNotification;
+        private bool _isBackgroundOnlyNotification = true;
 
         partial void OnIsBackgroundOnlyNotificationChanged(bool value)
         {
@@ -724,7 +724,7 @@ namespace LivePhotoBox.ViewModels
             IsRememberWindowLayout = AppSettingsService.GetValue(nameof(IsRememberWindowLayout), true);
             NotificationFrequencyIndex = AppSettingsService.GetValue(nameof(NotificationFrequencyIndex), 0);
             NotificationSoundIndex = AppSettingsService.GetValue(nameof(NotificationSoundIndex), 0);
-            IsBackgroundOnlyNotification = AppSettingsService.GetValue(nameof(IsBackgroundOnlyNotification), false);
+            IsBackgroundOnlyNotification = AppSettingsService.GetValue(nameof(IsBackgroundOnlyNotification), true);
         }
 
         // 异步加载硬件编码信息（WMI + FFmpeg 检测），完成后设置 SelectedHardware。

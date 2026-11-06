@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
@@ -38,6 +38,20 @@ namespace LivePhotoBox.Models
 
         // 诊断分析结果（由诊断步骤填充）
         public RepairAnalysisResult? AnalysisResult { get; set; }
+        private string? _executionStatus;
+        internal string? ExecutionStatus
+        {
+            get => _executionStatus;
+            set
+            {
+                if (!SetProperty(ref _executionStatus, value)) return;
+                OnPropertyChanged(nameof(DisplayStatus));
+                OnPropertyChanged(nameof(HasErrorDetails));
+            }
+        }
+        internal RepairPublishedOutput[] PublishedOutputs { get; set; } = [];
+        internal string? ExecutionOutcomeKey { get; set; }
+        internal bool IsImageRepairDisabled { get; set; }
 
         #endregion
 
@@ -135,25 +149,34 @@ namespace LivePhotoBox.Models
         public string DisplayFileName => FileNameFormatter.Truncate(FileName);
 
         // 用于 UI 显示的最终状态。
-        // 无需修复的文件直接视为成功（绿色），避免依赖多语言字符串比较。
+        // 只有完成适用检查的健康文件可直接显示绿色。
         public ProcessStatus DisplayStatus
         {
             get
             {
-                if (Status is ProcessStatus.Failed or ProcessStatus.Warning) return Status;
+                if (IsCancelled) return ProcessStatus.Cancelled;
+                if (Status is ProcessStatus.Processing or ProcessStatus.Cancelled or ProcessStatus.Failed or ProcessStatus.Warning) return Status;
                 if (IsDiagnosisError) return ProcessStatus.Failed;
+                if (IsImageRepairDisabled) return ProcessStatus.Pending;
                 if (AnalysisResult?.IssueType == RepairIssueType.Limited) return ProcessStatus.Warning;
-                // A verified healthy input needs no mutation.
-                if (!NeedsRepair || AnalysisResult?.IssueType == RepairIssueType.Perfect)
+
+                // 核心铁律：只要文件最终属于“无需修复”（包含纯健康、多余缩略图、处理后原样跳过保留），一律显示绿色（Success）
+                if (AnalysisResult?.IssueType is RepairIssueType.Perfect or RepairIssueType.NeedsStrip ||
+                    ExecutionStatus is "healthy" or "not_needed" or "copied" or "skipped" ||
+                    !NeedsRepair)
                 {
+                    if (ExecutionStatus is "failed") return ProcessStatus.Failed;
+                    if (ExecutionStatus is "warning") return ProcessStatus.Warning;
                     return ProcessStatus.Success;
                 }
+
+                if (ExecutionStatus != null) return Status;
                 return Status;
             }
         }
 
         // 任务失败且有错误详情时返回 true（用于 UI 显示错误图标）
-        public bool HasErrorDetails => Status is ProcessStatus.Failed or ProcessStatus.Warning && !string.IsNullOrWhiteSpace(Details);
+        public bool HasErrorDetails => DisplayStatus is ProcessStatus.Failed or ProcessStatus.Warning && !string.IsNullOrWhiteSpace(Details);
 
         // 诊断阶段的读取问题；仅状态列标红，诊断文字保持普通颜色。
         public bool IsDiagnosisError => AnalysisResult?.IssueType == RepairIssueType.Error;
@@ -167,6 +190,12 @@ namespace LivePhotoBox.Models
 
         // 状态变更时刷新 DisplayStatus 和 HasErrorDetails
         partial void OnStatusChanged(ProcessStatus value)
+        {
+            OnPropertyChanged(nameof(DisplayStatus));
+            OnPropertyChanged(nameof(HasErrorDetails));
+        }
+
+        partial void OnIsCancelledChanged(bool value)
         {
             OnPropertyChanged(nameof(DisplayStatus));
             OnPropertyChanged(nameof(HasErrorDetails));

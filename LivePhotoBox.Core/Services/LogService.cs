@@ -376,6 +376,16 @@ namespace LivePhotoBox.Services
                 return ProductOutcomeHistoryStore.Append(_currentLogPath, outcome);
         }
 
+        internal static bool AppendRepairOutcome(string record)
+        {
+            lock (_fileLock)
+            {
+                if (string.IsNullOrEmpty(_currentLogPath)) return false;
+                try { File.AppendAllText(_currentLogPath, record + Environment.NewLine, Encoding.UTF8); return true; }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return false; }
+            }
+        }
+
         internal static IReadOnlyList<ProductOperationOutcome> ReadProductOutcomes(int maxCount = 200)
         {
             lock (_fileLock)

@@ -265,10 +265,10 @@ static bool read_all_bytes(const lpb::random_access_reader& source,
     }
 }
 
-static lpb_result probe_video_reader(
+lpb_result probe_video_reader(
     lpb_context* context,
     const lpb::random_access_reader& source,
-    lpb_video_item_facts* out_video_facts, uint32_t* reflection = nullptr) noexcept
+    lpb_video_item_facts* out_video_facts, uint32_t* reflection) noexcept
 {
     if (reflection) *reflection = 0;
     std::memset(out_video_facts, 0, sizeof(lpb_video_item_facts));

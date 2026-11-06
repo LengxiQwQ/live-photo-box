@@ -10,6 +10,11 @@ namespace LivePhotoBox.Interop;
 
 internal static partial class NativeMethods
 {
+    [LibraryImport(LibraryName, EntryPoint = "lpb_repair_huawei_v1", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult RepairHuawei(nint context, string source, string? output,
+        ref NativeSamsungRepairRequest request, ref NativeHuaweiRepairResult result);
     [LibraryImport(LibraryName, EntryPoint = "lpb_repair_samsung_v1", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -726,5 +731,13 @@ internal unsafe struct NativeSamsungRepairResult
 {
     public uint StructSize, ApiVersion, Changed, Reencoded;
     public uint ImageOrientation, MainRotation, AutoplayRotation, Flags;
+    public fixed byte Details[2048];
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal unsafe struct NativeHuaweiRepairResult
+{
+    public uint StructSize, ApiVersion, Changed, Pending;
+    public uint ImageOrientation, MainRotation, Reflection, MetadataChanges;
     public fixed byte Details[2048];
 }

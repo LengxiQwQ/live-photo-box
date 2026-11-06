@@ -1,8 +1,12 @@
 #pragma once
 
 #include "livephotobox_native.h"
+#include "containers/isobmff.h"
 
 namespace lpb::media {
+
+lpb_result probe_video_reader(lpb_context*, const lpb::random_access_reader&,
+    lpb_video_item_facts*, uint32_t* reflection = nullptr) noexcept;
 
 // Internal deployment facts; not a public C ABI or request-specific promise.
 enum class mf_deployment_state { available, component_missing, encoder_absent, probe_failure };

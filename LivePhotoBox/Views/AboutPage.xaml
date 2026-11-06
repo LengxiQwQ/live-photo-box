@@ -493,172 +493,252 @@
                                FontFamily="Microsoft YaHei UI" VerticalAlignment="Center"/>
                 </StackPanel>
 
-                <Grid ColumnDefinitions="*,*,*" RowDefinitions="*,*" ColumnSpacing="12" RowSpacing="12">
-                    <!-- libheif (Row 0 Col 0) — HEIC 编解码管线 -->
+                <Grid ColumnDefinitions="*,*,*,*" RowDefinitions="*,*" ColumnSpacing="12" RowSpacing="12">
+                    <!-- 1. FFmpeg (Row 0 Col 0) — 视频转码与流封装引擎 -->
                     <Button Grid.Row="0" Grid.Column="0" HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Stretch"
-                            CornerRadius="12"
+                            CornerRadius="12" MinHeight="84"
+                            Background="{ThemeResource CustomPanelAcrylicBrush}"
+                            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                            BorderThickness="1" Padding="16"
+                            Command="{x:Bind ViewModel.OpenLinkCommand}"
+                            CommandParameter="https://ffmpeg.org/">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <Rectangle Width="40" Height="40" RadiusX="8" RadiusY="8" Margin="0,0,16,0" VerticalAlignment="Center">
+                                <Rectangle.Fill>
+                                    <ImageBrush ImageSource="/Assets/Credits/ffmpeg.png"/>
+                                </Rectangle.Fill>
+                            </Rectangle>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,8,0">
+                                <TextBlock x:Uid="AboutPage_CreditFFmpegName" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" MaxLines="1"
+                                           FontFamily="Microsoft YaHei UI"/>
+                                <TextBlock x:Uid="AboutPage_CreditFFmpegDesc"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           FontSize="12" TextWrapping="Wrap" MaxLines="2"
+                                           TextTrimming="CharacterEllipsis"
+                                           FontFamily="Microsoft YaHei UI"/>
+                            </StackPanel>
+                            <FontIcon Grid.Column="2" Glyph="&#xE8A7;" FontSize="12"
+                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                      VerticalAlignment="Center"/>
+                        </Grid>
+                    </Button>
+
+                    <!-- 2. libheif (Row 0 Col 1) — HEIC 编解码管线 -->
+                    <Button Grid.Row="0" Grid.Column="1" HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Stretch"
+                            CornerRadius="12" MinHeight="84"
                             Background="{ThemeResource CustomPanelAcrylicBrush}"
                             BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                             BorderThickness="1" Padding="16"
                             Command="{x:Bind ViewModel.OpenLinkCommand}"
                             CommandParameter="https://github.com/strukturag/libheif">
                         <Grid ColumnDefinitions="Auto,*,Auto">
-                            <Rectangle Width="40" Height="40" RadiusX="8" RadiusY="8" Margin="0,0,16,0">
+                            <Rectangle Width="40" Height="40" RadiusX="8" RadiusY="8" Margin="0,0,16,0" VerticalAlignment="Center">
                                 <Rectangle.Fill>
                                     <ImageBrush ImageSource="/Assets/Credits/libheif.png"/>
                                 </Rectangle.Fill>
                             </Rectangle>
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                <TextBlock x:Uid="AboutPage_CreditLibheifName" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,8,0">
+                                <TextBlock x:Uid="AboutPage_CreditLibheifName" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" MaxLines="1"
                                            FontFamily="Microsoft YaHei UI"/>
                                 <TextBlock x:Uid="AboutPage_CreditLibheifDesc"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                           FontSize="12" TextTrimming="CharacterEllipsis"
+                                           FontSize="12" TextWrapping="Wrap" MaxLines="2"
+                                           TextTrimming="CharacterEllipsis"
                                            FontFamily="Microsoft YaHei UI"/>
                             </StackPanel>
                             <FontIcon Grid.Column="2" Glyph="&#xE8A7;" FontSize="12"
-                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                      VerticalAlignment="Center"/>
                         </Grid>
                     </Button>
 
-                    <!-- Magick.NET (Row 0 Col 1) — HEIC 图像解码 -->
-                    <Button Grid.Row="0" Grid.Column="1" HorizontalAlignment="Stretch"
+                    <!-- 3. libjpeg-turbo (Row 0 Col 2) — SIMD 加速 JPEG 编解码 -->
+                    <Button Grid.Row="0" Grid.Column="2" HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Stretch"
-                            CornerRadius="12"
+                            CornerRadius="12" MinHeight="84"
+                            Background="{ThemeResource CustomPanelAcrylicBrush}"
+                            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                            BorderThickness="1" Padding="16"
+                            Command="{x:Bind ViewModel.OpenLinkCommand}"
+                            CommandParameter="https://github.com/libjpeg-turbo/libjpeg-turbo">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <Rectangle Width="40" Height="40" RadiusX="8" RadiusY="8" Margin="0,0,16,0" VerticalAlignment="Center">
+                                <Rectangle.Fill>
+                                    <ImageBrush ImageSource="/Assets/Credits/jpegtran.png"/>
+                                </Rectangle.Fill>
+                            </Rectangle>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,8,0">
+                                <TextBlock x:Uid="AboutPage_CreditLibjpegTurboName" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" MaxLines="1"
+                                           FontFamily="Microsoft YaHei UI"/>
+                                <TextBlock x:Uid="AboutPage_CreditLibjpegTurboDesc"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           FontSize="12" TextWrapping="Wrap" MaxLines="2"
+                                           TextTrimming="CharacterEllipsis"
+                                           FontFamily="Microsoft YaHei UI"/>
+                            </StackPanel>
+                            <FontIcon Grid.Column="2" Glyph="&#xE8A7;" FontSize="12"
+                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                      VerticalAlignment="Center"/>
+                        </Grid>
+                    </Button>
+
+                    <!-- 4. Magick.NET (Row 0 Col 3) — HEIC 图像解码与高级处理 -->
+                    <Button Grid.Row="0" Grid.Column="3" HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Stretch"
+                            CornerRadius="12" MinHeight="84"
                             Background="{ThemeResource CustomPanelAcrylicBrush}"
                             BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                             BorderThickness="1" Padding="16"
                             Command="{x:Bind ViewModel.OpenLinkCommand}"
                             CommandParameter="https://github.com/dlemstra/Magick.NET">
                         <Grid ColumnDefinitions="Auto,*,Auto">
-                            <Rectangle Width="40" Height="40" RadiusX="8" RadiusY="8" Margin="0,0,16,0">
+                            <Rectangle Width="40" Height="40" RadiusX="8" RadiusY="8" Margin="0,0,16,0" VerticalAlignment="Center">
                                 <Rectangle.Fill>
                                     <ImageBrush ImageSource="/Assets/Credits/magicknet.png"/>
                                 </Rectangle.Fill>
                             </Rectangle>
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                <TextBlock x:Uid="AboutPage_CreditMagickNETName" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,8,0">
+                                <TextBlock x:Uid="AboutPage_CreditMagickNETName" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" MaxLines="1"
                                            FontFamily="Microsoft YaHei UI"/>
                                 <TextBlock x:Uid="AboutPage_CreditMagickNETDesc"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                           FontSize="12" TextTrimming="CharacterEllipsis"
+                                           FontSize="12" TextWrapping="Wrap" MaxLines="2"
+                                           TextTrimming="CharacterEllipsis"
                                            FontFamily="Microsoft YaHei UI"/>
                             </StackPanel>
                             <FontIcon Grid.Column="2" Glyph="&#xE8A7;" FontSize="12"
-                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                      VerticalAlignment="Center"/>
                         </Grid>
                     </Button>
 
-                    <!-- CommunityToolkit (Row 0 Col 2) — MVVM 框架 + UI 控件 -->
-                    <Button Grid.Row="0" Grid.Column="2" HorizontalAlignment="Stretch"
-                            HorizontalContentAlignment="Stretch"
-                            CornerRadius="12"
-                            Background="{ThemeResource CustomPanelAcrylicBrush}"
-                            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
-                            BorderThickness="1" Padding="16"
-                            Command="{x:Bind ViewModel.OpenLinkCommand}"
-                            CommandParameter="https://github.com/CommunityToolkit/dotnet">
-                        <Grid ColumnDefinitions="Auto,*,Auto">
-                            <Rectangle Width="40" Height="40" RadiusX="8" RadiusY="8" Margin="0,0,16,0">
-                                <Rectangle.Fill>
-                                    <ImageBrush ImageSource="/Assets/Credits/communitytoolkit.png"/>
-                                </Rectangle.Fill>
-                            </Rectangle>
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                <TextBlock x:Uid="AboutPage_CreditCommunityToolkitName" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
-                                           FontFamily="Microsoft YaHei UI"/>
-                                <TextBlock x:Uid="AboutPage_CreditCommunityToolkitDesc"
-                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                           FontSize="12" TextTrimming="CharacterEllipsis"
-                                           FontFamily="Microsoft YaHei UI"/>
-                            </StackPanel>
-                            <FontIcon Grid.Column="2" Glyph="&#xE8A7;" FontSize="12"
-                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
-                        </Grid>
-                    </Button>
-
-                    <!-- MagicScaler (Row 1 Col 0) — 高性能图片缩放 -->
+                    <!-- 5. MagicScaler (Row 1 Col 0) — 高性能图片缩放 -->
                     <Button Grid.Row="1" Grid.Column="0" HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Stretch"
-                            CornerRadius="12"
+                            CornerRadius="12" MinHeight="84"
                             Background="{ThemeResource CustomPanelAcrylicBrush}"
                             BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                             BorderThickness="1" Padding="16"
                             Command="{x:Bind ViewModel.OpenLinkCommand}"
                             CommandParameter="https://github.com/saucecontrol/PhotoSauce">
                         <Grid ColumnDefinitions="Auto,*,Auto">
-                            <Rectangle Width="40" Height="40" RadiusX="8" RadiusY="8" Margin="0,0,16,0">
+                            <Rectangle Width="40" Height="40" RadiusX="8" RadiusY="8" Margin="0,0,16,0" VerticalAlignment="Center">
                                 <Rectangle.Fill>
                                     <ImageBrush ImageSource="/Assets/Credits/magicscaler.png"/>
                                 </Rectangle.Fill>
                             </Rectangle>
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                <TextBlock x:Uid="AboutPage_CreditMagicScalerName" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,8,0">
+                                <TextBlock x:Uid="AboutPage_CreditMagicScalerName" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" MaxLines="1"
                                            FontFamily="Microsoft YaHei UI"/>
                                 <TextBlock x:Uid="AboutPage_CreditMagicScalerDesc"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                           FontSize="12" TextTrimming="CharacterEllipsis"
+                                           FontSize="12" TextWrapping="Wrap" MaxLines="2"
+                                           TextTrimming="CharacterEllipsis"
                                            FontFamily="Microsoft YaHei UI"/>
                             </StackPanel>
                             <FontIcon Grid.Column="2" Glyph="&#xE8A7;" FontSize="12"
-                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                      VerticalAlignment="Center"/>
                         </Grid>
                     </Button>
 
-                    <!-- Markdig (Row 1 Col 1) — Markdown 渲染 -->
+                    <!-- 6. CommunityToolkit (Row 1 Col 1) — MVVM 框架 + UI 控件 -->
                     <Button Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Stretch"
-                            CornerRadius="12"
+                            CornerRadius="12" MinHeight="84"
                             Background="{ThemeResource CustomPanelAcrylicBrush}"
                             BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                             BorderThickness="1" Padding="16"
                             Command="{x:Bind ViewModel.OpenLinkCommand}"
-                            CommandParameter="https://github.com/xoofx/markdig">
+                            CommandParameter="https://github.com/CommunityToolkit/dotnet">
                         <Grid ColumnDefinitions="Auto,*,Auto">
-                            <Rectangle Width="40" Height="40" RadiusX="8" RadiusY="8" Margin="0,0,16,0">
+                            <Rectangle Width="40" Height="40" RadiusX="8" RadiusY="8" Margin="0,0,16,0" VerticalAlignment="Center">
                                 <Rectangle.Fill>
-                                    <ImageBrush ImageSource="/Assets/Credits/markdig.png"/>
+                                    <ImageBrush ImageSource="/Assets/Credits/communitytoolkit.png"/>
                                 </Rectangle.Fill>
                             </Rectangle>
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                <TextBlock x:Uid="AboutPage_CreditMarkdigName" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,8,0">
+                                <TextBlock x:Uid="AboutPage_CreditCommunityToolkitName" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" MaxLines="1"
                                            FontFamily="Microsoft YaHei UI"/>
-                                <TextBlock x:Uid="AboutPage_CreditMarkdigDesc"
+                                <TextBlock x:Uid="AboutPage_CreditCommunityToolkitDesc"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                           FontSize="12" TextTrimming="CharacterEllipsis"
+                                           FontSize="12" TextWrapping="Wrap" MaxLines="2"
+                                           TextTrimming="CharacterEllipsis"
                                            FontFamily="Microsoft YaHei UI"/>
                             </StackPanel>
                             <FontIcon Grid.Column="2" Glyph="&#xE8A7;" FontSize="12"
-                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                      VerticalAlignment="Center"/>
                         </Grid>
                     </Button>
 
-                    <!-- FluentIcons (Row 1 Col 2) — Fluent Design 图标库 -->
+                    <!-- 7. FluentIcons (Row 1 Col 2) — Fluent Design 图标库 -->
                     <Button Grid.Row="1" Grid.Column="2" HorizontalAlignment="Stretch"
                             HorizontalContentAlignment="Stretch"
-                            CornerRadius="12"
+                            CornerRadius="12" MinHeight="84"
                             Background="{ThemeResource CustomPanelAcrylicBrush}"
                             BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
                             BorderThickness="1" Padding="16"
                             Command="{x:Bind ViewModel.OpenLinkCommand}"
                             CommandParameter="https://github.com/davidxuang/FluentIcons">
                         <Grid ColumnDefinitions="Auto,*,Auto">
-                            <Rectangle Width="40" Height="40" RadiusX="8" RadiusY="8" Margin="0,0,16,0">
+                            <Rectangle Width="40" Height="40" RadiusX="8" RadiusY="8" Margin="0,0,16,0" VerticalAlignment="Center">
                                 <Rectangle.Fill>
                                     <ImageBrush ImageSource="/Assets/Credits/fluenticons.png"/>
                                 </Rectangle.Fill>
                             </Rectangle>
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center">
-                                <TextBlock x:Uid="AboutPage_CreditFluentIconsName" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,8,0">
+                                <TextBlock x:Uid="AboutPage_CreditFluentIconsName" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" MaxLines="1"
                                            FontFamily="Microsoft YaHei UI"/>
                                 <TextBlock x:Uid="AboutPage_CreditFluentIconsDesc"
                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                           FontSize="12" TextTrimming="CharacterEllipsis"
+                                           FontSize="12" TextWrapping="Wrap" MaxLines="2"
+                                           TextTrimming="CharacterEllipsis"
                                            FontFamily="Microsoft YaHei UI"/>
                             </StackPanel>
                             <FontIcon Grid.Column="2" Glyph="&#xE8A7;" FontSize="12"
-                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"/>
+                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                      VerticalAlignment="Center"/>
+                        </Grid>
+                    </Button>
+
+                    <!-- 8. Markdig (Row 1 Col 3) — Markdown 渲染 -->
+                    <Button Grid.Row="1" Grid.Column="3" HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Stretch"
+                            CornerRadius="12" MinHeight="84"
+                            Background="{ThemeResource CustomPanelAcrylicBrush}"
+                            BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}"
+                            BorderThickness="1" Padding="16"
+                            Command="{x:Bind ViewModel.OpenLinkCommand}"
+                            CommandParameter="https://github.com/xoofx/markdig">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                            <Rectangle Width="40" Height="40" RadiusX="8" RadiusY="8" Margin="0,0,16,0" VerticalAlignment="Center">
+                                <Rectangle.Fill>
+                                    <ImageBrush ImageSource="/Assets/Credits/markdig.png"/>
+                                </Rectangle.Fill>
+                            </Rectangle>
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="0,0,8,0">
+                                <TextBlock x:Uid="AboutPage_CreditMarkdigName" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" MaxLines="1"
+                                           FontFamily="Microsoft YaHei UI"/>
+                                <TextBlock x:Uid="AboutPage_CreditMarkdigDesc"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           FontSize="12" TextWrapping="Wrap" MaxLines="2"
+                                           TextTrimming="CharacterEllipsis"
+                                           FontFamily="Microsoft YaHei UI"/>
+                            </StackPanel>
+                            <FontIcon Grid.Column="2" Glyph="&#xE8A7;" FontSize="12"
+                                      Foreground="{ThemeResource TextFillColorTertiaryBrush}"
+                                      VerticalAlignment="Center"/>
                         </Grid>
                     </Button>
                 </Grid>

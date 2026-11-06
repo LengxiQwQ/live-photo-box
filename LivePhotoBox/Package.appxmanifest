@@ -12,8 +12,8 @@
     <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.19041.0" />
   </Dependencies>
   <Resources>
-    <Resource Language="en-US" />
     <Resource Language="zh-Hans" />
+    <Resource Language="en-US" />
   </Resources>
   <Applications>
     <Application Id="App" Executable="$targetnametoken$.exe" EntryPoint="$targetentrypoint$">

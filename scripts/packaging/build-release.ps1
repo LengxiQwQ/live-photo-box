@@ -1,4 +1,4 @@
-﻿# LivePhotoBox Release Build — 编译 + 打包 3 个产物: 便携版 zip + CLI zip + 安装包
+# LivePhotoBox Release Build — 编译 + 打包 3 个产物: 便携版 zip + CLI zip + 安装包
 # 用法: powershell -ExecutionPolicy Bypass -File scripts/packaging/build-release.ps1
 #       powershell -ExecutionPolicy Bypass -File scripts/packaging/build-release.ps1 -CI  (GitHub Actions)
 
@@ -225,10 +225,10 @@ if (Test-Path 'publish\cli_single\livephotobox-boot.exe') {
 
     # 复制文档（README + LICENSE + 使用指南）
     Copy-Item 'README.md' "$cliDir\README.md" -Force
-    Copy-Item 'README.zh-CN.md' "$cliDir\README.zh-CN.md" -Force
+    Copy-Item 'README.en.md' "$cliDir\README.en.md" -Force
     Copy-Item 'LICENSE' "$cliDir\LICENSE" -Force
-    Copy-Item 'docs\CLI-User-Guide.md' "$cliDir\CLI-User-Guide.md" -Force
     Copy-Item 'docs\CLI-User-Guide.zh-CN.md' "$cliDir\CLI-User-Guide.zh-CN.md" -Force
+    Copy-Item 'docs\CLI-User-Guide.en.md'    "$cliDir\CLI-User-Guide.en.md"    -Force
     Copy-Item 'scripts\packaging\add-to-path.cmd'      "$cliDir\add-to-path.cmd"      -Force
     Copy-Item 'scripts\packaging\remove-from-path.cmd' "$cliDir\remove-from-path.cmd" -Force
     Write-Host '       Docs + PATH helper scripts copied' -ForegroundColor Green
@@ -236,7 +236,7 @@ if (Test-Path 'publish\cli_single\livephotobox-boot.exe') {
     # 打包 CLI zip
     $cliZipName = "Live-Photo-Box-v$version-x64-cli.zip"
     $cliZipPath = "publish\$cliZipName"
-    Invoke-ReliableZip -SourceDir $cliDir -ZipPath $cliZipPath -RequiredNames @('livephotobox-boot.exe','LivePhotoBox.Native.dll','LivePhotoBox.Video.Libav.dll','FFmpeg-COPYING.GPLv3','x264-copyright.txt','x265-copyright.txt','README.md','README.zh-CN.md','LICENSE','CLI-User-Guide.md','CLI-User-Guide.zh-CN.md','add-to-path.cmd','remove-from-path.cmd') -CI:$CI
+    Invoke-ReliableZip -SourceDir $cliDir -ZipPath $cliZipPath -RequiredNames @('livephotobox-boot.exe','LivePhotoBox.Native.dll','LivePhotoBox.Video.Libav.dll','FFmpeg-COPYING.GPLv3','x264-copyright.txt','x265-copyright.txt','README.md','README.en.md','LICENSE','CLI-User-Guide.zh-CN.md','CLI-User-Guide.en.md','add-to-path.cmd','remove-from-path.cmd') -CI:$CI
     $cliZipSize = '{0:N1} MB' -f ((Get-Item $cliZipPath).Length / 1MB)
     Write-Host "       $cliZipName  ($cliZipSize)" -ForegroundColor Green
 
@@ -321,16 +321,16 @@ Write-Host '[6/7] Creating portable zip...' -ForegroundColor Yellow
 
 # 复制文档（README + LICENSE + 使用指南）
 Copy-Item 'README.md' "$outDir\README.md" -Force
-Copy-Item 'README.zh-CN.md' "$outDir\README.zh-CN.md" -Force
+Copy-Item 'README.en.md' "$outDir\README.en.md" -Force
 Copy-Item 'LICENSE' "$outDir\LICENSE" -Force
-Copy-Item 'docs\CLI-User-Guide.md' "$outDir\CLI-User-Guide.md" -Force
 Copy-Item 'docs\CLI-User-Guide.zh-CN.md' "$outDir\CLI-User-Guide.zh-CN.md" -Force
+Copy-Item 'docs\CLI-User-Guide.en.md'    "$outDir\CLI-User-Guide.en.md"    -Force
 Copy-Item 'scripts\packaging\add-to-path.cmd'      "$outDir\add-to-path.cmd"      -Force
 Copy-Item 'scripts\packaging\remove-from-path.cmd' "$outDir\remove-from-path.cmd" -Force
 
 $zipName = "Live-Photo-Box-v$version-x64-portable.zip"
 $zipPath = "publish\$zipName"
-Invoke-ReliableZip -SourceDir $outDir -ZipPath $zipPath -RequiredNames @('Live Photo Box.exe','livephotobox-boot.exe','LivePhotoBox.Native.dll','LivePhotoBox.Video.Libav.dll','FFmpeg-COPYING.GPLv3','x264-copyright.txt','x265-copyright.txt','README.md','README.zh-CN.md','LICENSE','CLI-User-Guide.md','CLI-User-Guide.zh-CN.md','add-to-path.cmd','remove-from-path.cmd') -CI:$CI
+Invoke-ReliableZip -SourceDir $outDir -ZipPath $zipPath -RequiredNames @('Live Photo Box.exe','livephotobox-boot.exe','LivePhotoBox.Native.dll','LivePhotoBox.Video.Libav.dll','FFmpeg-COPYING.GPLv3','x264-copyright.txt','x265-copyright.txt','README.md','README.en.md','LICENSE','CLI-User-Guide.zh-CN.md','CLI-User-Guide.en.md','add-to-path.cmd','remove-from-path.cmd') -CI:$CI
 $zipSize = '{0:N1} MB' -f ((Get-Item $zipPath).Length / 1MB)
 Write-Host "       $zipName  ($zipSize)" -ForegroundColor Green
 

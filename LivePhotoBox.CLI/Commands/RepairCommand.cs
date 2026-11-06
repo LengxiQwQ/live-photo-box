@@ -220,8 +220,9 @@ namespace LivePhotoBox.Cli.Commands
                 FixVideoRotation = !noVideo
             };
 
+            using var batchContext = new RepairBatchContext();
             var results = new List<object>();
-            int succeeded = 0, failed = 0, skipped = 0, warned = 0, planned = 0, copied = 0;
+            int succeeded = 0, failed = 0, skipped = 0, warned = 0, planned = 0, copied = 0, healthy = 0;
             foreach (string file in files)
             {
                 ct.ThrowIfCancellationRequested();
@@ -235,19 +236,21 @@ namespace LivePhotoBox.Cli.Commands
                     if (ImageExtensions.Contains(extension))
                         result = noRotate && noThumbnail && noHeic && noVideo
                             ? new("skipped", "All image repair options were disabled.")
-                            : await LivePhotoRepairService.RepairImageFileAsync(file, folder, allDevices, dryRun, options, ct, copyPerfect);
+                            : await LivePhotoRepairService.RepairImageFileAsync(file, folder, allDevices, dryRun, options, ct, copyPerfect, batchContext);
                     else
                         result = await LivePhotoRepairService.RepairVideoFileAsync(
-                            file, folder, allDevices, repairLongVideos, dryRun, dir != null, options, ct, copyPerfect);
+                            file, folder, allDevices, repairLongVideos, dryRun, dir != null, options, ct, copyPerfect, batchContext);
                 }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     result = new("failed", ex.Message);
                 }
 
+                result = LivePhotoRepairService.EnsureRecorded(file, options, result);
                 switch (result.Status)
                 {
                     case "success": succeeded++; break;
+                    case "healthy": healthy++; break;
                     case "failed": failed++; break;
                     case "warning": warned++; break;
                     case "planned": planned++; break;
@@ -256,20 +259,20 @@ namespace LivePhotoBox.Cli.Commands
                 }
                 string? color = result.Status switch
                 {
-                    "success" => "green",
+                    "success" or "healthy" => "green",
                     "warning" => "yellow",
                     "failed" => "red",
                     _ => null
                 };
-                results.Add(new { file, status = result.Status, color, message = result.Message, image = result.Image, video = result.Video });
+                results.Add(new { file, status = result.Status, color, message = result.Message, image = result.Image, video = result.Video, completion = result.Completion, actions = result.Actions, reasons = result.Limitations, publishedOutputs = result.PublishedOutputs, historyRecorded = result.HistoryRecorded });
                 if (!json && (verbose || singlePath != null || result.Status != "skipped"))
-                    Console.WriteLine($"[{result.Status}] {file} — {result.Message} {result.Image} {result.Video}");
+                    Console.WriteLine($"[{result.Status}] {file}{Environment.NewLine}{LivePhotoRepairService.DescribeResult(result)}{Environment.NewLine}{result.Message}");
             }
 
             if (json)
-                Console.WriteLine(JsonSerializer.Serialize(new { succeeded, failed, skipped, warned, planned, copied, results }));
+                Console.WriteLine(JsonSerializer.Serialize(new { succeeded, failed, skipped, warned, planned, copied, healthy, results }));
             else
-                Console.WriteLine($"Repaired: {succeeded}, warning: {warned}, failed: {failed}, skipped: {skipped}, planned: {planned}, copied: {copied}");
+                Console.WriteLine($"Repaired: {succeeded}, warning: {warned}, failed: {failed}, skipped: {skipped}, planned: {planned}, copied: {copied}, healthy: {healthy}");
             return failed == 0 ? 0 : 1;
         }
     }

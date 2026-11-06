@@ -1,110 +1,52 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<root>
-  <!-- 
-    Microsoft ResX Schema 
-    
-    Version 2.0
-    
-    The primary goals of this format is to allow a simple XML format 
-    that is mostly human readable. The generation and parsing of the 
-    various data types are done through the TypeConverter classes 
-    associated with the data types.
-    
-    Example:
-    
-    ... ado.net/XML headers & schema ...
-    <resheader name="resmimetype">text/microsoft-resx</resheader>
-    <resheader name="version">2.0</resheader>
-    <resheader name="reader">System.Resources.ResXResourceReader, System.Windows.Forms, ...</resheader>
-    <resheader name="writer">System.Resources.ResXResourceWriter, System.Windows.Forms, ...</resheader>
-    <data name="Name1"><value>this is my long string</value><comment>this is a comment</comment></data>
-    <data name="Color1" type="System.Drawing.Color, System.Drawing">Blue</data>
-    <data name="Bitmap1" mimetype="application/x-microsoft.net.object.binary.base64">
-        <value>[base64 mime encoded serialized .NET Framework object]</value>
-    </data>
-    <data name="Icon1" type="System.Drawing.Icon, System.Drawing" mimetype="application/x-microsoft.net.object.bytearray.base64">
-        <value>[base64 mime encoded string representing a byte array form of the .NET Framework object]</value>
-        <comment>This is a comment</comment>
-    </data>
-                
-    There are any number of "resheader" rows that contain simple 
-    name/value pairs.
-    
-    Each data row contains a name, and value. The row also contains a 
-    type or mimetype. Type corresponds to a .NET class that support 
-    text/value conversion through the TypeConverter architecture. 
-    Classes that don't support this are serialized and stored with the 
-    mimetype set.
-    
-    The mimetype is used for serialized objects, and tells the 
-    ResXResourceReader how to depersist the object. This is currently not 
-    extensible. For a given mimetype the value must be set accordingly:
-    
-    Note - application/x-microsoft.net.object.binary.base64 is the format 
-    that the ResXResourceWriter will generate, however the reader can 
-    read any of the formats listed below.
-    
-    mimetype: application/x-microsoft.net.object.binary.base64
-    value   : The object must be serialized with 
-            : System.Runtime.Serialization.Formatters.Binary.BinaryFormatter
-            : and then encoded with base64 encoding.
-    
-    mimetype: application/x-microsoft.net.object.soap.base64
-    value   : The object must be serialized with 
-            : System.Runtime.Serialization.Formatters.Soap.SoapFormatter
-            : and then encoded with base64 encoding.
-
-    mimetype: application/x-microsoft.net.object.bytearray.base64
-    value   : The object must be serialized into a byte array 
-            : using a System.ComponentModel.TypeConverter
-            : and then encoded with base64 encoding.
-    -->
-  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
-    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
-    <xsd:element name="root" msdata:IsDataSet="true">
-      <xsd:complexType>
-        <xsd:choice maxOccurs="unbounded">
-          <xsd:element name="metadata">
-            <xsd:complexType>
-              <xsd:sequence>
-                <xsd:element name="value" type="xsd:string" minOccurs="0" />
-              </xsd:sequence>
-              <xsd:attribute name="name" use="required" type="xsd:string" />
-              <xsd:attribute name="type" type="xsd:string" />
-              <xsd:attribute name="mimetype" type="xsd:string" />
-              <xsd:attribute ref="xml:space" />
-            </xsd:complexType>
-          </xsd:element>
-          <xsd:element name="assembly">
-            <xsd:complexType>
-              <xsd:attribute name="alias" type="xsd:string" />
-              <xsd:attribute name="name" type="xsd:string" />
-            </xsd:complexType>
-          </xsd:element>
-          <xsd:element name="data">
-            <xsd:complexType>
-              <xsd:sequence>
-                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
-                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
-              </xsd:sequence>
-              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
-              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
-              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
-              <xsd:attribute ref="xml:space" />
-            </xsd:complexType>
-          </xsd:element>
-          <xsd:element name="resheader">
-            <xsd:complexType>
-              <xsd:sequence>
-                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
-              </xsd:sequence>
-              <xsd:attribute name="name" type="xsd:string" use="required" />
-            </xsd:complexType>
-          </xsd:element>
-        </xsd:choice>
-      </xsd:complexType>
-    </xsd:element>
-  </xsd:schema>
+<?xml version='1.0' encoding='utf-8'?>
+<root xmlns:ns1="urn:schemas-microsoft-com:xml-msdata" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  
+  <xs:schema id="root">
+    <xs:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xs:element name="root" ns1:IsDataSet="true">
+      <xs:complexType>
+        <xs:choice maxOccurs="unbounded">
+          <xs:element name="metadata">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="value" type="xsd:string" minOccurs="0" />
+              </xs:sequence>
+              <xs:attribute name="name" use="required" type="xsd:string" />
+              <xs:attribute name="type" type="xsd:string" />
+              <xs:attribute name="mimetype" type="xsd:string" />
+              <xs:attribute ref="xml:space" />
+            </xs:complexType>
+          </xs:element>
+          <xs:element name="assembly">
+            <xs:complexType>
+              <xs:attribute name="alias" type="xsd:string" />
+              <xs:attribute name="name" type="xsd:string" />
+            </xs:complexType>
+          </xs:element>
+          <xs:element name="data">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="value" type="xsd:string" minOccurs="0" ns1:Ordinal="1" />
+                <xs:element name="comment" type="xsd:string" minOccurs="0" ns1:Ordinal="2" />
+              </xs:sequence>
+              <xs:attribute name="name" type="xsd:string" use="required" ns1:Ordinal="1" />
+              <xs:attribute name="type" type="xsd:string" ns1:Ordinal="3" />
+              <xs:attribute name="mimetype" type="xsd:string" ns1:Ordinal="4" />
+              <xs:attribute ref="xml:space" />
+            </xs:complexType>
+          </xs:element>
+          <xs:element name="resheader">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="value" type="xsd:string" minOccurs="0" ns1:Ordinal="1" />
+              </xs:sequence>
+              <xs:attribute name="name" type="xsd:string" use="required" />
+            </xs:complexType>
+          </xs:element>
+        </xs:choice>
+      </xs:complexType>
+    </xs:element>
+  </xs:schema>
   <resheader name="resmimetype">
     <value>text/microsoft-resx</value>
   </resheader>
@@ -1179,7 +1121,7 @@ You can open the log folder or export the latest log now to help diagnose the is
     <value>Vertically stretched</value>
   </data>
   <data name="Tag_RotationLabel" xml:space="preserve">
-    <value>{0}° rotation tag</value>
+    <value>Photo {0}° rotation tag</value>
   </data>
   <data name="Tag_MissingRotationLabel" xml:space="preserve">
     <value>Missing rotation label</value>
@@ -1978,10 +1920,10 @@ Then click "Start Split".</value>
     <value>Refresh hardware detection</value>
   </data>
   <data name="Tag_OrientationMirror" xml:space="preserve">
-    <value>EXIF mirror flag</value>
+    <value>Photo mirror tag</value>
   </data>
   <data name="Tag_OrientationAngleMismatch" xml:space="preserve">
-    <value>EXIF angle mismatch</value>
+    <value>Photo angle mismatch</value>
   </data>
   <data name="SettingsPage_Repair_Header.Text" xml:space="preserve">
     <value>Repair Live Photo</value>
@@ -2023,13 +1965,13 @@ Then click "Start Split".</value>
     <value>[Video repair off]</value>
   </data>
   <data name="Tag_VideoRotation" xml:space="preserve">
-    <value>{0}° rotation tag</value>
+    <value>Video {0}° rotation tag</value>
   </data>
   <data name="Tag_FlipVertical" xml:space="preserve">
-    <value>Vertical flip matrix</value>
+    <value>Video vertical flip</value>
   </data>
   <data name="Tag_FlipHorizontal" xml:space="preserve">
-    <value>Horizontal flip matrix</value>
+    <value>Video horizontal flip</value>
   </data>
   <data name="SettingsPage_Transcode_Header.Text" xml:space="preserve">
     <value>Video Transcoding</value>
@@ -3547,6 +3489,18 @@ Then click "Start Split".</value>
   <data name="AboutPage_CreditFluentIconsDesc.Text" xml:space="preserve">
     <value>Fluent System Icons collection for .NET</value>
   </data>
+  <data name="AboutPage_CreditFFmpegName.Text" xml:space="preserve">
+    <value>FFmpeg</value>
+  </data>
+  <data name="AboutPage_CreditFFmpegDesc.Text" xml:space="preserve">
+    <value>Video transcoding, remuxing &amp; color conversion (integrated x264/x265)</value>
+  </data>
+  <data name="AboutPage_CreditLibjpegTurboName.Text" xml:space="preserve">
+    <value>libjpeg-turbo</value>
+  </data>
+  <data name="AboutPage_CreditLibjpegTurboDesc.Text" xml:space="preserve">
+    <value>High-speed SIMD-accelerated JPEG codec &amp; lossless transforms</value>
+  </data>
   <data name="AboutPage_LegalTitle.Text" xml:space="preserve">
     <value>Legal Information</value>
   </data>
@@ -4656,6 +4610,117 @@ Inputs: {1}
     <value>Repair unconfirmed</value>
   </data>
   <data name="RepairPage_Reason_OtherDevice" xml:space="preserve">
-    <value>Other device, skipped</value>
+    <value>Other device (not Apple/Samsung), skipped</value>
+  </data>
+  <data name="Repair_ResultSummary" xml:space="preserve"><value>{0} files: repaired {1}, healthy {2}, partial/unverified isolated {3}, incomplete without output {4}, unchanged copies {5}, isolated unchanged copies {6}, skipped {7}, failed {8}, not run/cancelled {9}.</value></data>
+  <data name="Repair_Outcome_success" xml:space="preserve"><value>Repaired</value></data>
+  <data name="Repair_Outcome_healthy" xml:space="preserve"><value>Applicable checks completed; no repair needed</value></data>
+  <data name="Repair_Outcome_warning" xml:space="preserve"><value>Incomplete; see details for actual output</value></data>
+  <data name="Repair_Outcome_failed" xml:space="preserve"><value>Repair failed; see details</value></data>
+  <data name="Repair_Outcome_skipped" xml:space="preserve"><value>Skipped; see details</value></data>
+  <data name="Repair_Outcome_copied" xml:space="preserve"><value>Copied unchanged; no repair performed</value></data>
+  <data name="Repair_Outcome_planned" xml:space="preserve"><value>Planned only; not executed</value></data>
+  <data name="Repair_Action_ImageRotation" xml:space="preserve"><value>Apply EXIF orientation {0} losslessly and reset it to 1.</value></data>
+  <data name="Repair_Action_Thumbnail" xml:space="preserve"><value>Remove confirmed embedded thumbnails and previews.</value></data>
+  <data name="Repair_Action_Heif" xml:space="preserve"><value>Align primary EXIF orientation with the HEIF display transform.</value></data>
+  <data name="Repair_Action_Copy" xml:space="preserve"><value>Copy the image and any confirmed companion unchanged.</value></data>
+  <data name="Repair_Limited_Image" xml:space="preserve"><value>Image rotation was not performed: its metadata or attached-media layout cannot safely be transformed. Original orientation is retained.</value></data>
+  <data name="Repair_Limited_Exif" xml:space="preserve"><value>EXIF could not be fully diagnosed; original image bytes are retained.</value></data>
+  <data name="Repair_Limited_PairedVideo" xml:space="preserve"><value>Paired video rotation was not performed; the original video and its pairing metadata are retained.</value></data>
+  <data name="Repair_Limited_Embedded" xml:space="preserve"><value>Embedded video orientation was not repaired; its original bytes are retained.</value></data>
+  <data name="Repair_Limited_Metadata" xml:space="preserve"><value>Thumbnail/orientation metadata repair could not be verified: {0}</value></data>
+  <data name="Repair_Limited_Companion" xml:space="preserve"><value>Apple MOV companion was not found. Output will be isolated.</value></data>
+  <data name="Repair_Limited_VideoProbe" xml:space="preserve"><value>MOV rotation could not be verified: {0}</value></data>
+  <data name="Repair_Limited_Cover" xml:space="preserve"><value>Source cover time is unknown. No cover timestamp will be invented.</value></data>
+  <data name="Repair_Limited_JpegRotation" xml:space="preserve"><value>JPEG rotation was skipped: {0}</value></data>
+  <data name="Repair_Limited_VideoRotation" xml:space="preserve"><value> Video rotation could not be verified: {0}</value></data>
+  <data name="Repair_Limited_Preservation" xml:space="preserve"><value> Source metadata preservation was not fully verified; output is isolated.</value></data>
+  <data name="Repair_Action_Video" xml:space="preserve"><value> Video re-encoded; only primary audio/video and confirmed Apple pairing/cover are carried.</value></data>
+  <data name="Repair_Action_PairedVideo" xml:space="preserve"><value> Video re-encoded; primary audio retained; Apple pairing and cover rebuilt. Unrelated auxiliary tracks were omitted.</value></data>
+  <data name="Repair_Action_Horizontal" xml:space="preserve"><value>Apply the horizontal display reflection to video frames.</value></data>
+  <data name="Repair_Action_Vertical" xml:space="preserve"><value>Apply the vertical display reflection to video frames.</value></data>
+  <data name="Repair_Action_Rotation" xml:space="preserve"><value>Apply the display rotation ({0} degrees) to video frames.</value></data>
+  <data name="Repair_DisabledImage_Exported" xml:space="preserve"><value>Image repair was disabled. The image was exported unchanged with its pair, without repair. Original diagnosis follows.</value></data>
+  <data name="Repair_PairOutcome" xml:space="preserve"><value>Overall operation result: {0}</value></data>
+  <data name="Repair_Action_Huawei" xml:space="preserve"><value>Huawei dynamic photo identified; selected photo/video repairs preserve audio and HDR information.</value></data>
+  <data name="Repair_Huawei_NoAction" xml:space="preserve"><value>The file is readable; some selected checks or repairs remain incomplete. An unchanged file is not marked as repaired.</value></data>
+  <data name="Repair_Huawei_Partial" xml:space="preserve"><value>Available photo/video repairs completed; some selected checks or repairs remain incomplete. Output is isolated.</value></data>
+  <data name="Repair_Outcome_warning_no_output" xml:space="preserve"><value>Incomplete, no output</value></data>
+  <data name="Repair_Outcome_warning_isolated" xml:space="preserve"><value>Partially repaired or unverified; isolated output</value></data>
+  <data name="Repair_Outcome_warning_copy" xml:space="preserve"><value>Unchanged isolated copy; not repaired</value></data>
+  <data name="Repair_GroupIsolated" xml:space="preserve"><value>Pair isolated; see details</value></data>
+  <data name="Repair_NoOutput" xml:space="preserve"><value>Output: none; no file was created.</value></data>
+  <data name="Repair_OutputMissing" xml:space="preserve"><value>Exported earlier; the file is now missing from this path. It may have been moved or deleted.</value></data>
+  <data name="Repair_ResultLocation.Content" xml:space="preserve"><value>Show output in folder</value></data>
+  <data name="Repair_RemainingReason" xml:space="preserve"><value>Incomplete/unverified reason: </value></data>
+  <data name="Repair_HistoryMissing" xml:space="preserve"><value>Outcome log was not saved; the media operation result is unchanged.</value></data>
+  <data name="Repair_ActionName_image_orientation" xml:space="preserve"><value>Photo orientation</value></data>
+  <data name="Repair_ActionName_thumbnail" xml:space="preserve"><value>Thumbnail cleanup</value></data>
+  <data name="Repair_ActionName_heif_orientation" xml:space="preserve"><value>HEIF alignment</value></data>
+  <data name="Repair_ActionName_video_orientation" xml:space="preserve"><value>Video orientation</value></data>
+  <data name="Repair_ActionState_not_selected" xml:space="preserve"><value>Not selected</value></data>
+  <data name="Repair_ActionState_not_needed" xml:space="preserve"><value>Checked; no action needed</value></data>
+  <data name="Repair_ActionState_completed" xml:space="preserve"><value>Completed and verified</value></data>
+  <data name="Repair_ActionState_not_completed" xml:space="preserve"><value>Incomplete; original content retained</value></data>
+  <data name="Repair_ActionState_not_checked" xml:space="preserve"><value>Check not completed</value></data>
+  <data name="Repair_ActionState_planned" xml:space="preserve"><value>Planned; not executed</value></data>
+  <data name="Repair_OutputKind_copy" xml:space="preserve"><value>Unchanged copy</value></data>
+  <data name="Repair_OutputKind_repaired" xml:space="preserve"><value>Repaired output</value></data>
+  <data name="Repair_OutputKind_isolated_copy" xml:space="preserve"><value>Isolated unchanged copy (not repaired)</value></data>
+  <data name="Repair_OutputKind_isolated_repaired" xml:space="preserve"><value>Isolated output (partial/unverified)</value></data>
+  <data name="Repair_Reason_lossless_transform_unavailable" xml:space="preserve"><value>Lossless photo orientation repair did not complete; original orientation retained.</value></data>
+  <data name="Repair_Reason_thumbnail_ownership_unverified" xml:space="preserve"><value>Thumbnail cleanup did not complete; unconfirmed content retained.</value></data>
+  <data name="Repair_Reason_heif_alignment_unverified" xml:space="preserve"><value>HEIF alignment did not complete; original display information retained.</value></data>
+  <data name="Repair_Reason_video_direction_unverified" xml:space="preserve"><value>Video orientation check or normalization did not complete; original video retained.</value></data>
+  <data name="Repair_Reason_companion_missing" xml:space="preserve"><value>No confirmed companion video was found; pair checks remain incomplete.</value></data>
+  <data name="Repair_Reason_cover_time_unknown" xml:space="preserve"><value>Source cover time is unknown; no replacement cover time was guessed.</value></data>
+  <data name="Repair_Reason_video_preservation_unverified" xml:space="preserve"><value>Video normalized; preservation of some source media information remains unverified.</value></data>
+  <data name="Repair_Reason_image_preservation_unverified" xml:space="preserve"><value>Repaired photo failed media-preservation validation; original photo retained.</value></data>
+<data name="OutputDir_Quarantined" xml:space="preserve"><value>Quarantine</value><comment>Quarantine output folder name</comment></data>
+  <data name="Repair_Status_Waiting" xml:space="preserve"><value>Waiting</value></data>
+  <data name="Repair_Status_Processing" xml:space="preserve"><value>Repairing</value></data>
+  <data name="Repair_Status_Completed" xml:space="preserve"><value>Completed</value></data>
+  <data name="Repair_Status_Failed" xml:space="preserve"><value>Failed</value></data>
+  <data name="Repair_Status_Isolated" xml:space="preserve"><value>Quarantined</value></data>
+  <data name="Repair_Status_NoRepairNeeded" xml:space="preserve"><value>No Repair Needed</value></data>
+  <data name="Repair_Status_Cancelled" xml:space="preserve"><value>Cancelled</value></data>
+  <data name="Tag_Status_Normal" xml:space="preserve"><value>Normal</value></data>
+  <data name="Tag_NonApple" xml:space="preserve"><value>Non-Apple/Samsung</value></data>
+  <data name="Tag_ReadError" xml:space="preserve"><value>Read Failed</value></data>
+  <data name="Tag_Corrupted" xml:space="preserve"><value>Corrupted</value></data>
+  <data name="RepairPage_ColActions.Text" xml:space="preserve"><value>Actions</value></data>
+  <data name="RepairPage_Menu_ShowInFolder.Text" xml:space="preserve"><value>Show Source in Folder</value></data>
+  <data name="RepairPage_Menu_OpenOutput.Text" xml:space="preserve"><value>Open Output Folder</value></data>
+  <data name="RepairPage_Menu_Preview.Text" xml:space="preserve"><value>Preview</value></data>
+  <data name="RepairPage_Menu_Delete.Text" xml:space="preserve"><value>Remove</value></data>
+  <data name="RepairPage_Action_ShowInFolder.ToolTipService.ToolTip" xml:space="preserve"><value>Show in folder</value></data>
+  <data name="RepairPage_Action_More.ToolTipService.ToolTip" xml:space="preserve"><value>More actions</value></data>
+<data name="RepairTip_Perfect" xml:space="preserve"><value>Normal. No repair needed for this file.</value></data>
+  <data name="RepairTip_NonApple" xml:space="preserve"><value>Non-Apple/Samsung dynamic photo; skipped.</value></data>
+  <data name="RepairTip_Error" xml:space="preserve"><value>File read or validation failed; cannot safely repair.</value></data>
+  <data name="RepairTip_Rotation" xml:space="preserve"><value>Photo orientation has {0}° rotation</value></data>
+  <data name="RepairTip_Thumbnail" xml:space="preserve"><value>Contains extra embedded thumbnails; can be cleaned up</value></data>
+  <data name="RepairTip_Conflict" xml:space="preserve"><value>HEIF orientation metadata conflict</value></data>
+  <data name="RepairTip_VideoRotation" xml:space="preserve"><value>Live video has {0}° rotation</value></data>
+  <data name="RepairTip_IsolatedOutput" xml:space="preserve"><value>Quarantined to: {0} (original file unchanged)</value></data>
+  <data name="RepairTip_SuccessOutput" xml:space="preserve"><value>Exported to: {0}</value></data>
+  <data name="RepairTip_Failed" xml:space="preserve"><value>Repair was unsuccessful; your source file remains unchanged.</value></data>
+  <data name="RepairTip_Pending" xml:space="preserve"><value>Status: Waiting to repair.</value></data>
+<data name="RepairTip_DiagnosisPrefix" xml:space="preserve"><value>Diagnosis: </value></data><data name="RepairTip_Status_Processing" xml:space="preserve"><value>Status: Repairing...</value></data><data name="RepairTip_Status_NoRepairNeeded" xml:space="preserve"><value>Status: No repair needed.</value></data><data name="RepairTip_FileInUse" xml:space="preserve"><value>The file is currently in use by another program.</value></data><data name="RepairTip_AccessDenied" xml:space="preserve"><value>Access denied; please check read/write permissions.</value></data><data name="RepairTip_DiskFull" xml:space="preserve"><value>Insufficient disk space to save the repaired file.</value></data><data name="RepairTip_FileNotFound" xml:space="preserve"><value>Source file not found; please verify the path.</value></data><data name="RepairTip_Error_General" xml:space="preserve"><value>An unexpected error occurred during repair.</value></data><data name="RepairTip_ReasonPrefix" xml:space="preserve"><value>Reason: </value></data><data name="RepairTip_OutcomePrefix" xml:space="preserve"><value>Outcome: </value></data><data name="RepairTip_Status_Skipped" xml:space="preserve"><value>Status: Skipped; original file remains unchanged.</value></data><data name="Tag_VideoOrientationMirror" xml:space="preserve"><value>Video mirror tag</value></data><data name="RepairTip_StatusPrefix" xml:space="preserve"><value>Status: </value></data>
+  <data name="RepairTip_CompletedDesc" xml:space="preserve"><value>Successfully repaired and exported per repair rules. Original file remains unchanged.</value></data>
+  <data name="RepairTip_NoRepairNeededDesc" xml:space="preserve"><value>File inspection passed; no repair is needed.</value></data>
+  <data name="RepairTip_WaitingDesc" xml:space="preserve"><value>Click "Start Repair" to process this item with configured rules.</value></data>
+  <data name="RepairTip_DefaultIsolationReason" xml:space="preserve"><value>Metadata preservation was not fully verified. To protect your original file, output was isolated to the quarantine directory.</value></data>
+  <data name="RepairTip_CancelledDesc" xml:space="preserve"><value>Repair task was manually stopped or cancelled.</value></data>
+  <data name="RepairOptions_FixImageRotation_Title" xml:space="preserve"><value>JPEG Image Lossless Rotation</value></data>
+  <data name="RepairOptions_FixImageRotation_Desc" xml:space="preserve"><value>Losslessly rotates pixel orientation to fix sideways or upside-down photos on Windows.</value></data>
+  <data name="RepairOptions_FixHeicOrientation_Title" xml:space="preserve"><value>HEIC Orientation Alignment</value></data>
+  <data name="RepairOptions_FixHeicOrientation_Desc" xml:space="preserve"><value>Aligns EXIF and container rotation metadata to resolve cross-device angle conflicts.</value></data>
+  <data name="RepairOptions_StripImageThumbnail_Title" xml:space="preserve"><value>Embedded Thumbnail Cleanup</value></data>
+  <data name="RepairOptions_StripImageThumbnail_Desc" xml:space="preserve"><value>Removes redundant camera thumbnails to reduce file size without altering image quality.</value></data>
+  <data name="RepairOptions_FixVideoRotation_Title" xml:space="preserve"><value>Live Video Orientation Fix</value></data>
+  <data name="RepairOptions_FixVideoRotation_Desc" xml:space="preserve"><value>Applies rotation directly to video frames and removes rotation tags for upright playback.</value></data>
+  <data name="RepairPage_Status_Running" xml:space="preserve">
+    <value>Repairing...</value>
   </data>
 </root>

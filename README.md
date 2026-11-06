@@ -3,8 +3,7 @@
   <img src="https://raw.githubusercontent.com/lengxiqwq/live-photo-box/master/LivePhotoBox/Assets/Icons/AppIcon-full.png" width="130" align="left" hspace="16" />
   Live Photo Box（实况照片工具箱）
 </h1>
-<p><em>Unifying all live photo protocols for seamless cross-device viewing & migration</em></p>
-
+<p><em>统一各类实况照片协议，实现跨设备无缝查看与迁移</em></p>
 <p align="center">
   <a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="https://img.shields.io/github/v/release/lengxiqwq/live-photo-box?style=flat-square&color=0078D7&label=latest%20release" alt="Latest release"></a>
   <img src="https://img.shields.io/badge/Platform-Windows%2010%20%7C%2011-0078D7?style=flat-square" alt="Platform">
@@ -13,178 +12,180 @@
   <img src="https://img.shields.io/badge/.NET-9.0-512BD4?style=flat-square" alt=".NET 9" />
   <img src="https://img.shields.io/badge/WinUI%203-1.8-0078D7?style=flat-square" alt="WinUI 3" />
 </p>
+</div>
 
 ---
 
 <p align="center">
-  📖 README Language: &nbsp;<strong>English  &nbsp;·&nbsp; <a href="README.zh-CN.md">简体中文</a></strong>
+  📖 语言 / Language: &nbsp;<strong>简体中文</strong> &nbsp;·&nbsp; <a href="README.en.md">English</a>
 </p>
-</div>
 
-## 🚀 Download
+## 🚀 下载
 
 <div align="center">
   <a href="https://apps.microsoft.com/detail/9n3d1qnrtvch?referrer=appbadge&mode=full" target="_blank" rel="noopener noreferrer"><img src="https://get.microsoft.com/images/en-us%20dark.svg" alt="Get it from Microsoft" height="52" width="190" hspace="35" /></a><a href="https://github.com/lengxiqwq/live-photo-box/releases"><img src="https://raw.githubusercontent.com/lengxiqwq/live-photo-box/master/screenshots/GitHub.svg" alt="GitHub Releases" height="52" width="190" hspace="35" /></a>
 </div>
 <p align="center">
 </p>
+
 <p align="center">
-  Or install the <b>CLI</b> via <b>winget</b>: <code>winget install LengxiQwQ.LivePhotoBox</code>
+  或通过 <b>winget</b> 安装 <b>纯命令行版本</b>： <code>winget install LengxiQwQ.LivePhotoBox</code>
 </p>
 
 ---
 
-> 📌 **Project Refactoring Status & Upcoming Update Plan**
+> 📌 **项目重构进展与近期更新计划**
 >
-> The project is currently undergoing a comprehensive core refactor, and there have been no new releases over the past two months. This work is now nearing completion, with the next major release expected in approximately **two weeks**.
+> 本项目当前正在进行全面的底层代码重构，已有约两个月未发布新版本。目前核心重构工作已接近尾声，预计将在 **两周左右** 推出全新版本。
 >
-> - **Complete Format Compatibility & Stability**: Once the core refactor and testing are finished, conversion stability will be significantly improved, ensuring that virtually all Live Photos from various brands and devices convert into any format smoothly, completely, and reliably.
-> - **Upcoming Major Overhaul of the Editor**: Following the core refactor, the Editor page will also receive a major redesign with several new capabilities, including **editing photos and videos independently**, **editing Live Photos frame-by-frame**, and **supporting edits via external tools followed by re-importing**.
+> - **全格式兼容与稳定性提升**：待底层重构与测试全部完成后，软件的转换稳定性将大幅提升，保证绝大部分设备和品牌的实况照片在转换到各类目标格式时，都能完整、完美地正常运行。
+> - **编辑页面大重构预告**：底层工作完成后，编辑页面也将迎来一次重大重构并加入多项新功能。例如支持**单独编辑照片和视频**、**对实况照片的每一帧进行编辑**，以及**支持使用外部工具编辑后再导入回写**等。
 >
-> While spare time for development is limited outside of schoolwork, I will do my absolute best to make every feature solid and polished. My goal is to build a truly reliable tool that allows Live Photos across different brands to flow seamlessly. Thank you all for your understanding and continued support!
+> 课余开发时间虽有限，但我会尽最大努力把功能做到扎实完善。我的目标就是做一款真正好用的工具，让不同品牌的实况照片自由流转。感谢大家的理解与一路相伴！
 
 ---
 
-## 💡 Cross-Device Live Photos
+## 💡 这是什么？
 
-Although Live Photos from different brands all combine a still image with a short video, they use different file structures and data formats. When moving across devices or platforms, this can lead to playback issues, incorrect orientation, lost motion, or missing metadata.
+不同品牌的实况照片虽然都由图片与短视频组成，却采用了不同的文件结构和数据方式。跨设备或跨平台迁移后，常常会遇到无法播放、方向异常、动态丢失或元数据缺失等问题。
 
-**Live Photo Box** provides a unified way to merge, split, convert, repair, and edit Live Photos, making it easy to move them between different brands and devices.
+**实况照片工具箱** 提供统一的实况照片处理能力，支持合成、拆分、格式转换、修复与编辑，并可在不同品牌与设备之间迁移实况照片。
 
-It also preserves as much of the original detail and information as possible, including HDR, EXIF data, camera settings, capture information, and original media content — keeping every conversion as close as possible to the original photo.
-
----
-
-## 📸 Screenshots
-
-<p align="center"><b>🖼️ Live Photo Edit</b><br><img src="https://raw.githubusercontent.com/lengxiqwq/live-photo-box/master/screenshots/Edit.png" alt="Edit" width="80%" /></p>
-
-<p align="center"><b>🔗 Merge Live Photo</b><br><img src="https://raw.githubusercontent.com/lengxiqwq/live-photo-box/master/screenshots/merge.png" alt="Merge" width="80%" /></p>
+同时最大程度保留原始照片的细节与信息，包括 HDR、EXIF、相机参数、拍摄信息以及原始媒体内容，让每一次转换，都尽可能接近照片最初的样子。
 
 ---
 
-## ✨ Core Features
+## 📸 应用截图
 
-### 🖼️ Live Photo Edit
+<p align="center"><b>🖼️ 实况照片编辑</b><br><img src="https://raw.githubusercontent.com/lengxiqwq/live-photo-box/master/screenshots/%E7%BC%96%E8%BE%91%E9%A1%B5.png" alt="编辑" width="80%" /></p>
 
-Change the key photo / cover frame of a Live Photo, picking the perfect moment from the video timeline.
+<p align="center"><b>🔗 实况照片合成</b><br><img src="https://raw.githubusercontent.com/lengxiqwq/live-photo-box/master/screenshots/%E5%90%88%E6%88%90%E9%A1%B5.png" alt="合成" width="80%" /></p>
 
-- Filmstrip video timeline with frame-by-frame preview
-- One-click cover replacement, export single frames or all video frames, or export as video / GIF animation
-- Quick live photo protocol conversion
-- View basic file attributes and live photo protocol information
+---
 
-### 🔗 Merge Live Photo (Combo)
+## ✨ 核心功能
 
-Convert a **dual-file Live Photo** (or any image + video pair) into a **single-file Live Photo**, viewable on Windows and Android devices.
+### 🖼️ 实况照片编辑
 
-- **Merge anything in one click**: drag & drop or pick an image (`JPG` / `HEIC`) + a video (`MP4` / `MOV`), or scan a whole folder and auto-pair everything into a batch queue
-- **Smart pairing**: auto-match image + video by filename, Apple `ContentIdentifier` UUID, or vivo camera ID; or merge ready-made dual-file pairs directly
-- **Brand switching**: switch target protocols in one click, paired with `JPEG+MP4` / `JPEG+MOV` / `HEIC+MP4` / `HEIC+MOV` / `HEIC+MP4(H.265)` output formats (automatically filters supported options)
-- **Batch file naming**: compose filenames from template segments (original name / protocol / date / time / EXIF date-time / counter / custom text) with drag-to-reorder, presets, separators, and live preview — no regex needed
-- **Post-processing**: automatically move source files to a specified folder or Recycle Bin on completion
-- **Parallel batch merging**: queue with search, multi-dimension sorting, and status filters; multi-task parallel processing with real-time progress, success/failure counts, and elapsed time
+自由更换实况照片的封面帧，从视频时间轴中选取最完美的一刻。
 
-| Merge Protocol | Target Devices | Status |
+- 视频帧时间轴胶片条，逐帧预览
+- 一键替换封面、导出单帧或全部视频帧，或者导出为视频以及 GIF 动图
+- 快速实况照片协议转换
+- 文件基本属性查看，实况照片协议查看
+
+### 🔗 实况照片合成
+
+将**双文件实况照片**（或任意图片 + 视频）转换为**单文件实况照片**，在 Windows 及 Android 设备上均可查看。
+
+- **任意素材，一键合成**：拖拽或选择图片（`JPG` / `HEIC`）+ 视频（`MP4` / `MOV`）直接合成；也可以扫描整个文件夹，自动识别配对、批量入队
+- **多种智能配对**：按文件名、Apple `ContentIdentifier` UUID、vivo 相机 ID 自动匹配图片与视频；也可直接合并现成的双文件实况照片
+- **多品牌协议自由切换**：主流品牌目标协议一键切换，配合 `JPEG+MP4` / `JPEG+MOV` / `HEIC+MP4` / `HEIC+MOV` / `HEIC+MP4(H.265)` 输出格式，随协议自动筛选可用项
+- **批量文件命名**：命名模板快速编排（原名 / 协议 / 日期 / 时间 / EXIF 日期时间 / 计数器 / 自定义文本），支持拖拽排序、预设模板、分隔符选择与实时预览——无需编写正则表达式即可批量重命名
+- **收尾处理**：合成完成后可选择移动到指定目录，或移入回收站
+- **并行批量合成**：任务队列支持搜索、多维度排序与状态筛选，多任务并行处理，实时显示进度、成功/失败统计与耗时
+
+| 合成协议 | 支持设备 | 状态 |
 |---|---|---|
-| Google - Micro Video (v1) | Windows / Xiaomi (legacy MIUI) / Pixel | ✅ Supported |
-| Google - Motion Photo (v2) | Windows / Xiaomi / Pixel | ✅ Supported |
-| OPPO - O-Live Photo | Windows / Xiaomi / OPPO | ✅ Supported |
-| HUAWEI - Moving Photo | Huawei / Honor | ✅ Supported |
-| Samsung - Motion Photo | Windows / Samsung | ✅ Supported |
-| vivo - Live Photo | Windows / vivo (≥ x300) | 🟡 In Testing |
+| Google - Micro Video (v1) | Windows / 小米 (旧版 MIUI) / Pixel | ✅ 可用 |
+| Google - Motion Photo (v2) | Windows / 小米 / Pixel | ✅ 可用 |
+| OPPO - O-Live Photo | Windows / 小米 / OPPO | ✅ 可用 |
+| HUAWEI - Moving Photo | 华为 / 荣耀 | ✅ 可用 |
+| Samsung - Motion Photo | Windows / Samsung | ✅ 可用 |
+| vivo - Live Photo | Windows / vivo（≥ x300） | 🟡 测试中 |
 
-### 📸 Split Live Photo
+### 📸 实况照片拆分
 
-Split a **Live Photo** (single-file format) into a **dual-file Live Photo**, or into an independent still image (`JPG` / `HEIC`) and video (`MP4` / `MOV`).
+将**实况照片**（单文件形式）拆分为**双文件实况照片**形式，或独立的静态图片（`JPG` / `HEIC`）和视频（`MP4` / `MOV`）。
 
-- **Batch split**: scan a folder, auto-detect and queue all Live Photos; filter by protocol (Google / OPPO / vivo / Samsung / Huawei) to split specific brands
-- **Protocol output**: convert to Apple / vivo dual-file Live Photos (writing pairing metadata), or remux to `HEIC+MOV` / `JPG+MOV` / `JPG+MP4` formats
-- **Strip live photo metadata**: prevents extracted still images from being falsely recognized as live photos again; preserves all other metadata including `EXIF` / `ICC` / `GPS` / capture settings
-- **Naming templates**: segment-based naming consistent with the merge page, supporting drag-and-drop reordering and live preview
+- **批量拆分**：扫描整个文件夹自动识别实况照片、批量入队；可按协议筛选（Google / OPPO / vivo / Samsung / 华为），只拆分目标品牌
+- **协议输出**：可转为 Apple / vivo 双文件实况照片（写入配对元数据），也可重新封装为 `HEIC+MOV` / `JPG+MOV` / `JPG+MP4` 格式
+- **剥离实况照片元数据**：防止拆分后的图片被再次误识别为实况照片；保留照片其他元数据，不丢失 `EXIF` / `ICC` / `GPS` / 拍摄参数
+- **命名模板**：与合成页一致的片段式命名，支持拖拽排序与实时预览
 
-> ⚠️ **About iPhone / iPad**: Due to iOS system limitations, Live Photos cannot be imported directly into iOS devices. This software generates standard Live Photo data; import requires third-party tools like i4Tools.
+> ⚠️ **关于 iPhone / iPad**：受 iOS 系统限制，实况照片无法直接导入 iOS 设备。本软件只负责生成实况照片数据，导入需通过爱思助手（i4Tools）等第三方软件完成。
 
-| Split Protocol | Target Devices | Status |
+| 拆分协议 | 支持机型 | 状态 |
 |---|---|---|
-| Apple - Live Photo | iPhone / iPad | ✅ Supported |
-| vivo - Live Photo | vivo (≤ x200) | ✅ Supported |
+| Apple - Live Photo | iPhone / iPad | ✅ 可用 |
+| vivo - Live Photo | vivo（≤ x200） | ✅ 可用 |
 
-### 🛠️ Repair Live Photo
+### 🛠️ 实况照片修复
 
-Repair display anomalies from exported Apple Live Photos. View **diagnostic details** for each photo after scanning, and filter by file type or repair status.
+修复针对 Apple 实况照片导出后出现的显示异常。扫描后可查看每张照片的**诊断详情**，可以按文件类型或修复状态快速筛选。
 
-- **Excess thumbnail & horizontal stretching** (before iOS 17.3): Apple embedded low-resolution thumbnails with orientation tags, causing Windows to treat them as horizontal photos and stretch or compress them. Clears orientation anomalies and strips excess thumbnails
-- **Front camera video rotation**: iPhone front cameras store vertical pixels horizontally and rely on orientation tags, which Windows ignores. Clears the rotation matrix so videos play in the correct orientation
-- **HEIC orientation errors**: Corrects erroneous `Orientation` tags if present
+- **多余缩略图及横向拉伸**（iOS 17.3 之前）：Apple 曾嵌入低分辨率缩略图但带有方向标签，Windows 误将其当作横向图片处理，导致拉宽或压缩。消除旋转异常并剥离多余缩略图
+- **前置摄像头视频旋转**：iPhone 前置镜头纵向像素横向存储，依赖方向标签指示角度，消除旋转矩阵让播放方向恢复正常
+- **HEIC 方向错误**：修正错误的 `Orientation` 标签（如果存在）
 
-### 📂 Photo Organize (In Development)
+### 📂 自动整理相册（功能开发中）
 
-Automatically scan, categorize, and archive photos by device, date, and Live Photo type based on metadata. Starting with iPhone photos, expanding to more brands.
-
----
-
-## 💻 Command Line (CLI)
-
-Live Photo Box ships a **command-line interface** — `livephotobox` — that shares 100% of its core logic with the GUI, ideal for scripting and AI agents.
-
-- **Commands**: `merge` (single-pair or batch merge), `split` (split into photo + video), `repair` (repair Apple live photo display issues), `cover` (inspect/modify cover timestamp), `protocols` (protocol & format compatibility query), `update` / `update-check` (check & install updates)
-- **Four executable aliases**: `livephotobox` / `livephoto` / `livebox` / `lpb`
-- **Batch pairing & naming**: auto-pair by filename, Apple `ContentIdentifier` UUID, or vivo camera ID; rename outputs with templates like `-n custom:{name}_{date}`; `--after` moves sources to a folder / recycle bin on completion
-- **Script-friendly**: `--json` outputs structured results that scripts and AI agents can consume directly; `--dry-run` previews operations without touching files
-- **Sane output defaults**: single-pair merges write next to the source photo (protocol-suffixed name); batch merges write into a `{folder}_<protocol>` subfolder — never the terminal’s current directory. `-w` overwrites existing outputs instead of auto-renaming
-- **Distribution**: bundled with the installer / portable build (optional “Add to PATH”), or a standalone single-file `-x64-cli.zip` (no install needed; ships `add-to-path.cmd` / `remove-from-path.cmd` helpers to add/remove PATH in one click); install the CLI-only edition via `winget install LengxiQwQ.LivePhotoBox`
-
-📖 **CLI User Guide**: [English](docs/CLI-User-Guide.md) · [简体中文](docs/CLI-User-Guide.zh-CN.md)
+通过识别照片元数据，自动按拍摄设备、日期、实况照片类型自动扫描分类归档。首批从 iPhone 起步，逐步覆盖更多品牌。
 
 ---
 
-## 🛠️ Tech Stack
+## 💻 命令行工具
 
-| Technology                | Version      | Role                                                                 |
-| ------------------------- | ------------ | -------------------------------------------------------------------- |
-| C#                        | 13.0         | GUI, CLI, application workflows and orchestration                    |
-| C++                       | C++20        | Low-level media containers, metadata and Live/Motion Photo protocols |
-| .NET                      | 9.0          | Application runtime                                                  |
-| WinUI 3 / Windows App SDK | 1.8          | Windows desktop UI                                                   |
-| CommunityToolkit.Mvvm     | 8.4.2        | MVVM and state management                                            |
-| LivePhotoBox.Native       | Stable C ABI | Bridge between C# and the Native C++ core                            |
-| WIC                       | Windows      | Image decoding, encoding and conversion                              |
-| Windows Media Foundation  | Windows      | Video probing, remuxing and transcoding                              |
-| PhotoSauce.MagicScaler    | 0.15.0       | Image scaling and processing                                         |
-| System.CommandLine        | 2.0.11       | CLI framework                                                        |
-| MSIX / Self-contained     | —            | GUI and CLI distribution                                             |
-> Note: Some currently published releases still use the previous external-tool-based media pipeline. The development branch is moving these responsibilities into LivePhotoBox.Native, and the new Native architecture will replace that implementation in a future release.
+Live Photo Box 提供**命令行工具** —— `livephotobox`，与 GUI 共享 100% 核心逻辑，适合脚本和 AI Agent 调用。
+
+- **命令**：`merge`（单对或批量合成）、`split`（拆回图片 + 视频）、`repair`（修复 Apple 实况照片显示问题）、`cover`（修改封面帧）、`protocols`（协议 × 格式兼容矩阵查询）、`update` / `update-check`（检查并安装更新）
+- **四个可执行别名**：`livephotobox` / `livephoto` / `livebox` / `lpb`
+- **批量配对和命名方式**：按文件名、Apple `ContentIdentifier` UUID、vivo 相机 ID 自动配对；`-n custom:{name}_{date}` 等命名模板批量重命名输出；`--after` 支持完成后移动到文件夹 / 回收站
+- **脚本友好**：使用 `--json` 输出结构化结果，供脚本与 AI Agent 直接消费；`--dry-run` 可预览操作而不实际处理文件
+- **分发**：随安装包 / 便携版内置（可选"添加到 PATH"），或独立 `-x64-cli.zip`（单文件免安装，包内附 `add-to-path.cmd` / `remove-from-path.cmd` 辅助脚本，双击即可一键加入 / 移除 PATH）；也可用 `winget install LengxiQwQ.LivePhotoBox` 一键安装纯 CLI 版
+
+📖 **CLI 使用指南**：[简体中文](docs/CLI-User-Guide.zh-CN.md) · [English](docs/CLI-User-Guide.en.md)
 
 ---
 
-## 💻 Build & Development
+## 🛠️ 技术栈
 
-### Prerequisites
+| 技术                        | 版本           | 职责                      |
+| ------------------------- | ------------ | ----------------------- |
+| C#                        | 13.0         | GUI、CLI、业务流程与任务编排       |
+| C++                       | C++20        | 底层媒体容器、元数据与实况照片协议处理     |
+| .NET                      | 9.0          | 应用运行时                   |
+| WinUI 3 / Windows App SDK | 1.8          | Windows 桌面界面            |
+| CommunityToolkit.Mvvm     | 8.4.2        | MVVM 与状态管理              |
+| LivePhotoBox.Native       | Stable C ABI | C# 与 Native C++ 之间的调用接口 |
+| WIC                       | Windows      | 图片解码、编码与格式转换            |
+| Windows Media Foundation  | Windows      | 视频探测、Remux 与转码          |
+| PhotoSauce.MagicScaler    | 0.15.0       | 图片缩放与部分图像处理             |
+| System.CommandLine        | 2.0.11       | CLI 命令行框架               |
+| MSIX / Self-contained     | —            | GUI 与 CLI 打包分发          |
 
-- [Visual Studio 2022](https://visualstudio.microsoft.com/) or later
-- In VS Installer, select: **.NET desktop development** + **Universal Windows Platform development** + **Desktop development with C++** (MSVC x64 toolchain)
+
+> 说明：当前已发布的部分版本仍使用上一代外部工具媒体处理实现。开发主线正在将这些能力迁移到 LivePhotoBox.Native，新的 Native 架构将在后续正式版本中替代旧实现。
+
+---
+
+## 💻 编译与开发
+
+### 环境
+
+- [Visual Studio 2022](https://visualstudio.microsoft.com/) 及以上
+- 在 VS Installer 中勾选：**.NET 桌面开发** + **通用 Windows 平台开发** + **使用 C++ 的桌面开发**（MSVC x64 工具链）
 - [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
 
-### Build
+### 构建
 
 ```bash
-# Clone the repository
+# 克隆仓库到本地
 git clone https://github.com/lengxiqwq/live-photo-box.git
 cd live-photo-box
 ```
 
-The repo ships ready-made PowerShell build scripts (`scripts/`) for both GUI and CLI — no need to run `dotnet` commands by hand:
+仓库提供现成的 PowerShell 构建脚本（`scripts/`），GUI 与 CLI 均可一键构建，无需手敲 dotnet 命令：
 
-| Script | Produces |
-|--------|----------|
-| `scripts/packaging/build-dev.ps1` | Unpackaged dev build (GUI + CLI) into `publish/` |
-| `scripts/packaging/build-cli-release.ps1` | Standalone single-file CLI zip (`publish/Live-Photo-Box-v{version}-x64-cli.zip`) |
-| `scripts/packaging/build-release.ps1` | Full release trio: portable zip + CLI zip + installer |
+| 脚本 | 产物 |
+|------|------|
+| `scripts/packaging/build-dev.ps1` | 未打包开发版（GUI + CLI），输出到 `publish/` |
+| `scripts/packaging/build-cli-release.ps1` | 独立 CLI 单文件包（`publish/Live-Photo-Box-v{版本}-x64-cli.zip`） |
+| `scripts/packaging/build-release.ps1` | 完整发布三件套：便携版 zip + CLI zip + 安装包 |
 
-> Packaging builds Native and checks the generated files. The Native smoke test runs separately on demand. Scripts accept `-CI` for GitHub Actions and other CI environments (no `pause` prompt).
+> 打包脚本会构建 Native 并检查产物。Native 冒烟测试可以单独运行，打包时不会自动执行。脚本支持 `-CI` 参数，供 GitHub Actions 等 CI 环境使用（不弹 `pause` 等待）。
 
-For local verification, run the Native smoke test and the solution/CLI test suites from the repository root:
+本地验证请在仓库根目录依次运行 Native smoke test、解决方案测试和 CLI 全流程测试：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/native/test-native-smoke.ps1
@@ -192,54 +193,58 @@ dotnet test
 python scripts/testing/run-cli-integration-test.py
 ```
 
-All three commands must pass before creating a release tag. `scripts/packaging/build-release.ps1` also invokes the Native build and checks that `LivePhotoBox.Native.dll` is present in GUI and CLI outputs.
+创建发布标签前，以上三项必须全部通过。`scripts/packaging/build-release.ps1` 也会自动构建 Native，并检查 GUI 与 CLI 产物中存在 `LivePhotoBox.Native.dll`。
 
 ---
 
-## 📋 Changelog
+## 📋 更新日志
 
-📋 CHANGELOG: &nbsp;<strong><a href="changelogs/CHANGELOG.md">English</a> &nbsp;·&nbsp; <a href="changelogs/CHANGELOG.zh-CN.md">简体中文</a></strong>
-
----
-
-## 🌍 Localization
-
-| Language | Status |
-|----------|:------:|
-| 中文（简体）(zh-Hans) | ✅ Complete |
-| English (en) | ✅ Complete |
-
-Follows system language automatically; can also be switched manually in Settings.
+📋 CHANGELOG：<strong><a href="changelogs/CHANGELOG.zh-CN.md">简体中文</a> &nbsp;·&nbsp; <a href="changelogs/CHANGELOG.en.md">English</a></strong>
 
 ---
 
-## 🤝 Contributing
+## 🌍 本地化
 
-Issues and Pull Requests are welcome!
+| 语言 | 状态 |
+|------|:----:|
+| 中文（简体）(zh-Hans) | ✅ 完整 |
+| English (en) | ✅ 完整 |
 
-- 🐛 **Bug reports** and 💡 **Feature requests** → [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues)
-- 🔧 **Code contributions** → Fork → Feature Branch → Pull Request
-
----
-
-## 📄 License
-
-This project is open-source under the **GNU General Public License v3.0 (GPL 3.0)**. See the [LICENSE](LICENSE) file for details.
+支持系统语言自动跟随，也可在设置中手动切换。
 
 ---
 
-## 🙏 Credits
+## 🤝 贡献
 
-| Tool / Library | Purpose | License |
-|---------------|---------|---------|
-| [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) | MVVM framework | MIT |
-| [PhotoSauce.MagicScaler](https://github.com/saucecontrol/PhotoSauce) | High-performance image scaling | MIT |
-| [Markdig](https://github.com/xoofx/markdig) | Markdown rendering | BSD-2-Clause |
-| [FFmpeg](https://ffmpeg.org/) | Previous-generation runtime & independent verification reference | LGPL/GPL |
+欢迎提交 Issue 和 Pull Request！
+
+- 🐛 **Bug 报告**、💡 **功能建议** → [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues)
+- 🔧 **代码贡献** → Fork → Feature Branch → Pull Request
 
 ---
 
-## ⭐️ Star History
+## 📄 许可证
+
+本项目基于 **GNU General Public License v3.0 (GPL 3.0)** 开源。详见 [LICENSE](LICENSE) 文件。
+
+---
+
+## 🙏 致谢
+
+| 工具/库 | 用途 | 许可 |
+|---------|------|------|
+| [FFmpeg](https://ffmpeg.org/) | 视频转码、流封装与色彩格式转换底层支持（集成 x264/x265 编码器） | LGPL-2.1+ / GPL-3.0 |
+| [libheif](https://github.com/strukturag/libheif) | HEIF/HEIC 图像编码与解码引擎 | LGPL-3.0 |
+| [libjpeg-turbo](https://github.com/libjpeg-turbo/libjpeg-turbo) | 高性能 SIMD 加速 JPEG 编解码与无损变换 | IJG / BSD / zlib |
+| [Magick.NET](https://github.com/dlemstra/Magick.NET) | HEIC 图像辅助解码与图像处理 | Apache-2.0 |
+| [PhotoSauce.MagicScaler](https://github.com/saucecontrol/PhotoSauce) | 高性能图像缩放与像素处理 | MIT |
+| [CommunityToolkit.Mvvm](https://github.com/CommunityToolkit/dotnet) | MVVM 架构模式与开发支持 | MIT |
+| [FluentIcons](https://github.com/davidxuang/FluentIcons) | Fluent Design 矢量图标库 (.NET) | MIT |
+| [Markdig](https://github.com/xoofx/markdig) | 快速 Markdown 解析与 HTML 渲染 | BSD-2-Clause |
+
+---
+
+## ⭐ Star 历史
 
 <a href="https://www.star-history.com/?repos=lengxiqwq%2Flive-photo-box&type=date&legend=top-left">
  <picture>
@@ -250,14 +255,14 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
 </a>
 
 <!-- INSIGHTS:START -->
-**📊 Repository Traffic**
+**📊 仓库流量**
 
 Views: **5,417** ｜ Uniques: **243** (14-day) ｜ Clones: **6,426** ｜ Cloners: **234** (14-day)
 
 **Top referrers (14-day):** github.com · Google · Bing · search.brave.com · lengxiqwq.com · Baidu  
 **Top content (14-day):** releases · README.zh-CN.md · releases/tag/v2.2.1 · issues
 
-> Data since 2026-08-02 · Last updated: 2026-11-06 (UTC+8)
+> Data since 2026-08-02 · Last updated: 2026-11-06 (UTC+8) (feat(repair): 优化实况照片修复交互、文案与状态展示)
 <!-- INSIGHTS:END -->
 
 ---

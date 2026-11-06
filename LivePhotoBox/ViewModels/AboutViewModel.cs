@@ -43,7 +43,7 @@ namespace LivePhotoBox.ViewModels
         public string ChangelogUrl =>
             LanguageService.IsChineseUi()
                 ? "https://github.com/LengxiQwQ/live-photo-box/blob/master/changelogs/CHANGELOG.zh-CN.md"
-                : "https://github.com/LengxiQwQ/live-photo-box/blob/master/changelogs/CHANGELOG.md";
+                : "https://github.com/LengxiQwQ/live-photo-box/blob/master/changelogs/CHANGELOG.en.md";
 
         // GitHub 用户头像（自动下载并缓存到本地）
         [ObservableProperty]

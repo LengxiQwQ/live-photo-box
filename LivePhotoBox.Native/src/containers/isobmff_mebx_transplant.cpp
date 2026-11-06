@@ -1182,11 +1182,12 @@ bool offset_free_meta(std::span<const uint8_t> data, const isobmff_box_header& m
         if (std::find(identifiers.begin(), identifiers.end(), id) != identifiers.end()) return false;
         identifiers.push_back(id);
         if (mdta && (id == 0U || id > key_count)) return false;
-        if (mdir && (id >> 24U) != 0xA9U) return false;
+        if (mdir && (box_type(data,entry.start,"----")||box_type(data,entry.start,"meta")||
+            box_type(data,entry.start,"keys")||box_type(data,entry.start,"ilst")||box_type(data,entry.start,"hdlr"))) return false;
         static_boxes values;
-        if (!children_of(data, entry.start + entry.header_size, entry.start + entry.size, values) || values.empty()) return false;
+        if (!children_of(data, entry.start + entry.header_size, entry.start + entry.size, values) || values.size()!=1) return false;
         for (const auto& value : values) {
-            if (!box_type(data, value.start, "data") || value.size < value.header_size + 8U) return false;
+            if (!box_type(data, value.start, "data") || value.size < value.header_size + 8U || data[value.start+value.header_size]!=0) return false;
         }
     }
     return true;
@@ -2880,7 +2881,16 @@ bool replace_isobmff_main_video(std::span<const uint8_t> source,
         isobmff_sample_table_layout table{};uint64_t bad=0;
         if(!inspect_isobmff_strict_sample_table(encoded,audio.stbl_box_start,audio.stbl_end,ef.mdats,0U,table,bad)||!table.sample_count)return false;
         std::vector<uint8_t> track(encoded.begin()+audio.start,encoded.begin()+audio.end);
-        if(!rebase_track_movie_durations(track,ef.movie_time_scale,sf.movie_time_scale))return false;
+        // Replacement video uses the source movie clock. Round the terminal
+        // coverage up: nearest rounding can cut off the fractional last frame
+        // when a high-resolution encoder clock is mapped to milliseconds.
+        std::vector<movie_duration_field> duration_fields;
+        if(!collect_track_movie_duration_fields(track,duration_fields))return false;
+        for(const auto& field:duration_fields) {
+            uint64_t scaled{};
+            if(!rescale_duration_ceil(read_movie_duration_field(track.data()+field.offset,field.width),ef.movie_time_scale,sf.movie_time_scale,scaled)||
+               !write_movie_duration_field(track.data()+field.offset,field.width,scaled))return false;
+        }
         isobmff_box_header source_header{},current_header{};
         if(!try_read_box_header(source.data(),original->start,original->end,source_header)||
             !try_read_box_header(track.data(),0,track.size(),current_header))return false;

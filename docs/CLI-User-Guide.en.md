@@ -4,6 +4,11 @@
 
 ---
 
+<p align="center">
+  📖 Language / 语言: &nbsp;<strong>English</strong> &nbsp;·&nbsp; <a href="CLI-User-Guide.zh-CN.md">简体中文</a>
+</p>
+
+---
 ## Current rebuilt behavior
 
 `merge`, `split`, `convert`, and `protocols` use the rebuilt Native runtime. Apple (`apple`) and legacy vivo (`vivo-legacy`) are available merge targets; split supports `none`, `apple`, and `vivo`. Fusion remains deferred. The registered `cover` / `keyphoto` and `repair` commands currently return `rebuilt_not_ready` before writing; their examples below describe reserved interfaces, not available processing capabilities.
@@ -782,9 +787,14 @@ Close gallery apps or file explorers that may be accessing the source files. Loc
 
 ## Getting Help
 
-- **Documentation:** [English](https://github.com/lengxiqwq/live-photo-box/blob/main/docs/CLI-User-Guide.md) · [简体中文](https://github.com/lengxiqwq/live-photo-box/blob/main/docs/CLI-User-Guide.zh-CN.md)
+- **Documentation:** [English](https://github.com/lengxiqwq/live-photo-box/blob/main/docs/CLI-User-Guide.en.md) · [简体中文](https://github.com/lengxiqwq/live-photo-box/blob/main/docs/CLI-User-Guide.zh-CN.md)
 - **Bug reports & feature requests:** [GitHub Issues](https://github.com/lengxiqwq/live-photo-box/issues)
 - **Latest release:** [GitHub Releases](https://github.com/lengxiqwq/live-photo-box/releases)
 - **Repository:** [github.com/lengxiqwq/live-photo-box](https://github.com/lengxiqwq/live-photo-box)
 
 If this project is useful to you, consider giving it a ⭐ Star on GitHub.
+
+
+### Repair actions and actual outputs
+
+`repair --json` retains existing fields and exit codes and adds `completion`, `actions`, `reasons`, `publishedOutputs`, and `historyRecorded`. Action states distinguish `not_selected`, `not_needed`, `completed`, `not_completed`, `not_checked`, and `planned`. Only published files enter `publishedOutputs`; `Kind` distinguishes `repaired`, `copy`, `isolated_repaired`, and `isolated_copy`. A warning without output does not mean a file was isolated, and an unchanged copy is not a repaired file. Warning retains exit code 0, so callers must inspect item actions and outputs. Terminal outcomes use `LPB_REPAIR_OUTCOME_V1` in existing logs; logging failure does not change a completed media operation.

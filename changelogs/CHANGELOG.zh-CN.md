@@ -1,5 +1,13 @@
 # Live Photo Box 版本历史
 
+---
+
+<p align="center">
+  📖 语言 / Language: &nbsp;<strong>简体中文</strong> &nbsp;·&nbsp; <a href="CHANGELOG.en.md">English</a>
+</p>
+
+---
+
 > 当前版本：**v2.2.1**
 > 项目开始：2026-03-27
 > 技术栈：WinUI 3 + .NET 9 + C# 13

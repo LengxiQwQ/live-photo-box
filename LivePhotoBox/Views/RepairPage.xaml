@@ -265,20 +265,22 @@
                             <RowDefinition Height="*"/>
                         </Grid.RowDefinitions>
 
-                    <!-- 固定表头（始终可见，不随列表滚动） -->
-                    <Grid Grid.Row="0" Padding="12,0,12,6" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Margin="0,0,0,4">
+                    <!-- 固定表头（始终可见，不随列表滚动；右侧避让 12px 与列表滚动条留白对齐） -->
+                    <Grid Grid.Row="0" Padding="12,0,12,6" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Margin="0,0,12,4">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="56"/>
                             <ColumnDefinition Width="62"/>
                             <ColumnDefinition Width="2.10*"/>
-                            <ColumnDefinition Width="1.85*"/>
-                            <ColumnDefinition Width="1.35*"/>
+                            <ColumnDefinition Width="1.60*"/>
+                            <ColumnDefinition Width="1.10*"/>
+                            <ColumnDefinition Width="80"/>
                         </Grid.ColumnDefinitions>
 
                         <TextBlock x:Uid="RepairPage_ColSeq" Grid.Column="0" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
                         <TextBlock x:Uid="RepairPage_ColFile" Grid.Column="1" Grid.ColumnSpan="2" Margin="4,0,0,0" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
                         <TextBlock x:Uid="RepairPage_ColIssue" Grid.Column="3" Margin="8,0,0,0" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
                         <TextBlock x:Uid="RepairPage_ColStatus" Grid.Column="4" Margin="10,0,0,0" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
+                        <TextBlock x:Uid="RepairPage_ColActions" Grid.Column="5" Margin="8,0,0,0" FontWeight="SemiBold" FontSize="12" Foreground="{ThemeResource TextFillColorPrimaryBrush}" VerticalAlignment="Center"/>
                     </Grid>
 
                     <ListView x:Name="RepairTaskListView" Grid.Row="1" ItemsSource="{x:Bind ViewModel.FilteredTasks}" SelectionMode="Single" ShowsScrollingPlaceholders="False" ContainerContentChanging="RepairTaskListView_ContainerContentChanging">
@@ -292,7 +294,7 @@
                         <Style TargetType="ListViewItem">
                             <Setter Property="Background" Value="Transparent"/>
                             <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
-                            <Setter Property="Margin" Value="0,0,0,6"/>
+                            <Setter Property="Margin" Value="0,0,12,6"/>
                             <Setter Property="Padding" Value="0"/>
                             <Setter Property="MinHeight" Value="0"/>
                             <Setter Property="UseSystemFocusVisuals" Value="False"/>
@@ -372,8 +374,9 @@
                                             <ColumnDefinition Width="56"/>
                                             <ColumnDefinition Width="62"/>
                                             <ColumnDefinition Width="2.10*"/>
-                                            <ColumnDefinition Width="1.85*"/>
-                                            <ColumnDefinition Width="1.35*"/>
+                                            <ColumnDefinition Width="1.60*"/>
+                                            <ColumnDefinition Width="1.10*"/>
+                                            <ColumnDefinition Width="80"/>
                                         </Grid.ColumnDefinitions>
 
                                         <Grid.RowDefinitions>
@@ -422,10 +425,63 @@
 
                                         <TextBlock Grid.Row="0" Grid.Column="3" Margin="8,0,0,0" Text="{x:Bind File1IssueDescription, Mode=OneWay}" Foreground="{ThemeResource TextFillColorPrimaryBrush}" FontSize="13" VerticalAlignment="Center" TextWrapping="Wrap" IsTapEnabled="True" Tapped="IssueDescription_Tapped" Tag="1"/>
 
-                                        <TextBlock Grid.Row="0" Grid.Column="4" Margin="10,0,0,0" Text="{x:Bind File1DisplayStatusText, Mode=OneWay}" Foreground="{x:Bind File1DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" HorizontalAlignment="Left" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="1"/>
+                                        <!-- Row 0: 状态列（带三色圆点 + 4字状态文本） -->
+                                        <StackPanel Grid.Row="0" Grid.Column="4" Orientation="Horizontal" Spacing="6" Margin="10,0,0,0" VerticalAlignment="Center" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="1">
+                                            <Border Width="8" Height="8" CornerRadius="4"
+                                                    Background="{x:Bind File1DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}"
+                                                    VerticalAlignment="Center"/>
+                                            <TextBlock Text="{x:Bind File1DisplayStatusText, Mode=OneWay}" Foreground="{x:Bind File1DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" HorizontalAlignment="Left" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
 
-                                        <!-- Row 1: 配对分隔线 — 横跨文件→问题→状态 -->
-                                        <Border Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="3"
+                                        <!-- 操作列（Row 0 照片：在文件夹中查看 + 更多菜单） -->
+                                        <StackPanel Grid.Row="0" Grid.Column="5" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="8,0,0,0">
+                                            <Button x:Uid="RepairPage_Action_ShowInFolder" Width="28" Height="28" Padding="0"
+                                                    VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="5"
+                                                    Background="Transparent" BorderThickness="0"
+                                                    Click="ShowInFolder_File1_Click" Tag="{x:Bind}">
+                                                <FontIcon Glyph="&#xE838;" FontSize="13"
+                                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </Button>
+
+                                            <Button x:Uid="RepairPage_Action_More" Width="28" Height="28" Padding="0"
+                                                    VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="5"
+                                                    Background="Transparent" BorderThickness="0" Tag="{x:Bind}">
+                                                <FontIcon Glyph="&#xE712;" FontSize="13"
+                                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                <Button.Flyout>
+                                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                                        <MenuFlyoutItem x:Uid="RepairPage_Menu_OpenOutput"
+                                                                        Click="Flyout_OpenOutputFolder_File1_Click" Tag="{x:Bind}">
+                                                            <MenuFlyoutItem.Icon>
+                                                                <FontIcon Glyph="&#xE8B7;" FontSize="12"/>
+                                                            </MenuFlyoutItem.Icon>
+                                                        </MenuFlyoutItem>
+                                                        <MenuFlyoutItem x:Uid="RepairPage_Menu_ShowInFolder"
+                                                                        Click="Flyout_ShowSourceInFolder_File1_Click" Tag="{x:Bind}">
+                                                            <MenuFlyoutItem.Icon>
+                                                                <FontIcon Glyph="&#xE838;" FontSize="12"/>
+                                                            </MenuFlyoutItem.Icon>
+                                                        </MenuFlyoutItem>
+                                                        <MenuFlyoutItem x:Uid="RepairPage_Menu_Preview"
+                                                                        Click="Flyout_Preview_Click" Tag="{x:Bind}">
+                                                            <MenuFlyoutItem.Icon>
+                                                                <FontIcon Glyph="&#xE8B2;" FontSize="12"/>
+                                                            </MenuFlyoutItem.Icon>
+                                                        </MenuFlyoutItem>
+                                                        <MenuFlyoutSeparator/>
+                                                        <MenuFlyoutItem x:Uid="RepairPage_Menu_Delete"
+                                                                        Click="Flyout_DeleteTask_File1_Click" Tag="{x:Bind}">
+                                                            <MenuFlyoutItem.Icon>
+                                                                <FontIcon Glyph="&#xE74D;" FontSize="12"/>
+                                                            </MenuFlyoutItem.Icon>
+                                                        </MenuFlyoutItem>
+                                                    </MenuFlyout>
+                                                </Button.Flyout>
+                                            </Button>
+                                        </StackPanel>
+
+                                        <!-- Row 1: 配对分隔线 — 横跨文件→问题→状态→操作 -->
+                                        <Border Grid.Row="1" Grid.Column="2" Grid.ColumnSpan="4"
                                                 Visibility="{x:Bind File2Visibility, Mode=OneWay}"
                                                 Height="1" Background="{ThemeResource DividerStrokeColorDefaultBrush}"
                                                 Margin="0,14,0,14"/>
@@ -449,7 +505,60 @@
 
                                         <TextBlock Grid.Row="2" Grid.Column="3" Margin="8,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2IssueDescription, Mode=OneWay}" Foreground="{ThemeResource TextFillColorPrimaryBrush}" FontSize="13" VerticalAlignment="Center" TextWrapping="Wrap" IsTapEnabled="True" Tapped="IssueDescription_Tapped" Tag="2"/>
 
-                                        <TextBlock Grid.Row="2" Grid.Column="4" Margin="10,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}" Text="{x:Bind File2DisplayStatusText, Mode=OneWay}" Foreground="{x:Bind File2DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" HorizontalAlignment="Left" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="2"/>
+                                        <!-- Row 2: 状态列（带三色圆点 + 4字状态文本） -->
+                                        <StackPanel Grid.Row="2" Grid.Column="4" Orientation="Horizontal" Spacing="6" Margin="10,0,0,0" VerticalAlignment="Center" Visibility="{x:Bind File2Visibility, Mode=OneWay}" IsTapEnabled="True" Tapped="StatusTextBlock_Tapped" Tag="2">
+                                            <Border Width="8" Height="8" CornerRadius="4"
+                                                    Background="{x:Bind File2DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}"
+                                                    VerticalAlignment="Center"/>
+                                            <TextBlock Text="{x:Bind File2DisplayStatusText, Mode=OneWay}" Foreground="{x:Bind File2DisplayStatus, Converter={StaticResource StatusToColorConverter}, Mode=OneWay}" HorizontalAlignment="Left" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="13" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                                        </StackPanel>
+
+                                        <!-- Row 2 操作列（视频专属操作：在文件夹中查看 + 更多菜单，仅配对时显示） -->
+                                        <StackPanel Grid.Row="2" Grid.Column="5" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="8,0,0,0" Visibility="{x:Bind File2Visibility, Mode=OneWay}">
+                                            <Button x:Uid="RepairPage_Action_ShowInFolder" Width="28" Height="28" Padding="0"
+                                                    VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="5"
+                                                    Background="Transparent" BorderThickness="0"
+                                                    Click="ShowInFolder_File2_Click" Tag="{x:Bind}">
+                                                <FontIcon Glyph="&#xE838;" FontSize="13"
+                                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                            </Button>
+
+                                            <Button x:Uid="RepairPage_Action_More" Width="28" Height="28" Padding="0"
+                                                    VerticalAlignment="Center" HorizontalAlignment="Center" CornerRadius="5"
+                                                    Background="Transparent" BorderThickness="0" Tag="{x:Bind}">
+                                                <FontIcon Glyph="&#xE712;" FontSize="13"
+                                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                <Button.Flyout>
+                                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                                        <MenuFlyoutItem x:Uid="RepairPage_Menu_OpenOutput"
+                                                                        Click="Flyout_OpenOutputFolder_File2_Click" Tag="{x:Bind}">
+                                                            <MenuFlyoutItem.Icon>
+                                                                <FontIcon Glyph="&#xE8B7;" FontSize="12"/>
+                                                            </MenuFlyoutItem.Icon>
+                                                        </MenuFlyoutItem>
+                                                        <MenuFlyoutItem x:Uid="RepairPage_Menu_ShowInFolder"
+                                                                        Click="Flyout_ShowSourceInFolder_File2_Click" Tag="{x:Bind}">
+                                                            <MenuFlyoutItem.Icon>
+                                                                <FontIcon Glyph="&#xE838;" FontSize="12"/>
+                                                            </MenuFlyoutItem.Icon>
+                                                        </MenuFlyoutItem>
+                                                        <MenuFlyoutItem x:Uid="RepairPage_Menu_Preview"
+                                                                        Click="Flyout_Preview_Click" Tag="{x:Bind}">
+                                                            <MenuFlyoutItem.Icon>
+                                                                <FontIcon Glyph="&#xE8B2;" FontSize="12"/>
+                                                            </MenuFlyoutItem.Icon>
+                                                        </MenuFlyoutItem>
+                                                        <MenuFlyoutSeparator/>
+                                                        <MenuFlyoutItem x:Uid="RepairPage_Menu_Delete"
+                                                                        Click="Flyout_DeleteTask_File2_Click" Tag="{x:Bind}">
+                                                            <MenuFlyoutItem.Icon>
+                                                                <FontIcon Glyph="&#xE74D;" FontSize="12"/>
+                                                            </MenuFlyoutItem.Icon>
+                                                        </MenuFlyoutItem>
+                                                    </MenuFlyout>
+                                                </Button.Flyout>
+                                            </Button>
+                                        </StackPanel>
                                     </Grid>
                                 </Border>
                         </DataTemplate>
@@ -646,7 +755,7 @@
                      PreferredPlacement="Left">
             <TeachingTip.Content>
                 <ScrollViewer MaxHeight="360" VerticalScrollBarVisibility="Auto" VerticalScrollMode="Auto">
-                    <TextBlock x:Name="ErrorDetailText" MaxWidth="520" TextWrapping="Wrap" IsTextSelectionEnabled="True" Margin="0,0,36,0"/>
+                    <StackPanel x:Name="ErrorDetailPanel" MaxWidth="520" Margin="0,0,36,0"/>
                 </ScrollViewer>
             </TeachingTip.Content>
         </controls:ErrorDetailTeachingTip>

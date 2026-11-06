@@ -31,7 +31,7 @@ public sealed class P9R3XmpMergeTests
         Assert.Single(tree.Descendants(XName.Get("Directory", Container)));
         Assert.Equal(new[] { "Primary", "MotionPhoto" }, tree.Descendants(XName.Get("Item", Container))
             .Select(n => (string?)n.Attribute(XName.Get("Semantic", Item))).ToArray());
-        Assert.Single(tree.Descendants(XName.Get("MotionPhoto", Camera)));
+        Assert.Equal("1", SingleCameraAttribute(tree, "MotionPhoto", Camera));
         Assert.Single(tree.Descendants(XName.Get("Description", Rdf)));
     }
 
@@ -74,11 +74,11 @@ public sealed class P9R3XmpMergeTests
         var output = await WriteAndCheck(image, nameof(V1UsesActualEofOffsetAndPreservesOrdinaryInventory) + mov + exactOriginal,
             mov, TargetProtocol.GoogleMicroVideoV1);
         XDocument tree = XDocument.Parse(SingleXmp(output));
-        Assert.Equal("1", Assert.Single(tree.Descendants(XName.Get("MicroVideo", Camera))).Value);
-        Assert.Equal("1", Assert.Single(tree.Descendants(XName.Get("MicroVideoVersion", Camera))).Value);
+        Assert.Equal("1", SingleCameraAttribute(tree, "MicroVideo", Camera));
+        Assert.Equal("1", SingleCameraAttribute(tree, "MicroVideoVersion", Camera));
         string videoName = mov ? "neutral.mov" : "neutral.mp4";
         Assert.Equal(new FileInfo(Path.Combine(P9TargetTestInputs.Root, videoName)).Length.ToString(),
-            Assert.Single(tree.Descendants(XName.Get("MicroVideoOffset", Camera))).Value);
+            SingleCameraAttribute(tree, "MicroVideoOffset", Camera));
         Assert.Empty(tree.Descendants(XName.Get("MotionPhoto", Camera)));
         Assert.DoesNotContain(tree.Descendants(XName.Get("Item", Container)), n =>
             (string?)n.Attribute(XName.Get("Semantic", Item)) == "MotionPhoto");
@@ -95,8 +95,8 @@ public sealed class P9R3XmpMergeTests
             false, TargetProtocol.OppoLivePhoto);
         XDocument tree = XDocument.Parse(SingleXmp(output));
         Assert.Single(tree.Descendants(XName.Get("Directory", Container)));
-        Assert.Equal("100000", Assert.Single(tree.Descendants(XName.Get("MotionPhotoPrimaryPresentationTimestampUs",
-            "http://ns.oplus.com/photos/1.0/camera/"))).Value);
+        Assert.Equal("100000", SingleCameraAttribute(tree, "MotionPhotoPrimaryPresentationTimestampUs",
+            "http://ns.oplus.com/photos/1.0/camera/"));
         Assert.Equal(image, File.ReadAllBytes(input));
     }
 
@@ -141,6 +141,16 @@ public sealed class P9R3XmpMergeTests
         int length = payload.Length + 2;
         return new byte[] { 255, 216, 255, 225, (byte)(length >> 8), (byte)length }
             .Concat(payload).Concat(image.AsSpan(2).ToArray()).ToArray();
+    }
+
+    private static string SingleCameraAttribute(XDocument tree, string name, string uri)
+    {
+        var key = XName.Get(name, uri);
+        Assert.Empty(tree.Descendants(key));
+        var attribute = Assert.Single(tree.Descendants().Attributes(key));
+        Assert.Equal(XName.Get("Description", Rdf), attribute.Parent!.Name);
+        Assert.Equal(XName.Get("RDF", Rdf), attribute.Parent.Parent!.Name);
+        return attribute.Value;
     }
 
     private static async Task<byte[]> WriteAndCheck(byte[] image, string name, bool mov,

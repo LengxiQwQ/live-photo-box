@@ -7,7 +7,9 @@
         NeedsStrip,    // 状况B：底层正的，藏了缩略图（需要瘦身）
         NeedsRebuild,  // 状况A：底层歪了（需要重构并剥离）
         Error,         // 读取出错
-        NonApple,      // 非 Apple 设备文件，跳过修复
+        NonApple,      // 非 Apple/Samsung 设备文件，跳过修复
+        OtherDevice = NonApple, // 别名：非 Apple/Samsung 设备（其他厂商），跳过修复
+        NonAppleOrSamsung = NonApple, // 语义别名
         Limited        // 可读取，但修复能力或缩略图归属尚无法确认
     }
 
@@ -24,6 +26,7 @@
         public bool HasHeicOrientationConflict { get; set; }
         public int AutoplayVideoRotationAngle { get; set; }
         public bool NeedsEmbeddedVideoTransform { get; set; }
+        public bool VideoCheckIncomplete { get; set; }
         // 检测到的旋转角度（0/90/180/270）
         public int RotationAngle { get; set; } = 0;
         // 是否需要修复（NeedsStrip 或 NeedsRebuild）

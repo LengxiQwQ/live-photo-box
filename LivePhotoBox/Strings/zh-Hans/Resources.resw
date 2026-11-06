@@ -1,110 +1,52 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
-<root>
-  <!-- 
-    Microsoft ResX Schema 
-    
-    Version 2.0
-    
-    The primary goals of this format is to allow a simple XML format 
-    that is mostly human readable. The generation and parsing of the 
-    various data types are done through the TypeConverter classes 
-    associated with the data types.
-    
-    Example:
-    
-    ... ado.net/XML headers & schema ...
-    <resheader name="resmimetype">text/microsoft-resx</resheader>
-    <resheader name="version">2.0</resheader>
-    <resheader name="reader">System.Resources.ResXResourceReader, System.Windows.Forms, ...</resheader>
-    <resheader name="writer">System.Resources.ResXResourceWriter, System.Windows.Forms, ...</resheader>
-    <data name="Name1"><value>this is my long string</value><comment>this is a comment</comment></data>
-    <data name="Color1" type="System.Drawing.Color, System.Drawing">Blue</data>
-    <data name="Bitmap1" mimetype="application/x-microsoft.net.object.binary.base64">
-        <value>[base64 mime encoded serialized .NET Framework object]</value>
-    </data>
-    <data name="Icon1" type="System.Drawing.Icon, System.Drawing" mimetype="application/x-microsoft.net.object.bytearray.base64">
-        <value>[base64 mime encoded string representing a byte array form of the .NET Framework object]</value>
-        <comment>This is a comment</comment>
-    </data>
-                
-    There are any number of "resheader" rows that contain simple 
-    name/value pairs.
-    
-    Each data row contains a name, and value. The row also contains a 
-    type or mimetype. Type corresponds to a .NET class that support 
-    text/value conversion through the TypeConverter architecture. 
-    Classes that don't support this are serialized and stored with the 
-    mimetype set.
-    
-    The mimetype is used for serialized objects, and tells the 
-    ResXResourceReader how to depersist the object. This is currently not 
-    extensible. For a given mimetype the value must be set accordingly:
-    
-    Note - application/x-microsoft.net.object.binary.base64 is the format 
-    that the ResXResourceWriter will generate, however the reader can 
-    read any of the formats listed below.
-    
-    mimetype: application/x-microsoft.net.object.binary.base64
-    value   : The object must be serialized with 
-            : System.Runtime.Serialization.Formatters.Binary.BinaryFormatter
-            : and then encoded with base64 encoding.
-    
-    mimetype: application/x-microsoft.net.object.soap.base64
-    value   : The object must be serialized with 
-            : System.Runtime.Serialization.Formatters.Soap.SoapFormatter
-            : and then encoded with base64 encoding.
-
-    mimetype: application/x-microsoft.net.object.bytearray.base64
-    value   : The object must be serialized into a byte array 
-            : using a System.ComponentModel.TypeConverter
-            : and then encoded with base64 encoding.
-    -->
-  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
-    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
-    <xsd:element name="root" msdata:IsDataSet="true">
-      <xsd:complexType>
-        <xsd:choice maxOccurs="unbounded">
-          <xsd:element name="metadata">
-            <xsd:complexType>
-              <xsd:sequence>
-                <xsd:element name="value" type="xsd:string" minOccurs="0" />
-              </xsd:sequence>
-              <xsd:attribute name="name" use="required" type="xsd:string" />
-              <xsd:attribute name="type" type="xsd:string" />
-              <xsd:attribute name="mimetype" type="xsd:string" />
-              <xsd:attribute ref="xml:space" />
-            </xsd:complexType>
-          </xsd:element>
-          <xsd:element name="assembly">
-            <xsd:complexType>
-              <xsd:attribute name="alias" type="xsd:string" />
-              <xsd:attribute name="name" type="xsd:string" />
-            </xsd:complexType>
-          </xsd:element>
-          <xsd:element name="data">
-            <xsd:complexType>
-              <xsd:sequence>
-                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
-                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
-              </xsd:sequence>
-              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
-              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
-              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
-              <xsd:attribute ref="xml:space" />
-            </xsd:complexType>
-          </xsd:element>
-          <xsd:element name="resheader">
-            <xsd:complexType>
-              <xsd:sequence>
-                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
-              </xsd:sequence>
-              <xsd:attribute name="name" type="xsd:string" use="required" />
-            </xsd:complexType>
-          </xsd:element>
-        </xsd:choice>
-      </xsd:complexType>
-    </xsd:element>
-  </xsd:schema>
+<?xml version='1.0' encoding='utf-8'?>
+<root xmlns:ns1="urn:schemas-microsoft-com:xml-msdata" xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  
+  <xs:schema id="root">
+    <xs:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xs:element name="root" ns1:IsDataSet="true">
+      <xs:complexType>
+        <xs:choice maxOccurs="unbounded">
+          <xs:element name="metadata">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="value" type="xsd:string" minOccurs="0" />
+              </xs:sequence>
+              <xs:attribute name="name" use="required" type="xsd:string" />
+              <xs:attribute name="type" type="xsd:string" />
+              <xs:attribute name="mimetype" type="xsd:string" />
+              <xs:attribute ref="xml:space" />
+            </xs:complexType>
+          </xs:element>
+          <xs:element name="assembly">
+            <xs:complexType>
+              <xs:attribute name="alias" type="xsd:string" />
+              <xs:attribute name="name" type="xsd:string" />
+            </xs:complexType>
+          </xs:element>
+          <xs:element name="data">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="value" type="xsd:string" minOccurs="0" ns1:Ordinal="1" />
+                <xs:element name="comment" type="xsd:string" minOccurs="0" ns1:Ordinal="2" />
+              </xs:sequence>
+              <xs:attribute name="name" type="xsd:string" use="required" ns1:Ordinal="1" />
+              <xs:attribute name="type" type="xsd:string" ns1:Ordinal="3" />
+              <xs:attribute name="mimetype" type="xsd:string" ns1:Ordinal="4" />
+              <xs:attribute ref="xml:space" />
+            </xs:complexType>
+          </xs:element>
+          <xs:element name="resheader">
+            <xs:complexType>
+              <xs:sequence>
+                <xs:element name="value" type="xsd:string" minOccurs="0" ns1:Ordinal="1" />
+              </xs:sequence>
+              <xs:attribute name="name" type="xsd:string" use="required" />
+            </xs:complexType>
+          </xs:element>
+        </xs:choice>
+      </xs:complexType>
+    </xs:element>
+  </xs:schema>
   <resheader name="resmimetype">
     <value>text/microsoft-resx</value>
   </resheader>
@@ -736,7 +678,7 @@
     <value>队列为空</value>
   </data>
   <data name="RepairPage_EmptyQueueDesc.Text" xml:space="preserve">
-    <value>将 iPhone 拍摄的实况照片导入文件夹，点击扫描自动诊断 Windows 端常见的旋转、拉伸与缩略图异常，修复时导出新文件，视频会重新编码。</value>
+    <value>将苹果或三星设备拍摄的实况照片导入文件夹，点击扫描即可诊断 Windows 上常见的旋转、拉伸和缩略图问题。修复时会导出新文件，视频会重新编码。</value>
   </data>
   <data name="RepairPage_EmptyQueueHint_Part1.Text" xml:space="preserve">
     <value>您可以点击 </value>
@@ -1076,10 +1018,10 @@
     <value>实况照片工具箱</value>
   </data>
   <data name="Package_Description" xml:space="preserve">
-    <value>让你的 Apple 实况照片也可以在 Windows 上直接显示与处理。</value>
+    <value>让你的苹果实况照片也可以在 Windows 上直接显示与处理。</value>
   </data>
   <data name="RepairPage_ConfigHeader.Text" xml:space="preserve">
-    <value>Apple 实况照片显示修复配置</value>
+    <value>苹果/三星实况照片显示修复配置</value>
   </data>
   <data name="RepairPage_InputLabel.Text" xml:space="preserve">
     <value>输入目录：</value>
@@ -1178,7 +1120,7 @@
     <value>像素纵向拉伸</value>
   </data>
   <data name="Tag_RotationLabel" xml:space="preserve">
-    <value>{0}° 旋转标签</value>
+    <value>照片 {0}° 旋转标签</value>
   </data>
   <data name="Tag_MissingRotationLabel" xml:space="preserve">
     <value>缺失旋转标签</value>
@@ -1235,7 +1177,7 @@
     <value>实况照片显示修复</value>
   </data>
   <data name="HomePage_RepairSubtitle.Text" xml:space="preserve">
-    <value>修复 Apple 实况照片在 Windows 上的旋转、拉伸与缩略图异常</value>
+    <value>修复苹果实况照片在 Windows 上的旋转、拉伸与缩略图异常</value>
   </data>
   <data name="HomePage_RepairTutorial_Step1_Title.Text" xml:space="preserve">
     <value>它能修复什么？</value>
@@ -1979,10 +1921,10 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
     <value>刷新硬件检测</value>
   </data>
   <data name="Tag_OrientationMirror" xml:space="preserve">
-    <value>EXIF 镜像标签</value>
+    <value>照片镜像标签</value>
   </data>
   <data name="Tag_OrientationAngleMismatch" xml:space="preserve">
-    <value>方向标签角度不一致</value>
+    <value>照片角度不一致</value>
   </data>
   <data name="SettingsPage_Repair_Header.Text" xml:space="preserve">
     <value>实况照片显示修复</value>
@@ -2024,13 +1966,13 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
     <value>[视频修复已关闭]</value>
   </data>
   <data name="Tag_VideoRotation" xml:space="preserve">
-    <value>{0}° 旋转标签</value>
+    <value>视频 {0}° 旋转标签</value>
   </data>
   <data name="Tag_FlipVertical" xml:space="preserve">
-    <value>上下翻转矩阵</value>
+    <value>视频上下翻转</value>
   </data>
   <data name="Tag_FlipHorizontal" xml:space="preserve">
-    <value>左右翻转矩阵</value>
+    <value>视频左右翻转</value>
   </data>
   <data name="SettingsPage_Transcode_Header.Text" xml:space="preserve">
     <value>视频转码</value>
@@ -2144,7 +2086,7 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
     <value>已跳过（HEIC/HEIF）</value>
   </data>
   <data name="RepairPage_Task_SkippedNonApple" xml:space="preserve">
-    <value>已跳过（非 Apple/Samsung）</value>
+    <value>已跳过（非苹果/三星）</value>
   </data>
   <data name="RepairPage_Task_SkippedDuration" xml:space="preserve">
     <value>已跳过（时长超过3.5秒）</value>
@@ -2171,13 +2113,13 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
     <value>关</value>
   </data>
   <data name="SettingsPage_AppleOnlyScanLabel.Text" xml:space="preserve">
-    <value>仅修复 Apple 和 Samsung 实况照片</value>
+    <value>仅修复苹果和三星实况照片</value>
   </data>
   <data name="SettingsPage_AppleOnlyScanDesc.Text" xml:space="preserve">
-    <value>默认开启，仅处理已识别的 Apple 实况照片和 Samsung 动态照片，其他厂商默认跳过。关闭后可对其他已支持的文件执行修复。</value>
+    <value>默认开启，仅处理已识别的苹果实况照片和三星实况照片，其他厂商默认跳过。关闭后可对其他已支持的文件执行修复。</value>
   </data>
   <data name="RepairPage_Diagnosis_NonApple" xml:space="preserve">
-    <value>非 Apple/Samsung 照片</value>
+    <value>非苹果/三星照片</value>
   </data>
   <data name="RepairPage_LivePhotoVideoMissing" xml:space="preserve">
     <value>实况照片（视频缺失）</value>
@@ -3548,6 +3490,18 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
   <data name="AboutPage_CreditFluentIconsDesc.Text" xml:space="preserve">
     <value>Fluent Design 图标库 (.NET 版)</value>
   </data>
+  <data name="AboutPage_CreditFFmpegName.Text" xml:space="preserve">
+    <value>FFmpeg</value>
+  </data>
+  <data name="AboutPage_CreditFFmpegDesc.Text" xml:space="preserve">
+    <value>视频转码、流封装与色彩格式转换 (集成 x264/x265)</value>
+  </data>
+  <data name="AboutPage_CreditLibjpegTurboName.Text" xml:space="preserve">
+    <value>libjpeg-turbo</value>
+  </data>
+  <data name="AboutPage_CreditLibjpegTurboDesc.Text" xml:space="preserve">
+    <value>高性能 SIMD 加速 JPEG 编解码与无损变换</value>
+  </data>
   <data name="AboutPage_LegalTitle.Text" xml:space="preserve">
     <value>法律信息</value>
   </data>
@@ -4699,6 +4653,117 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
     <value>修复待确认</value>
   </data>
   <data name="RepairPage_Reason_OtherDevice" xml:space="preserve">
-    <value>其他厂商，跳过</value>
+    <value>其他设备（非苹果/三星），跳过</value>
+  </data>
+  <data name="Repair_ResultSummary" xml:space="preserve"><value>共 {0} 个文件：已修复 {1}，检查正常 {2}，部分修复／待确认并隔离 {3}，未完成且未导出 {4}，原样复制 {5}，隔离原样副本 {6}，跳过 {7}，失败 {8}，未执行／取消 {9}。</value></data>
+  <data name="Repair_Outcome_success" xml:space="preserve"><value>修复完成</value></data>
+  <data name="Repair_Outcome_healthy" xml:space="preserve"><value>已完成适用检查，无需修复</value></data>
+  <data name="Repair_Outcome_warning" xml:space="preserve"><value>未全部完成；输出情况见详情</value></data>
+  <data name="Repair_Outcome_failed" xml:space="preserve"><value>修复未完成；原因见详情</value></data>
+  <data name="Repair_Outcome_skipped" xml:space="preserve"><value>未执行；原因见详情</value></data>
+  <data name="Repair_Outcome_copied" xml:space="preserve"><value>原样复制，未修复</value></data>
+  <data name="Repair_Outcome_planned" xml:space="preserve"><value>仅预览，未执行</value></data>
+  <data name="Repair_Action_ImageRotation" xml:space="preserve"><value>按图片方向 {0} 无损转正，并将方向标记重置为 1。</value></data>
+  <data name="Repair_Action_Thumbnail" xml:space="preserve"><value>清理已确认归属的嵌入缩略图和预览图。</value></data>
+  <data name="Repair_Action_Heif" xml:space="preserve"><value>将主图 EXIF 方向与 HEIF 显示方向对齐。</value></data>
+  <data name="Repair_Action_Copy" xml:space="preserve"><value>原样复制图片及已确认的配对视频，未执行修复。</value></data>
+  <data name="Repair_Limited_Image" xml:space="preserve"><value>图片方向未修复：方向信息或附带媒体布局无法安全变换；保留原方向。</value></data>
+  <data name="Repair_Limited_Exif" xml:space="preserve"><value>未能完整检查 EXIF；保留原图片字节。</value></data>
+  <data name="Repair_Limited_PairedVideo" xml:space="preserve"><value>配对视频方向未修复；保留原视频及配对信息。</value></data>
+  <data name="Repair_Limited_Embedded" xml:space="preserve"><value>内嵌视频方向未修复；保留原视频字节。</value></data>
+  <data name="Repair_Limited_Metadata" xml:space="preserve"><value>未能确认缩略图／方向元数据的安全修复方法：{0}</value></data>
+  <data name="Repair_Limited_Companion" xml:space="preserve"><value>未找到苹果配对 MOV；本次可用结果将隔离导出。</value></data>
+  <data name="Repair_Limited_VideoProbe" xml:space="preserve"><value>未能完成视频方向检查：{0}</value></data>
+  <data name="Repair_Limited_Cover" xml:space="preserve"><value>来源封面时间未知；不会编造封面时间。</value></data>
+  <data name="Repair_Limited_JpegRotation" xml:space="preserve"><value>JPEG 无损转正未完成：{0}</value></data>
+  <data name="Repair_Limited_VideoRotation" xml:space="preserve"><value> 视频方向修复未完成：{0}</value></data>
+  <data name="Repair_Limited_Preservation" xml:space="preserve"><value> 来源元数据未获完整保留证明；结果已隔离。</value></data>
+  <data name="Repair_Action_Video" xml:space="preserve"><value> 视频已重编码；携带主音视频及已确认的苹果配对／封面信息，其他辅助轨不保证携带。</value></data>
+  <data name="Repair_Action_PairedVideo" xml:space="preserve"><value> 视频已重编码，保留主音频并重建苹果配对和封面；未携带无关辅助轨。</value></data>
+  <data name="Repair_Action_Horizontal" xml:space="preserve"><value>将水平镜像显示变换应用到实际视频画面。</value></data>
+  <data name="Repair_Action_Vertical" xml:space="preserve"><value>将垂直镜像显示变换应用到实际视频画面。</value></data>
+  <data name="Repair_Action_Rotation" xml:space="preserve"><value>将 {0} 度显示旋转应用到实际视频画面。</value></data>
+  <data name="Repair_DisabledImage_Exported" xml:space="preserve"><value>图片修复已关闭；图片未修复，随配对原样导出。原诊断保留如下。</value></data>
+  <data name="Repair_PairOutcome" xml:space="preserve"><value>本次整体处理结果：{0}</value></data>
+  <data name="Repair_Action_Huawei" xml:space="preserve"><value>已识别华为实况结构；按所选选项处理照片和内嵌视频，保留声音与 HDR 信息。</value></data>
+  <data name="Repair_Huawei_NoAction" xml:space="preserve"><value>文件可读取；部分所选检查或修复尚未完成，没有将未改动文件标为修复成功。</value></data>
+  <data name="Repair_Huawei_Partial" xml:space="preserve"><value>已完成可安全处理的照片或视频修复；仍有未完成检查或修复，输出至隔离目录。</value></data>
+  <data name="Repair_Outcome_warning_no_output" xml:space="preserve"><value>未完成，未导出</value></data>
+  <data name="Repair_Outcome_warning_isolated" xml:space="preserve"><value>部分修复或验证未完成，隔离导出</value></data>
+  <data name="Repair_Outcome_warning_copy" xml:space="preserve"><value>原样复制至隔离目录，未修复</value></data>
+  <data name="Repair_GroupIsolated" xml:space="preserve"><value>整组隔离，原因见详情</value></data>
+  <data name="Repair_NoOutput" xml:space="preserve"><value>输出：无，本次未生成文件。</value></data>
+  <data name="Repair_OutputMissing" xml:space="preserve"><value>当时已导出，当前路径找不到；文件可能已被移动或删除。</value></data>
+  <data name="Repair_ResultLocation.Content" xml:space="preserve"><value>打开成品所在位置</value></data>
+  <data name="Repair_RemainingReason" xml:space="preserve"><value>未完成／待确认原因：</value></data>
+  <data name="Repair_HistoryMissing" xml:space="preserve"><value>本项日志未保存；实际媒体处理结果不变。</value></data>
+  <data name="Repair_ActionName_image_orientation" xml:space="preserve"><value>照片方向</value></data>
+  <data name="Repair_ActionName_thumbnail" xml:space="preserve"><value>缩略图清理</value></data>
+  <data name="Repair_ActionName_heif_orientation" xml:space="preserve"><value>HEIF 方向对齐</value></data>
+  <data name="Repair_ActionName_video_orientation" xml:space="preserve"><value>视频方向</value></data>
+  <data name="Repair_ActionState_not_selected" xml:space="preserve"><value>用户未选择</value></data>
+  <data name="Repair_ActionState_not_needed" xml:space="preserve"><value>检查完成，无需此项处理</value></data>
+  <data name="Repair_ActionState_completed" xml:space="preserve"><value>已完成并验证</value></data>
+  <data name="Repair_ActionState_not_completed" xml:space="preserve"><value>未完成，原内容保留</value></data>
+  <data name="Repair_ActionState_not_checked" xml:space="preserve"><value>未完成检查</value></data>
+  <data name="Repair_ActionState_planned" xml:space="preserve"><value>计划执行，尚未处理</value></data>
+  <data name="Repair_OutputKind_copy" xml:space="preserve"><value>原样副本</value></data>
+  <data name="Repair_OutputKind_repaired" xml:space="preserve"><value>修复成品</value></data>
+  <data name="Repair_OutputKind_isolated_copy" xml:space="preserve"><value>隔离原样副本（未修复）</value></data>
+  <data name="Repair_OutputKind_isolated_repaired" xml:space="preserve"><value>隔离成品（部分修复／待确认）</value></data>
+  <data name="Repair_Reason_lossless_transform_unavailable" xml:space="preserve"><value>照片方向未完成无损修复，原方向保留。</value></data>
+  <data name="Repair_Reason_thumbnail_ownership_unverified" xml:space="preserve"><value>缩略图清理未完成，未确认可删除的内容保留。</value></data>
+  <data name="Repair_Reason_heif_alignment_unverified" xml:space="preserve"><value>HEIF 方向对齐未完成，原有显示信息保留。</value></data>
+  <data name="Repair_Reason_video_direction_unverified" xml:space="preserve"><value>视频方向检查或转正未完成，原视频保留。</value></data>
+  <data name="Repair_Reason_companion_missing" xml:space="preserve"><value>未找到确认配对的视频，无法完成整组实况检查。</value></data>
+  <data name="Repair_Reason_cover_time_unknown" xml:space="preserve"><value>来源未提供可确认的封面时间，未猜测重建封面。</value></data>
+  <data name="Repair_Reason_video_preservation_unverified" xml:space="preserve"><value>视频已转正，但部分来源媒体信息未完成保留验证。</value></data>
+  <data name="Repair_Reason_image_preservation_unverified" xml:space="preserve"><value>照片修复后的媒体保留检查未通过，原照片保留。</value></data>
+<data name="OutputDir_Quarantined" xml:space="preserve"><value>隔离导出</value><comment>隔离输出文件夹名</comment></data>
+  <data name="Repair_Status_Waiting" xml:space="preserve"><value>等待修复</value></data>
+  <data name="Repair_Status_Processing" xml:space="preserve"><value>正在修复</value></data>
+  <data name="Repair_Status_Completed" xml:space="preserve"><value>修复完成</value></data>
+  <data name="Repair_Status_Failed" xml:space="preserve"><value>修复失败</value></data>
+  <data name="Repair_Status_Isolated" xml:space="preserve"><value>已隔离</value></data>
+  <data name="Repair_Status_NoRepairNeeded" xml:space="preserve"><value>无需修复</value></data>
+  <data name="Repair_Status_Cancelled" xml:space="preserve"><value>已取消</value></data>
+  <data name="Tag_Status_Normal" xml:space="preserve"><value>正常</value></data>
+  <data name="Tag_NonApple" xml:space="preserve"><value>非苹果/三星</value></data>
+  <data name="Tag_ReadError" xml:space="preserve"><value>读取失败</value></data>
+  <data name="Tag_Corrupted" xml:space="preserve"><value>损坏</value></data>
+  <data name="RepairPage_ColActions.Text" xml:space="preserve"><value>操作</value></data>
+  <data name="RepairPage_Menu_ShowInFolder.Text" xml:space="preserve"><value>在文件夹中查看原件</value></data>
+  <data name="RepairPage_Menu_OpenOutput.Text" xml:space="preserve"><value>打开输出文件夹</value></data>
+  <data name="RepairPage_Menu_Preview.Text" xml:space="preserve"><value>全屏预览</value></data>
+  <data name="RepairPage_Menu_Delete.Text" xml:space="preserve"><value>移除</value></data>
+  <data name="RepairPage_Action_ShowInFolder.ToolTipService.ToolTip" xml:space="preserve"><value>在文件夹中查看</value></data>
+  <data name="RepairPage_Action_More.ToolTipService.ToolTip" xml:space="preserve"><value>更多操作</value></data>
+<data name="RepairTip_Perfect" xml:space="preserve"><value>检查正常，文件无需修复。</value></data>
+  <data name="RepairTip_NonApple" xml:space="preserve"><value>非苹果或三星实况照片，跳过修复。</value></data>
+  <data name="RepairTip_Error" xml:space="preserve"><value>文件读取或结构校验失败，无法安全修复。</value></data>
+  <data name="RepairTip_Rotation" xml:space="preserve"><value>照片方向包含 {0}° 旋转</value></data>
+  <data name="RepairTip_Thumbnail" xml:space="preserve"><value>包含多余内嵌缩略图，可精简体积</value></data>
+  <data name="RepairTip_Conflict" xml:space="preserve"><value>HEIF 方向信息存在冲突</value></data>
+  <data name="RepairTip_VideoRotation" xml:space="preserve"><value>实况视频包含 {0}° 旋转</value></data>
+  <data name="RepairTip_IsolatedOutput" xml:space="preserve"><value>已隔离导出至：{0}（原文件保持不变）</value></data>
+  <data name="RepairTip_SuccessOutput" xml:space="preserve"><value>已导出至：{0}</value></data>
+  <data name="RepairTip_Failed" xml:space="preserve"><value>修复未成功，未修改您的原文件。</value></data>
+  <data name="RepairTip_Pending" xml:space="preserve"><value>状态：等待执行修复。</value></data>
+<data name="RepairTip_DiagnosisPrefix" xml:space="preserve"><value>诊断：</value></data><data name="RepairTip_Status_Processing" xml:space="preserve"><value>状态：正在修复中...</value></data><data name="RepairTip_Status_NoRepairNeeded" xml:space="preserve"><value>状态：无需修复。</value></data><data name="RepairTip_FileInUse" xml:space="preserve"><value>文件正被其他程序占用，请关闭相关程序后重试。</value></data><data name="RepairTip_AccessDenied" xml:space="preserve"><value>访问被拒绝，请检查文件读写权限。</value></data><data name="RepairTip_DiskFull" xml:space="preserve"><value>磁盘空间不足，无法保存修复后的文件。</value></data><data name="RepairTip_FileNotFound" xml:space="preserve"><value>未找到源文件，请确认文件是否存在。</value></data><data name="RepairTip_Error_General" xml:space="preserve"><value>修复处理遇到异常，无法完成修复。</value></data><data name="RepairTip_ReasonPrefix" xml:space="preserve"><value>原因：</value></data><data name="RepairTip_OutcomePrefix" xml:space="preserve"><value>结果：</value></data><data name="RepairTip_Status_Skipped" xml:space="preserve"><value>状态：已跳过，原文件保持不变。</value></data><data name="Tag_VideoOrientationMirror" xml:space="preserve"><value>视频镜像标签</value></data><data name="RepairTip_StatusPrefix" xml:space="preserve"><value>状态：</value></data>
+  <data name="RepairTip_CompletedDesc" xml:space="preserve"><value>已按修复规则成功修复并导出，原文件保持不变。</value></data>
+  <data name="RepairTip_NoRepairNeededDesc" xml:space="preserve"><value>文件检查正常，不需要执行修复。</value></data>
+  <data name="RepairTip_WaitingDesc" xml:space="preserve"><value>点击“开始修复”后将按设定的规则进行修复。</value></data>
+  <data name="RepairTip_DefaultIsolationReason" xml:space="preserve"><value>来源元数据保留验证未完全通过，为保护原文件安全已导出至隔离目录。</value></data>
+  <data name="RepairTip_CancelledDesc" xml:space="preserve"><value>用户已手动停止或取消修复任务。</value></data>
+  <data name="RepairOptions_FixImageRotation_Title" xml:space="preserve"><value>JPEG 画面转正（无损）</value></data>
+  <data name="RepairOptions_FixImageRotation_Desc" xml:space="preserve"><value>无损物理旋转底层像素，解决在 Windows 上横躺或倒立问题。</value></data>
+  <data name="RepairOptions_FixHeicOrientation_Title" xml:space="preserve"><value>HEIC 方向对齐（元数据）</value></data>
+  <data name="RepairOptions_FixHeicOrientation_Desc" xml:space="preserve"><value>对齐 EXIF 与容器旋转标记，解决跨设备显示角度冲突错位。</value></data>
+  <data name="RepairOptions_StripImageThumbnail_Title" xml:space="preserve"><value>内嵌缩略图瘦身清理</value></data>
+  <data name="RepairOptions_StripImageThumbnail_Desc" xml:space="preserve"><value>清理相机内嵌的冗余缩略图，精简文件体积，不影响画质。</value></data>
+  <data name="RepairOptions_FixVideoRotation_Title" xml:space="preserve"><value>实况视频画面转正</value></data>
+  <data name="RepairOptions_FixVideoRotation_Desc" xml:space="preserve"><value>将旋转角度应用到实际画面并去除旋转标签，解决横屏播放。</value></data>
+  <data name="RepairPage_Status_Running" xml:space="preserve">
+    <value>正在修复处理中...</value>
   </data>
 </root>

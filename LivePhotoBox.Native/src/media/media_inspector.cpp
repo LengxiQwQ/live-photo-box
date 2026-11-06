@@ -1,4 +1,5 @@
 #include "media/jpeg_observation.h"
+#include "platform/windows_filesystem.h"
 #include "media/xmp_observation.h"
 #include "media/media_inspector.h"
 #include "media/target_writer.h"
@@ -887,6 +888,26 @@ static std::string extract_xml_fragment(std::string_view sv) {
         }
     }
 
+    // Legal namespace aliases (including a bare RDF root) carry the same
+    // semantics. Only accept a complete single root; never search opaque bytes
+    // for another prefix or let a nested RDF node become the packet owner.
+    while(!sv.empty()&&std::isspace(static_cast<unsigned char>(sv.front())))sv.remove_prefix(1);
+    while(!sv.empty()&&std::isspace(static_cast<unsigned char>(sv.back())))sv.remove_suffix(1);
+    std::vector<xmp_node> nodes;
+    if(!scan_xmp_tree(sv,nodes,true)||nodes.empty())return {};
+    const auto& root=nodes.front();
+    if(root.tag_start!=0||root.parent_index!=k_no_parent||root.close_start==std::string_view::npos||
+       sv.find('>',root.close_start)+1!=sv.size())return {};
+    size_t roots=0,rdfs=0;
+    for(const auto& node:nodes) {
+        if(node.parent_index==k_no_parent)++roots;
+        if(node_is(node,"http://www.w3.org/1999/02/22-rdf-syntax-ns#","RDF")) {
+            if(node.node_index!=0&&!(node.parent_index==0&&node_is(root,"adobe:ns:meta/","xmpmeta")))return {};
+            ++rdfs;
+        }
+    }
+    if(roots==1&&rdfs==1&&(node_is(root,"adobe:ns:meta/","xmpmeta")||
+        node_is(root,"http://www.w3.org/1999/02/22-rdf-syntax-ns#","RDF")))return std::string(sv);
     return {};
 }
 
@@ -5467,6 +5488,54 @@ lpb_result inspect_source(
     return LPB_RESULT_INVALID_ARGUMENT;
 }
 
+lpb_result discover_pairing_hint(lpb_context* context, const char* path, lpb_pairing_hint_v1* out) noexcept {
+    if(!context||!path||!out||out->struct_size!=sizeof(*out)||out->api_version!=1)return LPB_RESULT_INVALID_ARGUMENT;
+    *out={};out->struct_size=sizeof(*out);out->api_version=1;
+    try {
+        windows_readonly_source lease;
+        const fs::path source{std::u8string(reinterpret_cast<const char8_t*>(path))};
+        if(!lease.open(source))return LPB_RESULT_INVALID_ARGUMENT;
+        if(lpb_context_check_cancelled(context)!=LPB_RESULT_OK)return LPB_RESULT_CANCELLED;
+        lpb_source_media_facts checked{};checked.struct_size=sizeof(checked);
+        const auto inspected=inspect_source(context,path,nullptr,&checked);
+        lpb_inspection_status status{};status.struct_size=sizeof(status);
+        const bool legacy_orphan=inspected!=LPB_RESULT_OK&&
+            lpb_get_last_inspection_status(context,&status)==LPB_RESULT_OK&&
+            status.category==LPB_INSPECTION_FAILURE_AMBIGUOUS&&status.stage==LPB_INSPECTION_STAGE_PAIRING&&
+            status.capability==LPB_CAPABILITY_VIVO_LEGACY;
+        if(inspected!=LPB_RESULT_OK&&!legacy_orphan)return inspected;
+        std::vector<uint8_t> bytes;
+        if(!lease.read_all_bounded(4,1024ULL*1024*1024,bytes))return LPB_RESULT_UNSUPPORTED;
+        std::string id;uint32_t protocol=0,role=0;
+        const auto image=detect_image_container(bytes);
+        if(image!=LPB_IMAGE_CONTAINER_UNKNOWN) {
+            uint64_t end=0;size_t tail_start=0;
+            if(image==LPB_IMAGE_CONTAINER_JPEG&&find_jpeg_end(bytes,end)&&extract_vivo_id_from_image(bytes,end,id,&tail_start)) {
+                // No unexplained range can be hidden before the owned trailer.
+                target_primary_observation primary;std::string error;
+                if(!observe_target_primary(std::span<const uint8_t>(bytes.data(),tail_start),primary,error)||
+                   primary.container!=LPB_IMAGE_CONTAINER_JPEG||primary.has_video||target_primary_has_live_binding(primary))return LPB_RESULT_INVALID_ARGUMENT;
+                protocol=LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL;role=1;
+            } else if(inspected==LPB_RESULT_OK&&checked.pairing_identifier[0]) {
+                id=checked.pairing_identifier;protocol=LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO;role=1;
+            }
+        } else if(detect_video_container(bytes)!=LPB_VIDEO_CONTAINER_UNKNOWN) {
+            vivo_modern_inventory mixed;
+            if(!observe_vivo_modern(bytes,mixed))return LPB_RESULT_INVALID_ARGUMENT;
+            if(mixed.found&&mixed.binding) {id=mixed.pairing;protocol=LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL;role=2;}
+            else if(checked.pairing_identifier[0]) {id=checked.pairing_identifier;protocol=LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO;role=2;}
+        }
+        if(lpb_context_check_cancelled(context)!=LPB_RESULT_OK)return LPB_RESULT_CANCELLED;
+        lpb_pairing_hint_v1 result{};result.struct_size=sizeof(result);result.api_version=1;
+        if(!lease.capture_identity(result.identity)||!lease.verify_same_identity(source))return LPB_RESULT_SOURCE_CHANGED;
+        result.protocol=protocol;result.role=role;
+        lpb::crypto::sha256_buffer(bytes.data(),bytes.size(),result.sha256);
+        if(id.size()>=sizeof(result.identifier))return LPB_RESULT_INVALID_ARGUMENT;
+        std::memcpy(result.identifier,id.data(),id.size());
+        *out=result;return LPB_RESULT_OK;
+    }catch(...){return LPB_RESULT_INTERNAL_ERROR;}
+}
+
 lpb_result inspect_source_with_plan(
     lpb_context* context,
     const char* primary_path,
@@ -6556,7 +6625,7 @@ bool rewrite_target_primary_padding(std::string_view xml,uint64_t padding,std::s
     }catch(...){output.clear();return false;}
 }
 static bool rewrite_bound_image_xmp_impl(std::string_view xml,std::string_view source_mime,std::string_view target_mime,
-    uint32_t orientation,uint32_t width,uint32_t height,std::string& output,xmp_observation_failure& failure,bool allow_hdr) noexcept {
+    uint32_t orientation,uint32_t width,uint32_t height,std::string& output,xmp_observation_failure& failure,bool allow_hdr,bool allow_extended_reference=false) noexcept {
     output.clear();failure=xmp_observation_failure::malformed;
     try {
         if(orientation<1||orientation>8||!width||!height||
@@ -6565,7 +6634,7 @@ static bool rewrite_bound_image_xmp_impl(std::string_view xml,std::string_view s
         if(xml.empty()){failure=xmp_observation_failure::none;return true;}
         target_xmp_observation before;
         if(!observe_target_xmp(xml,before,failure)||before.live_claim||before.micro_claim||before.foreign_claim||
-            (!allow_hdr&&before.hdr_claim)||before.extended_reference_present)return false;
+            (!allow_hdr&&before.hdr_claim)||(!allow_extended_reference&&before.extended_reference_present))return false;
         std::vector<xmp_node> nodes;if(!scan_xmp_tree(xml,nodes,true))return false;
         if(orientation!=1)for(const auto& node:nodes) {
             constexpr std::string_view recipe="http://ns.adobe.com/camera-raw-settings/1.0/";
@@ -6652,6 +6721,18 @@ static bool rewrite_bound_image_xmp_impl(std::string_view xml,std::string_view s
         failure=xmp_observation_failure::none;return true;
     }catch(...){output.clear();return false;}
 }
+bool validate_jpeg_repair_xmp(std::string_view standard,std::string_view extension,std::string_view guid,
+    uint32_t orientation,uint32_t width,uint32_t height) noexcept {
+    target_xmp_observation observed;xmp_observation_failure failure{};
+    if(!observe_target_xmp_packets(standard,extension,guid,observed,failure))return false;
+    std::string mapped;
+    if(!standard.empty()&&(!rewrite_bound_image_xmp_impl(standard,"image/jpeg","image/jpeg",
+        orientation,width,height,mapped,failure,false,!extension.empty())||mapped!=standard))return false;
+    if(!extension.empty()&&(!rewrite_bound_image_xmp_impl(extension,"image/jpeg","image/jpeg",
+        orientation,width,height,mapped,failure,false)||mapped!=extension))return false;
+    return true;
+}
+
 bool rewrite_neutral_image_xmp(std::string_view xml,std::string_view source_mime,std::string_view target_mime,
     uint32_t orientation,uint32_t width,uint32_t height,std::string& output,xmp_observation_failure& failure) noexcept {
     return rewrite_bound_image_xmp_impl(xml,source_mime,target_mime,orientation,width,height,output,failure,false);

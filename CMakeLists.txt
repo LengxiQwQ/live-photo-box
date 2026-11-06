@@ -68,6 +68,7 @@ set(LPB_MEDIA_SOURCES
   LivePhotoBox.Native/src/media/hdr_gainmap_conversion.cpp
   LivePhotoBox.Native/src/media/jpeg_backend.cpp
   LivePhotoBox.Native/src/media/samsung_repair.cpp
+  LivePhotoBox.Native/src/media/huawei_repair.cpp
   LivePhotoBox.Native/src/media/image_converter.cpp
   LivePhotoBox.Native/src/media/image_converter_v2.cpp
   LivePhotoBox.Native/src/media/media_api.cpp

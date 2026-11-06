@@ -48,6 +48,55 @@ namespace LivePhotoBox.Models
         public List<RepairFileEntry> Entries { get; }
         public bool IsConfirmedLivePhoto => IsPaired || Entries.Any(entry => entry.AnalysisResult?.IsSamsungMotionPhoto == true);
 
+        // 移除指定槽位的文件条目（支持单独移除配对任务中的照片或视频）
+        public void RemoveSlot(int slot)
+        {
+            if (!_isPaired)
+            {
+                return;
+            }
+
+            if (slot == 2)
+            {
+                if (_file2Entry != null)
+                {
+                    _file2Entry.PropertyChanged -= OnFile2PropertyChanged;
+                    Entries.Remove(_file2Entry);
+                    _file2Entry = null;
+                }
+                _file2Index = 0;
+                IsPaired = false;
+                _operationStatus = null;
+                SyncAllBindings();
+            }
+            else if (slot == 1)
+            {
+                if (_file1Entry != null)
+                {
+                    _file1Entry.PropertyChanged -= OnFile1PropertyChanged;
+                    Entries.Remove(_file1Entry);
+                }
+
+                var oldFile2 = _file2Entry;
+                if (oldFile2 != null)
+                {
+                    oldFile2.PropertyChanged -= OnFile2PropertyChanged;
+                    _file2Entry = null;
+                }
+
+                _file1Entry = oldFile2;
+                if (_file1Entry != null)
+                {
+                    _file1Entry.PropertyChanged += OnFile1PropertyChanged;
+                }
+
+                _file2Index = 0;
+                IsPaired = false;
+                _operationStatus = null;
+                SyncAllBindings();
+            }
+        }
+
         #endregion
 
         #region Construction
@@ -191,9 +240,38 @@ namespace LivePhotoBox.Models
         #region Task-Level Status
 
         // 任务级状态：配对 = 两个 Entry 中最差状态；单独 = 唯一 Entry 的状态。
-        public ProcessStatus Status => File2Entry != null
-            ? AggregateStatus(File1Entry?.Status ?? ProcessStatus.Pending, File2Entry.Status)
-            : File1Entry?.Status ?? ProcessStatus.Pending;
+        private ProcessStatus? _operationStatus;
+        public ProcessStatus Status => _operationStatus ?? (File2Entry != null
+            ? AggregateStatus(EntryStatus(File1Entry), EntryStatus(File2Entry))
+            : EntryStatus(File1Entry));
+
+        internal void ResetOperationResult()
+        {
+            _operationStatus = null;
+            foreach (var entry in Entries) { entry.PublishedOutputs = []; entry.ExecutionOutcomeKey = null; }
+            OnPropertyChanged(nameof(Status));
+        }
+
+        internal void ApplyRepairResult(LivePhotoRepairService.RepairResult result)
+        {
+            foreach (var entry in Entries)
+            {
+                string outcome = RepairQueuePolicy.OutcomeForFile(result, entry.IsImage, entry.IsImageRepairDisabled);
+                entry.ExecutionStatus = outcome;
+                entry.Status = new LivePhotoRepairService.RepairResult(outcome, "").ProcessStatus;
+                entry.PublishedOutputs = System.Linq.Enumerable.ToArray(System.Linq.Enumerable.Where(result.PublishedOutputs,
+                    x => x.Role == (entry.IsImage ? "image" : "video")));
+                entry.ExecutionOutcomeKey = outcome == "warning" ? result.OutcomeKey : outcome;
+                entry.Details = LivePhotoRepairService.DescribeResult(result) + System.Environment.NewLine +
+                    ResourceService.Format("Repair_PairOutcome", ResourceService.GetString("Repair_Outcome_" + result.OutcomeKey));
+            }
+            // A copied/disabled member must not erase the actual pair outcome.
+            _operationStatus = result.ProcessStatus;
+            OnPropertyChanged(nameof(Status));
+        }
+
+        private static ProcessStatus EntryStatus(RepairFileEntry? entry) =>
+            entry?.IsCancelled == true ? ProcessStatus.Cancelled : entry?.Status ?? ProcessStatus.Pending;
 
         // 读取失败和实际修复结果分别显示；完整诊断保留在点击详情中。
         public string File1DisplayStatusText => GetDisplayStatusText(File1Entry, File1Status, File1Details);
@@ -203,27 +281,54 @@ namespace LivePhotoBox.Models
 
         private static string GetDisplayStatusText(RepairFileEntry? entry, ProcessStatus status, string details)
         {
-            if (entry?.IsDiagnosisError == true)
-                return ResourceService.GetString("RepairPage_Reason_ReadError");
-            if (entry?.AnalysisResult?.IssueType == RepairIssueType.Limited && status == ProcessStatus.Pending)
-                return ResourceService.GetString("RepairPage_Reason_Limited");
-            return status switch
+            if (entry?.IsCancelled == true)
+                return ResourceService.GetString("Repair_Status_Cancelled");
+
+            if (status == ProcessStatus.Processing)
+                return ResourceService.GetString("Repair_Status_Processing");
+
+            if (entry?.ExecutionStatus is { } outcome)
             {
-                ProcessStatus.Failed => ResourceService.GetString("RepairPage_Task_Failed"),
-                ProcessStatus.Warning => ResourceService.GetString("RepairPage_Task_Warning"),
-                ProcessStatus.Success when entry?.NeedsRepair == true => ResourceService.GetString("Status_RepairSuccess"),
-                _ => details
-            };
+                if (status == ProcessStatus.Failed || outcome == "failed")
+                    return ResourceService.GetString("Repair_Status_Failed");
+                if (status == ProcessStatus.Warning || outcome == "warning" || outcome.StartsWith("isolated", System.StringComparison.Ordinal) ||
+                    System.Linq.Enumerable.Any(entry.PublishedOutputs, x => x.Kind.StartsWith("isolated", System.StringComparison.Ordinal)))
+                    return ResourceService.GetString("Repair_Status_Isolated");
+                if (outcome is "healthy" or "not_needed" or "copied" or "skipped" ||
+                    (!entry.NeedsRepair && entry.AnalysisResult?.IssueType == RepairIssueType.Perfect) ||
+                    entry?.NeedsRepair == false)
+                    return ResourceService.GetString("Repair_Status_NoRepairNeeded");
+                return ResourceService.GetString("Repair_Status_Completed");
+            }
+
+            if (entry?.IsDiagnosisError == true || status == ProcessStatus.Failed)
+                return ResourceService.GetString("Repair_Status_Failed");
+
+            if (status == ProcessStatus.Warning)
+                return ResourceService.GetString("Repair_Status_Isolated");
+
+            if (status == ProcessStatus.Success)
+            {
+                return entry?.NeedsRepair == true && entry.AnalysisResult?.IssueType != RepairIssueType.NeedsStrip
+                    ? ResourceService.GetString("Repair_Status_Completed")
+                    : ResourceService.GetString("Repair_Status_NoRepairNeeded");
+            }
+
+            if (entry?.NeedsRepair == false ||
+                entry?.AnalysisResult?.IssueType is RepairIssueType.Perfect or RepairIssueType.NeedsStrip)
+                return ResourceService.GetString("Repair_Status_NoRepairNeeded");
+
+            return ResourceService.GetString("Repair_Status_Waiting");
         }
 
-        // 汇总两个 Entry 的状态：处理中 > 待处理 > 失败 > 成功 > 已取消。
+        // A skipped companion must not hide a failed or isolated result.
         private static ProcessStatus AggregateStatus(ProcessStatus a, ProcessStatus b)
         {
             if (a == ProcessStatus.Processing || b == ProcessStatus.Processing) return ProcessStatus.Processing;
-            if (a == ProcessStatus.Pending || b == ProcessStatus.Pending) return ProcessStatus.Pending;
             if (a == ProcessStatus.Failed || b == ProcessStatus.Failed) return ProcessStatus.Failed;
             if (a == ProcessStatus.Warning || b == ProcessStatus.Warning) return ProcessStatus.Warning;
             if (a == ProcessStatus.Cancelled || b == ProcessStatus.Cancelled) return ProcessStatus.Cancelled;
+            if (a == ProcessStatus.Pending || b == ProcessStatus.Pending) return ProcessStatus.Pending;
             return ProcessStatus.Success;
         }
 
@@ -314,6 +419,10 @@ namespace LivePhotoBox.Models
                     File1Status = File1Entry?.Status ?? ProcessStatus.Pending;
                     OnPropertyChanged(nameof(File1DisplayStatusText));
                     break;
+                case nameof(RepairFileEntry.ExecutionStatus):
+                case nameof(RepairFileEntry.IsCancelled):
+                    OnPropertyChanged(nameof(File1DisplayStatusText));
+                    break;
                 case nameof(RepairFileEntry.DisplayStatus):
                     File1DisplayStatus = File1Entry?.DisplayStatus ?? ProcessStatus.Success;
                     break;
@@ -359,6 +468,10 @@ namespace LivePhotoBox.Models
                     File2Status = File2Entry?.Status ?? ProcessStatus.Pending;
                     OnPropertyChanged(nameof(File2DisplayStatusText));
                     break;
+                case nameof(RepairFileEntry.ExecutionStatus):
+                case nameof(RepairFileEntry.IsCancelled):
+                    OnPropertyChanged(nameof(File2DisplayStatusText));
+                    break;
                 case nameof(RepairFileEntry.DisplayStatus):
                     File2DisplayStatus = File2Entry?.DisplayStatus ?? ProcessStatus.Success;
                     break;
@@ -402,6 +515,18 @@ namespace LivePhotoBox.Models
                 File2Status = File2Entry.Status;
                 File2DisplayStatus = File2Entry.DisplayStatus;
                 File2HasErrorDetails = File2Entry.HasErrorDetails;
+            }
+            else
+            {
+                File2Name = string.Empty;
+                File2Path = string.Empty;
+                File2IsImage = false;
+                File2IssueDescription = string.Empty;
+                File2IsDiagnosisError = false;
+                File2Details = string.Empty;
+                File2Status = ProcessStatus.Pending;
+                File2DisplayStatus = ProcessStatus.Success;
+                File2HasErrorDetails = false;
             }
 
             OnPropertyChanged(nameof(File2Visibility));

@@ -1323,6 +1323,31 @@ public static class NativeMediaService
         return outputs;
     }
 
+    internal static IReadOnlyDictionary<string, NativeRegisteredOutputEvidence> CaptureHuaweiRepairOutputs(
+        NativeContext context,string workspace,string? finalPath)
+    {
+        var allowed=new Dictionary<string,MediaArtifactKind>(StringComparer.OrdinalIgnoreCase);
+        foreach(string stem in new[]{"huawei"})
+            foreach(string suffix in new[]{"source","video","encoded","verified"})
+                allowed.Add(Path.GetFullPath(Path.Combine(workspace,$"{stem}-{suffix}.mp4")),MediaArtifactKind.MotionVideo);
+        if(finalPath!=null)allowed.Add(Path.GetFullPath(finalPath),MediaArtifactKind.PrimaryImage);
+        var outputs=new Dictionary<string,NativeRegisteredOutputEvidence>(StringComparer.OrdinalIgnoreCase);
+        foreach(var record in QueryContextStagedOutputs(context.Handle))
+        {
+            string path=Path.GetFullPath(record.FinalPath);
+            if(!allowed.TryGetValue(path,out var role)||role!=record.ArtifactRole||record.LinkCount!=1||record.FileSize==0||outputs.ContainsKey(path))
+                throw new InvalidDataException("Huawei repair returned an unbound or duplicate output receipt.");
+            var expected=new WindowsFileIdentity {VolumeSerialNumber=record.VolumeSerial,FileIndex=record.FileIndex,LinkCount=record.LinkCount,FileAttributes=0};
+            using var handle=WindowsOwnedFilePublisher.OpenOwnedStagedFile(path,expected);
+            var evidence=WindowsOwnedFilePublisher.CaptureOwnedHandleEvidence(handle,path,expected,CancellationToken.None);
+            if((ulong)evidence.ByteLength!=record.FileSize)throw new InvalidDataException("Huawei repair staging size changed.");
+            var result=new NativeRegisteredOutputEvidence(evidence.FileIdentity,evidence.ByteLength,evidence.Sha256);
+            WorkspaceOwnershipRegistry.RegisterCreatedFile(path,result.FileIdentity,result.ByteLength,result.Sha256,role.ToString());
+            outputs.Add(path,result);
+        }
+        return outputs;
+    }
+
     internal static NativeRegisteredOutputEvidence CaptureRegisteredOutputEvidence(
         NativeContext context,
         string outputPath,

@@ -21,7 +21,7 @@ extern "C" {
 #endif
 
 /* ABI14 adds fresh-reader Target Validator; existing PODs are unchanged. */
-#define LPB_NATIVE_ABI_VERSION 16u
+#define LPB_NATIVE_ABI_VERSION 17u
 
 typedef struct lpb_context lpb_context;
 typedef struct lpb_extraction_plan lpb_extraction_plan;
@@ -1432,6 +1432,18 @@ typedef struct lpb_file_identity
     uint32_t link_count;
 } lpb_file_identity;
 
+/* Read-only candidate hint. Does not confirm a pair or grant any mutation
+ * authority. All fields except struct_size/api_version are zero on failure. */
+typedef struct lpb_pairing_hint_v1 {
+    uint32_t struct_size, api_version, protocol, role;
+    lpb_file_identity identity;
+    uint8_t sha256[32];
+    char identifier[128];
+} lpb_pairing_hint_v1;
+LPB_API lpb_result LPB_CALL lpb_discover_pairing_hint_v1(
+    lpb_context*, const char* source, lpb_pairing_hint_v1*);
+
+
 // Repair-only Samsung single-file normalization. Actions follow the existing
 // repair toggles: 1 JPEG direction, 2 thumbnail cleanup, 4 HEIF direction,
 // 8 main plus autoplay video direction. Null output performs diagnosis only.
@@ -1448,6 +1460,23 @@ typedef struct lpb_samsung_repair_result_v1 {
 LPB_API lpb_result LPB_CALL lpb_repair_samsung_v1(lpb_context*, const char* source,
     const char* workspace_directory, const char* output,
     const lpb_samsung_repair_request_v1*, lpb_samsung_repair_result_v1*);
+
+/* Repair-only Huawei single-file normalization. Same action bits as Samsung;
+ * video is inspected and retained byte-for-byte, never transcoded. Null output
+ * diagnoses. pending identifies selected actions that could not complete.
+ * Source identity/hash remain mandatory for diagnosis and execution. */
+typedef struct lpb_huawei_repair_request_v1 {
+    uint32_t struct_size, api_version, actions, reserved;
+    lpb_file_identity expected_identity;
+    uint8_t source_sha256[32];
+} lpb_huawei_repair_request_v1;
+typedef struct lpb_huawei_repair_result_v1 {
+    uint32_t struct_size, api_version, changed, pending;
+    uint32_t image_orientation, main_rotation, reflection, metadata_changes;
+    char details[2048];
+} lpb_huawei_repair_result_v1;
+LPB_API lpb_result LPB_CALL lpb_repair_huawei_v1(lpb_context*, const char* source,
+    const char* output, const lpb_huawei_repair_request_v1*, lpb_huawei_repair_result_v1*);
 
 
 /* Target Writer v1: x64 alignment8 / managed Pack8. Existing PODs unchanged. */
@@ -2163,6 +2192,8 @@ LPB_API lpb_result LPB_CALL lpb_inspect_video_inventory_v1(lpb_context* context,
 #ifdef __cplusplus
 }
 
+static_assert(sizeof(lpb_pairing_hint_v1) == 208, "pairing hint POD size mismatch");
+static_assert(offsetof(lpb_pairing_hint_v1, identifier) == 80, "pairing hint identifier offset mismatch");
 static_assert(sizeof(lpb_media_range) == 16, "lpb_media_range size mismatch");
 static_assert(sizeof(lpb_image_item_facts) == 40, "lpb_image_item_facts size mismatch");
 static_assert(sizeof(lpb_video_item_facts) == 80, "lpb_video_item_facts size mismatch");
