@@ -1030,6 +1030,7 @@ namespace LivePhotoBox.ViewModels
 
                         App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                         {
+                            if (ApplicationShutdown.IsClosing || _isCleaningUp) return;
                             int thumbCorrect = 0, thumbError = 0;
                             foreach (var task in batch)
                             {
@@ -1339,6 +1340,7 @@ namespace LivePhotoBox.ViewModels
                         var capturedTotalFiles = totalFiles;
                         App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                         {
+                            if (ApplicationShutdown.IsClosing || _isCleaningUp) return;
                             // 保留第一遍的文件名配对 Task（它们不受元数据匹配影响）
                             int pairedCount = 0;
                             foreach (var t in Tasks)
@@ -1389,6 +1391,7 @@ namespace LivePhotoBox.ViewModels
 
                     App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                     {
+                        if (ApplicationShutdown.IsClosing || _isCleaningUp) return;
                         Tasks.ReplaceRange([]);
                         FilteredTasks.ReplaceRange([]);
                         ThumbCorrectCount = 0;
@@ -1407,7 +1410,7 @@ namespace LivePhotoBox.ViewModels
                 {
                     CompleteScanSnapshot();
                     SetStatus("RepairPage_Status_ScanDone", ThumbCorrectCount, ThumbErrorCount);
-                    App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateIsQueueEmpty(Tasks.Count));
+                    App.MainWindow?.DispatcherQueue.TryEnqueue(() => { if (!ApplicationShutdown.IsClosing && !_isCleaningUp) UpdateIsQueueEmpty(Tasks.Count); });
                     LogService.Repair($"Scan completed: {totalFiles} entries, {pairCount} pairs, {standaloneImg} imgs, {standaloneVid} vids — {ThumbCorrectCount} healthy, {ThumbErrorCount} need repair");
                 }
                 else
@@ -1424,6 +1427,7 @@ namespace LivePhotoBox.ViewModels
 
                 App.MainWindow?.DispatcherQueue.TryEnqueue(() =>
                 {
+                    if (ApplicationShutdown.IsClosing || _isCleaningUp) return;
                     Tasks.ReplaceRange([]);
                     TotalPhotosCount = 0;
                     ThumbCorrectCount = 0;

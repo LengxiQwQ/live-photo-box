@@ -139,10 +139,6 @@ namespace LivePhotoBox.Views
 
             switch (target)
             {
-                case "StrictLivePhotoScan":
-                    scrollTarget = StrictLivePhotoScanRoot;
-                    highlightBorder = StrictLivePhotoScanHighlight;
-                    break;
                 case "Merge":
                     scrollTarget = MergeSettingsHeader;
                     break;

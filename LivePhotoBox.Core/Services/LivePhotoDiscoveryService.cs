@@ -100,17 +100,19 @@ namespace LivePhotoBox.Services
 
                 var pairs = new List<LivePhotoFilePairInfo>();
 
-                foreach (var (flag, mode) in new[] { (DiscoveryScanMode.CidMatch, PairingMode.Cid), (DiscoveryScanMode.VivoMatch, PairingMode.Vivo) })
+                foreach (var (flag, mode) in new[] { (DiscoveryScanMode.CidMatch, PairingMode.Cid), (DiscoveryScanMode.VivoMatch, PairingMode.Vivo), (DiscoveryScanMode.FilenamePair, PairingMode.Name) })
 
                 {
 
                     if (!scanMode.HasFlag(flag)) continue;
+                    // Filename matching is an explicit alternative, never a fallback in All/protocol discovery.
+                    if (mode == PairingMode.Name && scanMode != DiscoveryScanMode.FilenamePair) continue;
 
                     var result = await LivePhotoMergeScanService.ScanAsync(new MergeScanOptions
 
                     {
 
-                        ExplicitFiles = items.Select(i => i.FilePath).ToList(), Mode = mode
+                        ExplicitFiles = items.Select(i => i.FilePath).ToList(), Mode = mode, RequireSourcePair = true
 
                     }, ct).ConfigureAwait(false);
 
@@ -118,7 +120,7 @@ namespace LivePhotoBox.Services
 
                     if (result.Diagnostics.Count > 0)
 
-                        foreach (var diagnostic in result.Diagnostics.Where(d => d.Severity == ScanDiagnosticSeverity.Error))
+                        foreach (var diagnostic in result.Diagnostics.Where(d => d.Severity == ScanDiagnosticSeverity.Error || mode == PairingMode.Name))
                         {
                             // CID and vivo discovery inspect the same members. Report the same
                             // refusal once while preserving different pairing/container failures.

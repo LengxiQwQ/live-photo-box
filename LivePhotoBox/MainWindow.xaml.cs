@@ -380,34 +380,60 @@ namespace LivePhotoBox
         }
 
         private bool _isShuttingDown;
+        private bool _windowResourcesReleased;
 
         private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
         {
-            if (ApplicationShutdown.ReadyToClose) return;
+            ApplicationShutdown.Trace("closing.enter");
+            if (ApplicationShutdown.ReadyToClose) { ApplicationShutdown.Trace("closing.allow"); return; }
             args.Cancel = true;
             ApplicationShutdown.Request();
+            ApplicationShutdown.Trace("closing.cancelled.return");
         }
 
         internal void HideForShutdown()
         {
+            if (_isShuttingDown) return;
             _isShuttingDown = true;
+            ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            ViewModel.Settings.PropertyChanged -= OnSettingsPropertyChanged;
+            ViewModel.Settings.PropertyChanged -= OnSettingsHistoryVisibilityChanged;
+            ViewModel.RequestNavigateToPage -= OnRequestNavigateToPage;
+            ViewModel.Edit.PropertyChanged -= OnEditViewModelPropertyChanged;
+            _acrylicDebounceCts?.Cancel();
+            _successFlashCts?.Cancel();
             AppWindow.Hide();
         }
 
         internal void ReleaseWindowResourcesForShutdown()
         {
-            RemoveSettingsShortcutHook();
-            SaveWindowLayout();
-            CleanupAcrylicController();
-            _successFlashCts?.Cancel();
-            _successFlashCts?.Dispose();
-            _successFlashCts = null;
-            ClearTaskbarProgress();
+            if (!DispatcherQueue.HasThreadAccess) throw new InvalidOperationException("Window resources must be released on the UI thread.");
+            if (_windowResourcesReleased) return;
+            _windowResourcesReleased = true;
+            Release("shortcut", RemoveSettingsShortcutHook);
+            Release("layout", SaveWindowLayout);
+            Release("backdrop", CleanupAcrylicController);
+            Release("success-flash", () =>
+            {
+                _successFlashCts?.Cancel();
+                _successFlashCts?.Dispose();
+                _successFlashCts = null;
+            });
+            Release("taskbar", ClearTaskbarProgress);
+
+            static void Release(string name, Action release)
+            {
+                ApplicationShutdown.Trace($"window.{name}.begin");
+                try { release(); }
+                catch (Exception error) { ApplicationShutdown.RecordCleanupFailure(error); }
+                ApplicationShutdown.Trace($"window.{name}.end");
+            }
         }
 
         // 响应 AppViewModel 属性变更：状态栏可见性、任务栏进度条
         private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
+            if (_isShuttingDown || ApplicationShutdown.IsClosing) return;
             if (e.PropertyName is nameof(AppViewModel.IsStatusBarVisible))
             {
                 UpdateStatusBarVisibility();
@@ -433,6 +459,7 @@ namespace LivePhotoBox
         // 响应 EditViewModel 属性变更：左侧目录扫描开始/结束时刷新任务栏。
         private void OnEditViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
+            if (_isShuttingDown || ApplicationShutdown.IsClosing) return;
             if (e.PropertyName == nameof(EditViewModel.IsScanning))
             {
                 UpdateTaskbarProgress();
@@ -442,6 +469,7 @@ namespace LivePhotoBox
         // 响应 SettingsViewModel 属性变更：背景材质、主题、亚克力透明度、窗口透明度
         private void OnSettingsPropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
+            if (_isShuttingDown || ApplicationShutdown.IsClosing) return;
             switch (e.PropertyName)
             {
                 case nameof(SettingsViewModel.BackdropIndex):
@@ -462,6 +490,7 @@ namespace LivePhotoBox
         // 响应外部页面导航请求，解析 pageTag 并跳转到对应页面
         private void OnRequestNavigateToPage(object? sender, string pageTag)
         {
+            if (_isShuttingDown || ApplicationShutdown.IsClosing) return;
             if (pageTag.StartsWith("Home"))
             {
                 NavView.SelectedItem = NavView.MenuItems[0];
@@ -503,6 +532,7 @@ namespace LivePhotoBox
         // 响应历史页面与分类页面可见性设置变更
         private void OnSettingsHistoryVisibilityChanged(object? sender, PropertyChangedEventArgs e)
         {
+            if (_isShuttingDown || ApplicationShutdown.IsClosing) return;
             if (e.PropertyName == nameof(SettingsViewModel.IsHistoryPageVisible))
                 UpdateHistoryNavVisibility();
             else if (e.PropertyName == nameof(SettingsViewModel.IsPhotoClassifyPageVisible))
@@ -518,6 +548,7 @@ namespace LivePhotoBox
         // 在 Acrylic 与 Mica/None 之间切换时清理旧的 Acrylic Controller。
         private void UpdateBackdrop()
         {
+            if (_isShuttingDown || ApplicationShutdown.IsClosing) return;
             // 先清理旧的 Acrylic Controller
             CleanupAcrylicController();
 
@@ -587,6 +618,7 @@ namespace LivePhotoBox
         // DesktopAcrylicController.TintOpacity 在 AddSystemBackdropTarget 后设值无效，必须重建。
         private async void UpdateAcrylicTintOpacity()
         {
+            if (_isShuttingDown || ApplicationShutdown.IsClosing) return;
             _acrylicDebounceCts?.Cancel();
             _acrylicDebounceCts = new CancellationTokenSource();
             var token = _acrylicDebounceCts.Token;
@@ -602,6 +634,7 @@ namespace LivePhotoBox
         // 更新窗口主题，同步标题栏按钮颜色，必要时重建背景材质
         private void UpdateTheme()
         {
+            if (_isShuttingDown || ApplicationShutdown.IsClosing) return;
             if (Content is FrameworkElement rootElement)
             {
                 rootElement.RequestedTheme = (ElementTheme)ViewModel.Settings.ElementTheme;
@@ -706,6 +739,7 @@ namespace LivePhotoBox
         // transitionInfo 为 null 时使用默认动画
         private void NavigateToPage(Type pageType, string? statusPageTag, NavigationTransitionInfo? transitionInfo = null)
         {
+            if (_isShuttingDown || ApplicationShutdown.IsClosing) return;
             LogService.Info($"NavigateToPage: {pageType.Name}, StatusTag={statusPageTag ?? "(null)"}", LogSource.UI);
             ViewModel.SetCurrentStatusPage(statusPageTag);
             if (transitionInfo != null)
@@ -734,6 +768,7 @@ namespace LivePhotoBox
         // 临时解绑 SelectionChanged 防止重复导航。
         public void NavigateToSettings(string? parameter)
         {
+            if (_isShuttingDown || ApplicationShutdown.IsClosing) return;
             if (NavView == null) return;
 
             ViewModel.SetCurrentStatusPage(null);
@@ -909,6 +944,7 @@ namespace LivePhotoBox
         // 不依赖 AppViewModel 的全局 FooterProgress* 属性（那个已禁用，且需要 CurrentStatusPageTag）。
         private void UpdateTaskbarProgress()
         {
+            if (_isShuttingDown || ApplicationShutdown.IsClosing) return;
             // 每次调用都尝试延迟初始化（窗口句柄和 COM 接口首次需要时才建立）
             if (!EnsureTaskbarList()) return;
 

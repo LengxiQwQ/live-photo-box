@@ -1,4 +1,4 @@
-﻿/*
+/*
  * MergeViewModel.cs
  *
  * MergePage（合成页面）的视图模型，负责将图片与视频合成为实况照片。
@@ -347,12 +347,13 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         private ProcessStatus? _filterStatus;
 
-        // 配对方式：0=文件名, 1=Apple ContentIdentifier, 2=vivo com.android.camera.livephoto
+        // 配对方式：0=文件名, 1=Apple ContentIdentifier, 2=vivo ID, 3=同名且有源实况协议证明。
         public int PairingMethodIndex
         {
-            get => AppSettingsService.GetValue(nameof(PairingMethodIndex), 0);
+            get => Math.Clamp(AppSettingsService.GetValue(nameof(PairingMethodIndex), 0), 0, 3);
             set
             {
+                if (value is < 0 or > 3) return;
                 AppSettingsService.SetValue(nameof(PairingMethodIndex), value);
                 OnPropertyChanged();
             }
@@ -412,6 +413,7 @@ namespace LivePhotoBox.ViewModels
             {
                 dispatcher.TryEnqueue(() =>
                 {
+                    if (ApplicationShutdown.IsClosing || _isCleaningUp) return;
                     DisplayTasks.Clear();
                     foreach (var item in result)
                         DisplayTasks.Add(item);
@@ -1058,6 +1060,7 @@ namespace LivePhotoBox.ViewModels
                 ExplicitFiles = filePaths.Concat(replace ? Array.Empty<string>() :
                     oldPending.SelectMany(t => new[] { t.ImagePath, t.VideoPath })).ToArray(),
                 Mode = PairingMethodIndex switch { 1 => PairingMode.Cid, 2 => PairingMode.Vivo, _ => PairingMode.Name },
+                RequireSourcePair = PairingMethodIndex == 3,
                 Recursive = AppSettingsService.GetValue("IsRecursiveScanEnabled", false)
             };
             IsScanning = true;

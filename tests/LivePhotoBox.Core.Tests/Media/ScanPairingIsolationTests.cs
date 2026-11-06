@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using LivePhotoBox.Core.Tests.Protocols;
 using LivePhotoBox.Core.Tests.Support;
 using LivePhotoBox.Media.Inspection;
+using LivePhotoBox.Media.Models;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using Xunit;
@@ -15,6 +16,40 @@ namespace LivePhotoBox.Core.Tests.Media;
 
 public sealed class ScanPairingIsolationTests
 {
+    [Fact]
+    [Trait("Category", "DerivedRealSamples")]
+    public async Task StrictNameAndSplitName_RejectOrdinaryCompositionWithoutChangingDefaultNameMode()
+    {
+        using var ws = new TestFixtureWorkspace();
+        PlainPair(ws, "ordinary");
+        var ordinary = await LivePhotoMergeScanService.ScanAsync(new MergeScanOptions { InputDirectory = ws.RootDirectory });
+        Assert.Equal(PairingKind.FilenameCompositionRequest, Assert.Single(ordinary.Pairs).PairingKind);
+        var strict = await LivePhotoMergeScanService.ScanAsync(new MergeScanOptions { InputDirectory = ws.RootDirectory, RequireSourcePair = true });
+        Assert.Empty(strict.Pairs);
+        Assert.Contains(strict.Diagnostics, d => d.DiagnosticCode == "NotSelected");
+        var split = await LivePhotoDiscoveryService.ScanAsync(ws.RootDirectory, DiscoveryScanMode.FilenamePair);
+        Assert.Empty(split.DualFilePairs);
+        Assert.DoesNotContain(split.Items, i => i.IsLivePhoto);
+        Assert.Contains(split.Diagnostics, d => d.DiagnosticCode == "NotSelected");
+    }
+
+    [Fact]
+    [Trait("Category", "RealSamples")]
+    public async Task SplitName_UsesOnlySameNamesAndRetainsProtocolProof()
+    {
+        using var ws = new TestFixtureWorkspace();
+        Copy(ws, "vivo双文件.jpg", "pair.jpg");
+        string video = Copy(ws, "vivo双文件.mp4", "pair.mp4");
+        var split = await LivePhotoDiscoveryService.ScanAsync(ws.RootDirectory, DiscoveryScanMode.FilenamePair);
+        var pair = Assert.Single(split.DualFilePairs);
+        Assert.Equal(SourceProtocol.VivoLegacyDualFile, pair.Image.Protocol);
+        File.Move(video, Path.Combine(ws.RootDirectory, "different.mp4"));
+        var renamed = await LivePhotoDiscoveryService.ScanAsync(ws.RootDirectory, DiscoveryScanMode.FilenamePair);
+        Assert.Empty(renamed.DualFilePairs);
+        var protocol = await LivePhotoDiscoveryService.ScanAsync(ws.RootDirectory, DiscoveryScanMode.SplitOnly);
+        Assert.Single(protocol.DualFilePairs);
+    }
+
     [Fact]
     [Trait("Category", "RealSamples")]
     public async Task MixedCameraDirectory_ExpectedRefusalsNeverRaiseInspectionExceptions()

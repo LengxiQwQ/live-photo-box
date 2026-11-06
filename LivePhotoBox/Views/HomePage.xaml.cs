@@ -380,15 +380,6 @@ namespace LivePhotoBox.Views
             }
         }
 
-        // 跳转到设置页面的严格实况照片扫描设置项
-        private void GoToSettingsStrictScan_Click(object sender, RoutedEventArgs e)
-        {
-            if (App.MainWindow is MainWindow mainWindow)
-            {
-                mainWindow.NavigateToSettings("StrictLivePhotoScan");
-            }
-        }
-
         // 点击"试一下"合并演示，加载示例并导航到合并页
         private void TryMergeDemo_Click(object sender, RoutedEventArgs e)
         {

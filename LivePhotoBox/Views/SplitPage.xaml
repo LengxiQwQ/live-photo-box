@@ -474,9 +474,10 @@
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" x:Uid="SplitPage_MatchMethodLabel" FontSize="12"
+                                <TextBlock Grid.Column="0" x:Name="MatchMethodLabel" x:Uid="SplitPage_MatchMethodLabel" FontSize="12"
                                            VerticalAlignment="Center"/>
                                 <ComboBox Grid.Column="1" x:Name="MatchProtocolComboBox" FontSize="12"
+                                          AutomationProperties.AutomationId="SplitMatchingMethod" AutomationProperties.LabeledBy="{x:Bind MatchMethodLabel}"
                                           MinHeight="28" Height="28" MinWidth="0"
                                           HorizontalAlignment="Stretch" VerticalAlignment="Center"
                                           SelectedIndex="{x:Bind ViewModel.MatchProtocolIndex, Mode=TwoWay}"
@@ -491,6 +492,7 @@
                                     <ComboBoxItem x:Uid="SplitPage_Match_Samsung"/>
                                     <ComboBoxItem x:Uid="SplitPage_Match_Huawei"/>
                                     <ComboBoxItem x:Uid="SplitPage_Match_Apple"/>
+                                    <ComboBoxItem x:Uid="SplitPage_Match_Filename"/>
                                 </ComboBox>
                             </Grid>
                         </StackPanel>

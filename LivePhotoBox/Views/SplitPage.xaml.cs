@@ -423,6 +423,7 @@ namespace LivePhotoBox.Views
                 "SplitPage_Match_Samsung_Hint",
                 "SplitPage_Match_Huawei_Hint",
                 "SplitPage_Match_Apple_Hint",
+                "SplitPage_Match_Filename_Hint",
             ];
 
             double fontSize = comboBox.FontSize > 0 && !double.IsNaN(comboBox.FontSize)

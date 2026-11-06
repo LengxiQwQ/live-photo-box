@@ -442,6 +442,7 @@ namespace LivePhotoBox.Views
                 "MergePage_Pairing_Filename_Hint",
                 "MergePage_Pairing_Apple_Hint",
                 "MergePage_Pairing_Vivo_Hint",
+                "MergePage_Pairing_Strict_Hint",
             ];
 
             double fontSize = comboBox.FontSize > 0 && !double.IsNaN(comboBox.FontSize)

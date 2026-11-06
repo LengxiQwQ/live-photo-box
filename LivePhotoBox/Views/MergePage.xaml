@@ -476,9 +476,10 @@
                                     <ColumnDefinition Width="Auto"/>
                                     <ColumnDefinition Width="*"/>
                                 </Grid.ColumnDefinitions>
-                                <TextBlock Grid.Column="0" x:Uid="MergePage_PairingMethodLabel" FontSize="12"
+                                <TextBlock Grid.Column="0" x:Name="PairingMethodLabel" x:Uid="MergePage_PairingMethodLabel" FontSize="12"
                                            VerticalAlignment="Center"/>
                                 <ComboBox Grid.Column="1" x:Name="PairingMethodComboBox" FontSize="12" MinHeight="28" Height="28" MinWidth="0"
+                                          AutomationProperties.AutomationId="MergeMatchingMethod" AutomationProperties.LabeledBy="{x:Bind PairingMethodLabel}"
                                           HorizontalAlignment="Stretch" VerticalAlignment="Center"
                                           SelectedIndex="{x:Bind ViewModel.PairingMethodIndex, Mode=TwoWay}"
                                           IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"
@@ -486,6 +487,7 @@
                                     <ComboBoxItem x:Uid="MergePage_Pairing_Filename"/>
                                     <ComboBoxItem x:Uid="MergePage_Pairing_Apple"/>
                                     <ComboBoxItem x:Uid="MergePage_Pairing_Vivo"/>
+                                    <ComboBoxItem x:Uid="MergePage_Pairing_Strict"/>
                                 </ComboBox>
                             </Grid>
                         </StackPanel>

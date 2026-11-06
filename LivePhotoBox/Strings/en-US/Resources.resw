@@ -1219,7 +1219,7 @@ Click "Start Repair" and the app will handle everything automatically:
 Open the output folder when done — your photos are back to normal ~</value>
   </data>
   <data name="HomePage_RepairTutorial_Reassurance.Text" xml:space="preserve">
-    <value>Photos not taken with an iPhone generally don't need repair — scanning or repairing won't affect normal photos in any way. To scan only iPhone Live Photos, enable "Strict Live Photo Scanning".</value>
+    <value>Repair checks actual image and video issues; select source brands on the repair page. Choose filename or protocol matching separately on the merge and split pages.</value>
   </data>
   <data name="HomePage_GoToSettingsStrictScan.Content" xml:space="preserve">
     <value>Go to Settings</value>
@@ -1576,7 +1576,7 @@ Open the output folder when done — your photos are back to normal ~</value>
     <value>By filename</value>
   </data>
   <data name="MergePage_Pairing_Filename_Hint" xml:space="preserve">
-    <value>Pairs photos and videos with the same filename</value>
+    <value>Same-directory, same-name candidates; ambiguous pairs are refused and live bindings remain validated</value>
   </data>
   <data name="MergePage_Pairing_Apple.Content" xml:space="preserve">
     <value>Apple Live Photo</value>
@@ -4179,7 +4179,7 @@ Then click "Start Split".</value>
     <value>All Live Photo protocols</value>
   </data>
   <data name="SplitPage_Match_All_Hint" xml:space="preserve">
-    <value>Recognize all protocols</value>
+    <value>Identify supported live protocols; no filename fallback</value>
   </data>
   <data name="SplitPage_Match_Fusion.Content" xml:space="preserve">
     <value>Fusion - Motion Photo ⚠️</value>
@@ -4722,5 +4722,17 @@ Inputs: {1}
   <data name="RepairOptions_FixVideoRotation_Desc" xml:space="preserve"><value>Applies rotation directly to video frames and removes rotation tags for upright playback.</value></data>
   <data name="RepairPage_Status_Running" xml:space="preserve">
     <value>Repairing...</value>
+  </data>
+  <data name="MergePage_Pairing_Strict.Content" xml:space="preserve">
+    <value>Strict (name + protocol)</value>
+  </data>
+  <data name="MergePage_Pairing_Strict_Hint" xml:space="preserve">
+    <value>Same-name candidates must also pass Apple or vivo source-pair validation; excludes ordinary composition</value>
+  </data>
+  <data name="SplitPage_Match_Filename.Content" xml:space="preserve">
+    <value>Match by filename</value>
+  </data>
+  <data name="SplitPage_Match_Filename_Hint" xml:space="preserve">
+    <value>Same-directory, same-name dual files only; live protocol proof required. Ordinary photo/video pairs cannot be split as live photos</value>
   </data>
 </root>

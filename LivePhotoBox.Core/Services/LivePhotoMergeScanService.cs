@@ -188,6 +188,9 @@ namespace LivePhotoBox.Services
 
         public PairingMode Mode { get; init; } = PairingMode.Name;
 
+        /// <summary>Require protocol proof even when names select the candidate pair. Default preserves CLI composition.</summary>
+        public bool RequireSourcePair { get; init; }
+
 
 
         public bool Recursive { get; init; }
@@ -389,6 +392,12 @@ namespace LivePhotoBox.Services
 
 
 
+                if (options.RequireSourcePair)
+                {
+                    foreach (var pair in pairs.Where(p => p.PairingKind != PairingKind.NativeConfirmedSourcePair))
+                        diagnostics.Add(LivePhotoScanSupport.Info(pair.ImagePath, "NotSelected", "Names select candidates only; this mode requires a protocol-confirmed live photo pair."));
+                    pairs.RemoveAll(p => p.PairingKind != PairingKind.NativeConfirmedSourcePair);
+                }
                 var used = pairs.SelectMany(p => new[] { p.ImagePath, p.VideoPath }).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
 
@@ -761,129 +770,22 @@ private static async Task MatchNamesAsync(List<string> images, List<string> vide
 
 
 
+
+
+
+
+
+
+
+
+                // Names choose candidates, not an arbitrary member of an ambiguous group.
+                if (imgs.Count > 1 || vids.Count > 1)
+                {
+                    diagnostics.Add(Conflict(imgs.Concat(vids).First(), imgs.Concat(vids), "ConflictMultipleMedia", group.Key));
+                    continue;
+                }
                 if (imgs.Count == 0 || vids.Count == 0) continue;
-
-
-
-
-
-
-
-                // 智能配对：即使同名但不同后缀名（如 photo.jpg+photo.mp4 与 photo.heic+photo.mov），各自匹配成对，不报错
-
-
-
-                var matched = new List<(string ImagePath, string VideoPath)>();
-
-
-
-                var remainingImgs = new List<string>(imgs);
-
-
-
-                var remainingVids = new List<string>(vids);
-
-
-
-
-
-
-
-                // 阶段 1：天然扩展名搭档最佳匹配（HEIC+MOV, JPG+MP4）
-
-
-
-                for (int i = remainingImgs.Count - 1; i >= 0; i--)
-
-
-
-                {
-
-
-
-                    string img = remainingImgs[i];
-
-
-
-                    string imgExt = Path.GetExtension(img).ToLowerInvariant();
-
-
-
-                    string preferredVidExt = (imgExt is ".heic" or ".heif") ? ".mov" : ".mp4";
-
-
-
-
-
-
-
-                    int vidIdx = remainingVids.FindIndex(v => Path.GetExtension(v).Equals(preferredVidExt, StringComparison.OrdinalIgnoreCase));
-
-
-
-                    if (vidIdx >= 0)
-
-
-
-                    {
-
-
-
-                        matched.Add((img, remainingVids[vidIdx]));
-
-
-
-                        remainingImgs.RemoveAt(i);
-
-
-
-                        remainingVids.RemoveAt(vidIdx);
-
-
-
-                    }
-
-
-
-                }
-
-
-
-
-
-
-
-                // 阶段 2：剩余文件两两配对（如 HEIC+MP4, JPG+MOV 等跨格式搭档）
-
-
-
-                while (remainingImgs.Count > 0 && remainingVids.Count > 0)
-
-
-
-                {
-
-
-
-                    matched.Add((remainingImgs[0], remainingVids[0]));
-
-
-
-                    remainingImgs.RemoveAt(0);
-
-
-
-                    remainingVids.RemoveAt(0);
-
-
-
-                }
-
-
-
-
-
-
+                var matched = new[] { (ImagePath: imgs[0], VideoPath: vids[0]) };
 
                 foreach (var (imgPath, vidPath) in matched)
 
@@ -1141,137 +1043,15 @@ private static async Task MatchNamesAsync(List<string> images, List<string> vide
 
 
 
-                // 优先在同目录下配对（消除子文件夹备份文件的歧义）
-
-
-
-                var matched = new List<(string Image, string Video)>();
-
-
-
-                var remainingImgs = new List<string>(imgs);
-
-
-
-                var remainingVids = new List<string>(vids);
-
-
-
-
-
-
-
-                for (int i = remainingImgs.Count - 1; i >= 0; i--)
-
-
-
+                // A repeated identity is ambiguous even if a directory/name happens to match.
+                if (imgs.Count > 1 || vids.Count > 1)
                 {
-
-
-
-                    string img = remainingImgs[i];
-
-
-
-                    string? imgDir = Path.GetDirectoryName(img);
-
-
-
-                    int vidIdx = remainingVids.FindIndex(v => string.Equals(Path.GetDirectoryName(v), imgDir, StringComparison.OrdinalIgnoreCase));
-
-
-
-                    if (vidIdx >= 0)
-
-
-
-                    {
-
-
-
-                        matched.Add((img, remainingVids[vidIdx]));
-
-
-
-                        remainingImgs.RemoveAt(i);
-
-
-
-                        remainingVids.RemoveAt(vidIdx);
-
-
-
-                    }
-
-
-
+                    var conflicted = imgs.Concat(vids).ToList();
+                    diagnostics.Add(Conflict(conflicted[0], conflicted, "ConflictDuplicateIdentity", id));
+                    continue;
                 }
-
-
-
-
-
-
-
-                // 跨目录唯一成对时配对
-
-
-
-                if (remainingImgs.Count == 1 && remainingVids.Count == 1)
-
-
-
-                {
-
-
-
-                    matched.Add((remainingImgs[0], remainingVids[0]));
-
-
-
-                    remainingImgs.Clear();
-
-
-
-                    remainingVids.Clear();
-
-
-
-                }
-
-
-
-
-
-
-
-                if (remainingImgs.Count > 1 || remainingVids.Count > 1)
-
-
-
-                {
-
-
-
-                    var conflicted = remainingImgs.Concat(remainingVids).ToList();
-
-
-
-                    if (conflicted.Count > 0)
-
-
-
-                        diagnostics.Add(Conflict(conflicted.First(), conflicted, "ConflictDuplicateIdentity", id));
-
-
-
-                }
-
-
-
-
-
-
+                if (imgs.Count == 0 || vids.Count == 0) continue;
+                var matched = new[] { (Image: imgs[0], Video: vids[0]) };
 
                 foreach (var (imgPath, vidPath) in matched)
 

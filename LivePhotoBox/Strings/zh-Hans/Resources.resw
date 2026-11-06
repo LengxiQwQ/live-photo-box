@@ -1218,8 +1218,7 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
 完成后可查看每项结果和输出位置。黄色项仍有未确认内容，导出至隔离目录。</value>
   </data>
   <data name="HomePage_RepairTutorial_Reassurance.Text" xml:space="preserve">
-    <value>非 iPhone 拍摄的照片一般无需修复，扫描和修复也不会对正常照片造成任何影响，请放心使用。
-如果只想扫描 iPhone 拍摄的实况照片，可开启「更严格的实况照片扫描」选项。</value>
+    <value>修复会检查照片和视频的实际问题；可在修复页选择需要扫描的厂商。合成与拆分页的「匹配方式」分别选择文件名或协议匹配。</value>
   </data>
   <data name="HomePage_GoToSettingsStrictScan.Content" xml:space="preserve">
     <value>前往设置</value>
@@ -1577,7 +1576,7 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
     <value>按文件名匹配</value>
   </data>
   <data name="MergePage_Pairing_Filename_Hint" xml:space="preserve">
-    <value>图片与视频同名即配对</value>
+    <value>同目录同名候选；重名歧义不猜配，实况绑定仍须校验</value>
   </data>
   <data name="MergePage_Pairing_Apple.Content" xml:space="preserve">
     <value>Apple Live Photo</value>
@@ -4180,7 +4179,7 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
     <value>所有实况照片协议</value>
   </data>
   <data name="SplitPage_Match_All_Hint" xml:space="preserve">
-    <value>识别所有协议</value>
+    <value>严格按已有实况协议识别，不使用文件名兜底</value>
   </data>
   <data name="SplitPage_Match_Fusion.Content" xml:space="preserve">
     <value>融合 - Motion Photo ⚠️</value>
@@ -4765,5 +4764,17 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
   <data name="RepairOptions_FixVideoRotation_Desc" xml:space="preserve"><value>将旋转角度应用到实际画面并去除旋转标签，解决横屏播放。</value></data>
   <data name="RepairPage_Status_Running" xml:space="preserve">
     <value>正在修复处理中...</value>
+  </data>
+  <data name="MergePage_Pairing_Strict.Content" xml:space="preserve">
+    <value>严格匹配（文件名 + 协议）</value>
+  </data>
+  <data name="MergePage_Pairing_Strict_Hint" xml:space="preserve">
+    <value>同目录同名候选，且必须通过 Apple 或 vivo 双文件协议校验；不用于普通照片合成</value>
+  </data>
+  <data name="SplitPage_Match_Filename.Content" xml:space="preserve">
+    <value>按文件名匹配</value>
+  </data>
+  <data name="SplitPage_Match_Filename_Hint" xml:space="preserve">
+    <value>仅匹配同目录同名双文件，并校验实况协议；普通照片与视频不能作为实况拆分</value>
   </data>
 </root>

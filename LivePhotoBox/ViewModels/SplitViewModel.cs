@@ -1,4 +1,4 @@
-﻿/*
+/*
  * SplitViewModel.cs
  *
  * SplitPage（拆分页面）的视图模型，负责将单文件实况照片拆分为图片与视频。
@@ -271,7 +271,7 @@ namespace LivePhotoBox.ViewModels
         }
 
         // 匹配方式索引：0=所有实况照片协议 / 1=Fusion / 2=MicroVideo V1 / 3=MotionPhoto V2
-        //                / 4=OPPO O-Live Photo / 5=vivo Live Photo / 6=Samsung Motion Photo / 7=HUAWEI Moving Photo / 8=Apple双文件。
+        //                / 4=OPPO O-Live Photo / 5=vivo Live Photo / 6=Samsung Motion Photo / 7=HUAWEI Moving Photo / 8=Apple双文件 / 9=同名双文件候选（仍要求源实况协议证明）。
         // 扫描时按此协议过滤单文件实况照片（复用 Core 的 LivePhotoProtocolDetector）。
         public int MatchProtocolIndex
         {
@@ -279,10 +279,11 @@ namespace LivePhotoBox.ViewModels
             {
                 int value = AppSettingsService.GetValue("SplitMatchProtocolIndex", 0);
                 // Fusion 已隐藏（index 1），若历史设置仍为 1，则回退到“所有单文件”。
-                return value == 1 ? 0 : value;
+                return value == 1 || value is < 0 or > 9 ? 0 : value;
             }
             set
             {
+                if (value is < 0 or > 9) return;
                 AppSettingsService.SetValue("SplitMatchProtocolIndex", value);
                 LogService.Split($"Split match protocol changed to index: {value}");
                 OnPropertyChanged();
@@ -390,6 +391,7 @@ namespace LivePhotoBox.ViewModels
             {
                 dispatcher.TryEnqueue(() =>
                 {
+                    if (ApplicationShutdown.IsClosing || _isCleaningUp) return;
                     DisplayTasks.Clear();
                     foreach (var item in result)
                         DisplayTasks.Add(item);
@@ -1015,6 +1017,7 @@ namespace LivePhotoBox.ViewModels
             if (ApplicationShutdown.IsClosing || IsProcessing || IsScanning || _isCleaningUp || (folderPaths.Count == 0 && filePaths.Count == 0)) return;
             var oldTasks = Tasks.ToList();
             var targetProtocol = MatchProtocolType;
+            var discoveryMode = MatchProtocolIndex == 9 ? DiscoveryScanMode.FilenamePair : DiscoveryScanMode.SplitOnly;
             var options = new MergeScanOptions
             {
                 InputDirectories = folderPaths.ToArray(),
@@ -1031,7 +1034,7 @@ namespace LivePhotoBox.ViewModels
             try
             {
                 var reporter = CreateScanProgressReporter();
-                var result = await Task.Run(() => LivePhotoDiscoveryService.ScanFilesAsync(options, DiscoveryScanMode.SplitOnly, token, reporter), token);
+                var result = await Task.Run(() => LivePhotoDiscoveryService.ScanFilesAsync(options, discoveryMode, token, reporter), token);
                 token.ThrowIfCancellationRequested();
                 await ApplyScanResultAsync(() =>
                 {
@@ -1350,7 +1353,7 @@ namespace LivePhotoBox.ViewModels
                                 throw new OperationCanceledException();
                             }
 
-                            App.MainWindow?.DispatcherQueue.TryEnqueue(() => UpdateTaskStarted(task));
+                            App.MainWindow?.DispatcherQueue.TryEnqueue(() => { if (!ApplicationShutdown.IsClosing && !_isCleaningUp) UpdateTaskStarted(task); });
 
                             bool isSuccess = false;
                             string detailMessage = string.Empty;
@@ -1410,6 +1413,7 @@ namespace LivePhotoBox.ViewModels
                             {
                                 try
                                 {
+                                    if (ApplicationShutdown.IsClosing || _isCleaningUp) return;
                                     task.LastOutcome = outcome;
                                     task.OutcomeSummary = outcome is null ? detailMessage : ProductOutcomePresentation.Describe(outcome, capabilityDiagnostic);
                                     task.OutputImagePath = outcome?.HasUsableOutputs == true ? outputImagePath : string.Empty;

@@ -582,25 +582,6 @@
                                   x:Uid="Toggle_OnOff"/>
                 </controls:SettingsCard>
 
-                <!-- 更严格的实况照片扫描 -->
-                <Grid x:Name="StrictLivePhotoScanRoot">
-                    <controls:SettingsCard x:Name="StrictLivePhotoScanCard" FontFamily="Microsoft YaHei UI">
-                        <controls:SettingsCard.Header>
-                            <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanLabel" FontFamily="Microsoft YaHei UI"/>
-                        </controls:SettingsCard.Header>
-                        <controls:SettingsCard.Description>
-                            <TextBlock x:Uid="SettingsPage_StrictLivePhotoScanDesc" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
-                        </controls:SettingsCard.Description>
-                        <controls:SettingsCard.HeaderIcon>
-                            <ic:SymbolIcon Symbol="FolderSearch" />
-                        </controls:SettingsCard.HeaderIcon>
-                        <ToggleSwitch IsOn="{x:Bind ViewModel.IsStrictLivePhotoScanEnabled, Mode=TwoWay}"
-                                      x:Uid="Toggle_OnOff"/>
-                    </controls:SettingsCard>
-                    <Border x:Name="StrictLivePhotoScanHighlight" IsHitTestVisible="False"
-                            Background="Transparent" CornerRadius="4"/>
-                </Grid>
-
                 <controls:SettingsCard FontFamily="Microsoft YaHei UI">
                     <controls:SettingsCard.Header>
                         <TextBlock x:Uid="SettingsPage_Repair_CopyPerfectLabel" FontFamily="Microsoft YaHei UI"/>

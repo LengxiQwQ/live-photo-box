@@ -720,9 +720,7 @@
                                                TextWrapping="Wrap" LineHeight="22" FontFamily="Microsoft YaHei UI"
                                                FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                                 </Grid>
-                                <Button x:Uid="HomePage_GoToSettingsStrictScan" Grid.Column="1"
-                                        VerticalAlignment="Center" Margin="16,0,0,0"
-                                        Click="GoToSettingsStrictScan_Click"/>
+
                             </Grid>
                         </Border>
 

@@ -53,7 +53,8 @@ namespace LivePhotoBox.Services
         private static int _aliveWorkers;
         private static volatile int _currentGeneration;
 
-        private static readonly ConcurrentQueue<(string path, byte[] data, int w, int h)> _pending = new();
+        private static readonly ConcurrentQueue<(string path, byte[] data, int w, int h, int generation)> _pending = new();
+        private static readonly UiCallbackLifetime _uiLifetime = new();
         private static DispatcherQueueTimer? _flushTimer;
         private static DispatcherQueue? _dispatcher;
         private static readonly ConcurrentDictionary<string, Action<ImageSource?>> _callbacks =
@@ -68,6 +69,7 @@ namespace LivePhotoBox.Services
 
         public static void Initialize(DispatcherQueue dispatcher)
         {
+            if (ApplicationShutdown.IsClosing) return;
             _dispatcher = dispatcher;
 
             if (_flushTimer == null)
@@ -115,15 +117,20 @@ namespace LivePhotoBox.Services
 
         public static void Enqueue(int index, string path, int priority, Action<ImageSource?> callback)
         {
-            if (string.IsNullOrWhiteSpace(path)) return;
+            if (ApplicationShutdown.IsClosing || string.IsNullOrWhiteSpace(path)) return;
+            int uiGeneration = _uiLifetime.Generation;
+            int gen = _currentGeneration;
 
             if (ThumbnailService.GetCached(path) is { } cached)
             {
-                _dispatcher?.TryEnqueue(() => callback(cached));
+                _dispatcher?.TryEnqueue(() =>
+                {
+                    if (!ApplicationShutdown.IsClosing && _uiLifetime.IsCurrent(uiGeneration) && gen == _currentGeneration)
+                        callback(cached);
+                });
                 return;
             }
 
-            int gen = _currentGeneration; // volatile field — direct read has full acquire semantics
             lock (_queueLock)
             {
                 if (_inFlight.Contains(path)) return;
@@ -172,6 +179,7 @@ namespace LivePhotoBox.Services
         /// <summary>注册全量列表，用于可见区加载完后后台逐张预热剩余缩略图</summary>
         public static void StartBackgroundFill(System.Collections.IList allItems)
         {
+            if (ApplicationShutdown.IsClosing) return;
             var snapshot = new List<BackgroundItem>(allItems.Count);
             for (int i = 0; i < allItems.Count; i++)
             {
@@ -192,6 +200,7 @@ namespace LivePhotoBox.Services
 
         internal static async Task StopAsync()
         {
+            _uiLifetime.Stop();
             _flushTimer?.Stop();
             _workerCts?.Cancel();
             Reset();
@@ -199,6 +208,8 @@ namespace LivePhotoBox.Services
             try { await Task.WhenAll(tasks); }
             catch (OperationCanceledException) { }
             _workerCts?.Dispose();
+            _callbacks.Clear();
+            while (_pending.TryDequeue(out _)) { }
         }
 
         private static async Task<T> RunThumbnailAsync<T>(Func<Task<T>> load)
@@ -210,6 +221,7 @@ namespace LivePhotoBox.Services
 
         public static void Reset()
         {
+            _uiLifetime.Reset();
             Interlocked.Increment(ref _currentGeneration);
             lock (_backgroundLock)
             {
@@ -374,7 +386,7 @@ namespace LivePhotoBox.Services
                     sw.Stop();
                     if (data != null && data.Length > 0)
                     {
-                        _pending.Enqueue((request.Path, data, width, height));
+                        _pending.Enqueue((request.Path, data, width, height, request.Generation));
                         if (sw.ElapsedMilliseconds > 200)
                             LogService.Info($"[Scheduler] Worker#{workerId} slow: {request.Path} ({sw.ElapsedMilliseconds}ms)", LogSource.System);
                     }
@@ -443,19 +455,20 @@ namespace LivePhotoBox.Services
 
         private static void FlushPendingToUI()
         {
-            if (_dispatcher == null) return;
+            if (_dispatcher == null || ApplicationShutdown.IsClosing) return;
+            int uiGeneration = _uiLifetime.Generation;
 
-            var batch = new List<(string path, byte[] data, int w, int h)>();
-            while (_pending.TryDequeue(out var item) && batch.Count < MaxFlushBatch)
+            var batch = new List<(string path, byte[] data, int w, int h, int generation)>();
+            while (batch.Count < MaxFlushBatch && _pending.TryDequeue(out var item))
                 batch.Add(item);
 
             if (batch.Count == 0) return;
 
             var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            var deduped = new List<(string path, byte[] data, int w, int h)>();
+            var deduped = new List<(string path, byte[] data, int w, int h, int generation)>();
             for (int i = batch.Count - 1; i >= 0; i--)
             {
-                if (seen.Add(batch[i].path))
+                if (batch[i].generation == _currentGeneration && seen.Add(batch[i].path))
                     deduped.Add(batch[i]);
             }
             deduped.Reverse();
@@ -464,8 +477,11 @@ namespace LivePhotoBox.Services
 
             _dispatcher.TryEnqueue(() =>
             {
-                foreach (var (path, data, w, h) in deduped)
+                if (ApplicationShutdown.IsClosing || !_uiLifetime.IsCurrent(uiGeneration)) return;
+                foreach (var (path, data, w, h, generation) in deduped)
                 {
+                    if (ApplicationShutdown.IsClosing || !_uiLifetime.IsCurrent(uiGeneration)) return;
+                    if (generation != _currentGeneration) continue;
                     try
                     {
                         var bitmapImage = new BitmapImage();
