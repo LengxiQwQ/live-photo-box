@@ -257,12 +257,12 @@ python scripts/testing/run-cli-integration-test.py
 <!-- INSIGHTS:START -->
 **📊 仓库流量**
 
-Views: **5,417** ｜ Uniques: **243** (14-day) ｜ Clones: **6,426** ｜ Cloners: **234** (14-day)
+访问次数：**5,434** ｜ 不重复访客：**244**（近 14 天） ｜ 仓库克隆：**6,448** ｜ 不重复克隆：**236**（近 14 天）
 
-**Top referrers (14-day):** github.com · Google · Bing · search.brave.com · lengxiqwq.com · Baidu  
-**Top content (14-day):** releases · README.zh-CN.md · releases/tag/v2.2.1 · issues
+**热门来源（近 14 天）：** github.com · Google · Bing · search.brave.com · lengxiqwq.com · Baidu  
+**热门内容（近 14 天）：** releases/tag/v2.2.1 · releases · README.zh-CN.md · issues
 
-> Data since 2026-08-02 · Last updated: 2026-11-06 (UTC+8) (feat(repair): 优化实况照片修复交互、文案与状态展示)
+> 数据开始：2026-08-02 · 最后更新：2026-11-07 (UTC+8)
 <!-- INSIGHTS:END -->
 
 ---
