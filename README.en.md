@@ -256,12 +256,12 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
 <!-- INSIGHTS:START -->
 **📊 Repository Traffic**
 
-Views: **5,434** ｜ Uniques: **244** (14-day) ｜ Clones: **6,448** ｜ Cloners: **236** (14-day)
+Views: **5,453** ｜ Uniques: **239** (14-day) ｜ Clones: **6,580** ｜ Cloners: **233** (14-day)
 
-**Top referrers (14-day):** github.com · Google · Bing · search.brave.com · lengxiqwq.com · Baidu  
+**Top referrers (14-day):** github.com · Google · Bing · search.brave.com · Baidu · claude.ai  
 **Top content (14-day):** releases/tag/v2.2.1 · releases · README.zh-CN.md · issues
 
-> Data since 2026-08-02 · Last updated: 2026-11-07 (UTC+8)
+> Data since 2026-08-02 · Last updated: 2026-11-08 (UTC+8)
 <!-- INSIGHTS:END -->
 
 ---
