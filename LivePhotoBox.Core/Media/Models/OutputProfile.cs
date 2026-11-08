@@ -47,6 +47,8 @@ public sealed record OutputProfile
             OutputMediaFormat.HeicMp4Hevc => Requirement(ImageContainer.Heic, VideoContainer.Mp4, VideoCodec.Hevc),
             _ => throw new ArgumentOutOfRangeException(nameof(format))
         };
+        if (targetProtocol == TargetProtocol.HuaweiMovingPhoto)
+            MediaRequirement = MediaRequirement with { RequireAacAudio = true };
     }
 
     public static OutputProfile Create(TargetProtocol targetProtocol, OutputMediaFormat format)

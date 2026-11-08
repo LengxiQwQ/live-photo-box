@@ -1,4 +1,4 @@
-#include "media/image_converter.h"
+﻿#include "media/image_converter.h"
 #include "media/heic_backend.h"
 #include "media/jpeg_backend.h"
 #include "media/jpeg_marker.h"
@@ -12,6 +12,7 @@
 #include "foundation/internal.h"
 #include "foundation/sha256_core.h"
 #include "platform/windows_filesystem.h"
+#include "platform/windows_readonly_mapping.h"
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -100,9 +101,10 @@ lpb_result resolve_unspecified_jpeg_orientation_file(lpb_context* context,const 
         if(version!=1||!request||request->struct_size!=sizeof(*request)||request->api_version!=1||
             request->handling!=1||request->reserved||!source_path||!source_path[0]||!output_path||!output_path[0]||
             paths_alias(source_path,output_path))return LPB_RESULT_INVALID_ARGUMENT;
-        windows_readonly_source source;lpb_file_identity identity{};std::vector<uint8_t> bytes;
-        if(!source.open(utf8_to_path(source_path))||!source.capture_identity(identity)||!source.read_all_bounded(4,32ULL*1024*1024,bytes))
-            return LPB_RESULT_INTERNAL_ERROR;
+        windows_readonly_source source;lpb_file_identity identity{};windows_readonly_mapping mapping;
+        if(!source.open(utf8_to_path(source_path))||!source.capture_identity(identity))return LPB_RESULT_INTERNAL_ERROR;
+        if(!mapping.open(source)) {set_error(context,"Stored-direction source exceeds the bounded mapped-primary budget or cannot be mapped.");return LPB_RESULT_UNSUPPORTED;}
+        const auto bytes=mapping.bytes();
         uint8_t source_hash[32]{};lpb::crypto::sha256_buffer(bytes.data(),bytes.size(),source_hash);
         if(identity.link_count!=1||!same_identity(identity,request->expected_identity)||std::memcmp(source_hash,request->source_sha256,32))
             return LPB_RESULT_SOURCE_CHANGED;
@@ -161,7 +163,7 @@ lpb_result resolve_unspecified_jpeg_orientation_file(lpb_context* context,const 
             }
             if(matches_asset!=1)return LPB_RESULT_UNSUPPORTED;
         }
-        std::vector<uint8_t> resolved=bytes;lpb::memory_random_access reader{bytes};uint64_t end{};unsigned matches{};
+        std::vector<uint8_t> resolved(bytes.begin(),bytes.end());lpb::memory_random_access reader{bytes};uint64_t end{};unsigned matches{};
         if(!walk_jpeg_markers(reader.view(),end,[&](const jpeg_marker_range& marker) {
             if(marker.marker!=0xe1||marker.length<6||std::memcmp(bytes.data()+static_cast<size_t>(marker.payload),"Exif\0\0",6))return true;
             if(marker.after_scan||++matches!=1||marker.length!=mapped_exif.size()||
@@ -220,10 +222,12 @@ lpb_result convert_image_file_v2(lpb_context* context,const char* source_path,co
         if(request->source_container!=LPB_IMAGE_CONTAINER_JPEG||request->target_container!=LPB_IMAGE_CONTAINER_HEIC) {
             set_error(context,"[Unsupported] Bound ordinary image proof currently requires JPEG to HEIC; other semantic routes need their own complete mapping.");return LPB_RESULT_UNSUPPORTED;
         }
-        windows_readonly_source source;lpb_file_identity identity{};std::vector<uint8_t> bytes;
-        if(!source.open(utf8_to_path(source_path))||!source.capture_identity(identity)||!source.read_all_bounded(4,32ULL*1024*1024,bytes)) {
-            set_error(context,"[IO] Bound image source cannot be pinned and read within32MiB.");return LPB_RESULT_INTERNAL_ERROR;
+        windows_readonly_source source;lpb_file_identity identity{};windows_readonly_mapping mapping;
+        if(!source.open(utf8_to_path(source_path))||!source.capture_identity(identity)) {
+            set_error(context,"[IO] Bound image source cannot be pinned.");return LPB_RESULT_INTERNAL_ERROR;
         }
+        if(!mapping.open(source)) {set_error(context,"Bound image source exceeds the bounded mapped-primary budget or cannot be mapped.");return LPB_RESULT_UNSUPPORTED;}
+        const auto bytes=mapping.bytes();
         uint8_t source_hash[32]{};lpb::crypto::sha256_buffer(bytes.data(),bytes.size(),source_hash);
         if(identity.link_count!=1||!same_identity(identity,request->expected_identity)||std::memcmp(source_hash,request->source_sha256,32)) {
             set_error(context,"[SourceChanged] Bound image source identity or bytes differ from the request.");return LPB_RESULT_SOURCE_CHANGED;

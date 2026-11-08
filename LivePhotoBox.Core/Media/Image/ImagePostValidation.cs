@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Security.Cryptography;
@@ -37,6 +37,31 @@ internal sealed record ImageHdrGainMapPostValidation(
 
 internal static class ImagePostValidator
 {
+    internal sealed record ValidationAttempt(ImagePostValidation? Validation, Exception? Failure);
+
+    internal static async Task<ValidationAttempt> TryVerifyOrdinaryAsync(
+        string sourcePath, string outputPath, ImageContainer sourceContainer, ImageContainer outputContainer,
+        bool reencoded, bool transformed, CancellationToken cancellationToken)
+    {
+        if (!reencoded && !transformed)
+        {
+            var sourceHash = await MediaFileHashAttempt.ComputeAsync(sourcePath, cancellationToken).ConfigureAwait(false);
+            if (sourceHash.Failure is { } sourceFailure) return new(null, sourceFailure);
+            var outputHash = await MediaFileHashAttempt.ComputeAsync(outputPath, cancellationToken).ConfigureAwait(false);
+            if (outputHash.Failure is { } outputFailure) return new(null, outputFailure);
+            if (!string.Equals(sourceHash.Sha256, outputHash.Sha256, StringComparison.Ordinal))
+                return new(null, new InvalidOperationException("Same-container passthrough was not byte-identical."));
+        }
+        var before = await NativeMediaService.TryCapturePreservationObservationAsync(sourcePath,
+            SourceProtocol.Unknown, sourceContainer, cancellationToken).ConfigureAwait(false);
+        if (before.Failure is { } beforeFailure) return new(null, beforeFailure);
+        var after = await NativeMediaService.TryCapturePreservationObservationAsync(outputPath,
+            SourceProtocol.Unknown, outputContainer, cancellationToken).ConfigureAwait(false);
+        if (after.Failure is { } afterFailure) return new(null, afterFailure);
+        var observed = ComparePreservationObservations(before.Observation!, after.Observation!);
+        return new(reencoded ? observed with { PreservationOutcome = PreservationOutcome.PartiallyPreserved } : observed, null);
+    }
+
     internal static async Task<ImagePostValidation> VerifyExactPassthroughAsync(
         string sourcePath,
         string outputPath,
@@ -111,19 +136,40 @@ internal static class ImagePostValidator
         string? expectedRelationship,
         CancellationToken cancellationToken, bool allowUnspecifiedOrientation)
     {
+        var attempt = await TryVerifyHdrGainMapAsync(sourcePath, transaction, nativeResult, sourceContainer, targetContainer,
+            targetSemantic, expectedRelationship, cancellationToken, allowUnspecifiedOrientation).ConfigureAwait(false);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Validation!;
+    }
+
+    internal sealed record HdrValidationAttempt(ImageHdrGainMapPostValidation? Validation, Exception? Failure);
+
+    internal static async Task<HdrValidationAttempt> TryVerifyHdrGainMapAsync(
+        string sourcePath,
+        NativeHdrGainMapConversionTransaction transaction,
+        NativeHdrGainMapConversionResultV1 nativeResult,
+        ImageContainer sourceContainer,
+        ImageContainer targetContainer,
+        ImageHdrGainMapTargetSemantic targetSemantic,
+        string? expectedRelationship,
+        CancellationToken cancellationToken, bool allowUnspecifiedOrientation)
+    {
         if (nativeResult.TargetSemantic != (int)targetSemantic ||
             nativeResult.ActualContainer != (int)targetContainer ||
             nativeResult.GainMapOutcome != 1 || nativeResult.MetadataComplete != 1 ||
             nativeResult.PrimaryWidth == 0 || nativeResult.PrimaryHeight == 0 ||
             nativeResult.GainMapWidth == 0 || nativeResult.GainMapHeight == 0 ||
-            nativeResult.GainMapRange.Length == 0)
-            throw new InvalidDataException("Native did not report the requested complete HDR/GainMap target semantic.");
+            nativeResult.GainMapRange.Length == 0 || nativeResult.GainMapRange.Length > long.MaxValue ||
+            nativeResult.GainMapRange.Offset > long.MaxValue)
+            return new(null, new InvalidDataException("Native did not report the requested complete HDR/GainMap target semantic."));
 
-        (SourceMediaFacts outputFacts, NativeGainMapMetadataV1 metadata,
-            PreservationObservation afterPreservation) = transaction.Inspect();
+        var inspection = transaction.TryInspect();
+        if (inspection.Failure is { } inspectionFailure) return new(null, inspectionFailure);
+        SourceMediaFacts outputFacts = inspection.Facts!;
+        NativeGainMapMetadataV1 metadata = inspection.Metadata;
+        PreservationObservation afterPreservation = inspection.Preservation!;
         string outputPath = transaction.StagingPath;
-        GainMapFacts gainMap = outputFacts.GainMap
-            ?? throw new InvalidDataException("Native post-inspection did not find the converted JPEG GainMap.");
+        if (outputFacts.GainMap is not { } gainMap) return new(null, new InvalidDataException("Native post-inspection did not find the converted JPEG GainMap."));
         if (outputFacts.PrimaryImage.Container != targetContainer ||
             !gainMap.IsPresent || gainMap.Container != targetContainer ||
             gainMap.ByteOffset != checked((long)nativeResult.GainMapRange.Offset) ||
@@ -131,13 +177,13 @@ internal static class ImagePostValidator
             gainMap.AuxiliaryIndex != 0 || outputFacts.AuxiliaryItems.Count != 1 ||
             (expectedRelationship is not null &&
                 !string.Equals(gainMap.Relationship, expectedRelationship, StringComparison.Ordinal)))
-            throw new InvalidDataException($"Converted {targetContainer} facts do not match the Native primary/GainMap target ranges " +
+            return new(null, new InvalidDataException($"Converted {targetContainer} facts do not match the Native primary/GainMap target ranges " +
                 $"(container={outputFacts.PrimaryImage.Container}, primarySize={outputFacts.PrimaryImage.Width}x{outputFacts.PrimaryImage.Height}, " +
                 $"expectedPrimarySize={nativeResult.PrimaryWidth}x{nativeResult.PrimaryHeight}, mapContainer={gainMap.Container}, " +
                 $"relationship={gainMap.Relationship}, expectedRelationship={expectedRelationship}, mapOffset={gainMap.ByteOffset}, " +
                 $"expectedOffset={nativeResult.GainMapRange.Offset}, mapLength={gainMap.ByteLength}, " +
                 $"expectedLength={nativeResult.GainMapRange.Length}, mapIndex={gainMap.AuxiliaryIndex}, " +
-                $"auxiliaryCount={outputFacts.AuxiliaryItems.Count}).");
+                $"auxiliaryCount={outputFacts.AuxiliaryItems.Count})."));
 
         AuxiliaryMediaFacts auxiliary = outputFacts.AuxiliaryItems[checked((int)gainMap.AuxiliaryIndex)];
         if (!auxiliary.IsPresent || auxiliary.Container != targetContainer ||
@@ -147,20 +193,23 @@ internal static class ImagePostValidator
             !string.Equals(auxiliary.Relationship, gainMap.Relationship, StringComparison.Ordinal) ||
             (expectedRelationship is not null &&
                 !string.Equals(auxiliary.Relationship, expectedRelationship, StringComparison.Ordinal)))
-            throw new InvalidDataException($"Converted {targetContainer} auxiliary graph is not one embedded Primary-owned GainMap.");
+            return new(null, new InvalidDataException($"Converted {targetContainer} auxiliary graph is not one embedded Primary-owned GainMap."));
 
-        string outputSha = await ComputeSha256Async(outputPath, cancellationToken).ConfigureAwait(false);
-        string mapSha = await ComputeRangeSha256Async(outputPath, gainMap.ByteOffset, gainMap.ByteLength, cancellationToken)
-            .ConfigureAwait(false);
+        var outputHash = await MediaFileHashAttempt.ComputeAsync(outputPath, cancellationToken).ConfigureAwait(false);
+        if (outputHash.Failure is { } outputFailure) return new(null, outputFailure);
+        string outputSha = outputHash.Sha256!;
+        var rangeHash = await MediaFileHashAttempt.ComputeRangeAsync(outputPath, gainMap.ByteOffset, gainMap.ByteLength, cancellationToken).ConfigureAwait(false);
+        if (rangeHash.Failure is { } rangeFailure) return new(null, rangeFailure);
+        string mapSha = rangeHash.Sha256!;
         if (!string.Equals(outputSha, nativeResult.GetOutputSha256Hex(), StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(mapSha, nativeResult.GetGainMapSha256Hex(), StringComparison.OrdinalIgnoreCase) ||
             !string.Equals(auxiliary.Sha256, mapSha, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Converted JPEG or GainMap bytes do not match the Native result hashes.");
+            return new(null, new InvalidDataException("Converted JPEG or GainMap bytes do not match the Native result hashes."));
 
         if (metadata.Kind != 2 || metadata.BaseRenditionIsHdr is not (0 or 1) ||
             metadata.HdrCapacityMin != nativeResult.HdrCapacityMin ||
             metadata.HdrCapacityMax != nativeResult.HdrCapacityMax)
-            throw new InvalidDataException($"Converted {targetContainer} GainMap XMP is incomplete or disagrees with Native mapping metadata.");
+            return new(null, new InvalidDataException($"Converted {targetContainer} GainMap XMP is incomplete or disagrees with Native mapping metadata."));
         for (int channel = 0; channel < 3; channel++)
         {
             if (metadata.GetGainMapMin(channel) != nativeResult.GetGainMapMin(channel) ||
@@ -168,46 +217,60 @@ internal static class ImagePostValidator
                 metadata.GetGamma(channel) != nativeResult.GetGamma(channel) ||
                 metadata.GetOffsetSdr(channel) != nativeResult.GetOffsetSdr(channel) ||
                 metadata.GetOffsetHdr(channel) != nativeResult.GetOffsetHdr(channel))
-                throw new InvalidDataException($"Converted {targetContainer} GainMap values disagree with the Native result mapping.");
+                return new(null, new InvalidDataException($"Converted {targetContainer} GainMap values disagree with the Native result mapping."));
         }
 
-        PreservationObservation beforePreservation = await NativeMediaService
-            .CapturePreservationObservationAsync(sourcePath, SourceProtocol.Unknown,
-                sourceContainer, cancellationToken).ConfigureAwait(false);
+        var before = await NativeMediaService.TryCapturePreservationObservationAsync(sourcePath, SourceProtocol.Unknown, sourceContainer, cancellationToken).ConfigureAwait(false);
+        if (before.Failure is { } beforeFailure) return new(null, beforeFailure);
+        PreservationObservation beforePreservation = before.Observation!;
         if(sourceContainer==ImageContainer.Jpeg&&targetContainer==ImageContainer.Heic)
         {
-            var completeProof=transaction.GetCompleteHdrImageProof();
-            string sourceSha=await ComputeSha256Async(sourcePath,cancellationToken).ConfigureAwait(false);
-            using var staged=new FileStream(outputPath,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
-            var actualIdentity=WindowsFileIdentity.Capture(staged.SafeFileHandle);
-            var actual=new NativeMediaService.NativeRegisteredOutputEvidence(actualIdentity,staged.Length,outputSha);
+            var completeAttempt=transaction.TryGetCompleteHdrImageProof();
+            if(completeAttempt.Failure is { } completeFailure)return new(null, completeFailure);
+            var completeProof=completeAttempt.Proof;
+            var sourceHash=await MediaFileHashAttempt.ComputeAsync(sourcePath,cancellationToken).ConfigureAwait(false);
+            if(sourceHash.Failure is { } sourceFailure)return new(null,sourceFailure);
+            string sourceSha=sourceHash.Sha256!;
+            using var staged=SourceReadAttempt.Open(outputPath,7);
+            using var original=SourceReadAttempt.Open(sourcePath,7);
+            if(!staged.Succeeded||!original.Succeeded)return new(null,new IOException("Cannot retain HDR proof inputs."));
+            if(!WindowsFileIdentity.TryCapture(staged.Handle,out var identity,out int identityError)||
+                !staged.TryGetLength(out long stagedLength,out identityError)||!original.TryGetLength(out long sourceLength,out identityError))
+                return new(null,new IOException($"Cannot verify HDR proof inputs (system error {identityError})."));
+            var actualIdentity=identity!;
+            var actual=new NativeMediaService.NativeRegisteredOutputEvidence(actualIdentity,stagedLength,outputSha);
             uint expectedOrientation = beforePreservation.Orientation == 0 && allowUnspecifiedOrientation ? 1 : checked((uint)beforePreservation.Orientation);
-            var complete=NativeHdrImageProofValidator.Validate(completeProof,sourceSha,(ulong)new FileInfo(sourcePath).Length,
-                expectedOrientation,actual);
+            var validation=NativeHdrImageProofValidator.TryValidate(completeProof,sourceSha,(ulong)sourceLength,expectedOrientation,actual);
+            if(validation.Failure is { } validationFailure)return new(null,validationFailure);
+            var complete=validation.Evidence!;
             if(complete.OutputWidth!=nativeResult.PrimaryWidth||complete.OutputHeight!=nativeResult.PrimaryHeight||
                 outputFacts.PrimaryImage.Width!=complete.OutputWidth||outputFacts.PrimaryImage.Height!=complete.OutputHeight)
-                throw new InvalidDataException("Complete HDR image proof disagrees with the actual staged image geometry.");
-            return new ImageHdrGainMapPostValidation(new ImagePostValidation(ConversionComponentOutcome.Preserved,
+                return new(null, new InvalidDataException("Complete HDR image proof disagrees with the actual staged image geometry."));
+            return new(new ImageHdrGainMapPostValidation(new ImagePostValidation(ConversionComponentOutcome.Preserved,
                 ConversionComponentOutcome.Preserved,complete.HasIcc?ConversionComponentOutcome.Preserved:ConversionComponentOutcome.NotApplicable,
                 PreservationOutcome.PartiallyPreserved),outputSha,mapSha,outputFacts)
-                {HdrConversionEvidence=complete,CreatingOutputIdentity=actualIdentity};
+                {HdrConversionEvidence=complete,CreatingOutputIdentity=actualIdentity}, null);
         }
         bool mappedOrdinaryXmp=false;
-        var mappingProof=transaction.GetOrdinaryXmpProof();
+        var mappingAttempt=transaction.TryGetOrdinaryXmpProof();
+        if(mappingAttempt.Failure is { } mappingFailure)return new(null,mappingFailure);
+        var mappingProof=mappingAttempt.Proof;
         if(mappingProof is { } proof)
         {
-            string currentSourceHash=await ComputeSha256Async(sourcePath,cancellationToken).ConfigureAwait(false);
+            var sourceHash=await MediaFileHashAttempt.ComputeAsync(sourcePath,cancellationToken).ConfigureAwait(false);
+            if(sourceHash.Failure is { } sourceFailure)return new(null,sourceFailure);
+            string currentSourceHash=sourceHash.Sha256!;
             if(!string.Equals(proof.SourceSha256,currentSourceHash,StringComparison.OrdinalIgnoreCase)||
                 !string.Equals(proof.OutputSha256,outputSha,StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("HDR ordinary XMP proof does not bind the actual source and exact owned stage.");
+                return new(null, new InvalidDataException("HDR ordinary XMP proof does not bind the actual source and exact owned stage."));
             mappedOrdinaryXmp=true;
         }
         ImagePostValidation preservation = ComparePreservationObservations(beforePreservation, afterPreservation,mappedOrdinaryXmp)
             with { PreservationOutcome = PreservationOutcome.PartiallyPreserved };
         if (preservation.ColorIcc is not (ConversionComponentOutcome.Preserved or ConversionComponentOutcome.NotApplicable))
-            throw new InvalidDataException($"Converted {targetContainer} did not preserve the source ICC profile with traceable before/after evidence.");
-        return new ImageHdrGainMapPostValidation(preservation, outputSha, mapSha, outputFacts)
-            { MetadataMapping = mappingProof is { } mapped ? new(mapped.SourceSha256,mapped.OutputSha256) { MappingKind = mapped.Kind } : null };
+            return new(null, new InvalidDataException($"Converted {targetContainer} did not preserve the source ICC profile with traceable before/after evidence."));
+        return new(new ImageHdrGainMapPostValidation(preservation, outputSha, mapSha, outputFacts)
+            { MetadataMapping = mappingProof is { } mapped ? new(mapped.SourceSha256,mapped.OutputSha256) { MappingKind = mapped.Kind } : null }, null);
     }
 
     private static Task<ImagePostValidation> VerifyPreservationAsync(

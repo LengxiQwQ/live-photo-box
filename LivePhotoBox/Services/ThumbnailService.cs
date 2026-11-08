@@ -1,4 +1,4 @@
-﻿using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System;
@@ -29,6 +29,8 @@ namespace LivePhotoBox.Services
      */
     public static class ThumbnailService
     {
+        // Disabled at the user's request while they verify the scan workflow.
+        internal static bool IsLoadingEnabled { get; } = false;
         private static readonly ConcurrentDictionary<string, ImageSource> _thumbnailCache = new(StringComparer.OrdinalIgnoreCase);
         private static readonly ConcurrentDictionary<string, Task<ImageSource?>> _inflightLoads = new(StringComparer.OrdinalIgnoreCase);
         private static readonly SemaphoreSlim _loadLimiter = new(4, 4);
@@ -66,6 +68,7 @@ namespace LivePhotoBox.Services
         // 返回: 缓存的 ImageSource，若尚未加载则返回 null。
         public static ImageSource? GetCached(string imagePath)
         {
+            if (!IsLoadingEnabled) return null;
             if (string.IsNullOrWhiteSpace(imagePath)) return null;
             return _thumbnailCache.TryGetValue(imagePath, out var cached) ? cached : null;
         }
@@ -73,6 +76,7 @@ namespace LivePhotoBox.Services
         /// <summary>由 ThumbnailScheduler 写入缓存（不触发 UI 回调）</summary>
         public static void WriteCache(string imagePath, ImageSource source)
         {
+            if (!IsLoadingEnabled) return;
             if (string.IsNullOrWhiteSpace(imagePath) || source == null) return;
             _thumbnailCache[imagePath] = source;
         }
@@ -85,6 +89,7 @@ namespace LivePhotoBox.Services
         // 返回: 加载完成的 ImageSource，失败或取消返回 null。
         public static Task<ImageSource?> LoadAsync(string imagePath, Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
         {
+            if (!IsLoadingEnabled) return Task.FromResult<ImageSource?>(null);
             if (ApplicationShutdown.IsClosing || string.IsNullOrWhiteSpace(imagePath)) return Task.FromResult<ImageSource?>(null);
 
             dispatcher ??= Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
@@ -135,6 +140,7 @@ namespace LivePhotoBox.Services
         // 与 UI 可见路径（LoadCoreAsync）共享 _videoLoadLimiter 和 _inflightLoads，不重复加载。
         public static void BackgroundVideoLoad(string videoPath, Microsoft.UI.Dispatching.DispatcherQueue? dispatcher)
         {
+            if (!IsLoadingEnabled) return;
             if (string.IsNullOrWhiteSpace(videoPath)) return;
             if (_thumbnailCache.ContainsKey(videoPath)) return;
             dispatcher ??= Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread();
@@ -601,6 +607,7 @@ namespace LivePhotoBox.Services
             Action<ImageSource?> assignThumbnail,
             uint targetSize = 80)
         {
+            if (!IsLoadingEnabled) return null;
             void Assign(ImageSource? image) { if (!ApplicationShutdown.IsClosing) assignThumbnail(image); }
             if (ApplicationShutdown.IsClosing) return null;
 

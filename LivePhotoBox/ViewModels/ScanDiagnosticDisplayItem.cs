@@ -36,12 +36,21 @@ namespace LivePhotoBox.ViewModels
         // Broken/unsupported media keeps a type icon rather than a permanent loading label.
         public async Task LoadThumbnailAsync(DispatcherQueue dispatcher)
         {
+            if (!ThumbnailService.IsLoadingEnabled) return;
             if (_thumbnailRequested || (!IsImage && !IsVideo)) return;
             _thumbnailRequested = true;
             Thumbnail = await ThumbnailService.LoadAsync(PrimaryPath, dispatcher);
         }
 
         public required string DiagnosticCode { get; init; }
+
+        internal bool HasSameContent(ScanDiagnosticDisplayItem other) =>
+            DiagnosticCode == other.DiagnosticCode && PrimaryPath == other.PrimaryPath && GroupKey == other.GroupKey &&
+            DisplayFileName == other.DisplayFileName && DisplayStatusText == other.DisplayStatusText &&
+            DisplayFileSize == other.DisplayFileSize && Status == other.Status && Severity == other.Severity &&
+            Stage == other.Stage && OutcomeSummary == other.OutcomeSummary && Details == other.Details &&
+            IsImage == other.IsImage && IsVideo == other.IsVideo && IsDirectory == other.IsDirectory &&
+            RelatedPaths.SequenceEqual(other.RelatedPaths, StringComparer.OrdinalIgnoreCase);
         public required string PrimaryPath { get; init; }
         public IReadOnlyList<string> RelatedPaths { get; init; } = Array.Empty<string>();
         public required string DisplayFileName { get; init; }

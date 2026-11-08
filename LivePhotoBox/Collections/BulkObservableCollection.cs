@@ -52,5 +52,46 @@ namespace LivePhotoBox.Collections
             OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
             OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
         }
+
+        // Source queues may still publish one batch Reset; an unchanged scan
+        // must not rebuild subscriptions or cause a redundant view projection.
+        public void ReplaceRangeIfChanged(IEnumerable<T> items)
+        {
+            var snapshot = items.ToList();
+            if (!this.SequenceEqual(snapshot)) ReplaceRange(snapshot);
+        }
+
+        public void AddRange(IEnumerable<T> items)
+        {
+            var batch = items.ToArray();
+            if (batch.Length == 0) return;
+            _suppressNotifications = true;
+            try { foreach (var item in batch) Items.Add(item); }
+            finally { _suppressNotifications = false; }
+            OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+            OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+            OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        }
+
+        // Source queue only: ListViews bind separate display collections.
+        // Publish the actual new rows so observers do not rescan every old row.
+        public void AppendSourceBatch(IEnumerable<T> items)
+        {
+            var batch = items.ToArray();
+            if (batch.Length == 0) return;
+            int start = Items.Count;
+            _suppressNotifications = true;
+            try { foreach (var item in batch) Items.Add(item); }
+            finally { _suppressNotifications = false; }
+            OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+            OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+            OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Add, batch, start));
+        }
+
+        public void AppendNumberedBatch(IReadOnlyList<T> items, System.Action<T, int> number)
+        {
+            for (int i = 0; i < items.Count; i++) number(items[i], Count + i + 1);
+            AppendSourceBatch(items);
+        }
     }
 }

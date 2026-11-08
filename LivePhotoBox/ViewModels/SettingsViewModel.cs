@@ -1,4 +1,4 @@
-﻿/*
+/*
  * SettingsViewModel.cs
  *
  * SettingsPage（设置页面）的视图模型，管理应用的所有设置项。
@@ -292,6 +292,15 @@ namespace LivePhotoBox.ViewModels
         #endregion
 
         #region Merge Settings
+
+        [ObservableProperty]
+        private bool _keepVideoStabilizationEdges;
+
+        partial void OnKeepVideoStabilizationEdgesChanged(bool value)
+        {
+            if (_isInitializing) return;
+            AppSettingsService.SetValue(nameof(KeepVideoStabilizationEdges), value);
+        }
 
         [ObservableProperty]
         private int _heicDecoderIndex;
@@ -603,17 +612,6 @@ namespace LivePhotoBox.ViewModels
             LogService.Info($"Experimental merge dual-file visibility: {(value ? "enabled" : "disabled")}", LogSource.Settings);
         }
 
-        // 更严格的实况照片扫描 — 通过 ContentIdentifier UUID 匹配（默认关 = 文件名匹配）
-        [ObservableProperty]
-        private bool _isStrictLivePhotoScanEnabled;
-
-        partial void OnIsStrictLivePhotoScanEnabledChanged(bool value)
-        {
-            if (_isInitializing) return;
-            AppSettingsService.SetValue(nameof(IsStrictLivePhotoScanEnabled), value);
-            LogService.Info($"Strict Live Photo scan: {(value ? "ON" : "OFF")}", LogSource.Settings);
-        }
-
         // 仅扫描 Apple 实况照片 — 开启后仅在元数据中检测到 Apple 设备特征的文件才参与扫描
         [ObservableProperty]
         private bool _isAppleOnlyScanEnabled;
@@ -708,7 +706,6 @@ namespace LivePhotoBox.ViewModels
             IsHeicRepairEnabled = AppSettingsService.GetValue(nameof(IsHeicRepairEnabled), false);
             IsRepairScanLoadThumbnail = AppSettingsService.GetValue(nameof(IsRepairScanLoadThumbnail), false);
             IsExperimentalMergeDualFileEnabled = AppSettingsService.GetValue(AppSettingsService.KeyEnableExperimentalMergeDualFile, false);
-            IsStrictLivePhotoScanEnabled = AppSettingsService.GetValue(nameof(IsStrictLivePhotoScanEnabled), false);
             IsAppleOnlyScanEnabled = AppSettingsService.GetValue(nameof(IsAppleOnlyScanEnabled), true);
             IsGeoLocationEnabled = AppSettingsService.GetValue(nameof(IsGeoLocationEnabled), true);
             IsNonLivePhotoVideoRepairEnabled = AppSettingsService.GetValue(nameof(IsNonLivePhotoVideoRepairEnabled), false);
@@ -716,6 +713,7 @@ namespace LivePhotoBox.ViewModels
             IsHistoryPageVisible = AppSettingsService.GetValue(nameof(IsHistoryPageVisible), false);
             IsPhotoClassifyPageVisible = AppSettingsService.GetValue(nameof(IsPhotoClassifyPageVisible), false);
             IsDetailedHistoryEnabled = AppSettingsService.GetValue(nameof(IsDetailedHistoryEnabled), false);
+            KeepVideoStabilizationEdges = AppSettingsService.GetValue(nameof(KeepVideoStabilizationEdges), false);
             IsRecursiveScanEnabled = AppSettingsService.GetValue(nameof(IsRecursiveScanEnabled), false);
             IsDragDropAutoPairEnabled = AppSettingsService.GetValue(nameof(IsDragDropAutoPairEnabled), false);
             IsOutputPreserveSubfolderStructure = AppSettingsService.GetValue(nameof(IsOutputPreserveSubfolderStructure), true);

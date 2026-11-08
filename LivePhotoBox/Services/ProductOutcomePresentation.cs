@@ -12,7 +12,9 @@ internal static class ProductOutcomePresentation
 
     internal static string Status(ProductOperationOutcome outcome)
     {
-        string status = ResourceService.GetString("ProductOutcome_" + outcome.Status);
+        string status = outcome.CompletionKind is ProductCompletionKind.RecoveredMedia or ProductCompletionKind.OriginalSaved or ProductCompletionKind.NoOutput
+            ? ResourceService.GetString("ProductCompletion_"+outcome.CompletionKind)
+            : ResourceService.GetString("ProductOutcome_" + outcome.Status);
         if (outcome.IsSuccess && outcome.PreparationExecution?.Videos.Any(video =>
                 video.Truth.FallbackOccurred &&
                 video.Truth.FailureCategory == ConversionFailureCategory.None &&
@@ -32,6 +34,9 @@ internal static class ProductOutcomePresentation
             lines.Add(Truth(image.Truth));
         foreach (var video in outcome.PreparationExecution?.Videos ?? Array.Empty<VideoExecutionRecord>())
         {
+            if (video.DisplayArea is { } area)
+                lines.Add(ResourceService.Format(area.KeptStabilizationEdges ? "ProductVideo_KeptEdges" : "ProductVideo_CroppedEdges",
+                    area.OutputWidth, area.OutputHeight));
             lines.Add($"{Truth(video.Truth)}; encoder={video.SelectedEncoder}");
             if (video.Truth.FallbackOccurred)
                 lines.Add($"{ResourceService.GetString(outcome.IsSuccess && video.Truth.FailureCategory == ConversionFailureCategory.None

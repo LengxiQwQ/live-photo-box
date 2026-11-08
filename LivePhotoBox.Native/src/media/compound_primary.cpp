@@ -1,4 +1,5 @@
 #include "media/compound_primary.h"
+#include "platform/windows_readonly_mapping.h"
 #include "media/target_writer.h"
 #include "media/ordinary_metadata_capsule.h"
 #include "platform/windows_filesystem.h"
@@ -15,20 +16,30 @@ std::map<uint64_t,std::shared_ptr<lpb::media::compound_primary_proof>> registry;
 bool same_identity(const lpb_file_identity& a,const lpb_file_identity& b) {
  return a.volume_serial==b.volume_serial&&a.file_index==b.file_index&&a.file_size==b.file_size&&a.link_count==b.link_count;
 }
-bool read_registered(lpb_context* context,const char* path,const lpb_file_identity& expected,std::vector<uint8_t>& bytes) {
+struct registered_view {
+ HANDLE file{INVALID_HANDLE_VALUE};
+ windows_readonly_mapping mapping;
+ lpb_result failure{LPB_RESULT_SOURCE_CHANGED};
+ std::string reason{"Compound primary creating object could not be retained or no longer matches its lineage."};
+ ~registered_view(){if(file!=INVALID_HANDLE_VALUE)CloseHandle(file);}
+};
+bool read_registered(lpb_context* context,const char* path,const lpb_file_identity& expected,registered_view& result) {
+ if(lpb_context_check_cancelled(context)!=LPB_RESULT_OK){result.failure=LPB_RESULT_CANCELLED;return false;}
  const auto p=utf8_to_path(path);
- HANDLE h=CreateFileW(p.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,
+ result.file=CreateFileW(p.c_str(),GENERIC_READ,FILE_SHARE_READ|FILE_SHARE_DELETE,nullptr,OPEN_EXISTING,
      FILE_ATTRIBUTE_NORMAL|FILE_FLAG_OPEN_REPARSE_POINT,nullptr);
- if(h==INVALID_HANDLE_VALUE)return false;
- struct close_handle {HANDLE value;~close_handle(){CloseHandle(value);}} closer{h};
- BY_HANDLE_FILE_INFORMATION info{};if(!GetFileInformationByHandle(h,&info)||(info.dwFileAttributes&FILE_ATTRIBUTE_REPARSE_POINT))return false;
+ if(result.file==INVALID_HANDLE_VALUE)return false;
+ BY_HANDLE_FILE_INFORMATION info{};
+ if(!GetFileInformationByHandle(result.file,&info)||(info.dwFileAttributes&(FILE_ATTRIBUTE_REPARSE_POINT|FILE_ATTRIBUTE_DIRECTORY)))return false;
  lpb_file_identity actual{info.dwVolumeSerialNumber,(uint64_t(info.nFileIndexHigh)<<32)|info.nFileIndexLow,
      (uint64_t(info.nFileSizeHigh)<<32)|info.nFileSizeLow,info.nNumberOfLinks};
- if(!same_identity(actual,expected)||actual.link_count!=1||actual.file_size>32ULL*1024*1024)return false;
- bytes.resize(static_cast<size_t>(actual.file_size));size_t at=0;
- while(at<bytes.size()){DWORD n=0;const DWORD want=static_cast<DWORD>(std::min<size_t>(65536,bytes.size()-at));
-  if(lpb_context_check_cancelled(context)!=LPB_RESULT_OK)return false;
-  if(!ReadFile(h,bytes.data()+at,want,&n,nullptr)||n!=want)return false;at+=n;}
+ if(!same_identity(actual,expected)||actual.link_count!=1)return false;
+ if(actual.file_size>64ULL*1024*1024) {
+  result.failure=LPB_RESULT_UNSUPPORTED;result.reason="Compound primary exceeds the bounded mapped image budget (64 MiB).";return false;
+ }
+ if(!result.mapping.open_handle(result.file,actual.file_size)) {
+  result.failure=LPB_RESULT_INTERNAL_ERROR;result.reason="Compound primary could not map its retained read-only object.";return false;
+ }
  return true;
 }
 std::array<uint8_t,32> hash(std::span<const uint8_t> bytes) {
@@ -95,8 +106,10 @@ lpb_result LPB_CALL lpb_compound_primary_from_cleanup_v1(lpb_context* context,lp
   proof->identity=created.identity;proof->byte_length=created.byte_length;proof->sha256=original.sha256;
   proof->known_length=opaque->file_range.offset;proof->opaque_length=opaque->file_range.length;
   std::copy_n(opaque->sha256,32,proof->opaque_sha256.begin());proof->facts=facts;
-  std::vector<uint8_t> bytes;lpb::media::target_primary_observation primary;std::string error;
-  if(!read_registered(context,stage,created.identity,bytes)||!lpb::media::validate_compound_primary(bytes,*proof,primary,error)) {
+  registered_view view;lpb::media::target_primary_observation primary;std::string error;
+  if(!read_registered(context,stage,created.identity,view)){set_error(context,view.reason.c_str());return view.failure;}
+  const auto bytes=view.mapping.bytes();
+  if(!lpb::media::validate_compound_primary(bytes,*proof,primary,error)) {
    if(lpb_context_check_cancelled(context)!=LPB_RESULT_OK)return LPB_RESULT_CANCELLED;
    set_error(context,error.c_str());return LPB_RESULT_SOURCE_CHANGED;
   }
@@ -124,8 +137,10 @@ lpb_result LPB_CALL lpb_compound_primary_materialize_records_v1(lpb_context* con
  try {
   const auto proof=lpb::media::find_compound_primary(token);
   if(!proof||proof->revoked)return fail(LPB_RESULT_AUTHORITY_VIOLATION,"Opaque prefix requires a live Native lineage token.");
-  std::vector<uint8_t> source;lpb::media::target_primary_observation primary;std::string error;
-  if(!read_registered(context,source_path,proof->identity,source)||!lpb::media::validate_compound_primary(source,*proof,primary,error))
+  registered_view view;lpb::media::target_primary_observation primary;std::string error;
+  if(!read_registered(context,source_path,proof->identity,view))return fail(view.failure,view.reason.c_str());
+  const auto source=view.mapping.bytes();
+  if(!lpb::media::validate_compound_primary(source,*proof,primary,error))
    return fail(lpb_context_check_cancelled(context)==LPB_RESULT_CANCELLED?LPB_RESULT_CANCELLED:LPB_RESULT_SOURCE_CHANGED,"Opaque prefix source no longer matches its lineage.");
   const std::string length=std::to_string(proof->opaque_length);
   const std::string directory="[{\"name\":\"SourcePrefixFragment\",\"offset\":"+length+",\"length\":"+length+",\"version\":1}]";
@@ -162,8 +177,10 @@ lpb_result LPB_CALL lpb_compound_primary_inspect_v1(lpb_context* context,uint64_
  lpb_context_operation operation(context);if(!operation.acquired())return LPB_RESULT_AUTHORITY_VIOLATION;
  try {
   const auto proof=lpb::media::find_compound_primary(token);if(!proof)return LPB_RESULT_AUTHORITY_VIOLATION;
-  std::vector<uint8_t> bytes;lpb::media::target_primary_observation primary;std::string error;
-  if(!read_registered(context,path,proof->identity,bytes)||!lpb::media::validate_compound_primary(bytes,*proof,primary,error)) {
+  registered_view view;lpb::media::target_primary_observation primary;std::string error;
+  if(!read_registered(context,path,proof->identity,view)){set_error(context,view.reason.c_str());return view.failure;}
+  const auto bytes=view.mapping.bytes();
+  if(!lpb::media::validate_compound_primary(bytes,*proof,primary,error)) {
    if(lpb_context_check_cancelled(context)!=LPB_RESULT_OK)return LPB_RESULT_CANCELLED;
    set_error(context,error.c_str());return LPB_RESULT_SOURCE_CHANGED;
   }

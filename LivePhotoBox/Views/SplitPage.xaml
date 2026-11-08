@@ -1,4 +1,4 @@
-﻿<!-- SplitPage.xaml — 统一面板布局（完全镜像 MergePage） -->
+<!-- SplitPage.xaml — 统一面板布局（完全镜像 MergePage） -->
 <Page x:Name="PageRoot"
     x:Class="LivePhotoBox.Views.SplitPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -422,14 +422,14 @@
                                             x:Uid="SplitPage_BrowseBtn1" FontSize="12"
                                             Height="26" Padding="10,0" CornerRadius="4"
                                             Click="BrowseInput_Click"
-                                            IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"
+                                            IsEnabled="{x:Bind ViewModel.CanChangeInputDirectory, Mode=OneWay}"
                                             Margin="4,0,0,0"
                                             Background="{ThemeResource ControlFillColorDefaultBrush}"
                                             BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
                                             VerticalAlignment="Center"/>
                                 </Grid>
                                 <TextBox AutomationProperties.AutomationId="ScanInputDirectory" x:Uid="SplitPage_InputBox" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                                         IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"
+                                         IsEnabled="{x:Bind ViewModel.CanChangeInputDirectory, Mode=OneWay}"
                                          FontSize="12" MinHeight="28" Height="28" MinWidth="0" HorizontalAlignment="Stretch" Padding="10,5"
                                          VerticalContentAlignment="Center"/>
                             </StackPanel>
@@ -491,8 +491,6 @@
                                     <ComboBoxItem x:Uid="SplitPage_Match_Vivo"/>
                                     <ComboBoxItem x:Uid="SplitPage_Match_Samsung"/>
                                     <ComboBoxItem x:Uid="SplitPage_Match_Huawei"/>
-                                    <ComboBoxItem x:Uid="SplitPage_Match_Apple"/>
-                                    <ComboBoxItem x:Uid="SplitPage_Match_Filename"/>
                                 </ComboBox>
                             </Grid>
                         </StackPanel>
@@ -1030,7 +1028,7 @@
                                         </Grid.ColumnDefinitions>
 
                                         <!-- 序号 -->
-                                        <TextBlock Grid.Column="0" Text="{x:Bind Index}"
+                                        <TextBlock Grid.Column="0" Text="{x:Bind Index, Mode=OneWay}"
                                                    VerticalAlignment="Center"
                                                    FontWeight="Bold" FontSize="13"
                                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
@@ -1062,7 +1060,7 @@
                                                 </Grid.ColumnDefinitions>
                                                 <FontIcon Glyph="&#xE91B;" Foreground="#F97316" FontSize="13" VerticalAlignment="Center"/>
                                                 <TextBlock Grid.Column="1" FontSize="12" VerticalAlignment="Center" HorizontalAlignment="Stretch"
-                                                           controls:AdaptiveFileName.FileName="{x:Bind SourceFileName}"/>
+                                                           controls:AdaptiveFileName.CacheFit="True" controls:AdaptiveFileName.FileName="{x:Bind SourceFileName}"/>
                                                 <Button Grid.ColumnSpan="2" Click="FileGroupButton_Click" Tag="{x:Bind SourcePath}"
                                                         Background="Transparent" BorderThickness="0" Padding="0"
                                                         MinWidth="0" MinHeight="0" CornerRadius="4"
@@ -1228,7 +1226,7 @@
                                                         MinWidth="0" MinHeight="0" CornerRadius="4"
                                                         HorizontalContentAlignment="Stretch"
                                                         ToolTipService.ToolTip="{x:Bind PrimaryPath}">
-                                                    <TextBlock controls:AdaptiveFileName.FileName="{x:Bind DisplayFileName}" FontSize="12"/>
+                                                    <TextBlock controls:AdaptiveFileName.CacheFit="True" controls:AdaptiveFileName.FileName="{x:Bind DisplayFileName}" FontSize="12"/>
                                                 </Button>
 
                                                 <TextBlock Grid.Column="3" Text="{x:Bind DisplayFileSize}" FontSize="11"

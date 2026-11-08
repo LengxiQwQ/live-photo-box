@@ -5,6 +5,7 @@ using LivePhotoBox.Media.Models;
 using LivePhotoBox.Services;
 using LivePhotoBox.Media;
 using LivePhotoBox.Media.Workspace;
+using LivePhotoBox.Core.Tests.Support;
 using Xunit;
 
 namespace LivePhotoBox.Core.Tests.Media;
@@ -39,7 +40,9 @@ public sealed class P9R8OrdinaryMetadataTargetTests
         var result=await LivePhotoMergeRunnerService.ProcessSinglePairWithOutcomeAsync(source,"","target",1,new LivePhotoMergeRunOptions
         {
             OutputDirectory=folder.Path,OutputProfile=OutputProfile.Create(TargetProtocol.GoogleMotionPhotoV2,format),
-            StructuredOptions=new(){PreservationPolicy=PreservationPolicy.Strict}
+            // MOV preparation uses the existing compatible encoder. This test
+            // verifies exact ordinary records, independently of video reencoding.
+            StructuredOptions=new(){PreservationPolicy=format == OutputMediaFormat.JpegMov ? PreservationPolicy.BestEffort : PreservationPolicy.Strict}
         },CancellationToken.None);
         Assert.True(result.IsSuccess,result.Details);var output=Assert.Single(result.CommittedOutputs);
         Assert.Equal(Hash(output.Path),output.Sha256);Assert.Equal(new FileInfo(output.Path).Length,output.ByteLength);
@@ -136,10 +139,18 @@ public sealed class P9R8OrdinaryMetadataTargetTests
     public async Task ActualNativeV4RejectionNeverPublishesPartialOrdinaryPreservationProof(string defect)
     {
         string source=Source(defect=="missing-capsule"?"小米.jpg":"oppo.jpg");
-        using var folder=new P9TargetTestInputs.Folder(nameof(ActualNativeV4RejectionNeverPublishesPartialOrdinaryPreservationProof)+defect);
+        using var folder=new TestFixtureWorkspace();
         var result=await LivePhotoMergeRunnerService.ProcessSinglePairWithOutcomeAsync(source,"","target",1,new LivePhotoMergeRunOptions
-        {OutputDirectory=folder.Path,OutputProfile=OutputProfile.Create(TargetProtocol.GoogleMotionPhotoV2,OutputMediaFormat.JpegMp4),StructuredOptions=new(){PreservationPolicy=PreservationPolicy.Strict}},CancellationToken.None);
-        Assert.True(result.IsSuccess,result.Details);string path=Assert.Single(result.CommittedOutputs).Path;
+        {OutputDirectory=folder.RootDirectory,OutputProfile=OutputProfile.Create(TargetProtocol.GoogleMotionPhotoV2,OutputMediaFormat.JpegMp4),StructuredOptions=new(){PreservationPolicy=PreservationPolicy.Strict}},CancellationToken.None);
+        if (defect == "missing-capsule")
+        {
+            Assert.Equal(ProductCompletionKind.CompatibleCompleted, result.CompletionKind);
+            Assert.Equal(ProductOperationStatus.Warning, result.Status);
+            Assert.Null(result.SourceActionGuard);
+            Assert.NotEmpty(result.Warnings);
+        }
+        else Assert.True(result.IsSuccess,result.Details);
+        string path=Assert.Single(result.CommittedOutputs).Path;
         var semantics=Assert.IsType<NeutralMediaSemantics>(result.PreparationSemantics);
         var row=result.PreparationManifest.SingleOrDefault(x=>x.Role=="OrdinaryMetadata");
         string expectedHash=row?.Sha256??"BAA1EDB00F0158B4BDB43CE0F9A5BA6655AA799209D34A53E91BD240E1DF4BA2";

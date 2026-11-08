@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers.Binary;
 using System.IO;
 using System.Linq;
@@ -71,6 +71,33 @@ public class NativeGainMapReassemblyTests : IDisposable
             (uint)(primaryBytes.Length - originalLayout.TiffOffset));
         byte[] expectedBytes = [.. expectedPrimary, .. gainmapBytes];
         Assert.Equal(expectedBytes, outputBytes);
+    }
+
+    [Theory]
+    [InlineData(31)]
+    [InlineData(626402)]
+    public async Task ReassembleJpegGainMapAsync_DetachedPrimaryRebasesRemovedPaddingToZero(int stalePadding)
+    {
+        string primaryPath = Path.Combine(_tempDir, "detached-primary.jpg");
+        string gainmapPath = Path.Combine(_tempDir, "gainmap.jpg");
+        string outputPath = Path.Combine(_tempDir, "reassembled.jpg");
+        byte[] gainmap = CreateGainMapJpeg();
+        byte[] primary = CreateMpfPrimary(gainmap.Length, stalePadding: stalePadding);
+        await File.WriteAllBytesAsync(primaryPath, primary);
+        await File.WriteAllBytesAsync(gainmapPath, gainmap);
+        await NativeMediaService.ReassembleJpegGainMapAsync(primaryPath, gainmapPath, outputPath,
+            Convert.ToHexString(SHA256.HashData(gainmap)));
+        byte[] output = await File.ReadAllBytesAsync(outputPath);
+        var layout = ReadMpfLayout(output);
+        Assert.Equal((uint)layout.EoiEnd, layout.GainMapOffset);
+        Assert.Equal(gainmap, output.AsSpan(layout.EoiEnd).ToArray());
+        Assert.Equal(ReadJpegScanAndEoi(primary), ReadJpegScanAndEoi(output));
+        XNamespace item = "http://ns.google.com/photos/1.0/container/item/";
+        var owner = XDocument.Parse(ReadStandardXmp(output)).Descendants().Single(e => (string?)e.Attribute(item + "Semantic") == "Primary");
+        Assert.Equal("0", (string?)owner.Attribute(item + "Padding"));
+        Assert.Contains("custom:Keep=\"retained\"", ReadStandardXmp(output));
+        Assert.Equal(primary, await File.ReadAllBytesAsync(primaryPath));
+        Assert.Equal(gainmap, await File.ReadAllBytesAsync(gainmapPath));
     }
 
     [Fact]
@@ -301,7 +328,7 @@ public class NativeGainMapReassemblyTests : IDisposable
         int staleGainMapOffsetDelta = 0, bool duplicateMpf = false, bool malformedMpf = false,
         bool includeOriginal = false, bool directoryIncludesOriginal = false,
         bool mismatchedGainMapMpfSize = false, bool originalOffsetInsideOwner = false,
-        bool malformedOriginalItem = false)
+        bool malformedOriginalItem = false, int stalePadding = 0)
     {
         const int tiffOffset = 10;
         const int originalLength = 8_178_321;
@@ -333,6 +360,7 @@ public class NativeGainMapReassemblyTests : IDisposable
 
         string xmp = CreateXmp(gainmapBytes, includeOriginal || directoryIncludesOriginal,
             malformedOriginalItem);
+        if (stalePadding != 0) xmp = xmp.Replace("Item:Semantic=\"Primary\"", $"Item:Semantic=\"Primary\" Item:Padding=\"{stalePadding}\"");
         byte[] xmpPayload = [.. Encoding.ASCII.GetBytes("http://ns.adobe.com/xap/1.0/\0"), .. Encoding.UTF8.GetBytes(xmp)];
         AppendJpegSegment(primary, 0xE1, xmpPayload);
         AppendJpegSegment(primary, 0xC0, [8, 0, 1, 0, 1, 1, 1, 0x11, 0]);

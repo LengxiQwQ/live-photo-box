@@ -27,6 +27,18 @@ int main(){
  using namespace lpb::target;using namespace lpb::media;
  google_xmp_request req;req.video_length=12345;req.cover_present=true;req.cover_us=2000;
  std::string out;target_xmp_observation got;xmp_observation_failure why;
+ {
+  const std::string plain="<r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description xmlns:c='urn:ordinary'><c:Note>hello</c:Note></r:Description></r:RDF>";
+  REQUIRE(observe_target_xmp(plain,got,why));
+  REQUIRE(observe_target_xmp(plain+std::string(1,'\0'),got,why));
+  auto comment=plain;comment.insert(comment.find("<r:Description"),"<!-- ordinary & harmless < comment -->");
+  REQUIRE(observe_target_xmp(comment,got,why));
+  auto cdata=plain;cdata.replace(cdata.find("hello"),5,"<![CDATA[ordinary < & text]]>");
+  REQUIRE(observe_target_xmp(cdata,got,why));
+  REQUIRE(!observe_target_xmp("<!DOCTYPE x [<!ENTITY e SYSTEM 'file:///x'>]>"+plain,got,why));
+  REQUIRE(!observe_target_xmp("<!-- bad -- comment -->"+plain,got,why));
+  REQUIRE(!observe_target_xmp(plain+std::string(1,'\0')+"hidden",got,why));
+ }
  const auto direction_xml=[](const std::string& subject,const std::string& contents,const std::string& attributes="") {
   return "<x:xmpmeta xmlns:x='adobe:ns:meta/'><r:RDF xmlns:r='http://www.w3.org/1999/02/22-rdf-syntax-ns#'><r:Description "+subject+
     " xmlns:t='http://ns.adobe.com/tiff/1.0/' "+attributes+">"+contents+"</r:Description></r:RDF></x:xmpmeta>";

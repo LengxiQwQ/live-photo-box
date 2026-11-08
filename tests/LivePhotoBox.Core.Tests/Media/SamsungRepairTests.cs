@@ -76,7 +76,9 @@ public sealed class SamsungRepairTests
         string source=Path.Combine(folder.Path,"broken.jpg");
         File.WriteAllBytes(source,[0xff,0xd8,0xff]);
         var analysis=await LivePhotoRepairService.AnalyzeFileAsync(source,default,defaultDevicesOnly:true);
-        Assert.Equal(RepairIssueType.Error,analysis.IssueType);
+        Assert.Equal(RepairIssueType.Limited,analysis.IssueType);
+        Assert.False(analysis.NeedsRepair);
+        Assert.Contains("incomplete", analysis.IssueDescription, StringComparison.OrdinalIgnoreCase);
     }
 
 }

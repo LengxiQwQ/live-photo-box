@@ -1,4 +1,4 @@
-/*
+﻿/*
  * EditTimingService.cs
  *
  * 实况照片关键帧时间读取服务。
@@ -13,6 +13,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using LivePhotoBox.Interop;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -447,18 +448,57 @@ namespace LivePhotoBox.Services
 
         private static async Task<byte[]?> ReadInspectedOriginalPhotoBytesAsync(string filePath, CancellationToken token)
         {
-            using var inspected = await new SourceInspector().InspectWithPlanAsync(filePath, cancellationToken: token).ConfigureAwait(false);
-            var original = inspected.Facts.AuxiliaryItems.SingleOrDefault(item =>
-                item.IsPresent && string.Equals(item.Semantic, "Original", StringComparison.Ordinal));
-            if (original == null) return null;
-            using var workspace = new MediaWorkspace();
-            var extracted = await new SourceExtractor().ExtractAsync(
-                inspected.ExtractionPlan, filePath, null, workspace, token).ConfigureAwait(false);
-            using var cleanupPlan = extracted.CleanupPlan;
-            var artifact = extracted.AuxiliaryMedia.Single(item =>
-                string.Equals(item.StableIdentity, original.StableIdentity, StringComparison.Ordinal)).MaterializedArtifact
-                ?? throw new NotSupportedException("Inspector-confirmed Original image cannot be materialized.");
-            return await File.ReadAllBytesAsync(artifact.Path, token).ConfigureAwait(false);
+            var attempt = await TryReadOriginalPhotoBytesAsync(filePath, token).ConfigureAwait(false);
+            if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+            return attempt.Bytes;
         }
+
+        internal sealed record OriginalPhotoAttempt(byte[]? Bytes, Exception? Failure)
+        {
+            public System.Collections.Generic.IReadOnlyList<string> Warnings { get; init; } = [];
+        }
+
+        internal static async Task<OriginalPhotoAttempt> TryReadOriginalPhotoBytesAsync(string filePath, CancellationToken token)
+        {
+            using var cleanupScope = WorkspaceCleanupScope.Begin();
+            var attempt = await ReadOriginalPhotoCoreAsync(filePath, token).ConfigureAwait(false);
+            return attempt with { Warnings = cleanupScope.Failures };
+        }
+
+        internal static async Task<OriginalPhotoAttempt> ReadOriginalPhotoCoreAsync(string filePath, CancellationToken token)
+        {
+            var inspection = await NativeMediaService.TryInspectMediaWithPlanAsync(filePath, cancellationToken: token).ConfigureAwait(false);
+            if (inspection.Failure is { } inspectionFailure) return new(null, inspectionFailure);
+            using var inspected = inspection.Source!;
+            var originals = inspected.Facts.AuxiliaryItems.Where(item =>
+                item.IsPresent && string.Equals(item.Semantic, "Original", StringComparison.Ordinal)).ToArray();
+            if (originals.Length == 0) return new(null, null);
+            if (originals.Length != 1) return new(null, new InvalidDataException("Original image selection is ambiguous."));
+            var original = originals[0];
+            var creation = MediaWorkspace.TryCreate(token);
+            if (creation.Failure is { } creationFailure) return new(null, creationFailure);
+            using var workspace = creation.Workspace!;
+            var extraction = await new SourceExtractor().TryExtractAsync(inspected.ExtractionPlan, filePath, null, workspace, token).ConfigureAwait(false);
+            if (extraction.Failure is { } extractionFailure) return new(null, extractionFailure);
+            var extracted = extraction.Bundle!;
+            using var cleanupPlan = extracted.CleanupPlan;
+            var artifacts = extracted.AuxiliaryMedia.Where(item => string.Equals(item.StableIdentity, original.StableIdentity, StringComparison.Ordinal)).ToArray();
+            if (artifacts.Length != 1 || artifacts[0].MaterializedArtifact is not { } artifact)
+                return new(null, new NotSupportedException("Inspector-confirmed Original image cannot be materialized."));
+            using var source = SourceReadAttempt.Open(artifact.Path);
+            if (!source.Succeeded) return new(null, new IOException($"Cannot read Original image (system error {source.Error})."));
+            if (!LivePhotoBox.Media.Models.WindowsFileIdentity.TryCapture(source.Handle, out var identity, out int error) ||
+                identity!.IsReparsePoint || identity.LinkCount != 1 ||
+                (artifact.FileIdentity is { } expected && !expected.Matches(identity)))
+                return new(null, new IOException($"Original image no longer identifies its extracted object (system error {error})."));
+            var read = source.TryReadBytes(64 * 1024 * 1024, token);
+            if (read.Failure is { } readFailure) return new(null, readFailure);
+            byte[] bytes = read.Bytes!;
+            string sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes));
+            if (bytes.LongLength != artifact.ByteLength || !string.Equals(sha, artifact.Sha256, StringComparison.OrdinalIgnoreCase))
+                return new(null, new InvalidDataException("Original image bytes disagree with the verified extraction."));
+            return new(bytes, null);
+        }
+
     }
 }

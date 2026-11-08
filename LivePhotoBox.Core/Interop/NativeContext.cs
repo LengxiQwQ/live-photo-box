@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -243,25 +243,71 @@ internal sealed class NativeContext : IDisposable
 
     public void ThrowIfFailed(NativeResult res)
     {
-        if (res == NativeResult.Ok) return;
+        if (res != NativeResult.Ok) throw CreateStrictFailure(res);
+    }
+
+    internal Exception CreateFailure(NativeResult res)
+    {
+        string message = GetLastError() ?? $"Native media operation failed ({res}).";
+        using var lease = AcquireOperationLease(allowDisposeRequested: true);
+        var diagnostic = new NativeFailureDiagnosticV1 { StructSize = 24, Version = 1 };
+        if (NativeMethods.TryGetFailureDiagnosticV1(lease.Handle, ref diagnostic) == NativeResult.Ok &&
+            diagnostic.StructSize == 24 && diagnostic.Version == 1 && diagnostic.Reserved == 0 && diagnostic.Reason is >= 1 and <= 13)
+        {
+            var category = (LivePhotoBox.Media.Extraction.ExtractionFailureCategory)(diagnostic.Reason - 1);
+            if (category == LivePhotoBox.Media.Extraction.ExtractionFailureCategory.Cancelled)
+                return new OperationCanceledException(message, _cancellationToken);
+            LivePhotoBox.Media.Extraction.ExtractionFailureCategory? original = diagnostic.OriginalReason is >= 1 and <= 13
+                ? (LivePhotoBox.Media.Extraction.ExtractionFailureCategory)(diagnostic.OriginalReason - 1) : null;
+            Exception? originalFailure = original is { } cause
+                ? cause == LivePhotoBox.Media.Extraction.ExtractionFailureCategory.Cancelled
+                    ? new OperationCanceledException(message, _cancellationToken)
+                    : new LivePhotoBox.Media.Extraction.ExtractionException(cause, message)
+                : null;
+            return new LivePhotoBox.Media.Extraction.ExtractionException(category, message, innerException: originalFailure, originalCategory: original);
+        }
+        if (res == NativeResult.Cancelled || _cancellationToken.IsCancellationRequested)
+            return new OperationCanceledException(message, _cancellationToken);
+        if (res is NativeResult.AuthorityViolation or NativeResult.PlanReplayed or NativeResult.SourceChanged)
+            return new LivePhotoBox.Media.Extraction.ExtractionException(res switch
+            {
+                NativeResult.AuthorityViolation => LivePhotoBox.Media.Extraction.ExtractionFailureCategory.AuthorityViolation,
+                NativeResult.PlanReplayed => LivePhotoBox.Media.Extraction.ExtractionFailureCategory.PlanReplay,
+                _ => LivePhotoBox.Media.Extraction.ExtractionFailureCategory.SourceChanged
+            }, message);
+        if (res == NativeResult.Unsupported) return new NotSupportedException(message);
+        return new InvalidOperationException(message);
+    }
+
+    // Kept for strict legacy API contracts. Product attempts use CreateFailure,
+    // whose recovery categories never depend on diagnostic English text.
+    private Exception CreateStrictFailure(NativeResult res)
+    {
+        using (var lease = AcquireOperationLease(allowDisposeRequested: true))
+        {
+            var diagnostic = new NativeFailureDiagnosticV1 { StructSize = 24, Version = 1 };
+            if (NativeMethods.TryGetFailureDiagnosticV1(lease.Handle, ref diagnostic) == NativeResult.Ok && diagnostic.Reason != 0)
+                return CreateFailure(res);
+        }
+        if (res == NativeResult.Ok) return new InvalidOperationException("An OK Native result has no failure.");
 
         if (res == NativeResult.AuthorityViolation)
         {
-            throw new LivePhotoBox.Media.Extraction.ExtractionException(
+            return new LivePhotoBox.Media.Extraction.ExtractionException(
                 LivePhotoBox.Media.Extraction.ExtractionFailureCategory.AuthorityViolation,
                 GetLastError() ?? "Native extraction authority validation failed.");
         }
 
         if (res == NativeResult.PlanReplayed)
         {
-            throw new LivePhotoBox.Media.Extraction.ExtractionException(
+            return new LivePhotoBox.Media.Extraction.ExtractionException(
                 LivePhotoBox.Media.Extraction.ExtractionFailureCategory.PlanReplay,
                 GetLastError() ?? "The Native extraction plan was already consumed or released.");
         }
 
         if (res == NativeResult.SourceChanged)
         {
-            throw new LivePhotoBox.Media.Extraction.ExtractionException(
+            return new LivePhotoBox.Media.Extraction.ExtractionException(
                 LivePhotoBox.Media.Extraction.ExtractionFailureCategory.SourceChanged,
                 GetLastError() ?? "The source no longer matches the Inspector-issued extraction plan.");
         }
@@ -302,7 +348,7 @@ internal sealed class NativeContext : IDisposable
                     inner = new OperationCanceledException("Operation was cancelled prior to rollback failure.", _cancellationToken);
                 }
 
-                throw new LivePhotoBox.Media.Extraction.ExtractionException(
+                return new LivePhotoBox.Media.Extraction.ExtractionException(
                     LivePhotoBox.Media.Extraction.ExtractionFailureCategory.CleanupFailed,
                     msg,
                     innerException: inner,
@@ -311,33 +357,33 @@ internal sealed class NativeContext : IDisposable
 
             if (res == NativeResult.Cancelled || _cancellationToken.IsCancellationRequested || msg.StartsWith("[Cancelled]", StringComparison.OrdinalIgnoreCase))
             {
-                throw new OperationCanceledException(msg, _cancellationToken);
+                return new OperationCanceledException(msg, _cancellationToken);
             }
 
             if (msg.StartsWith("[DiskFull]", StringComparison.OrdinalIgnoreCase))
-                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.DiskFull, msg);
+                return new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.DiskFull, msg);
             if (msg.StartsWith("[SourceRangeUnreadable]", StringComparison.OrdinalIgnoreCase))
-                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.SourceRangeUnreadable, msg);
+                return new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.SourceRangeUnreadable, msg);
             if (msg.StartsWith("[OutputWriteFailed]", StringComparison.OrdinalIgnoreCase))
-                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.OutputWriteFailed, msg);
+                return new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.OutputWriteFailed, msg);
             if (msg.StartsWith("[OutputPublishFailed]", StringComparison.OrdinalIgnoreCase))
-                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.OutputPublishFailed, msg);
+                return new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.OutputPublishFailed, msg);
             if (msg.StartsWith("[UnsupportedLayout]", StringComparison.OrdinalIgnoreCase))
-                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.UnsupportedLayout, msg);
+                return new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.UnsupportedLayout, msg);
             if (msg.StartsWith("[InvalidFacts]", StringComparison.OrdinalIgnoreCase))
-                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidFacts, msg);
+                return new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidFacts, msg);
             if (msg.StartsWith("[InvalidAlias]", StringComparison.OrdinalIgnoreCase))
-                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidAlias, msg);
+                return new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.InvalidAlias, msg);
             if (msg.StartsWith("[SourceChanged]", StringComparison.OrdinalIgnoreCase))
-                throw new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.SourceChanged, msg);
+                return new LivePhotoBox.Media.Extraction.ExtractionException(LivePhotoBox.Media.Extraction.ExtractionFailureCategory.SourceChanged, msg);
         }
 
         if (res == NativeResult.Cancelled || _cancellationToken.IsCancellationRequested)
         {
-            throw new OperationCanceledException(_cancellationToken);
+            return new OperationCanceledException(_cancellationToken);
         }
 
-        throw new InvalidOperationException(string.IsNullOrWhiteSpace(msg)
+        return new InvalidOperationException(string.IsNullOrWhiteSpace(msg)
             ? $"Native media operation failed with result: {res}"
             : $"Native media operation failed ({res}): {msg}");
     }

@@ -1,5 +1,6 @@
 #include "containers/isobmff_track_graph.h"
 #include "media/video_converter.h"
+#include "media/video_display_geometry.h"
 #include "media/media_inspector.h"
 #include "foundation/internal.h"
 #include "foundation/sha256_core.h"
@@ -439,7 +440,7 @@ lpb_result probe_video_reader(
                         const uint64_t normal_y = (matrix_b == 0xffff0000U ? width : 0) +
                             (matrix_d == 0xffff0000U ? height : 0);
                         const bool translation = (x == 0U && y == 0U) ||
-                            (reflection && x == normal_x && y == normal_y);
+                            (x == normal_x && y == normal_y);
                         const bool affine = matrix_value(2U) == 0U && matrix_value(5U) == 0U &&
                             translation && matrix_value(8U) == 0x40000000U;
                         if (affine && matrix_a == 0x00010000U && matrix_b == 0U && matrix_c == 0U && matrix_d == 0x00010000U) out_video_facts->rotation_degrees = 0;
@@ -450,6 +451,14 @@ lpb_result probe_video_reader(
                             matrix_a == 0xFFFF0000U && matrix_d == 0x00010000U) *reflection = 1;
                         else if (reflection && affine && matrix_b == 0U && matrix_c == 0U &&
                             matrix_a == 0x00010000U && matrix_d == 0xFFFF0000U) *reflection = 2;
+                        else if (reflection && affine && matrix_a == 0U && matrix_d == 0U &&
+                            matrix_b == 0x00010000U && matrix_c == 0x00010000U) {
+                            out_video_facts->rotation_degrees = 90; *reflection = 1;
+                        }
+                        else if (reflection && affine && matrix_a == 0U && matrix_d == 0U &&
+                            matrix_b == 0xFFFF0000U && matrix_c == 0xFFFF0000U) {
+                            out_video_facts->rotation_degrees = 270; *reflection = 1;
+                        }
                         else {
                             set_error(context, "Unsupported: video track matrix is not a supported rotation or reflection."); return LPB_RESULT_INVALID_ARGUMENT;
                         }
@@ -572,6 +581,27 @@ lpb_result probe_video_reader(
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
+    return LPB_RESULT_OK;
+}
+
+static bool read_metadata_bytes(const lpb::random_access_reader& reader,
+    std::vector<uint8_t>& bytes, std::vector<isobmff_media_data_range>& mdats) noexcept;
+
+lpb_result probe_video_display_geometry(lpb_context* context, const char* path, uint32_t* edges) noexcept
+{
+    if(!context || !path || !edges) return LPB_RESULT_INVALID_ARGUMENT;
+    std::fill(edges,edges+5,0u);
+    windows_readonly_source file;
+    std::vector<uint8_t> metadata;
+    std::vector<isobmff_media_data_range> ranges;
+    video_display_geometry geometry;
+    if(!file.open(utf8_to_path(path)) || !read_metadata_bytes(file.reader(),metadata,ranges) ||
+        !inspect_video_display_geometry(metadata,geometry)) {
+        set_error(context,"DisplayGeometry: the declared video aperture cannot be interpreted safely.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    edges[0]=geometry.has_aperture?1u:0u;edges[1]=geometry.top;edges[2]=geometry.bottom;
+    edges[3]=geometry.left;edges[4]=geometry.right;
     return LPB_RESULT_OK;
 }
 
@@ -2663,7 +2693,8 @@ lpb_result transcode_video_file(
     size_t encoder_buf_len,
     lpb_video_backend_diagnostics* out_diagnostics,
     lpb_video_preservation_result_v1* out_preservation,
-    lpb_video_preservation_result_v2* out_complete_proof, bool repair_orientation) noexcept
+    lpb_video_preservation_result_v2* out_complete_proof, bool repair_orientation,
+    bool display_area_policy, bool keep_stabilization_edges) noexcept
 {
     set_backend_diagnostics(out_diagnostics, LPB_VIDEO_BACKEND_UNKNOWN, LPB_VIDEO_HARDWARE_UNKNOWN,
         false, "", "No backend selected.");
@@ -2693,7 +2724,7 @@ lpb_result transcode_video_file(
     src_facts.struct_size = sizeof(lpb_video_item_facts);
     uint32_t reflection{};
     lpb_result probe_res = probe_video_reader(context, semantic_reader, &src_facts,
-        repair_orientation ? &reflection : nullptr);
+        &reflection);
     if (probe_res != LPB_RESULT_OK) {
         return probe_res;
     }
@@ -2736,6 +2767,18 @@ lpb_result transcode_video_file(
         false, source_profile_identity, "Native strict source profile parsed; conversion owner not selected.");
 
     const bool compatible_profile = repair_orientation || (out_preservation != nullptr && out_preservation->policy >= 1);
+    video_display_geometry display_geometry;
+    if(display_area_policy) {
+        std::vector<uint8_t> metadata;std::vector<isobmff_media_data_range> ranges;
+        if(!read_metadata_bytes(semantic_reader,metadata,ranges)||!inspect_video_display_geometry(metadata,display_geometry)) {
+            set_error(context,"DisplayGeometry: cannot safely interpret the declared video aperture.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if(display_geometry.has_aperture && target_codec==LPB_VIDEO_CODEC_COPY) {
+            set_error(context,"DisplayGeometry: explicit aperture processing requires pixel conversion.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+    }
     lpb_source_media_facts repair_source{};
     if (repair_orientation) {
         repair_source.struct_size = sizeof(repair_source);
@@ -2791,7 +2834,8 @@ lpb_result transcode_video_file(
         set_error(context, "Orientation repair requires a detected rotation and the original codec and container.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
-    video_conversion_owner owner = repair_orientation && original_owner == video_conversion_owner::media_foundation_software
+    video_conversion_owner owner = (repair_orientation || reflection != 0 ||
+        (compatible_profile && src_facts.rotation_degrees != 0) || (display_area_policy && display_geometry.has_aperture)) && original_owner == video_conversion_owner::media_foundation_software
         ? video_conversion_owner::minimal_libav_sidecar : original_owner;
     // MP4 compatible export normalizes actual non-AAC audio through the
     // existing per-track AAC route while stream-copying the video. Strict
@@ -3020,7 +3064,7 @@ lpb_result transcode_video_file(
             context, semantic_reader, stage_a, sidecar_container, target_codec, crf,
             has_mebx,
             semantic_profile,
-            compatible_profile, false, false, reflection);
+            compatible_profile, false, false, reflection, display_area_policy, keep_stabilization_edges);
         if (bridge.native_result != LPB_RESULT_OK) {
             const auto& failed_sidecar = bridge.sidecar_result;
             const bool sidecar_missing = std::strncmp(bridge.reason.data(), "BackendUnavailable:",
@@ -3107,8 +3151,10 @@ lpb_result transcode_video_file(
                     "OutputValidation: controlled H264 Stage A failed exact source-frame interval timing; no retry.");
         }
         const bool rotated = (target_codec != LPB_VIDEO_CODEC_COPY) && (src_facts.rotation_degrees != 0 || reflection);
-        const uint32_t expected_w = rotated && (src_facts.rotation_degrees == 90 || src_facts.rotation_degrees == 270) ? src_facts.height : src_facts.width;
-        const uint32_t expected_h = rotated && (src_facts.rotation_degrees == 90 || src_facts.rotation_degrees == 270) ? src_facts.width : src_facts.height;
+        const uint32_t frame_w = src_facts.width - (display_area_policy && !keep_stabilization_edges ? display_geometry.left + display_geometry.right : 0);
+        const uint32_t frame_h = src_facts.height - (display_area_policy && !keep_stabilization_edges ? display_geometry.top + display_geometry.bottom : 0);
+        const uint32_t expected_w = rotated && (src_facts.rotation_degrees == 90 || src_facts.rotation_degrees == 270) ? frame_h : frame_w;
+        const uint32_t expected_h = rotated && (src_facts.rotation_degrees == 90 || src_facts.rotation_degrees == 270) ? frame_w : frame_h;
         const int32_t expected_rot = rotated ? 0 : src_facts.rotation_degrees;
         const bool stage_a_profile_valid =
             stage_a_facts.container == sidecar_container &&
@@ -3320,6 +3366,21 @@ lpb_result transcode_video_file(
             }
         }
 
+        if(display_area_policy && !bridge.stream_copied) {
+            std::vector<uint8_t> current,cleared;
+            video_display_geometry final_geometry;
+            if(!read_all_bytes(final_staged_reader,current)||!remove_isobmff_clean_aperture(current,cleared)||
+                !inspect_video_display_geometry(cleared,final_geometry)||final_geometry.has_aperture)
+                return fail_sidecar(LPB_RESULT_UNSUPPORTED,"DisplayGeometry: cannot safely retire the old aperture after pixel preparation.");
+            windows_owned_output* display_stage=publish_stage==&stage_b?&stage_c:&stage_b;
+            if(!display_stage->path().empty()&&!display_stage->abort_and_confirm())
+                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot retire previous aperture staging.");
+            if(!display_stage->create(p_out,L"lpb-display-area",L".tmp",true)||
+                !display_stage->write_all(cleared)||!display_stage->ready_to_consume())
+                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,"Cannot stage the prepared display area.");
+            publish_stage=display_stage;final_staged_reader=display_stage->reader();
+        }
+
         lpb_video_item_facts output_facts{};
         output_facts.struct_size = sizeof(output_facts);
         isobmff_video_profile output_profile{};
@@ -3433,9 +3494,13 @@ lpb_result transcode_video_file(
             uint32_t failed_frame = 0U;
             if (!inspect_isobmff_video_presentation_timeline(source_bytes, source_timeline) ||
                 !inspect_isobmff_video_presentation_timeline(metadata_readback, final_timeline) ||
-                !presentation_timing_within_source_frame_intervals(source_timeline, final_timeline, failed_frame))
-                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR,
-                    "OutputValidation: compatible transcode changed visible sample correspondence or presentation intervals.");
+                !presentation_timing_within_source_frame_intervals(source_timeline, final_timeline, failed_frame)) {
+                char message[256]{};
+                std::snprintf(message, sizeof(message),
+                    "OutputValidation: compatible transcode changed visible sample correspondence or presentation intervals (source=%u, output=%u, frame=%u).",
+                    source_timeline.visible_sample_count, final_timeline.visible_sample_count, failed_frame);
+                return fail_sidecar(LPB_RESULT_INTERNAL_ERROR, message);
+            }
         }
         if (repair_orientation && repair_source.pairing_identifier[0] != 0) {
             std::vector<uint8_t> restored;

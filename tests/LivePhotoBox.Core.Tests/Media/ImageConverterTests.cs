@@ -29,6 +29,75 @@ public sealed class ImageConverterTests
 
     public ImageConverterTests(ITestOutputHelper output) => _output = output;
 
+    [Theory]
+    [InlineData("vivo.jpg", ImageContainer.Heic, false)]
+    [InlineData("三星.heic", ImageContainer.Jpeg, false)]
+    [InlineData("vivo.jpg", ImageContainer.Heic, true)]
+    public async Task BoundHdrProductConversionDoesNotThrowExpectedEvents(string name, ImageContainer target, bool stale)
+    {
+        using var workspace = new MediaWorkspace();
+        var bundle = await new NeutralMediaService().CreateNeutralBundleAsync(ResolveSample(name), null, workspace);
+        var binding = Assert.IsType<ImageHdrGainMapSourceBinding>(bundle.HdrGainMapBinding);
+        if (stale) binding = CloneBindingWithMutation(binding, "source-hash");
+        var facts = await NativeMediaService.InspectMediaAsync(bundle.PrimaryImage.Path);
+        var events = new System.Collections.Concurrent.ConcurrentQueue<Exception>();
+        EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> observer = (_, e) => events.Enqueue(e.Exception);
+        ImageConversionResult result;
+        AppDomain.CurrentDomain.FirstChanceException += observer;
+        try
+        {
+            result = await new ImageConverter().TryConvertAsync(new ImageConversionRequest
+            {
+                SourceArtifact = bundle.PrimaryImage, TargetContainer = target, TargetDirectory = workspace.RootDirectory,
+                PreservationPolicy = PreservationPolicy.Strict, TrustedSourceFacts = ImageConversionEligibility.ToConversionFacts(facts),
+                TrustedHdrGainMapBinding = binding, TargetHdrGainMapSemantic = target == ImageContainer.Jpeg
+                    ? ImageHdrGainMapTargetSemantic.JpegIsoGainMap : ImageHdrGainMapTargetSemantic.HeicGainMapAuxiliary
+            });
+        }
+        finally { AppDomain.CurrentDomain.FirstChanceException -= observer; }
+        Assert.Empty(events);
+        Assert.Equal(!stale, result.Success);
+        if (stale)
+        {
+            Assert.Null(result.OutputArtifact);
+            Assert.Equal(ConversionFailureCategory.TrustedFactsMismatch, result.ExecutionRecord.Truth.FailureCategory);
+        }
+        else Assert.True(File.Exists(result.OutputArtifact!.Path));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task ProductConversion_ExpectedInspectionFailureOrCancellation_ReturnsWithoutFirstChanceException(bool heic, bool cancelled)
+    {
+        using var workspace = new TestFixtureWorkspace();
+        string source = Path.Combine(workspace.RootDirectory, heic ? "bad.heic" : "bad.jpg");
+        await File.WriteAllBytesAsync(source, new byte[32]);
+        using var cancellation = new System.Threading.CancellationTokenSource();
+        if (cancelled) cancellation.Cancel();
+        var events = new System.Collections.Concurrent.ConcurrentQueue<Exception>();
+        EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> observer = (_, e) => events.Enqueue(e.Exception);
+        ImageConversionResult result;
+        AppDomain.CurrentDomain.FirstChanceException += observer;
+        try
+        {
+            result = await new ImageConverter().TryConvertAsync(new ImageConversionRequest
+            {
+                SourceArtifact = new MediaArtifact { Path = source, Kind = MediaArtifactKind.PrimaryImage,
+                    ImageContainer = heic ? ImageContainer.Heic : ImageContainer.Jpeg },
+                TargetContainer = ImageContainer.Jpeg, TargetDirectory = workspace.RootDirectory
+            }, cancellation.Token);
+        }
+        finally { AppDomain.CurrentDomain.FirstChanceException -= observer; }
+        Assert.False(result.Success);
+        Assert.Null(result.OutputArtifact);
+        Assert.Equal(cancelled ? ConversionFailureCategory.Cancelled : ConversionFailureCategory.SourceInspection,
+            result.ExecutionRecord.Truth.FailureCategory);
+        Assert.Empty(events);
+        Assert.Equal(new[] { source }, Directory.GetFiles(workspace.RootDirectory, "*", SearchOption.AllDirectories));
+    }
+
     [Fact]
     public async Task Convert_PngSource_IsRejectedAsUnsupportedProductInput()
     {

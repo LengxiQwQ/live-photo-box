@@ -1,4 +1,4 @@
-﻿<!-- 实况照片修复页：扫描目录，诊断配对问题并执行修复 -->
+<!-- 实况照片修复页：扫描目录，诊断配对问题并执行修复 -->
 <Page
     x:Class="LivePhotoBox.Views.RepairPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -68,8 +68,8 @@
 
                                 <TextBlock x:Uid="RepairPage_InputLabel" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Width="75" Visibility="{x:Bind ViewModel.InputLabelVisibility, Mode=OneWay}"/>
                                 <TextBlock x:Uid="RepairPage_InputOutputLabel" Grid.Row="0" Grid.Column="0" VerticalAlignment="Center" FontWeight="SemiBold" Visibility="{x:Bind ViewModel.InputOutputLabelVisibility, Mode=OneWay}"/>
-                                <TextBox x:Uid="RepairPage_InputBox" AutomationProperties.AutomationId="RepairInputDirectory" Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"/>
-                                <Button x:Uid="RepairPage_BrowseBtn1" Grid.Row="0" Grid.Column="2" Command="{x:Bind ViewModel.PickInputDirectoryCommand}" IsEnabled="{x:Bind ViewModel.CanEditInputConfiguration, Mode=OneWay}"/>
+                                <TextBox x:Uid="RepairPage_InputBox" AutomationProperties.AutomationId="RepairInputDirectory" Grid.Row="0" Grid.Column="1" Text="{x:Bind ViewModel.InputDirectory, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanChangeInputDirectory, Mode=OneWay}"/>
+                                <Button x:Uid="RepairPage_BrowseBtn1" Grid.Row="0" Grid.Column="2" Command="{x:Bind ViewModel.PickInputDirectoryCommand}" IsEnabled="{x:Bind ViewModel.CanChangeInputDirectory, Mode=OneWay}"/>
                                 <Button x:Uid="RepairPage_OpenInputBtn" Grid.Row="0" Grid.Column="3" Command="{x:Bind ViewModel.OpenRepairInputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch" Visibility="{x:Bind ViewModel.InputLabelVisibility, Mode=OneWay}"/>
                                 <Button x:Uid="RepairPage_OpenInputOutputBtn" Grid.Row="0" Grid.Column="3" Command="{x:Bind ViewModel.OpenRepairInputFolderCommand}" Margin="8,0,0,0" HorizontalAlignment="Stretch" Visibility="{x:Bind ViewModel.InputOutputLabelVisibility, Mode=OneWay}"/>
 
@@ -416,7 +416,7 @@
                                             </Grid.ColumnDefinitions>
                                             <FontIcon Glyph="{x:Bind File1IconGlyph, Mode=OneWay}" Foreground="{x:Bind File1IconForeground, Mode=OneWay}" FontSize="14" VerticalAlignment="Center"/>
                                             <TextBlock Grid.Column="1" FontSize="13" Margin="4,0,0,0" VerticalAlignment="Center"
-                                                       controls:AdaptiveFileName.FileName="{x:Bind File1Name, Mode=OneWay}"/>
+                                                       controls:AdaptiveFileName.CacheFit="True" controls:AdaptiveFileName.FileName="{x:Bind File1Name, Mode=OneWay}"/>
                                             <Button Grid.ColumnSpan="2" x:Uid="RepairPage_TipFolder" Click="FileButton_Click" Tag="{x:Bind File1Path, Mode=OneWay}"
                                                     Background="Transparent" BorderThickness="0" Padding="0"
                                                     MinWidth="0" MinHeight="0" CornerRadius="4"
@@ -496,7 +496,7 @@
                                             </Grid.ColumnDefinitions>
                                             <FontIcon Glyph="{x:Bind File2IconGlyph, Mode=OneWay}" Foreground="{x:Bind File2IconForeground, Mode=OneWay}" FontSize="14" VerticalAlignment="Center"/>
                                             <TextBlock Grid.Column="1" FontSize="13" Margin="4,0,0,0" VerticalAlignment="Center"
-                                                       controls:AdaptiveFileName.FileName="{x:Bind File2Name, Mode=OneWay}"/>
+                                                       controls:AdaptiveFileName.CacheFit="True" controls:AdaptiveFileName.FileName="{x:Bind File2Name, Mode=OneWay}"/>
                                             <Button Grid.ColumnSpan="2" x:Uid="RepairPage_TipFolder" Click="FileButton_Click" Tag="{x:Bind File2Path, Mode=OneWay}"
                                                     Background="Transparent" BorderThickness="0" Padding="0"
                                                     MinWidth="0" MinHeight="0" CornerRadius="4"

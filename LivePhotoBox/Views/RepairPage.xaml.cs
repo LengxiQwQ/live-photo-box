@@ -1,4 +1,4 @@
-﻿/*
+/*
  * RepairPage.xaml.cs
  *
  * 实况照片修复页面的代码后置。
@@ -24,6 +24,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using System;
+using System.Collections.Specialized;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -75,8 +76,8 @@ namespace LivePhotoBox.Views
             _scroller = new TaskListAutoScroller(
                 "Repair",
                 isActive: () => ViewModel.IsProcessing || ViewModel.IsScanning,
-                getTaskCount: () => ViewModel.Tasks.Count,
-                getTaskAt: idx => ViewModel.Tasks[idx]);
+                getTaskCount: () => ViewModel.FilteredTasks.Count,
+                getTaskAt: idx => ViewModel.FilteredTasks[idx]);
 
             Loaded += RepairPage_Loaded;
             Unloaded += RepairPage_Unloaded;
@@ -104,7 +105,7 @@ namespace LivePhotoBox.Views
             }
 
             // 创建缩略图检查定时器（独立于滚动事件，避免频繁触发）
-            if (_thumbnailCheckTimer == null)
+            if (ThumbnailService.IsLoadingEnabled && _thumbnailCheckTimer == null)
             {
                 var disp = App.MainWindow?.DispatcherQueue;
                 if (disp != null)
@@ -124,6 +125,9 @@ namespace LivePhotoBox.Views
             ViewModel.ProcessingCompletedForScroll += OnAllCompleted;
             ViewModel.ScanItemsFlushed += OnItemsFlushed;
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+            ViewModel.ScanPresentationRequested += PrepareScanPresentationAsync;
+            ViewModel.ScanSessionStarting += OnScanSessionStarting;
+            ViewModel.ScanResultsFinalizing += OnScanResultsFinalizing;
             _eventsHooked = true;
         }
 
@@ -159,6 +163,9 @@ namespace LivePhotoBox.Views
             ViewModel.ProcessingCompletedForScroll -= OnAllCompleted;
             ViewModel.ScanItemsFlushed -= OnItemsFlushed;
             ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            ViewModel.ScanPresentationRequested -= PrepareScanPresentationAsync;
+            ViewModel.ScanSessionStarting -= OnScanSessionStarting;
+            ViewModel.ScanResultsFinalizing -= OnScanResultsFinalizing;
             _eventsHooked = false;
         }
 
@@ -185,7 +192,10 @@ namespace LivePhotoBox.Views
         {
             if (ViewModel.FilteredTasks.Count == 0) { ViewModel.CurrentViewGroup = string.Empty; return; }
 
-            for (int i = 0; i < ViewModel.FilteredTasks.Count; i++)
+            var panel = RepairTaskListView.ItemsPanelRoot as ItemsStackPanel;
+            int first = Math.Max(0, panel?.FirstVisibleIndex ?? 0);
+            int end = Math.Min(ViewModel.FilteredTasks.Count, panel is { LastVisibleIndex: >= 0 } ? panel.LastVisibleIndex + 1 : first + 32);
+            for (int i = first; i < end; i++)
             {
                 var container = RepairTaskListView.ContainerFromIndex(i);
                 if (container is not FrameworkElement element) continue;
@@ -199,7 +209,7 @@ namespace LivePhotoBox.Views
 
         // 任务开始处理时通知自动滚动器定位
         private void OnTaskStarted(object? sender, RepairTask task) =>
-            _scroller.NotifyTaskStarted(task.Index - 1);
+            _scroller.NotifyTaskStarted(ViewModel.FilteredTasks.IndexOf(task));
 
         // 所有任务处理完成时通知自动滚动器
         private void OnAllCompleted(object? sender, EventArgs e) =>
@@ -213,13 +223,21 @@ namespace LivePhotoBox.Views
         }
 
         // 响应 ViewModel 属性变更，通知自动滚动器状态变化
+        private void OnScanResultsFinalizing(object? sender, EventArgs args) => _scroller.NotifyScanFinished();
+
+        private void OnScanSessionStarting(object? sender, EventArgs e)
+        {
+            _scroller.NotifyScanStarting();
+        }
+
+        private Task PrepareScanPresentationAsync(System.Threading.CancellationToken token) =>
+            ScanResultsPresenter.WaitForLayoutAsync(this, token, RepairTaskListView);
+
         private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(ViewModel.IsScanning))
             {
-                if (ViewModel.IsScanning)
-                    _scroller.NotifyScanStarting();
-                else
+                if (!ViewModel.IsScanning)
                 {
                     _scroller.NotifyScanFinished();
                     LoadVisibleVideoThumbnails();
@@ -1091,6 +1109,7 @@ namespace LivePhotoBox.Views
         // 从当前视口中找到尚未加载缩略图的 RepairTask，分批异步加载
         private void LoadVisibleThumbnailsForCurrentViewport(int maxPerBatch = 4, int staggerMs = 0)
         {
+            if (!ThumbnailService.IsLoadingEnabled) return;
             int count = ViewModel.FilteredTasks.Count;
             if (count == 0) return;
 
@@ -1119,6 +1138,7 @@ namespace LivePhotoBox.Views
         // 缩略图检查定时器触发：当滚动停止超过阈值后，加载可见区域的缩略图
         private void ThumbnailCheckTimer_Tick(DispatcherQueueTimer sender, object args)
         {
+            if (!ThumbnailService.IsLoadingEnabled) return;
             if (Environment.TickCount64 - Volatile.Read(ref _lastContainerChangeTick) >= ScrollSettleMs)
                 LoadVisibleThumbnailsForCurrentViewport(maxPerBatch: 4, staggerMs: 50);
         }

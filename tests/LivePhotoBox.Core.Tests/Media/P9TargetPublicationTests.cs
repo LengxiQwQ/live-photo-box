@@ -6,6 +6,95 @@ namespace LivePhotoBox.Core.Tests.Media;
 
 public sealed class P9TargetPublicationTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductCommitCancellationOrLateCollisionReturnsWithoutThrowAndKeepsForeignBytes(bool cancel)
+    {
+        using var folder=new P9TargetTestInputs.Folder(nameof(ProductCommitCancellationOrLateCollisionReturnsWithoutThrowAndKeepsForeignBytes)+cancel);
+        string final=Path.Combine(folder.Path,"target.jpg");
+        byte[] foreign={81,82,83},payload=P9TargetTestInputs.V2();
+        using var cancellation=new CancellationTokenSource();
+        var prior=WindowsSplitOutputPublisher.TestHook.Value;
+        WindowsSplitOutputPublisher.TestHook.Value=(trace,_)=>
+        {
+            if(trace.Boundary==SplitPublicationBoundary.BeforeMissingTargetPublication)
+            {
+                if(cancel)cancellation.Cancel();else File.WriteAllBytes(final,foreign);
+            }
+            return Task.CompletedTask;
+        };
+        var events=new System.Collections.Concurrent.ConcurrentQueue<string>();
+        EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> observer=(_,e)=>events.Enqueue(e.Exception.ToString());
+        AppDomain.CurrentDomain.FirstChanceException+=observer;
+        WindowsSplitOutputPublisher.PublicationAttempt attempt;
+        try {attempt=await WindowsSplitOutputPublisher.TryPublishTargetAsync(final,false,
+            (stream,token)=>Task.FromResult(TransactionStreamWriteAttempt.Write(stream,payload,token)),Expected,cancellation.Token);}
+        finally {AppDomain.CurrentDomain.FirstChanceException-=observer;WindowsSplitOutputPublisher.TestHook.Value=prior;}
+        Assert.Empty(events);
+        Assert.NotNull(attempt.Failure);
+        if(cancel){Assert.IsAssignableFrom<OperationCanceledException>(attempt.Failure);Assert.False(File.Exists(final));Assert.Empty(Directory.GetFiles(folder.Path));}
+        else {Assert.IsType<IOException>(attempt.Failure);Assert.Equal(foreign,File.ReadAllBytes(final));Assert.Single(Directory.GetFiles(folder.Path));}
+    }
+
+    [Fact]
+    public async Task ResultTransportKeepsEverySegmentAtItsDeclaredByteOffset()
+    {
+        using var folder=new P9TargetTestInputs.Folder(nameof(ResultTransportKeepsEverySegmentAtItsDeclaredByteOffset));
+        byte[] source=P9TargetTestInputs.V2();
+        byte[] comment=Enumerable.Repeat((byte)'x',65537).ToArray();
+        comment[0]=0xff;comment[1]=0xfe;comment[2]=0xff;comment[3]=0xff;
+        byte[] payload=source[..2].Concat(comment).Concat(comment).Concat(comment).Concat(source[2..]).ToArray();
+        string final=Path.Combine(folder.Path,"target.jpg");
+        var result=await WindowsSplitOutputPublisher.TryPublishTargetAsync(final,false,(stream,token)=>
+        {
+            for(int offset=0;offset<payload.Length;offset+=128*1024)
+            {
+                int count=Math.Min(128*1024,payload.Length-offset);
+                if(TransactionStreamWriteAttempt.Write(stream,payload.AsSpan(offset,count),token,offset) is { } error)
+                    return Task.FromResult<Exception?>(error);
+            }
+            return Task.FromResult<Exception?>(null);
+        },Expected,default);
+        Assert.Null(result.Failure);
+        Assert.NotNull(result.Receipt);
+        Assert.Equal(payload,File.ReadAllBytes(final));
+        Assert.Single(Directory.GetFiles(folder.Path));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProductValidationRefusalAndCancellationReturnWithoutFirstChanceOrPublication(bool cancel)
+    {
+        using var folder=new P9TargetTestInputs.Folder(nameof(ProductValidationRefusalAndCancellationReturnWithoutFirstChanceOrPublication)+cancel);
+        string final=Path.Combine(folder.Path,"target.jpg");
+        byte[] payload=cancel?P9TargetTestInputs.V2():new byte[]{99,98,97};
+        using var cancellation=new CancellationTokenSource();
+        var prior=NativeTargetValidator.ReadCallbackForTests.Value;
+        var events=new System.Collections.Concurrent.ConcurrentQueue<string>();
+        EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> observer=(_,e)=>events.Enqueue(e.Exception.ToString());
+        if(cancel)NativeTargetValidator.ReadCallbackForTests.Value=()=>cancellation.Cancel();
+        AppDomain.CurrentDomain.FirstChanceException+=observer;
+        WindowsSplitOutputPublisher.PublicationAttempt result;
+        try
+        {
+            result=await WindowsSplitOutputPublisher.TryPublishTargetAsync(final,false,
+                (stream,token)=>Task.FromResult(TransactionStreamWriteAttempt.Write(stream,payload,token)),Expected,cancellation.Token);
+        }
+        finally
+        {
+            AppDomain.CurrentDomain.FirstChanceException-=observer;
+            NativeTargetValidator.ReadCallbackForTests.Value=prior;
+        }
+        Assert.Empty(events);
+        Assert.Null(result.Receipt);
+        if(cancel)Assert.IsAssignableFrom<OperationCanceledException>(result.Failure);
+        else Assert.IsType<TargetValidationException>(result.Failure);
+        Assert.False(File.Exists(final));
+        Assert.Empty(Directory.GetFiles(folder.Path));
+    }
+
     private static TargetValidationExpectations Expected => new(2, 0, 2, 0);
     private static async Task WriteValid(Stream stream, CancellationToken token) => await stream.WriteAsync(P9TargetTestInputs.V2(), token);
 

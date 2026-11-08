@@ -141,16 +141,28 @@ public sealed class P8MergeQueueTests
         string output = Path.Combine(workspace.RootDirectory, "foreign.jpg");
         byte[] foreign = [0x50, 0x38, 0x2D, 0x66, 0x6F, 0x72, 0x65, 0x69, 0x67, 0x6E];
         await File.WriteAllBytesAsync(output, foreign);
-        var result = await LivePhotoMergeRunnerService.ProcessSinglePairAsync(
+        var result = await LivePhotoMergeRunnerService.ProcessSinglePairWithOutcomeAsync(
             Path.Combine(inputs, "image.jpg"), Path.Combine(inputs, "video.mp4"), "authority", 1,
             new LivePhotoMergeRunOptions { OutputDirectory = workspace.RootDirectory,
                 OutputProfile = OutputProfile.Create(TargetProtocol.GoogleMotionPhotoV2, OutputMediaFormat.JpegMp4),
-                OutputFilePath = output, OverwriteExisting = overwrite }, workspace.RootDirectory, CancellationToken.None);
+                OutputFilePath = output, OverwriteExisting = overwrite, KeyPhotoTimestampUs = 0 }, CancellationToken.None);
         Assert.Equal(overwrite, result.IsSuccess);
         byte[] after = await File.ReadAllBytesAsync(output);
         if (overwrite) Assert.True(after.Length > foreign.Length, result.Details);
         else Assert.Equal(foreign, after);
-        Assert.Equal(new[] { output }, Directory.GetFiles(workspace.RootDirectory, "*", SearchOption.AllDirectories));
+        if (overwrite)
+            Assert.Equal(new[] { output }, Directory.GetFiles(workspace.RootDirectory, "*", SearchOption.AllDirectories));
+        else
+        {
+            Assert.Equal(ProductCompletionKind.RecoveredMedia, result.CompletionKind);
+            Assert.Equal(2, result.CommittedOutputs.Count);
+            Assert.Null(result.SourceActionGuard);
+            Assert.NotNull(result.IsolationDirectory);
+            Assert.All(result.CommittedOutputs, artifact =>
+                Assert.StartsWith(Path.GetFullPath(result.IsolationDirectory!) + Path.DirectorySeparatorChar,
+                    Path.GetFullPath(artifact.Path), StringComparison.OrdinalIgnoreCase));
+            Assert.Equal(3,Directory.GetFiles(workspace.RootDirectory,"*",SearchOption.AllDirectories).Length);
+        }
     }
 
     private static LivePhotoMergeRunOptions Options(string output, TimeSpan interval, int parallel = 1) => new()

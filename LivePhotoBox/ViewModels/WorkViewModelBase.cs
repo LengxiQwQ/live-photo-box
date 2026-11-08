@@ -1,4 +1,4 @@
-﻿/*
+/*
  * WorkViewModelBase.cs
  *
  * 工作流型页面（拆分/修复/合成）的抽象基类。
@@ -10,6 +10,7 @@
 
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using LivePhotoBox.Collections;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
@@ -33,6 +34,10 @@ namespace LivePhotoBox.ViewModels
         {
             _scanElapsedTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
             _scanElapsedTimer.Tick += (_, _) => OnPropertyChanged("ElapsedTimeText");
+            _scanProgressTimer.Tick += (_, _) =>
+            {
+                if (IsScanning && !_isCleaningUp) FlushPendingScanProgress();
+            };
         }
 
         // 崩溃日志强制使用的语言标签（英语），确保崩溃信息可读。
@@ -135,6 +140,9 @@ namespace LivePhotoBox.ViewModels
 
         // 输入配置是否可编辑（处理中和扫描中不可编辑：扫描正在使用输入目录，禁止改动）。
         public bool CanEditInputConfiguration => !ApplicationShutdown.IsClosing && !IsProcessing && !IsScanning;
+        // Directory replacement is safe while scanning: the request queue owns
+        // cancellation and rejects all commits from superseded directories.
+        public bool CanChangeInputDirectory => !ApplicationShutdown.IsClosing && !IsProcessing;
         // 输出配置是否可编辑（处理中不可编辑；扫描中是否可编辑由子类决定）。
         // 默认扫描中锁定，合成页覆写为仅处理中锁定，允许扫描时改输出目录。
         public virtual bool CanEditOutputConfiguration => !ApplicationShutdown.IsClosing && !IsProcessing && !IsScanning;
@@ -208,6 +216,7 @@ namespace LivePhotoBox.ViewModels
             OnPropertyChanged(nameof(ActionBtnText));
             OnPropertyChanged(nameof(IsProcessingAllowed));
             OnPropertyChanged(nameof(CanEditInputConfiguration));
+            OnPropertyChanged(nameof(CanChangeInputDirectory));
             OnPropertyChanged(nameof(CanEditOutputConfiguration));
             OnPropertyChanged("ElapsedTimeText");
             OnPropertyChanged("FooterStatusText");
@@ -237,10 +246,41 @@ namespace LivePhotoBox.ViewModels
         private int _scanTotal;
         // 已扫描处理数。
         private int _scanProcessed;
+        private ScanWorkStage _scanStage = ScanWorkStage.Enumerating;
+        private bool _scanPresentationPending;
+        public event Func<CancellationToken, Task>? ScanPresentationRequested;
+        public event EventHandler? ScanSessionStarting;
+        public event EventHandler? ScanResultsFinalizing;
+
+        protected void BeginScanPresentation()
+        {
+            FlushPendingScanProgress();
+            _scanPresentationPending = true;
+            ScanResultsFinalizing?.Invoke(this, EventArgs.Empty);
+            NotifyStatusChanged();
+        }
+
+        protected Task AwaitScanPresentationAsync(Func<Task> submitLists, CancellationToken token) =>
+            ScanCompletionSequence.WaitAsync(submitLists, async presentationToken =>
+            {
+                if (ScanPresentationRequested is not { } presenters) return;
+                foreach (Func<CancellationToken, Task> present in presenters.GetInvocationList())
+                    await present(presentationToken).ConfigureAwait(true);
+            }, token);
+        protected string ScanProgressStatusText
+        {
+            get
+            {
+                if (_scanPresentationPending) return ResourceService.GetString("ScanStage_PresentingResults");
+                string stage = ResourceService.GetString("ScanStage_" + _scanStage);
+                if (_scanStage == ScanWorkStage.PreparingResults) return stage;
+                return _scanTotal > 0
+                    ? ResourceService.Format("ScanStage_WithProgress", stage, (int)(100.0 * _scanProcessed / _scanTotal))
+                    : stage;
+            }
+        }
         // 待应用的扫描进度快照（用于节流合并）。
-        private WorkProgressSnapshot _pendingScanSnapshot;
         // 上次 UI 更新时间戳（用于节流）。
-        private long _lastScanUiUpdateMs;
         // 扫描取消 TokenSource。
         protected CancellationTokenSource? _scanCancellationTokenSource;
         // 扫描是否由用户取消。
@@ -249,12 +289,44 @@ namespace LivePhotoBox.ViewModels
         // 开始一次扫描会话，重置进度状态并调用子类钩子。
         // 注意：ProgressBarState 已由 OnIsScanningChanged(true) 设为 Scanning，此处不覆盖。
         private int _scanSessionVersion;
+        private readonly ScanRequestQueue _scanRequests = new();
+
+        private protected async Task RunScanRequestAsync(bool replace, Func<ScanRequestQueue.Request, Task> execute, bool clearExisting = true)
+        {
+            if (ApplicationShutdown.IsClosing || _isCleaningUp || IsProcessing) return;
+            var queued = _scanRequests.RunAsync(replace, () =>
+            {
+                // Invalidate old commits immediately. Directory changes clear now;
+                // manual rescans keep the previous snapshot until replacement.
+                _scanSessionVersion++;
+                _scanProgressMailbox = null;
+                _scanProgressTimer.Stop();
+                _scanElapsedTimer.Stop();
+                _scanPresentationPending = false;
+                _scanCancelledByUser = false;
+                if (clearExisting) ResetScanResults();
+                AppViewModel.Instance.ResetFooterScanCounters();
+            }, execute);
+            long generation = _scanRequests.Generation;
+            IsScanning = _scanRequests.IsBusy;
+            try { await queued.ConfigureAwait(true); }
+            finally
+            {
+                if (generation == _scanRequests.Generation && !_scanRequests.IsBusy)
+                {
+                    if (_scanRequests.IsCancelled && _scanCancelledByUser) ClearCancelledScanResults();
+                    IsScanning = false;
+                    NotifyStatusChanged();
+                }
+            }
+        }
 
         private WorkLifetime.Lease? _scanLease;
         private WorkLifetime.Lease? _runLease;
         public void RequestStop()
         {
             _isCleaningUp = true;
+            _scanRequests.Invalidate();
             _cancelledByUser = true;
             _scanSessionVersion++;
             _scanCancellationTokenSource?.Cancel();
@@ -269,9 +341,13 @@ namespace LivePhotoBox.ViewModels
             _scanCancelledByUser = false;
             _scanProcessed = 0;
             _scanTotal = 0;
-            _lastScanUiUpdateMs = 0;
+            _scanStage = ScanWorkStage.Enumerating;
+            _scanPresentationPending = false;
+            _scanProgressMailbox = null;
+            _scanProgressTimer.Start();
             ScanStopwatch.Restart();
             _scanElapsedTimer.Start();
+            ScanSessionStarting?.Invoke(this, EventArgs.Empty);
             OnBeginScanSession();
         }
 
@@ -280,56 +356,43 @@ namespace LivePhotoBox.ViewModels
         {
             _scanTotal = snapshot.Total;
             _scanProcessed = snapshot.Completed;
+            _scanStage = snapshot.Stage;
             OnApplyScanProgress(snapshot);
             NotifyStatusChanged();
         }
 
         // 刷新累积的待处理进度快照到 UI。
-        protected void FlushPendingScanProgress() => ApplyScanProgress(_pendingScanSnapshot);
+        protected void FlushPendingScanProgress()
+        {
+            if (_scanProgressMailbox?.TryTake(out var snapshot) == true) ApplyScanProgress(snapshot);
+        }
 
         // 完成扫描快照，标记 100%。
         protected void CompleteScanSnapshot()
         {
+            _scanPresentationPending = false;
             _scanProcessed = _scanTotal;
             OnCompleteScanSnapshot();
             NotifyStatusChanged();
         }
 
-        // 创建扫描进度报告器（自动节流到 UI 线程）。
+        // Producers only replace one mailbox value. The UI timer consumes at 10 Hz.
+        private LatestValueProgress<WorkProgressSnapshot>? _scanProgressMailbox;
+        private readonly DispatcherTimer _scanProgressTimer = new() { Interval = TimeSpan.FromMilliseconds(100) };
         protected IProgress<WorkProgressSnapshot> CreateScanProgressReporter()
         {
-            var dispatcher = App.MainWindow?.DispatcherQueue;
-            int session = _scanSessionVersion;
-            return new Progress<WorkProgressSnapshot>(snapshot =>
-            {
-                if (IsScanning && !_isCleaningUp && session == _scanSessionVersion)
-                    EnqueueThrottledScanProgress(snapshot, dispatcher, session);
-            });
+            var mailbox = new LatestValueProgress<WorkProgressSnapshot>();
+            _scanProgressMailbox = mailbox;
+            return mailbox;
         }
 
-        // 将扫描进度快照排队到 UI 线程（节流：最高每 100ms 一次，完成时强制刷新）。
-        private void EnqueueThrottledScanProgress(WorkProgressSnapshot snapshot, Microsoft.UI.Dispatching.DispatcherQueue? dispatcher, int session)
+        protected Task ApplyScanResultAsync(Action apply, CancellationToken token, Func<bool>? isCurrent = null)
         {
-            _pendingScanSnapshot = snapshot;
-            if (dispatcher == null) return;
-
-            bool forceApply = snapshot.Total > 0 && snapshot.Completed >= snapshot.Total;
-            var now = Environment.TickCount64;
-            if (!forceApply && _lastScanUiUpdateMs != 0 && now - _lastScanUiUpdateMs < 100) return;
-
-            _lastScanUiUpdateMs = now;
-            var captured = snapshot;
-            dispatcher.TryEnqueue(() =>
-            {
-                if (IsScanning && !_isCleaningUp && session == _scanSessionVersion) ApplyScanProgress(captured);
-            });
-        }
-
-        protected Task ApplyScanResultAsync(Action apply, CancellationToken token)
-        {
+            long generation = _scanSessionVersion;
             var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
             void Commit()
             {
+                if (generation != _scanSessionVersion || isCurrent?.Invoke() == false) { completion.TrySetCanceled(); return; }
                 if (token.IsCancellationRequested) { completion.TrySetCanceled(token); return; }
                 if (_isCleaningUp) { completion.TrySetResult(); return; }
                 try { apply(); completion.TrySetResult(); }
@@ -420,17 +483,19 @@ namespace LivePhotoBox.ViewModels
         // 取消扫描。
         protected void CancelScanning()
         {
+            _scanRequests.Cancel();
             _scanCancelledByUser = true;
             _cancelledByUser = true;
             _scanCancellationTokenSource?.Cancel();
+            ClearCancelledScanResults();
             OnPropertyChanged(nameof(IsProcessingAllowed));
         }
 
         // 获取或创建新的扫描取消 Token。
-        protected CancellationToken GetScanningToken()
+        protected CancellationToken GetScanningToken(CancellationToken requestToken = default)
         {
             _scanCancellationTokenSource?.Dispose();
-            _scanCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(ApplicationShutdown.Work.Token);
+            _scanCancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(ApplicationShutdown.Work.Token, requestToken);
             return _scanCancellationTokenSource.Token;
         }
 
@@ -452,9 +517,13 @@ namespace LivePhotoBox.ViewModels
         // 默认冻结扫描用时：保持"扫描用时 mm:ss"显示，直到用户开始处理时切换到处理用时。
         protected virtual void OnScanningEnded()
         {
+            _scanLease?.Dispose();
+            _scanLease = null;
             _scanSessionVersion++;
             ScanStopwatch.Stop();
             _scanElapsedTimer.Stop();
+            _scanProgressTimer.Stop();
+            _scanProgressMailbox = null;
         }
         // 初始化运行状态时的子类钩子（子类在此设置进度计数等）。
         protected abstract void OnInitializeRunState();
@@ -586,9 +655,9 @@ namespace LivePhotoBox.ViewModels
         // 扫描按钮样式：扫描中切换为取消样式，空闲时恢复默认样式。
         public Style ScanButtonStyle => ResolveScanButtonStyle(IsScanning);
 
-        // 扫描中且尚无进度总数（枚举未完成）时显示不确定动画；
-        // 一旦拿到进度总数（total > 0），进度条切换为确定模式并显示真实扫描进度。
-        public bool IsScanIndeterminate => IsScanning && _scanTotal <= 0;
+        // 枚举尚无总数、整理结果或等待可见列表布局时保持忙碌动画；
+        // 阶段计数到头不等于整个扫描与显示过程已经完成。
+        public bool IsScanIndeterminate => IsScanning && (_scanTotal <= 0 || _scanPresentationPending || _scanStage == ScanWorkStage.PreparingResults);
 
         // 根据扫描状态解析按钮样式。
         private static Style ResolveScanButtonStyle(bool isCancelAppearance)
@@ -686,6 +755,11 @@ namespace LivePhotoBox.ViewModels
         // 清除所有状态（重置进度、取消扫描/处理、清空列表）。
         protected void ClearState()
         {
+            _scanRequests.Invalidate();
+            _scanProgressTimer.Stop();
+            _scanElapsedTimer.Stop();
+            _scanProgressMailbox = null;
+            _scanPresentationPending = false;
             IsProcessing = false;
             IsPaused = false;
             IsScanning = false;
@@ -704,6 +778,24 @@ namespace LivePhotoBox.ViewModels
 
         // 子类清空状态时的钩子（在此清空 Task 列表、重置计数器等）。
         protected abstract void OnClearState();
+        // Content reset for cancellation/directory replacement; deliberately
+        // excludes the clear button's caption, panel expansion and cache reset.
+        protected abstract void ResetScanResults();
+
+        protected void ClearCancelledScanResults()
+        {
+            _scanProgressMailbox = null;
+            _scanProgressTimer.Stop();
+            _scanPresentationPending = false;
+            _scanTotal = _scanProcessed = 0;
+            ResetScanResults();
+            _scanCancelledByUser = true;
+            Progress = 0;
+            ProgressText = "0/0";
+            ProgressBarState = Models.ProgressBarState.Cancelled;
+            AppViewModel.Instance.ResetFooterScanCounters();
+            SetStatus("Status_ScanCancelled");
+        }
 
         // 子类清理资源的钩子（在此停止定时器等）。
         protected virtual void OnCleanup() { }
@@ -714,6 +806,8 @@ namespace LivePhotoBox.ViewModels
         public void Cleanup()
         {
             _scanElapsedTimer.Stop();
+            _scanProgressTimer.Stop();
+            _scanProgressMailbox = null;
             CleanupTokens();
             OnCleanup();
         }

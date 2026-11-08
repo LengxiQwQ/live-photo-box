@@ -5,8 +5,8 @@ namespace LivePhotoBox.Media.Models;
 // Backend-neutral conversion truth. Provider names remain diagnostic text only.
 public enum ConversionOperationKind { Unknown, Passthrough, ContainerRemux, LosslessTransform, LosslessTranscode, LossyReencode, ColorTransform, HdrGainMapConversion, DegradedOutput, Unsupported }
 public enum ConversionCapability { Unknown, ImageCodec, ImageLosslessTransform, HdrGainMapConversion, VideoRemux, VideoTranscodeSdr, VideoTranscodeHdr10Bit, ColorTransform }
-public enum ConversionFailureStage { None, InvalidRequest, TrustedFactsMismatch, SourceInspection, PolicyRejection, BackendUnavailable, BackendExecution, OutputValidation, Cleanup }
-public enum ConversionFailureCategory { None, InvalidRequest, Unsupported, TrustedFactsMismatch, SourceInspection, PolicyRejection, BackendUnavailable, BackendFailure, OutputMissing, OutputValidation, CleanupFailure }
+public enum ConversionFailureStage { None, InvalidRequest, TrustedFactsMismatch, SourceInspection, PolicyRejection, BackendUnavailable, BackendExecution, OutputValidation, Cleanup, Cancelled }
+public enum ConversionFailureCategory { None, InvalidRequest, Unsupported, TrustedFactsMismatch, SourceInspection, PolicyRejection, BackendUnavailable, BackendFailure, OutputMissing, OutputValidation, CleanupFailure, Cancelled }
 public enum ConversionFactsOrigin { ArtifactDeclaration, CallerTrustedNeutralFacts, CompatibilityInspectionOrProbe }
 public enum ConversionComponentOutcome { NotEvaluated, NotApplicable, Preserved, Reencoded, Degraded, Lost }
 public enum HdrOutputPolicy { PreserveHdr, AllowSdrDegradation }

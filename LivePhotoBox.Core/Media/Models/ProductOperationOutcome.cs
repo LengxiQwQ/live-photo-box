@@ -11,6 +11,7 @@ namespace LivePhotoBox.Media.Models;
 
 internal enum ProductOperationKind { Split, Merge }
 internal enum ProductOperationStatus { Success, Unsupported, Failed, Cancelled, Warning }
+internal enum ProductCompletionKind { TargetCompleted, CompatibleCompleted, RecoveredMedia, OriginalSaved, NoOutput, Cancelled }
 internal enum ProductTargetPreservation { Unknown }
 internal enum ProductOperationStage
 {
@@ -26,6 +27,7 @@ internal sealed record ProductRequestedSelection
     public PreservationPolicy? PreservationPolicy { get; init; }
     public uint? TargetVersion { get; init; }
     public SplitMediaFormat? SplitFormat { get; init; }
+    public bool? KeepVideoStabilizationEdges { get; init; }
     public UnspecifiedImageOrientationHandling UnspecifiedImageOrientationHandling { get; init; }
 }
 
@@ -76,6 +78,7 @@ internal sealed record ProductOperationOutcome
     public DateTimeOffset CompletedUtc { get; init; }
     public ProductOperationKind Operation { get; init; }
     public ProductOperationStatus Status { get; init; }
+    public ProductCompletionKind? CompletionKind { get; init; }
     public ProductRequestedSelection RequestedSelection { get; init; } = new();
     public IReadOnlyList<string> Inputs { get; init; } = [];
     public string? RequestedDestination { get; init; }
@@ -103,6 +106,15 @@ internal static class ProductOutcomeCompletion
 {
     internal static ProductOperationOutcome Record(ProductOperationOutcome outcome)
     {
+        // Older records may omit this field. Every newly recorded result has
+        // an explicit completion kind without changing the history schema.
+        outcome = outcome with { CompletionKind = outcome.CompletionKind ?? (outcome.Status switch
+        {
+            ProductOperationStatus.Success => ProductCompletionKind.TargetCompleted,
+            ProductOperationStatus.Warning when outcome.CommittedOutputs.Count > 0 => ProductCompletionKind.CompatibleCompleted,
+            ProductOperationStatus.Cancelled => ProductCompletionKind.Cancelled,
+            _ => ProductCompletionKind.NoOutput
+        }) };
         try
         {
             if (LogService.RecordProductOutcome(outcome)) return outcome;
@@ -137,7 +149,7 @@ internal static class ProductOutcomeCompletion
                 (stage == ProductOperationStage.Selection && exception is ArgumentException)
                     ? ProductFailureCategory.Unsupported : cleaner is not null ? ProductFailureCategory.Cleanup :
                 inspection is not null || (stage == ProductOperationStage.Inspection && exception is InvalidDataException)
-                    ? ProductFailureCategory.Inspection : exception is IOException or UnauthorizedAccessException ? ProductFailureCategory.Io :
+                    ? ProductFailureCategory.Inspection : exception is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception ? ProductFailureCategory.Io :
                 truth is not null ? ProductFailureCategory.Conversion : ProductFailureCategory.Internal,
             Message = exception.Message,
             ConversionStage = truth?.FailureStage,

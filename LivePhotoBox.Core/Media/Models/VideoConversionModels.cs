@@ -24,6 +24,7 @@ public sealed record VideoConversionRequest
     public required VideoCodec TargetCodec { get; init; }
     public required string TargetDirectory { get; init; }
     public int Crf { get; init; } = 23;
+    public bool KeepVideoStabilizationEdges { get; init; }
     public int TargetFps { get; init; } = 0;
     public PreservationPolicy PreservationPolicy { get; init; } = PreservationPolicy.BestEffort;
     public VideoConversionSourceFacts? TrustedSourceFacts { get; init; }
@@ -45,6 +46,7 @@ public sealed record VideoExecutionRecord
     public string HardwareFallbackReason { get; init; } = string.Empty;
     public bool AudioPreserved { get; init; }
     public bool RotationPreserved { get; init; }
+    public VideoDisplayAreaExecution? DisplayArea { get; init; }
     public uint DroppedAuxVideoTracks { get; init; }
     public uint DroppedMebxTracks { get; init; }
     public uint DroppedOtherTracks { get; init; }
@@ -54,6 +56,19 @@ public sealed record VideoExecutionRecord
     public VideoMetadataPreservationEvidence? MetadataPreservation { get; init; }
     public VideoCompleteRemuxEvidence? CompleteRemuxProof { get; init; }
     public ConversionExecutionTruth Truth { get; init; } = new();
+}
+
+public sealed record VideoDisplayAreaExecution
+{
+    public uint SourceWidth { get; init; }
+    public uint SourceHeight { get; init; }
+    public uint OutputWidth { get; init; }
+    public uint OutputHeight { get; init; }
+    public uint CropTop { get; init; }
+    public uint CropBottom { get; init; }
+    public uint CropLeft { get; init; }
+    public uint CropRight { get; init; }
+    public bool KeptStabilizationEdges { get; init; }
 }
 
 /// <summary>Versioned original Copy-remux before/after transport proof.

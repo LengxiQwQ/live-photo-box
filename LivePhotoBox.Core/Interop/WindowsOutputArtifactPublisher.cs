@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
@@ -26,73 +26,44 @@ internal static class WindowsOutputArtifactPublisher
 {
     private const int BufferSize = 128 * 1024;
 
-    internal static async Task PublishCopyAsync(
-        MediaArtifact artifact,
-        string finalPath,
-        bool overwriteExisting,
-        CancellationToken token,
-        Func<SplitPublicationTraceEvent, CancellationToken, Task>? testHook = null,
-        Action<WindowsOutputArtifactCopySource>? sourceCaptured = null)
+    internal static async Task PublishCopyAsync(MediaArtifact artifact,string finalPath,bool overwriteExisting,CancellationToken token,
+        Func<SplitPublicationTraceEvent,CancellationToken,Task>? testHook=null,Action<WindowsOutputArtifactCopySource>? sourceCaptured=null)
+    {
+        var attempt=await TryPublishCopyAsync(artifact,finalPath,overwriteExisting,token,testHook,sourceCaptured).ConfigureAwait(false);
+        if(attempt.Failure is { } failure)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    internal static async Task<WindowsSplitOutputPublisher.PublicationAttempt> TryPublishCopyAsync(MediaArtifact artifact,
+        string finalPath,bool overwriteExisting,CancellationToken token,Func<SplitPublicationTraceEvent,CancellationToken,Task>? testHook=null,
+        Action<WindowsOutputArtifactCopySource>? sourceCaptured=null)
     {
         ArgumentNullException.ThrowIfNull(artifact);
-        ArgumentException.ThrowIfNullOrWhiteSpace(finalPath);
-
-        string sourcePath = Path.GetFullPath(artifact.Path);
-        string normalizedFinalPath = Path.GetFullPath(finalPath);
-        if (string.Equals(sourcePath, normalizedFinalPath, StringComparison.OrdinalIgnoreCase))
-            throw new IOException("A source artifact cannot also be the final publication path.");
-
-        using SafeFileHandle sourceHandle = OpenReadOnlyNoWriteShare(sourcePath);
-        await using var source = new FileStream(sourceHandle, FileAccess.Read, BufferSize, isAsync: false);
-
-        WindowsFileIdentity sourceIdentity = WindowsFileIdentity.Capture(source.SafeFileHandle);
-        if (sourceIdentity.IsReparsePoint ||
-            (sourceIdentity.FileAttributes & (uint)FileAttributes.Directory) != 0 ||
-            sourceIdentity.LinkCount == 0 ||
-            (artifact.FileIdentity != null && !sourceIdentity.Matches(artifact.FileIdentity)))
+        string sourcePath=Path.GetFullPath(artifact.Path),final=Path.GetFullPath(finalPath);
+        if(string.Equals(sourcePath,final,StringComparison.OrdinalIgnoreCase))return new(null,new IOException("A source artifact cannot also be the final publication path."));
+        using var source=SourceReadAttempt.Open(sourcePath);
+        if(!source.Succeeded)return new(null,new IOException($"Cannot read artifact for publication (system error {source.Error})."));
+        if(!WindowsFileIdentity.TryCapture(source.Handle,out WindowsFileIdentity? identity,out int error) ||
+            identity!.IsReparsePoint||(identity.FileAttributes&(uint)FileAttributes.Directory)!=0||identity.LinkCount==0||
+            (artifact.FileIdentity is not null&&!identity.Matches(artifact.FileIdentity)))
+            return new(null,new IOException($"Source artifact is not the expected regular filesystem object (system error {error})."));
+        long length=RandomAccess.GetLength(source.Handle);
+        var hash=await MediaFileHashAttempt.ComputeAsync(sourcePath,token).ConfigureAwait(false);
+        if(hash.Failure is { } hashFailure)return new(null,hashFailure);
+        if((artifact.ByteLength>0&&artifact.ByteLength!=length)||(artifact.Sha256 is not null&&
+            !string.Equals(artifact.Sha256,hash.Sha256,StringComparison.OrdinalIgnoreCase)))
+            return new(null,new IOException("Source artifact does not match its recorded length or SHA-256."));
+        sourceCaptured?.Invoke(new WindowsOutputArtifactCopySource(sourcePath,identity,length,hash.Sha256!));
+        return await WindowsSplitOutputPublisher.TryPublishSingleAsync(final,overwriteExisting,async(stage,ct)=>
         {
-            throw new IOException(
-                $"Source artifact '{sourcePath}' is not the expected regular filesystem object; refusing to publish it.");
-        }
-
-        long sourceLength = source.Length;
-        string sourceSha256 = await ComputeSha256Async(source, token).ConfigureAwait(false);
-        if ((artifact.ByteLength > 0 && artifact.ByteLength != sourceLength) ||
-            (artifact.Sha256 != null &&
-             !string.Equals(artifact.Sha256, sourceSha256, StringComparison.OrdinalIgnoreCase)))
-        {
-            throw new IOException(
-                $"Source artifact '{sourcePath}' does not match its recorded length or SHA-256.");
-        }
-
-        var sourceEvidence = new WindowsOutputArtifactCopySource(
-            sourcePath,
-            sourceIdentity,
-            sourceLength,
-            sourceSha256);
-        sourceCaptured?.Invoke(sourceEvidence);
-
-        await WindowsSplitOutputPublisher.PublishSingleAsync(
-            normalizedFinalPath,
-            overwriteExisting,
-            async (stage, cancellationToken) =>
-            {
-                source.Position = 0;
-                await source.CopyToAsync(stage, BufferSize, cancellationToken).ConfigureAwait(false);
-
-                WindowsFileIdentity afterCopyIdentity = WindowsFileIdentity.Capture(source.SafeFileHandle);
-                long afterCopyLength = source.Length;
-                string afterCopySha256 = await ComputeSha256Async(source, cancellationToken).ConfigureAwait(false);
-                if (!sourceIdentity.Matches(afterCopyIdentity) ||
-                    sourceLength != afterCopyLength ||
-                    !string.Equals(sourceSha256, afterCopySha256, StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new IOException(
-                        $"Source artifact '{sourcePath}' changed identity or content while its staged copy was written.");
-                }
-            },
-            testHook,
-            token).ConfigureAwait(false);
+            if(await MediaFileHashAttempt.CopyToAsync(sourcePath,stage,ct).ConfigureAwait(false) is { } copyFailure)return copyFailure;
+            if(!WindowsFileIdentity.TryCapture(source.Handle,out var after,out int identityError)||!identity.Matches(after!))
+                return new IOException($"Source artifact changed its identity (system error {identityError}).");
+            var afterHash=await MediaFileHashAttempt.ComputeAsync(sourcePath,ct).ConfigureAwait(false);
+            if(afterHash.Failure is { } afterFailure)return afterFailure;
+            if(RandomAccess.GetLength(source.Handle)!=length||!string.Equals(hash.Sha256,afterHash.Sha256,StringComparison.OrdinalIgnoreCase))
+                return new IOException("Source artifact changed content while its staged copy was written.");
+            return null;
+        },testHook,token).ConfigureAwait(false);
     }
 
     private static async Task<string> ComputeSha256Async(FileStream stream, CancellationToken token)
@@ -124,8 +95,19 @@ internal static class WindowsOutputArtifactPublisher
         return handle;
     }
 
+    private static SafeFileHandle CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        FileShare shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile) =>
+        NativeCreateFileW(LivePhotoBox.Interop.WindowsNativePath.Extended(fileName), desiredAccess, shareMode,
+            securityAttributes, creationDisposition, flagsAndAttributes, templateFile);
+
     [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern SafeFileHandle CreateFileW(
+    private static extern SafeFileHandle NativeCreateFileW(
         string fileName,
         uint desiredAccess,
         FileShare shareMode,

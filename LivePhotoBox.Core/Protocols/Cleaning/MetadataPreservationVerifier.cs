@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -19,21 +19,30 @@ namespace LivePhotoBox.Protocols.Cleaning;
 /// </summary>
 public static class MetadataPreservationVerifier
 {
-    public static async Task<PreservationBaseline> CaptureBaselineAsync(
+    internal sealed record BaselineAttempt(PreservationBaseline? Baseline,Exception? Failure);
+    public static async Task<PreservationBaseline> CaptureBaselineAsync(ExtractedMediaBundle bundle,CancellationToken cancellationToken=default)
+    {
+        var attempt=await TryCaptureBaselineAsync(bundle,cancellationToken).ConfigureAwait(false);
+        if(attempt.Failure is { } failure)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Baseline!;
+    }
+
+    internal static async Task<BaselineAttempt> TryCaptureBaselineAsync(
         ExtractedMediaBundle bundle,
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(bundle);
         ArgumentNullException.ThrowIfNull(bundle.PrimaryImage);
 
-        cancellationToken.ThrowIfCancellationRequested();
+        if(cancellationToken.IsCancellationRequested)return new(null,new OperationCanceledException(cancellationToken));
 
-        var imageObs = await NativeMediaService.CapturePreservationObservationAsync(
+        var imageObs = await NativeMediaService.TryCapturePreservationObservationAsync(
             bundle.PrimaryImage.Path,
             bundle.SourceFacts.Protocol,
             bundle.PrimaryImage.ImageContainer,
             cancellationToken).ConfigureAwait(false);
 
+        if(imageObs.Failure is { } imageFailure)return new(null,imageFailure);
         PreservationObservation? videoObs = null;
         long? videoLength = null;
         string? videoSha = null;
@@ -44,25 +53,27 @@ public static class MetadataPreservationVerifier
                 : new FileInfo(bundle.MotionVideo.Path).Length;
             videoSha = bundle.MotionVideo.Sha256;
 
-            videoObs = await NativeMediaService.CapturePreservationObservationAsync(
+            var videoAttempt = await NativeMediaService.TryCapturePreservationObservationAsync(
                 bundle.MotionVideo.Path,
                 bundle.SourceFacts.Protocol,
                 ImageContainer.Unknown,
                 cancellationToken).ConfigureAwait(false);
+            if(videoAttempt.Failure is { } videoFailure)return new(null,videoFailure);
+            videoObs=videoAttempt.Observation;
         }
 
         long primaryImageLength = bundle.PrimaryImage.ByteLength > 0
             ? bundle.PrimaryImage.ByteLength
             : (File.Exists(bundle.PrimaryImage.Path) ? new FileInfo(bundle.PrimaryImage.Path).Length : 0);
 
-        return new PreservationBaseline
+        return new(new PreservationBaseline
         {
             PrimaryImagePath = bundle.PrimaryImage.Path,
             PrimaryImageLength = primaryImageLength,
             PrimaryImageSha256 = bundle.PrimaryImage.Sha256 ?? "",
             PrimaryImageContainer = bundle.PrimaryImage.ImageContainer,
             Protocol = bundle.SourceFacts.Protocol,
-            ImageObservation = imageObs,
+            ImageObservation = imageObs.Observation!,
             MotionVideoLength = videoLength,
             MotionVideoSha256 = videoSha,
             MotionVideoContainer = bundle.MotionVideo?.VideoContainer ?? VideoContainer.Unknown,
@@ -72,7 +83,7 @@ public static class MetadataPreservationVerifier
             GainMapExpected = bundle.GainMap != null,
             PreservationCarriers = bundle.PreservationCarriers,
             AuxiliaryMedia = bundle.AuxiliaryMedia.Select(item => item with { }).ToArray()
-        };
+        },null);
     }
 
     public static async Task<PreservationReport> VerifyAsync(
@@ -101,7 +112,7 @@ public static class MetadataPreservationVerifier
         ArgumentNullException.ThrowIfNull(baseline);
         ArgumentNullException.ThrowIfNull(stagedImagePath);
 
-        cancellationToken.ThrowIfCancellationRequested();
+        if(cancellationToken.IsCancellationRequested)return ObservationFailure("Preservation verification cancelled.");
 
         if (!File.Exists(stagedImagePath) || new FileInfo(stagedImagePath).Length == 0)
         {
@@ -116,47 +127,20 @@ public static class MetadataPreservationVerifier
             }, allPassed: false);
         }
 
-        PreservationObservation postImage;
-        try
+        var imageAttempt=await NativeMediaService.TryCapturePreservationObservationAsync(stagedImagePath,baseline.Protocol,
+            baseline.PrimaryImageContainer,cancellationToken).ConfigureAwait(false);
+        if(imageAttempt.Failure is { } imageFailure)return ObservationFailure("Failed to capture post-clean observation: "+imageFailure.Message);
+        PreservationObservation postImage=imageAttempt.Observation!;
+        PreservationObservation? preVideo=null,postVideo=null;
+        if(baseline.MotionVideoLength!=null && stagedVideoPath!=null)
         {
-            postImage = await NativeMediaService.CapturePreservationObservationAsync(
-                stagedImagePath,
-                baseline.Protocol,
-                baseline.PrimaryImageContainer,
-                cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            return CreateReport(new List<PreservationReportItem>
+            preVideo=baseline.VideoObservation;
+            if(File.Exists(stagedVideoPath)&&new FileInfo(stagedVideoPath).Length>0)
             {
-                new()
-                {
-                    Name = "MediaPayload",
-                    Status = PreservationCheckStatus.Failed,
-                    Details = $"Failed to capture post-clean observation: {ex.Message}"
-                }
-            }, allPassed: false);
-        }
-
-        PreservationObservation? preVideo = null;
-        PreservationObservation? postVideo = null;
-        if (baseline.MotionVideoLength != null && stagedVideoPath != null)
-        {
-            preVideo = baseline.VideoObservation;
-            if (File.Exists(stagedVideoPath) && new FileInfo(stagedVideoPath).Length > 0)
-            {
-                try
-                {
-                    postVideo = await NativeMediaService.CapturePreservationObservationAsync(
-                        stagedVideoPath,
-                        baseline.Protocol,
-                        ImageContainer.Unknown,
-                        cancellationToken).ConfigureAwait(false);
-                }
-                catch
-                {
-                    // postVideo remains null
-                }
+                var videoAttempt=await NativeMediaService.TryCapturePreservationObservationAsync(stagedVideoPath,baseline.Protocol,
+                    ImageContainer.Unknown,cancellationToken).ConfigureAwait(false);
+                if(videoAttempt.Failure is { } videoFailure)return ObservationFailure("Failed to capture post-clean video: "+videoFailure.Message);
+                postVideo=videoAttempt.Observation;
             }
         }
 
@@ -184,7 +168,7 @@ public static class MetadataPreservationVerifier
             baseline.Protocol,
             detachedGainMapState,
             out bool allPassed,
-            cancellationToken);
+            cancellationToken,strict:false);
 
         var items = new List<PreservationReportItem>(verdicts.Count);
         foreach (var v in verdicts)
@@ -234,6 +218,28 @@ public static class MetadataPreservationVerifier
             }
             if (carrier.Kind == PreservationCarrierKind.SamsungSef)
             {
+                // A live-only SEF directory is needed as extraction/cleanup
+                // transport authority, but has no ordinary metadata to retain.
+                // Do not require its recreation after all authorized live
+                // entries have been removed. Ordinary entries still follow
+                // the full post-clean range verification below.
+                if (carrier.StableIdentity == "samsung:sef:index-trailer" &&
+                    carrier.Semantic == "SamsungSEFIndexTrailer" &&
+                    !baseline.PreservationCarriers.Any(other =>
+                        other.Kind == PreservationCarrierKind.SamsungSef &&
+                        other.SourceIndex == carrier.SourceIndex &&
+                        other.StableIdentity != carrier.StableIdentity) &&
+                    postCarrierFacts?.Protocol == SourceProtocol.NonLive &&
+                    !postCarrierFacts.PreservationCarriers.Any(other => other.Kind == PreservationCarrierKind.SamsungSef))
+                {
+                    items.Add(new PreservationReportItem
+                    {
+                        Name = $"Carrier:{carrier.StableIdentity}",
+                        Status = PreservationCheckStatus.NotApplicable,
+                        Details = "The SEF directory indexed only authorized source-live entries; no ordinary SEF metadata required retention."
+                    });
+                    continue;
+                }
                 var matchingPostCarriers = postCarrierFacts?.PreservationCarriers
                     .Where(candidate =>
                         string.Equals(candidate.StableIdentity, carrier.StableIdentity, StringComparison.Ordinal) &&
@@ -470,25 +476,8 @@ public static class MetadataPreservationVerifier
         if (new FileInfo(gainMapPath).Length == 0)
             return false;
 
-        try
-        {
-            // P3 retains a DELETE-capable exact-object lease while
-            // preservation runs. This verifier is read-only and must share
-            // DELETE rather than force the transaction to weaken that lease.
-            using var fs = new FileStream(
-                gainMapPath,
-                FileMode.Open,
-                FileAccess.Read,
-                FileShare.Read | FileShare.Delete);
-            using var sha = SHA256.Create();
-            byte[] hash = await sha.ComputeHashAsync(fs, cancellationToken).ConfigureAwait(false);
-            string actualSha = Convert.ToHexString(hash);
-            return string.Equals(actualSha, expectedSha256, StringComparison.OrdinalIgnoreCase);
-        }
-        catch
-        {
-            return false;
-        }
+        var hash=await MediaFileHashAttempt.ComputeAsync(gainMapPath,cancellationToken).ConfigureAwait(false);
+        return hash.Failure is null && string.Equals(hash.Sha256,expectedSha256,StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<bool> VerifySourceRangeIdentityAsync(
@@ -523,6 +512,9 @@ public static class MetadataPreservationVerifier
             return false;
         }
     }
+
+    private static PreservationReport ObservationFailure(string message) => CreateReport(
+        new[]{new PreservationReportItem {Name="MediaPayload",Status=PreservationCheckStatus.Failed,Details=message}},false);
 
     private static PreservationReport CreateReport(IReadOnlyList<PreservationReportItem> items, bool allPassed)
     {

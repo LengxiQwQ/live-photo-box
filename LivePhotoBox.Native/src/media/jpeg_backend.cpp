@@ -1274,6 +1274,42 @@ lpb_result transform_jpeg_losslessly(lpb_context* context, const char* input_pat
 
 
 
+lpb_result normalize_jpeg_compatible(lpb_context* context, const char* input_path,
+    const char* output_path, int32_t* reencoded) noexcept {
+    if (reencoded) *reencoded = 0;
+    if (!context || !input_path || !output_path || !reencoded || paths_alias(input_path, output_path))
+        return LPB_RESULT_INVALID_ARGUMENT;
+    windows_readonly_source lease;
+    const auto source_path = utf8_to_path(input_path);
+    if (!lease.open(source_path)) return LPB_RESULT_INVALID_ARGUMENT;
+    std::vector<uint8_t> source;
+    if (!lease.read_all_bounded(4, 100ULL * 1024 * 1024, source)) return LPB_RESULT_UNSUPPORTED;
+    lpb::memory_random_access memory{source}; jpeg_observation observed;
+    jpeg_observation_failure failure{}; uint64_t bad{};
+    if (!observe_jpeg(memory.view(), observed, failure, bad, {true,true,true,true}) ||
+        observed.eoi_end != source.size() || observed.mpf || observed.orientation < 2 || observed.orientation > 8 ||
+        ((!observed.xmp.empty() || !observed.extended_xmp.empty()) &&
+         !validate_jpeg_repair_xmp(observed.xmp,observed.extended_xmp,observed.extended_guid,
+            observed.orientation,observed.width,observed.height))) {
+        set_error(context,"JPEG compatible normalization requires an unambiguous complete primary and mapped direction metadata.");
+        return LPB_RESULT_UNSUPPORTED;
+    }
+    std::vector<uint8_t> changed; bool encoded{};
+    auto result = normalize_repair_jpeg_bytes(context, source, observed.orientation, false, changed, encoded);
+    if (result != LPB_RESULT_OK) return result;
+    if (!lease.verify_same_identity(source_path)) return LPB_RESULT_SOURCE_CHANGED;
+    if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) return LPB_RESULT_CANCELLED;
+    windows_owned_output output;
+    const auto destination = utf8_to_path(output_path);
+    if (!output.create(destination,L"lpb-jpeg-compatible") || !output.write_all(changed) ||
+        !output.publish_registered_no_replace(context,LPB_ARTIFACT_PRIMARY_IMAGE,destination)) {
+        static_cast<void>(abort_owned_output_and_report(context,output,"JPEG compatible normalization publication failed."));
+        return LPB_RESULT_INTERNAL_ERROR;
+    }
+    *reencoded = encoded ? 1 : 0;
+    return LPB_RESULT_OK;
+}
+
 } // namespace lpb::media
 
 

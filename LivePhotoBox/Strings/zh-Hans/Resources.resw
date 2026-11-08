@@ -1,4 +1,4 @@
-<?xml version='1.0' encoding='utf-8'?>
+﻿<?xml version='1.0' encoding='utf-8'?>
 <root xmlns:ns1="urn:schemas-microsoft-com:xml-msdata" xmlns:xs="http://www.w3.org/2001/XMLSchema">
   
   <xs:schema id="root">
@@ -1567,7 +1567,7 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
     <value>视频大小</value>
   </data>
   <data name="MergePage_Sort_Date.Content" xml:space="preserve">
-    <value>拍摄日期</value>
+    <value>文件修改时间</value>
   </data>
   <data name="MergePage_PairingMethodLabel.Text" xml:space="preserve">
     <value>匹配方式：</value>
@@ -1576,7 +1576,7 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
     <value>按文件名匹配</value>
   </data>
   <data name="MergePage_Pairing_Filename_Hint" xml:space="preserve">
-    <value>同目录同名候选；重名歧义不猜配，实况绑定仍须校验</value>
+    <value>图片与视频同名即配对</value>
   </data>
   <data name="MergePage_Pairing_Apple.Content" xml:space="preserve">
     <value>Apple Live Photo</value>
@@ -4092,7 +4092,7 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
     <value>大小</value>
   </data>
   <data name="SplitPage_Sort_Date.Content" xml:space="preserve">
-    <value>拍摄日期</value>
+    <value>文件修改时间</value>
   </data>
   <data name="SplitPage_Filter_All.Text" xml:space="preserve">
     <value>全部</value>
@@ -4176,10 +4176,10 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
     <value>匹配方式：</value>
   </data>
   <data name="SplitPage_Match_All.Content" xml:space="preserve">
-    <value>所有实况照片协议</value>
+    <value>全部单文件实况协议</value>
   </data>
   <data name="SplitPage_Match_All_Hint" xml:space="preserve">
-    <value>严格按已有实况协议识别，不使用文件名兜底</value>
+    <value>全部已支持的单文件实况照片</value>
   </data>
   <data name="SplitPage_Match_Fusion.Content" xml:space="preserve">
     <value>融合 - Motion Photo ⚠️</value>
@@ -4567,7 +4567,7 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
   <data name="SplitDiagnostic_ReadFailed" xml:space="preserve"><value>文件读取异常</value></data>
   <data name="ScanDiagnostic_Header.Text" xml:space="preserve"><value>未选用项目</value></data>
   <data name="ScanStatus_NotSelected" xml:space="preserve"><value>未选用</value></data>
-  <data name="ScanStatus_Partial" xml:space="preserve"><value>扫描部分完成，可查看未读取项的原因</value></data>
+  <data name="ScanStatus_Partial" xml:space="preserve"><value>扫描完成：{0} 项；未选用项目请查看详情。</value></data>
   <data name="ScanDiagnostic_InputFailed" xml:space="preserve"><value>此文件或候选关系未通过读取、格式或身份校验。具体原因如下。</value></data>
   <data name="ScanDiagnostic_OperationFailed" xml:space="preserve"><value>本次扫描无法完成，已保留此前完整队列；未启动处理。具体原因如下。</value></data>
   <data name="ScanDiagnostic_UnresolvedBinding" xml:space="preserve"><value>实况绑定未确认或存在歧义，不能作为普通图片配对。</value></data>
@@ -4772,9 +4772,38 @@ JPEG 在可完整无损变换时转正；HEIC 按明确的容器显示方向纠�
     <value>同目录同名候选，且必须通过 Apple 或 vivo 双文件协议校验；不用于普通照片合成</value>
   </data>
   <data name="SplitPage_Match_Filename.Content" xml:space="preserve">
-    <value>按文件名匹配</value>
+    <value>按文件名匹配双文件</value>
   </data>
   <data name="SplitPage_Match_Filename_Hint" xml:space="preserve">
-    <value>仅匹配同目录同名双文件，并校验实况协议；普通照片与视频不能作为实况拆分</value>
+    <value>只选同目录同名的双文件实况，并确认它们原本是一组；单文件实况请选择协议</value>
   </data>
+  <data name="ScanStatus_PartialDetails" xml:space="preserve"><value>扫描完成；未选用项目请查看详情。{0}</value></data>
+  <data name="ScanStage_Enumerating" xml:space="preserve"><value>正在查找文件</value></data>
+  <data name="ScanStage_Inspecting" xml:space="preserve"><value>正在识别文件</value></data>
+  <data name="ScanStage_Pairing" xml:space="preserve"><value>正在确认配对</value></data>
+  <data name="ScanStage_PreparingResults" xml:space="preserve"><value>正在准备列表</value></data>
+  <data name="ScanStage_Diagnosing" xml:space="preserve"><value>正在检查修复问题</value></data>
+  <data name="ScanStage_WithProgress" xml:space="preserve"><value>{0} · {1}%</value></data>
+  <data name="ScanStage_Identifying" xml:space="preserve"><value>识别候选</value></data>
+  <data name="ScanStage_PresentingResults" xml:space="preserve">
+    <value>正在显示扫描结果…</value>
+  </data>
+  <data name="Repair_Action_JpegReencoded" xml:space="preserve"><value> JPEG 已按完整画面重新编码（质量92），未裁切边缘；输出隔离。</value></data>
+  <data name="ProductCompletion_RecoveredMedia" xml:space="preserve"><value>已隔离：恢复媒体，未完成目标转换</value></data>
+  <data name="ProductCompletion_OriginalSaved" xml:space="preserve"><value>已隔离：原样保存，未完成转换</value></data>
+  <data name="ProductCompletion_NoOutput" xml:space="preserve"><value>未生成输出</value></data>
+  <data name="ProductRecovery_Recovered" xml:space="preserve"><value>已恢复可用媒体；未生成目标实况。</value></data>
+  <data name="ProductRecovery_Original" xml:space="preserve"><value>原样保存，未完成转换；未生成目标实况。</value></data>
+  <data name="ProductRecovery_NoOutput" xml:space="preserve"><value>未生成输出。</value></data>
+  <data name="ProductRecovery_Directory" xml:space="preserve"><value>隔离位置：</value></data>
+  <data name="SettingsPage_KeepVideoStabilizationEdges.Text" xml:space="preserve"><value>保留视频防抖边缘</value></data>
+  <data name="SettingsPage_KeepVideoStabilizationEdges_Desc.Text" xml:space="preserve"><value>开启后保留视频中实际记录的完整画面，边缘可能出现防抖留下的空白或不整齐区域。关闭后按原视频的显示范围裁切，接近手机相册的预览效果，但会舍去部分边缘画面。仅处理文件中明确记录的裁切范围。</value></data>
+  <data name="ProductVideo_KeptEdges" xml:space="preserve"><value>已保留完整视频画面和防抖边缘，输出尺寸 {0}×{1}。</value></data>
+  <data name="ProductVideo_CroppedEdges" xml:space="preserve"><value>已按原视频的显示范围裁切，舍去对应防抖边缘，输出尺寸 {0}×{1}。</value></data>
+  <data name="ProductRecovery_UnconvertedPart" xml:space="preserve"><value>另有原件仅原样保存，未完成转换：</value></data>
+  <data name="ProductWarning_UncarriedVideoAssets" xml:space="preserve"><value>部分附带视频轨道或其他轨道未能承接，成品已隔离，请检查详情。</value></data>
+  <data name="ProductWarning_Color" xml:space="preserve"><value>颜色信息发生降级或丢失，成品已隔离，请检查显示效果。</value></data>
+  <data name="ProductWarning_AudioConverted" xml:space="preserve"><value>为兼容目标格式，声音已重新编码，可能存在有损变化；成品已隔离，请检查声音。</value></data>
+  <data name="Repair_Outcome_warning_retained" xml:space="preserve"><value>已生成输出并保留在下列实际位置；存在未完成事项，未确认全部输出已隔离。</value></data>
+  <data name="EditPage_ExportCleanupWarning" xml:space="preserve"><value>导出有清理限制</value></data>
 </root>

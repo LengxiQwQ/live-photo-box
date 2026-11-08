@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 
 namespace LivePhotoBox.Media.Models;
 
@@ -142,6 +142,7 @@ public sealed record NeutralOrdinaryMetadataSemantics
 
 public sealed record NeutralTimingSemantics
 {
+    public long? FirstValidFrameTimestampUs { get; init; }
     public long? CoverTimestampUs { get; init; }
     public long? PrimaryTimestampUs { get; init; }
     public int? CoverFrameIndex { get; init; }

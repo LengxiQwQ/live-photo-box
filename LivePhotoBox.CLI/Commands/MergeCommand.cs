@@ -1,3 +1,4 @@
+using LivePhotoBox.Interop;
 using LivePhotoBox.Cli.Infrastructure;
 using LivePhotoBox.Cli.Models;
 using LivePhotoBox.Models;
@@ -70,6 +71,7 @@ namespace LivePhotoBox.Cli.Commands
                 "Default: follow the source video's own timeline (Apple MOV / vivo metadata)." };
 
             var includeLiveOpt = new Option<bool>("--include-live") { Description = "In batch mode also process successfully inspected, unmatched complete single-file live images. Ordinary, rejected or conflicted inputs are not included." };
+            var keepEdgesOpt = new Option<bool>("--keep-video-stabilization-edges") { Description = "Keep the complete recorded video frame. By default apply the source's declared display aperture; never guess a crop." };
             var preservationOpt = new Option<string>("--preservation") { DefaultValueFactory = _ => "best-effort", Description = "Output preservation profile: best-effort (compatible profile, default)|strict (full preservation profile)." };
             var targetVersionOpt = new Option<string?>("--target-version") { Description = "Explicit target version: samsung mpv2|mpv3; huawei v6|honor-v2. Candidate support; device acceptance pending." };
             var unspecifiedDirectionOpt = new Option<string>("--unspecified-image-orientation") { DefaultValueFactory=_=>"reject",
@@ -93,7 +95,7 @@ namespace LivePhotoBox.Cli.Commands
                 dirOpt, protocolOpt, outputOpt, formatOpt,
                 namingOpt, parallelOpt, yesOpt, jsonOpt, dryRunOpt, verboseOpt,
                 overwriteOpt, recursiveOpt, preserveSubdirsOpt, pairingOpt, afterOpt,
-                allVariantsOpt, keyTimestampOpt, includeLiveOpt, preservationOpt, targetVersionOpt, unspecifiedDirectionOpt
+                allVariantsOpt, keyTimestampOpt, includeLiveOpt, preservationOpt, targetVersionOpt, unspecifiedDirectionOpt, keepEdgesOpt
             };
 
             cmd.SetAction(async (parseResult, cancellationToken) =>
@@ -245,6 +247,7 @@ namespace LivePhotoBox.Cli.Commands
                 }
                 var candidate = new StructuredMergeOptions
                 {
+                    KeepVideoStabilizationEdges = parseResult.GetValue(keepEdgesOpt),
                     PreservationPolicy = policyText == "strict" ? PreservationPolicy.Strict : PreservationPolicy.BestEffort,
                     SamsungVariant = version == "mpv2" ? SamsungTargetVariant.Mpv2 : SamsungTargetVariant.Mpv3,
                     HuaweiVariant = version == "honor-v2" ? HuaweiTargetVariant.HonorV2 : HuaweiTargetVariant.HuaweiV6,
@@ -303,7 +306,12 @@ namespace LivePhotoBox.Cli.Commands
         {
             try
             {
-                ct.ThrowIfCancellationRequested();
+                if (ct.IsCancellationRequested)
+                {
+                    if (json) PrintJson(new { command = "merge", status = "cancelled" });
+                    else CliConsole.WriteErrorLine("Cancelled.");
+                    return 130;
+                }
                 return await ProcessingPipelineRouter.RunAsync("merge", () => RunMergeAsync(
                     image, video, dir, protocolName, output, formatName, naming, namingExplicit,
                     parallel, yes, json, dryRun, verbose, overwrite, recursive, preserveSubdirs,
@@ -350,7 +358,7 @@ namespace LivePhotoBox.Cli.Commands
 
                 // Default output to the input image's directory (not cwd)
                 string outputDir = output?.FullName ?? Path.GetDirectoryName(image.FullName)!;
-                if (!dryRun) Directory.CreateDirectory(outputDir);
+                if (!dryRun && !CliOutputDirectory.TryEnsure(outputDir, json, "merge")) return 1;
                 return await RunAllVariantsAsync(
                     image.FullName, video?.FullName ?? string.Empty, outputDir, outputDir,
                     parallel, dryRun, json, keyTimestampUs, candidate, overwrite, ct);
@@ -584,7 +592,7 @@ namespace LivePhotoBox.Cli.Commands
                     }
 
                     // 确认通过后才创建目录，dry-run / 取消不产生任何副作用
-                    Directory.CreateDirectory(outputDir);
+                    if (!CliOutputDirectory.TryEnsure(outputDir, json, "merge")) return 1;
                     return await MergeSinglePairAsync(
                         image!.FullName, (video?.FullName ?? string.Empty), outputDir, tempDir,
                         protocolIndex, formatIndex, namingRuleIndex, customPattern,
@@ -754,7 +762,12 @@ namespace LivePhotoBox.Cli.Commands
                 {
                     try
                     {
-                        var facts = await inspector.InspectAsync(imgPath, cancellationToken: ct).ConfigureAwait(false);
+                        if (ct.IsCancellationRequested) return 130;
+                        var inspection = await NativeMediaService.TryInspectMediaWithPlanAsync(imgPath, cancellationToken: ct).ConfigureAwait(false);
+                        if (inspection.Failure is { } inspectionFailure)
+                        { scanDiagnostics.Add(LivePhotoScanSupport.Failure(imgPath, inspectionFailure)); continue; }
+                        using var inspected = inspection.Source!;
+                        var facts = inspected.Facts;
                         if (facts.PrimaryImage?.IsPresent == true &&
                             facts.MotionVideo?.IsPresent == true &&
                             facts.Protocol != SourceProtocol.NonLive &&
@@ -861,7 +874,8 @@ namespace LivePhotoBox.Cli.Commands
                 tasks.Add(new CliMergeTask
                 {
                     Index = i + 1,
-                    ImagePath = p.ImagePath,
+                    SelectionScope = scanResult.Pairs.FirstOrDefault(pair => string.Equals(pair.ImagePath, p.ImagePath, StringComparison.OrdinalIgnoreCase))?.SelectionScope,
+                    ImagePath = p.ImagePath, SelectionIntent = pairing switch { "cid" => SelectionIntent.AppleIdentity, "vivo" => SelectionIntent.VivoIdentity, _ => SelectionIntent.UserComposition },
                     VideoPath = p.VideoPath,
                     BaseName = p.BaseName,
                 });
@@ -953,7 +967,7 @@ namespace LivePhotoBox.Cli.Commands
             }
 
             // 6. Run batch（实际处理前才创建输出目录，dry-run / 取消不产生副作用）
-            Directory.CreateDirectory(outputDir);
+            if (!CliOutputDirectory.TryEnsure(outputDir, json, "merge")) return 1;
             if (!json)
             {
                 Console.Write("\nProcessing ");
@@ -1069,6 +1083,16 @@ namespace LivePhotoBox.Cli.Commands
                 return 1;
             }
 
+            if (ct.IsCancellationRequested || tasks.Any(task => task.Status == ProcessStatus.Cancelled))
+            {
+                foreach (var entry in jsonFiles.Where(entry => entry.Status == "pending")) entry.Status = "unprocessed";
+                if (json) PrintBatchJson(inputDir, outputDir, tasks.Count, ok, fail, jsonFiles,
+                    afterFailed: 0, afterCancelled: true,
+                    scanDiagnostics: scanDiagnostics, scanSummary: scanSummary, scanStatus: "cancelled");
+                else CliConsole.WriteErrorLine($"Cancelled: {ok} succeeded, {fail} failed.");
+                return 130;
+            }
+
             // Keep conversion receipts separate from source post-processing.
             int afterFailed = 0;
             bool afterCancelled = false;
@@ -1138,33 +1162,21 @@ namespace LivePhotoBox.Cli.Commands
             };
             try
             {
-                ct.ThrowIfCancellationRequested();
-                using var committedProtection = new SourceInputProtection(outcome.CommittedOutputs.Select(o => o.Path));
-                if (outcome.SourceActionGuard is null) throw new IOException("Source action identity receipt is unavailable; originals retained.");
-                outcome.SourceActionGuard.Validate(outcome, paths, moveDirectory);
                 if (moveDirectory is not null)
                 {
                     moveDirectory = Path.GetFullPath(moveDirectory);
                     foreach (var file in result.Files) file.Destination = Path.Combine(moveDirectory, Path.GetFileName(file.Source));
                 }
-                // Check the whole pair before moving its first member. Do not
-                // overwrite an archive member or silently split a known conflict.
-                foreach (var file in result.Files)
-                {
-                    if (!File.Exists(file.Source)) throw new FileNotFoundException("Source post-processing input is missing.", file.Source);
-                    if (file.Destination is { } destination && (File.Exists(destination) || Directory.Exists(destination)))
-                        throw new IOException($"Archive destination already exists: '{destination}'.");
-                }
-                if (moveDirectory is not null) Directory.CreateDirectory(moveDirectory);
-                foreach (var file in result.Files)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    outcome.SourceActionGuard.ValidateSource(outcome, file.Source);
-                    if (file.Destination is { } destination) File.Move(file.Source, destination);
-                    else SourceRecycleBinService.Recycle(outcome, file.Source);
-                    file.Status = file.Destination is null ? "recycled" : "moved";
-                }
-                result.Status = "completed";
+                var processing = ProductSourcePostProcessor.ProcessAsync(outcome, paths, moveDirectory is not null,
+                    moveDirectory, ct, (path, status) =>
+                    {
+                        var file = result.Files.Single(f => string.Equals(f.Source, path, StringComparison.OrdinalIgnoreCase));
+                        file.Status = status;
+                    }).GetAwaiter().GetResult();
+                result.Status = processing.Status;
+                result.Reason = processing.Reason;
+                foreach (var file in result.Files.Where(f => f.Status == "pending"))
+                    file.Status = File.Exists(file.Source) ? "retained" : "unknown";
             }
             catch (Exception ex)
             {
@@ -1285,7 +1297,7 @@ namespace LivePhotoBox.Cli.Commands
         {
             string originalBaseName = Path.GetFileNameWithoutExtension(imagePath);
             string variantsDir = Path.Combine(outputDir, $"{originalBaseName}_variants");
-            if (!dryRun) Directory.CreateDirectory(variantsDir);
+            if (!dryRun && !CliOutputDirectory.TryEnsure(variantsDir, json, "merge")) return 1;
             var combos = new List<(int Proto, int Fmt, string BaseName, string Label)>();
             for (int p = 1; p < ProtocolFormatMatrix.Matrix.Length; p++)
                 foreach (int f in ProtocolFormatMatrix.GetAvailableFormats(p))
@@ -1308,11 +1320,13 @@ namespace LivePhotoBox.Cli.Commands
             }
             int ok = 0, fail = 0, completed = 0;
             using var semaphore = new SemaphoreSlim(Math.Max(1, parallel));
+            int cancelledOutcome = 0;
             var tasks = combos.Select(async (c, index) =>
             {
-                await semaphore.WaitAsync(ct);
+                await semaphore.WaitAsync().ConfigureAwait(false);
                 try
                 {
+                    if (ct.IsCancellationRequested) { Interlocked.Exchange(ref cancelledOutcome, 1); entries[index].Status = "unprocessed"; return; }
                     var options = new LivePhotoMergeRunOptions { OutputDirectory = variantsDir, StructuredOptions = candidate,
                         UnspecifiedImageOrientationHandling=candidate.UnspecifiedImageOrientationHandling,
                         OutputProfile = ProductSelectionAdapter.Merge(c.Proto, c.Fmt), NamingRuleIndex = 0,
@@ -1324,7 +1338,7 @@ namespace LivePhotoBox.Cli.Commands
                     var entry = entries[index];
                     entry.Outcome = outcome; entry.Status = OutcomeStatus(outcome); entry.Output = CommittedPath(outcome);
                     entry.Reason = outcome.IsSuccess ? "" : outcome.Details; entry.HistoryWarning = outcome.HistoryWarning; entry.NotCarried = outcome.NotCarried;
-                    if (outcome.Status == ProductOperationStatus.Cancelled) throw new OperationCanceledException(ct);
+                    if (outcome.Status == ProductOperationStatus.Cancelled) { Interlocked.Exchange(ref cancelledOutcome, 1); return; }
                     if (outcome.IsSuccess) Interlocked.Increment(ref ok); else if (outcome.Status != ProductOperationStatus.Warning) Interlocked.Increment(ref fail);
                     int count = Interlocked.Increment(ref completed);
                     if (!json) { Console.WriteLine($"[{count}/{combos.Count}] {entry.Status}  {c.Label}  {entry.Reason}"); PrintOutcome(outcome); }
@@ -1340,6 +1354,7 @@ namespace LivePhotoBox.Cli.Commands
             });
             bool cancelled = false;
             try { await Task.WhenAll(tasks); } catch (OperationCanceledException) { cancelled = true; }
+            cancelled |= cancelledOutcome != 0;
             if (json) PrintJson(new { command = "merge", mode = "all-variants", targetSupport = "experimental-device-acceptance-pending", output = variantsDir,
                 status = cancelled ? "cancelled" : "completed", scanned = combos.Count, merged = ok, failed = fail, warnings = entries.Count(e => e.Status == "warning"), files = entries });
             else Console.WriteLine($"{(cancelled ? "Cancelled" : "Done")}: {ok} SUCCESS, {fail} FAIL, {combos.Count} total");

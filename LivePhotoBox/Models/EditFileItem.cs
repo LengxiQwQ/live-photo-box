@@ -241,7 +241,7 @@ namespace LivePhotoBox.Models
         /// </summary>
         public ImageSource? Thumbnail
         {
-            get => _thumbnail ?? ThumbnailService.GetCached(FilePath);
+            get => ThumbnailService.IsLoadingEnabled ? _thumbnail ?? ThumbnailService.GetCached(FilePath) : null;
             set
             {
                 if (SetProperty(ref _thumbnail, value))
@@ -251,7 +251,7 @@ namespace LivePhotoBox.Models
 
         /// <summary>是否需要加载缩略图（由 Scheduler 的 _inFlight 集合决定，TrimQueue 自动恢复可加载状态）</summary>
         public bool NeedsThumbnail =>
-            _thumbnail == null
+            ThumbnailService.IsLoadingEnabled && _thumbnail == null
             && ThumbnailService.GetCached(FilePath) == null
             && !ThumbnailScheduler.IsInFlight(FilePath);
 

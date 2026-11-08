@@ -14,7 +14,10 @@ public sealed record MediaFormatRequirement
     public required VideoContainer VideoContainer { get; init; }
     public VideoCodec VideoCodec { get; init; } = VideoCodec.Copy;
     public int? TargetFps { get; init; }
+    public bool KeepVideoStabilizationEdges { get; init; }
     public bool KeepSourceIfSame { get; init; } = true;
+    /// <summary>Prepare present audio for targets that require AAC. A silent source stays silent.</summary>
+    public bool RequireAacAudio { get; init; }
     public UnspecifiedImageOrientationHandling UnspecifiedImageOrientationHandling { get; init; }
 }
 

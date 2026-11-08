@@ -1,4 +1,4 @@
-using LivePhotoBox.Cli.Commands;
+﻿using LivePhotoBox.Cli.Commands;
 using LivePhotoBox.Cli.Infrastructure;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
@@ -80,6 +80,7 @@ namespace LivePhotoBox.Cli
                         "  lpb cover photo.jpg                  View current cover info\n" +
                         "  lpb --info                          Show detailed environment info")
                     {
+                        ScanMeasureCommand.Create(),
                         MergeCommand.Create(),
                         SplitCommand.Create(),
                         RepairCommand.Create(),

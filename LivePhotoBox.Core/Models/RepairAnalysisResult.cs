@@ -16,6 +16,10 @@
     // 单张照片/视频的诊断分析结果。包含问题类型、旋转角度、缩略图信息及实况照片元数据。
     public class RepairAnalysisResult
     {
+        internal long? DiagnosedFileSize { get; set; }
+        internal System.DateTime DiagnosedWriteTimeUtc { get; set; }
+        internal LivePhotoBox.Media.Models.WindowsFileIdentity? DiagnosedIdentity { get; set; }
+        public uint DiagnosedActionMask { get; set; }
         // 诊断出的问题类型
         public RepairIssueType IssueType { get; set; }
         // 问题描述文本

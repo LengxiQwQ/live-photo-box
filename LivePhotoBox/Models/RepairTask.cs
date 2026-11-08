@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -361,7 +361,7 @@ namespace LivePhotoBox.Models
         // 任务缩略图（优先显示照片缩略图，支持 UI 线程切换）
         public ImageSource? Thumbnail
         {
-            get => _thumbnail;
+            get => ThumbnailService.IsLoadingEnabled ? _thumbnail : null;
             set
             {
                 if (_thumbnail == value) return;

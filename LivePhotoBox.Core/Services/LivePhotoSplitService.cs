@@ -1,4 +1,4 @@
-using LivePhotoBox.Models;
+﻿using LivePhotoBox.Models;
 
 using LivePhotoBox.Interop;
 
@@ -95,11 +95,12 @@ namespace LivePhotoBox.Services
 
             string sourcePath, string outputDirectory, SplitMediaFormat format, CancellationToken token,
 
-            string? inputDirectory = null, string? outputBaseName = null, bool overwriteExisting = false, string? secondaryPath = null, long? keyTimestampUs = null)
+            string? inputDirectory = null, string? outputBaseName = null, bool overwriteExisting = false, string? secondaryPath = null, long? keyTimestampUs = null,
+            bool keepVideoStabilizationEdges = false)
 
             => (await ExecuteSplitWithOutcomeAsync(sourcePath, outputDirectory, format, token,
 
-                inputDirectory, outputBaseName, overwriteExisting, secondaryPath, keyTimestampUs).ConfigureAwait(false)).Outcome;
+                inputDirectory, outputBaseName, overwriteExisting, secondaryPath, keyTimestampUs, keepVideoStabilizationEdges).ConfigureAwait(false)).Outcome;
 
 
 
@@ -107,11 +108,31 @@ namespace LivePhotoBox.Services
 
 
 
+        private static ProductOperationOutcome Unrecorded(ProductOperationOutcome outcome) => outcome;
+
         private static async Task<SplitAttempt> ExecuteSplitWithOutcomeAsync(
+            string sourcePath, string outputDirectory, SplitMediaFormat format, CancellationToken token,
+            string? inputDirectory, string? outputBaseName, bool overwriteExisting, string? secondaryPath,
+            long? keyTimestampUs, bool keepVideoStabilizationEdges = false)
+        {
+            using var cleanupScope = WorkspaceCleanupScope.Begin();
+            var attempt = await ExecuteSplitCoreAsync(sourcePath, outputDirectory, format, token, inputDirectory,
+                outputBaseName, overwriteExisting, secondaryPath, keyTimestampUs, keepVideoStabilizationEdges).ConfigureAwait(false);
+            var outcome = await CleanupCompletion.ApplyAsync(attempt.Outcome, cleanupScope.Failures, outputDirectory, token).ConfigureAwait(false);
+            if (outcome.IsSuccess) outcome = outcome with { SourceActionGuard = LivePhotoMergeRunnerService.CaptureSourceActionGuard(outcome.Inputs, outcome.CommittedOutputs) };
+            var result = attempt.Result;
+            if (result is not null && outcome.CommittedOutputs.Count >= 2)
+                result = new LivePhotoSplitResult { ImageOutputPath = outcome.CommittedOutputs[0].Path,
+                    VideoOutputPath = outcome.CommittedOutputs[1].Path };
+            return new SplitAttempt(ProductOutcomeCompletion.Record(outcome with { CompletedUtc = DateTimeOffset.UtcNow }), result, attempt.Error);
+        }
+
+        private static async Task<SplitAttempt> ExecuteSplitCoreAsync(
 
             string sourcePath, string outputDirectory, SplitMediaFormat format, CancellationToken token,
 
-            string? inputDirectory, string? outputBaseName, bool overwriteExisting, string? secondaryPath, long? keyTimestampUs)
+            string? inputDirectory, string? outputBaseName, bool overwriteExisting, string? secondaryPath, long? keyTimestampUs,
+            bool keepVideoStabilizationEdges = false)
 
         {
 
@@ -123,7 +144,8 @@ namespace LivePhotoBox.Services
 
                 Operation = ProductOperationKind.Split,
 
-                RequestedSelection = new() { SplitFormat = Enum.IsDefined(format) ? format : null, TargetProtocol = TargetProfile(format)?.TargetProtocol },
+                RequestedSelection = new() { SplitFormat = Enum.IsDefined(format) ? format : null, TargetProtocol = TargetProfile(format)?.TargetProtocol,
+                    KeepVideoStabilizationEdges = keepVideoStabilizationEdges },
 
                 Inputs = secondaryPath is null ? new[] { sourcePath } : new[] { sourcePath, secondaryPath }, RequestedDestination = outputDirectory
 
@@ -147,26 +169,51 @@ namespace LivePhotoBox.Services
 
             {
 
-                token.ThrowIfCancellationRequested();
+                if (token.IsCancellationRequested)
+                {
+                    var cancelled = Unrecorded(baseline with { CompletedUtc = DateTimeOffset.UtcNow,
+                        Status = ProductOperationStatus.Cancelled, CompletionKind = ProductCompletionKind.Cancelled,
+                        Diagnostic = new() { Stage = stage, Category = ProductFailureCategory.Cancelled, Message = "用户取消，未生成输出。" } });
+                    return new SplitAttempt(cancelled, null, new OperationCanceledException(token));
+                }
 
                 using var sourceProtection = new SourceInputProtection(new[] { sourcePath, secondaryPath });
+                if (!sourceProtection.IsComplete)
+                {
+                    var blocked = Unrecorded(baseline with { CompletedUtc=DateTimeOffset.UtcNow,
+                        Status=ProductOperationStatus.Failed,CompletionKind=ProductCompletionKind.NoOutput,
+                        Diagnostic=new(){Stage=ProductOperationStage.Inspection,Category=ProductFailureCategory.Io,
+                            Message=sourceProtection.Diagnostic ?? "来源保护未完成，未生成输出。"} });
+                    return new SplitAttempt(blocked,null,new IOException(blocked.Details));
+                }
 
                 OutputProfile? targetProfile = TargetProfile(format);
 
                 if (keyTimestampUs.HasValue && targetProfile is null)
 
-                    throw new NotSupportedException("Protocol-free media has no live cover binding to override.");
+                {
+                    var error = new NotSupportedException("Protocol-free media has no live cover binding to override.");
+                    var refused = Unrecorded(baseline with { CompletedUtc = DateTimeOffset.UtcNow,
+                        Status = ProductOperationStatus.Unsupported, CompletionKind = ProductCompletionKind.NoOutput,
+                        Diagnostic = ProductOutcomeCompletion.Failure(error, ProductOperationStage.Selection) });
+                    return new SplitAttempt(refused, null, error);
+                }
 
-                MediaFormatRequirement requirement = SplitMediaRequirements.Get(format);
+                MediaFormatRequirement requirement = SplitMediaRequirements.Get(format) with
+                    { KeepVideoStabilizationEdges = keepVideoStabilizationEdges };
                 if (await ProductInputAssessment.RejectionAsync(sourcePath, secondaryPath, token).ConfigureAwait(false) is { } refusal)
                 {
                     var error = refusal.ToException(); // Retained only for callers of the strict legacy API.
                     var diagnostic = ProductOutcomeCompletion.Failure(error, ProductOperationStage.Inspection);
-                    var rejected = ProductOutcomeCompletion.Record(baseline with
-                    {
-                        CompletedUtc = DateTimeOffset.UtcNow,
-                        Status = ProductOutcomeCompletion.Status(error, diagnostic), Diagnostic = diagnostic
-                    });
+                    var rejected = LivePhotoScanSupport.IsImage(sourcePath) &&
+                        (secondaryPath == null || LivePhotoScanSupport.IsVideo(secondaryPath))
+                        ? Unrecorded((await ProductRecoveryService.SaveOriginalsAsync(
+                            baseline, diagnostic, outputDirectory, token).ConfigureAwait(false)) with { CompletedUtc = DateTimeOffset.UtcNow })
+                        : Unrecorded(baseline with
+                        {
+                            CompletedUtc = DateTimeOffset.UtcNow,
+                            Status = ProductOutcomeCompletion.Status(error, diagnostic), Diagnostic = diagnostic
+                        });
                     return new SplitAttempt(rejected, null, error);
                 }
                 if (format != SplitMediaFormat.KeepSource) requirement = requirement with
@@ -174,14 +221,25 @@ namespace LivePhotoBox.Services
 
                 stage = ProductOperationStage.Inspection;
 
-                result = await ProcessingPipelineRouter.RunRebuiltAsync("split", () => SplitRebuiltAsync(
+                var split = await ProcessingPipelineRouter.RunRebuiltAsync("split", () => SplitRebuiltAsync(
 
                     sourcePath, outputDirectory, requirement, token,
 
                     inputDirectory, outputBaseName, overwriteExisting,
 
                     secondaryPath, bundle => prepared = bundle, boundary => stage = boundary, targetProfile, keyTimestampUs, notes => targetNotes = notes,
-                    baseline.OperationId, (items, directory) => { warnings = items; isolationDirectory = directory; })).ConfigureAwait(false);
+                    baseline.OperationId, (items, directory) => { warnings = items; isolationDirectory = directory; }, baseline)).ConfigureAwait(false);
+                if (split.Recovery is { } recovery)
+                    return new SplitAttempt(Unrecorded(recovery with { CompletedUtc = DateTimeOffset.UtcNow }), null, split.Failure);
+                if (split.Result is null && split.Failure is { } splitFailure)
+                {
+                    var diagnostic = ProductOutcomeCompletion.Failure(splitFailure, stage);
+                    var stopped = Unrecorded(baseline with { CompletedUtc = DateTimeOffset.UtcNow,
+                        Status = ProductOutcomeCompletion.Status(splitFailure, diagnostic), Diagnostic = diagnostic,
+                        CompletionKind = token.IsCancellationRequested ? ProductCompletionKind.Cancelled : ProductCompletionKind.NoOutput });
+                    return new SplitAttempt(stopped, null, splitFailure);
+                }
+                result = split.Result!;
 
                 terminal = baseline with
 
@@ -212,12 +270,9 @@ namespace LivePhotoBox.Services
 
                     },
 
-                    SourceActionGuard = warnings.Count == 0 ? LivePhotoMergeRunnerService.CaptureSourceActionGuard(baseline.Inputs, new[]
-                    {
-                        new ProductCommittedArtifact { Role = "PrimaryImage", Path = result.ImageOutputPath },
-                        new ProductCommittedArtifact { Role = "MotionVideo", Path = result.VideoOutputPath }
-                    }) : null,
-                    Diagnostic = new() { Stage = ProductOperationStage.Publication, Message = isolationDirectory is null
+                    SourceActionGuard = null,
+
+                    Diagnostic = new() { Stage = ProductOperationStage.Publication, Message = isolationDirectory is null && warnings.Count == 0
                         ? ResourceService.GetString("SplitPage_Task_Success") : ProductExportAssessment.Details(warnings, isolationDirectory) }
 
                 };
@@ -248,7 +303,7 @@ namespace LivePhotoBox.Services
 
             }
 
-            terminal = ProductOutcomeCompletion.Record(terminal with { CompletedUtc = DateTimeOffset.UtcNow });
+            terminal = Unrecorded(terminal with { CompletedUtc = DateTimeOffset.UtcNow });
 
             return new SplitAttempt(terminal, result, failure);
 
@@ -262,7 +317,12 @@ namespace LivePhotoBox.Services
 
         // writers intentionally do not participate in this pipeline stage.
 
-        private static async Task<LivePhotoSplitResult> SplitRebuiltAsync(
+        private sealed record SplitMediaAttempt(LivePhotoSplitResult? Result, ProductOperationOutcome? Recovery, Exception? Failure)
+        {
+            public static implicit operator SplitMediaAttempt(LivePhotoSplitResult result) => new(result, null, null);
+        }
+
+        private static async Task<SplitMediaAttempt> SplitRebuiltAsync(
 
             string sourcePath,
 
@@ -283,7 +343,8 @@ namespace LivePhotoBox.Services
             Action<NeutralMediaBundle>? onPrepared = null,
 
             Action<ProductOperationStage>? onStage = null, OutputProfile? targetProfile = null, long? keyTimestampUs = null, Action<IReadOnlyList<NotCarriedItem>>? onTargetNotes = null,
-            Guid operationId = default, Action<IReadOnlyList<string>, string?>? onAssessment = null)
+            Guid operationId = default, Action<IReadOnlyList<string>, string?>? onAssessment = null,
+            ProductOperationOutcome? baseline = null)
 
         {
 
@@ -297,13 +358,16 @@ namespace LivePhotoBox.Services
 
 
 
-            _ = new FileInfo(sourcePath).Length;
+            using var sourceRead = SourceReadAttempt.Open(sourcePath);
+            if (!sourceRead.Succeeded) return new(null, null, new IOException($"Cannot retain split source (system error {sourceRead.Error})."));
 
 
 
-            using var workspace = new MediaWorkspace();
+            var workspaceAttempt = MediaWorkspace.TryCreate(token);
+            if (workspaceAttempt.Failure is { } workspaceFailure) return new(null, null, workspaceFailure);
+            using var workspace = workspaceAttempt.Workspace!;
 
-            NeutralMediaBundle bundle = await new NeutralMediaService().CreateNeutralBundleAsync(
+            var preparation = await new NeutralMediaService().TryCreateNeutralBundleAsync(
 
                 sourcePath,
 
@@ -317,13 +381,29 @@ namespace LivePhotoBox.Services
 
                 token).ConfigureAwait(false);
 
+            if (!preparation.Succeeded)
+            {
+                var diagnostic = ProductOutcomeCompletion.Failure(preparation.Failure!, preparation.Stage, preparation.Execution);
+                var recovered = await ProductRecoveryService.SaveOriginalsAsync(baseline!, diagnostic, outputDirectory,
+                    token, preparation.RecoveryMedia).ConfigureAwait(false);
+                return new(null, recovered, preparation.Failure);
+            }
+            NeutralMediaBundle bundle = preparation.Bundle!;
             onPrepared?.Invoke(bundle);
+
+            async Task<SplitMediaAttempt> RecoverAsync(Exception error, ProductOperationStage failureStage)
+            {
+                var media = bundle.MotionVideo is { } movie ? new[] { bundle.PrimaryImage, movie } : new[] { bundle.PrimaryImage };
+                var diagnostic = ProductOutcomeCompletion.Failure(error, failureStage, bundle.PreparationExecution);
+                var recovered = await ProductRecoveryService.SaveOriginalsAsync(baseline!, diagnostic, outputDirectory, token, media).ConfigureAwait(false);
+                return new(null, recovered, error);
+            }
 
 
 
             if (bundle.MotionVideo == null || !File.Exists(bundle.MotionVideo.Path))
 
-                throw new InvalidDataException("Rebuilt split requires a Native-inspected motion video.");
+                return await RecoverAsync(new InvalidDataException("Rebuilt split requires a Native-inspected motion video."), ProductOperationStage.Inspection).ConfigureAwait(false);
 
 
 
@@ -331,8 +411,10 @@ namespace LivePhotoBox.Services
             var coverNotes = new List<NotCarriedItem>();
             if (targetProfile is not null)
             {
-                long cover = LivePhotoMergeRunnerService.ResolveNeutralCoverTimestamp(bundle.Semantics.Timing,
+                var coverAttempt = LivePhotoMergeRunnerService.TryResolveNeutralCoverTimestamp(bundle.Semantics.Timing,
                     keyTimestampUs, PreservationPolicy.BestEffort, coverNotes);
+                if (coverAttempt.Failure is { } coverFailure) return await RecoverAsync(coverFailure, ProductOperationStage.Selection).ConfigureAwait(false);
+                long cover = coverAttempt.TimestampUs!.Value;
                 bundle = bundle with { Semantics = bundle.Semantics with
                     { Timing = bundle.Semantics.Timing with { CoverTimestampUs = cover } } };
                 onPrepared?.Invoke(bundle);
@@ -374,21 +456,49 @@ namespace LivePhotoBox.Services
 
             {
 
+            if (OutputDirectoryAttempt.Ensure(Path.GetDirectoryName(imageOutputPath)!) is { } directoryFailure)
+                return await RecoverAsync(directoryFailure, ProductOperationStage.Publication).ConfigureAwait(false);
+
             if (targetProfile is not null)
 
             {
 
                 onStage?.Invoke(ProductOperationStage.Writer);
 
-                var receipt = await StructuredTargetWriterService.WriteAsync(bundle, targetProfile,
+                var publication = await StructuredTargetWriterService.TryWriteAsync(bundle, targetProfile,
 
-                    imageOutputPath, workspace.RootDirectory, overwriteExisting, token).ConfigureAwait(false);
+                    imageOutputPath, workspace.RootDirectory, overwriteExisting, token,
+                    publicationPathResolver:(targetNotes,path)=>
+                    {
+                        warnings=ProductExportAssessment.Warnings(bundle,coverNotes.Concat(targetNotes));
+                        if(warnings.Count==0||isolationDirectory is not null)
+                        {
+                            onAssessment?.Invoke(warnings,isolationDirectory);
+                            return path;
+                        }
+                        isolationDirectory=ProductExportAssessment.IsolationDirectory(outputDirectory,operationId);
+                        var isolatedPaths=BuildOutputPaths(sourcePath,isolationDirectory,imageExtension,videoExtension,
+                            null,outputBaseName,false);
+                        reservations.AddRange(isolatedPaths.ReservationKeys);
+                        onAssessment?.Invoke(warnings,isolationDirectory);
+                        return isolatedPaths.ImageOutputPath;
+                    }).ConfigureAwait(false);
 
+                if (publication.Failure is { } publicationFailure)
+                {
+                    var diagnostic = ProductOutcomeCompletion.Failure(publicationFailure, ProductOperationStage.Writer);
+                    var recovered = await ProductRecoveryService.SaveOriginalsAsync(baseline!, diagnostic, outputDirectory,
+                        token, new[] { bundle.PrimaryImage, bundle.MotionVideo! }).ConfigureAwait(false);
+                    return new(null, recovered, publicationFailure);
+                }
+                var receipt = publication.Receipt!;
                 onTargetNotes?.Invoke(coverNotes.Concat(receipt.NotCarried).ToArray());
 
+                if (receipt.VideoPath is null)
+                    return await RecoverAsync(new IOException("Target writer omitted its companion."), ProductOperationStage.Publication).ConfigureAwait(false);
                 return new LivePhotoSplitResult { ImageOutputPath = receipt.FinalPath,
 
-                    VideoOutputPath = receipt.VideoPath ?? throw new IOException("Target writer omitted its companion.") };
+                    VideoOutputPath = receipt.VideoPath };
 
             }
 
@@ -400,7 +510,10 @@ namespace LivePhotoBox.Services
 
             {
 
-                var (_, obs) = bundle.PrimaryImage.CompoundPrimary.Inspect(bundle.PrimaryImage.Path, token);
+                var compoundObservation = bundle.PrimaryImage.CompoundPrimary.TryInspect(bundle.PrimaryImage.Path, token);
+                if (compoundObservation.Failure is { } compoundFailure)
+                    return await RecoverAsync(compoundFailure, ProductOperationStage.Inspection).ConfigureAwait(false);
+                var obs = compoundObservation.Observation;
 
                 if (obs.KnownLength > 0 && obs.KnownLength < (ulong)new FileInfo(bundle.PrimaryImage.Path).Length)
 
@@ -417,6 +530,7 @@ namespace LivePhotoBox.Services
                         byte[] buf = new byte[81920];
 
                         long remaining = checked((long)obs.KnownLength);
+                        long written = 0;
 
                         while (remaining > 0)
 
@@ -426,9 +540,11 @@ namespace LivePhotoBox.Services
 
                             int r = src.Read(buf, 0, toRead);
 
-                            if (r <= 0) throw new EndOfStreamException("Known primary ended before its inspected extent.");
+                            if (r <= 0) return await RecoverAsync(new EndOfStreamException("Known primary ended before its inspected extent."), ProductOperationStage.Extraction).ConfigureAwait(false);
 
-                            dst.Write(buf, 0, r);
+                            if (LivePhotoBox.Interop.TransactionStreamWriteAttempt.Write(dst, buf.AsSpan(0, r), token, written) is { } writeFailure)
+                                return await RecoverAsync(writeFailure, ProductOperationStage.Extraction).ConfigureAwait(false);
+                            written += r;
 
                             remaining -= r;
 
@@ -436,7 +552,9 @@ namespace LivePhotoBox.Services
 
                     }
 
-                    string sha = await workspace.ComputeFileSha256Async(cleanPrimaryPath, token).ConfigureAwait(false);
+                    var hash = await LivePhotoBox.Interop.MediaFileHashAttempt.ComputeAsync(cleanPrimaryPath, token).ConfigureAwait(false);
+                    if (hash.Failure is { } hashFailure) return await RecoverAsync(hashFailure, ProductOperationStage.Extraction).ConfigureAwait(false);
+                    string sha = hash.Sha256!;
 
                     var fileIdentity = WindowsFileIdentity.Capture(cleanPrimaryPath);
 
@@ -456,11 +574,15 @@ namespace LivePhotoBox.Services
 
                  string.Equals(Path.GetFullPath(videoOutputPath), Path.GetFullPath(secondaryPath), StringComparison.OrdinalIgnoreCase)))
 
-                throw new IOException("Target publication cannot overwrite an original companion.");
+                return new(null, baseline! with { Status = ProductOperationStatus.Failed,
+                    CompletionKind = ProductCompletionKind.NoOutput,
+                    Diagnostic = new() { Stage = ProductOperationStage.Publication, Category = ProductFailureCategory.Io,
+                        Message = "Target publication cannot overwrite an original companion." } },
+                    new IOException("Target publication cannot overwrite an original companion."));
 
 
 
-            await PublishSplitOutputsAsync(
+            var splitPublication=await PublishSplitOutputsAsync(
 
                 sourceImagePath,
 
@@ -473,8 +595,13 @@ namespace LivePhotoBox.Services
                 overwriteExisting,
 
                 token).ConfigureAwait(false);
-
-
+            if(splitPublication.Failure is { } splitPublicationFailure)
+            {
+                var diagnostic=ProductOutcomeCompletion.Failure(splitPublicationFailure,ProductOperationStage.Publication,bundle.PreparationExecution);
+                var recovered=await ProductRecoveryService.SaveOriginalsAsync(baseline!,diagnostic,outputDirectory,token,
+                    new[]{bundle.PrimaryImage,bundle.MotionVideo}).ConfigureAwait(false);
+                return new(null,recovered,splitPublicationFailure);
+            }
 
             return new LivePhotoSplitResult
 
@@ -638,7 +765,7 @@ namespace LivePhotoBox.Services
 
 
 
-        private static Task PublishSplitOutputsAsync(
+        private static Task<WindowsSplitOutputPublisher.PublicationAttempt> PublishSplitOutputsAsync(
 
             string imageSourcePath,
 
@@ -654,7 +781,7 @@ namespace LivePhotoBox.Services
 
         {
 
-            return WindowsSplitOutputPublisher.PublishAsync(
+            return WindowsSplitOutputPublisher.TryPublishAsync(
 
                 imageSourcePath,
 
@@ -738,7 +865,8 @@ namespace LivePhotoBox.Services
 
             string targetDir = subDir != null ? Path.Combine(outputDirectory, subDir) : outputDirectory;
 
-            Directory.CreateDirectory(targetDir);
+            // The product pipeline creates this directory through its result-based
+            // boundary. Name allocation itself performs no filesystem mutation.
 
 
 

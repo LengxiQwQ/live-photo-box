@@ -13,6 +13,8 @@
  */
 
 using System;
+using System.Diagnostics;
+using System.Threading;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -26,6 +28,22 @@ namespace LivePhotoBox.Controls
     /// </summary>
     public static class AdaptiveFileName
     {
+        private static readonly FileNameFitCache Fits = new(2048);
+        private static readonly Lazy<Windows.UI.ViewManagement.UISettings> UiSettings = new(() => new());
+        private static long _fitCount, _fitTicks, _fitHits;
+        internal static long FitCount => Interlocked.Read(ref _fitCount);
+        internal static long FitTicks => Interlocked.Read(ref _fitTicks);
+        internal static long FitHits => Interlocked.Read(ref _fitHits);
+
+        // Opt in only for the three task queues. Editor behavior is unchanged.
+        public static readonly DependencyProperty CacheFitProperty = DependencyProperty.RegisterAttached(
+            "CacheFit", typeof(bool), typeof(AdaptiveFileName), new PropertyMetadata(false, OnCacheFitChanged));
+        public static bool GetCacheFit(DependencyObject obj) => (bool)obj.GetValue(CacheFitProperty);
+        public static void SetCacheFit(DependencyObject obj, bool value) => obj.SetValue(CacheFitProperty, value);
+        private static void OnCacheFitChanged(DependencyObject obj, DependencyPropertyChangedEventArgs args)
+        {
+            if (obj is TextBlock block && block.GetValue(StateProperty) is TrimState state) Refresh(block, state);
+        }
         /// <summary>扩展名前保留的字符数（与 FileNameFormatter.Truncate 保持一致）</summary>
         private const int KeepTailChars = 4;
 
@@ -220,8 +238,35 @@ namespace LivePhotoBox.Controls
                     return;
                 }
 
+                bool cache = GetCacheFit(textBlock);
+                var key = cache ? new FileNameFitKey(full, available, textBlock.FontFamily.Source,
+                    textBlock.FontSize, textBlock.FontWeight.Weight, (int)textBlock.FontStyle,
+                    (int)textBlock.FontStretch, textBlock.CharacterSpacing, textBlock.Language,
+                    (int)textBlock.FlowDirection, textBlock.IsTextScaleFactorEnabled,
+                    textBlock.IsTextScaleFactorEnabled ? UiSettings.Value.TextScaleFactor : 1,
+                    textBlock.XamlRoot?.RasterizationScale ?? 1) : default;
+                if (cache && Fits.TryGet(key, out string cached))
+                {
+                    Interlocked.Increment(ref _fitHits);
+                    ApplyText(textBlock, cached);
+                    state.LastWidth = available;
+                    return;
+                }
                 SyncProbeStyle(textBlock, state.Probe);
+                if (cache)
+                {
+                    state.Probe.Language = textBlock.Language;
+                    state.Probe.FlowDirection = textBlock.FlowDirection;
+                    state.Probe.IsTextScaleFactorEnabled = textBlock.IsTextScaleFactorEnabled;
+                }
+                long started = cache ? Stopwatch.GetTimestamp() : 0;
                 string display = FitToWidth(state.Probe, full, available);
+                if (cache)
+                {
+                    Interlocked.Increment(ref _fitCount);
+                    Interlocked.Add(ref _fitTicks, Stopwatch.GetTimestamp() - started);
+                    Fits.Store(key, display);
+                }
                 ApplyText(textBlock, display);
                 state.LastWidth = available;
             }

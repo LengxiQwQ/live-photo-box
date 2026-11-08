@@ -20,7 +20,13 @@ public sealed record WindowsFileIdentity
     internal static WindowsFileIdentity Capture(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        if (TryCapture(path,out WindowsFileIdentity? identity,out int error)) return identity!;
+        throw new System.ComponentModel.Win32Exception(error,
+            $"Unable to open '{path}' to capture its Windows file identity.");
+    }
 
+    internal static bool TryCapture(string path, out WindowsFileIdentity? identity, out int error)
+    {
         using SafeFileHandle handle = CreateFileW(
             path,
             GenericRead,
@@ -31,12 +37,10 @@ public sealed record WindowsFileIdentity
             IntPtr.Zero);
         if (handle.IsInvalid)
         {
-            throw new System.ComponentModel.Win32Exception(
-                Marshal.GetLastWin32Error(),
-                $"Unable to open '{path}' to capture its Windows file identity.");
+            error=Marshal.GetLastWin32Error();identity=null;return false;
         }
 
-        return Capture(handle);
+        return TryCapture(handle,out identity,out error);
     }
 
     /// <summary>
@@ -52,20 +56,28 @@ public sealed record WindowsFileIdentity
             throw new ArgumentException("A valid open file handle is required to capture identity.", nameof(handle));
         }
 
+        if (TryCapture(handle,out WindowsFileIdentity? identity,out int error)) return identity!;
+        throw new System.ComponentModel.Win32Exception(error,
+            "Unable to capture the Windows file identity from the open handle.");
+    }
+
+    internal static bool TryCapture(SafeFileHandle handle, out WindowsFileIdentity? identity, out int error)
+    {
+        identity=null;
+        if(handle is null || handle.IsInvalid) { error=6;return false; }
         if (!GetFileInformationByHandle(handle, out ByHandleFileInformation info))
         {
-            throw new System.ComponentModel.Win32Exception(
-                Marshal.GetLastWin32Error(),
-                "Unable to capture the Windows file identity from the open handle.");
+            error=Marshal.GetLastWin32Error();return false;
         }
 
-        return new WindowsFileIdentity
+        identity=new WindowsFileIdentity
         {
             VolumeSerialNumber = info.VolumeSerialNumber,
             FileIndex = ((ulong)info.FileIndexHigh << 32) | info.FileIndexLow,
             LinkCount = info.NumberOfLinks,
             FileAttributes = info.FileAttributes
         };
+        error=0;return true;
     }
 
     internal bool Matches(WindowsFileIdentity other) => this == other;
@@ -94,8 +106,19 @@ public sealed record WindowsFileIdentity
         public uint FileIndexLow;
     }
 
+    private static SafeFileHandle CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile) =>
+        NativeCreateFileW(LivePhotoBox.Interop.WindowsNativePath.Extended(fileName), desiredAccess, shareMode,
+            securityAttributes, creationDisposition, flagsAndAttributes, templateFile);
+
     [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern SafeFileHandle CreateFileW(
+    private static extern SafeFileHandle NativeCreateFileW(
         string fileName,
         uint desiredAccess,
         uint shareMode,

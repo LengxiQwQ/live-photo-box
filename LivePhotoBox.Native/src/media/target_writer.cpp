@@ -1,3 +1,5 @@
+#include "platform/windows_readonly_mapping.h"
+#include <objbase.h>
 #include "media/target_writer.h"
 #include "media/media_inspector.h"
 #include "media/target_video_observation.h"
@@ -139,7 +141,7 @@ lpb_result hash_reader(lpb_context* context,const lpb::random_access_reader& rea
     hash.finalize(output);return LPB_RESULT_OK;
 }
 lpb_result observe_extended_primary(lpb_context* context,lpb_target_writer_session& session,
-    const std::vector<uint8_t>& primary) {
+    std::span<const uint8_t> primary) {
     std::string error;
     auto& facts=session.primary_facts;
     if(!(session.compound?lpb::media::validate_compound_primary(primary,*session.compound,facts,error):
@@ -239,13 +241,19 @@ lpb_result observe_extended_primary(lpb_context* context,lpb_target_writer_sessi
     return LPB_RESULT_OK;
 }
 lpb_result observe_inputs(lpb_context* context,lpb_target_writer_session& session) {
-    std::vector<uint8_t> primary;
-    if(!session.inputs[0].read_all_bounded(4,32ULL*1024*1024,primary)) {
-        set_error(context,"[Unsupported] Writer primary rewrite snapshot exceeds32MiB; video remains streaming.");
-        return LPB_RESULT_UNSUPPORTED;
+    windows_readonly_mapping primary_mapping;
+    if(!primary_mapping.open(session.inputs[0])) {
+        set_error(context,"[IO] Writer cannot map its pinned primary object.");
+        return LPB_RESULT_INTERNAL_ERROR;
     }
-    auto result=session.extended?observe_extended_primary(context,session,primary):
-        lpb::media::observe_target_writer_primary(context,primary);
+    const auto primary = primary_mapping.bytes();
+    lpb_result result;
+    if(session.extended) result=observe_extended_primary(context,session,primary);
+    else {
+        std::vector<uint8_t> legacy;
+        if(!session.inputs[0].read_all_bounded(4,32ULL*1024*1024,legacy))return LPB_RESULT_UNSUPPORTED;
+        result=lpb::media::observe_target_writer_primary(context,legacy);
+    }
     if(result!=LPB_RESULT_OK)return result;
     if(session.ordinary_present) {
         std::vector<uint8_t> raw;lpb::media::ordinary_metadata::observed_capsule existing;
@@ -474,8 +482,16 @@ bool expand_owned_mpf(std::vector<uint8_t>& primary,const std::vector<lpb::media
     return true;
 }
 lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_session& session,std::vector<uint8_t>& serialized) {
-    std::vector<uint8_t> primary;
-    if(!session.inputs[0].read_all_bounded(4,32ULL*1024*1024,primary))return LPB_RESULT_UNSUPPORTED;
+    // Observe the pinned input through paged read-only storage. Allocate only
+    // rewritten output bytes when a metadata/asset transformation needs them.
+    windows_readonly_mapping source_mapping;
+    if(!source_mapping.open(session.inputs[0])) {
+        set_error(context,"[Unsupported] Prepared primary exceeds the bounded mapped image budget or cannot be mapped.");
+        return LPB_RESULT_UNSUPPORTED;
+    }
+    std::span<const uint8_t> primary=source_mapping.bytes();
+    std::vector<uint8_t> owned;
+    constexpr uint64_t primary_budget=64ULL*1024*1024;
     uint64_t encoding_boundary=session.primary_facts.encoding_boundary;
     bool removed_samsung_metadata=false;
     const bool best_effort = (session.request.reserved0 == 1);
@@ -489,7 +505,7 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
             if(lpb::media::jpeg_gainmap_mpf::parse_jpeg(stripped, pinfo) && pinfo.mpf_status == lpb::media::jpeg_gainmap_mpf::status::present && pinfo.mpf.image_count == 2) {
                 lpb::media::jpeg_gainmap_mpf::patch_layout(stripped, pinfo.mpf, pinfo.eoi_end, pinfo.eoi_end, pinfo.mpf.entries[1].size);
             }
-            primary = std::move(stripped);
+            owned=std::move(stripped); primary=owned;
             session.primary_facts.samsung_metadata = {};
             removed_samsung_metadata=true;
             lpb::media::jpeg_gainmap_mpf::jpeg_info jinfo;
@@ -511,11 +527,11 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
             return LPB_RESULT_INVALID_ARGUMENT;
         std::string xml,error;std::vector<uint8_t> rebuilt;
         if(!lpb::media::remove_micamera_asset_description(session.primary_facts.standard_xml,xml))return LPB_RESULT_UNSUPPORTED;
-        primary.resize(static_cast<size_t>(encoding_boundary));
+        primary=primary.first(static_cast<size_t>(encoding_boundary));
         if(lpb::metadata::replace_standard_jpeg_xmp_unchecked(primary,
             std::span<const uint8_t>(reinterpret_cast<const uint8_t*>(xml.data()),xml.size()),rebuilt,error)!=LPB_RESULT_OK)
             return LPB_RESULT_INVALID_ARGUMENT;
-        primary=std::move(rebuilt);
+        owned=std::move(rebuilt); primary=owned;
         lpb::media::target_primary_observation observed;
         if(!lpb::media::observe_target_primary(primary,observed,error)||!observed.auxiliaries.empty())return LPB_RESULT_INVALID_ARGUMENT;
         session.primary_facts=std::move(observed);encoding_boundary=session.primary_facts.encoding_boundary;
@@ -529,7 +545,7 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
         const bool inserted=heif?lpb::media::ordinary_metadata::insert_heif_capsule(primary,raw,decorated)
             :lpb::media::ordinary_metadata::insert_jpeg_capsule(primary,raw,decorated);
         if(!inserted){set_error(context,"[Unsupported] Ordinary metadata cannot be represented without losing original container ownership.");return LPB_RESULT_UNSUPPORTED;}
-        primary=std::move(decorated);
+        owned=std::move(decorated); primary=owned;
         if(!heif){lpb::media::jpeg_gainmap_mpf::jpeg_info jpeg;if(!lpb::media::jpeg_gainmap_mpf::parse_jpeg(primary,jpeg))return LPB_RESULT_INVALID_ARGUMENT;encoding_boundary=jpeg.eoi_end;}
     }
     lpb::target::google_xmp_request request;
@@ -559,7 +575,7 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
                 if(!lpb::containers::append_original_file_resource(primary,bytes,decorated,resolved,error)) {
                     set_error(context,error.c_str());return LPB_RESULT_INVALID_ARGUMENT;
                 }
-                primary=std::move(decorated);
+                owned=std::move(decorated); primary=owned;
             }
             resolved_ids.push_back(resolved);
         }
@@ -642,7 +658,9 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
                 [](const auto& actual){return actual.semantic=="Original";}))return LPB_RESULT_UNSUPPORTED;
             std::vector<uint8_t> bytes;
             if(!session.inputs[session.auxiliary_input_indices[index]].read_all_bounded(4,32ULL*1024*1024,bytes))return LPB_RESULT_UNSUPPORTED;
-            primary.insert(primary.end(),bytes.begin(),bytes.end());
+            if(bytes.size()>primary_budget || primary.size()>primary_budget-bytes.size())return LPB_RESULT_UNSUPPORTED;
+            if(primary.data()!=owned.data())owned.assign(primary.begin(),primary.end());
+            owned.insert(owned.end(),bytes.begin(),bytes.end()); primary=owned;
         }
         request.auxiliary_items.push_back({std::string(semantic),"image/jpeg",found->byte_length,0,true,false});
     }
@@ -658,9 +676,13 @@ lpb_result serialize_extended_primary(lpb_context* context,lpb_target_writer_ses
         }
         request.primary_padding=available;
     }
-    if(!ordinary_mpf&&!request.auxiliary_items.empty()&&!expand_owned_mpf(primary,request.auxiliary_items,request.primary_padding)) {
-        set_error(context, "[Stage] expand_owned_mpf failed.");
-        return LPB_RESULT_INVALID_ARGUMENT;
+    if(!ordinary_mpf&&!request.auxiliary_items.empty()) {
+        if(primary.data()!=owned.data())owned.assign(primary.begin(),primary.end());
+        if(!expand_owned_mpf(owned,request.auxiliary_items,request.primary_padding)) {
+            set_error(context, "[Stage] expand_owned_mpf failed.");
+            return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        primary=owned;
     }
     return lpb::target::build_google_primary(context,primary,request,serialized,&session.comment_mapping);
 }
@@ -692,9 +714,11 @@ lpb_result stage_pair(lpb_context* context,lpb_target_writer_session& s) {
     if(!s.request.reserved0&&std::any_of(s.auxiliaries.begin(),s.auxiliaries.end(),[](const auto& a){return a.selector_kind==3;})) {
         set_error(context,"[Unsupported] Strict dual-file output cannot omit MiCamera private assets");return LPB_RESULT_UNSUPPORTED;
     }
-    std::vector<uint8_t> image,video,image_out,video_out;
-    if(!s.inputs[0].read_all_bounded(4,32ULL*1024*1024,image)||
-       !s.inputs[1].read_all_bounded(8,512ULL*1024*1024,video))return LPB_RESULT_UNSUPPORTED;
+    windows_readonly_mapping image_mapping;
+    if(!image_mapping.open(s.inputs[0]))return LPB_RESULT_UNSUPPORTED;
+    const auto image=image_mapping.bytes();
+    std::vector<uint8_t> video,image_out,video_out;
+    if(!s.inputs[1].read_all_bounded(8,512ULL*1024*1024,video))return LPB_RESULT_UNSUPPORTED;
     if(s.request.target_profile==LPB_TARGET_APPLE) {
         lpb::media::target_video_observation source;lpb::media::target_video_diagnostic diagnostic;
         if(!lpb::media::observe_target_video(s.inputs[1].reader(),false,source,diagnostic))return LPB_RESULT_INVALID_ARGUMENT;
@@ -1000,13 +1024,15 @@ lpb_result LPB_CALL lpb_target_writer_stage_v1(lpb_context* context,lpb_target_w
                 const bool samsung=session->request.target_profile==LPB_TARGET_SAMSUNG;
                 if(samsung) {
                     std::string error;
-                    if(!session->inputs[0].read_all_bounded(4,32ULL*1024*1024,primary))result=LPB_RESULT_UNSUPPORTED;
-                    else if(!lpb::target::prepare_samsung_target(context,primary,session->primary_facts,session->inputs[1].size(),session->request.target_version,
+                    windows_readonly_mapping mapped;
+                    if(!mapped.open(session->inputs[0]))result=LPB_RESULT_INTERNAL_ERROR;
+                    else if(!lpb::target::prepare_samsung_target(context,mapped.bytes(),session->primary_facts,session->inputs[1].size(),session->request.target_version,
                         session->request.cover_timestamp_present!=0,session->request.cover_timestamp_us,serialized,session->samsung_suffix,error)) {
                         set_error(context,error.c_str());result=LPB_RESULT_INVALID_ARGUMENT;
                     }
                 }else if(huawei) {
-                    if(!session->inputs[0].read_all_bounded(4,32ULL*1024*1024,serialized))result=LPB_RESULT_INTERNAL_ERROR;
+                    if(session->primary_facts.container != LPB_IMAGE_CONTAINER_JPEG &&
+                        !session->inputs[0].read_all_bounded(4,32ULL*1024*1024,serialized))result=LPB_RESULT_INTERNAL_ERROR;
                 }
                 else if(session->extended)result=serialize_extended_primary(context,*session,serialized);
                 else if(!session->inputs[0].read_all_bounded(4,32ULL*1024*1024,primary))result=LPB_RESULT_INTERNAL_ERROR;
@@ -1055,6 +1081,15 @@ lpb_result LPB_CALL lpb_target_writer_stage_v1(lpb_context* context,lpb_target_w
                     const auto destination=utf8_to_path(session->request.staging_directory_utf8)/L"target-stage.bin";
                     if(!session->stage->create(destination,L"lpb-target-",L".stage",true)||!session->stage->write_all(serialized))result=LPB_RESULT_INTERNAL_ERROR;
                     std::array<uint8_t,65536> buffer{};
+                    if(huawei && session->primary_facts.container == LPB_IMAGE_CONTAINER_JPEG) {
+                        for(uint64_t at=0;result==LPB_RESULT_OK&&at<session->inputs[0].size();) {
+                            result=check_cancel(context);if(result!=LPB_RESULT_OK)break;
+                            const size_t count=static_cast<size_t>(std::min<uint64_t>(buffer.size(),session->inputs[0].size()-at));
+                            if(!session->inputs[0].reader().read_exact(at,{buffer.data(),count})||
+                                !session->stage->write_all({buffer.data(),count}))result=LPB_RESULT_INTERNAL_ERROR;
+                            at+=count;
+                        }
+                    }
                     for(uint64_t at=0;result==LPB_RESULT_OK&&at<movie_length;) {
                         result=check_cancel(context);if(result!=LPB_RESULT_OK)break;
                         const size_t n=static_cast<size_t>(std::min<uint64_t>(buffer.size(),movie_length-at));

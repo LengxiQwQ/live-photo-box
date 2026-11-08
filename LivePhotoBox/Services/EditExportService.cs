@@ -1,4 +1,4 @@
-/*
+﻿/*
  * EditExportService.cs
  *
  * Edit Page 的专用媒体导出服务（UI-only Export Service）。
@@ -55,6 +55,9 @@ public interface IEditExportProgressNotifier
     /// <summary>导出失败：显示错误图标与失败文本，记录错误详情与输出目录</summary>
     void NotifyFailure(string failureText, string errorMessage, string? outputDir = null);
 
+    /// <summary>导出有清理限制时显示警告和实际输出位置。</summary>
+    void NotifyWarning(string message, string? outputDir);
+
     /// <summary>导出守卫拦截：显示警告说明文本</summary>
     void NotifyGuardError(string errorText);
 
@@ -75,6 +78,110 @@ public sealed class EditExportService : IDisposable
     private IMediaWorkspace? _exportMediaWorkspace;
     private bool _disposed;
 
+    private static readonly AsyncLocal<ConcurrentBag<string>?> s_exportWarnings = new();
+
+    public Task ExportCurrentFrameAsync(TimelineFrame? frame, bool isSelectedLivePhoto,
+        bool isSelectedFileVideo, string? primaryPhotoPath, IEditExportProgressNotifier progress,
+        CancellationToken cancellationToken = default) =>
+        RunWithCleanupReportingAsync(progress, new[] { primaryPhotoPath, frame?.FullFramePath }.Where(x => !string.IsNullOrEmpty(x)).Select(x => x!).ToArray(),
+            p => ExportCurrentFrameAsyncCore(frame, isSelectedLivePhoto, isSelectedFileVideo, primaryPhotoPath, p, cancellationToken));
+
+    public Task ExportPhotoAsSingleFrameAsync(string? photoPath, IEditExportProgressNotifier progress,
+        CancellationToken cancellationToken = default) =>
+        RunWithCleanupReportingAsync(progress, photoPath == null ? [] : [photoPath],
+            p => ExportPhotoAsSingleFrameAsyncCore(photoPath, p, cancellationToken));
+
+    public Task ExportAllFramesAsync(IReadOnlyList<TimelineFrame> frames, string? photoPath,
+        IEditExportProgressNotifier progress, CancellationToken cancellationToken = default) =>
+        RunWithCleanupReportingAsync(progress, frames.Select(x => x.FullFramePath).Append(photoPath).Where(x => !string.IsNullOrEmpty(x)).Select(x => x!).ToArray(),
+            p => ExportAllFramesAsyncCore(frames, photoPath, p, cancellationToken));
+
+    public Task ExportVideoAsync(bool isLivePhoto, string? primaryPath, LivePhotoType livePhotoType,
+        string? pairedVideoPath, IEditExportProgressNotifier progress, CancellationToken cancellationToken = default) =>
+        RunWithCleanupReportingAsync(progress, new[] { primaryPath, pairedVideoPath }.Where(x => x != null).Select(x => x!).ToArray(),
+            p => ExportVideoAsyncCore(isLivePhoto, primaryPath, livePhotoType, pairedVideoPath, p, cancellationToken));
+
+    private static async Task RunWithCleanupReportingAsync(IEditExportProgressNotifier progress,
+        IReadOnlyList<string> inputs, Func<IEditExportProgressNotifier, Task> operation)
+    {
+        var buffered = new CleanupProgress(progress);
+        var previousWarnings = s_exportWarnings.Value;
+        var warnings = new ConcurrentBag<string>();
+        s_exportWarnings.Value = warnings;
+        using var scope = WorkspaceCleanupScope.Begin();
+        Exception? failure = null;
+        try { await operation(buffered); }
+        catch (Exception ex) { failure = ex; }
+        finally { s_exportWarnings.Value = previousWarnings; }
+
+        var allWarnings = scope.Failures.Concat(warnings).Distinct().ToList();
+        if (buffered.WarningMessage is { } bufferedWarning) allWarnings.Add(bufferedWarning);
+        string? outputDirectory = buffered.OutputDirectory;
+        var outputs = scope.PublishedOutputs.ToArray();
+        outputDirectory ??= outputs.Length > 0 ? Path.GetDirectoryName(outputs[0].Path) : null;
+        bool hasOutputs = outputs.Length > 0;
+        if (allWarnings.Count > 0)
+        {
+            if (outputs.Length > 0 && outputDirectory is not null)
+            {
+                hasOutputs = true;
+                try
+                {
+                    var isolation = await CleanupOutputIsolation.TryIsolateAsync(outputs, inputs, outputDirectory, CancellationToken.None);
+                    hasOutputs = isolation.Outputs.Count > 0;
+                    if (isolation.Failure != null) allWarnings.Add(isolation.Failure.Message);
+                    if (isolation.Directory != null) outputDirectory = isolation.Directory;
+                    if (isolation.Outputs.Count > 0)
+                        allWarnings.Add("实际输出：" + string.Join(", ", isolation.Outputs.Select(x => x.Path)));
+                }
+                catch (Exception ex)
+                {
+                    allWarnings.Add("输出隔离迁移受限：" + ex.Message);
+                    allWarnings.Add("实际输出：" + string.Join(", ", outputs.Select(x => x.Path)));
+                }
+            }
+            else allWarnings.Add("本次未确认生成输出。");
+        }
+        scope.Dispose();
+        if (allWarnings.Count > 0)
+        {
+            if (failure != null) allWarnings.Insert(0, failure.Message);
+            if (buffered.FailureMessage != null) allWarnings.Insert(0, buffered.FailureMessage);
+            if (!hasOutputs && (failure != null || buffered.FailureMessage != null))
+                progress.NotifyFailure(ResourceService.GetString("EditPage_ExportCurrentFrameFailed"), string.Join(Environment.NewLine, allWarnings));
+            else
+                progress.NotifyWarning(string.Join(Environment.NewLine, allWarnings), outputDirectory);
+        }
+        else if (failure != null)
+            progress.NotifyFailure(ResourceService.GetString("EditPage_ExportCurrentFrameFailed"), failure.Message, outputDirectory);
+        else buffered.Flush();
+        progress.NotifyFinalize();
+    }
+
+    private sealed class CleanupProgress(IEditExportProgressNotifier inner) : IEditExportProgressNotifier
+    {
+        private string? _completion;
+        private string? _failureTitle;
+        private string? _guard;
+        public string? FailureMessage { get; private set; }
+        public string? WarningMessage { get; private set; }
+        public string? OutputDirectory { get; private set; }
+        public void NotifyBegin(string text, string? prefix = null) => inner.NotifyBegin(text, prefix);
+        public void NotifyProgress(int completed, int total) => inner.NotifyProgress(completed, total);
+        public void NotifyComplete(string text, string? outputDir) { _completion = text; OutputDirectory = outputDir; }
+        public void NotifyFailure(string text, string error, string? outputDir = null) { _failureTitle = text; FailureMessage = error; OutputDirectory = outputDir; }
+        public void NotifyWarning(string message, string? outputDir) { WarningMessage = message; OutputDirectory = outputDir; }
+        public void NotifyGuardError(string text) => _guard = text;
+        public void NotifyFinalize() { }
+        public void Flush()
+        {
+            if (_failureTitle != null) inner.NotifyFailure(_failureTitle, FailureMessage!, OutputDirectory);
+            else if (WarningMessage != null) inner.NotifyWarning(WarningMessage, OutputDirectory);
+            else if (_guard != null) inner.NotifyGuardError(_guard);
+            else if (_completion != null) inner.NotifyComplete(_completion, OutputDirectory);
+        }
+    }
+
     // ══════════════════════════════════════════════════════════════
     //  单帧导出
     // ══════════════════════════════════════════════════════════════
@@ -83,7 +190,7 @@ public sealed class EditExportService : IDisposable
     /// 导出当前帧：弹出多格式另存为窗口，用户选格式后按需转换。
     /// 支持 JPEG / WebP / BMP / TIFF / HEIC。
     /// </summary>
-    public async Task ExportCurrentFrameAsync(
+    private async Task ExportCurrentFrameAsyncCore(
         TimelineFrame? frame,
         bool isSelectedLivePhoto,
         bool isSelectedFileVideo,
@@ -94,7 +201,7 @@ public sealed class EditExportService : IDisposable
         // 不完整实况（仅照片，无时间轴）：直接导出照片文件本身
         if (frame == null && isSelectedLivePhoto && !isSelectedFileVideo)
         {
-            await ExportPhotoAsSingleFrameAsync(primaryPhotoPath, progress, cancellationToken);
+            await ExportPhotoAsSingleFrameAsyncCore(primaryPhotoPath, progress, cancellationToken);
             return;
         }
 
@@ -114,7 +221,16 @@ public sealed class EditExportService : IDisposable
                     if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
                     {
                         if (string.IsNullOrEmpty(primaryPhotoPath) || !File.Exists(primaryPhotoPath)) return;
-                        byte[]? origBytes = EditTimingService.ReadOriginalPhotoBytes(primaryPhotoPath, cancellationToken);
+                        var originalPhoto = await EditTimingService.TryReadOriginalPhotoBytesAsync(primaryPhotoPath, cancellationToken);
+                        foreach (var warning in originalPhoto.Warnings) s_exportWarnings.Value?.Add(warning);
+                        if (originalPhoto.Failure is { } originalReadFailure)
+                        {
+                            originalFailure = originalReadFailure;
+                            if (originalReadFailure is not OperationCanceledException)
+                                progress.NotifyFailure(ResourceService.GetString("EditPage_ExportCurrentFrameFailed"), originalReadFailure.Message);
+                            return;
+                        }
+                        byte[]? origBytes = originalPhoto.Bytes;
                         if (origBytes == null || origBytes.Length == 0) return;
                         preparedSourceArtifact = await ExportSourcePreparation.PrepareOriginalBytesAsync(
                             origBytes,
@@ -164,11 +280,23 @@ public sealed class EditExportService : IDisposable
 
                 if (needsConversion)
                 {
-                    await ImageFormatService.ConvertImageAsync(sourcePath, targetPath, quality: 80, token: cancellationToken);
+                    if (await ImageFormatService.TryConvertImageAsync(sourcePath, targetPath, quality: 80, token: cancellationToken) is { } conversionFailure)
+                    {
+                        originalFailure = conversionFailure;
+                        if (conversionFailure is not OperationCanceledException)
+                            progress.NotifyFailure(ResourceService.GetString("EditPage_ExportCurrentFrameFailed"),
+                                conversionFailure.Message, Path.GetDirectoryName(targetPath));
+                        return;
+                    }
                 }
                 else
                 {
-                    await PublishExportCopyAsync(sourcePath, targetPath, MediaArtifactKind.PrimaryImage, true, cancellationToken);
+                    if (await TryPublishExportCopyAsync(sourcePath, targetPath, MediaArtifactKind.PrimaryImage, true, cancellationToken) is { } copyFailure)
+                    {
+                        originalFailure = copyFailure;
+                        if (copyFailure is not OperationCanceledException) progress.NotifyFailure(ResourceService.GetString("EditPage_ExportCurrentFrameFailed"), copyFailure.Message, Path.GetDirectoryName(targetPath));
+                        return;
+                    }
                 }
 
                 LogService.FileOp(
@@ -242,7 +370,7 @@ public sealed class EditExportService : IDisposable
     /// <summary>
     /// 不完整实况（仅照片，无时间轴）：直接将照片文件作为单帧导出。
     /// </summary>
-    public async Task ExportPhotoAsSingleFrameAsync(
+    private async Task ExportPhotoAsSingleFrameAsyncCore(
         string? photoPath,
         IEditExportProgressNotifier progress,
         CancellationToken cancellationToken = default)
@@ -262,11 +390,19 @@ public sealed class EditExportService : IDisposable
             bool needsConversion = ImageFormatService.NeedsConversion(photoPath, targetExt);
             if (needsConversion)
             {
-                await ImageFormatService.ConvertImageAsync(photoPath, targetPath, quality: 80, token: cancellationToken);
+                if (await ImageFormatService.TryConvertImageAsync(photoPath, targetPath, quality: 80, token: cancellationToken) is { } conversionFailure)
+                {
+                    if (conversionFailure is not OperationCanceledException) progress.NotifyFailure(ResourceService.GetString("EditPage_ExportCurrentFrameFailed"), conversionFailure.Message, Path.GetDirectoryName(targetPath));
+                    return;
+                }
             }
             else
             {
-                await PublishExportCopyAsync(photoPath, targetPath, MediaArtifactKind.PrimaryImage, true, cancellationToken);
+                if (await TryPublishExportCopyAsync(photoPath, targetPath, MediaArtifactKind.PrimaryImage, true, cancellationToken) is { } copyFailure)
+                {
+                    if (copyFailure is not OperationCanceledException) progress.NotifyFailure(ResourceService.GetString("EditPage_ExportCurrentFrameFailed"), copyFailure.Message, Path.GetDirectoryName(targetPath));
+                    return;
+                }
             }
             LogService.FileOp($"ExportPhotoAsSingleFrame: {Path.GetFileName(photoPath)} -> {targetPath}", LogLevel.Info);
             progress.NotifyComplete(
@@ -294,7 +430,7 @@ public sealed class EditExportService : IDisposable
     /// 导出所有帧：先弹出选项对话框 → 文件夹选择器 → 多线程并行导出所有帧，
     /// 更新进度 UI，导出完成后显示汇总结果。
     /// </summary>
-    public async Task ExportAllFramesAsync(
+    private async Task ExportAllFramesAsyncCore(
         IReadOnlyList<TimelineFrame> frames,
         string? photoPath,
         IEditExportProgressNotifier progress,
@@ -322,18 +458,19 @@ public sealed class EditExportService : IDisposable
             return;
         }
 
-        try
+        if (EditExportMetadataPolicy.RequestFailure(options.CopyExif, cancellationToken) is { } requestFailure)
         {
-            EditExportMetadataPolicy.ValidateRequest(options.CopyExif, cancellationToken);
-        }
-        catch (Exception ex) when (ex is NotSupportedException or OperationCanceledException)
-        {
-            progress.NotifyFailure(ResourceService.GetString("EditPage_ExportAllFramesFailed"), ex.Message);
+            if (requestFailure is not OperationCanceledException)
+                progress.NotifyFailure(ResourceService.GetString("EditPage_ExportAllFramesFailed"), requestFailure.Message);
             return;
         }
 
         var exportDir = GetUniqueFolderPath(options.ExportPath, options.FolderName);
-        Directory.CreateDirectory(exportDir);
+        if (OutputDirectoryAttempt.Ensure(exportDir) is { } directoryFailure)
+        {
+            progress.NotifyFailure(ResourceService.GetString("EditPage_ExportAllFramesFailed"), directoryFailure.Message);
+            return;
+        }
 
         LogService.FileOp(
             $"ExportAllFrames started: {frames.Count} frames -> '{exportDir}'",
@@ -355,8 +492,7 @@ public sealed class EditExportService : IDisposable
         {
             foreach (var frame in frames)
             {
-                token.ThrowIfCancellationRequested();
-                await semaphore.WaitAsync(token);
+                if (!await ResultCancellation.EnterAsync(semaphore, token)) break;
 
                 tasks.Add(ExportOneFrameAsync(
                     frame, photoPath, photoBaseName, exportDir,
@@ -365,7 +501,17 @@ public sealed class EditExportService : IDisposable
             }
 
             await Task.WhenAll(tasks);
-            EditExportMetadataPolicy.EnsureAllFramesSucceeded(frames.Count, counters.Success, counters.Fail);
+            if (token.IsCancellationRequested)
+            {
+                progress.NotifyFailure(ResourceService.GetString("EditPage_ExportAllFramesFailed"), "Operation was cancelled", exportDir);
+                return;
+            }
+            if (EditExportMetadataPolicy.IncompleteFailure(frames.Count, counters.Success, counters.Fail) is { } incomplete)
+            {
+                progress.NotifyFailure(ResourceService.GetString("EditPage_ExportAllFramesFailed"),
+                    incomplete.Message + (counters.FirstFailure == null ? "" : Environment.NewLine + counters.FirstFailure), exportDir);
+                return;
+            }
 
             LogService.FileOp(
                 $"ExportAllFrames completed: {counters.Success} succeeded, {counters.Fail} failed -> '{exportDir}'",
@@ -411,7 +557,12 @@ public sealed class EditExportService : IDisposable
         Exception? originalFailure = null;
         try
         {
-            EditExportMetadataPolicy.ValidateRequest(copyExif, token);
+            if (EditExportMetadataPolicy.RequestFailure(copyExif, token) is { } requestFailure)
+            {
+                originalFailure = requestFailure;
+                if (requestFailure is not OperationCanceledException) counters.RecordFailure(requestFailure.Message);
+                return;
+            }
 
             string sourcePath;
             if (frame.IsStillPhoto || frame.IsOriginalPhoto)
@@ -420,10 +571,18 @@ public sealed class EditExportService : IDisposable
                 {
                     if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
                     {
-                        byte[]? origBytes = EditTimingService.ReadOriginalPhotoBytes(photoPath, token);
+                        var originalPhoto = await EditTimingService.TryReadOriginalPhotoBytesAsync(photoPath, token);
+                        foreach (var warning in originalPhoto.Warnings) s_exportWarnings.Value?.Add(warning);
+                        if (originalPhoto.Failure is { } originalReadFailure)
+                        {
+                            originalFailure = originalReadFailure;
+                            if (originalReadFailure is not OperationCanceledException) counters.RecordFailure(originalReadFailure.Message);
+                            return;
+                        }
+                        byte[]? origBytes = originalPhoto.Bytes;
                         if (origBytes == null || origBytes.Length == 0)
                         {
-                            Interlocked.Increment(ref counters.Fail);
+                            counters.RecordFailure(originalFailure?.Message);
                             LogService.FileOp(
                                 "ExportAllFrames: 🖼 original photo bytes unavailable",
                                 LogLevel.Warning);
@@ -449,7 +608,7 @@ public sealed class EditExportService : IDisposable
             {
                 if (string.IsNullOrEmpty(frame.FullFramePath) || !File.Exists(frame.FullFramePath))
                 {
-                    Interlocked.Increment(ref counters.Fail);
+                    counters.RecordFailure(originalFailure?.Message);
                     LogService.FileOp(
                         $"ExportAllFrames: frame path missing — isStillPhoto=false, path='{frame.FullFramePath ?? "null"}'",
                         LogLevel.Warning);
@@ -467,21 +626,47 @@ public sealed class EditExportService : IDisposable
             var finalTargetCandidate = AllocateUniqueBatchExportCandidate(exportDir, fileName);
             string finalTargetPath = finalTargetCandidate.CandidatePath;
             candidateReservationKey = finalTargetCandidate.ReservationKey;
-            using var preparedOutput = new MediaWorkspace();
+            var workspaceAttempt = MediaWorkspace.TryCreate(token);
+            if (workspaceAttempt.Failure is { } workspaceFailure)
+            {
+                originalFailure = workspaceFailure;
+                if (workspaceFailure is not OperationCanceledException) counters.RecordFailure(workspaceFailure.Message);
+                return;
+            }
+            using var preparedOutput = workspaceAttempt.Workspace!;
             string targetPath = preparedOutput.AllocateFilePath("prepared-export", formatExtension);
 
             if (ImageFormatService.NeedsConversion(sourcePath, formatExtension))
             {
-                await ImageFormatService.ConvertImageAsync(sourcePath, targetPath, quality, token);
+                if (await ImageFormatService.TryConvertImageAsync(sourcePath, targetPath, quality, token) is { } conversionFailure)
+                {
+                    originalFailure = conversionFailure;
+                    if (conversionFailure is not OperationCanceledException)
+                    {
+                        counters.RecordFailure(originalFailure?.Message);
+                        LogService.FileOp("ExportAllFrames: image conversion incomplete: " + conversionFailure.Message, LogLevel.Warning);
+                    }
+                    return;
+                }
             }
             else
             {
-                await PublishExportCopyAsync(sourcePath, targetPath, MediaArtifactKind.PrimaryImage, false, token);
+                if (await TryPublishExportCopyAsync(sourcePath, targetPath, MediaArtifactKind.PrimaryImage, false, token) is { } copyFailure)
+                {
+                    originalFailure = copyFailure;
+                    if (copyFailure is not OperationCanceledException) counters.RecordFailure(originalFailure?.Message);
+                    return;
+                }
             }
 
             try { File.SetLastWriteTime(targetPath, DateTime.Now); } catch { }
 
-            await PublishExportCopyAsync(targetPath, finalTargetPath, MediaArtifactKind.PrimaryImage, false, token);
+            if (await TryPublishExportCopyAsync(targetPath, finalTargetPath, MediaArtifactKind.PrimaryImage, false, token) is { } publicationFailure)
+            {
+                originalFailure = publicationFailure;
+                if (publicationFailure is not OperationCanceledException) counters.RecordFailure(originalFailure?.Message);
+                return;
+            }
 
             ExportSourcePreparation.DisposePreparedSource(ref preparedSourceArtifact);
 
@@ -490,12 +675,12 @@ public sealed class EditExportService : IDisposable
         catch (OperationCanceledException ex)
         {
             originalFailure = ex;
-            throw;
+            return;
         }
         catch (Exception ex)
         {
             originalFailure = ex;
-            Interlocked.Increment(ref counters.Fail);
+            counters.RecordFailure(originalFailure?.Message);
             LogService.FileOp(
                 $"ExportAllFrames: frame {(frame.IsOriginalPhoto ? "🖼" : frame.IsStillPhoto ? "⭐" : $"#{frame.FrameIndex + 1}")} FAILED: {ex.Message}",
                 LogLevel.Error, ex);
@@ -622,7 +807,7 @@ public sealed class EditExportService : IDisposable
     // ══════════════════════════════════════════════════════════════
 
     /// <summary>导出为视频 — 打开保存对话框，在文件类型中选择 MP4 或 MOV</summary>
-    public async Task ExportVideoAsync(
+    private async Task ExportVideoAsyncCore(
         bool isLivePhoto,
         string? primaryPath,
         LivePhotoType livePhotoType,
@@ -636,9 +821,16 @@ public sealed class EditExportService : IDisposable
             return;
         }
 
-        string? videoPath = await ProcessingPipelineRouter.RunRebuiltAsync(
+        var videoSource = await ProcessingPipelineRouter.RunRebuiltAsync(
             "edit.video-export",
             () => ResolveVideoPathForRebuiltExportAsync(primaryPath, livePhotoType, pairedVideoPath, cancellationToken));
+        if (videoSource.Failure is { } sourceFailure)
+        {
+            if (sourceFailure is not OperationCanceledException)
+                progress.NotifyFailure(ResourceService.GetString("EditPage_ExportVideoFailed"), sourceFailure.Message);
+            return;
+        }
+        string? videoPath = videoSource.Path;
         if (string.IsNullOrEmpty(videoPath) || !File.Exists(videoPath))
         {
             progress.NotifyGuardError(ResourceService.GetString("EditPage_GuardNoVideoSource"));
@@ -705,10 +897,17 @@ public sealed class EditExportService : IDisposable
         VideoContainer targetContainer = isMp4 ? VideoContainer.Mp4 : VideoContainer.Mov;
         VideoCodec targetCodec = isMp4 ? VideoCodec.H264 : VideoCodec.Hevc;
 
-        using var conversionWorkspace = new MediaWorkspace();
+        var workspaceAttempt = MediaWorkspace.TryCreate(token);
+        if (workspaceAttempt.Failure is { } workspaceFailure) return (false, workspaceFailure.Message);
+        using var conversionWorkspace = workspaceAttempt.Workspace!;
         var converter = new VideoConverter();
-        VideoFacts facts = await converter.ProbeAsync(inputPath, token).ConfigureAwait(false);
-        var result = await converter.ConvertAsync(new VideoConversionRequest
+        var probe = await NativeMediaService.TryProbeVideoAsync(inputPath, token).ConfigureAwait(false);
+        if (!probe.Succeeded) return (false, probe.Diagnostic ?? "Video inspection did not complete.");
+        VideoFacts facts = probe.Facts!;
+        using var source = SourceReadAttempt.Open(inputPath);
+        if (!source.Succeeded) return (false, $"Cannot read video export source (system error {source.Error}).");
+        if (!source.TryGetLength(out long sourceLength, out int lengthError)) return (false, $"Cannot inspect video export length (system error {lengthError}).");
+        var result = await converter.TryConvertAsync(new VideoConversionRequest
         {
             SourceArtifact = new MediaArtifact
             {
@@ -717,7 +916,7 @@ public sealed class EditExportService : IDisposable
                 MimeType = facts.Container == VideoContainer.Mov ? "video/quicktime" : "video/mp4",
                 VideoContainer = facts.Container,
                 VideoCodec = facts.Codec,
-                ByteLength = new FileInfo(inputPath).Length
+                ByteLength = sourceLength
             },
             TargetContainer = targetContainer,
             TargetCodec = targetCodec,
@@ -728,19 +927,23 @@ public sealed class EditExportService : IDisposable
         if (!result.Success || result.OutputArtifact == null)
             return (false, result.ErrorMessage ?? "Native video conversion failed.");
 
-        await WindowsOutputArtifactPublisher.PublishCopyAsync(result.OutputArtifact, outputPath, true, token).ConfigureAwait(false);
+        var publication = await WindowsOutputArtifactPublisher.TryPublishCopyAsync(result.OutputArtifact, outputPath, true, token).ConfigureAwait(false);
+        if (publication.Failure is { } publicationFailure) return (false, publicationFailure.Message);
         return (true, null);
     }
 
-    private static Task PublishExportCopyAsync(
+    private static async Task<Exception?> TryPublishExportCopyAsync(
         string sourcePath, string targetPath, MediaArtifactKind kind, bool overwrite, CancellationToken token)
     {
-        return WindowsOutputArtifactPublisher.PublishCopyAsync(new MediaArtifact
+        if (token.IsCancellationRequested) return new OperationCanceledException(token);
+        using var source = SourceReadAttempt.Open(sourcePath);
+        if (!source.Succeeded) return new IOException($"Cannot read export source (system error {source.Error}).");
+        if (!source.TryGetLength(out long length, out int error)) return new IOException($"Cannot inspect export source length (system error {error}).");
+        var attempt = await WindowsOutputArtifactPublisher.TryPublishCopyAsync(new MediaArtifact
         {
-            Path = sourcePath,
-            Kind = kind,
-            ByteLength = new FileInfo(sourcePath).Length
-        }, targetPath, overwrite, token);
+            Path = sourcePath, Kind = kind, ByteLength = length
+        }, targetPath, overwrite, token).ConfigureAwait(false);
+        return attempt.Failure;
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -830,7 +1033,7 @@ public sealed class EditExportService : IDisposable
     /// Resolves the video for Rebuilt export through the Native-backed
     /// Inspect -> Extract -> Clean pipeline.
     /// </summary>
-    private async Task<string?> ResolveVideoPathForRebuiltExportAsync(
+    private async Task<(string? Path, Exception? Failure)> ResolveVideoPathForRebuiltExportAsync(
         string primaryPath,
         LivePhotoType livePhotoType,
         string? pairedVideoPath,
@@ -838,7 +1041,9 @@ public sealed class EditExportService : IDisposable
     {
         CleanupExportMediaWorkspace();
 
-        var workspace = new MediaWorkspace();
+        var workspaceAttempt = MediaWorkspace.TryCreate(cancellationToken);
+        if (workspaceAttempt.Failure is { } workspaceFailure) return (null, workspaceFailure);
+        var workspace = workspaceAttempt.Workspace!;
         try
         {
             string? secondaryPath = livePhotoType == LivePhotoType.DualFile
@@ -846,20 +1051,26 @@ public sealed class EditExportService : IDisposable
                 ? pairedVideoPath
                 : null;
 
-            NeutralMediaBundle bundle = await new NeutralMediaService().CreateNeutralBundleAsync(
+            var preparation = await new NeutralMediaService().TryCreateNeutralBundleAsync(
                 primaryPath,
                 secondaryPath,
                 workspace,
                 cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (preparation.Failure is { } preparationFailure)
+            {
+                workspace.Dispose();
+                return (null, preparationFailure);
+            }
+            NeutralMediaBundle bundle = preparation.Bundle!;
 
             if (bundle.MotionVideo == null || !File.Exists(bundle.MotionVideo.Path))
             {
                 workspace.Dispose();
-                return null;
+                return (null, null);
             }
 
             _exportMediaWorkspace = workspace;
-            return bundle.MotionVideo.Path;
+            return (bundle.MotionVideo.Path, null);
         }
         catch
         {
@@ -1190,5 +1401,11 @@ public sealed class EditExportService : IDisposable
         public int Completed;
         public int Success;
         public int Fail;
+        public string? FirstFailure;
+        public void RecordFailure(string? reason)
+        {
+            Interlocked.Increment(ref Fail);
+            if (!string.IsNullOrWhiteSpace(reason)) Interlocked.CompareExchange(ref FirstFailure, reason, null);
+        }
     }
 }

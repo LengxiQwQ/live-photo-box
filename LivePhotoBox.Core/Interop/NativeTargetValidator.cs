@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Threading;
 using System.Runtime.CompilerServices;
@@ -56,29 +56,48 @@ internal static class NativeTargetValidator
     internal static AsyncLocal<Action<WindowsSplitOutputPublisher.TargetPublicationStage, FileStream>?> ReaderOpenedForTests { get; } = new();
     internal static AsyncLocal<Action?> ReadCallbackForTests { get; } = new();
     internal static TargetValidationReport ValidateStage(
-        WindowsSplitOutputPublisher.TargetPublicationStage stage,
-        TargetValidationExpectations expected, CancellationToken token)
+        WindowsSplitOutputPublisher.TargetPublicationStage stage,TargetValidationExpectations expected,CancellationToken token)
     {
-        ArgumentNullException.ThrowIfNull(stage);
-        ArgumentNullException.ThrowIfNull(expected);
-        using FileStream reader = stage.OpenRead();
-        ReaderOpenedForTests.Value?.Invoke(stage, reader);
-        TargetValidationReport report = Observe(reader, expected, token);
-        RequirePass(report, expected);
-        if (report.Observed.ObservedByteLength != (ulong)stage.ByteLength ||
-            !string.Equals(report.Sha256, stage.Sha256, StringComparison.Ordinal))
+        using FileStream reader=stage.OpenRead();
+        ReaderOpenedForTests.Value?.Invoke(stage,reader);
+        var report=Observe(reader,expected,token);
+        RequirePass(report,expected);
+        if(report.Observed.ObservedByteLength!=(ulong)stage.ByteLength || !string.Equals(report.Sha256,stage.Sha256,StringComparison.Ordinal))
             throw new TargetValidationException("Fresh target observations do not match the sealed publication bytes.");
         return report;
     }
 
+    internal sealed record ValidationAttempt(TargetValidationReport? Report,Exception? Failure);
+    internal static ValidationAttempt TryValidateStage(WindowsSplitOutputPublisher.TargetPublicationStage stage,
+        TargetValidationExpectations expected,CancellationToken token)
+    {
+        if(token.IsCancellationRequested)return new(null,new OperationCanceledException(token));
+        var readAttempt = stage.TryOpenRead();
+        if (readAttempt.Failure is { } readFailure) return new(null, readFailure);
+        using FileStream reader=readAttempt.Reader!;
+        ReaderOpenedForTests.Value?.Invoke(stage,reader);
+        var report=ObserveCore(reader,expected,token,false);
+        if(PassFailure(report,expected) is { } failure)return new(report,failure);
+        if(report.Observed.ObservedByteLength!=(ulong)stage.ByteLength || !string.Equals(report.Sha256,stage.Sha256,StringComparison.Ordinal))
+            return new(report,new TargetValidationException("Fresh target observations do not match the sealed publication bytes."));
+        return new(report,null);
+    }
+
     // Read-only entry also permits independently constructed artifacts to exercise
     // the exact observer. Publication always uses ValidateStage's guarded reopen.
-    internal static unsafe TargetValidationReport Observe(FileStream reader,
-        TargetValidationExpectations expected, CancellationToken token)
+    internal static TargetValidationReport Observe(FileStream reader,TargetValidationExpectations expected,CancellationToken token)
+        => ObserveCore(reader,expected,token,true);
+
+    private static unsafe TargetValidationReport ObserveCore(FileStream reader,
+        TargetValidationExpectations expected,CancellationToken token,bool strict)
     {
         ArgumentNullException.ThrowIfNull(reader);
         ArgumentNullException.ThrowIfNull(expected);
-        token.ThrowIfCancellationRequested();
+        if(token.IsCancellationRequested)
+        {
+            if(strict)throw new OperationCanceledException(token);
+            return new(NativeResult.Cancelled,default,string.Empty) { ErrorDetail="Target validation cancelled." };
+        }
         using var context = NativeContext.Create(token);
         using var operation = context.AcquireOperationLease();
         var state = new ReaderState(reader.SafeFileHandle, token);
@@ -166,13 +185,18 @@ internal static class NativeTargetValidator
                     throw new InvalidDataException("Version one cannot drop version two semantic expectations.");
                 result = NativeMethods.TargetValidate(operation.Handle, &request, &source, &observed);
             }
-            token.ThrowIfCancellationRequested();
-            if (state.Failure is OperationCanceledException cancellation) throw cancellation;
-            if (state.Failure is not null)
-                throw new IOException("Reading the fresh target artifact failed.", state.Failure);
-            if (result == NativeResult.Cancelled)
-                throw new OperationCanceledException("Native target validation was cancelled.", token);
-            string? errDetail = context.GetLastError();
+            if(token.IsCancellationRequested || result==NativeResult.Cancelled || state.Failure is OperationCanceledException)
+            {
+                if(strict)throw new OperationCanceledException("Native target validation was cancelled.",token);
+                return new(NativeResult.Cancelled,observed,string.Empty) { ErrorDetail="Target validation cancelled." };
+            }
+            if(state.Failure is not null)
+            {
+                if(strict)throw new IOException("Reading the fresh target artifact failed.",state.Failure);
+                return new(NativeResult.InternalError,observed,string.Empty) { ErrorDetail=state.Failure.Message };
+            }
+            string? errDetail = context.GetLastError();
+
             return new TargetValidationReport(result, observed, observed.GetSha256()) { ObservedV2 = actualV2, ObservedV3 = actualV3, ErrorDetail = errDetail };
         }
         finally
@@ -183,8 +207,14 @@ internal static class NativeTargetValidator
         }
     }
 
-    internal static void RequirePass(TargetValidationReport report, TargetValidationExpectations expected)
+    internal static void RequirePass(TargetValidationReport report,TargetValidationExpectations expected)
     {
+        if(PassFailure(report,expected) is { } failure)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    private static Exception? PassFailure(TargetValidationReport report, TargetValidationExpectations expected)
+    {
+        if(report.InvocationResult==NativeResult.Cancelled)return new OperationCanceledException("Native target validation was cancelled.");
         var facts = report.Observed;
         if (!report.CanPublish || facts.ObservedTargetProfile != expected.TargetProfile ||
             facts.ObservedTargetVersion != expected.TargetVersion || facts.ObservedMediaFormat != expected.MediaFormat ||
@@ -198,7 +228,7 @@ internal static class NativeTargetValidator
             !Matches(expected.VideoWidth, facts.VideoWidth) || !Matches(expected.VideoHeight, facts.VideoHeight) ||
             !Matches(expected.VideoOrientation, facts.VideoOrientation) ||
             !MatchesOrientation(expected.VideoRotationDegrees, expected.VideoReflection, facts.VideoOrientation))
-            throw new TargetValidationException($"Target validation rejected publication: invocation={report.InvocationResult}, " +
+            return new TargetValidationException($"Target validation rejected publication: invocation={report.InvocationResult}, " +
                 $"structure={facts.StructuralStatus}, media={facts.GenericMediaStatus}, " +
                 $"category={facts.FailureCategory}, stage={facts.FailureStage}, rule={facts.RuleId}. Detail: {report.ErrorDetail}");
         if (expected.UseV2)
@@ -208,21 +238,21 @@ internal static class NativeTargetValidator
                 (expected.PrimaryTimestampUs.HasValue
                     ? actual.PrimaryTimestampEncoding != 1 || actual.ObservedPrimaryTimestampUs != expected.PrimaryTimestampUs.Value
                     : actual.PrimaryTimestampEncoding is not (0 or 2 or 3)))
-                throw new TargetValidationException("Fresh version two target timing or auxiliary observations differ from expectations.");
+                return new TargetValidationException("Fresh version two target timing or auxiliary observations differ from expectations.");
             NativeTargetAuxiliaryObservedV2[] rows = [actual.Auxiliary0, actual.Auxiliary1];
             if (expected.Auxiliaries.Select(row => row.Semantic).Distinct().Count() != expected.Auxiliaries.Count)
-                throw new TargetValidationException("Duplicate target auxiliary semantic expectations.");
+                return new TargetValidationException("Duplicate target auxiliary semantic expectations.");
             for (int i = 0; i < expected.Auxiliaries.Count; i++)
             {
                 TargetAuxiliaryExpectation row = expected.Auxiliaries[i];
                 var matches = rows.Take((int)actual.AuxiliaryCount).Where(value => value.Semantic == row.Semantic).ToArray();
                 if (matches.Length != 1 || matches[0].Container != row.Container || matches[0].ByteLength != row.ByteLength ||
                     !string.Equals(matches[0].GetSha256(), row.Sha256, StringComparison.OrdinalIgnoreCase))
-                    throw new TargetValidationException("Fresh target auxiliary bytes differ from their Neutral semantic asset.");
+                    return new TargetValidationException("Fresh target auxiliary bytes differ from their Neutral semantic asset.");
             }
         }
         else if (report.ObservedV2.HasValue)
-            throw new TargetValidationException("Unexpected version two observation for a version one request.");
+            return new TargetValidationException("Unexpected version two observation for a version one request.");
         if(expected.OrdinaryMetadata.Count!=0)
         {
             if(expected.OrdinaryMetadata.Count!=1||report.ObservedV3 is not {} ordinary||
@@ -231,10 +261,11 @@ internal static class NativeTargetValidator
                 ordinary.Metadata.ChunkCount==0||ordinary.Metadata.ByteLength!=expected.OrdinaryMetadata[0].ByteLength||
                 ordinary.Metadata.Container!=expected.OrdinaryMetadata[0].Container||
                 !string.Equals(ordinary.Metadata.GetSha256(),expected.OrdinaryMetadata[0].Sha256,StringComparison.OrdinalIgnoreCase))
-                throw new TargetValidationException("Fresh ordinary metadata bytes or ownership differ from their final Neutral semantic artifact.");
+                return new TargetValidationException("Fresh ordinary metadata bytes or ownership differ from their final Neutral semantic artifact.");
         }
         else if(report.ObservedV3.HasValue)
-            throw new TargetValidationException("Unexpected ordinary metadata proof for a request without its semantic artifact.");
+            return new TargetValidationException("Unexpected ordinary metadata proof for a request without its semantic artifact.");
+        return null;
     }
 
     private static bool Matches(uint? expected, uint actual) => !expected.HasValue || expected.Value == actual;
@@ -284,15 +315,15 @@ internal static class NativeTargetValidator
             if (user == 0 || (count != 0 && destination == null) || count > int.MaxValue || offset > long.MaxValue)
                 return NativeResult.InvalidArgument;
             state = (ReaderState)GCHandle.FromIntPtr(user).Target!;
-            state.Token.ThrowIfCancellationRequested();
+            if(state.Token.IsCancellationRequested) {state.Failure??=new OperationCanceledException(state.Token);return NativeResult.Cancelled;}
             ReadCallbackForTests.Value?.Invoke();
             var target = new Span<byte>(destination, checked((int)count));
             int total = 0;
             while (total < target.Length)
             {
-                state.Token.ThrowIfCancellationRequested();
+                if(state.Token.IsCancellationRequested) {state.Failure??=new OperationCanceledException(state.Token);return NativeResult.Cancelled;}
                 int read = RandomAccess.Read(state.Handle, target[total..], checked((long)offset + total));
-                if (read == 0) throw new EndOfStreamException("Fresh target reader returned fewer bytes than requested.");
+                if(read==0) {state.Failure??=new EndOfStreamException("Fresh target reader returned fewer bytes than requested.");return NativeResult.InternalError;}
                 total += read;
             }
             *bytesRead = count;

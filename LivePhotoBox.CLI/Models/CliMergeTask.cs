@@ -1,4 +1,4 @@
-/*
+﻿/*
  * CliMergeTask.cs
  *
  * CLI 批量模式的轻量级任务对象，实现 IMergeTaskInfo。
@@ -13,6 +13,8 @@ namespace LivePhotoBox.Cli.Models
     internal sealed class CliMergeTask : IMergeTaskInfo
     {
         internal LivePhotoBox.Media.Models.ProductOperationOutcome? Outcome { get; set; }
+        public LivePhotoBox.Services.MergeScanOptions? SelectionScope { get; set; }
+        public SelectionIntent SelectionIntent { get; set; } = SelectionIntent.UserComposition;
         public int Index { get; set; }
         public string ImagePath { get; set; } = string.Empty;
         public string VideoPath { get; set; } = string.Empty;

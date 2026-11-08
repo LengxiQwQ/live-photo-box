@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -7,6 +7,8 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using LivePhotoBox.Models;
+using LivePhotoBox.Media.Workspace;
+using LivePhotoBox.Media.Models;
 
 namespace LivePhotoBox.Services;
 
@@ -16,25 +18,63 @@ internal sealed record RepairPublishedOutput(string Role, string Path, string Ki
 
 public static partial class LivePhotoRepairService
 {
-    internal static Task<RepairResult> RepairImageFileAsync(string sourcePath, string outputDirectory, bool allDevices,
+    internal static async Task<RepairResult> RepairImageFileAsync(string sourcePath, string outputDirectory, bool allDevices,
         bool dryRun, RepairOptions options, CancellationToken token, bool copyPerfect = false, RepairBatchContext? batch = null)
-        => ExecuteRecordedAsync(sourcePath, options, false, () => RepairImageFileCoreAsync(sourcePath, outputDirectory, allDevices, dryRun, options, token, copyPerfect, batch));
+    {
+        using var ownedBatch = batch == null ? new RepairBatchContext() : null;
+        var current = batch ?? ownedBatch!;
+        return await ExecuteRecordedAsync(sourcePath, options, false, outputDirectory, token, current,
+            () => RepairImageFileCoreAsync(sourcePath, outputDirectory, allDevices, dryRun, options, token, copyPerfect, current)).ConfigureAwait(false);
+    }
 
-    internal static Task<RepairResult> RepairVideoFileAsync(string sourcePath, string outputDirectory, bool allDevices,
+    internal static async Task<RepairResult> RepairVideoFileAsync(string sourcePath, string outputDirectory, bool allDevices,
         bool repairLongVideos, bool dryRun, bool batch, RepairOptions options, CancellationToken token,
         bool copyPerfect = false, RepairBatchContext? batchContext = null)
-        => ExecuteRecordedAsync(sourcePath, options, true, () => RepairVideoFileCoreAsync(sourcePath, outputDirectory, allDevices, repairLongVideos, dryRun, batch, options, token, copyPerfect, batchContext));
-
-    private static async Task<RepairResult> ExecuteRecordedAsync(string source, RepairOptions options, bool video, Func<Task<RepairResult>> execute)
     {
+        using var ownedBatch = batchContext == null ? new RepairBatchContext() : null;
+        var current = batchContext ?? ownedBatch!;
+        return await ExecuteRecordedAsync(sourcePath, options, true, outputDirectory, token, current,
+            () => RepairVideoFileCoreAsync(sourcePath, outputDirectory, allDevices, repairLongVideos, dryRun, batch, options, token, copyPerfect, current)).ConfigureAwait(false);
+    }
+
+    private static async Task<RepairResult> ExecuteRecordedAsync(string source, RepairOptions options, bool video,
+        string outputDirectory, CancellationToken token, RepairBatchContext batch, Func<Task<RepairResult>> execute)
+    {
+        using var cleanupScope = WorkspaceCleanupScope.Begin();
         RepairResult result;
         try { result = await execute(); }
-        catch (OperationCanceledException) { RecordRepairOutcome(source, options, new("cancelled", "用户取消，本项未完成发布。")); throw; }
+        catch (OperationCanceledException) { result = new("cancelled", "用户取消，本项未完成发布。"); }
         catch (Exception ex)
         {
             LogService.Repair("Repair operation failed: " + source, LogLevel.Error, ex);
             result = new("failed", ex.Message);
         }
+        var cleanupFailures = cleanupScope.Failures;
+        var paths = new[] { result.Image, result.Video }.Where(path => path is not null).Select(path => path!).ToArray();
+        string isolationRoot = GetIsolationDirectory(outputDirectory);
+        bool alreadyIsolated = paths.Length > 0 && paths.All(path => Path.GetFullPath(path).StartsWith(
+            Path.GetFullPath(isolationRoot) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+        if (alreadyIsolated) result = result with { IsolationDirectory = isolationRoot };
+        if (cleanupFailures.Count > 0)
+        {
+            var messages = cleanupFailures.ToList();
+            if (paths.Length > 0 && !alreadyIsolated)
+            {
+                var outputs = paths.Select(path => new ProductCommittedArtifact { Role = path == result.Image ? "image" : "video", Path = path }).ToArray();
+                var isolation = await CleanupOutputIsolation.TryIsolateAsync(outputs, [source], outputDirectory, token).ConfigureAwait(false);
+                result = result with { Image = isolation.Outputs.FirstOrDefault(output => output.Role == "image")?.Path,
+                    Video = isolation.Outputs.FirstOrDefault(output => output.Role == "video")?.Path,
+                    IsolationDirectory = isolation.Directory };
+                if (isolation.Failure is { } isolationFailure) messages.Add("成品隔离迁移未完成，实际位置已保留：" + isolationFailure.Message);
+            }
+            result = result with { Status = paths.Length > 0 && result.Image is null && result.Video is null ? "failed"
+                    : result.Status is "success" or "copied" or "healthy" or "warning" ? "warning" : result.Status,
+                Message = result.Message + Environment.NewLine + string.Join(Environment.NewLine, messages) +
+                    Environment.NewLine + string.Join(Environment.NewLine, new[] { result.Image, result.Video }.Where(path => path is not null)),
+                Limitations = result.Limitations.Concat(messages.Select(message => new RepairLimitation("workspace_cleanup", message))).ToArray() };
+        }
+        batch.RecordPublished(result.Image, result.Video);
+        result = batch.ExplainTrackingFailure(result);
         if (result.Actions.Length == 0)
             result = result with { Actions = ActionResults(options, 0, 0, result.Status == "planned",
                 result.Status is "healthy" or "copied" ? "not_needed" : "not_checked", video) };
@@ -79,7 +119,7 @@ public static partial class LivePhotoRepairService
             if (path == null) return;
             bool copy = member == "copied" || result.Status == "copied" ||
                 (result.Actions.Length != 0 && result.Actions.All(x => x.State is "not_selected" or "not_needed" or "not_completed"));
-            outputs.Add(new(role, System.IO.Path.GetFullPath(path), result.Status == "warning"
+            outputs.Add(new(role, System.IO.Path.GetFullPath(path), result.IsolationDirectory is not null && Path.GetFullPath(path).StartsWith(Path.GetFullPath(result.IsolationDirectory) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                 ? copy ? "isolated_copy" : "isolated_repaired" : copy ? "copy" : "repaired"));
         }
         Add("image", result.Image, result.ImageStatus); Add("video", result.Video, result.VideoStatus);

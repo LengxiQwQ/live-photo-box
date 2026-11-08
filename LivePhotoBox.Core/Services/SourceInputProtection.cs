@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -13,6 +13,9 @@ namespace LivePhotoBox.Services;
 internal sealed class SourceInputProtection : IDisposable
 {
     private readonly List<IDisposable> leases = new();
+    internal bool IsComplete { get; private set; } = true;
+    internal string? Diagnostic { get; private set; }
+    internal HashSet<string> FailedPaths { get; } = new(StringComparer.OrdinalIgnoreCase);
     internal SourceInputProtection(IEnumerable<string?> paths)
     {
         try
@@ -21,22 +24,23 @@ internal sealed class SourceInputProtection : IDisposable
                 .Distinct(StringComparer.OrdinalIgnoreCase))
                 if (File.Exists(path))
                 {
-                    try { leases.Add(File.Open(path, FileMode.Open, FileAccess.Read, FileShare.Read)); }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                    var readable = LivePhotoBox.Interop.SourceReadAttempt.Open(path);
+                    if (readable.Succeeded) leases.Add(readable);
+                    else
                     {
-                        // Reading data is not needed to pin an unreadable queued
-                        // object against transactional replacement. This zero-access
-                        // handle does not grant a reader or writer any new authority.
-                        var pin = CreateFileW(path, 0, 3 /* share read/write, deny delete */,
-                            IntPtr.Zero, 3 /* OPEN_EXISTING */, 0, IntPtr.Zero);
+                        readable.Dispose();
+                        var pin = CreateFileW(LivePhotoBox.Interop.WindowsNativePath.Extended(path), 0, 3,
+                            IntPtr.Zero, 3, 0x00200000, IntPtr.Zero);
                         if (pin.IsInvalid)
                         {
+                            int error = Marshal.GetLastWin32Error();
                             pin.Dispose();
                             if (!File.Exists(path)) continue;
-                            throw new IOException("Cannot protect a queued original against replacement: " + path, ex);
+                            IsComplete = false;
+                            FailedPaths.Add(path);
+                            Diagnostic = $"无法保护来源文件，已停止相关写入（系统错误 {error}）：{path}";
                         }
-                        leases.Add(pin);
-                        LogService.Debug($"Pinned unreadable source against replacement; its item still reports the read failure: '{path}'.");
+                        else leases.Add(pin);
                     }
                 }
         }

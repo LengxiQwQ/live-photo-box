@@ -41,7 +41,7 @@ struct slice_task {
 
 struct extraction_failure {
     lpb_result result{LPB_RESULT_INTERNAL_ERROR};
-    std::string category;
+    lpb_failure_reason_v1 category;
     std::string details;
 };
 
@@ -121,14 +121,14 @@ static lpb_result rollback_extraction_transaction(
     }
 
     if (!all_clean) {
-        std::string msg = "[CleanupFailed] Original failure: " + original_failure.category + " " + original_failure.details +
+        std::string msg = "[CleanupFailed] Original failure code " + std::to_string(original_failure.category) + " " + original_failure.details +
             "; Rollback cleanup failed on '" + cleanup_fail_path + "' (Win32 error: " + std::to_string(cleanup_fail_err) + ").";
-        set_error(context, msg.c_str());
+        set_failure(context, LPB_FAILURE_CLEANUP, msg.c_str(), original_failure.category, cleanup_fail_err);
         return LPB_RESULT_INTERNAL_ERROR;
     }
 
-    std::string msg = original_failure.category + " " + original_failure.details;
-    set_error(context, msg.c_str());
+    std::string msg = original_failure.details;
+    set_failure(context, original_failure.category, msg.c_str());
     return original_failure.result;
 }
 
@@ -246,7 +246,7 @@ bool validate_plan_relationships(
 {
     if (!facts || facts->struct_size < sizeof(lpb_source_media_facts) || facts->auxiliary_count > 8)
     {
-        set_error(context, "[AuthorityViolation] Extraction plan auxiliary facts are incompatible.");
+        set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Extraction plan auxiliary facts are incompatible.");
         return false;
     }
 
@@ -276,7 +276,7 @@ bool validate_plan_relationships(
             (auxiliary.ownership == LPB_AUX_OWNER_AUXILIARY &&
                 bounded_equals_literal(auxiliary.owner_identity, sizeof(auxiliary.owner_identity), "primary:0")))
         {
-            set_error(context, "[AuthorityViolation] Extraction plan contains an incomplete auxiliary relationship.");
+            set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Extraction plan contains an incomplete auxiliary relationship.");
             return false;
         }
 
@@ -292,7 +292,7 @@ bool validate_plan_relationships(
                   previous.file_range.length == auxiliary.file_range.length &&
                   same_bounded_string_n(previous.semantic, auxiliary.semantic, 64))))
             {
-                set_error(context, "[AuthorityViolation] Extraction plan contains duplicate auxiliary identity or source relationship.");
+                set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Extraction plan contains duplicate auxiliary identity or source relationship.");
                 return false;
             }
         }
@@ -311,7 +311,7 @@ bool validate_plan_relationships(
         facts->gain_map.auxiliary_index >= facts->auxiliary_count ||
         !bounded_text_present(facts->gain_map.relationship, sizeof(facts->gain_map.relationship)))
     {
-        set_error(context, "[AuthorityViolation] Extraction plan GainMap relationship is incomplete.");
+        set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Extraction plan GainMap relationship is incomplete.");
         return false;
     }
 
@@ -319,7 +319,7 @@ bool validate_plan_relationships(
         ? LPB_ARTIFACT_PRIMARY_IMAGE : LPB_ARTIFACT_AUXILIARY_ITEM;
     if (facts->gain_map.owner_artifact_role != expected_owner_role)
     {
-        set_error(context, "[AuthorityViolation] Extraction plan GainMap ownership is inconsistent.");
+        set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Extraction plan GainMap ownership is inconsistent.");
         return false;
     }
 
@@ -334,7 +334,7 @@ bool validate_plan_relationships(
         auxiliary.file_range.length != facts->gain_map.file_range.length ||
         !same_bounded_string(auxiliary.relationship, facts->gain_map.relationship))
     {
-        set_error(context, "[AuthorityViolation] Extraction plan GainMap is not bound to its auxiliary relationship.");
+        set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Extraction plan GainMap is not bound to its auxiliary relationship.");
         return false;
     }
     return true;
@@ -347,7 +347,7 @@ bool validate_auxiliary_outputs(
     size_t output_count) noexcept
 {
     if (output_count > 0 && !outputs) {
-        set_error(context, "[AuthorityViolation] Auxiliary output bindings are missing their descriptor array.");
+        set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Auxiliary output bindings are missing their descriptor array.");
         return false;
     }
 
@@ -357,13 +357,13 @@ bool validate_auxiliary_outputs(
             output.auxiliary_index >= facts->auxiliary_count ||
             !output.output_path || output.output_path[0] == '\0' ||
             !facts->auxiliary_items[output.auxiliary_index].is_present) {
-            set_error(context, "[AuthorityViolation] Auxiliary output binding does not identify a confirmed auxiliary item.");
+            set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Auxiliary output binding does not identify a confirmed auxiliary item.");
             return false;
         }
         for (size_t j = 0; j < i; ++j) {
             if (outputs[j].auxiliary_index == output.auxiliary_index ||
                 paths_alias(outputs[j].output_path, output.output_path)) {
-                set_error(context, "[AuthorityViolation] Auxiliary output bindings contain a duplicate identity or destination.");
+                set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Auxiliary output bindings contain a duplicate identity or destination.");
                 return false;
             }
         }
@@ -371,7 +371,7 @@ bool validate_auxiliary_outputs(
         if (auxiliary.file_range.length == 0 || auxiliary.container == LPB_IMAGE_CONTAINER_UNKNOWN ||
             auxiliary.representation != LPB_AUX_REPRESENTATION_MATERIALIZED ||
             (facts->gain_map.is_present && output.auxiliary_index == facts->gain_map.auxiliary_index)) {
-            set_error(context, "[AuthorityViolation] Auxiliary output binding does not refer to a materialized non-typed auxiliary.");
+            set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Auxiliary output binding does not refer to a materialized non-typed auxiliary.");
             return false;
         }
     }
@@ -381,7 +381,7 @@ bool validate_auxiliary_outputs(
         if (auxiliary.is_present && auxiliary.representation == LPB_AUX_REPRESENTATION_MATERIALIZED &&
             find_auxiliary_output(outputs, output_count, i) == nullptr &&
             !(facts->gain_map.is_present && facts->gain_map.auxiliary_index == i)) {
-            set_error(context, "[AuthorityViolation] A materialized auxiliary has no extraction output binding.");
+            set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] A materialized auxiliary has no extraction output binding.");
             return false;
         }
     }
@@ -407,7 +407,7 @@ lpb_result delete_recorded_artifact(
         {
             return LPB_RESULT_OK;
         }
-        set_error(context, "[CleanupFailed] A transaction-owned extraction artifact could not be opened for exact-object rollback.");
+        set_failure(context, LPB_FAILURE_CLEANUP, "[CleanupFailed] A transaction-owned extraction artifact could not be opened for exact-object rollback.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
 
@@ -433,7 +433,7 @@ lpb_result delete_recorded_artifact(
     {
         CloseHandle(handle);
         artifact.rollback_handle = nullptr;
-        set_error(context, "[CleanupFailed] The transaction-owned file object changed after publication; rollback preserved it rather than deleting unverified data.");
+        set_failure(context, LPB_FAILURE_CLEANUP, "[CleanupFailed] The transaction-owned file object changed after publication; rollback preserved it rather than deleting unverified data.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
 
@@ -441,13 +441,13 @@ lpb_result delete_recorded_artifact(
     {
         CloseHandle(handle);
         artifact.rollback_handle = nullptr;
-        set_error(context, "[CleanupFailed] Exact-object extraction rollback could not mark the owned artifact for deletion.");
+        set_failure(context, LPB_FAILURE_CLEANUP, "[CleanupFailed] Exact-object extraction rollback could not mark the owned artifact for deletion.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
     artifact.rollback_handle = nullptr;
     if (!CloseHandle(handle))
     {
-        set_error(context, "[CleanupFailed] Exact-object extraction rollback could not close the owned artifact handle.");
+        set_failure(context, LPB_FAILURE_CLEANUP, "[CleanupFailed] Exact-object extraction rollback could not close the owned artifact handle.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
     return LPB_RESULT_OK;
@@ -482,7 +482,7 @@ lpb_result verify_recorded_artifact(
             nullptr);
         if (handle == INVALID_HANDLE_VALUE)
         {
-            set_error(context, "[SourceChanged] A Native-published extraction artifact no longer exists at its recorded path.");
+            set_failure(context, LPB_FAILURE_SOURCE_CHANGED, "[SourceChanged] A Native-published extraction artifact no longer exists at its recorded path.");
             return LPB_RESULT_SOURCE_CHANGED;
         }
         owns_handle = true;
@@ -501,7 +501,7 @@ lpb_result verify_recorded_artifact(
     if (owns_handle) CloseHandle(handle);
     if (!exact)
     {
-        set_error(context, "[SourceChanged] A Native-published extraction artifact was replaced, relinked, or modified after publication.");
+        set_failure(context, LPB_FAILURE_SOURCE_CHANGED, "[SourceChanged] A Native-published extraction artifact was replaced, relinked, or modified after publication.");
         return LPB_RESULT_SOURCE_CHANGED;
     }
     return LPB_RESULT_OK;
@@ -542,59 +542,59 @@ lpb_result extract_source_internal(
 {
     if (out_published_artifacts != nullptr) out_published_artifacts->clear();
     if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
-        set_error(context, "[Cancelled] Source extraction cancelled.");
+        set_failure(context, LPB_FAILURE_CANCELLED, "[Cancelled] Source extraction cancelled.");
         return LPB_RESULT_CANCELLED;
     }
 
     if (!primary_path || primary_path[0] == '\0' || !facts) {
-        set_error(context, "[InvalidFacts] Invalid arguments for source extraction: primary path and facts are required.");
+        set_failure(context, LPB_FAILURE_INVALID_FACTS, "[InvalidFacts] Invalid arguments for source extraction: primary path and facts are required.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
     // ABI and struct size defensive validation
     if (facts->struct_size < sizeof(lpb_source_media_facts)) {
-        set_error(context, "[InvalidFacts] facts->struct_size is smaller than expected lpb_source_media_facts size.");
+        set_failure(context, LPB_FAILURE_INVALID_FACTS, "[InvalidFacts] facts->struct_size is smaller than expected lpb_source_media_facts size.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     if (facts->primary_image.struct_size < sizeof(lpb_image_item_facts)) {
-        set_error(context, "[InvalidFacts] primary_image struct_size is invalid.");
+        set_failure(context, LPB_FAILURE_INVALID_FACTS, "[InvalidFacts] primary_image struct_size is invalid.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
     // Validate Primary Image facts
     if (!facts->primary_image.is_present) {
-        set_error(context, "[InvalidFacts] Primary image must be present in source facts.");
+        set_failure(context, LPB_FAILURE_INVALID_FACTS, "[InvalidFacts] Primary image must be present in source facts.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     if (facts->primary_image.container == LPB_IMAGE_CONTAINER_UNKNOWN) {
-        set_error(context, "[UnsupportedLayout] Primary image container is unknown or unsupported.");
+        set_failure(context, LPB_FAILURE_UNSUPPORTED, "[UnsupportedLayout] Primary image container is unknown or unsupported.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     if (facts->primary_image.file_range.length == 0) {
-        set_error(context, "[InvalidFacts] Primary image range length must be greater than zero.");
+        set_failure(context, LPB_FAILURE_INVALID_FACTS, "[InvalidFacts] Primary image range length must be greater than zero.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
     // Validate Motion Video facts
     if (facts->motion_video.is_present) {
         if (facts->motion_video.struct_size < sizeof(lpb_video_item_facts)) {
-            set_error(context, "[InvalidFacts] motion_video struct_size is invalid.");
+            set_failure(context, LPB_FAILURE_INVALID_FACTS, "[InvalidFacts] motion_video struct_size is invalid.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         if (facts->motion_video.file_range.length == 0) {
-            set_error(context, "[InvalidFacts] Motion video range length must be greater than zero when video is present.");
+            set_failure(context, LPB_FAILURE_INVALID_FACTS, "[InvalidFacts] Motion video range length must be greater than zero when video is present.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         if (facts->motion_video.container == LPB_VIDEO_CONTAINER_UNKNOWN) {
-            set_error(context, "[UnsupportedLayout] Motion video container is unknown or unsupported.");
+            set_failure(context, LPB_FAILURE_UNSUPPORTED, "[UnsupportedLayout] Motion video container is unknown or unsupported.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         if (facts->motion_video.source_index < 0 || facts->motion_video.source_index > 1) {
-            set_error(context, "[InvalidFacts] Invalid motion video source index in facts: must be 0 (primary) or 1 (secondary).");
+            set_failure(context, LPB_FAILURE_INVALID_FACTS, "[InvalidFacts] Invalid motion video source index in facts: must be 0 (primary) or 1 (secondary).");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         if (facts->motion_video.source_index == 1 && (!secondary_path || secondary_path[0] == '\0')) {
-            set_error(context, "[InvalidFacts] Motion video requires secondary source file, but none was provided.");
+            set_failure(context, LPB_FAILURE_INVALID_FACTS, "[InvalidFacts] Motion video requires secondary source file, but none was provided.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
     }
@@ -603,15 +603,15 @@ lpb_result extract_source_internal(
     if (facts->gain_map.is_present) {
         if (facts->gain_map.is_present != 1 ||
             facts->gain_map.struct_size < sizeof(lpb_gainmap_item_facts)) {
-            set_error(context, "[InvalidFacts] gain_map struct_size is invalid.");
+            set_failure(context, LPB_FAILURE_INVALID_FACTS, "[InvalidFacts] gain_map struct_size is invalid.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         if (facts->gain_map.file_range.length == 0) {
-            set_error(context, "[InvalidFacts] GainMap range length must be greater than zero when present.");
+            set_failure(context, LPB_FAILURE_INVALID_FACTS, "[InvalidFacts] GainMap range length must be greater than zero when present.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         if (facts->gain_map.container == LPB_IMAGE_CONTAINER_UNKNOWN) {
-            set_error(context, "[UnsupportedLayout] GainMap container is unknown or unsupported.");
+            set_failure(context, LPB_FAILURE_UNSUPPORTED, "[UnsupportedLayout] GainMap container is unknown or unsupported.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
     }
@@ -662,11 +662,11 @@ lpb_result extract_source_internal(
         : nullptr;
     if (facts->gain_map.is_present && facts->gain_map.representation == LPB_AUX_REPRESENTATION_MATERIALIZED &&
         (!output_gainmap_path || output_gainmap_path[0] == '\0') && !gainmap_binding) {
-        set_error(context, "[AuthorityViolation] Materialized GainMap has no output binding.");
+        set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Materialized GainMap has no output binding.");
         return LPB_RESULT_AUTHORITY_VIOLATION;
     }
     if (gainmap_binding && output_gainmap_path && output_gainmap_path[0] != '\0') {
-        set_error(context, "[AuthorityViolation] GainMap cannot be bound to both the legacy and auxiliary output slots.");
+        set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] GainMap cannot be bound to both the legacy and auxiliary output slots.");
         return LPB_RESULT_AUTHORITY_VIOLATION;
     }
 
@@ -682,7 +682,7 @@ lpb_result extract_source_internal(
     }
     if (cleanup_source_path && cleanup_source_path[0] != '\0' &&
         (facts->protocol != LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG || !has_samsung_sef_carrier)) {
-        set_error(context, "[AuthorityViolation] A full cleanup-source artifact is authorized only for an Inspector-confirmed Samsung JPEG SEF carrier.");
+        set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] A full cleanup-source artifact is authorized only for an Inspector-confirmed Samsung JPEG SEF carrier.");
         return LPB_RESULT_AUTHORITY_VIOLATION;
     }
 
@@ -698,16 +698,16 @@ lpb_result extract_source_internal(
     for (int i = 0; i < 4; ++i) {
         if (!outputs[i] || outputs[i][0] == '\0') continue;
         if (paths_alias(primary_path, outputs[i])) {
-            set_error(context, "[InvalidAlias] Output path aliases primary source file.");
+            set_failure(context, LPB_FAILURE_ALIAS, "[InvalidAlias] Output path aliases primary source file.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         if (secondary_path && secondary_path[0] != '\0' && paths_alias(secondary_path, outputs[i])) {
-            set_error(context, "[InvalidAlias] Output path aliases secondary source file.");
+            set_failure(context, LPB_FAILURE_ALIAS, "[InvalidAlias] Output path aliases secondary source file.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         for (int j = i + 1; j < 4; ++j) {
             if (outputs[j] && outputs[j][0] != '\0' && paths_alias(outputs[i], outputs[j])) {
-                set_error(context, "[InvalidAlias] Extraction output paths must not alias each other.");
+                set_failure(context, LPB_FAILURE_ALIAS, "[InvalidAlias] Extraction output paths must not alias each other.");
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
         }
@@ -717,18 +717,18 @@ lpb_result extract_source_internal(
         const char* output = auxiliary_output_paths[i];
         if (paths_alias(primary_path, output) ||
             (secondary_path && secondary_path[0] != '\0' && paths_alias(secondary_path, output))) {
-            set_error(context, "[InvalidAlias] Auxiliary output path aliases a source file.");
+            set_failure(context, LPB_FAILURE_ALIAS, "[InvalidAlias] Auxiliary output path aliases a source file.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         for (int j = 0; j < 4; ++j) {
             if (outputs[j] && outputs[j][0] != '\0' && paths_alias(outputs[j], output)) {
-                set_error(context, "[InvalidAlias] Auxiliary output path aliases another extraction output.");
+                set_failure(context, LPB_FAILURE_ALIAS, "[InvalidAlias] Auxiliary output path aliases another extraction output.");
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
         }
         for (size_t j = 0; j < i; ++j) {
             if (paths_alias(auxiliary_output_paths[j], output)) {
-                set_error(context, "[InvalidAlias] Auxiliary output paths must be distinct.");
+                set_failure(context, LPB_FAILURE_ALIAS, "[InvalidAlias] Auxiliary output paths must be distinct.");
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
         }
@@ -776,7 +776,7 @@ lpb_result extract_source_internal(
         }
     }
     if (need_secondary && (!secondary_path || secondary_path[0] == '\0')) {
-        set_error(context, "[InvalidFacts] Auxiliary relationship requires a secondary source file, but none was provided.");
+        set_failure(context, LPB_FAILURE_INVALID_FACTS, "[InvalidFacts] Auxiliary relationship requires a secondary source file, but none was provided.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     const bool validate_secondary_identity = expected_secondary_identity != nullptr;
@@ -821,7 +821,7 @@ lpb_result extract_source_internal(
         if (!capture_file_identity_from_handle(
                 primary_guard.h, actual_primary_identity, actual_primary_path) ||
             !same_file_identity(actual_primary_identity, *expected_primary_identity)) {
-            set_error(context, "[SourceChanged] Primary source file identity changed after inspection.");
+            set_failure(context, LPB_FAILURE_SOURCE_CHANGED, "[SourceChanged] Primary source file identity changed after inspection.");
             return LPB_RESULT_SOURCE_CHANGED;
         }
     }
@@ -832,7 +832,7 @@ lpb_result extract_source_internal(
             !capture_file_identity_from_handle(
                 secondary_guard.h, actual_secondary_identity, actual_secondary_path) ||
             !same_file_identity(actual_secondary_identity, *expected_secondary_identity)) {
-            set_error(context, "[SourceChanged] Secondary source file identity changed after inspection.");
+            set_failure(context, LPB_FAILURE_SOURCE_CHANGED, "[SourceChanged] Secondary source file identity changed after inspection.");
             return LPB_RESULT_SOURCE_CHANGED;
         }
     }
@@ -846,7 +846,7 @@ lpb_result extract_source_internal(
         }
     }
     if (!has_expected_prim_sha) {
-        set_error(context, "[InvalidFacts] Primary source snapshot SHA-256 is required and must not be all zero.");
+        set_failure(context, LPB_FAILURE_INVALID_FACTS, "[InvalidFacts] Primary source snapshot SHA-256 is required and must not be all zero.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
 
@@ -859,7 +859,7 @@ lpb_result extract_source_internal(
         return LPB_RESULT_INTERNAL_ERROR;
     }
     if (std::memcmp(actual_prim_sha, facts->primary_sha256, 32) != 0) {
-        set_error(context, "[SourceChanged] Primary source file content does not match inspected snapshot identity.");
+        set_failure(context, LPB_FAILURE_SOURCE_CHANGED, "[SourceChanged] Primary source file content does not match inspected snapshot identity.");
         return expected_primary_identity != nullptr
             ? LPB_RESULT_SOURCE_CHANGED
             : LPB_RESULT_INVALID_ARGUMENT;
@@ -874,7 +874,7 @@ lpb_result extract_source_internal(
             }
         }
         if (!has_expected_sec_sha) {
-            set_error(context, "[InvalidFacts] Secondary source snapshot SHA-256 is required when secondary source is needed.");
+            set_failure(context, LPB_FAILURE_INVALID_FACTS, "[InvalidFacts] Secondary source snapshot SHA-256 is required when secondary source is needed.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
 
@@ -887,7 +887,7 @@ lpb_result extract_source_internal(
             return LPB_RESULT_INTERNAL_ERROR;
         }
         if (std::memcmp(actual_sec_sha, facts->secondary_sha256, 32) != 0) {
-            set_error(context, "[SourceChanged] Secondary source file content does not match inspected snapshot identity.");
+            set_failure(context, LPB_FAILURE_SOURCE_CHANGED, "[SourceChanged] Secondary source file content does not match inspected snapshot identity.");
             return expected_secondary_identity != nullptr
                 ? LPB_RESULT_SOURCE_CHANGED
                 : LPB_RESULT_INVALID_ARGUMENT;
@@ -910,7 +910,7 @@ lpb_result extract_source_internal(
                 return LPB_RESULT_INTERNAL_ERROR;
             }
             if (std::memcmp(actual_sec_sha, facts->secondary_sha256, 32) != 0) {
-                set_error(context, "[SourceChanged] Secondary source file content does not match inspected snapshot identity.");
+                set_failure(context, LPB_FAILURE_SOURCE_CHANGED, "[SourceChanged] Secondary source file content does not match inspected snapshot identity.");
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
         }
@@ -1011,7 +1011,7 @@ lpb_result extract_source_internal(
     if (cleanup_source_path && cleanup_source_path[0] != '\0') {
         LARGE_INTEGER primary_size{};
         if (!GetFileSizeEx(primary_guard.h, &primary_size) || primary_size.QuadPart <= 0) {
-            set_error(context, "[SourceRangeUnreadable] Failed to determine the full cleanup-source container length.");
+            set_failure(context, LPB_FAILURE_SOURCE_RANGE, "[SourceRangeUnreadable] Failed to determine the full cleanup-source container length.");
             return LPB_RESULT_INTERNAL_ERROR;
         }
         slice_task t{};
@@ -1034,7 +1034,7 @@ lpb_result extract_source_internal(
     for (auto& task : tasks) {
         LARGE_INTEGER fsize{};
         if (!GetFileSizeEx(task.src_handle, &fsize)) {
-            set_error(context, "[SourceRangeUnreadable] Failed to query source file size.");
+            set_failure(context, LPB_FAILURE_SOURCE_RANGE, "[SourceRangeUnreadable] Failed to query source file size.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         const uint64_t source_size = static_cast<uint64_t>(fsize.QuadPart);
@@ -1074,7 +1074,7 @@ lpb_result extract_source_internal(
         if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
             return rollback_extraction_transaction(
                 context,
-                {LPB_RESULT_CANCELLED, "[Cancelled]", "Source extraction cancelled."},
+                {LPB_RESULT_CANCELLED, LPB_FAILURE_CANCELLED, "Source extraction cancelled."},
                 tasks);
         }
 
@@ -1082,7 +1082,7 @@ lpb_result extract_source_internal(
         if (lpb_platform_path_is_reparse_point(temp_dir)) {
             return rollback_extraction_transaction(
                 context,
-                {LPB_RESULT_INTERNAL_ERROR, "[OutputPublishFailed]", "Destination directory is a reparse point for " + std::string(task.artifact_name) + "."},
+                {LPB_RESULT_INTERNAL_ERROR, LPB_FAILURE_OUTPUT_PUBLISH, "Destination directory is a reparse point for " + std::string(task.artifact_name) + "."},
                 tasks);
         }
 
@@ -1091,7 +1091,7 @@ lpb_result extract_source_internal(
             const DWORD err = GetLastError();
             return rollback_extraction_transaction(
                 context,
-                {LPB_RESULT_INTERNAL_ERROR, "[OutputPublishFailed]", "Destination directory identity could not be pinned for " + std::string(task.artifact_name) + " (Win32 error: " + std::to_string(err) + ")."},
+                {LPB_RESULT_INTERNAL_ERROR, LPB_FAILURE_OUTPUT_PUBLISH, "Destination directory identity could not be pinned for " + std::string(task.artifact_name) + " (Win32 error: " + std::to_string(err) + ")."},
                 tasks);
         }
 
@@ -1100,9 +1100,9 @@ lpb_result extract_source_internal(
             temp_dir, L".lpb", task.temp_path, L".tmp", true);
         if (task.temp_handle == INVALID_HANDLE_VALUE) {
             const DWORD err = GetLastError();
-            const std::string cat = (lpb_platform_classify_error(err) == lpb_platform_error::disk_full)
-                ? "[DiskFull]" : "[OutputPublishFailed]";
-            const std::string det = (cat == "[DiskFull]")
+            const lpb_failure_reason_v1 cat = (lpb_platform_classify_error(err) == lpb_platform_error::disk_full)
+                ? LPB_FAILURE_DISK_FULL : LPB_FAILURE_OUTPUT_PUBLISH;
+            const std::string det = (cat == LPB_FAILURE_DISK_FULL)
                 ? ("Disk full while creating temporary file for " + std::string(task.artifact_name) + " (Win32 error: " + std::to_string(err) + ").")
                 : ("Failed to create exclusive temporary file for " + std::string(task.artifact_name) + " (Win32 error: " + std::to_string(err) + ").");
             return rollback_extraction_transaction(context, {LPB_RESULT_INTERNAL_ERROR, cat, det}, tasks);
@@ -1113,7 +1113,7 @@ lpb_result extract_source_internal(
             task.temp_identity.file_size != 0 || task.temp_identity.link_count != 1) {
             return rollback_extraction_transaction(
                 context,
-                {LPB_RESULT_INTERNAL_ERROR, "[OutputPublishFailed]", "Temporary file identity was not stable immediately after exclusive creation for " + std::string(task.artifact_name) + "."},
+                {LPB_RESULT_INTERNAL_ERROR, LPB_FAILURE_OUTPUT_PUBLISH, "Temporary file identity was not stable immediately after exclusive creation for " + std::string(task.artifact_name) + "."},
                 tasks);
         }
 
@@ -1122,7 +1122,7 @@ lpb_result extract_source_internal(
         if (!SetFilePointerEx(task.src_handle, seek_pos, NULL, FILE_BEGIN)) {
             return rollback_extraction_transaction(
                 context,
-                {LPB_RESULT_INVALID_ARGUMENT, "[SourceRangeUnreadable]", "Failed to seek to slice offset in source file for " + std::string(task.artifact_name) + "."},
+                {LPB_RESULT_INVALID_ARGUMENT, LPB_FAILURE_SOURCE_RANGE, "Failed to seek to slice offset in source file for " + std::string(task.artifact_name) + "."},
                 tasks);
         }
 
@@ -1138,7 +1138,7 @@ lpb_result extract_source_internal(
             if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
                 return rollback_extraction_transaction(
                     context,
-                    {LPB_RESULT_CANCELLED, "[Cancelled]", "Source extraction cancelled."},
+                    {LPB_RESULT_CANCELLED, LPB_FAILURE_CANCELLED, "Source extraction cancelled."},
                     tasks);
             }
 
@@ -1153,14 +1153,14 @@ lpb_result extract_source_internal(
                 bytes_written + to_read >= context->extractor_hook.trigger_after_bytes) {
                 return rollback_extraction_transaction(
                     context,
-                    {LPB_RESULT_INTERNAL_ERROR, "[SourceRangeUnreadable]", "Injected short read for " + std::string(task.artifact_name) + "."},
+                    {LPB_RESULT_INTERNAL_ERROR, LPB_FAILURE_SOURCE_RANGE, "Injected short read for " + std::string(task.artifact_name) + "."},
                     tasks);
             }
 
             if (!ReadFile(task.src_handle, buffer.data(), to_read, &bytes_read, NULL) || bytes_read == 0) {
                 return rollback_extraction_transaction(
                     context,
-                    {LPB_RESULT_INTERNAL_ERROR, "[SourceRangeUnreadable]", "Unexpected EOF or read error while extracting slice for " + std::string(task.artifact_name) + "."},
+                    {LPB_RESULT_INTERNAL_ERROR, LPB_FAILURE_SOURCE_RANGE, "Unexpected EOF or read error while extracting slice for " + std::string(task.artifact_name) + "."},
                     tasks);
             }
             source_slice_sha.update(buffer.data(), bytes_read);
@@ -1183,9 +1183,9 @@ lpb_result extract_source_internal(
 
             if (!write_ok || bytes_written_chunk != bytes_read) {
                 const DWORD err = GetLastError();
-                const std::string cat = (lpb_platform_classify_error(err) == lpb_platform_error::disk_full)
-                    ? "[DiskFull]" : "[OutputWriteFailed]";
-                const std::string det = (cat == "[DiskFull]")
+                const lpb_failure_reason_v1 cat = (lpb_platform_classify_error(err) == lpb_platform_error::disk_full)
+                    ? LPB_FAILURE_DISK_FULL : LPB_FAILURE_OUTPUT_WRITE;
+                const std::string det = (cat == LPB_FAILURE_DISK_FULL)
                     ? ("Disk full while writing extracted slice for " + std::string(task.artifact_name) + " (Win32 error: " + std::to_string(err) + ").")
                     : ("Failed while writing extracted slice for " + std::string(task.artifact_name) + " (Win32 error: " + std::to_string(err) + ").");
                 return rollback_extraction_transaction(context, {LPB_RESULT_INTERNAL_ERROR, cat, det}, tasks);
@@ -1208,7 +1208,7 @@ lpb_result extract_source_internal(
                 if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
                     return rollback_extraction_transaction(
                         context,
-                        {LPB_RESULT_CANCELLED, "[Cancelled]", "Source extraction cancelled."},
+                        {LPB_RESULT_CANCELLED, LPB_FAILURE_CANCELLED, "Source extraction cancelled."},
                         tasks);
                 }
             }
@@ -1232,9 +1232,9 @@ lpb_result extract_source_internal(
 
         if (!flush_ok) {
             const DWORD err = GetLastError();
-            const std::string cat = (lpb_platform_classify_error(err) == lpb_platform_error::disk_full)
-                ? "[DiskFull]" : "[OutputWriteFailed]";
-            const std::string det = (cat == "[DiskFull]")
+            const lpb_failure_reason_v1 cat = (lpb_platform_classify_error(err) == lpb_platform_error::disk_full)
+                ? LPB_FAILURE_DISK_FULL : LPB_FAILURE_OUTPUT_WRITE;
+            const std::string det = (cat == LPB_FAILURE_DISK_FULL)
                 ? ("Disk full while flushing extracted slice for " + std::string(task.artifact_name) + " (Win32 error: " + std::to_string(err) + ").")
                 : ("Failed while flushing extracted slice for " + std::string(task.artifact_name) + " (Win32 error: " + std::to_string(err) + ").");
             return rollback_extraction_transaction(context, {LPB_RESULT_INTERNAL_ERROR, cat, det}, tasks);
@@ -1251,7 +1251,7 @@ lpb_result extract_source_internal(
             std::memcmp(task.staged_sha256, task.expected_slice_sha256, 32) != 0) {
             return rollback_extraction_transaction(
                 context,
-                {LPB_RESULT_INTERNAL_ERROR, "[OutputPublishFailed]", "Temporary artifact identity or hash did not match the streamed source slice for " + std::string(task.artifact_name) + "."},
+                {LPB_RESULT_INTERNAL_ERROR, LPB_FAILURE_OUTPUT_PUBLISH, "Temporary artifact identity or hash did not match the streamed source slice for " + std::string(task.artifact_name) + "."},
                 tasks);
         }
 
@@ -1267,7 +1267,7 @@ lpb_result extract_source_internal(
             if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
                 return rollback_extraction_transaction(
                     context,
-                    {LPB_RESULT_CANCELLED, "[Cancelled]", "Source extraction cancelled."},
+                    {LPB_RESULT_CANCELLED, LPB_FAILURE_CANCELLED, "Source extraction cancelled."},
                     tasks);
             }
         }
@@ -1280,7 +1280,7 @@ lpb_result extract_source_internal(
         if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
             return rollback_extraction_transaction(
                 context,
-                {LPB_RESULT_CANCELLED, "[Cancelled]", "Source extraction cancelled."},
+                {LPB_RESULT_CANCELLED, LPB_FAILURE_CANCELLED, "Source extraction cancelled."},
                 tasks);
         }
 
@@ -1289,7 +1289,7 @@ lpb_result extract_source_internal(
         if (destination_attributes != INVALID_FILE_ATTRIBUTES || lpb_platform_path_is_reparse_point(task.final_dst_path)) {
             return rollback_extraction_transaction(
                 context,
-                {LPB_RESULT_INTERNAL_ERROR, "[OutputPublishFailed]", "Destination appeared, changed, or is a reparse point before handle publish for " + std::string(task.artifact_name) + "."},
+                {LPB_RESULT_INTERNAL_ERROR, LPB_FAILURE_OUTPUT_PUBLISH, "Destination appeared, changed, or is a reparse point before handle publish for " + std::string(task.artifact_name) + "."},
                 tasks);
         }
 
@@ -1299,7 +1299,7 @@ lpb_result extract_source_internal(
             context->extractor_hook.target_artifact == task.target_artifact) {
             return rollback_extraction_transaction(
                 context,
-                {LPB_RESULT_INTERNAL_ERROR, "[OutputPublishFailed]", "Injected publish failure for " + std::string(task.artifact_name) + "."},
+                {LPB_RESULT_INTERNAL_ERROR, LPB_FAILURE_OUTPUT_PUBLISH, "Injected publish failure for " + std::string(task.artifact_name) + "."},
                 tasks);
         }
 
@@ -1307,7 +1307,7 @@ lpb_result extract_source_internal(
 
             return rollback_extraction_transaction(
                 context,
-                {LPB_RESULT_INTERNAL_ERROR, "[OutputPublishFailed]", "Temporary artifact identity changed before handle publish for " + std::string(task.artifact_name) + "."},
+                {LPB_RESULT_INTERNAL_ERROR, LPB_FAILURE_OUTPUT_PUBLISH, "Temporary artifact identity changed before handle publish for " + std::string(task.artifact_name) + "."},
                 tasks);
         }
 
@@ -1315,7 +1315,7 @@ lpb_result extract_source_internal(
         if (final_name.empty() || task.destination_directory_handle == INVALID_HANDLE_VALUE) {
             return rollback_extraction_transaction(
                 context,
-                {LPB_RESULT_INTERNAL_ERROR, "[OutputPublishFailed]", "Destination filename or pinned directory handle is invalid for " + std::string(task.artifact_name) + "."},
+                {LPB_RESULT_INTERNAL_ERROR, LPB_FAILURE_OUTPUT_PUBLISH, "Destination filename or pinned directory handle is invalid for " + std::string(task.artifact_name) + "."},
                 tasks);
         }
         // The destination directory is pinned by this transaction. The backend
@@ -1323,8 +1323,8 @@ lpb_result extract_source_internal(
         if (!lpb_platform_publish_owned_no_replace(task.temp_handle, task.final_dst_path)) {
 
             const DWORD win_err = GetLastError();
-            const std::string cat = (lpb_platform_classify_error(win_err) == lpb_platform_error::disk_full)
-                ? "[DiskFull]" : "[OutputPublishFailed]";
+            const lpb_failure_reason_v1 cat = (lpb_platform_classify_error(win_err) == lpb_platform_error::disk_full)
+                ? LPB_FAILURE_DISK_FULL : LPB_FAILURE_OUTPUT_PUBLISH;
             const std::string det = (lpb_platform_classify_error(win_err) == lpb_platform_error::destination_exists)
                 ? ("Destination file already exists: " + path_to_utf8(task.final_dst_path) + ".")
                 : ("Failed to publish the owned extraction handle for " + std::string(task.artifact_name) + " (Win32 error: " + std::to_string(win_err) + ").");
@@ -1344,7 +1344,7 @@ lpb_result extract_source_internal(
             if (lpb_context_check_cancelled(context) == LPB_RESULT_CANCELLED) {
                 return rollback_extraction_transaction(
                     context,
-                    {LPB_RESULT_CANCELLED, "[Cancelled]", "Source extraction cancelled."},
+                    {LPB_RESULT_CANCELLED, LPB_FAILURE_CANCELLED, "Source extraction cancelled."},
                     tasks);
             }
         }
@@ -1361,7 +1361,7 @@ lpb_result extract_source_internal(
             std::memcmp(final_hash, task.expected_slice_sha256, 32) != 0) {
             return rollback_extraction_transaction(
                 context,
-                {LPB_RESULT_INTERNAL_ERROR, "[OutputPublishFailed]", "Published artifact identity, length, or hash did not match the streamed source slice for " + std::string(task.artifact_name) + "."},
+                {LPB_RESULT_INTERNAL_ERROR, LPB_FAILURE_OUTPUT_PUBLISH, "Published artifact identity, length, or hash did not match the streamed source slice for " + std::string(task.artifact_name) + "."},
                 tasks);
         }
         task.published_identity = final_identity;
@@ -1386,7 +1386,7 @@ lpb_result extract_source_internal(
                         &duplicate, 0, FALSE, DUPLICATE_SAME_ACCESS)) {
                     return rollback_extraction_transaction(
                         context,
-                        {LPB_RESULT_INTERNAL_ERROR, "[OutputPublishFailed]", "Failed to retain the published artifact handle for exact-object rollback."},
+                        {LPB_RESULT_INTERNAL_ERROR, LPB_FAILURE_OUTPUT_PUBLISH, "Failed to retain the published artifact handle for exact-object rollback."},
                         tasks);
                 }
                 artifact.rollback_handle = duplicate;
@@ -1395,7 +1395,7 @@ lpb_result extract_source_internal(
         } catch (...) {
             return rollback_extraction_transaction(
                 context,
-                {LPB_RESULT_INTERNAL_ERROR, "[InternalError]", "Failed to retain Native ownership identities for published extraction artifacts."},
+                {LPB_RESULT_INTERNAL_ERROR, LPB_FAILURE_INTERNAL, "Failed to retain Native ownership identities for published extraction artifacts."},
                 tasks);
         }
     }
@@ -1439,7 +1439,7 @@ lpb_result extract_source_with_plan(
     lpb_context_operation context_operation(context);
     if (!context_operation.acquired())
     {
-        set_error(context, "[AuthorityViolation] Native context is being destroyed.");
+        set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Native context is being destroyed.");
         return LPB_RESULT_AUTHORITY_VIOLATION;
     }
 
@@ -1474,7 +1474,7 @@ lpb_result extract_source_with_plan(
         const bool supplied_secondary = secondary_path != nullptr && secondary_path[0] != '\0';
         if (supplied_secondary != has_secondary)
         {
-            set_error(context, "[AuthorityViolation] Extraction paths do not match the Inspector-issued source pair.");
+            set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Extraction paths do not match the Inspector-issued source pair.");
             return LPB_RESULT_AUTHORITY_VIOLATION;
         }
 
@@ -1484,7 +1484,7 @@ lpb_result extract_source_with_plan(
             !same_file_identity(actual_primary_identity, snapshot.primary_identity) ||
             _wcsicmp(actual_primary_path.c_str(), snapshot.primary_final_path.c_str()) != 0)
         {
-            set_error(context, "[SourceChanged] Primary source path or file identity no longer matches the issued extraction plan.");
+            set_failure(context, LPB_FAILURE_SOURCE_CHANGED, "[SourceChanged] Primary source path or file identity no longer matches the issued extraction plan.");
             return LPB_RESULT_SOURCE_CHANGED;
         }
 
@@ -1496,7 +1496,7 @@ lpb_result extract_source_with_plan(
                 !same_file_identity(actual_secondary_identity, snapshot.secondary_identity) ||
                 _wcsicmp(actual_secondary_path.c_str(), snapshot.secondary_final_path.c_str()) != 0)
             {
-                set_error(context, "[SourceChanged] Secondary source path or file identity no longer matches the issued extraction plan.");
+                set_failure(context, LPB_FAILURE_SOURCE_CHANGED, "[SourceChanged] Secondary source path or file identity no longer matches the issued extraction plan.");
                 return LPB_RESULT_SOURCE_CHANGED;
             }
         }
@@ -1571,11 +1571,11 @@ lpb_result extract_source_with_plan(
                 }
                 catch (...)
                 {
-                    set_error(context, "[CleanupFailed] Native could not project extraction receipts and exact rollback failed; the creating-handle identity remains in the active extraction plan.");
+                    set_failure(context, LPB_FAILURE_CLEANUP, "[CleanupFailed] Native could not project extraction receipts and exact rollback failed; the creating-handle identity remains in the active extraction plan.");
                 }
                 return LPB_RESULT_INTERNAL_ERROR;
             }
-            set_error(context, "[InternalError] Native could not allocate extraction output receipt projections; exact rollback completed.");
+            set_failure(context, LPB_FAILURE_INTERNAL, "[InternalError] Native could not allocate extraction output receipt projections; exact rollback completed.");
             return LPB_RESULT_INTERNAL_ERROR;
         }
 
@@ -1635,7 +1635,7 @@ lpb_result extract_source_with_plan(
                 }
                 catch (...)
                 {
-                    set_error(context, "[CleanupFailed] Native could not retain extraction output receipts and exact rollback failed; the creating-handle identity remains in the active extraction plan.");
+                    set_failure(context, LPB_FAILURE_CLEANUP, "[CleanupFailed] Native could not retain extraction output receipts and exact rollback failed; the creating-handle identity remains in the active extraction plan.");
                 }
                 return LPB_RESULT_INTERNAL_ERROR;
             }
@@ -1653,7 +1653,7 @@ lpb_result extract_source_with_plan(
     }
     catch (...)
     {
-        set_error(context, "[InternalError] Native extraction failed unexpectedly.");
+        set_failure(context, LPB_FAILURE_INTERNAL, "[InternalError] Native extraction failed unexpectedly.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
 }
@@ -1665,14 +1665,14 @@ lpb_result rollback_extraction_outputs_with_plan(
 {
     if (context == nullptr || plan == nullptr || generation == 0)
     {
-        set_error(context, "[AuthorityViolation] Context, extraction plan, and generation are required for rollback.");
+        set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Context, extraction plan, and generation are required for rollback.");
         return LPB_RESULT_AUTHORITY_VIOLATION;
     }
 
     lpb_context_operation context_operation(context);
     if (!context_operation.acquired())
     {
-        set_error(context, "[AuthorityViolation] Native context is unavailable for extraction rollback.");
+        set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Native context is unavailable for extraction rollback.");
         return LPB_RESULT_AUTHORITY_VIOLATION;
     }
 
@@ -1685,7 +1685,7 @@ lpb_result rollback_extraction_outputs_with_plan(
             if (record == nullptr || record->owner_context != context ||
                 record->generation != generation || record->plan_version != 1)
             {
-                set_error(context, "[AuthorityViolation] Extraction rollback token is not owned by this context or generation.");
+                set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Extraction rollback token is not owned by this context or generation.");
                 return LPB_RESULT_AUTHORITY_VIOLATION;
             }
             if (record->rollback_completed)
@@ -1701,7 +1701,7 @@ lpb_result rollback_extraction_outputs_with_plan(
             if (!record->managed_claim_active ||
                 (record->state != lpb_plan_state::Claimed && record->state != lpb_plan_state::ReleaseRequested))
             {
-                set_error(context, "[AuthorityViolation] Exact-object rollback is valid only inside the active managed extraction attempt.");
+                set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Exact-object rollback is valid only inside the active managed extraction attempt.");
                 return LPB_RESULT_AUTHORITY_VIOLATION;
             }
             record->rollback_active = true;
@@ -1729,7 +1729,7 @@ lpb_result rollback_extraction_outputs_with_plan(
         {
             record->rollback_active = false;
         }
-        set_error(context, "[CleanupFailed] Exact-object extraction rollback failed unexpectedly.");
+        set_failure(context, LPB_FAILURE_CLEANUP, "[CleanupFailed] Exact-object extraction rollback failed unexpectedly.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
 }
@@ -1741,13 +1741,13 @@ lpb_result verify_extraction_outputs_with_plan(
 {
     if (context == nullptr || plan == nullptr || generation == 0)
     {
-        set_error(context, "[AuthorityViolation] Context, extraction plan, and generation are required for output verification.");
+        set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Context, extraction plan, and generation are required for output verification.");
         return LPB_RESULT_AUTHORITY_VIOLATION;
     }
     lpb_context_operation context_operation(context);
     if (!context_operation.acquired())
     {
-        set_error(context, "[AuthorityViolation] Native context is unavailable for output verification.");
+        set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Native context is unavailable for output verification.");
         return LPB_RESULT_AUTHORITY_VIOLATION;
     }
 
@@ -1761,7 +1761,7 @@ lpb_result verify_extraction_outputs_with_plan(
                 record->generation != generation || !record->extraction_succeeded ||
                 record->rollback_completed || record->published_artifacts.empty())
             {
-                set_error(context, "[AuthorityViolation] No active Native-published extraction artifacts are bound to this plan.");
+                set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] No active Native-published extraction artifacts are bound to this plan.");
                 return LPB_RESULT_AUTHORITY_VIOLATION;
             }
             artifacts = record->published_artifacts;
@@ -1775,7 +1775,7 @@ lpb_result verify_extraction_outputs_with_plan(
     }
     catch (...)
     {
-        set_error(context, "[InternalError] Native extraction output verification failed unexpectedly.");
+        set_failure(context, LPB_FAILURE_INTERNAL, "[InternalError] Native extraction output verification failed unexpectedly.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
 }
@@ -1787,14 +1787,14 @@ lpb_result commit_extraction_outputs_with_plan(
 {
     if (context == nullptr || plan == nullptr || generation == 0)
     {
-        set_error(context, "[AuthorityViolation] Context, extraction plan, and generation are required for output commit.");
+        set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Context, extraction plan, and generation are required for output commit.");
         return LPB_RESULT_AUTHORITY_VIOLATION;
     }
 
     lpb_context_operation context_operation(context);
     if (!context_operation.acquired())
     {
-        set_error(context, "[AuthorityViolation] Native context is being destroyed.");
+        set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Native context is being destroyed.");
         return LPB_RESULT_AUTHORITY_VIOLATION;
     }
 
@@ -1806,7 +1806,7 @@ lpb_result commit_extraction_outputs_with_plan(
         if (record == nullptr || record->owner_context != context ||
             record->generation != generation || record->plan_version != 1)
         {
-            set_error(context, "[AuthorityViolation] Extraction commit token is not owned by this context or generation.");
+            set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Extraction commit token is not owned by this context or generation.");
             return LPB_RESULT_AUTHORITY_VIOLATION;
         }
 
@@ -1824,7 +1824,7 @@ lpb_result commit_extraction_outputs_with_plan(
 
         if (!record->extraction_succeeded)
         {
-            set_error(context, "[AuthorityViolation] Extraction has not succeeded; there are no published outputs to commit.");
+            set_failure(context, LPB_FAILURE_AUTHORITY, "[AuthorityViolation] Extraction has not succeeded; there are no published outputs to commit.");
             return LPB_RESULT_AUTHORITY_VIOLATION;
         }
 
@@ -1847,7 +1847,7 @@ lpb_result commit_extraction_outputs_with_plan(
     }
     catch (...)
     {
-        set_error(context, "[InternalError] Native extraction output commit failed unexpectedly.");
+        set_failure(context, LPB_FAILURE_INTERNAL, "[InternalError] Native extraction output commit failed unexpectedly.");
         return LPB_RESULT_INTERNAL_ERROR;
     }
 }

@@ -56,6 +56,8 @@ lpb_result transcode_video_file(
     lpb_video_backend_diagnostics* out_diagnostics = nullptr,
     lpb_video_preservation_result_v1* out_preservation = nullptr,
     lpb_video_preservation_result_v2* out_complete_proof = nullptr,
-    bool repair_orientation = false) noexcept;
+    bool repair_orientation = false, bool display_area_policy = false, bool keep_stabilization_edges = false) noexcept;
+
+lpb_result probe_video_display_geometry(lpb_context*, const char*, uint32_t* edges) noexcept;
 
 } // namespace lpb::media

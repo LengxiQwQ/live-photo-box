@@ -15,6 +15,7 @@
  */
 
 using LivePhotoBox.Controls;
+using LivePhotoBox.Collections;
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Models;
 using LivePhotoBox.Services;
@@ -56,8 +57,10 @@ namespace LivePhotoBox.Views
         private long _lastStopEscapeTick;
 
         // 队列列宽的内容测量缓存。数据变化时重新测量，拖动时只做数值分配。
+        private readonly Dictionary<(string Text, double Size, bool Bold), double> _queueTextWidths = [];
         private readonly HashSet<MergeTask> _observedQueueTasks = [];
         private bool _taskQueueMinimumRefreshPending;
+        private int _taskQueueMeasurementVersion;
         private bool _taskQueueAllowMinimumShrink;
         private bool _taskQueueFinalLayoutRefreshPending;
         private double _taskQueueSizeMinimum = 76;
@@ -150,15 +153,19 @@ namespace LivePhotoBox.Views
                     ObserveTaskQueueItem(task);
             }
 
+            bool removed = e.OldItems?.Count > 0;
             if (e.Action == NotifyCollectionChangedAction.Reset)
             {
-                foreach (MergeTask task in _observedQueueTasks.ToList())
+                var current = ViewModel.Tasks.ToHashSet();
+                foreach (var task in _observedQueueTasks.Where(t => !current.Contains(t)).ToArray())
+                {
                     StopObservingTaskQueueItem(task);
-                foreach (MergeTask task in ViewModel.Tasks)
-                    ObserveTaskQueueItem(task);
+                    removed = true;
+                }
+                foreach (var task in current) ObserveTaskQueueItem(task);
             }
 
-            ScheduleTaskQueueMinimumRefresh(allowShrink: true);
+            ScheduleTaskQueueMinimumRefresh(allowShrink: removed && !ViewModel.IsScanning);
         }
 
         private void ObserveTaskQueueItem(MergeTask task)
@@ -189,6 +196,7 @@ namespace LivePhotoBox.Views
         private void ScheduleTaskQueueMinimumRefresh(bool allowShrink)
         {
             _taskQueueAllowMinimumShrink |= allowShrink;
+            if (ViewModel.IsScanning) return;
             if (_taskQueueMinimumRefreshPending) return;
 
             _taskQueueMinimumRefreshPending = true;
@@ -197,8 +205,8 @@ namespace LivePhotoBox.Views
                 bool canShrink = _taskQueueAllowMinimumShrink;
                 _taskQueueMinimumRefreshPending = false;
                 _taskQueueAllowMinimumShrink = false;
-                if (!IsLoaded) return;
-                RefreshTaskQueueMinimums(canShrink);
+                if (!IsLoaded || ViewModel.IsScanning) return;
+                _ = RefreshTaskQueueMinimumsSafelyAsync(canShrink);
             }))
             {
                 _taskQueueMinimumRefreshPending = false;
@@ -206,36 +214,36 @@ namespace LivePhotoBox.Views
             }
         }
 
-        private void RefreshTaskQueueMinimums(bool allowShrink)
+        private async Task RefreshTaskQueueMinimumsSafelyAsync(bool allowShrink)
         {
-            if (Resources["TaskQueueColumns"] is not TaskQueueColumnLayout layout)
-                return;
+            try { await RefreshTaskQueueMinimumsAsync(allowShrink, default); }
+            catch (OperationCanceledException) { }
+            catch (Exception error) { LogService.Merge($"Column measurement failed: {error}", LogLevel.Warning, error); }
+        }
 
+        private async Task RefreshTaskQueueMinimumsAsync(bool allowShrink, System.Threading.CancellationToken token)
+        {
+            if (!IsLoaded) return;
+            if (Resources["TaskQueueColumns"] is not TaskQueueColumnLayout layout) return;
+            int version = ++_taskQueueMeasurementVersion;
             const double textSafety = 4;
             double sizeMinimum = MeasureText(QueueSizeHeader) + textSafety;
             double statusMinimum = MeasureText(QueueStatusHeader) + textSafety;
-
-            var measuredSizeTexts = new HashSet<string>(StringComparer.Ordinal);
-            var measuredStatusTexts = new HashSet<string>(StringComparer.Ordinal);
-            foreach (MergeTask task in ViewModel.Tasks)
+            var sizeTexts = ViewModel.Tasks.SelectMany(task => new[] { task.ImageSize, task.VideoSize })
+                .Concat(ViewModel.ScanDiagnostics.Select(row => row.DisplayFileSize)).Distinct(StringComparer.Ordinal);
+            var statusTexts = ViewModel.Tasks.Select(task => task.DisplayStatusText)
+                .Concat(ViewModel.ScanDiagnostics.Select(row => row.DisplayStatusText)).Distinct(StringComparer.Ordinal);
+            var measures = sizeTexts.Select(text => (Text: text, Status: false))
+                .Concat(statusTexts.Select(text => (Text: text, Status: true))).ToArray();
+            await UiBatchProcessor.RunAsync(measures.Length, index =>
             {
-                if (measuredSizeTexts.Add(task.ImageSize))
-                    sizeMinimum = Math.Max(sizeMinimum, MeasureText(task.ImageSize, 11, semiBold: false) + textSafety);
-                if (measuredSizeTexts.Add(task.VideoSize))
-                    sizeMinimum = Math.Max(sizeMinimum, MeasureText(task.VideoSize, 11, semiBold: false) + textSafety);
-                if (measuredStatusTexts.Add(task.DisplayStatusText))
-                {
-                    double statusTextWidth = MeasureText(task.DisplayStatusText, 11, semiBold: true);
-                    statusMinimum = Math.Max(statusMinimum, 8 + 6 + statusTextWidth + textSafety);
-                }
-            }
-
-            foreach (var diagnostic in ViewModel.ScanDiagnostics)
-            {
-                sizeMinimum = Math.Max(sizeMinimum, MeasureText(diagnostic.DisplayFileSize, 11, semiBold: false) + textSafety);
-                statusMinimum = Math.Max(statusMinimum, 8 + 6 + MeasureText(diagnostic.DisplayStatusText, 11, semiBold: true) + textSafety);
-            }
-
+                if (!IsLoaded || version != _taskQueueMeasurementVersion) throw new OperationCanceledException();
+                var measure = measures[index];
+                double width = MeasureQueueText(measure.Text, 11, measure.Status) + textSafety;
+                if (measure.Status) statusMinimum = Math.Max(statusMinimum, 8 + 6 + width);
+                else sizeMinimum = Math.Max(sizeMinimum, width);
+            }, action => DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, () => action()), token);
+            if (!IsLoaded || version != _taskQueueMeasurementVersion) return;
             double actionsMinimum = Math.Max(72, MeasureText(QueueActionsHeader) + textSafety);
             if (allowShrink)
             {
@@ -264,6 +272,15 @@ namespace LivePhotoBox.Views
                 if (!_isSplitterDragging && LeftConfigPanel.ActualWidth > MaxLeftWidthFor(parentGrid))
                     parentGrid.ColumnDefinitions[0].Width = new GridLength(MaxLeftWidthFor(parentGrid));
             }
+        }
+
+        private double MeasureQueueText(string text, double fontSize, bool semiBold)
+        {
+            var key = (text, fontSize, semiBold);
+            if (_queueTextWidths.TryGetValue(key, out double width)) return width;
+            width = MeasureText(text, fontSize, semiBold);
+            if (_queueTextWidths.Count < 8192) _queueTextWidths[key] = width;
+            return width;
         }
 
         private static double MeasureText(TextBlock textBlock)
@@ -312,8 +329,8 @@ namespace LivePhotoBox.Views
             _scroller = new TaskListAutoScroller(
                 "Merge",
                 isActive: () => ViewModel.IsProcessing || ViewModel.IsScanning,
-                getTaskCount: () => ViewModel.Tasks.Count,
-                getTaskAt: idx => ViewModel.Tasks[idx]);
+                getTaskCount: () => ViewModel.DisplayTasks.Count,
+                getTaskAt: idx => ViewModel.DisplayTasks[idx]);
 
             Loaded += MergePage_Loaded;
             Unloaded += MergePage_Unloaded;
@@ -442,7 +459,6 @@ namespace LivePhotoBox.Views
                 "MergePage_Pairing_Filename_Hint",
                 "MergePage_Pairing_Apple_Hint",
                 "MergePage_Pairing_Vivo_Hint",
-                "MergePage_Pairing_Strict_Hint",
             ];
 
             double fontSize = comboBox.FontSize > 0 && !double.IsNaN(comboBox.FontSize)
@@ -565,6 +581,9 @@ namespace LivePhotoBox.Views
             ViewModel.TaskStartedForScroll += OnTaskStarted;
             ViewModel.ProcessingCompletedForScroll += OnAllCompleted;
             ViewModel.PropertyChanged += OnViewModelPropertyChanged;
+            ViewModel.ScanPresentationRequested += PrepareScanPresentationAsync;
+            ViewModel.ScanSessionStarting += OnScanSessionStarting;
+            ViewModel.ScanResultsFinalizing += OnScanResultsFinalizing;
             AttachTaskQueueMeasurements();
             _eventsHooked = true;
 
@@ -601,29 +620,47 @@ namespace LivePhotoBox.Views
             ViewModel.TaskStartedForScroll -= OnTaskStarted;
             ViewModel.ProcessingCompletedForScroll -= OnAllCompleted;
             ViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            ViewModel.ScanPresentationRequested -= PrepareScanPresentationAsync;
+            ViewModel.ScanSessionStarting -= OnScanSessionStarting;
+            ViewModel.ScanResultsFinalizing -= OnScanResultsFinalizing;
             DetachTaskQueueMeasurements();
             _eventsHooked = false;
         }
 
         // 任务开始处理时通知自动滚动器定位
         private void OnTaskStarted(object? sender, MergeTask task) =>
-            _scroller.NotifyTaskStarted(task.Index - 1);
+            _scroller.NotifyTaskStarted(ViewModel.DisplayTasks.IndexOf(task));
 
         // 所有任务处理完成时通知自动滚动器
         private void OnAllCompleted(object? sender, EventArgs e) =>
             _scroller.NotifyAllCompleted(wasCancelled: ViewModel.WasStoppedByUser);
 
         // 响应 ViewModel 属性变更，通知自动滚动器状态变化
+        private void OnScanResultsFinalizing(object? sender, EventArgs args) => _scroller.NotifyScanFinished();
+
+        private void OnScanSessionStarting(object? sender, EventArgs e)
+        {
+            _taskQueueMeasurementVersion++;
+            _scroller.NotifyScanStarting();
+        }
+
+        private async Task PrepareScanPresentationAsync(System.Threading.CancellationToken token)
+        {
+            try { await RefreshTaskQueueMinimumsAsync(allowShrink: true, token); }
+            catch (OperationCanceledException) when (!IsLoaded && !token.IsCancellationRequested) { return; }
+            await ScanResultsPresenter.WaitForLayoutAsync(this, token, MergeTaskListView, MergeDiagnosticListView);
+        }
+
         private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             if (e.PropertyName == nameof(ViewModel.ScanDiagnosticsCount))
                 ScheduleTaskQueueMinimumRefresh(allowShrink: true);
             if (e.PropertyName == nameof(ViewModel.IsScanning))
             {
-                if (ViewModel.IsScanning)
-                    _scroller.NotifyScanStarting();
-                else
+                if (!ViewModel.IsScanning)
+                {
                     _scroller.NotifyScanFinished();
+                }
             }
             else if (e.PropertyName == nameof(ViewModel.IsProcessing) && ViewModel.IsProcessing)
             {
@@ -1937,7 +1974,7 @@ namespace LivePhotoBox.Views
         private void Splitter_PointerPressed(object sender, PointerRoutedEventArgs e)
         {
             // 拖动开始前只测量一次真实内容；PointerMoved 中仅做比例数值计算。
-            RefreshTaskQueueMinimums(allowShrink: true);
+            ScheduleTaskQueueMinimumRefresh(allowShrink: true);
             UpdateMaximizedState();
             _isSplitterDragging = true;
             var parentGrid = (Grid)LeftConfigPanel.Parent!;

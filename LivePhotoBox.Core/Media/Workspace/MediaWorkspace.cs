@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Models;
+using LivePhotoBox.Services;
 
 namespace LivePhotoBox.Media.Workspace;
 
@@ -20,6 +21,7 @@ public sealed class MediaWorkspace : IMediaWorkspace
     private readonly object _disposeGate = new();
     private readonly Dictionary<string, WorkspaceFileReceipt> _ownedFiles = new(StringComparer.OrdinalIgnoreCase);
     private readonly WindowsFileIdentity _rootIdentity;
+    private readonly bool _isProduction;
     private SafeFileHandle? _rootPinHandle;
     private SafeFileHandle? _rootRecoveryHandle;
     private bool _disposeStarted;
@@ -27,8 +29,51 @@ public sealed class MediaWorkspace : IMediaWorkspace
     private int _disposeAttempts;
 
     internal static AsyncLocal<Action<MediaWorkspaceCleanupStage, string>?> TestCleanupHook { get; } = new();
+    internal static AsyncLocal<Action<string>?> BeforeCleanupEnumerationForTests { get; } = new();
 
     public string RootDirectory => _rootDirectory;
+
+    public WorkspaceCleanupAttempt? LastCleanupAttempt { get; private set; }
+
+    public sealed record WorkspaceCleanupAttempt(bool Succeeded, Exception? Failure, string? LimitationMessage);
+
+    internal sealed record CreationAttempt(MediaWorkspace? Workspace, Exception? Failure);
+
+    internal static CreationAttempt TryCreate(CancellationToken token = default, string? parentDirectory = null)
+    {
+        if (token.IsCancellationRequested) return new(null, new OperationCanceledException(token));
+        string parent = parentDirectory ?? Path.Combine(Path.GetTempPath(), "LivePhotoBox");
+        if (OutputDirectoryAttempt.Ensure(parent) is { } parentFailure) return new(null, parentFailure);
+        string root = Path.GetFullPath(Path.Combine(parent, "ws-" + Guid.NewGuid().ToString("N")));
+        var creation = WindowsOwnedFilePublisher.TryCreateOwnedWorkspaceRoot(root);
+        if (creation.Failure is { } creationFailure) return new(null, creationFailure);
+        var pin = creation.Handle!;
+        var identity = WindowsOwnedFilePublisher.TryValidateWorkspaceDirectoryHandle(pin, root, null);
+        if (identity.Failure is { } identityFailure)
+        {
+            pin.Dispose();
+            return new(null, new IOException($"Workspace identity could not be established; preserving private path '{root}'.", identityFailure));
+        }
+        var recovery = WindowsOwnedFilePublisher.TryOpenWorkspaceRecoveryHandle(root, identity.Identity!);
+        if (recovery.Failure is { } recoveryFailure)
+        {
+            // Do not delete a path after losing exact cleanup authority. This
+            // empty private root is reported; no source or media was written.
+            pin.Dispose();
+            return new(null, new IOException($"Workspace recovery handle unavailable; preserving empty private path '{root}'.", recoveryFailure));
+        }
+        var workspace = new MediaWorkspace(root, pin, recovery.Handle!, identity.Identity!, isProduction: true);
+        WorkspaceCleanupScope.Register(workspace);
+        return new(workspace, null);
+    }
+
+    private MediaWorkspace(string root, SafeFileHandle pin, SafeFileHandle recovery, WindowsFileIdentity identity, bool isProduction = false)
+    {
+        _rootDirectory = root; _rootIdentity = identity;
+        _rootPinHandle = pin; _rootRecoveryHandle = recovery;
+        _isProduction = isProduction;
+        WorkspaceOwnershipRegistry.RegisterWorkspace(this, root);
+    }
 
     public MediaWorkspace()
     {
@@ -271,6 +316,14 @@ public sealed class MediaWorkspace : IMediaWorkspace
         }
     }
 
+    public WorkspaceCleanupAttempt TryCleanup()
+    {
+        lock (_disposeGate)
+        {
+            return TryCleanupCore();
+        }
+    }
+
     public void Dispose()
     {
         lock (_disposeGate)
@@ -279,12 +332,30 @@ public sealed class MediaWorkspace : IMediaWorkspace
 
     private void DisposeCore()
     {
+        var attempt = TryCleanupCore();
+        if (!attempt.Succeeded && !_isProduction)
+        {
+            throw CleanupFailed(attempt.Failure!);
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        Dispose();
+        return ValueTask.CompletedTask;
+    }
+
+    private WorkspaceCleanupAttempt TryCleanupCore()
+    {
         lock (_sync)
         {
-            if (_disposed) return;
+            if (_disposed)
+                return LastCleanupAttempt ?? new WorkspaceCleanupAttempt(true, null, null);
             if (_disposeAttempts >= MaximumDisposeAttempts)
             {
-                throw CleanupFailed(new IOException($"The bounded workspace cleanup retry limit ({MaximumDisposeAttempts}) was exhausted."));
+                return FailCleanup(
+                    new IOException($"The bounded workspace cleanup retry limit ({MaximumDisposeAttempts}) was exhausted."),
+                    "工作区清理重试次数已达上限");
             }
 
             _disposeAttempts++;
@@ -295,15 +366,26 @@ public sealed class MediaWorkspace : IMediaWorkspace
         {
             if (_rootPinHandle is not null)
             {
-                WindowsOwnedFilePublisher.ValidateWorkspaceDirectoryHandle(
+                var pinValidation = WindowsOwnedFilePublisher.TryValidateWorkspaceDirectoryHandle(
                     _rootPinHandle,
                     _rootDirectory,
                     _rootIdentity);
                 _rootPinHandle.Dispose();
                 _rootPinHandle = null;
+                if (pinValidation.Failure is { } pinFailure)
+                {
+                    return FailCleanup(pinFailure, $"工作区引脚句柄验证失败（{pinFailure.Message}）；已安全保留临时目录。");
+                }
             }
 
-            TestCleanupHook.Value?.Invoke(MediaWorkspaceCleanupStage.PinReleasedBeforeCleanupLease, _rootDirectory);
+            try
+            {
+                TestCleanupHook.Value?.Invoke(MediaWorkspaceCleanupStage.PinReleasedBeforeCleanupLease, _rootDirectory);
+            }
+            catch (Exception hookEx)
+            {
+                return FailCleanup(hookEx, $"工作区清理测试钩子报告限制（{hookEx.Message}）；已安全保留临时目录。");
+            }
 
             if (!Directory.Exists(_rootDirectory) && !File.Exists(_rootDirectory))
             {
@@ -313,22 +395,130 @@ public sealed class MediaWorkspace : IMediaWorkspace
                     _rootIdentity,
                     Path.GetDirectoryName(_rootDirectory)!);
                 if (rootAlive != ObjectAliveCheck.NotAlive)
-                    throw new IOException($"Workspace root '{_rootDirectory}' is missing by pathname but its exact FileId is not proven gone ({rootAlive}).");
+                {
+                    return FailCleanup(
+                        new IOException($"Workspace root '{_rootDirectory}' is missing by pathname but its exact FileId is not proven gone ({rootAlive})."),
+                        $"工作区根目录按路径缺失但对象未获证实销毁；已安全保留。");
+                }
                 FinishDispose();
-                return;
+                var missingSuccess = new WorkspaceCleanupAttempt(true, null, null);
+                LastCleanupAttempt = missingSuccess;
+                return missingSuccess;
             }
 
-            SafeFileHandle cleanupLease = WindowsOwnedFilePublisher.OpenWorkspaceCleanupLease(
+            var leaseAttempt = WindowsOwnedFilePublisher.TryOpenWorkspaceCleanupLease(
                 _rootDirectory,
                 _rootIdentity);
+            if (leaseAttempt.Failure is { } leaseFailure)
+            {
+                return FailCleanup(leaseFailure, $"无法获取工作区清理租约（{leaseFailure.Message}）；已安全保留临时工作区。");
+            }
+
+            SafeFileHandle cleanupLease = leaseAttempt.Handle!;
             try
             {
-                CleanupRegisteredChildren(cleanupLease);
+                var dirValidation = WindowsOwnedFilePublisher.TryValidateWorkspaceDirectoryHandle(
+                    cleanupLease,
+                    _rootDirectory,
+                    _rootIdentity);
+                if (dirValidation.Failure is { } dirFailure)
+                {
+                    return FailCleanup(dirFailure, $"工作区清理租约句柄验证失败（{dirFailure.Message}）；已安全保留临时工作区。");
+                }
 
-                // The recovery handle keeps the original object identity alive
-                // for the entire validation/deletion phase.  Release it only
-                // after all children are gone and immediately before the
-                // final exact-object empty-root disposition.
+                WorkspaceFileReceipt[] receipts;
+                lock (_sync) receipts = [.. _ownedFiles.Values];
+                var actualPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                BeforeCleanupEnumerationForTests.Value?.Invoke(_rootDirectory);
+                var enumeration = ScanFileSystem.Enumerate(_rootDirectory, CancellationToken.None);
+                if (enumeration.Failure is { } enumerationFailure)
+                    return FailCleanup(enumerationFailure, $"无法枚举工作区内容（{enumerationFailure.Message}）；已安全保留临时工作区。");
+                foreach (string childPath in enumeration.Entries!)
+                {
+                    string normalizedChild = WorkspaceOwnershipRegistry.NormalizePath(childPath);
+                    if (!actualPaths.TryAdd(normalizedChild, childPath))
+                    {
+                        return FailCleanup(
+                            new IOException($"Workspace root contains an ambiguous duplicate child path '{normalizedChild}'."),
+                            $"工作区包含重名冲突项 '{normalizedChild}'；已安全保留临时工作区。");
+                    }
+                }
+
+                var receiptByPath = new Dictionary<string, WorkspaceFileReceipt>(StringComparer.OrdinalIgnoreCase);
+                foreach (WorkspaceFileReceipt receipt in receipts)
+                    receiptByPath.Add(receipt.Path, receipt);
+
+                foreach (string childPath in actualPaths.Keys)
+                {
+                    if (!receiptByPath.ContainsKey(childPath))
+                    {
+                        return FailCleanup(
+                            new IOException($"Workspace root contains an unregistered child '{childPath}'; preserving the root and all unknown content."),
+                            $"工作区检测到未登记的外来文件或目录 '{childPath}'；已安全保留临时目录及其内容。");
+                    }
+                }
+
+                var openedFiles = new List<(WorkspaceFileReceipt Receipt, SafeFileHandle Handle)>();
+                try
+                {
+                    foreach (WorkspaceFileReceipt receipt in receipts)
+                    {
+                        if (!actualPaths.ContainsKey(receipt.Path))
+                        {
+                            ObjectAliveCheck objectAlive = WindowsOwnedFilePublisher.IsObjectAliveByFileId(
+                                receipt.Identity,
+                                _rootDirectory);
+                            if (objectAlive != ObjectAliveCheck.NotAlive)
+                            {
+                                return FailCleanup(
+                                    new IOException($"Registered workspace file '{receipt.Path}' is absent, but its exact FileId is not proven gone ({objectAlive})."),
+                                    $"登记的临时文件 '{receipt.Path}' 缺失且对象未获证实销毁；已安全保留临时工作区。");
+                            }
+                            continue;
+                        }
+
+                        var openAttempt = WindowsOwnedFilePublisher.TryOpenOwnedStagedFile(
+                            actualPaths[receipt.Path],
+                            receipt.Identity);
+                        if (openAttempt.Failure is { } openFailure)
+                        {
+                            return FailCleanup(openFailure, $"临时文件 '{receipt.Path}' 被占用或对象已被替换（{openFailure.Message}）；已安全保留相关文件及工作区。");
+                        }
+                        openedFiles.Add((receipt, openAttempt.Handle!));
+                    }
+
+                    foreach (var opened in openedFiles)
+                    {
+                        OwnedObjectCleanupProof proof = WindowsOwnedFilePublisher.DeleteOwnedObjectWithProof(
+                            opened.Handle,
+                            opened.Receipt.Identity,
+                            _rootDirectory,
+                            out _);
+                        if (proof is not (OwnedObjectCleanupProof.Gone or OwnedObjectCleanupProof.Unlinked))
+                        {
+                            return FailCleanup(
+                                new IOException($"Exact cleanup of registered workspace file '{opened.Receipt.Path}' was not proven ({proof})."),
+                                $"临时文件 '{opened.Receipt.Path}' 的删除未获证实（{proof}）；已保留临时工作区。");
+                        }
+                    }
+                }
+                finally
+                {
+                    foreach (var opened in openedFiles)
+                        opened.Handle.Dispose();
+                }
+
+                var remaining = ScanFileSystem.Enumerate(_rootDirectory, CancellationToken.None);
+                if (remaining.Failure is { } remainingFailure)
+                    return FailCleanup(remainingFailure, $"无法确认工作区剩余内容（{remainingFailure.Message}）；已安全保留工作区。");
+                if (remaining.Entries!.Count > 0)
+                {
+                    string residual = remaining.Entries[0];
+                    return FailCleanup(
+                        new IOException($"Workspace root still contains '{residual}' after exact registered-file cleanup; preserving the root."),
+                        $"清理已登记临时文件后工作区仍有残留项 '{residual}'；已安全保留工作区。");
+                }
+
                 _rootRecoveryHandle?.Dispose();
                 _rootRecoveryHandle = null;
 
@@ -338,7 +528,11 @@ public sealed class MediaWorkspace : IMediaWorkspace
                     Path.GetDirectoryName(_rootDirectory)!);
                 cleanupLease = null!; // DeleteEmptyWorkspaceRootWithProof consumes the lease on every result.
                 if (rootProof is not (OwnedObjectCleanupProof.Gone or OwnedObjectCleanupProof.Unlinked))
-                    throw new IOException($"Exact deletion of workspace root '{_rootDirectory}' was not proven ({rootProof}).");
+                {
+                    return FailCleanup(
+                        new IOException($"Exact deletion of workspace root '{_rootDirectory}' was not proven ({rootProof})."),
+                        $"工作区根目录 '{_rootDirectory}' 的删除未获证实（{rootProof}）；已保留临时路径。");
+                }
             }
             finally
             {
@@ -346,89 +540,33 @@ public sealed class MediaWorkspace : IMediaWorkspace
             }
 
             FinishDispose();
+            var success = new WorkspaceCleanupAttempt(true, null, null);
+            LastCleanupAttempt = success;
+            return success;
         }
         catch (Exception ex)
         {
-            throw CleanupFailed(ex);
+            return FailCleanup(ex, $"工作区清理发生意外错误（{ex.Message}）；已安全保留临时目录。");
         }
     }
 
-    public ValueTask DisposeAsync()
+    private WorkspaceCleanupAttempt FailCleanup(Exception failure, string limitation)
     {
-        Dispose();
-        return ValueTask.CompletedTask;
-    }
-
-    private void CleanupRegisteredChildren(SafeFileHandle cleanupLease)
-    {
-        WindowsOwnedFilePublisher.ValidateWorkspaceDirectoryHandle(
-            cleanupLease,
-            _rootDirectory,
-            _rootIdentity);
-
-        WorkspaceFileReceipt[] receipts;
-        lock (_sync) receipts = [.. _ownedFiles.Values];
-        var actualPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string childPath in Directory.EnumerateFileSystemEntries(_rootDirectory))
+        var attempt = new WorkspaceCleanupAttempt(false, failure, limitation);
+        LastCleanupAttempt = attempt;
+        if (_isProduction)
         {
-            string normalizedChild = WorkspaceOwnershipRegistry.NormalizePath(childPath);
-            if (!actualPaths.TryAdd(normalizedChild, childPath))
-                throw new IOException($"Workspace root contains an ambiguous duplicate child path '{normalizedChild}'.");
-        }
-
-        var receiptByPath = new Dictionary<string, WorkspaceFileReceipt>(StringComparer.OrdinalIgnoreCase);
-        foreach (WorkspaceFileReceipt receipt in receipts)
-            receiptByPath.Add(receipt.Path, receipt);
-
-        foreach (string childPath in actualPaths.Keys)
-        {
-            if (!receiptByPath.ContainsKey(childPath))
-                throw new IOException($"Workspace root contains an unregistered child '{childPath}'; preserving the root and all unknown content.");
-        }
-
-        var openedFiles = new List<(WorkspaceFileReceipt Receipt, SafeFileHandle Handle)>();
-        try
-        {
-            foreach (WorkspaceFileReceipt receipt in receipts)
+            _rootPinHandle?.Dispose();
+            _rootPinHandle = null;
+            _rootRecoveryHandle?.Dispose();
+            _rootRecoveryHandle = null;
+            lock (_sync)
             {
-                if (!actualPaths.ContainsKey(receipt.Path))
-                {
-                    ObjectAliveCheck objectAlive = WindowsOwnedFilePublisher.IsObjectAliveByFileId(
-                        receipt.Identity,
-                        _rootDirectory);
-                    if (objectAlive != ObjectAliveCheck.NotAlive)
-                        throw new IOException($"Registered workspace file '{receipt.Path}' is absent, but its exact FileId is not proven gone ({objectAlive}).");
-                    continue;
-                }
-
-                SafeFileHandle fileHandle = WindowsOwnedFilePublisher.OpenOwnedStagedFile(
-                    actualPaths[receipt.Path],
-                    receipt.Identity);
-                openedFiles.Add((receipt, fileHandle));
+                _disposed = true;
             }
-
-            foreach (var opened in openedFiles)
-            {
-                OwnedObjectCleanupProof proof = WindowsOwnedFilePublisher.DeleteOwnedObjectWithProof(
-                    opened.Handle,
-                    opened.Receipt.Identity,
-                    _rootDirectory,
-                    out _);
-                if (proof is not (OwnedObjectCleanupProof.Gone or OwnedObjectCleanupProof.Unlinked))
-                    throw new IOException($"Exact cleanup of registered workspace file '{opened.Receipt.Path}' was not proven ({proof}).");
-            }
+            WorkspaceOwnershipRegistry.UnregisterWorkspace(this, _rootDirectory);
         }
-        finally
-        {
-            foreach (var opened in openedFiles)
-                opened.Handle.Dispose();
-        }
-
-        using (IEnumerator<string> remaining = Directory.EnumerateFileSystemEntries(_rootDirectory).GetEnumerator())
-        {
-            if (remaining.MoveNext())
-                throw new IOException($"Workspace root still contains '{remaining.Current}' after exact registered-file cleanup; preserving the root.");
-        }
+        return attempt;
     }
 
     private string ValidateDirectChildPath(string path)

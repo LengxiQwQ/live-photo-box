@@ -161,9 +161,9 @@ namespace LivePhotoBox.ViewModels
 
         // 进度条是否为不确定状态（扫描中但总数为0）。
         public bool FooterIsIndeterminate =>
-            (CurrentStatusPageTag == "Merge" && Merge.IsScanning && _mergeScanTotal == 0)
-            || (CurrentStatusPageTag == "Split" && Split.IsScanning && _splitScanTotal == 0)
-            || (CurrentStatusPageTag == "Repair" && Repair.IsScanning && _repairScanTotal == 0);
+            (CurrentStatusPageTag == "Merge" && Merge.IsScanIndeterminate)
+            || (CurrentStatusPageTag == "Split" && Split.IsScanIndeterminate)
+            || (CurrentStatusPageTag == "Repair" && Repair.IsScanIndeterminate);
 
         // 最终传递给 ProgressBar 控件绑定的值，不确定状态时为 0。
         public double FooterProgressBarValue => FooterIsIndeterminate ? 0 : FooterProgress;

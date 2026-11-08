@@ -1,4 +1,5 @@
-#pragma once
+﻿#pragma once
+#include <span>
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
@@ -207,6 +208,7 @@ struct lpb_context
     void* user_data{};
     std::mutex error_mutex;
     std::string last_error;
+    lpb_failure_diagnostic_v1 failure_diagnostic{sizeof(lpb_failure_diagnostic_v1), 1};
     lpb_inspection_status inspection_status{};
     lpb_extractor_test_hook extractor_hook{};
     lpb_cleaner_snapshot_callback cleaner_post_snapshot_callback{nullptr};
@@ -377,6 +379,8 @@ constexpr size_t context_options_v1_size =
     offsetof(lpb_context_options, user_data) + sizeof(lpb_context_options::user_data);
 
 void set_error(lpb_context* context, const char* message) noexcept;
+void set_failure(lpb_context* context, lpb_failure_reason_v1 reason, const char* message,
+    lpb_failure_reason_v1 original_reason = LPB_FAILURE_NONE, uint32_t system_error = 0) noexcept;
 void set_inspection_status(lpb_context* context, lpb_inspection_failure_category category,
     lpb_inspection_stage stage, uint64_t capability = 0) noexcept;
 lpb_result lpb_media_capture_preservation_observation(
@@ -384,7 +388,7 @@ lpb_result lpb_media_capture_preservation_observation(
     lpb_image_container container_hint, lpb_preservation_observation* out_observation,
     bool share_existing_writer) noexcept;
 lpb_result lpb_media_capture_preservation_observation_bytes(
-    lpb_context* context, const std::vector<uint8_t>& media_bytes,
+    lpb_context* context, std::span<const uint8_t> media_bytes,
     lpb_source_protocol protocol_hint, lpb_image_container container_hint,
     lpb_preservation_observation* out_observation) noexcept;
 void log_message(lpb_context* context, lpb_log_level level, const char* message) noexcept;

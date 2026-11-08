@@ -66,6 +66,7 @@ bool validate_isobmff_mebx_transplants(std::span<const uint8_t> source,
 // fail closed. Encoded sample tables remain target-owned and are relocated.
 // Compatible stream-copy only: preserve validated display geometry in the main
 // video sample entry, without inheriting source metadata or auxiliary tracks.
+bool remove_isobmff_clean_aperture(std::span<const uint8_t> stage, std::vector<uint8_t>& output) noexcept;
 bool preserve_isobmff_copy_display_geometry(std::span<const uint8_t> source,
     std::span<const uint8_t> stage, std::vector<uint8_t>& output, bool& changed) noexcept;
 

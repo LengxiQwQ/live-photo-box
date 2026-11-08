@@ -16,7 +16,7 @@ public sealed class MergeSplitCollisionAvoidanceTests
 {
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task MergeScan_SameBaseName_DifferentExtensions_PairsWithoutConflict()
+    public async Task MergeScan_SameBaseName_DifferentExtensions_RequiresExplicitIdentitySelection()
     {
         using var workspace = new TestFixtureWorkspace();
 
@@ -29,8 +29,10 @@ public sealed class MergeSplitCollisionAvoidanceTests
         // Pair 2: photo.jpg + photo.mp4 (Vivo Live Photo)
         string imgJpg = Path.Combine(workspace.RootDirectory, "photo.jpg");
         string vidMp4 = Path.Combine(workspace.RootDirectory, "photo.mp4");
-        SyntheticProtocolFixtures.CreateVivoLegacyDualJpeg(imgJpg);
-        SyntheticProtocolFixtures.CreateVivoLegacyDualMp4(vidMp4);
+        // ID discovery reads the actual signed EOF record. The old minimal
+        // synthetic string had no length framing and cannot authorize pairing.
+        File.Copy(TestSampleResolver.ResolveSample("vivo双文件.jpg"), imgJpg);
+        File.Copy(TestSampleResolver.ResolveSample("vivo双文件.mp4"), vidMp4);
 
         var result = await LivePhotoMergeScanService.ScanAsync(new MergeScanOptions
         {
@@ -38,18 +40,27 @@ public sealed class MergeSplitCollisionAvoidanceTests
             Mode = PairingMode.Name
         });
 
-        // Must pair 2 independent live photos without any Error diagnostic
-        Assert.Equal(2, result.Pairs.Count);
-        Assert.DoesNotContain(result.Diagnostics, d => d.Severity == ScanDiagnosticSeverity.Error);
+        // Pure filename composition cannot choose between two stills and two
+        // movies. Explicit identity modes may resolve their independent pairs.
+        Assert.Empty(result.Pairs);
+        Assert.Contains(result.Diagnostics, d => d.DiagnosticCode == "ConflictMultipleMedia");
         Assert.Equal(ScanOperationStatus.Completed, result.Status);
 
+        var apple = await LivePhotoMergeScanService.ScanAsync(new MergeScanOptions
+            { InputDirectory = workspace.RootDirectory, Mode = PairingMode.Cid });
+        var vivo = await LivePhotoMergeScanService.ScanAsync(new MergeScanOptions
+            { InputDirectory = workspace.RootDirectory, Mode = PairingMode.Vivo });
+        Assert.Single(apple.Pairs);
+        Assert.Single(vivo.Pairs);
+        var resolved = apple.Pairs.Concat(vivo.Pairs).ToArray();
+
         // Pair 1 should be heic + mov
-        var pairHeic = result.Pairs.FirstOrDefault(p => p.ImagePath.EndsWith(".heic", StringComparison.OrdinalIgnoreCase));
+        var pairHeic = resolved.FirstOrDefault(p => p.ImagePath.EndsWith(".heic", StringComparison.OrdinalIgnoreCase));
         Assert.NotNull(pairHeic);
         Assert.Equal(vidMov, pairHeic.VideoPath);
 
         // Pair 2 should be jpg + mp4
-        var pairJpg = result.Pairs.FirstOrDefault(p => p.ImagePath.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase));
+        var pairJpg = resolved.FirstOrDefault(p => p.ImagePath.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase));
         Assert.NotNull(pairJpg);
         Assert.Equal(vidMp4, pairJpg.VideoPath);
     }

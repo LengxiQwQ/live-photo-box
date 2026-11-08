@@ -162,7 +162,8 @@ video_sidecar_bridge_result run_video_sidecar_transcode(
     int32_t crf,
     bool native_transplants_mebx,
     const isobmff_video_profile& source_profile,
-    bool compatible_profile, bool all_intra, bool aac_audio, uint32_t reflection) noexcept
+    bool compatible_profile, bool all_intra, bool aac_audio, uint32_t reflection,
+    bool display_area_policy, bool keep_stabilization_edges) noexcept
 {
     video_sidecar_bridge_result outcome{};
     const uint32_t expected_pixel_depth = source_profile.bit_depth_luma;
@@ -216,6 +217,8 @@ video_sidecar_bridge_result run_video_sidecar_transcode(
     if (compatible_profile) request.flags |= LPB_VIDEO_SIDECAR_REQUEST_COMPATIBLE_PROFILE;
     if (reflection == 1) request.flags |= LPB_VIDEO_SIDECAR_REQUEST_FLIP_HORIZONTAL;
     if (reflection == 2) request.flags |= LPB_VIDEO_SIDECAR_REQUEST_FLIP_VERTICAL;
+    if (display_area_policy) request.flags |= LPB_VIDEO_SIDECAR_REQUEST_DISPLAY_AREA;
+    if (keep_stabilization_edges) request.flags |= LPB_VIDEO_SIDECAR_REQUEST_KEEP_EDGES;
     if (all_intra) request.flags |= LPB_VIDEO_SIDECAR_REQUEST_ALL_INTRA;
     if (aac_audio) request.flags |= LPB_VIDEO_SIDECAR_REQUEST_AAC_AUDIO;
     request.source_color_range = source_profile.full_range != 0U ? 2 : 1;

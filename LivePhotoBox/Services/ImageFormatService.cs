@@ -1,4 +1,4 @@
-using LivePhotoBox.Media;
+﻿using LivePhotoBox.Media;
 using LivePhotoBox.Media.Image;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Models;
@@ -37,25 +37,46 @@ namespace LivePhotoBox.Services
             if (quality is < 1 or > 100)
                 throw new ArgumentOutOfRangeException(nameof(quality), "Image quality must be between 1 and 100.");
 
-            await ProcessingPipelineRouter.RunAsync(
-                "edit.image-export",
-                () => ConvertWithRebuiltNativeAsync(sourcePath, targetPath, quality, token));
+            using var scope = WorkspaceCleanupScope.Begin();
+            Exception? failure = null;
+            try
+            {
+                await ProcessingPipelineRouter.RunAsync(
+                    "edit.image-export",
+                    async () =>
+                    {
+                        failure = await TryConvertImageAsync(sourcePath, targetPath, quality, token).ConfigureAwait(false);
+                    });
+            }
+            catch (Exception ex) { failure = ex; }
+            var cleanupFailures = scope.Failures;
+            scope.Dispose();
+            if (cleanupFailures.Count > 0)
+                throw new IOException("Image conversion cleanup was limited. Output may exist at: " + targetPath +
+                    Environment.NewLine + string.Join(Environment.NewLine, cleanupFailures), failure);
+            if (failure != null)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
         }
 
-        private static async Task ConvertWithRebuiltNativeAsync(
+        internal static async Task<Exception?> TryConvertImageAsync(
             string sourcePath, string targetPath, int quality, CancellationToken token)
         {
+            if (token.IsCancellationRequested) return new OperationCanceledException(token);
+            if (quality is < 1 or > 100) return new ArgumentOutOfRangeException(nameof(quality));
             ImageContainer targetContainer = Path.GetExtension(targetPath).ToLowerInvariant() switch
             {
                 ".jpg" or ".jpeg" => ImageContainer.Jpeg,
                 ".heic" or ".heif" => ImageContainer.Heic,
-                _ => throw new NotSupportedException(
-                    "The Rebuilt Native image pipeline currently supports JPEG and HEIC output only.")
+                _ => ImageContainer.Unknown
             };
+            if (targetContainer == ImageContainer.Unknown)
+                return new NotSupportedException("The Rebuilt Native image pipeline currently supports JPEG and HEIC output only.");
 
-            await using var workspace = new MediaWorkspace();
-            NeutralMediaBundle bundle = await new NeutralMediaService(
-                imageConverter: new RequestedQualityImageConverter(quality)).CreateNeutralBundleAsync(
+            var workspaceAttempt = MediaWorkspace.TryCreate(token);
+            if (workspaceAttempt.Failure is { } workspaceFailure) return workspaceFailure;
+            await using var workspace = workspaceAttempt.Workspace!;
+            var preparation = await new NeutralMediaService(
+                imageConverter: new RequestedQualityImageConverter(quality)).TryCreateNeutralBundleAsync(
                 sourcePath,
                 secondaryPath: null,
                 workspace,
@@ -67,13 +88,16 @@ namespace LivePhotoBox.Services
                 },
                 PreservationPolicy.AllowDiscard,
                 token).ConfigureAwait(false);
+            if (preparation.Failure is { } preparationFailure) return preparationFailure;
+            NeutralMediaBundle bundle = preparation.Bundle!;
 
             if (bundle.PrimaryImage == null || !File.Exists(bundle.PrimaryImage.Path))
-                throw new IOException("The Rebuilt Native image pipeline produced no image output.");
+                return new IOException("The Rebuilt Native image pipeline produced no image output.");
 
-            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(targetPath))!);
-            await WindowsOutputArtifactPublisher.PublishCopyAsync(
+            if (OutputDirectoryAttempt.Ensure(Path.GetDirectoryName(Path.GetFullPath(targetPath))!) is { } directoryFailure) return directoryFailure;
+            var publication = await WindowsOutputArtifactPublisher.TryPublishCopyAsync(
                 bundle.PrimaryImage, targetPath, overwriteExisting: true, token).ConfigureAwait(false);
+            return publication.Failure;
         }
 
         // Export quality is a caller preference over the existing converter
@@ -83,7 +107,7 @@ namespace LivePhotoBox.Services
         {
             public Task<ImageConversionResult> ConvertAsync(ImageConversionRequest request,
                 CancellationToken cancellationToken = default) =>
-                new ImageConverter().ConvertAsync(request with { Quality = quality }, cancellationToken);
+                new ImageConverter().TryConvertAsync(request with { Quality = quality }, cancellationToken);
         }
 
         /// <summary>

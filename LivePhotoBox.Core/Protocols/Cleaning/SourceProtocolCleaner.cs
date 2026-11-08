@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -130,13 +130,47 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         ArgumentNullException.ThrowIfNull(request);
         ArgumentNullException.ThrowIfNull(workspace);
 
-        cancellationToken.ThrowIfCancellationRequested();
+        if(cancellationToken.IsCancellationRequested)return new ProtocolCleanResult {Success=false,FailureCategory=CleanerFailureCategory.Cancelled,
+            FailureStage=CleanerFailureStage.Preflight,ErrorMessage="Cleaning cancelled.",TransactionState=CleanerTransactionState.Initial};
 
         var sw = Stopwatch.StartNew();
         var journal = new CleanerTransactionJournal(workspace.RootDirectory);
         var currentProtocol = SourceProtocol.Unknown;
         CleanupPlan? cleanupAuthority = null;
         bool disposeAuthorityAfterClean = false;
+
+        ProtocolCleanResult Refused(CleanerException ex)
+        {
+            sw.Stop();
+            journal.ReleaseValidationNamespaceLease();
+            try
+            {
+                journal.Rollback(FaultInjectionHook, currentProtocol);
+            }
+            catch (CleanerException rbEx)
+            {
+                return new ProtocolCleanResult
+                {
+                    Success = false,
+                    ErrorMessage = $"Original error ({ex.Category}): {ex.Message}. Critical rollback failure: {rbEx.Message}",
+                    FailureCategory = CleanerFailureCategory.RollbackFailed,
+                    FailureStage = CleanerFailureStage.Rollback,
+                    TransactionState = CleanerTransactionState.RollbackFailed,
+                    PreservationOutcome = PreservationOutcome.PartiallyPreserved,
+                    Duration = sw.Elapsed
+                };
+            }
+            return new ProtocolCleanResult
+            {
+                Success = false,
+                ErrorMessage = ex.Message,
+                FailureCategory = ex.Category,
+                FailureStage = ex.Stage,
+                TransactionState = journal.State,
+                PreservationOutcome = PreservationOutcome.PartiallyPreserved,
+                Duration = sw.Elapsed
+            };
+        }
 
         try
         {
@@ -163,41 +197,41 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
 
             if (facts.Protocol == SourceProtocol.Unknown)
             {
-                throw new CleanerException(
+                return Refused(new CleanerException(
                     CleanerFailureCategory.UnsupportedProtocol,
                     CleanerFailureStage.Preflight,
                     SourceProtocol.Unknown,
-                    "Cannot clean source with Unknown protocol.");
+                    "Cannot clean source with Unknown protocol."));
             }
 
             if (bundle.PrimaryImage == null || !File.Exists(bundle.PrimaryImage.Path))
             {
-                throw new CleanerException(
+                return Refused(new CleanerException(
                     CleanerFailureCategory.ArtifactFactMismatch,
                     CleanerFailureStage.Preflight,
                     facts.Protocol,
                     $"Primary image artifact is missing: '{bundle.PrimaryImage?.Path}'.",
-                    MediaArtifactKind.PrimaryImage);
+                    MediaArtifactKind.PrimaryImage));
             }
 
             if (bundle.MotionVideo != null && !File.Exists(bundle.MotionVideo.Path))
             {
-                throw new CleanerException(
+                return Refused(new CleanerException(
                     CleanerFailureCategory.ArtifactFactMismatch,
                     CleanerFailureStage.Preflight,
                     facts.Protocol,
                     $"Declared motion video artifact is missing: '{bundle.MotionVideo.Path}'.",
-                    MediaArtifactKind.MotionVideo);
+                    MediaArtifactKind.MotionVideo));
             }
 
             if (bundle.GainMap != null && !File.Exists(bundle.GainMap.Path))
             {
-                throw new CleanerException(
+                return Refused(new CleanerException(
                     CleanerFailureCategory.ArtifactFactMismatch,
                     CleanerFailureStage.Preflight,
                     facts.Protocol,
                     $"Declared GainMap artifact is missing: '{bundle.GainMap.Path}'.",
-                    MediaArtifactKind.GainMap);
+                    MediaArtifactKind.GainMap));
             }
 
             bool requiresCleanupSource = facts.Protocol == SourceProtocol.SamsungMotionPhotoJpeg &&
@@ -205,12 +239,12 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     carrier.Kind == PreservationCarrierKind.SamsungSef && carrier.SourceIndex == 0);
             if (requiresCleanupSource && bundle.CleanupSource == null)
             {
-                throw new CleanerException(
+                return Refused(new CleanerException(
                     CleanerFailureCategory.ArtifactFactMismatch,
                     CleanerFailureStage.Preflight,
                     facts.Protocol,
                     "Samsung SEF preservation requires a separate full source-container cleanup artifact.",
-                    MediaArtifactKind.SourceContainer);
+                    MediaArtifactKind.SourceContainer));
             }
 
             if (bundle.CleanupSource != null)
@@ -221,23 +255,23 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     (bundle.MotionVideo != null &&
                      string.Equals(bundle.CleanupSource.Path, bundle.MotionVideo.Path, StringComparison.OrdinalIgnoreCase)))
                 {
-                    throw new CleanerException(
+                    return Refused(new CleanerException(
                         CleanerFailureCategory.ArtifactFactMismatch,
                         CleanerFailureStage.Preflight,
                         facts.Protocol,
                         "CleanupSource is not a distinct, supported source-container artifact.",
-                        MediaArtifactKind.SourceContainer);
+                        MediaArtifactKind.SourceContainer));
                 }
 
                 if (!IsValidSha256(facts.PrimarySha256) ||
                     !string.Equals(bundle.CleanupSource.Sha256, facts.PrimarySha256, StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new CleanerException(
+                    return Refused(new CleanerException(
                         CleanerFailureCategory.ArtifactChangedSinceExtraction,
                         CleanerFailureStage.Preflight,
                         facts.Protocol,
                         "CleanupSource does not match the Inspector-confirmed primary source identity.",
-                        MediaArtifactKind.SourceContainer);
+                        MediaArtifactKind.SourceContainer));
                 }
             }
 
@@ -286,14 +320,29 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             }
             else
             {
-                throw new CleanerException(
+                return Refused(new CleanerException(
                     CleanerFailureCategory.CleanupAuthorizationMissing,
                     CleanerFailureStage.Authorization,
                     facts.Protocol,
-                    "No Native cleanup-plan authority was provided. Destructive cleaning requires a CleanupPlan, or an ExtractionPlan from which one can be issued.");
+                    "No Native cleanup-plan authority was provided. Destructive cleaning requires a CleanupPlan, or an ExtractionPlan from which one can be issued."));
             }
 
-            if (facts.Protocol == SourceProtocol.NonLive)
+            bool extractedVivoStill = facts.Protocol == SourceProtocol.VivoLegacyDualFile &&
+                facts.MotionVideo is null && facts.ConfirmedResidues.Count == 0 &&
+                facts.ProtocolTailLength > 0 && facts.ProtocolTailOffset == facts.PrimaryImage.ByteLength &&
+                bundle.PrimaryImage.SourceOffset == 0 && bundle.PrimaryImage.ByteLength == facts.PrimaryImage.ByteLength;
+            if(extractedVivoStill)
+            {
+                // The Native extraction range already excluded the signed
+                // vivo trailer. Re-observe the actual extracted bytes before
+                // accepting an empty cleanup action set.
+                var observed=await NativeMediaService.TryInspectMediaWithPlanAsync(bundle.PrimaryImage.Path,null,cancellationToken).ConfigureAwait(false);
+                using var observedPlan=observed.Source;
+                if(!observed.Succeeded || observed.Source!.Facts.Protocol != SourceProtocol.NonLive)
+                    return Refused(new CleanerException(CleanerFailureCategory.CleanupAuthorizationMissing,
+                        CleanerFailureStage.Authorization,facts.Protocol,"The extracted vivo still is not independently neutral."));
+            }
+            if (facts.Protocol == SourceProtocol.NonLive || extractedVivoStill)
             {
                 return await ExecuteNonLiveNoOpAsync(
                     bundle,
@@ -309,11 +358,11 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             var authorizations = facts.ConfirmedResidues;
             if (authorizations == null || authorizations.Count == 0)
             {
-                throw new CleanerException(
+                return Refused(new CleanerException(
                     CleanerFailureCategory.CleanupAuthorizationMissing,
                     CleanerFailureStage.Authorization,
                     facts.Protocol,
-                    $"No cleanup authorizations available for declared protocol {facts.Protocol}.");
+                    $"No cleanup authorizations available for declared protocol {facts.Protocol}."));
             }
 
             // -------------------------------------------------------------
@@ -327,29 +376,29 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             {
                 if (residue.OwnerProtocol != facts.Protocol)
                 {
-                    throw new CleanerException(
+                    return Refused(new CleanerException(
                         CleanerFailureCategory.CleanupAuthorizationMissing,
                         CleanerFailureStage.Planning,
                         facts.Protocol,
-                        $"Residue '{residue.Id}' has mismatched OwnerProtocol: expected '{facts.Protocol}', actual '{residue.OwnerProtocol}'.");
+                        $"Residue '{residue.Id}' has mismatched OwnerProtocol: expected '{facts.Protocol}', actual '{residue.OwnerProtocol}'."));
                 }
 
                 if (residue.RequiredAfterExtraction && string.IsNullOrEmpty(residue.ExpectedFingerprint))
                 {
-                    throw new CleanerException(
+                    return Refused(new CleanerException(
                         CleanerFailureCategory.StructureChanged,
                         CleanerFailureStage.Planning,
                         facts.Protocol,
-                        $"Mandatory destructive residue '{residue.Id}' is missing ExpectedFingerprint.");
+                        $"Mandatory destructive residue '{residue.Id}' is missing ExpectedFingerprint."));
                 }
 
                 if (!plannedResidueIds.Add(residue.Id))
                 {
-                    throw new CleanerException(
+                    return Refused(new CleanerException(
                         CleanerFailureCategory.AuthorizedResidueAmbiguous,
                         CleanerFailureStage.Planning,
                         facts.Protocol,
-                        $"Duplicate authorization for ResidueId='{residue.Id}'. Each authorized mutation must be unique.");
+                        $"Duplicate authorization for ResidueId='{residue.Id}'. Each authorized mutation must be unique."));
                 }
 
                 planActions.Add(new PlannedCleanupAction
@@ -369,11 +418,11 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
 
             if (!IsValidSha256(bundle.PrimaryImage.Sha256))
             {
-                throw new CleanerException(
+                return Refused(new CleanerException(
                     CleanerFailureCategory.ArtifactChangedSinceExtraction,
                     CleanerFailureStage.Planning,
                     facts.Protocol,
-                    $"Primary image artifact must have a valid non-zero SHA-256 (was '{bundle.PrimaryImage.Sha256}').");
+                    $"Primary image artifact must have a valid non-zero SHA-256 (was '{bundle.PrimaryImage.Sha256}')."));
             }
 
             var targets = new List<PlannedArtifactTarget>
@@ -389,11 +438,11 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             {
                 if (!IsValidSha256(bundle.MotionVideo.Sha256))
                 {
-                    throw new CleanerException(
+                    return Refused(new CleanerException(
                         CleanerFailureCategory.ArtifactChangedSinceExtraction,
                         CleanerFailureStage.Planning,
                         facts.Protocol,
-                        $"Motion video artifact must have a valid non-zero SHA-256 (was '{bundle.MotionVideo.Sha256}').");
+                        $"Motion video artifact must have a valid non-zero SHA-256 (was '{bundle.MotionVideo.Sha256}')."));
                 }
                 targets.Add(new PlannedArtifactTarget
                 {
@@ -423,15 +472,21 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             };
 
             // Capture frozen preservation baseline before destructive execution
-            var preservationBaseline = await MetadataPreservationVerifier.CaptureBaselineAsync(bundle, cancellationToken).ConfigureAwait(false);
+            var baselineAttempt=await MetadataPreservationVerifier.TryCaptureBaselineAsync(bundle,cancellationToken).ConfigureAwait(false);
+            if(baselineAttempt.Failure is { } baselineFailure)
+                return Refused(new CleanerException(baselineFailure is OperationCanceledException?CleanerFailureCategory.Cancelled:CleanerFailureCategory.StructureChanged,
+                    CleanerFailureStage.ArtifactVerification,facts.Protocol,baselineFailure.Message,innerException:baselineFailure));
+            var preservationBaseline=baselineAttempt.Baseline!;
 
             // -------------------------------------------------------------
             // Step 5: Stage Clean (Isolated Workspace)
             // -------------------------------------------------------------
-            cancellationToken.ThrowIfCancellationRequested();
+            if(cancellationToken.IsCancellationRequested)return Refused(new CleanerException(CleanerFailureCategory.Cancelled,
+                    CleanerFailureStage.Staging,currentProtocol,"Cleaning cancelled."));
             journal.SetState(CleanerTransactionState.Staging);
             OnStagingStarted?.Invoke();
-            cancellationToken.ThrowIfCancellationRequested();
+            if(cancellationToken.IsCancellationRequested)return Refused(new CleanerException(CleanerFailureCategory.Cancelled,
+                    CleanerFailureStage.Staging,currentProtocol,"Cleaning cancelled."));
 
             string stagingDir = Path.Combine(workspace.RootDirectory, "staging_" + Guid.NewGuid().ToString("N"));
             var stagingOwnership = new CleanerTransactionJournal.StagingDirectoryOwnership(stagingDir);
@@ -453,12 +508,12 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             }
             catch (Exception ex)
             {
-                throw new CleanerException(
+                return Refused(new CleanerException(
                     CleanerFailureCategory.OutputCreateFailed,
                     CleanerFailureStage.Staging,
                     facts.Protocol,
                     $"Staging directory '{stagingDir}' could not be atomically created and claimed as a transaction-owned object: {ex.Message}",
-                    innerException: ex);
+                    innerException: ex));
             }
             journal.StagingDirectory = stagingOwnership;
 
@@ -484,14 +539,22 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 cleanUseHarness = planAttempt.UseHarnessLibrary;
                 if (_cleanPlanInvoker != null)
                 {
-                    removedFacts = await _cleanPlanInvoker(
-                        planAttempt,
-                        bundle.PrimaryImage.Path,
-                        bundle.MotionVideo?.Path,
-                        bundle.CleanupSource?.Path,
-                        stagedImgPath,
-                        stagedVidPath,
-                        cancellationToken).ConfigureAwait(false);
+                    if (_cleanPlanInvoker == NativeCleanService.CleanSourceProtocolWithCleanupPlanAsync)
+                    {
+                        var native = await NativeCleanService.TryCleanSourceProtocolWithCleanupPlanAsync(planAttempt,
+                            bundle.PrimaryImage.Path,bundle.MotionVideo?.Path,bundle.CleanupSource?.Path,
+                            stagedImgPath,stagedVidPath,cancellationToken).ConfigureAwait(false);
+                        if (native.Failure is { } failure)
+                        {
+                            CaptureNativeStagedOutputs(cleanContextHandle,cleanUseHarness,journal,stagingDir,
+                                stagedImgPath,stagedVidPath,FaultInjectionHook,facts.Protocol);
+                            return Refused(failure);
+                        }
+                        removedFacts = native.Facts!;
+                    }
+                    else
+                        removedFacts = await _cleanPlanInvoker(planAttempt,bundle.PrimaryImage.Path,
+                            bundle.MotionVideo?.Path,bundle.CleanupSource?.Path,stagedImgPath,stagedVidPath,cancellationToken).ConfigureAwait(false);
 
                     // The Native cleaner registered every staged output it
                     // created from the creating handle.  Only objects on that
@@ -518,7 +581,13 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     journal.AcquireValidationNamespaceLease(facts.Protocol);
                     if (facts.PreservationCarriers.Any(carrier => carrier.Kind == PreservationCarrierKind.OpaqueFragment &&
                         carrier.Semantic == "OpaqueSourcePrefix"))
-                        cleanupPlan = cleanupPlan with { CompoundPrimary = NativeCompoundPrimary.FromCleanup(planAttempt, stagedImgPath) };
+                    {
+                        var handoff = NativeCompoundPrimary.TryFromCleanup(planAttempt, stagedImgPath);
+                        if (handoff.Failure is { } handoffFailure)
+                            return Refused(new CleanerException(CleanerFailureCategory.StructureChanged,
+                                CleanerFailureStage.Staging, facts.Protocol, handoffFailure.Message, innerException: handoffFailure));
+                        cleanupPlan = cleanupPlan with { CompoundPrimary = handoff.Primary };
+                    }
                     if (FaultInjectionHook != null)
                     {
                         await FaultInjectionHook(
@@ -581,29 +650,29 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     stagedVidPath,
                     FaultInjectionHook,
                     facts.Protocol);
-                throw new CleanerException(
+                return Refused(new CleanerException(
                     CleanerFailureCategory.StructureChanged,
                     CleanerFailureStage.Staging,
                     facts.Protocol,
                     $"Native media operation failed: {ex.Message}",
-                    innerException: ex);
+                    innerException: ex));
             }
 
             if (!File.Exists(stagedImgPath))
             {
-                throw new CleanerException(
+                return Refused(new CleanerException(
                     CleanerFailureCategory.OutputCreateFailed,
                     CleanerFailureStage.Staging,
                     facts.Protocol,
-                    "Cleaned staged image was not generated.");
+                    "Cleaned staged image was not generated."));
             }
             if (stagedVidPath != null && !File.Exists(stagedVidPath))
             {
-                throw new CleanerException(
+                return Refused(new CleanerException(
                     CleanerFailureCategory.OutputCreateFailed,
                     CleanerFailureStage.Staging,
                     facts.Protocol,
-                    "Cleaned staged video was not generated.");
+                    "Cleaned staged video was not generated."));
             }
             if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Staging, "ImageStaged").ConfigureAwait(false);
             if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Staging, "VideoStaged").ConfigureAwait(false);
@@ -617,29 +686,29 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             {
                 if (string.IsNullOrEmpty(fact.ResidueId) || !authorizedActionsMap.TryGetValue(fact.ResidueId, out var action))
                 {
-                    throw new CleanerException(
+                    return Refused(new CleanerException(
                         CleanerFailureCategory.RemovalWouldTouchUnknownData,
                         CleanerFailureStage.Staging,
                         facts.Protocol,
-                        $"Native cleaner performed unauthorized removal: ResidueId='{fact.ResidueId}', Component='{fact.Component}', Desc='{fact.Description}'. All mutations must be authorized by CleanupPlan.");
+                        $"Native cleaner performed unauthorized removal: ResidueId='{fact.ResidueId}', Component='{fact.Component}', Desc='{fact.Description}'. All mutations must be authorized by CleanupPlan."));
                 }
 
                 if (fact.ArtifactRole != action.ArtifactRole || fact.StructureKind != action.StructureKind)
                 {
-                    throw new CleanerException(
+                    return Refused(new CleanerException(
                         CleanerFailureCategory.RemovalWouldTouchUnknownData,
                         CleanerFailureStage.Staging,
                         facts.Protocol,
-                        $"Native cleaner reported fact with mismatched identity for ResidueId='{fact.ResidueId}': expected (Role={action.ArtifactRole}, Kind={action.StructureKind}), actual (Role={fact.ArtifactRole}, Kind={fact.StructureKind}).");
+                        $"Native cleaner reported fact with mismatched identity for ResidueId='{fact.ResidueId}': expected (Role={action.ArtifactRole}, Kind={action.StructureKind}), actual (Role={fact.ArtifactRole}, Kind={fact.StructureKind})."));
                 }
 
                 if (!seenResidueIds.Add(fact.ResidueId))
                 {
-                    throw new CleanerException(
+                    return Refused(new CleanerException(
                         CleanerFailureCategory.AuthorizedResidueAmbiguous,
                         CleanerFailureStage.Staging,
                         facts.Protocol,
-                        $"Duplicate removal fact reported for ResidueId='{fact.ResidueId}'. Each authorized mutation must be unique.");
+                        $"Duplicate removal fact reported for ResidueId='{fact.ResidueId}'. Each authorized mutation must be unique."));
                 }
 
                 // Enforcement of ExpectedFingerprint: fail closed if expected is non-empty
@@ -647,20 +716,20 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 {
                     if (string.IsNullOrEmpty(fact.BeforeFingerprint))
                     {
-                        throw new CleanerException(
+                        return Refused(new CleanerException(
                             CleanerFailureCategory.StructureChanged,
                             CleanerFailureStage.Staging,
                             facts.Protocol,
-                            $"Fingerprint missing from removal fact for ResidueId='{fact.ResidueId}': expected='{action.ExpectedFingerprint}', actual BeforeFingerprint was not provided.");
+                            $"Fingerprint missing from removal fact for ResidueId='{fact.ResidueId}': expected='{action.ExpectedFingerprint}', actual BeforeFingerprint was not provided."));
                     }
 
                     if (!string.Equals(action.ExpectedFingerprint, fact.BeforeFingerprint, StringComparison.Ordinal))
                     {
-                        throw new CleanerException(
+                        return Refused(new CleanerException(
                             CleanerFailureCategory.StructureChanged,
                             CleanerFailureStage.Staging,
                             facts.Protocol,
-                            $"Fingerprint mismatch for ResidueId='{fact.ResidueId}': expected='{action.ExpectedFingerprint}', actual='{fact.BeforeFingerprint}'.");
+                            $"Fingerprint mismatch for ResidueId='{fact.ResidueId}': expected='{action.ExpectedFingerprint}', actual='{fact.BeforeFingerprint}'."));
                     }
                 }
             }
@@ -669,11 +738,11 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             {
                 if (action.IsMandatory && !seenResidueIds.Contains(action.ResidueId))
                 {
-                    throw new CleanerException(
+                    return Refused(new CleanerException(
                         CleanerFailureCategory.AuthorizedResidueNotFound,
                         CleanerFailureStage.Staging,
                         facts.Protocol,
-                        $"Mandatory authorized residue was not removed by native cleaner: ResidueId='{action.ResidueId}'.");
+                        $"Mandatory authorized residue was not removed by native cleaner: ResidueId='{action.ResidueId}'."));
                 }
             }
 
@@ -687,13 +756,47 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 stagedGainMapPath: bundle.GainMap?.Path,
                 cancellationToken).ConfigureAwait(false);
 
+            if(cancellationToken.IsCancellationRequested)return Refused(new CleanerException(CleanerFailureCategory.Cancelled,
+                CleanerFailureStage.PreservationDiff,currentProtocol,"Cleaning cancelled."));
+
+            // Independent video cleanup can carry an unrelated, already-neutral
+            // image. Unknown private MakerNote semantics do not make unchanged
+            // image bytes unpreserved. Require actual whole-file equality and
+            // zero image mutations; retain all other preservation verdicts and
+            // every authority/post-clean/publication gate below.
+            if (_cleanPlanInvoker != null &&
+                !cleanupPlan.Actions.Any(action => action.ArtifactRole == MediaArtifactKind.PrimaryImage) &&
+                preservationReport.Items.Any(item => item.Name == "MakerNote" && item.Status == PreservationCheckStatus.UnableToVerify) &&
+                !preservationReport.Items.Any(item => item.Status is PreservationCheckStatus.Failed ||
+                    item.Status == PreservationCheckStatus.UnableToVerify && item.Name != "MakerNote"))
+            {
+                // Cooperate with the transaction's retained Native creating handle;
+                // the existing journal/namespace gates still own publication.
+                using var unchangedSource = File.Open(bundle.PrimaryImage.Path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite | FileShare.Delete);
+                using var unchangedOutput = File.Open(stagedImgPath,FileMode.Open,FileAccess.Read,FileShare.ReadWrite | FileShare.Delete);
+                string sourceHash = await workspace.ComputeFileSha256Async(bundle.PrimaryImage.Path,cancellationToken).ConfigureAwait(false);
+                string outputHash = await workspace.ComputeFileSha256Async(stagedImgPath,cancellationToken).ConfigureAwait(false);
+                if (unchangedSource.Length == unchangedOutput.Length && unchangedSource.Length == bundle.PrimaryImage.ByteLength &&
+                    string.Equals(sourceHash,bundle.PrimaryImage.Sha256,StringComparison.OrdinalIgnoreCase) &&
+                    string.Equals(sourceHash,outputHash,StringComparison.OrdinalIgnoreCase))
+                    preservationReport = preservationReport with
+                    {
+                        OverallOutcome = PreservationOutcome.Preserved,
+                        Items = preservationReport.Items.Select(item => item.Name == "MakerNote" && item.Status == PreservationCheckStatus.UnableToVerify
+                            ? item with { Status = PreservationCheckStatus.VerifiedPreserved,
+                                Details = "No primary-image cleanup action; independently hashed source/staged image bytes and lengths are identical: " + sourceHash }
+                            : item).ToArray(),
+                        Summary = "Preservation verified; unchanged private image metadata proved by complete byte identity."
+                    };
+            }
+
             if (preservationReport.OverallOutcome != PreservationOutcome.Preserved)
             {
-                throw new CleanerException(
+                return Refused(new CleanerException(
                     CleanerFailureCategory.UnexpectedMetadataChange,
                     CleanerFailureStage.PreservationDiff,
                     facts.Protocol,
-                    $"Preservation verification failed ({preservationReport.OverallOutcome}): {preservationReport.Summary}");
+                    $"Preservation verification failed ({preservationReport.OverallOutcome}): {preservationReport.Summary}"));
             }
 
             // -------------------------------------------------------------
@@ -704,11 +807,11 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
             long stagedImgLen = new FileInfo(stagedImgPath).Length;
             if (stagedImgLen == 0)
             {
-                throw new CleanerException(
+                return Refused(new CleanerException(
                     CleanerFailureCategory.MediaInvalid,
                     CleanerFailureStage.MediaValidation,
                     facts.Protocol,
-                    "Cleaned staged image is empty.");
+                    "Cleaned staged image is empty."));
             }
 
             if (stagedVidPath != null)
@@ -716,11 +819,11 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 long stagedVidLen = new FileInfo(stagedVidPath).Length;
                 if (stagedVidLen == 0)
                 {
-                    throw new CleanerException(
+                    return Refused(new CleanerException(
                         CleanerFailureCategory.MediaInvalid,
                         CleanerFailureStage.MediaValidation,
                         facts.Protocol,
-                        "Cleaned staged video is empty.");
+                        "Cleaned staged video is empty."));
                 }
             }
 
@@ -777,12 +880,12 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 stagedImgHandle = imgRecord.RetainedHandle;
                 if (stagedImgHandle is null || stagedImgHandle.IsInvalid)
                 {
-                    throw new CleanerException(
+                    return Refused(new CleanerException(
                         CleanerFailureCategory.OutputCreateFailed,
                         CleanerFailureStage.Commit,
                         facts.Protocol,
                         $"Staged image '{stagedImgPath}' has no retained exact ownership handle; refusing pathname-only publish.",
-                        MediaArtifactKind.PrimaryImage);
+                        MediaArtifactKind.PrimaryImage));
                 }
 
                 // Deterministic adversarial seam: the staging object has been
@@ -819,12 +922,12 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                     stagedVidHandle = vidRecord.RetainedHandle;
                     if (stagedVidHandle is null || stagedVidHandle.IsInvalid)
                     {
-                        throw new CleanerException(
+                        return Refused(new CleanerException(
                             CleanerFailureCategory.OutputCreateFailed,
                             CleanerFailureStage.Commit,
                             facts.Protocol,
                             $"Staged video '{stagedVidPath}' has no retained exact ownership handle; refusing pathname-only publish.",
-                            MediaArtifactKind.MotionVideo);
+                            MediaArtifactKind.MotionVideo));
                     }
 
                     // Deterministic adversarial seam (video counterpart).
@@ -860,17 +963,18 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 journal.ReleaseValidationNamespaceLease();
                 if (!journal.TryDeleteOwnedDirectory(out Exception? directoryFailure))
                 {
-                    throw new CleanerException(
+                    return Refused(new CleanerException(
                         CleanerFailureCategory.PublishFailed,
                         CleanerFailureStage.Commit,
                         facts.Protocol,
                         $"Staging directory cleanup could not be proven before commit: {directoryFailure?.Message}",
-                        innerException: directoryFailure);
+                        innerException: directoryFailure));
                 }
                 journal.StagingDirectory = null;
 
                 if (FaultInjectionHook != null) await FaultInjectionHook(CleanerFailureStage.Commit, "BeforeBundleCommit").ConfigureAwait(false);
-                cancellationToken.ThrowIfCancellationRequested();
+                if(cancellationToken.IsCancellationRequested)return Refused(new CleanerException(CleanerFailureCategory.Cancelled,
+                    CleanerFailureStage.Staging,currentProtocol,"Cleaning cancelled."));
                 journal.SetState(CleanerTransactionState.Committed);
             }
             catch (OperationCanceledException)
@@ -908,12 +1012,12 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
                 {
                     journal.CleanupRetainedObjectOrRecordFailure(vidRecord);
                 }
-                throw new CleanerException(
+                return Refused(new CleanerException(
                     CleanerFailureCategory.PublishFailed,
                     CleanerFailureStage.Commit,
                     facts.Protocol,
                     $"Failed to publish cleaned bundle to destination paths: {ex.Message}",
-                    innerException: ex);
+                    innerException: ex));
             }
             finally
             {
@@ -1007,35 +1111,7 @@ public sealed class SourceProtocolCleaner : ISourceProtocolCleaner
         }
         catch (CleanerException ex)
         {
-            sw.Stop();
-            journal.ReleaseValidationNamespaceLease();
-            try
-            {
-                journal.Rollback(FaultInjectionHook, currentProtocol);
-            }
-            catch (CleanerException rbEx)
-            {
-                return new ProtocolCleanResult
-                {
-                    Success = false,
-                    ErrorMessage = $"Original error ({ex.Category}): {ex.Message}. Critical rollback failure: {rbEx.Message}",
-                    FailureCategory = CleanerFailureCategory.RollbackFailed,
-                    FailureStage = CleanerFailureStage.Rollback,
-                    TransactionState = CleanerTransactionState.RollbackFailed,
-                    PreservationOutcome = PreservationOutcome.PartiallyPreserved,
-                    Duration = sw.Elapsed
-                };
-            }
-            return new ProtocolCleanResult
-            {
-                Success = false,
-                ErrorMessage = ex.Message,
-                FailureCategory = ex.Category,
-                FailureStage = ex.Stage,
-                TransactionState = journal.State,
-                PreservationOutcome = PreservationOutcome.PartiallyPreserved,
-                Duration = sw.Elapsed
-            };
+            return Refused(ex);
         }
         catch (Exception ex)
         {

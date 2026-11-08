@@ -83,7 +83,10 @@ public sealed class HuaweiRepairTests
         File.Copy(TestSampleResolver.ResolveSample(name), path);
         byte[] original = File.ReadAllBytes(path);
         var skipped = await LivePhotoRepairService.AnalyzeFileAsync(path, default, defaultDevicesOnly: true);
-        Assert.Equal(RepairIssueType.NonApple, skipped.IssueType);
+        // Default lightweight discovery may leave a HEIF Apple-ID capability
+        // incomplete; that is an honest limited diagnosis, not deep inspection.
+        Assert.Contains(skipped.IssueType, new[] { RepairIssueType.NonApple, RepairIssueType.Limited });
+        Assert.False(skipped.NeedsRepair);
         var analysis = await LivePhotoRepairService.AnalyzeFileAsync(path);
         Assert.Equal(RepairIssueType.NeedsRebuild, analysis.IssueType);
         Assert.Equal(90, analysis.VideoRotationAngle);

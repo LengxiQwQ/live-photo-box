@@ -21,6 +21,33 @@ namespace LivePhotoBox.Core.Tests.Media;
 
 public sealed class ImageColorHighBitDepthTests
 {
+    [Fact]
+    public async Task DirectSrgbNclxCanConvertWithoutDeletingItsColorMeaning()
+    {
+        string source=await CreateNclxOnlyPrimaryFixtureAsync();
+        byte[] bytes=await File.ReadAllBytesAsync(source);
+        var color=Assert.Single(ParseHeifPrimaryColorGraph(bytes).PrimaryColorProperties);
+        Assert.Equal("NCLX",color.Kind);
+        BinaryPrimitives.WriteUInt16BigEndian(bytes.AsSpan(color.Box.BoxStart+14,2),13);
+        string folder=Path.Combine(s_testWorkspaceRoot,"direct-srgb-"+Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(folder);
+        string fixture=Path.Combine(folder,"srgb.heic");
+        await File.WriteAllBytesAsync(fixture,bytes);
+        string before=Convert.ToHexString(SHA256.HashData(bytes));
+        var actual=await NativeMediaService.DecodeHeicPrimaryAsync(fixture);
+        Assert.Equal((byte)1,actual.HasNclx);
+        Assert.Equal((ushort)13,actual.NclxTransfer);
+        Directory.CreateDirectory(Path.Combine(folder,"output"));
+        var result=await ConvertAsync(CreateArtifact(fixture,ImageContainer.Heic),ImageContainer.Jpeg,
+            Path.Combine(folder,"output"),PreservationPolicy.BestEffort);
+        Assert.True(result.Success,result.ErrorMessage);
+        Assert.NotNull(result.OutputArtifact);
+        using var decoded=new ImageMagick.MagickImage(result.OutputArtifact.Path);
+        Assert.Equal(actual.Width,decoded.Width);
+        Assert.Equal(actual.Height,decoded.Height);
+        Assert.Equal(before,Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(fixture))));
+    }
+
     private const string ManifestRelativePath = "tools/p5-r4-color-high-bit-depth-validation/profiles/P5-R4-v1/manifest.json";
     private static readonly string s_repoRoot = FindRepositoryRoot();
     private static readonly string s_testWorkspaceRoot = Path.Combine(s_repoRoot, ".ai-tmp", "workspace", "P5", "R4", "tests");

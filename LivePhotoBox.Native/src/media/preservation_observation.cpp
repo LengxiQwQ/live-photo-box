@@ -1,3 +1,4 @@
+﻿#include <span>
 #include "livephotobox_native.h"
 #include "media/icc_profile_validation.h"
 #include "foundation/internal.h"
@@ -184,7 +185,7 @@ void observe_video_mdat(lpb_context* context, const char* media_path, lpb_preser
     }
 }
 
-void observe_jpeg_codestream(const std::vector<uint8_t>& data, lpb_preservation_observation* out) {
+void observe_jpeg_codestream(std::span<const uint8_t> data, lpb_preservation_observation* out) {
     if (data.size() < 4 || data[0] != 0xFF || data[1] != 0xD8) {
         out->flags |= LPB_POBS_CODESTREAM_ERROR;
         return;
@@ -466,7 +467,7 @@ void observe_tiff_common(const uint8_t* tiff_data, size_t tiff_len, lpb_source_p
     }
 }
 
-void observe_jpeg_exif(const std::vector<uint8_t>& data, lpb_source_protocol protocol_hint, lpb_preservation_observation* out) {
+void observe_jpeg_exif(std::span<const uint8_t> data, lpb_source_protocol protocol_hint, lpb_preservation_observation* out) {
     if (data.size() < 4 || data[0] != 0xFF || data[1] != 0xD8) return;
 
     size_t p = 2;
@@ -494,7 +495,7 @@ void observe_jpeg_exif(const std::vector<uint8_t>& data, lpb_source_protocol pro
     }
 }
 
-void observe_jpeg_icc(const std::vector<uint8_t>& data, lpb_preservation_observation* out) {
+void observe_jpeg_icc(std::span<const uint8_t> data, lpb_preservation_observation* out) {
     if (data.size() < 4 || data[0] != 0xFF || data[1] != 0xD8) return;
 
     size_t p = 2;
@@ -576,7 +577,7 @@ void observe_jpeg_icc(const std::vector<uint8_t>& data, lpb_preservation_observa
     }
 }
 
-void observe_jpeg_extended_xmp(const std::vector<uint8_t>& data, lpb_preservation_observation* out) {
+void observe_jpeg_extended_xmp(std::span<const uint8_t> data, lpb_preservation_observation* out) {
     if (data.size() < 35) return;
     const char ext_xmp_header[] = "http://ns.adobe.com/xmp/extension/\0";
     const size_t header_len = 35;
@@ -945,7 +946,7 @@ void observe_xmp_common(std::string_view xml_text, lpb_preservation_observation*
     sha256_to_hex_upper(hash, out->xmp_nonprotocol_sha256);
 }
 
-void observe_jpeg_xmp(const std::vector<uint8_t>& data, lpb_preservation_observation* out) {
+void observe_jpeg_xmp(std::span<const uint8_t> data, lpb_preservation_observation* out) {
     if (data.size() < 4 || data[0] != 0xFF || data[1] != 0xD8) return;
 
     size_t p = 2;
@@ -1046,7 +1047,7 @@ struct ipma_association {
 };
 
 bool parse_ipma_box(
-    const std::vector<uint8_t>& data,
+    std::span<const uint8_t> data,
     const isobmff_box& ipma,
     size_t property_count,
     std::vector<ipma_association>& out_associations)
@@ -1232,7 +1233,7 @@ bool parse_exif_orientation_value(
 }
 
 bool parse_jpeg_orientation(
-    const std::vector<uint8_t>& data,
+    std::span<const uint8_t> data,
     neutral_image_orientation& out) {
     out = { 0, LPB_IMAGE_ORIENTATION_REFLECTION_NONE };
     if (data.size() < 4 || data[0] != 0xFF || data[1] != 0xD8) return false;
@@ -1288,7 +1289,7 @@ bool is_supported_heif_brand(const uint8_t* brand) noexcept {
 }
 
 bool parse_heif_orientation(
-    const std::vector<uint8_t>& data,
+    std::span<const uint8_t> data,
     neutral_image_orientation& out) {
     out = { 0, LPB_IMAGE_ORIENTATION_REFLECTION_NONE };
     std::vector<isobmff_box> top_boxes;
@@ -1547,7 +1548,7 @@ uint32_t extract_heic_primary_item_id(const uint8_t* data, const std::vector<iso
     return 0;
 }
 
-void observe_heic_codestream(const std::vector<uint8_t>& data, const std::vector<isobmff_box>& meta_children, uint32_t primary_id, lpb_preservation_observation* out) {
+void observe_heic_codestream(std::span<const uint8_t> data, const std::vector<isobmff_box>& meta_children, uint32_t primary_id, lpb_preservation_observation* out) {
     if (primary_id == 0) {
         out->flags |= LPB_POBS_CODESTREAM_ERROR;
         return;
@@ -1589,7 +1590,7 @@ void observe_heic_codestream(const std::vector<uint8_t>& data, const std::vector
     }
 }
 
-void observe_heic_icc(const std::vector<uint8_t>& data, const std::vector<isobmff_box>& meta_children, uint32_t primary_id, lpb_preservation_observation* out) {
+void observe_heic_icc(std::span<const uint8_t> data, const std::vector<isobmff_box>& meta_children, uint32_t primary_id, lpb_preservation_observation* out) {
     const isobmff_box* iprp = nullptr;
     for (const auto& b : meta_children) {
         if (b.type == "iprp") {
@@ -1737,7 +1738,7 @@ void observe_heic_icc(const std::vector<uint8_t>& data, const std::vector<isobmf
 }
 
 std::string extract_heic_item_aux_type(
-    const std::vector<uint8_t>& data,
+    std::span<const uint8_t> data,
     const std::vector<isobmff_box>& meta_children,
     uint32_t aux_item_id,
     bool* out_auxc_ipma_proof,
@@ -1859,7 +1860,7 @@ std::string extract_heic_item_aux_type(
     return resolved_type;
 }
 
-void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmff_box>& meta_children, uint32_t primary_id, lpb_preservation_observation* out) {
+void observe_heic_aux(std::span<const uint8_t> data, const std::vector<isobmff_box>& meta_children, uint32_t primary_id, lpb_preservation_observation* out) {
     if (primary_id == 0) return;
 
     const isobmff_box* iref = nullptr;
@@ -2081,7 +2082,7 @@ void observe_heic_aux(const std::vector<uint8_t>& data, const std::vector<isobmf
     if (selected->is_gainmap) out->flags |= LPB_POBS_HAS_HEIC_GAINMAP_SEMANTIC;
 }
 
-void observe_jpeg(lpb_context* context, const std::vector<uint8_t>& data, lpb_source_protocol protocol_hint, lpb_preservation_observation* out) {
+void observe_jpeg(lpb_context* context, std::span<const uint8_t> data, lpb_source_protocol protocol_hint, lpb_preservation_observation* out) {
     observe_jpeg_codestream(data, out);
     if (lpb_context_check_cancelled(context) != LPB_RESULT_OK) return;
 
@@ -2097,7 +2098,7 @@ void observe_jpeg(lpb_context* context, const std::vector<uint8_t>& data, lpb_so
     observe_jpeg_extended_xmp(data, out);
 }
 
-void observe_heic(lpb_context* context, const std::vector<uint8_t>& data, lpb_source_protocol protocol_hint, lpb_preservation_observation* out) {
+void observe_heic(lpb_context* context, std::span<const uint8_t> data, lpb_source_protocol protocol_hint, lpb_preservation_observation* out) {
     std::vector<isobmff_box> top_boxes;
     if (!parse_boxes_strict(data.data(), 0, data.size(), top_boxes)) {
         out->flags |= LPB_POBS_CODESTREAM_ERROR;
@@ -2255,7 +2256,7 @@ catch (...) {
 
 lpb_result lpb_media_capture_preservation_observation_bytes(
     lpb_context* context,
-    const std::vector<uint8_t>& media_bytes,
+    std::span<const uint8_t> media_bytes,
     lpb_source_protocol protocol_hint,
     lpb_image_container container_hint,
     lpb_preservation_observation* out_observation) noexcept

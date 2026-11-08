@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -24,7 +24,15 @@ internal static class ProductExportAssessment
         if (bundle.PreparationExecution?.Image?.Truth.HdrGainMap is ConversionComponentOutcome.Degraded or ConversionComponentOutcome.Lost ||
             bundle.PreparationExecution?.Videos?.Any(video => video.Truth.HdrGainMap is ConversionComponentOutcome.Degraded or ConversionComponentOutcome.Lost) == true)
             warnings.Add(ResourceService.GetString("ProductWarning_Hdr"));
-        warnings.AddRange((notes ?? []).Where(n => n.Item == "CoverTimestamp").Select(n => n.Reason));
+        if(bundle.PreparationExecution?.Videos?.Any(v=>v.DroppedAuxVideoTracks>0||v.DroppedOtherTracks>0)==true)
+            warnings.Add(ResourceService.GetString("ProductWarning_UncarriedVideoAssets"));
+        if(bundle.PreparationExecution?.Image?.Truth.ColorIcc is ConversionComponentOutcome.Degraded or ConversionComponentOutcome.Lost ||
+            bundle.PreparationExecution?.Videos?.Any(v=>v.Truth.ColorIcc is ConversionComponentOutcome.Degraded or ConversionComponentOutcome.Lost)==true)
+            warnings.Add(ResourceService.GetString("ProductWarning_Color"));
+        if (bundle.PreparationExecution?.Videos?.Any(v => v.AudioTranscodedToAac ||
+            v.Truth.Audio is ConversionComponentOutcome.Reencoded or ConversionComponentOutcome.Degraded or ConversionComponentOutcome.Lost) == true)
+            warnings.Add(ResourceService.GetString("ProductWarning_AudioConverted"));
+        warnings.AddRange((notes ?? []).Where(n=>!string.IsNullOrWhiteSpace(n.Reason)).Select(n => n.Reason));
         return warnings.Distinct().ToArray();
     }
 
@@ -35,8 +43,8 @@ internal static class ProductExportAssessment
         return Path.Combine(Path.GetFullPath(requestedDirectory), folderName);
     }
 
-    internal static string Details(IReadOnlyList<string> warnings, string directory) =>
+    internal static string Details(IReadOnlyList<string> warnings, string? directory) =>
         ResourceService.GetString("ProductOutcome_Warning") + Environment.NewLine +
-        string.Join(Environment.NewLine, warnings) + Environment.NewLine +
-        ResourceService.GetString("ProductWarning_Isolation") + ": " + directory;
+        string.Join(Environment.NewLine, warnings) +
+        (directory is not null ? Environment.NewLine + ResourceService.GetString("ProductWarning_Isolation") + ": " + directory : string.Empty);
 }

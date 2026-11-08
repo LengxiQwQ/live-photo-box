@@ -1,6 +1,7 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Windows.Storage;
 using LivePhotoBox.Models;
@@ -70,10 +71,11 @@ namespace LivePhotoBox.Services
                 // 非打包模式统一走 JSON 文件，不用 LocalSettings。
                 // WinAppSDK 1.5+ 虽可在非打包模式下使用 LocalSettings，
                 // 但数据存在 %LocalAppData%\<hash>\ 下，卸载后残留，重装不清。
-                // Packaged-mode detection: try Package.Current; if it throws we are unpackaged.
-                bool isPackaged;
-                try { _ = global::Windows.ApplicationModel.Package.Current; isPackaged = true; }
-                catch { isPackaged = false; }
+                // Query package identity without provoking WinRT's expected
+                // Package.Current exception in portable/CLI/test processes.
+                uint packageNameLength = 0;
+                int packageStatus = GetCurrentPackageFullName(ref packageNameLength, IntPtr.Zero);
+                bool isPackaged = packageStatus is 0 or 122; // ERROR_INSUFFICIENT_BUFFER means an identity exists.
 
                 if (!isPackaged)
                 {
@@ -92,6 +94,9 @@ namespace LivePhotoBox.Services
                 return _localSettings;
             }
         }
+
+        [DllImport("kernel32.dll", ExactSpelling = true)]
+        private static extern int GetCurrentPackageFullName(ref uint packageFullNameLength, IntPtr packageFullName);
 
         /// <summary>
         /// 读取指定键的值，若不存在或类型不匹配则返回 defaultValue。

@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Text.Json;
 using LivePhotoBox.Core.Tests.Support;
 using LivePhotoBox.Media;
@@ -91,14 +91,17 @@ public sealed class P8ProductOutcomeTests
         var original = new OperationCanceledException("Synthetic image-stage cancellation", cancellation.Token);
         var service = new NeutralMediaService(imageConverter: new CancelledImageConverter(original));
         // The token passed to preparation is live. Only the injected image
-        // converter cancels, after the real companion Copy operation completed.
+        // converter cancels, after the real companion display preparation completed.
         var failure = await Assert.ThrowsAsync<OperationCanceledException>(() => service.CreateNeutralBundleAsync(
             Image(), Video(), workspace, new MediaFormatRequirement { ImageContainer = ImageContainer.Heic, VideoContainer = VideoContainer.Unknown }));
         Assert.Same(original, failure);
         Assert.True(NeutralPreparationDiagnostics.TryRead(failure, out var diagnostic));
         Assert.Equal(ProductOperationStage.ImageConversion, diagnostic.Stage);
         Assert.Single(diagnostic.Execution.Videos);
-        Assert.Equal(VideoBackend.ProjectIsoBmffRemux, diagnostic.Execution.Videos[0].Backend);
+        var completedCompanion = diagnostic.Execution.Videos[0];
+        Assert.Equal(VideoBackend.MinimalLibav, completedCompanion.Backend);
+        Assert.Equal(ConversionOperationKind.LossyReencode, completedCompanion.Truth.ActualOperationKind);
+        Assert.Equal(VideoCodec.Hevc, completedCompanion.OutputCodec);
         Assert.Null(diagnostic.Execution.Image);
         Assert.Equal(ProductFailureCategory.Cancelled,
             ProductOutcomeCompletion.Failure(failure, ProductOperationStage.Unknown).Category);
@@ -135,7 +138,7 @@ public sealed class P8ProductOutcomeTests
 
     [Fact]
     [Trait("Category", "RealSamples")]
-    public async Task SplitSuccess_ReportsActualTwoOutputsAndNoInventedConverter()
+    public async Task SplitSuccess_ReportsActualTwoOutputsAndRequiredVideoPreparation()
     {
         using var workspace = new TestFixtureWorkspace();
         // Original-source Split coverage is separate from the structured target round trip below.
@@ -155,13 +158,20 @@ public sealed class P8ProductOutcomeTests
         Assert.Equal(sourceHash, Hash(source));
         Assert.NotNull(split.PreparationExecution);
         Assert.Null(split.PreparationExecution.Image);
-        Assert.Empty(split.PreparationExecution.Videos);
+        var actualConversion = Assert.Single(split.PreparationExecution.Videos);
+        Assert.Equal(VideoCodec.Hevc, actualConversion.InputCodec);
+        Assert.Equal(VideoCodec.Hevc, actualConversion.OutputCodec);
+        Assert.Equal(ConversionOperationKind.LossyReencode, actualConversion.Truth.ActualOperationKind);
+        var outputVideo = await LivePhotoBox.Interop.NativeMediaService.TryProbeVideoAsync(split.CommittedOutputs.Single(o => o.Role == "MotionVideo").Path);
+        Assert.True(outputVideo.Succeeded);
+        Assert.Equal(0, outputVideo.Facts!.RotationDegrees);
+        Assert.Equal(0U, outputVideo.Facts.Reflection);
         Assert.Equal(ProductTargetPreservation.Unknown, split.FinalTargetPreservation);
     }
 
     [Fact]
     [Trait("Category", "DerivedRealSamples")]
-    public async Task StructuredWriterKeepsUniqueXmpAndSplitStillRejectsAnExplicitDuplicate()
+    public async Task StructuredWriterKeepsUniqueXmpAndAmbiguousSplitSavesOnlyUnconvertedOriginal()
     {
         using var workspace = new TestFixtureWorkspace();
         string imageHash = Hash(Image()), videoHash = Hash(Video());
@@ -188,12 +198,16 @@ public sealed class P8ProductOutcomeTests
 
         var split = await LivePhotoSplitService.SplitWithOutcomeAsync(malformed, splitOutput,
             SplitMediaFormat.KeepSource, CancellationToken.None, outputBaseName: "rejected");
-        Assert.Equal(ProductOperationStatus.Failed, split.Status);
+        Assert.Equal(ProductOperationStatus.Warning, split.Status);
+        Assert.Equal(ProductCompletionKind.OriginalSaved, split.CompletionKind);
         Assert.Equal(ProductOperationStage.Inspection, split.Diagnostic.Stage);
         Assert.Equal(SourceInspectionStage.Metadata, split.Diagnostic.InspectionStage);
         Assert.Equal(SourceInspectionFailureCategory.Ambiguous, split.Diagnostic.InspectionCategory);
-        Assert.Empty(split.CommittedOutputs);
-        Assert.False(Directory.Exists(splitOutput));
+        var preservedOriginal = Assert.Single(split.CommittedOutputs);
+        Assert.Equal("OriginalUnconverted", preservedOriginal.Role);
+        Assert.Equal(Hash(malformed), Hash(preservedOriginal.Path));
+        Assert.StartsWith(split.IsolationDirectory!, preservedOriginal.Path, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(split.CommittedOutputs, o => o.Role is "TargetLivePhoto" or "PrimaryImage" or "MotionVideo");
         Assert.True(File.Exists(committedMerge)); // Merge already committed; Split does not undo it.
         Assert.Equal(committedHash, Hash(committedMerge));
         Assert.Equal(imageHash, Hash(Image()));
@@ -246,9 +260,9 @@ public sealed class P8ProductOutcomeTests
         var outcomes = new List<ProductOperationOutcome>();
         var counts = new List<int>();
         IMergeTaskInfo[] tasks = [new QueueTask(1), new QueueTask(2)];
-        await Assert.ThrowsAsync<OperationCanceledException>(() => LivePhotoMergeRunnerService.RunWithOutcomesAsync(
+        await LivePhotoMergeRunnerService.RunWithOutcomesAsync(
             tasks, Options(workspace.RootDirectory), pause, cancellation.Token,
-            _ => cancellation.Cancel(), (_, outcome, count) => { outcomes.Add(outcome); counts.Add(count); }));
+            _ => cancellation.Cancel(), (_, outcome, count) => { outcomes.Add(outcome); counts.Add(count); });
         Assert.Equal(ProductOperationStatus.Cancelled, Assert.Single(outcomes).Status);
         Assert.Equal(0, Assert.Single(counts));
         Assert.Empty(outcomes[0].CommittedOutputs);
@@ -284,6 +298,7 @@ public sealed class P8ProductOutcomeTests
     private static LivePhotoMergeRunOptions Options(string output) => new()
     {
         OutputDirectory = output, OutputProfile = OutputProfile.Create(TargetProtocol.GoogleMotionPhotoV2, OutputMediaFormat.JpegMp4),
+        KeyPhotoTimestampUs = 0, // Explicitly complete the new target's cover selection for green-output tests.
         TaskStartInterval = TimeSpan.Zero, MaxDegreeOfParallelism = 1
     };
 

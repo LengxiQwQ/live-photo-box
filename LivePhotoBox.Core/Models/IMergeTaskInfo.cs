@@ -1,9 +1,11 @@
-namespace LivePhotoBox.Models
+﻿namespace LivePhotoBox.Models
 {
     // 合并任务的核心数据接口。Core 中的跑腿服务依赖此接口，
     // GUI 的 MergeTask 和 CLI 的轻量 record 都实现它。
     public interface IMergeTaskInfo
     {
+        LivePhotoBox.Services.MergeScanOptions? SelectionScope => null;
+        SelectionIntent SelectionIntent => SelectionIntent.UserComposition;
         int Index { get; }
         string ImagePath { get; }
         string VideoPath { get; }

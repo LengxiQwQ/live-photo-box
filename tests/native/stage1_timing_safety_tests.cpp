@@ -23,6 +23,15 @@ bytes movie(uint32_t movie_scale,uint32_t media_scale,uint32_t offset,bool edit,
  put(b,c+16,uint32_t(b.size()-2));return b;
 }
 void run(){
+ {
+  auto clipped=movie(1000,90000,0,true);
+  auto m=child(clipped,0,clipped.size(),"moov"),t=child(clipped,m+8,m+get(clipped,m),"trak"),e=child(clipped,t+8,t+get(clipped,t),"edts"),l=child(clipped,e+8,e+get(clipped,e),"elst");
+  put(clipped,l+16,1500);
+  isobmff_video_presentation_timeline timeline{};
+  need(inspect_isobmff_video_presentation_timeline(clipped,timeline),"legal final-frame edit clipping must be modeled");
+  need(timeline.visible_sample_count==2&&timeline.presentation_order.back().duration_100ns==5000000,
+      "clipped final frame must retain its exact half-second visible interval");
+ }
  auto source=movie(1000,90000,0,true),target=movie(1000,90000,0,false);bytes output;bool changed=false;const char* failure=nullptr;
  need(lpb::media::preserve_isobmff_copy_timing(source,target,output,changed,&failure),"different movie/media clocks must map");
  auto m=child(output,0,output.size(),"moov"),t=child(output,m+8,m+get(output,m),"trak"),e=child(output,t+8,t+get(output,t),"edts"),l=child(output,e+8,e+get(output,e),"elst");

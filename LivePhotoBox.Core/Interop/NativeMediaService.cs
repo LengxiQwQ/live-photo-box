@@ -91,7 +91,16 @@ public static class NativeMediaService
         }
     }
 
-    internal static Task<NativeImageOrientationObservationV1> ObserveImageOrientationAsync(
+    internal sealed record ImageOrientationAttempt(NativeImageOrientationObservationV1? Observation,Exception? Failure);
+    internal static async Task<NativeImageOrientationObservationV1> ObserveImageOrientationAsync(string imagePath,
+        ImageContainer container,CancellationToken cancellationToken=default,bool allowUnknown=false)
+    {
+        var attempt=await TryObserveImageOrientationAsync(imagePath,container,cancellationToken,allowUnknown).ConfigureAwait(false);
+        if(attempt.Failure is { } failure)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Observation!.Value;
+    }
+
+    internal static Task<ImageOrientationAttempt> TryObserveImageOrientationAsync(
         string imagePath,
         ImageContainer container,
         CancellationToken cancellationToken = default,
@@ -100,12 +109,11 @@ public static class NativeMediaService
         ArgumentException.ThrowIfNullOrWhiteSpace(imagePath);
         if (container is not (ImageContainer.Jpeg or ImageContainer.Heic))
             throw new ArgumentOutOfRangeException(nameof(container), "Image orientation observation requires a supported final image container.");
-        cancellationToken.ThrowIfCancellationRequested();
-        PreflightInspectionPath(imagePath, "Final image");
+
 
         return Task.Run(() =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            if(cancellationToken.IsCancellationRequested)return new ImageOrientationAttempt(null,new OperationCanceledException(cancellationToken));
             using var context = NativeContext.Create(cancellationToken);
             var observation = new NativeImageOrientationObservationV1
             {
@@ -114,14 +122,14 @@ public static class NativeMediaService
             };
             NativeResult result = NativeMethods.ObserveImageOrientationV1(
                 context.Handle, imagePath, (int)container, ref observation);
-            context.ThrowIfFailed(result);
+            if(result!=NativeResult.Ok)return new ImageOrientationAttempt(null,context.CreateFailure(result));
 
             if (allowUnknown && observation.StructSize >= Marshal.SizeOf<NativeImageOrientationObservationV1>() &&
                 observation.ApiVersion == 1 && observation.Status == NativeImageOrientationStatus.Unknown &&
                 observation.ClockwiseRotationDegrees == 0 && observation.Reflection == NativeImageOrientationReflection.None &&
                 observation.RotationEvidence == NativeImageOrientationEvidence.Unknown &&
                 observation.ReflectionEvidence == NativeImageOrientationEvidence.Unknown && observation.Reserved0 == 0)
-                return observation;
+                return new ImageOrientationAttempt(observation,null);
 
             if (observation.StructSize < Marshal.SizeOf<NativeImageOrientationObservationV1>() ||
                 observation.ApiVersion != 1 ||
@@ -132,41 +140,39 @@ public static class NativeMediaService
                 observation.ReflectionEvidence != NativeImageOrientationEvidence.Verified ||
                 observation.Reserved0 != 0)
             {
-                throw new InvalidDataException("Native could not establish an unambiguous final image orientation.");
+                return new ImageOrientationAttempt(null,new InvalidDataException("Native could not establish an unambiguous final image orientation."));
             }
-            return observation;
-        }, cancellationToken);
+            return new ImageOrientationAttempt(observation,null);
+        }, CancellationToken.None);
     }
 
-    internal static Task<NativeGainMapMetadataV1> InspectGainMapMetadataAsync(
-        string primaryImagePath,
-        string? materializedGainMapPath = null,
-        CancellationToken cancellationToken = default)
+    internal sealed record GainMapMetadataAttempt(NativeGainMapMetadataV1? Metadata, Exception? Failure);
+    internal static async Task<NativeGainMapMetadataV1> InspectGainMapMetadataAsync(string primaryImagePath,
+        string? materializedGainMapPath = null, CancellationToken cancellationToken = default)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(primaryImagePath);
-        PreflightInspectionPath(primaryImagePath, "Primary");
-        if (materializedGainMapPath is not null)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            PreflightInspectionPath(materializedGainMapPath, "GainMap");
-        }
+        var attempt = await TryInspectGainMapMetadataAsync(primaryImagePath, materializedGainMapPath, cancellationToken).ConfigureAwait(false);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Metadata!.Value;
+    }
+    internal static Task<GainMapMetadataAttempt> TryInspectGainMapMetadataAsync(string primaryImagePath,
+        string? materializedGainMapPath = null, CancellationToken cancellationToken = default)
+    {
         return Task.Run(() =>
         {
+            if (cancellationToken.IsCancellationRequested) return new GainMapMetadataAttempt(null, new OperationCanceledException(cancellationToken));
+            using var primary = SourceReadAttempt.Open(primaryImagePath);
+            if (!primary.Succeeded) return new GainMapMetadataAttempt(null, new IOException($"Cannot read GainMap owner (system error {primary.Error})."));
+            using var gainmap = materializedGainMapPath == null ? null : SourceReadAttempt.Open(materializedGainMapPath);
+            if (gainmap is { Succeeded: false }) return new GainMapMetadataAttempt(null, new IOException($"Cannot read materialized GainMap (system error {gainmap.Error})."));
             using var context = NativeContext.Create(cancellationToken);
-            var metadata = new NativeGainMapMetadataV1
-            {
-                StructSize = checked((uint)Marshal.SizeOf<NativeGainMapMetadataV1>()),
-                ApiVersion = 1
-            };
-            NativeResult result = NativeMethods.InspectGainMapMetadataV1(
-                context.Handle, primaryImagePath, materializedGainMapPath, ref metadata);
-            context.ThrowIfFailed(result);
+            var metadata = new NativeGainMapMetadataV1 { StructSize = checked((uint)Marshal.SizeOf<NativeGainMapMetadataV1>()), ApiVersion = 1 };
+            NativeResult result = NativeMethods.InspectGainMapMetadataV1(context.Handle, primaryImagePath, materializedGainMapPath, ref metadata);
+            if (result != NativeResult.Ok) return new GainMapMetadataAttempt(null, context.CreateFailure(result));
+            if (cancellationToken.IsCancellationRequested) return new GainMapMetadataAttempt(null, new OperationCanceledException(cancellationToken));
             if (metadata.Kind is not (1 or 2))
-            {
-                throw new InvalidOperationException("Native GainMap metadata inspector returned an unknown metadata kind.");
-            }
-            return metadata;
-        }, cancellationToken);
+                return new GainMapMetadataAttempt(null, new InvalidDataException("Native GainMap metadata inspector returned an unknown metadata kind."));
+            return new GainMapMetadataAttempt(metadata, null);
+        }, CancellationToken.None);
     }
 
     internal static Task<NativeHdrGainMapConversionTransaction> StageHeicGainMapToJpegUltraHdrAsync(
@@ -191,7 +197,25 @@ public static class NativeMediaService
         StageBoundHdrGainMapAsync(sourcePath, outputPath, binding, expectedFileSize, quality,
             hdrOutputPolicy, ImageHdrGainMapTargetSemantic.HeicGainMapAuxiliary, cancellationToken);
 
-    private static Task<NativeHdrGainMapConversionTransaction> StageBoundHdrGainMapAsync(
+    private static async Task<NativeHdrGainMapConversionTransaction> StageBoundHdrGainMapAsync(
+        string sourcePath,
+        string outputPath,
+        ImageHdrGainMapSourceBinding binding,
+        long expectedFileSize,
+        int quality,
+        HdrOutputPolicy hdrOutputPolicy,
+        ImageHdrGainMapTargetSemantic targetSemantic,
+        CancellationToken cancellationToken)
+    {
+        var attempt = await TryStageBoundHdrGainMapAsync(sourcePath, outputPath, binding, expectedFileSize, quality,
+            hdrOutputPolicy, targetSemantic, cancellationToken).ConfigureAwait(false);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Transaction!;
+    }
+
+    internal sealed record HdrStageAttempt(NativeHdrGainMapConversionTransaction? Transaction, Exception? Failure);
+
+    internal static Task<HdrStageAttempt> TryStageBoundHdrGainMapAsync(
         string sourcePath,
         string outputPath,
         ImageHdrGainMapSourceBinding binding,
@@ -204,17 +228,17 @@ public static class NativeMediaService
         ArgumentException.ThrowIfNullOrWhiteSpace(sourcePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(outputPath);
         ArgumentNullException.ThrowIfNull(binding);
-        PreflightInspectionPath(sourcePath, "HDR/GainMap source");
+
         if (expectedFileSize <= 0 || quality is < 1 or > 100)
-            throw new InvalidDataException("HDR/GainMap conversion requires a positive source size and quality in [1,100].");
+            return Task.FromResult(new HdrStageAttempt(null, new InvalidDataException("HDR/GainMap conversion requires a positive source size and quality in [1,100].")));
         if ((targetSemantic == ImageHdrGainMapTargetSemantic.JpegIsoGainMap && binding.SourceContainer != ImageContainer.Heic) ||
             (targetSemantic == ImageHdrGainMapTargetSemantic.HeicGainMapAuxiliary && binding.SourceContainer != ImageContainer.Jpeg) ||
             targetSemantic is not ImageHdrGainMapTargetSemantic.JpegIsoGainMap and
                 not ImageHdrGainMapTargetSemantic.HeicGainMapAuxiliary)
-            throw new InvalidDataException("The bound GainMap source and target semantic pair is unsupported.");
-        cancellationToken.ThrowIfCancellationRequested();
+            return Task.FromResult(new HdrStageAttempt(null, new InvalidDataException("The bound GainMap source and target semantic pair is unsupported.")));
+        if (cancellationToken.IsCancellationRequested) return Task.FromResult(new HdrStageAttempt(null, new OperationCanceledException(cancellationToken)));
 
-        return Task.Run(() =>
+        return Task.Run<HdrStageAttempt>(() =>
         {
             byte[] sourceHash = ParseRequiredSha256(binding.SourceSha256, "source");
             byte[] primaryHash = ParseRequiredSha256(binding.PrimaryImageSha256, "primary image");
@@ -275,20 +299,20 @@ public static class NativeMediaService
             {
                 NativeResult nativeResult = NativeMethods.StageHdrGainMapV1(
                 context.Handle, sourcePath, outputPath, ref request, ref result);
-                context.ThrowIfFailed(nativeResult);
+                if (nativeResult != NativeResult.Ok) { var failure = context.CreateFailure(nativeResult); context.Dispose(); return new(null, failure); }
                 if (result.TransactionToken == 0)
-                    throw new InvalidDataException("Native HDR/GainMap stage did not return an owned transaction token.");
+                    { context.Dispose(); return new(null, new InvalidDataException("Native HDR/GainMap stage did not return an owned transaction token.")); }
                 string stagingPath = result.GetStagingPath();
                 if (!Path.IsPathFullyQualified(stagingPath))
-                    throw new InvalidDataException("Native HDR/GainMap stage path is not absolute.");
-                return new NativeHdrGainMapConversionTransaction(context, result, stagingPath);
+                    { context.Dispose(); return new(null, new InvalidDataException("Native HDR/GainMap stage path is not absolute.")); }
+                return new(new NativeHdrGainMapConversionTransaction(context, result, stagingPath), null);
             }
             catch
             {
                 context.Dispose();
                 throw;
             }
-        }, cancellationToken);
+        }, CancellationToken.None);
     }
 
     private static byte[] ParseRequiredSha256(string value, string label)
@@ -347,26 +371,42 @@ public static class NativeMediaService
     internal static Task<NativeHeicPrimaryDecodeInfo> DecodeHeicPrimaryAsync(
         string inputHeicPath,
         CancellationToken cancellationToken = default)
+        => DecodeHeicPrimaryStrictAsync(inputHeicPath, cancellationToken);
+
+    private static async Task<NativeHeicPrimaryDecodeInfo> DecodeHeicPrimaryStrictAsync(
+        string inputHeicPath, CancellationToken cancellationToken)
+    {
+        var attempt = await TryDecodeHeicPrimaryAsync(inputHeicPath, cancellationToken).ConfigureAwait(false);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Info;
+    }
+
+    internal sealed record HeicPrimaryDecodeAttempt(NativeHeicPrimaryDecodeInfo Info, Exception? Failure);
+
+    internal static Task<HeicPrimaryDecodeAttempt> TryDecodeHeicPrimaryAsync(
+        string inputHeicPath, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(inputHeicPath);
-        cancellationToken.ThrowIfCancellationRequested();
+        if (cancellationToken.IsCancellationRequested)
+            return Task.FromResult(new HeicPrimaryDecodeAttempt(default, new OperationCanceledException(cancellationToken)));
         return Task.Run(() =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
+            if (cancellationToken.IsCancellationRequested)
+                return new HeicPrimaryDecodeAttempt(default, new OperationCanceledException(cancellationToken));
             using var context = NativeContext.Create(cancellationToken);
             var info = new NativeHeicPrimaryDecodeInfo
             {
                 StructSize = checked((uint)Marshal.SizeOf<NativeHeicPrimaryDecodeInfo>())
             };
             NativeResult result = NativeMethods.DecodeHeicPrimaryImage(context.Handle, inputHeicPath, ref info);
-            context.ThrowIfFailed(result);
+            if (result != NativeResult.Ok) return new HeicPrimaryDecodeAttempt(default, context.CreateFailure(result));
             if (info.PrimaryItemId == 0 || info.Width == 0 || info.Height == 0 ||
                 info.SourceBitDepth == 0 || info.DecodedSignalBitDepth == 0 || info.DecodedStorageBitDepth == 0)
             {
-                throw new InvalidOperationException("Native HEIC primary decode returned incomplete pixel facts.");
+                return new HeicPrimaryDecodeAttempt(default, new InvalidOperationException("Native HEIC primary decode returned incomplete pixel facts."));
             }
-            return info;
-        }, cancellationToken);
+            return new HeicPrimaryDecodeAttempt(info, null);
+        }, CancellationToken.None);
     }
 
     private static void RequireCompleteHeifFileInventory(NativeContext context,in NativeSourceMediaFacts facts)
@@ -497,21 +537,34 @@ public static class NativeMediaService
     /// opaque, single-use extraction plan. The returned facts are diagnostic
     /// data; extraction authority remains in the plan handle.
     /// </summary>
-    public static Task<InspectedSource> InspectMediaWithPlanAsync(
+    public static async Task<InspectedSource> InspectMediaWithPlanAsync(
         string primaryPath,
         string? secondaryPath = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        ArgumentNullException.ThrowIfNull(primaryPath);
         PreflightInspectionPath(primaryPath, "Primary");
+        if (secondaryPath is not null) PreflightInspectionPath(secondaryPath, "Secondary");
+        var attempt = await TryInspectMediaWithPlanAsync(primaryPath, secondaryPath, cancellationToken).ConfigureAwait(false);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Source!;
+    }
+
+    internal static Task<InspectionPlanAttempt> TryInspectMediaWithPlanAsync(
+        string primaryPath,
+        string? secondaryPath = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            return Task.FromResult(new InspectionPlanAttempt(null, new OperationCanceledException(cancellationToken)));
+        ArgumentNullException.ThrowIfNull(primaryPath);
+
         if (secondaryPath is not null)
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            PreflightInspectionPath(secondaryPath, "Secondary");
+
         }
 
-        return Task.Run(() =>
+        return Task.Run<InspectionPlanAttempt>(() =>
         {
             NativeContext ctx = NativeContext.Create(cancellationToken);
             try
@@ -545,7 +598,13 @@ public static class NativeMediaService
                             (nuint)residuesBuf.Length,
                             out nuint outResiduesCount,
                             out ulong planGeneration);
-                        ctx.ThrowIfFailed(res);
+                        if (res != NativeResult.Ok)
+                        {
+                            var error = ctx.ReadInspectionFailure()?.ToException() ??
+                                (Exception)new InvalidOperationException(ctx.GetLastError() ?? $"Native inspection failed ({res}).");
+                            ctx.Dispose();
+                            return new InspectionPlanAttempt(null, error);
+                        }
 
                         RequireCompleteHeifFileInventory(ctx,nativeFacts);
 
@@ -569,7 +628,7 @@ public static class NativeMediaService
                         }
 
                         SourceMediaFacts facts = MapFromNativeFacts(nativeFacts, residuesList);
-                        return new InspectedSource(facts, new ExtractionPlan(ctx, nativePlan, planGeneration, facts));
+                        return new InspectionPlanAttempt(new InspectedSource(facts, new ExtractionPlan(ctx, nativePlan, planGeneration, facts)), null);
                     }
                 }
             }
@@ -578,7 +637,113 @@ public static class NativeMediaService
                 ctx.Dispose();
                 throw;
             }
-        }, cancellationToken);
+        }, CancellationToken.None);
+    }
+
+    internal static async Task<InspectedSource> InspectComponentWithPlanAsync(
+        uint component,
+        string primaryPath,
+        string? secondaryPath = null,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        PreflightInspectionPath(primaryPath, "Primary");
+        if (secondaryPath is not null) PreflightInspectionPath(secondaryPath, "Secondary");
+        var attempt = await TryInspectComponentWithPlanAsync(component, primaryPath, secondaryPath, cancellationToken).ConfigureAwait(false);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Source!;
+    }
+
+    internal static Task<InspectionPlanAttempt> TryInspectComponentWithPlanAsync(
+        uint component,
+        string primaryPath,
+        string? secondaryPath = null,
+        CancellationToken cancellationToken = default)
+    {
+        if (cancellationToken.IsCancellationRequested)
+            return Task.FromResult(new InspectionPlanAttempt(null, new OperationCanceledException(cancellationToken)));
+        ArgumentNullException.ThrowIfNull(primaryPath);
+
+        if (secondaryPath is not null)
+        {
+
+        }
+
+        return Task.Run<InspectionPlanAttempt>(() =>
+        {
+            NativeContext ctx = NativeContext.Create(cancellationToken);
+            try
+            {
+                unsafe
+                {
+                    var nativeFacts = new NativeSourceMediaFacts
+                    {
+                        StructSize = checked((uint)sizeof(NativeSourceMediaFacts)),
+                        PrimaryImage = new NativeImageItemFacts { StructSize = checked((uint)sizeof(NativeImageItemFacts)) },
+                        MotionVideo = new NativeVideoItemFacts { StructSize = checked((uint)sizeof(NativeVideoItemFacts)) },
+                        GainMap = new NativeGainMapItemFacts { StructSize = checked((uint)sizeof(NativeGainMapItemFacts)) },
+                        Timing = new NativeTimingFacts { StructSize = checked((uint)sizeof(NativeTimingFacts)) }
+                    };
+
+                    Span<NativeConfirmedResidue> residuesBuf = stackalloc NativeConfirmedResidue[64];
+                    fixed (NativeConfirmedResidue* pResidues = residuesBuf)
+                    {
+                        for (int i = 0; i < residuesBuf.Length; i++)
+                        {
+                            pResidues[i].StructSize = checked((uint)sizeof(NativeConfirmedResidue));
+                        }
+
+                        NativeResult res = NativeMethods.InspectComponentWithPlan(
+                            ctx.Handle,
+                            component,
+                            primaryPath,
+                            secondaryPath,
+                            ref nativeFacts,
+                            out nint nativePlan,
+                            pResidues,
+                            (nuint)residuesBuf.Length,
+                            out nuint outResiduesCount,
+                            out ulong planGeneration);
+                        if (res != NativeResult.Ok)
+                        {
+                            var error = ctx.ReadInspectionFailure()?.ToException() ??
+                                (Exception)new InvalidOperationException(ctx.GetLastError() ?? $"Native inspection failed ({res}).");
+                            ctx.Dispose();
+                            return new InspectionPlanAttempt(null, error);
+                        }
+
+                        RequireCompleteHeifFileInventory(ctx,nativeFacts);
+
+                        var residuesList = new List<ConfirmedProtocolResidue>();
+                        int count = Math.Min((int)outResiduesCount, residuesBuf.Length);
+                        for (int i = 0; i < count; i++)
+                        {
+                            residuesList.Add(new ConfirmedProtocolResidue
+                            {
+                                Id = ReadFixedUtf8String(pResidues[i].ResidueId, 64),
+                                OwnerProtocol = (SourceProtocol)pResidues[i].OwnerProtocol,
+                                ArtifactRole = (MediaArtifactKind)pResidues[i].ArtifactRole,
+                                StructureKind = (ResidueStructureKind)pResidues[i].StructureKind,
+                                Selector = ReadFixedUtf8String(pResidues[i].Selector, 128),
+                                ExpectedSemantic = EmptyToNull(ReadFixedUtf8String(pResidues[i].ExpectedSemantic, 64)),
+                                ExpectedFingerprint = EmptyToNull(ReadFixedUtf8String(pResidues[i].ExpectedFingerprint, 64)),
+                                CoordinateSpace = (CoordinateSpace)pResidues[i].CoordinateSpace,
+                                RemovalMode = (ResidueRemovalMode)pResidues[i].RemovalMode,
+                                RequiredAfterExtraction = pResidues[i].RequiredAfterExtraction != 0
+                            });
+                        }
+
+                        SourceMediaFacts facts = MapFromNativeFacts(nativeFacts, residuesList);
+                        return new InspectionPlanAttempt(new InspectedSource(facts, new ExtractionPlan(ctx, nativePlan, planGeneration, facts)), null);
+                    }
+                }
+            }
+            catch
+            {
+                ctx.Dispose();
+                throw;
+            }
+        }, CancellationToken.None);
     }
 
     private static string? EmptyToNull(string value) => string.IsNullOrEmpty(value) ? null : value;
@@ -731,7 +896,24 @@ public static class NativeMediaService
             configureContext,
             cancellationToken);
 
-    internal static unsafe Task ExtractMediaAsync(
+    internal static async Task ExtractMediaAsync(
+        ExtractionPlanAttempt attempt,
+        string primaryPath,
+        string? secondaryPath,
+        string? outputImagePath,
+        string? outputVideoPath,
+        string? outputGainmapPath,
+        IReadOnlyList<NativeAuxiliaryOutputBinding>? auxiliaryOutputs,
+        string? cleanupSourcePath,
+        Action<NativeContext>? configureContext,
+        CancellationToken cancellationToken = default)
+    {
+        var failure = await TryExtractMediaAsync(attempt,primaryPath,secondaryPath,outputImagePath,outputVideoPath,
+            outputGainmapPath,auxiliaryOutputs,cleanupSourcePath,configureContext,cancellationToken).ConfigureAwait(false);
+        if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    internal static unsafe Task<Exception?> TryExtractMediaAsync(
         ExtractionPlanAttempt attempt,
         string primaryPath,
         string? secondaryPath,
@@ -746,10 +928,10 @@ public static class NativeMediaService
         ArgumentNullException.ThrowIfNull(attempt);
         // Cancellation is deliberately not passed to Task.Run: a pre-cancelled
         // token must not prevent the caller-owned attempt from being finished.
-        return Task.Run(() =>
+        return Task.Run<Exception?>(() =>
         {
                     configureContext?.Invoke(attempt.Context);
-                    cancellationToken.ThrowIfCancellationRequested();
+                    if (cancellationToken.IsCancellationRequested) return new OperationCanceledException(cancellationToken);
 
                     if (auxiliaryOutputs is null || auxiliaryOutputs.Count == 0)
                     {
@@ -773,7 +955,7 @@ public static class NativeMediaService
                                 cleanupSourcePath,
                                 null,
                                 0);
-                        attempt.Context.ThrowIfFailed(res);
+                        if (res != NativeResult.Ok) return attempt.Context.CreateFailure(res);
                     }
                     else
                     {
@@ -820,7 +1002,7 @@ public static class NativeMediaService
                                         cleanupSourcePath,
                                         nativeOutputs,
                                         (nuint)auxiliaryOutputs.Count);
-                                attempt.Context.ThrowIfFailed(res);
+                                if (res != NativeResult.Ok) return attempt.Context.CreateFailure(res);
                             }
                             finally
                             {
@@ -829,6 +1011,7 @@ public static class NativeMediaService
                             }
                         }
                     }
+                    return null;
         }, CancellationToken.None);
     }
 
@@ -836,7 +1019,18 @@ public static class NativeMediaService
 
     internal sealed record NativeCarrierOutputBinding(uint CarrierIndex,string Path);
 
-    internal static unsafe Task ExtractMediaWithCarrierOutputsAsync(
+    internal static async Task ExtractMediaWithCarrierOutputsAsync(
+        ExtractionPlanAttempt attempt,string primaryPath,string? secondaryPath,
+        string? outputImagePath,string? outputVideoPath,string? outputGainmapPath,string? cleanupSourcePath,
+        IReadOnlyList<NativeAuxiliaryOutputBinding> auxiliaryOutputs,IReadOnlyList<NativeCarrierOutputBinding> carrierOutputs,
+        Action<NativeContext>? configureContext,CancellationToken cancellationToken=default)
+    {
+        var failure = await TryExtractMediaWithCarrierOutputsAsync(attempt,primaryPath,secondaryPath,outputImagePath,
+            outputVideoPath,outputGainmapPath,cleanupSourcePath,auxiliaryOutputs,carrierOutputs,configureContext,cancellationToken).ConfigureAwait(false);
+        if (failure is not null) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    internal static unsafe Task<Exception?> TryExtractMediaWithCarrierOutputsAsync(
         ExtractionPlanAttempt attempt,string primaryPath,string? secondaryPath,
         string? outputImagePath,string? outputVideoPath,string? outputGainmapPath,string? cleanupSourcePath,
         IReadOnlyList<NativeAuxiliaryOutputBinding> auxiliaryOutputs,IReadOnlyList<NativeCarrierOutputBinding> carrierOutputs,
@@ -844,9 +1038,9 @@ public static class NativeMediaService
     {
         ArgumentNullException.ThrowIfNull(attempt);ArgumentNullException.ThrowIfNull(auxiliaryOutputs);ArgumentNullException.ThrowIfNull(carrierOutputs);
         if(auxiliaryOutputs.Count>8||carrierOutputs.Count>8)throw new ArgumentOutOfRangeException(nameof(carrierOutputs));
-        return Task.Run(()=>
+        return Task.Run<Exception?>(()=>
         {
-            configureContext?.Invoke(attempt.Context);cancellationToken.ThrowIfCancellationRequested();
+            configureContext?.Invoke(attempt.Context);if(cancellationToken.IsCancellationRequested)return new OperationCanceledException(cancellationToken);
             NativeExtractionOutput* auxiliary=stackalloc NativeExtractionOutput[auxiliaryOutputs.Count];
             NativeCarrierExtractionOutputV1* carriers=stackalloc NativeCarrierExtractionOutputV1[carrierOutputs.Count];
             var paths=new List<nint>(auxiliaryOutputs.Count+carrierOutputs.Count);
@@ -867,22 +1061,68 @@ public static class NativeMediaService
                 var result=NativeMethods.ExtractMediaWithPlanOutputsV3(attempt.ContextLease.Handle,attempt.NativeHandle,
                     primaryPath,secondaryPath,outputImagePath,outputVideoPath,outputGainmapPath,cleanupSourcePath,
                     auxiliary,(nuint)auxiliaryOutputs.Count,carriers,(nuint)carrierOutputs.Count);
-                attempt.Context.ThrowIfFailed(result);
+                if (result != NativeResult.Ok) return attempt.Context.CreateFailure(result);
+                return null;
             }
             finally{foreach(nint path in paths)Marshal.FreeCoTaskMem(path);}
         },CancellationToken.None);
     }
 
-    internal static Task<(VideoFacts Facts, uint Reflection)> ProbeVideoRepairAsync(string path, CancellationToken token)
+    internal static async Task<(VideoFacts Facts, uint Reflection)> ProbeVideoRepairAsync(string path, CancellationToken token)
     {
+        var attempt = await TryProbeVideoRepairAsync(path, token).ConfigureAwait(false);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return (attempt.Facts!, attempt.Reflection);
+    }
+
+    internal sealed record RepairVideoProbeAttempt(VideoFacts? Facts, uint Reflection, Exception? Failure);
+
+    internal static Task<RepairVideoProbeAttempt> TryProbeVideoRepairAsync(string path, CancellationToken token)
+    {
+        if (token.IsCancellationRequested) return Task.FromResult(new RepairVideoProbeAttempt(null, 0, new OperationCanceledException(token)));
         return Task.Run(() =>
         {
             using var context = NativeContext.Create(token);
             var native = new NativeVideoItemFacts { StructSize = (uint)Marshal.SizeOf<NativeVideoItemFacts>() };
             var result = NativeMethods.ProbeVideoRepair(context.Handle, path, ref native, out uint reflection);
-            context.ThrowIfFailed(result);
-            return (MapFromNativeVideoFacts(native), reflection);
-        }, token);
+            if (result != NativeResult.Ok) return new RepairVideoProbeAttempt(null, 0, context.CreateFailure(result));
+            return new RepairVideoProbeAttempt(MapFromNativeVideoFacts(native), reflection, null);
+        }, CancellationToken.None);
+    }
+
+    internal sealed record VideoProbeAttempt(NativeResult Result, VideoFacts? Facts, string? Diagnostic)
+    {
+        internal bool Succeeded => Result == NativeResult.Ok && Facts is not null;
+    }
+
+    internal static Task<VideoProbeAttempt> TryProbeVideoAsync(string videoPath, CancellationToken token = default)
+    {
+        // Expected Native refusals are data. The strict public wrapper below
+        // remains available for compatibility callers.
+        return Task.Run(() =>
+        {
+            if (token.IsCancellationRequested)
+                return new VideoProbeAttempt(NativeResult.Cancelled, null, "Video probe cancelled.");
+            using var context = NativeContext.Create(token);
+            var native = new NativeVideoItemFacts { StructSize = (uint)Marshal.SizeOf<NativeVideoItemFacts>() };
+            NativeResult result = NativeMethods.ProbeVideoRepair(context.Handle, videoPath, ref native, out uint reflection);
+            return result == NativeResult.Ok
+                ? ProbeDisplayGeometry(context, videoPath, native, reflection)
+                : new VideoProbeAttempt(result, null, context.GetLastError());
+        }, CancellationToken.None);
+    }
+
+    private static unsafe VideoProbeAttempt ProbeDisplayGeometry(NativeContext context, string path,
+        NativeVideoItemFacts native, uint reflection)
+    {
+        uint* edges = stackalloc uint[5];
+        NativeResult result = NativeMethods.ProbeVideoDisplayGeometry(context.Handle, path, edges, 5);
+        if (result != NativeResult.Ok) return new(result, null, context.GetLastError());
+        return new(result, MapFromNativeVideoFacts(native) with
+        {
+            Reflection = reflection, HasDisplayAperture = edges[0] != 0,
+            CropTop = edges[1], CropBottom = edges[2], CropLeft = edges[3], CropRight = edges[4]
+        }, null);
     }
 
     public static Task<VideoFacts> ProbeVideoAsync(
@@ -903,10 +1143,12 @@ public static class NativeMediaService
                     StructSize = checked((uint)sizeof(NativeVideoItemFacts))
                 };
 
-                NativeResult res = NativeMethods.ProbeVideo(ctx.Handle, videoPath, ref nativeFacts);
+                NativeResult res = NativeMethods.ProbeVideoRepair(ctx.Handle, videoPath, ref nativeFacts, out uint reflection);
                 ctx.ThrowIfFailed(res);
 
-                return MapFromNativeVideoFacts(nativeFacts);
+                var geometry = ProbeDisplayGeometry(ctx, videoPath, nativeFacts, reflection);
+                ctx.ThrowIfFailed(geometry.Result);
+                return geometry.Facts!;
             }
         }, cancellationToken);
     }
@@ -970,9 +1212,11 @@ public static class NativeMediaService
         int quality,
         CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+
         return Task.Run(() =>
         {
+            if(cancellationToken.IsCancellationRequested)return new NativeImageConversionAttempt(false,null,null)
+                {ResultCode=NativeResult.Cancelled,Diagnostic="Image operation cancelled."};
             using var ctx = NativeContext.Create(cancellationToken);
             NativeResult result = NativeMethods.ConvertImage(
                 ctx.Handle,
@@ -981,48 +1225,45 @@ public static class NativeMediaService
                 (int)targetContainer,
                 quality,
                 out int outReencoded);
-            ctx.ThrowIfFailed(result);
+            if (result != NativeResult.Ok)
+                return new NativeImageConversionAttempt(false, null, null)
+                { ResultCode = result, Diagnostic = ctx.GetLastError() };
 
-            try
-            {
-                NativeRegisteredOutputEvidence evidence = CaptureRegisteredOutputEvidence(
-                    ctx, outputImagePath, MediaArtifactKind.PrimaryImage);
-                return new NativeImageConversionAttempt(outReencoded != 0, evidence, null);
-            }
-            catch (Exception evidenceFailure)
-            {
-                return new NativeImageConversionAttempt(outReencoded != 0, null, evidenceFailure);
-            }
-        }, cancellationToken);
+            var evidence = TryCaptureRegisteredOutputEvidence(ctx, outputImagePath, MediaArtifactKind.PrimaryImage);
+            return new NativeImageConversionAttempt(outReencoded != 0, evidence.Evidence, evidence.Failure);
+        }, CancellationToken.None);
     }
 
     internal sealed record ImageExifRepairProbe(bool Supported, uint Changes, string? Diagnostic);
 
     // Expected file/capability limitations are data during discovery, not exceptions.
-    internal static Task<ImageExifRepairProbe> ProbeImageExifRepairAsync(string source, uint actions, CancellationToken token)
-        => Task.Run(() =>
-        {
-            using var context = NativeContext.Create(token);
-            var result = NativeMethods.RepairImageExif(context.Handle, source, null, actions, out uint changed);
-            token.ThrowIfCancellationRequested();
-            if (result == NativeResult.Unsupported)
-                return new ImageExifRepairProbe(false, 0, context.GetLastError());
-            context.ThrowIfFailed(result);
-            return new ImageExifRepairProbe(true, changed, null);
-        }, token);
-
-    internal static Task<(uint Changes, NativeRegisteredOutputEvidence? Evidence)> RepairImageExifAsync(
-        string source, string? output, uint actions, CancellationToken token)
+    internal static async Task<ImageExifRepairProbe> ProbeImageExifRepairAsync(string source, uint actions, CancellationToken token)
     {
-        return Task.Run(() =>
+        var attempt = await TryRepairImageExifAsync(source, null, actions, token).ConfigureAwait(false);
+        if (attempt.Failure is NotSupportedException) return new(false, 0, attempt.Failure.Message);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return new(true, attempt.Changes, null);
+    }
+
+    internal sealed record ImageExifRepairAttempt(uint Changes, NativeRegisteredOutputEvidence? Evidence, Exception? Failure);
+
+    internal static Task<ImageExifRepairAttempt> TryRepairImageExifAsync(string source, string? output, uint actions, CancellationToken token)
+        => Task.Run<ImageExifRepairAttempt>(() =>
         {
+            if (token.IsCancellationRequested) return new(0, null, new OperationCanceledException(token));
             using var context = NativeContext.Create(token);
             var result = NativeMethods.RepairImageExif(context.Handle, source, output, actions, out uint changed);
-            context.ThrowIfFailed(result);
-            var evidence = changed != 0 && output != null
-                ? CaptureRegisteredOutputEvidence(context, output, MediaArtifactKind.PrimaryImage) : null;
-            return (changed, evidence);
-        }, token);
+            if (result != NativeResult.Ok) return new(0, null, context.CreateFailure(result));
+            var evidence = changed != 0 && output != null ? TryCaptureRegisteredOutputEvidence(context, output, MediaArtifactKind.PrimaryImage) : new RegisteredOutputAttempt(null, null);
+            return new(changed, evidence.Evidence, evidence.Failure);
+        }, CancellationToken.None);
+
+    internal static async Task<(uint Changes, NativeRegisteredOutputEvidence? Evidence)> RepairImageExifAsync(
+        string source, string? output, uint actions, CancellationToken token)
+    {
+        var attempt = await TryRepairImageExifAsync(source, output, actions, token).ConfigureAwait(false);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return (attempt.Changes, attempt.Evidence);
     }
 
     public static Task TransformJpegLosslesslyAsync(
@@ -1045,27 +1286,25 @@ public static class NativeMediaService
         string inputImagePath,
         string outputImagePath,
         int transform,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, bool allowReencode = false)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+
         return Task.Run(() =>
         {
+            if(cancellationToken.IsCancellationRequested)return new NativeImageConversionAttempt(false,null,null)
+                {ResultCode=NativeResult.Cancelled,Diagnostic="Image operation cancelled."};
             using var ctx = NativeContext.Create(cancellationToken);
-            NativeResult result = NativeMethods.TransformJpegLosslessly(
-                ctx.Handle, inputImagePath, outputImagePath, transform);
-            ctx.ThrowIfFailed(result);
+            int encoded = 0;
+            NativeResult result = allowReencode && transform == 7
+                ? NativeMethods.NormalizeJpegCompatible(ctx.Handle, inputImagePath, outputImagePath, out encoded)
+                : NativeMethods.TransformJpegLosslessly(ctx.Handle, inputImagePath, outputImagePath, transform);
+            if (result != NativeResult.Ok)
+                return new NativeImageConversionAttempt(false, null, null)
+                { ResultCode = result, Diagnostic = ctx.GetLastError() };
 
-            try
-            {
-                NativeRegisteredOutputEvidence evidence = CaptureRegisteredOutputEvidence(
-                    ctx, outputImagePath, MediaArtifactKind.PrimaryImage);
-                return new NativeImageConversionAttempt(false, evidence, null);
-            }
-            catch (Exception evidenceFailure)
-            {
-                return new NativeImageConversionAttempt(false, null, evidenceFailure);
-            }
-        }, cancellationToken);
+            var evidence = TryCaptureRegisteredOutputEvidence(ctx, outputImagePath, MediaArtifactKind.PrimaryImage);
+            return new NativeImageConversionAttempt(encoded != 0, evidence.Evidence, evidence.Failure);
+        }, CancellationToken.None);
     }
 
     public static async Task<string> TranscodeVideoAsync(
@@ -1103,9 +1342,10 @@ public static class NativeMediaService
         VideoCodec targetCodec,
         int crf,
         CancellationToken cancellationToken = default,
-        PreservationPolicy preservationPolicy = PreservationPolicy.Strict, bool repairOrientation = false)
+        PreservationPolicy preservationPolicy = PreservationPolicy.Strict, bool repairOrientation = false,
+        bool keepVideoStabilizationEdges = false)
     {
-        cancellationToken.ThrowIfCancellationRequested();
+
 
         return Task.Run(() =>
         {
@@ -1118,7 +1358,9 @@ public static class NativeMediaService
                 };
                 var preservationRequest = new NativeVideoPreservationRequestV1
                 {
-                    StructSize = 16, ApiVersion = repairOrientation ? 2u : 1u, Policy = (uint)preservationPolicy
+                    StructSize = 16, ApiVersion = repairOrientation ? 2u : preservationPolicy == PreservationPolicy.Strict ? 1u : 3u,
+                    Policy = (uint)preservationPolicy,
+                    Reserved = !repairOrientation && preservationPolicy != PreservationPolicy.Strict && keepVideoStabilizationEdges ? 1u : 0u
                 };
                 if (sizeof(NativeVideoPreservationResultV2) != 192)
                     throw new InvalidDataException("Complete video proof ABI layout mismatch.");
@@ -1142,29 +1384,18 @@ public static class NativeMediaService
                 Exception? failureException = null;
                 if (res != NativeResult.Ok)
                 {
-                    try
-                    {
-                        ctx.ThrowIfFailed(res);
-                    }
-                    catch (Exception ex)
-                    {
-                        failureException = ex;
-                    }
+                    // Compatibility wrappers may throw this object later;
+                    // the attempt API itself returns the refusal as data.
+                    failureException = ctx.CreateFailure(res);
                 }
 
                 NativeRegisteredOutputEvidence? outputEvidence = null;
                 Exception? outputEvidenceFailure = null;
                 if (res == NativeResult.Ok)
                 {
-                    try
-                    {
-                        outputEvidence = CaptureRegisteredOutputEvidence(
-                            ctx, outputVideoPath, MediaArtifactKind.MotionVideo);
-                    }
-                    catch (Exception ex)
-                    {
-                        outputEvidenceFailure = ex;
-                    }
+                    var evidenceAttempt = TryCaptureRegisteredOutputEvidence(ctx, outputVideoPath, MediaArtifactKind.MotionVideo);
+                    outputEvidence = evidenceAttempt.Evidence;
+                    outputEvidenceFailure = evidenceAttempt.Failure;
                 }
 
                 VideoMetadataPreservationEvidence? metadata = null;
@@ -1198,7 +1429,7 @@ public static class NativeMediaService
                     res, diagnostics, lastError, failureException, outputEvidence, outputEvidenceFailure, metadata)
                     { CompleteRemuxProof = proof };
             }
-        }, cancellationToken);
+        }, CancellationToken.None);
     }
 
     internal static bool TryDeleteRegisteredOutput(
@@ -1348,7 +1579,17 @@ public static class NativeMediaService
         return outputs;
     }
 
+    internal sealed record RegisteredOutputAttempt(NativeRegisteredOutputEvidence? Evidence, Exception? Failure);
+
     internal static NativeRegisteredOutputEvidence CaptureRegisteredOutputEvidence(
+        NativeContext context, string outputPath, MediaArtifactKind expectedRole)
+    {
+        var attempt = TryCaptureRegisteredOutputEvidence(context, outputPath, expectedRole);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Evidence!;
+    }
+
+    internal static RegisteredOutputAttempt TryCaptureRegisteredOutputEvidence(
         NativeContext context,
         string outputPath,
         MediaArtifactKind expectedRole)
@@ -1357,8 +1598,8 @@ public static class NativeMediaService
         IReadOnlyList<StagedOutputReceipt> records = QueryContextStagedOutputs(context.Handle);
         if (records.Count != 1)
         {
-            throw new InvalidDataException(
-                $"Native conversion registered {records.Count} staged outputs; expected exactly one output for {expectedRole}.");
+            return new(null, new InvalidDataException(
+                $"Native conversion registered {records.Count} staged outputs; expected exactly one output for {expectedRole}."));
         }
 
         StagedOutputReceipt record = records[0];
@@ -1366,8 +1607,8 @@ public static class NativeMediaService
             string.IsNullOrWhiteSpace(record.FinalPath) ||
             !string.Equals(Path.GetFullPath(record.FinalPath), fullOutputPath, StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidDataException(
-                "Native conversion staged-output role, path, or creating-handle identity did not match the requested output.");
+            return new(null, new InvalidDataException(
+                "Native conversion staged-output role, path, or creating-handle identity did not match the requested output."));
         }
 
         var expectedIdentity = new WindowsFileIdentity
@@ -1377,26 +1618,30 @@ public static class NativeMediaService
             LinkCount = record.LinkCount,
             FileAttributes = 0
         };
-        using var ownedHandle = WindowsOwnedFilePublisher.OpenOwnedStagedFile(
-            record.FinalPath, expectedIdentity);
-        PublishedOwnedFile evidence = WindowsOwnedFilePublisher.CaptureOwnedHandleEvidence(
-            ownedHandle, record.FinalPath, expectedIdentity, CancellationToken.None);
-        if (evidence.ByteLength <= 0 ||
-            (ulong)evidence.ByteLength != record.FileSize || evidence.FileIdentity.LinkCount != 1)
-        {
-            throw new InvalidDataException(
-                "Native registered output size or held-handle identity did not match the produced file.");
-        }
-
+        // Match the exact commit access/share contract without exception-based IO.
+        using var owned = SourceReadAttempt.Open(record.FinalPath, 5, 0x80010080);
+        if (!owned.Succeeded) return new(null, new IOException($"Cannot retain Native staged output (system error {owned.Error})."));
+        if (!WindowsFileIdentity.TryCapture(owned.Handle, out var actual, out int error) ||
+            actual!.IsReparsePoint || (actual.FileAttributes & 16) != 0 ||
+            expectedIdentity.VolumeSerialNumber != actual.VolumeSerialNumber ||
+            expectedIdentity.FileIndex != actual.FileIndex || actual.LinkCount != 1)
+            return new(null, new InvalidDataException($"Native staged output no longer identifies its creating object (system error {error})."));
+        if (!owned.TryGetLength(out long length, out error) || length <= 0 || (ulong)length != record.FileSize)
+            return new(null, new InvalidDataException($"Native registered output length differs from its receipt (system error {error})."));
+        var hash = MediaFileHashAttempt.ComputeHeld(owned.Handle, length, CancellationToken.None);
+        if (hash.Failure is { } hashFailure) return new(null, hashFailure);
+        if (!owned.TryGetLength(out long finalLength, out error) || finalLength != length ||
+            !WindowsFileIdentity.TryCapture(owned.Handle, out var finalIdentity, out error) || !actual.Matches(finalIdentity!))
+            return new(null, new InvalidDataException("Native registered output changed while collecting evidence."));
         var outputEvidence = new NativeRegisteredOutputEvidence(
-            evidence.FileIdentity, evidence.ByteLength, evidence.Sha256);
+            actual, length, hash.Sha256!);
         _ = WorkspaceOwnershipRegistry.RegisterCreatedFile(
             record.FinalPath,
             outputEvidence.FileIdentity,
             outputEvidence.ByteLength,
             outputEvidence.Sha256,
             expectedRole.ToString());
-        return outputEvidence;
+        return new(outputEvidence, null);
     }
 
     /// <summary>
@@ -1404,9 +1649,18 @@ public static class NativeMediaService
     /// records.  The caller must invoke this while the extraction attempt is
     /// active and before Native commits or rolls it back.
     /// </summary>
+    internal sealed record ExtractionOutputEvidenceAttempt(IReadOnlyList<NativeExtractionOutputEvidence>? Evidence, Exception? Failure);
+
     internal static IReadOnlyList<NativeExtractionOutputEvidence> CaptureExtractionOutputEvidence(
-        ExtractionPlanAttempt attempt,
-        IReadOnlyList<NativeExtractionOutputBinding> expectedOutputs)
+        ExtractionPlanAttempt attempt, IReadOnlyList<NativeExtractionOutputBinding> expectedOutputs)
+    {
+        var result = TryCaptureExtractionOutputEvidence(attempt, expectedOutputs);
+        if (result.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return result.Evidence!;
+    }
+
+    internal static ExtractionOutputEvidenceAttempt TryCaptureExtractionOutputEvidence(
+        ExtractionPlanAttempt attempt, IReadOnlyList<NativeExtractionOutputBinding> expectedOutputs)
     {
         ArgumentNullException.ThrowIfNull(attempt);
         ArgumentNullException.ThrowIfNull(expectedOutputs);
@@ -1421,26 +1675,26 @@ public static class NativeMediaService
             ArgumentException.ThrowIfNullOrWhiteSpace(binding.Path);
             string fullPath = NormalizeExtractionReceiptPath(binding.Path);
             if (!expectedByPath.TryAdd(fullPath, binding))
-                throw new InvalidDataException("Native extraction output bindings contain a duplicate destination path.");
+                return new(null, new InvalidDataException("Native extraction output bindings contain a duplicate destination path."));
             if (!expectedRoles.Add((binding.ArtifactRole, binding.AuxiliaryIndex)))
-                throw new InvalidDataException("Native extraction output bindings contain a duplicate role/index pair.");
+                return new(null, new InvalidDataException("Native extraction output bindings contain a duplicate role/index pair."));
         }
 
         IReadOnlyList<StagedOutputReceipt> records = QueryContextStagedOutputs(attempt.ContextLease.Handle);
         if (records.Count != expectedByPath.Count)
         {
-            throw new InvalidDataException(
-                $"Native extraction registered {records.Count} staged outputs; expected {expectedByPath.Count} output receipts.");
+            return new(null, new InvalidDataException(
+                $"Native extraction registered {records.Count} staged outputs; expected {expectedByPath.Count} output receipts."));
         }
 
         var recordsByPath = new Dictionary<string, StagedOutputReceipt>(StringComparer.OrdinalIgnoreCase);
         foreach (StagedOutputReceipt record in records)
         {
             if (string.IsNullOrWhiteSpace(record.FinalPath))
-                throw new InvalidDataException("Native extraction returned an empty staged-output path.");
+                return new(null, new InvalidDataException("Native extraction returned an empty staged-output path."));
             string fullPath = NormalizeExtractionReceiptPath(record.FinalPath);
             if (!recordsByPath.TryAdd(fullPath, record))
-                throw new InvalidDataException("Native extraction returned duplicate staged-output paths.");
+                return new(null, new InvalidDataException("Native extraction returned duplicate staged-output paths."));
         }
 
         var captured = new List<NativeExtractionOutputEvidence>(expectedByPath.Count);
@@ -1448,16 +1702,16 @@ public static class NativeMediaService
         {
             if (!recordsByPath.TryGetValue(expectedFullPath, out StagedOutputReceipt record))
             {
-                throw new InvalidDataException(
-                    $"Native extraction did not return the creating-handle receipt for '{binding.Path}'.");
+                return new(null, new InvalidDataException(
+                    $"Native extraction did not return the creating-handle receipt for '{binding.Path}'."));
             }
 
             if (record.ArtifactRole != binding.ArtifactRole ||
                 record.AuxiliaryIndex != binding.AuxiliaryIndex ||
                 record.LinkCount != 1 || record.FileSize == 0)
             {
-                throw new InvalidDataException(
-                    "Native extraction staged-output role, auxiliary index, or creating-handle identity did not match the requested output.");
+                return new(null, new InvalidDataException(
+                    "Native extraction staged-output role, auxiliary index, or creating-handle identity did not match the requested output."));
             }
 
             var expectedIdentity = new WindowsFileIdentity
@@ -1471,26 +1725,26 @@ public static class NativeMediaService
             // Native retains rollback handles until commit.  Open a compatible
             // read-only handle which grants all share modes; the receipt's
             // volume/file ID, not this path open, remains the ownership source.
-            using SafeFileHandle ownedHandle = OpenExtractionReceiptReadHandle(record.FinalPath);
-            PublishedOwnedFile evidence = WindowsOwnedFilePublisher.CaptureOwnedHandleEvidence(
-                ownedHandle, record.FinalPath, expectedIdentity, CancellationToken.None);
-            if (evidence.ByteLength <= 0 || (ulong)evidence.ByteLength != record.FileSize ||
-                evidence.FileIdentity.LinkCount != 1)
-            {
-                throw new InvalidDataException(
-                    "Native extraction receipt size or held-handle identity did not match the produced file.");
-            }
+            using var owned = SourceReadAttempt.Open(record.FinalPath, 7);
+            if (!owned.Succeeded)
+                return new(null, new IOException($"Cannot open Native extraction receipt (system error {owned.Error})."));
+            if (!WindowsFileIdentity.TryCapture(owned.Handle, out var actual, out int error) ||
+                actual!.IsReparsePoint || (actual.FileAttributes & 16) != 0 || actual.LinkCount != 1 ||
+                actual.VolumeSerialNumber != expectedIdentity.VolumeSerialNumber || actual.FileIndex != expectedIdentity.FileIndex)
+                return new(null, new InvalidDataException($"Native extraction receipt no longer identifies its creating object (system error {error})."));
+            if (!owned.TryGetLength(out long length, out error) || length <= 0 || (ulong)length != record.FileSize)
+                return new(null, new InvalidDataException($"Native extraction receipt length differs from its creating handle (system error {error})."));
+            var hash = MediaFileHashAttempt.ComputeHeld(owned.Handle, length, CancellationToken.None);
+            if (hash.Failure is { } hashFailure) return new(null, hashFailure);
+            if (!owned.TryGetLength(out long finalLength, out error) || finalLength != length ||
+                !WindowsFileIdentity.TryCapture(owned.Handle, out var finalIdentity, out error) || !actual.Matches(finalIdentity!))
+                return new(null, new InvalidDataException("Native extraction output changed while collecting evidence."));
 
             captured.Add(new NativeExtractionOutputEvidence(
-                binding.ArtifactRole,
-                binding.AuxiliaryIndex,
-                binding.Path,
-                evidence.FileIdentity,
-                evidence.ByteLength,
-                evidence.Sha256));
+                binding.ArtifactRole, binding.AuxiliaryIndex, binding.Path, actual, length, hash.Sha256!));
         }
 
-        return captured;
+        return new(captured, null);
     }
 
     private static string NormalizeExtractionReceiptPath(string path)
@@ -1749,7 +2003,11 @@ public static class NativeMediaService
     internal sealed record NativeImageConversionAttempt(
         bool Reencoded,
         NativeRegisteredOutputEvidence? OutputEvidence,
-        Exception? OutputEvidenceFailure);
+        Exception? OutputEvidenceFailure)
+    {
+        internal NativeResult ResultCode { get; init; } = NativeResult.Ok;
+        internal string? Diagnostic { get; init; }
+    }
 
     internal sealed record NativeVideoTranscodeAttempt(
         NativeResult ResultCode,
@@ -2474,16 +2732,26 @@ public static class NativeMediaService
             cancellationToken);
     }
 
-    internal static Task<NativeRegisteredOutputEvidence> ReassembleJpegGainMapWithOutputEvidenceAsync(
+    internal static async Task<NativeRegisteredOutputEvidence> ReassembleJpegGainMapWithOutputEvidenceAsync(
         string primaryJpegPath,
         string gainmapJpegPath,
         string outputPath,
         string expectedGainMapSha256,
         CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        return Task.Run(() =>
+        var attempt = await TryReassembleJpegGainMapAsync(primaryJpegPath, gainmapJpegPath, outputPath,
+            expectedGainMapSha256, cancellationToken).ConfigureAwait(false);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Evidence!;
+    }
+
+    internal static Task<RegisteredOutputAttempt> TryReassembleJpegGainMapAsync(
+        string primaryJpegPath, string gainmapJpegPath, string outputPath,
+        string expectedGainMapSha256, CancellationToken cancellationToken = default)
+    {
+        return Task.Run<RegisteredOutputAttempt>(() =>
         {
+            if (cancellationToken.IsCancellationRequested) return new(null, new OperationCanceledException(cancellationToken));
             using var ctx = NativeContext.Create(cancellationToken);
             NativeResult res = NativeMethods.lpb_reassemble_jpeg_gainmap(
                 ctx.Handle,
@@ -2491,41 +2759,33 @@ public static class NativeMediaService
                 gainmapJpegPath,
                 outputPath,
                 expectedGainMapSha256);
-            ctx.ThrowIfFailed(res);
-            return CaptureRegisteredOutputEvidence(ctx, outputPath, MediaArtifactKind.PrimaryImage);
-        }, cancellationToken);
+            if (res != NativeResult.Ok) return new(null, ctx.CreateFailure(res));
+            return TryCaptureRegisteredOutputEvidence(ctx, outputPath, MediaArtifactKind.PrimaryImage);
+        }, CancellationToken.None);
     }
 
-    public static Task<PreservationObservation> CapturePreservationObservationAsync(
-        string mediaPath,
-        SourceProtocol protocol,
-        ImageContainer container,
-        CancellationToken cancellationToken = default)
+    internal sealed record PreservationObservationAttempt(PreservationObservation? Observation,Exception? Failure);
+
+    public static async Task<PreservationObservation> CapturePreservationObservationAsync(string mediaPath,
+        SourceProtocol protocol,ImageContainer container,CancellationToken cancellationToken=default)
     {
-        ArgumentNullException.ThrowIfNull(mediaPath);
-        cancellationToken.ThrowIfCancellationRequested();
-        if (!File.Exists(mediaPath))
-            throw new FileNotFoundException("Preservation target media file not found.", mediaPath);
-
-        return Task.Run(() =>
-        {
-            using var ctx = NativeContext.Create(cancellationToken);
-            var nativeObs = new NativePreservationObservation
-            {
-                StructSize = checked((uint)Marshal.SizeOf<NativePreservationObservation>())
-            };
-
-            NativeResult res = NativeMethods.lpb_capture_preservation_observation(
-                ctx.Handle,
-                mediaPath,
-                (int)protocol,
-                (int)container,
-                ref nativeObs);
-
-            ctx.ThrowIfFailed(res);
-            return PreservationObservation.FromNative(in nativeObs);
-        }, cancellationToken);
+        var attempt=await TryCapturePreservationObservationAsync(mediaPath,protocol,container,cancellationToken).ConfigureAwait(false);
+        if(attempt.Failure is { } failure)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Observation!;
     }
+
+    internal static Task<PreservationObservationAttempt> TryCapturePreservationObservationAsync(string mediaPath,
+        SourceProtocol protocol,ImageContainer container,CancellationToken cancellationToken=default)
+        => Task.Run(() =>
+        {
+            if(cancellationToken.IsCancellationRequested)return new PreservationObservationAttempt(null,new OperationCanceledException(cancellationToken));
+            if(!File.Exists(mediaPath))return new PreservationObservationAttempt(null,new FileNotFoundException("Preservation target media file not found.",mediaPath));
+            using var ctx=NativeContext.Create(cancellationToken);
+            var native=new NativePreservationObservation { StructSize=checked((uint)Marshal.SizeOf<NativePreservationObservation>()) };
+            NativeResult result=NativeMethods.lpb_capture_preservation_observation(ctx.Handle,mediaPath,(int)protocol,(int)container,ref native);
+            return result==NativeResult.Ok ? new PreservationObservationAttempt(PreservationObservation.FromNative(in native),null)
+                : new PreservationObservationAttempt(null,ctx.CreateFailure(result));
+        },CancellationToken.None);
 
     internal static IReadOnlyList<NativePreservationVerdict> VerifyPreservation(
         PreservationObservation preImage,
@@ -2535,11 +2795,16 @@ public static class NativeMediaService
         SourceProtocol protocol,
         DetachedGainMapVerificationState detachedGainMapState,
         out bool allPassed,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default, bool strict = true)
     {
         ArgumentNullException.ThrowIfNull(preImage);
         ArgumentNullException.ThrowIfNull(postImage);
-        cancellationToken.ThrowIfCancellationRequested();
+        if(cancellationToken.IsCancellationRequested)
+        {
+            allPassed=false;
+            if(strict)throw new OperationCanceledException(cancellationToken);
+            return Array.Empty<NativePreservationVerdict>();
+        }
 
         using var ctx = NativeContext.Create(cancellationToken);
         var preNative = new NativePreservationObservation();
@@ -2572,7 +2837,12 @@ public static class NativeMediaService
             out nuint outCount,
             out byte outOverallPassed);
 
-        ctx.ThrowIfFailed(res);
+        if(res!=NativeResult.Ok)
+        {
+            allPassed=false;
+            if(strict)ctx.ThrowIfFailed(res);
+            return Array.Empty<NativePreservationVerdict>();
+        }
         allPassed = outOverallPassed != 0;
 
         int count = Math.Min((int)outCount, verdicts.Length);

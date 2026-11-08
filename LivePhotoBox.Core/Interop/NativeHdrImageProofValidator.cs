@@ -8,7 +8,18 @@ internal static class NativeHdrImageProofValidator
 {
     // Separate from ordinary kind1: both image owners, eight metadata carriers,
     // and the producer's separately verified original JPEG padding context.
-    internal static unsafe ImageHdrConversionEvidence Validate(NativeImageConversionProofV1 proof,
+    internal static ImageHdrConversionEvidence Validate(NativeImageConversionProofV1 proof,
+        string sourceHash,ulong sourceLength,uint sourceOrientation,
+        NativeMediaService.NativeRegisteredOutputEvidence actual)
+    {
+        var attempt = TryValidate(proof, sourceHash, sourceLength, sourceOrientation, actual);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Evidence!;
+    }
+
+    internal sealed record ValidationAttempt(ImageHdrConversionEvidence? Evidence, Exception? Failure);
+
+    internal static unsafe ValidationAttempt TryValidate(NativeImageConversionProofV1 proof,
         string sourceHash,ulong sourceLength,uint sourceOrientation,
         NativeMediaService.NativeRegisteredOutputEvidence actual)
     {
@@ -27,9 +38,9 @@ internal static class NativeHdrImageProofValidator
             proof.OutputIdentity.LinkCount!=1||actual.FileIdentity.LinkCount!=1||actual.FileIdentity.IsReparsePoint||
             proof.OutputIdentity.VolumeSerial!=actual.FileIdentity.VolumeSerialNumber||proof.OutputIdentity.FileIndex!=actual.FileIdentity.FileIndex||
             proof.OutputIdentity.FileSize!=(ulong)actual.ByteLength)
-            throw new InvalidDataException("Complete HDR image proof does not bind its source, both-owner inventory, creating output or physical direction.");
-        return new(source,output,mapped,observed,proof.SourceOrientation,proof.OutputOrientation,proof.SourceWidth,proof.SourceHeight,
+            return new(null, new InvalidDataException("Complete HDR image proof does not bind its source, both-owner inventory, creating output or physical direction."));
+        return new(new(source,output,mapped,observed,proof.SourceOrientation,proof.OutputOrientation,proof.SourceWidth,proof.SourceHeight,
             proof.OutputWidth,proof.OutputHeight,proof.MetadataCount,proof.IccStatus==1)
-            {NativeVerifiedOrientation=new(source,output,proof.SourceOrientation,proof.OutputOrientation)};
+            {NativeVerifiedOrientation=new(source,output,proof.SourceOrientation,proof.OutputOrientation)}, null);
     }
 }

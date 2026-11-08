@@ -1,4 +1,4 @@
-#include "containers/isobmff_mebx_transplant.h"
+﻿#include "containers/isobmff_mebx_transplant.h"
 #include "media/media_inspector.h"
 #include "media/compound_primary.h"
 #include "media/jpeg_gainmap_mpf.h"
@@ -407,6 +407,64 @@ LPB_API lpb_result LPB_CALL lpb_inspect_media_with_plan(
     const lpb_result result = inspect_source_with_plan(
         context, primary_path, secondary_path, out_facts, out_plan, &residues,
         out_plan_generation);
+    if (result != LPB_RESULT_OK)
+    {
+        classify_inspection_failure(context, result);
+        return result;
+    }
+
+    *out_residues_count = residues.size();
+    if (residues.size() > residues_capacity)
+    {
+        set_error(context, "The supplied residues buffer is too small for the issued extraction plan.");
+        if (*out_plan != nullptr)
+        {
+            (void)lpb_release_extraction_plan(context, *out_plan);
+            *out_plan = nullptr;
+        }
+        return LPB_RESULT_BUFFER_TOO_SMALL;
+    }
+    if (out_residues != nullptr && !residues.empty())
+    {
+        std::memcpy(out_residues, residues.data(), residues.size() * sizeof(lpb_confirmed_residue));
+    }
+    classify_inspection_failure(context, LPB_RESULT_OK);
+    return LPB_RESULT_OK;
+}
+
+LPB_API lpb_result LPB_CALL lpb_inspect_component_with_plan_v1(
+    lpb_context* context,
+    uint32_t component,
+    const char* primary_path,
+    const char* secondary_path,
+    lpb_source_media_facts* out_facts,
+    lpb_extraction_plan** out_plan,
+    lpb_confirmed_residue* out_residues,
+    size_t residues_capacity,
+    size_t* out_residues_count,
+    uint64_t* out_plan_generation)
+{
+    if (component != 1 && component != 2) return LPB_RESULT_INVALID_ARGUMENT;
+    if (out_plan == nullptr || out_residues_count == nullptr || out_plan_generation == nullptr)
+    {
+        set_error(context, "Output extraction plan, generation, and residue count are required.");
+        return LPB_RESULT_INVALID_ARGUMENT;
+    }
+    *out_plan = nullptr;
+    *out_residues_count = 0;
+    *out_plan_generation = 0;
+
+    lpb_context_operation context_operation(context);
+    if (!context_operation.acquired())
+    {
+        set_error(context, "[AuthorityViolation] Native context is being destroyed.");
+        return LPB_RESULT_AUTHORITY_VIOLATION;
+    }
+
+    std::vector<lpb_confirmed_residue> residues;
+    const lpb_result result = inspect_source_with_plan(
+        context, primary_path, secondary_path, out_facts, out_plan, &residues,
+        out_plan_generation, component);
     if (result != LPB_RESULT_OK)
     {
         classify_inspection_failure(context, result);
@@ -1576,6 +1634,13 @@ LPB_API lpb_result LPB_CALL lpb_probe_video_repair(
     return probe_video_file(context, path, facts, reflection);
 }
 
+LPB_API lpb_result LPB_CALL lpb_probe_video_display_geometry_v1(
+    lpb_context* context, const char* path, uint32_t* edges, uint32_t count)
+{
+    if(count!=5) return LPB_RESULT_INVALID_ARGUMENT;
+    return probe_video_display_geometry(context,path,edges);
+}
+
 LPB_API lpb_result LPB_CALL lpb_probe_video(
     lpb_context* context,
     const char* video_path,
@@ -1651,14 +1716,15 @@ LPB_API lpb_result LPB_CALL lpb_transcode_video_v4(
     if(proof && proof->struct_size==sizeof(*proof)) {
         *proof={};proof->struct_size=sizeof(*proof);proof->api_version=2;
     }
-    if(!context||!valid||!request||request->struct_size!=sizeof(*request)||(request->api_version!=1&&request->api_version!=2)||
-        request->policy>2||request->reserved!=0||!diagnostics||diagnostics->struct_size!=sizeof(*diagnostics)) {
+    if(!context||!valid||!request||request->struct_size!=sizeof(*request)||(request->api_version<1||request->api_version>3)||
+        request->policy>2||(request->api_version==3 ? request->reserved>1 : request->reserved!=0)||!diagnostics||diagnostics->struct_size!=sizeof(*diagnostics)) {
         if(context)set_error(context,"Complete video proof request/result has an incompatible size, version, policy or reserved field.");
         return LPB_RESULT_INVALID_ARGUMENT;
     }
     proof->metadata.struct_size=sizeof(proof->metadata);proof->metadata.api_version=1;proof->metadata.policy=request->policy;
     const auto result=transcode_video_file(context,input,output,container,codec,crf,nullptr,0,diagnostics,
-        &proof->metadata,codec==LPB_VIDEO_CODEC_COPY?proof:nullptr,request->api_version==2);
+        &proof->metadata,codec==LPB_VIDEO_CODEC_COPY?proof:nullptr,request->api_version==2,
+        request->api_version==3,request->reserved==1);
     if(result!=LPB_RESULT_OK) {
         *proof={};proof->struct_size=sizeof(*proof);proof->api_version=2;
     }
@@ -1788,14 +1854,26 @@ LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
         // tag header/table. Bind replacement padding to the actual retained
         // ordinary SEF inventory, rather than retaining a stale number.
         bool sef_padding_rebased=false;
-        if(primary_info.eoi_end<primary_bytes.size()) {
+        const uint64_t retained_padding=primary_bytes.size()-primary_info.eoi_end;
+        if(retained_padding) {
             memory_random_access memory{primary_span};lpb::protocols::sef_inventory inventory;std::string error;
             if(!lpb::protocols::observe_sef(memory.view(),primary_info.eoi_end,primary_bytes.size(),inventory,error)||
                inventory.begin!=primary_info.eoi_end||!lpb::protocols::ordinary_sef(inventory)) {
                 set_error(context,"GainMap primary trailing metadata is not a complete ordinary SEF inventory.");return LPB_RESULT_INVALID_ARGUMENT;
             }
+        }
+        // Detached preparation can leave no suffix at all. The old Primary
+        // padding is then just as stale as when a smaller SEF suffix remains.
+        // Rebase the derived coordinate to the held bytes in both cases.
+        target_xmp_observation owner_layout;xmp_observation_failure owner_failure{};
+        if(!observe_target_xmp(owner_xmp,owner_layout,owner_failure)||owner_layout.items.empty()) {
+            set_error(context,"Cannot observe the canonical GainMap owner padding.");return LPB_RESULT_INVALID_ARGUMENT;
+        }
+        if(owner_layout.items.front().padding!=retained_padding) {
             std::string adjusted;xmp_observation_failure why{};
-            if(!rewrite_target_primary_padding(owner_xmp,primary_bytes.size()-primary_info.eoi_end,adjusted,why))return LPB_RESULT_INVALID_ARGUMENT;
+            if(!rewrite_target_primary_padding(owner_xmp,retained_padding,adjusted,why)) {
+                set_error(context,"Cannot bind GainMap Primary padding to the retained metadata extent.");return LPB_RESULT_INVALID_ARGUMENT;
+            }
             owner_xmp=std::move(adjusted);sef_padding_rebased=true;
         }
         std::vector<uint8_t> canonical_primary_bytes;
@@ -1867,11 +1945,14 @@ LPB_API lpb_result LPB_CALL lpb_reassemble_jpeg_gainmap(
         std::string final_xmp;
         lpb::protocols::clean::neutral_gainmap_directory final_directory{};
         std::string verified_xmp;
+        target_xmp_observation final_layout;xmp_observation_failure final_failure{};
         if (!lpb::metadata::extract_standard_jpeg_xmp(validated_output, final_xmp) ||
             !lpb::protocols::clean::canonicalize_neutral_gainmap_directory(
                 final_xmp, gainmap_bytes.size(), verified_xmp, final_directory) ||
             verified_xmp != final_xmp || final_directory.source_item_count != 2 ||
-            final_directory.gainmap_ordinal != 1) {
+            final_directory.gainmap_ordinal != 1 ||
+            !observe_target_xmp(final_xmp,final_layout,final_failure) || final_layout.items.empty() ||
+            final_layout.items.front().padding != canonical_primary_bytes.size()-canonical_primary_info.eoi_end) {
             set_error(context, "Reassembled JPEG does not have a canonical Primary plus GainMap Container Directory.");
             return LPB_RESULT_INVALID_ARGUMENT;
         }
@@ -1970,4 +2051,17 @@ LPB_API lpb_result LPB_CALL lpb_inspect_video_inventory_v1(lpb_context* context,
 
 LPB_API lpb_result LPB_CALL lpb_discover_pairing_hint_v1(lpb_context* context,const char* source,lpb_pairing_hint_v1* hint) {
     return lpb::media::discover_pairing_hint(context,source,hint);
+}
+
+LPB_API lpb_result LPB_CALL lpb_discover_media_candidate_v1(lpb_context* context,const char* source,lpb_media_candidate_v1* candidate) {
+    return lpb::media::discover_media_candidate(context,source,candidate);
+}
+
+LPB_API lpb_result LPB_CALL lpb_discover_media_candidate_v2(lpb_context* c,const char* p,uint32_t capability,lpb_media_candidate_v1* out) {
+    return lpb::media::discover_media_candidate_v2(c,p,capability,out);
+}
+
+extern "C" LPB_API lpb_result LPB_CALL lpb_normalize_jpeg_compatible(
+    lpb_context* context, const char* input, const char* output, int32_t* reencoded) {
+    return lpb::media::normalize_jpeg_compatible(context,input,output,reencoded);
 }

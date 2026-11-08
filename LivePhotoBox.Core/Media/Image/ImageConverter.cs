@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
@@ -19,9 +19,17 @@ public sealed class ImageConverter : IImageConverter
         ImageConversionRequest request,
         CancellationToken cancellationToken = default)
     {
-        ArgumentNullException.ThrowIfNull(request);
+        var result = await TryConvertAsync(request, cancellationToken).ConfigureAwait(false);
+        if (result.ExecutionRecord?.Truth.FailureCategory == ConversionFailureCategory.Cancelled)
+            throw new OperationCanceledException(result.ErrorMessage, cancellationToken);
+        return result;
+    }
 
-        cancellationToken.ThrowIfCancellationRequested();
+    internal async Task<ImageConversionResult> TryConvertAsync(
+        ImageConversionRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
 
         var sw = Stopwatch.StartNew();
         ConversionOperationKind requestedOperation = request.TrustedHdrGainMapBinding != null
@@ -39,6 +47,12 @@ public sealed class ImageConverter : IImageConverter
             : request.Transform != ImageTransformKind.None
             ? ConversionCapability.ImageLosslessTransform
             : ConversionCapability.ImageCodec;
+
+        ImageConversionResult Rejected(string message, ConversionFailureStage stage, ConversionFailureCategory category)
+            => new() { Success = false, ErrorMessage = message,
+                ExecutionRecord = FailureRecord(request, requestedOperation, factsOrigin, stage, category, sw.Elapsed) };
+        if (cancellationToken.IsCancellationRequested)
+            return Rejected("Image conversion cancelled.", ConversionFailureStage.Cancelled, ConversionFailureCategory.Cancelled);
 
         if (request.Transform != ImageTransformKind.None &&
             (request.SourceArtifact.ImageContainer != ImageContainer.Jpeg ||
@@ -91,13 +105,17 @@ public sealed class ImageConverter : IImageConverter
         {
             try
             {
-                SourceMediaFacts sourceFacts = await NativeMediaService
-                    .InspectMediaAsync(request.SourceArtifact.Path, cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
+                var inspection = await NativeMediaService.TryInspectMediaWithPlanAsync(request.SourceArtifact.Path,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (inspection.Failure is { } failure)
+                    return Rejected(failure.Message, failure is OperationCanceledException ? ConversionFailureStage.Cancelled : ConversionFailureStage.SourceInspection,
+                        failure is OperationCanceledException ? ConversionFailureCategory.Cancelled : ConversionFailureCategory.SourceInspection);
+                using var inspected = inspection.Source!;
+                SourceMediaFacts sourceFacts = inspected.Facts;
                 conversionFacts = ImageConversionEligibility.ToConversionFacts(sourceFacts);
                 factsOrigin = ConversionFactsOrigin.CompatibilityInspectionOrProbe;
             }
-            catch (OperationCanceledException) { throw; }
+            catch (OperationCanceledException) { return Rejected("Image inspection cancelled.", ConversionFailureStage.Cancelled, ConversionFailureCategory.Cancelled); }
             catch (Exception ex)
             {
                 sw.Stop();
@@ -128,8 +146,11 @@ public sealed class ImageConverter : IImageConverter
         {
             try
             {
-                conversionFacts = await VerifyHdrGainMapBindingAsync(request, hdrBinding, cancellationToken)
-                    .ConfigureAwait(false);
+                var bindingAttempt = await TryVerifyHdrGainMapBindingAsync(request, hdrBinding, cancellationToken).ConfigureAwait(false);
+                if (bindingAttempt.Failure is { } bindingFailure)
+                    return Rejected(bindingFailure.Message, bindingFailure is OperationCanceledException ? ConversionFailureStage.Cancelled : ConversionFailureStage.TrustedFactsMismatch,
+                        bindingFailure is OperationCanceledException ? ConversionFailureCategory.Cancelled : ConversionFailureCategory.TrustedFactsMismatch);
+                conversionFacts = bindingAttempt.Facts!;
                 factsOrigin = ConversionFactsOrigin.CallerTrustedNeutralFacts;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -162,9 +183,13 @@ public sealed class ImageConverter : IImageConverter
         {
             try
             {
-                SourceMediaFacts observed = await NativeMediaService
-                    .InspectMediaAsync(request.SourceArtifact.Path, cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
+                var inspection = await NativeMediaService.TryInspectMediaWithPlanAsync(request.SourceArtifact.Path,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (inspection.Failure is { } failure)
+                    return Rejected(failure.Message, failure is OperationCanceledException ? ConversionFailureStage.Cancelled : ConversionFailureStage.SourceInspection,
+                        failure is OperationCanceledException ? ConversionFailureCategory.Cancelled : ConversionFailureCategory.SourceInspection);
+                using var inspected = inspection.Source!;
+                SourceMediaFacts observed = inspected.Facts;
                 if (observed.PrimaryImage.Container != trustedOrdinaryFacts.Container ||
                     observed.PrimaryImage.Container != request.SourceArtifact.ImageContainer)
                 {
@@ -188,7 +213,7 @@ public sealed class ImageConverter : IImageConverter
                 conversionFacts = ImageConversionEligibility.ToConversionFacts(observed);
                 factsOrigin = ConversionFactsOrigin.CompatibilityInspectionOrProbe;
             }
-            catch (OperationCanceledException) { throw; }
+            catch (OperationCanceledException) { return Rejected("Image inspection cancelled.", ConversionFailureStage.Cancelled, ConversionFailureCategory.Cancelled); }
             catch (Exception ex)
             {
                 sw.Stop();
@@ -335,20 +360,30 @@ public sealed class ImageConverter : IImageConverter
         {
             try
             {
-                NativeHeicPrimaryDecodeInfo primary = await NativeMediaService
-                    .DecodeHeicPrimaryAsync(request.SourceArtifact.Path, cancellationToken)
-                    .ConfigureAwait(false);
-                var color = await NativeMediaService.CapturePreservationObservationAsync(
+                var primaryAttempt = await NativeMediaService.TryDecodeHeicPrimaryAsync(request.SourceArtifact.Path,
+                    cancellationToken).ConfigureAwait(false);
+                if (primaryAttempt.Failure is { } primaryFailure)
+                    return Rejected(primaryFailure.Message, primaryFailure is OperationCanceledException ? ConversionFailureStage.Cancelled : ConversionFailureStage.SourceInspection,
+                        primaryFailure is OperationCanceledException ? ConversionFailureCategory.Cancelled : ConversionFailureCategory.SourceInspection);
+                NativeHeicPrimaryDecodeInfo primary = primaryAttempt.Info;
+                var colorAttempt = await NativeMediaService.TryCapturePreservationObservationAsync(
                     request.SourceArtifact.Path,
                     SourceProtocol.Unknown,
                     ImageContainer.Heic,
                     cancellationToken).ConfigureAwait(false);
+                if (colorAttempt.Failure is { } colorFailure)
+                    return Rejected(colorFailure.Message, colorFailure is OperationCanceledException ? ConversionFailureStage.Cancelled : ConversionFailureStage.SourceInspection,
+                        colorFailure is OperationCanceledException ? ConversionFailureCategory.Cancelled : ConversionFailureCategory.SourceInspection);
+                var color = colorAttempt.Observation!;
 
+                bool directlyRepresentableSrgb = primary.HasNclx != 0 && primary.HasIcc == 0 &&
+                    primary.NclxPrimaries == 1 && primary.NclxTransfer == 13 &&
+                    primary.NclxMatrix is 0 or 1 or 5 or 6;
                 bool unsupported = primary.SourceBitDepth > 8 ||
                     primary.DecodedSignalBitDepth > 8 ||
                     primary.DecodedStorageBitDepth > 8 ||
                     primary.IsHdrRelevant != 0 ||
-                    primary.HasNclx != 0 ||
+                    (primary.HasNclx != 0 && !directlyRepresentableSrgb) ||
                     color.IccParseError ||
                     (primary.HasIcc != 0) != color.HasIcc;
                 if (unsupported)
@@ -368,7 +403,7 @@ public sealed class ImageConverter : IImageConverter
                     };
                 }
             }
-            catch (OperationCanceledException) { throw; }
+            catch (OperationCanceledException) { return Rejected("Image inspection cancelled.", ConversionFailureStage.Cancelled, ConversionFailureCategory.Cancelled); }
             catch (Exception ex)
             {
                 sw.Stop();
@@ -413,6 +448,14 @@ public sealed class ImageConverter : IImageConverter
         NativeMediaService.NativeRegisteredOutputEvidence? registeredOutputEvidence = null;
         NativeBoundImageAttempt? boundAttempt=null;
 
+        ImageConversionResult OutputRejected(string message, ConversionFailureCategory category)
+        {
+            boundAttempt?.Dispose();
+            if (!TryDeleteOutput(outPath, registeredOutputEvidence))
+                return Rejected(message + " Staged image cleanup could not be completed.", ConversionFailureStage.Cleanup, ConversionFailureCategory.CleanupFailure);
+            return Rejected(message, category == ConversionFailureCategory.Cancelled ? ConversionFailureStage.Cancelled : ConversionFailureStage.OutputValidation, category);
+        }
+
         try
         {
             bool losslessTransform = request.Transform != ImageTransformKind.None;
@@ -425,45 +468,54 @@ public sealed class ImageConverter : IImageConverter
                     outPath,
                     ToNativeJpegTransform(request.Transform),
                     cancellationToken).ConfigureAwait(false);
+                if (nativeAttempt.ResultCode != NativeResult.Ok)
+                {
+                    var category = nativeAttempt.ResultCode == NativeResult.Cancelled ? ConversionFailureCategory.Cancelled : nativeAttempt.ResultCode == NativeResult.Unsupported
+                        ? ConversionFailureCategory.Unsupported : ConversionFailureCategory.BackendFailure;
+                    return new ImageConversionResult { Success = false,
+                        ErrorMessage = nativeAttempt.Diagnostic ?? $"Native image operation returned {nativeAttempt.ResultCode}.",
+                        ExecutionRecord = FailureRecord(request, requestedOperation, factsOrigin,
+                            category == ConversionFailureCategory.Cancelled ? ConversionFailureStage.Cancelled : ConversionFailureStage.BackendExecution, category, sw.Elapsed) };
+                }
                 registeredOutputEvidence = nativeAttempt.OutputEvidence;
                 backendCompleted = true;
                 if (registeredOutputEvidence == null)
-                    throw new InvalidDataException(
+                    return OutputRejected(
                         "Native JPEG transform did not return exact creating-handle output evidence: " +
-                        (nativeAttempt.OutputEvidenceFailure?.Message ?? "unknown evidence failure"));
+                        (nativeAttempt.OutputEvidenceFailure?.Message ?? "unknown evidence failure"), ConversionFailureCategory.OutputValidation);
                 reencoded = false;
             }
             else
             {
                 NativeMediaService.NativeImageConversionAttempt nativeAttempt;
                 if(boundOrdinaryConversion) {
-                    try {
-                        boundAttempt=await NativeBoundImageConverter.ConvertAsync(request.SourceArtifact,outPath,request.Quality,cancellationToken).ConfigureAwait(false);
-                        nativeAttempt=boundAttempt.Attempt;
-                    } catch (NotSupportedException) when (request.PreservationPolicy != PreservationPolicy.Strict) {
-                        boundOrdinaryConversion = false;
-                        boundAttempt = null;
-                        nativeAttempt=await NativeMediaService.ConvertImageWithOutputEvidenceAsync(
-                            request.SourceArtifact.Path,
-                            outPath,
-                            request.TargetContainer,
-                            request.Quality,
-                            cancellationToken).ConfigureAwait(false);
+                    boundAttempt=await NativeBoundImageConverter.TryConvertAsync(request.SourceArtifact,outPath,request.Quality,cancellationToken).ConfigureAwait(false);
+                    nativeAttempt=boundAttempt.Attempt;
+                    if(nativeAttempt.ResultCode==NativeResult.Unsupported && request.PreservationPolicy!=PreservationPolicy.Strict)
+                    {
+                        boundOrdinaryConversion=false;boundAttempt.Dispose();boundAttempt=null;
+                        nativeAttempt=await NativeMediaService.ConvertImageWithOutputEvidenceAsync(request.SourceArtifact.Path,
+                            outPath,request.TargetContainer,request.Quality,cancellationToken).ConfigureAwait(false);
                     }
-                }else nativeAttempt=await NativeMediaService.ConvertImageWithOutputEvidenceAsync(
-                    request.SourceArtifact.Path,
-                    outPath,
-                    request.TargetContainer,
-                    request.Quality,
-                    cancellationToken).ConfigureAwait(false);
+                } else nativeAttempt=await NativeMediaService.ConvertImageWithOutputEvidenceAsync(request.SourceArtifact.Path,
+                    outPath,request.TargetContainer,request.Quality,cancellationToken).ConfigureAwait(false);
+                if (nativeAttempt.ResultCode != NativeResult.Ok)
+                {
+                    var category = nativeAttempt.ResultCode == NativeResult.Cancelled ? ConversionFailureCategory.Cancelled : nativeAttempt.ResultCode == NativeResult.Unsupported
+                        ? ConversionFailureCategory.Unsupported : ConversionFailureCategory.BackendFailure;
+                    return new ImageConversionResult { Success = false,
+                        ErrorMessage = nativeAttempt.Diagnostic ?? $"Native image operation returned {nativeAttempt.ResultCode}.",
+                        ExecutionRecord = FailureRecord(request, requestedOperation, factsOrigin,
+                            category == ConversionFailureCategory.Cancelled ? ConversionFailureStage.Cancelled : ConversionFailureStage.BackendExecution, category, sw.Elapsed) };
+                }
                 registeredOutputEvidence = nativeAttempt.OutputEvidence;
                 backendCompleted = true;
                 if (registeredOutputEvidence == null)
-                    throw new InvalidDataException(
+                    return OutputRejected(
                         "Native image conversion did not return exact creating-handle output evidence: " +
-                        (nativeAttempt.OutputEvidenceFailure?.Message ?? "unknown evidence failure"));
+                        (nativeAttempt.OutputEvidenceFailure?.Message ?? "unknown evidence failure"), ConversionFailureCategory.OutputValidation);
                 if(boundOrdinaryConversion&&boundAttempt?.Proof is null)
-                    throw new InvalidDataException("Bound ordinary image conversion has no complete validated proof: "+nativeAttempt.OutputEvidenceFailure?.Message);
+                    return OutputRejected("Bound ordinary image conversion has no complete validated proof: "+nativeAttempt.OutputEvidenceFailure?.Message, ConversionFailureCategory.OutputValidation);
                 reencoded = nativeAttempt.Reencoded;
             }
 
@@ -471,34 +523,40 @@ public sealed class ImageConverter : IImageConverter
 
             if (!File.Exists(outPath))
             {
-                throw new FileNotFoundException("Converted output image was not found.", outPath);
+                return OutputRejected("Converted output image was not found.", ConversionFailureCategory.OutputMissing);
             }
 
             // Inspect output header to verify actual container
             ImageContainer actualContainer = DetectOutputContainer(outPath);
             if (actualContainer != request.TargetContainer && request.TargetContainer != ImageContainer.Unknown)
             {
-                throw new InvalidOperationException(
-                    $"Output image container mismatch: expected {request.TargetContainer}, actual {actualContainer}.");
+                return OutputRejected(
+                    $"Output image container mismatch: expected {request.TargetContainer}, actual {actualContainer}.", ConversionFailureCategory.OutputValidation);
             }
 
             if (losslessTransform)
             {
-                SourceMediaFacts inputFacts = await NativeMediaService
-                    .InspectMediaAsync(request.SourceArtifact.Path, cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
-                SourceMediaFacts outputFacts = await NativeMediaService
-                    .InspectMediaAsync(outPath, cancellationToken: cancellationToken)
-                    .ConfigureAwait(false);
+                var inputInspection = await NativeMediaService.TryInspectMediaWithPlanAsync(request.SourceArtifact.Path,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (inputInspection.Failure is { } inputFailure)
+                    return OutputRejected(inputFailure.Message, inputFailure is OperationCanceledException ? ConversionFailureCategory.Cancelled : ConversionFailureCategory.OutputValidation);
+                using var inputInspected = inputInspection.Source!;
+                var outputInspection = await NativeMediaService.TryInspectMediaWithPlanAsync(outPath,
+                    cancellationToken: cancellationToken).ConfigureAwait(false);
+                if (outputInspection.Failure is { } outputFailure)
+                    return OutputRejected(outputFailure.Message, outputFailure is OperationCanceledException ? ConversionFailureCategory.Cancelled : ConversionFailureCategory.OutputValidation);
+                using var outputInspected = outputInspection.Source!;
+                SourceMediaFacts inputFacts = inputInspected.Facts;
+                SourceMediaFacts outputFacts = outputInspected.Facts;
                 bool swapsDimensions = request.Transform is ImageTransformKind.Rotate90 or ImageTransformKind.Rotate270 or
                     ImageTransformKind.Transpose or ImageTransformKind.Transverse;
                 uint expectedWidth = swapsDimensions ? inputFacts.PrimaryImage.Height : inputFacts.PrimaryImage.Width;
                 uint expectedHeight = swapsDimensions ? inputFacts.PrimaryImage.Width : inputFacts.PrimaryImage.Height;
                 if (outputFacts.PrimaryImage.Width != expectedWidth || outputFacts.PrimaryImage.Height != expectedHeight)
                 {
-                    throw new InvalidOperationException(
+                    return OutputRejected(
                         $"Lossless JPEG transform dimensions are invalid: expected {expectedWidth}x{expectedHeight}, " +
-                        $"actual {outputFacts.PrimaryImage.Width}x{outputFacts.PrimaryImage.Height}.");
+                        $"actual {outputFacts.PrimaryImage.Width}x{outputFacts.PrimaryImage.Height}.", ConversionFailureCategory.OutputValidation);
                 }
             }
 
@@ -506,23 +564,21 @@ public sealed class ImageConverter : IImageConverter
                 ?new ImagePostValidation(ordinaryProof.MetadataCount==0?ConversionComponentOutcome.NotApplicable:ConversionComponentOutcome.Preserved,
                     ConversionComponentOutcome.Preserved,ordinaryProof.HasIcc?ConversionComponentOutcome.Preserved:ConversionComponentOutcome.NotApplicable,
                     PreservationOutcome.Preserved)
-                : reencoded
-                ? await ImagePostValidator.VerifyLossyReencodeAsync(
-                    request.SourceArtifact.Path,
-                    request.SourceArtifact.ImageContainer,
-                    outPath,
-                    actualContainer,
-                    cancellationToken).ConfigureAwait(false)
-                : losslessTransform
-                    ? await ImagePostValidator.VerifyLosslessJpegTransformAsync(
-                        request.SourceArtifact.Path, outPath, cancellationToken).ConfigureAwait(false)
-                    : await ImagePostValidator.VerifyExactPassthroughAsync(
-                        request.SourceArtifact.Path, outPath, actualContainer, cancellationToken).ConfigureAwait(false);
+                : null;
+            if (postValidation is null)
+            {
+                var validation = await ImagePostValidator.TryVerifyOrdinaryAsync(request.SourceArtifact.Path,
+                    outPath, request.SourceArtifact.ImageContainer, actualContainer, reencoded, losslessTransform,
+                    cancellationToken).ConfigureAwait(false);
+                if (validation.Failure is { } validationFailure)
+                    return OutputRejected(validationFailure.Message, validationFailure is OperationCanceledException ? ConversionFailureCategory.Cancelled : ConversionFailureCategory.OutputValidation);
+                postValidation = validation.Validation!;
+            }
             if ((!reencoded||boundOrdinaryConversion) && request.PreservationPolicy == PreservationPolicy.Strict &&
                 postValidation!.PreservationOutcome != PreservationOutcome.Preserved)
             {
-                throw new InvalidOperationException(
-                    "Strict preservation policy could not prove every applicable JPEG preservation component.");
+                return OutputRejected(
+                    "Strict preservation policy could not prove every applicable JPEG preservation component.", ConversionFailureCategory.OutputValidation);
             }
 
             bool metadataCopied = postValidation!.Metadata == ConversionComponentOutcome.Preserved;
@@ -589,11 +645,10 @@ public sealed class ImageConverter : IImageConverter
             sw.Stop();
             if (!TryDeleteOutput(outPath, registeredOutputEvidence))
             {
-                throw new IOException(
-                    "Image conversion was cancelled, but its staged output could not be removed.",
-                    ex);
+                return Rejected("Image conversion was cancelled, but its staged output could not be removed. " + ex.Message,
+                    ConversionFailureStage.Cleanup, ConversionFailureCategory.CleanupFailure);
             }
-            throw;
+            return Rejected("Image conversion cancelled.", ConversionFailureStage.Cancelled, ConversionFailureCategory.Cancelled);
         }
         catch (Exception ex)
         {
@@ -644,32 +699,40 @@ public sealed class ImageConverter : IImageConverter
         NativeMediaService.NativeRegisteredOutputEvidence? expected) =>
         NativeMediaService.TryDeleteRegisteredOutput(path, expected);
 
-    private static async Task<ImageConversionSourceFacts> VerifyHdrGainMapBindingAsync(
+    private sealed record HdrBindingAttempt(ImageConversionSourceFacts? Facts, Exception? Failure);
+
+    private static async Task<HdrBindingAttempt> TryVerifyHdrGainMapBindingAsync(
         ImageConversionRequest request,
         ImageHdrGainMapSourceBinding binding,
         CancellationToken cancellationToken)
     {
+        if (cancellationToken.IsCancellationRequested) return new(null, new OperationCanceledException(cancellationToken));
         string sourcePath = Path.GetFullPath(request.SourceArtifact.Path);
         if (!string.Equals(sourcePath, Path.GetFullPath(binding.SourcePath), StringComparison.OrdinalIgnoreCase) ||
             request.SourceArtifact.ImageContainer != binding.SourceContainer)
-            throw new InvalidDataException("Binding source path or container does not match the requested artifact.");
+            return new(null, new InvalidDataException("Binding source path or container does not match the requested artifact."));
 
-        WindowsFileIdentity currentIdentity = WindowsFileIdentity.Capture(sourcePath);
+        using var sourceLease = new NeutralArtifactReadLeaseSet();
+        if (sourceLease.TryPin(request.SourceArtifact) is { } leaseFailure) return new(null, leaseFailure);
+        using var source = SourceReadAttempt.Open(sourcePath);
+        if (!source.Succeeded) return new(null, new IOException($"Cannot retain HDR source (system error {source.Error})."));
+        if (!WindowsFileIdentity.TryCapture(source.Handle, out var capturedIdentity, out int identityError))
+            return new(null, new IOException($"Cannot verify HDR source identity (system error {identityError})."));
+        WindowsFileIdentity currentIdentity = capturedIdentity!;
         if (!binding.SourceFileIdentity.Matches(currentIdentity) ||
             (request.SourceArtifact.FileIdentity != null && !request.SourceArtifact.FileIdentity.Matches(currentIdentity)))
-            throw new InvalidDataException("Source filesystem object identity changed after Neutral binding.");
+            return new(null, new InvalidDataException("Source filesystem object identity changed after Neutral binding."));
 
-        await using (FileStream source = new(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read))
-        {
-            string actualSha256 = Convert.ToHexString(await SHA256.HashDataAsync(source, cancellationToken).ConfigureAwait(false));
-            if (!string.Equals(actualSha256, binding.SourceSha256, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidDataException("Source artifact content hash changed after Neutral binding.");
-        }
-
-        SourceMediaFacts observed = await NativeMediaService
-            .InspectMediaAsync(sourcePath, cancellationToken: cancellationToken).ConfigureAwait(false);
-        GainMapFacts gainMap = observed.GainMap
-            ?? throw new InvalidDataException("Native inspection no longer reports the bound GainMap.");
+        var sourceHash = await MediaFileHashAttempt.ComputeAsync(sourcePath, cancellationToken).ConfigureAwait(false);
+        if (sourceHash.Failure is { } hashFailure) return new(null, hashFailure);
+        if (!string.Equals(sourceHash.Sha256, binding.SourceSha256, StringComparison.OrdinalIgnoreCase))
+            return new(null, new InvalidDataException("Source artifact content hash changed after Neutral binding."));
+        var inspection = await NativeMediaService.TryInspectMediaWithPlanAsync(sourcePath,
+            cancellationToken: cancellationToken).ConfigureAwait(false);
+        if (inspection.Failure is { } inspectionFailure) return new(null, inspectionFailure);
+        using var inspected = inspection.Source!;
+        SourceMediaFacts observed = inspected.Facts;
+        if (observed.GainMap is not { } gainMap) return new(null, new InvalidDataException("Native inspection no longer reports the bound GainMap."));
         if (!gainMap.IsPresent || gainMap.AuxiliaryIndex != binding.AuxiliaryIndex ||
             gainMap.ItemId != binding.ItemId || gainMap.Container != binding.SourceContainer ||
             gainMap.ByteOffset != binding.ByteOffset || gainMap.ByteLength != binding.ByteLength ||
@@ -677,7 +740,7 @@ public sealed class ImageConverter : IImageConverter
             gainMap.OwnerArtifactRole != binding.OwnerArtifactRole ||
             !string.Equals(gainMap.Relationship, binding.Relationship, StringComparison.Ordinal) ||
             gainMap.AuxiliaryIndex >= observed.AuxiliaryItems.Count)
-            throw new InvalidDataException("Native source facts disagree with the bound GainMap item, range, owner, or relationship.");
+            return new(null, new InvalidDataException("Native source facts disagree with the bound GainMap item, range, owner, or relationship."));
 
         AuxiliaryMediaFacts auxiliary = observed.AuxiliaryItems[checked((int)gainMap.AuxiliaryIndex)];
         if (!auxiliary.IsPresent || auxiliary.ItemId != binding.ItemId ||
@@ -688,13 +751,13 @@ public sealed class ImageConverter : IImageConverter
             !string.Equals(auxiliary.OwnerIdentity, binding.InspectedOwnerIdentity, StringComparison.Ordinal) ||
             !string.Equals(auxiliary.Relationship, binding.Relationship, StringComparison.Ordinal) ||
             !string.Equals(auxiliary.Sha256, binding.GainMapSha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Native auxiliary graph no longer matches the bound GainMap bytes and identity.");
+            return new(null, new InvalidDataException("Native auxiliary graph no longer matches the bound GainMap bytes and identity."));
 
         if (!string.IsNullOrWhiteSpace(observed.PrimarySha256) &&
             !string.Equals(observed.PrimarySha256, binding.PrimaryImageSha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Native primary-image SHA-256 differs from the bound inspected image item.");
+            return new(null, new InvalidDataException("Native primary-image SHA-256 differs from the bound inspected image item."));
 
-        return ImageConversionEligibility.ToConversionFacts(observed);
+        return new(ImageConversionEligibility.ToConversionFacts(observed), null);
     }
 
     private static async Task<ImageConversionResult> ConvertBoundHdrGainMapAsync(
@@ -729,27 +792,48 @@ public sealed class ImageConverter : IImageConverter
         bool stageCreated = false;
         NeutralArtifactReadLeaseSet? hdrOutputLease=null;
         NativeMediaService.NativeRegisteredOutputEvidence? committedHdrOutput=null;
+        ImageConversionResult Refused(string message, ConversionFailureStage stage, ConversionFailureCategory category)
+        {
+            hdrOutputLease?.Dispose(); hdrOutputLease = null;
+            bool cleaned = transaction is null || AbortTransaction(transaction);
+            transaction = null;
+            if (committedHdrOutput is not null) cleaned &= TryDeleteOutput(outputPath, committedHdrOutput);
+            return HdrGainMapFailure(request, factsOrigin, message,
+                cleaned ? stage : ConversionFailureStage.Cleanup, cleaned ? category : ConversionFailureCategory.CleanupFailure,
+                sw.Elapsed, allowedFallback);
+        }
         try
         {
-            transaction = heicToJpeg
-                ? await NativeMediaService.StageHeicGainMapToJpegUltraHdrAsync(
+            var staging = await NativeMediaService.TryStageBoundHdrGainMapAsync(
                     request.SourceArtifact.Path, outputPath, binding, request.SourceArtifact.ByteLength,
-                    request.Quality, request.HdrOutputPolicy, cancellationToken).ConfigureAwait(false)
-                : await NativeMediaService.StageJpegGainMapToHeicAsync(
-                    request.SourceArtifact.Path, outputPath, binding, request.SourceArtifact.ByteLength,
-                    request.Quality, request.HdrOutputPolicy, cancellationToken).ConfigureAwait(false);
+                    request.Quality, request.HdrOutputPolicy, request.TargetHdrGainMapSemantic, cancellationToken).ConfigureAwait(false);
+            if (staging.Failure is { } stagingFailure)
+                return HdrGainMapFailure(request, factsOrigin, stagingFailure.Message,
+                    stagingFailure is OperationCanceledException ? ConversionFailureStage.Cancelled : ConversionFailureStage.BackendExecution,
+                    stagingFailure is OperationCanceledException ? ConversionFailureCategory.Cancelled : stagingFailure is NotSupportedException ? ConversionFailureCategory.Unsupported : ConversionFailureCategory.BackendFailure,
+                    sw.Elapsed, allowedFallback);
+            transaction = staging.Transaction!;
             stageCreated = true;
 
-            ImageHdrGainMapPostValidation post = heicToJpeg
-                ? await ImagePostValidator.VerifyHeicToJpegUltraHdrAsync(
-                    request.SourceArtifact.Path, transaction, transaction.Result, cancellationToken,
-                    request.PreservationPolicy == PreservationPolicy.BestEffort).ConfigureAwait(false)
-                : await ImagePostValidator.VerifyJpegToHeicGainMapAsync(
-                    request.SourceArtifact.Path, transaction, transaction.Result, cancellationToken,
-                    request.PreservationPolicy == PreservationPolicy.BestEffort).ConfigureAwait(false);
+            var postAttempt = await ImagePostValidator.TryVerifyHdrGainMapAsync(request.SourceArtifact.Path,
+                transaction, transaction.Result, binding.SourceContainer, request.TargetContainer,
+                request.TargetHdrGainMapSemantic, heicToJpeg ? null : "urn:com:photo:aux:hdrgainmap", cancellationToken,
+                request.PreservationPolicy == PreservationPolicy.BestEffort).ConfigureAwait(false);
+            if (postAttempt.Failure is { } postFailure)
+                return Refused(postFailure.Message, postFailure is OperationCanceledException ? ConversionFailureStage.Cancelled : ConversionFailureStage.OutputValidation,
+                    postFailure is OperationCanceledException ? ConversionFailureCategory.Cancelled : ConversionFailureCategory.OutputValidation);
+            ImageHdrGainMapPostValidation post = postAttempt.Validation!;
             // Rebind the source after post-validation and before commit so a
             // changed source cannot be reported as the input of this result.
-            await VerifyHdrGainMapBindingAsync(request, binding, cancellationToken).ConfigureAwait(false);
+            var bindingAttempt = await TryVerifyHdrGainMapBindingAsync(request, binding, cancellationToken).ConfigureAwait(false);
+            if (bindingAttempt.Failure is { } bindingFailure)
+            {
+                bool cleaned = AbortTransaction(transaction); transaction = null;
+                return HdrGainMapFailure(request, factsOrigin, bindingFailure.Message,
+                    !cleaned ? ConversionFailureStage.Cleanup : bindingFailure is OperationCanceledException ? ConversionFailureStage.Cancelled : ConversionFailureStage.TrustedFactsMismatch,
+                    !cleaned ? ConversionFailureCategory.CleanupFailure : bindingFailure is OperationCanceledException ? ConversionFailureCategory.Cancelled : ConversionFailureCategory.TrustedFactsMismatch,
+                    sw.Elapsed, allowedFallback);
+            }
 
             if (request.PreservationPolicy == PreservationPolicy.Strict &&
                 !IsFullyPreserved(post.Preservation.Metadata) ||
@@ -758,17 +842,20 @@ public sealed class ImageConverter : IImageConverter
                 request.PreservationPolicy == PreservationPolicy.Strict &&
                 !IsFullyPreserved(post.Preservation.ColorIcc))
             {
-                throw new InvalidDataException(
+                return Refused(
                     "Strict HDR/GainMap conversion could not prove every applicable metadata, orientation, and ICC component before commit. " +
                     $"Metadata={post.Preservation.Metadata}; Orientation={post.Preservation.Orientation}; ICC={post.Preservation.ColorIcc}; " +
-                    $"ChangedFields={post.Preservation.DifferenceDetails}.");
+                    $"ChangedFields={post.Preservation.DifferenceDetails}.", ConversionFailureStage.OutputValidation, ConversionFailureCategory.OutputValidation);
             }
 
             FileInfo stagedFile = new(transaction.StagingPath);
             if (!stagedFile.Exists || stagedFile.Length <= 0)
-                throw new FileNotFoundException("Native HDR/GainMap stage disappeared before commit.", transaction.StagingPath);
-            cancellationToken.ThrowIfCancellationRequested();
-            transaction.Commit();
+                return Refused("Native HDR/GainMap stage disappeared before commit.", ConversionFailureStage.OutputValidation, ConversionFailureCategory.OutputMissing);
+            if (cancellationToken.IsCancellationRequested)
+                return Refused("HDR/GainMap conversion cancelled.", ConversionFailureStage.Cancelled, ConversionFailureCategory.Cancelled);
+            if (transaction.TryCommit() is { } commitFailure)
+                return Refused(commitFailure.Message, commitFailure is OperationCanceledException ? ConversionFailureStage.Cancelled : ConversionFailureStage.OutputValidation,
+                    commitFailure is OperationCanceledException ? ConversionFailureCategory.Cancelled : ConversionFailureCategory.OutputValidation);
             if(post.CreatingOutputIdentity is { } created)
                 committedHdrOutput=new(created,stagedFile.Length,post.OutputSha256);
             NativeMediaService.NativeRegisteredOutputEvidence outputEvidence =
@@ -777,11 +864,12 @@ public sealed class ImageConverter : IImageConverter
             {
                 if(post.CreatingOutputIdentity is not { } identity||!identity.Matches(outputEvidence.FileIdentity)||
                     outputEvidence.Sha256!=complete.OutputSha256)
-                    throw new InvalidDataException("Committed HDR image is not the proof producer's creating object and bytes.");
+                    return Refused("Committed HDR image is not the proof producer's creating object and bytes.", ConversionFailureStage.OutputValidation, ConversionFailureCategory.OutputValidation);
                 hdrOutputLease=new NeutralArtifactReadLeaseSet();
-                hdrOutputLease.Pin(new MediaArtifact{Path=outputPath,Kind=MediaArtifactKind.PrimaryImage,
+                if (hdrOutputLease.TryPin(new MediaArtifact{Path=outputPath,Kind=MediaArtifactKind.PrimaryImage,
                     ImageContainer=request.TargetContainer,ByteLength=outputEvidence.ByteLength,
-                    Sha256=outputEvidence.Sha256,FileIdentity=outputEvidence.FileIdentity});
+                    Sha256=outputEvidence.Sha256,FileIdentity=outputEvidence.FileIdentity}) is { } leaseFailure)
+                    return Refused(leaseFailure.Message, ConversionFailureStage.OutputValidation, ConversionFailureCategory.OutputValidation);
             }
             transaction.Dispose();
             transaction = null;
@@ -842,13 +930,7 @@ public sealed class ImageConverter : IImageConverter
         catch (OperationCanceledException)
         {
             sw.Stop();
-            hdrOutputLease?.Dispose();hdrOutputLease=null;
-            if(committedHdrOutput is not null&&!TryDeleteOutput(outputPath,committedHdrOutput))
-                throw new IOException("HDR conversion cancellation could not confirm cleanup of its exact published output.");
-            if (transaction is not null && !AbortTransaction(transaction))
-                throw new IOException("HDR/GainMap conversion was cancelled, but Native could not confirm stage cleanup.");
-            transaction = null;
-            throw;
+            return Refused("HDR/GainMap conversion cancelled.", ConversionFailureStage.Cancelled, ConversionFailureCategory.Cancelled);
         }
         catch (Exception ex)
         {
@@ -877,7 +959,7 @@ public sealed class ImageConverter : IImageConverter
     private static bool AbortTransaction(NativeHdrGainMapConversionTransaction transaction)
     {
         bool succeeded = true;
-        try { transaction.Abort(); }
+        try { succeeded = transaction.TryAbort() is null; }
         catch { succeeded = false; }
         try { transaction.Dispose(); }
         catch { succeeded = false; }

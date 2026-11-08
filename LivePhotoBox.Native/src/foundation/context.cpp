@@ -316,11 +316,34 @@ void set_error(lpb_context* context, const char* message) noexcept
     {
         std::scoped_lock lock(context->error_mutex);
         context->last_error = message == nullptr ? "Unknown native error." : message;
+        context->failure_diagnostic = {sizeof(lpb_failure_diagnostic_v1), 1};
     }
     catch (...)
     {
         // Error reporting must never throw through the C ABI.
     }
+}
+
+void set_failure(lpb_context* context, lpb_failure_reason_v1 reason, const char* message,
+    lpb_failure_reason_v1 original_reason, uint32_t system_error) noexcept
+{
+    if (!context) return;
+    try {
+        std::scoped_lock lock(context->error_mutex);
+        context->last_error = message ? message : "Native operation failed.";
+        context->failure_diagnostic = {sizeof(lpb_failure_diagnostic_v1), 1, reason, original_reason, system_error, 0};
+    } catch (...) { }
+}
+
+int32_t LPB_CALL lpb_get_failure_diagnostic_v1(lpb_context* context, lpb_failure_diagnostic_v1* output)
+{
+    if (!context || !output || output->struct_size != sizeof(lpb_failure_diagnostic_v1) || output->version != 1)
+        return LPB_RESULT_INVALID_ARGUMENT;
+    try {
+        std::scoped_lock lock(context->error_mutex);
+        *output = context->failure_diagnostic;
+        return LPB_RESULT_OK;
+    } catch (...) { return LPB_RESULT_INTERNAL_ERROR; }
 }
 
 void set_inspection_status(lpb_context* context, lpb_inspection_failure_category category,

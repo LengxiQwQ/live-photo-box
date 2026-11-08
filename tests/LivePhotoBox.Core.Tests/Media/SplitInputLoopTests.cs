@@ -43,15 +43,26 @@ public sealed class SplitInputLoopTests
     }
 
     [Fact]
-    public async Task MismatchedCompanionFailsBeforePublishing()
+    public async Task MismatchedCompanionIsNotPairedAndIndependentMediaIsIsolated()
     {
         using var ws = new Support.TestFixtureWorkspace();
         string output = Path.Combine(ws.RootDirectory, "output");
-        var result = await LivePhotoSplitService.SplitWithOutcomeAsync(Sample("苹果-双文件.JPG"), output,
-            SplitMediaFormat.KeepSource, CancellationToken.None, secondaryPath: Sample("vivo双文件.mp4"));
+        string image = Sample("苹果-双文件.JPG"), video = Sample("vivo双文件.mp4");
+        string imageHash = Hash(image), videoHash = Hash(video);
+        var result = await LivePhotoSplitService.SplitWithOutcomeAsync(image, output,
+            SplitMediaFormat.KeepSource, CancellationToken.None, secondaryPath: video);
         Assert.False(result.IsSuccess);
-        Assert.Empty(result.CommittedOutputs);
-        Assert.False(Directory.Exists(output));
+        Assert.Equal(ProductOperationStatus.Warning, result.Status);
+        Assert.Equal(ProductCompletionKind.RecoveredMedia, result.CompletionKind);
+        Assert.Null(result.SourceActionGuard);
+        Assert.Equal(2, result.CommittedOutputs.Count);
+        var original = Assert.Single(result.CommittedOutputs, x => x.Role == "OriginalUnconverted");
+        var recovered = Assert.Single(result.CommittedOutputs, x => x.Role == "RecoveredMotionVideo");
+        Assert.Equal(imageHash, Hash(original.Path));
+        Assert.Equal(videoHash, Hash(recovered.Path));
+        Assert.All(result.CommittedOutputs, x => Assert.True(Path.GetFullPath(x.Path).StartsWith(
+            Path.GetFullPath(result.IsolationDirectory!) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)));
+        Assert.Equal(imageHash, Hash(image)); Assert.Equal(videoHash, Hash(video));
     }
 
     [Fact]
@@ -94,10 +105,10 @@ public sealed class SplitInputLoopTests
         using var ws = new Support.TestFixtureWorkspace();
         string image = Path.Combine(ws.RootDirectory, "photo.jpg"), video = Path.Combine(ws.RootDirectory, "renamed.MOV");
         File.Copy(Sample("苹果-双文件.JPG"), image); File.Copy(Sample("苹果-双文件.MOV"), video);
-        var first = await LivePhotoDiscoveryService.ScanAsync(ws.RootDirectory, DiscoveryScanMode.SplitOnly);
+        var first = await LivePhotoDiscoveryService.ScanAsync(ws.RootDirectory, DiscoveryScanMode.SplitOnly | DiscoveryScanMode.CidMatch);
         Assert.Single(first.DualFilePairs);
         File.Copy(image, Path.Combine(ws.RootDirectory, "duplicate.jpg"));
-        var conflict = await LivePhotoDiscoveryService.ScanAsync(ws.RootDirectory, DiscoveryScanMode.SplitOnly);
+        var conflict = await LivePhotoDiscoveryService.ScanAsync(ws.RootDirectory, DiscoveryScanMode.SplitOnly | DiscoveryScanMode.CidMatch);
         Assert.Empty(conflict.DualFilePairs);
         Assert.Contains(conflict.Diagnostics, d => d.DiagnosticCode == "ConflictDuplicateIdentity");
     }

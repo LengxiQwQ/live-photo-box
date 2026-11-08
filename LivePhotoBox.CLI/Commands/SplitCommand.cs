@@ -110,6 +110,8 @@ namespace LivePhotoBox.Cli.Commands
             var preserveSubdirsOpt = new Option<bool>("--preserve-subdirs", "-s") { Description = "Keep source subdirectory structure in the output folder." };
             var afterOpt = new Option<string>("--after") { DefaultValueFactory = _ => "none", Description = "After successful split: none (keep source)|move:PATH (move to folder)|recycle (Windows recycle bin)." };
 
+            var keepEdgesOpt = new Option<bool>("--keep-video-stabilization-edges") { Description = "Keep the complete recorded video frame when preparing compatible media; otherwise use the declared source display aperture." };
+
             var allVariantsOpt = new Option<bool>("--all-variants") { Description = "Export ALL split variants from a single live photo (single-file mode only). Exports the 4 protocol-free media variants (none_keep, none_jpg+mov, none_heic+mov, none_jpg+mp4).\n" +
                 "Output goes to {output}/split_{name}_All_Variants/. Files are named {protocol}_{format}.ext." };
 
@@ -131,7 +133,7 @@ namespace LivePhotoBox.Cli.Commands
                 dirOpt, companionOpt, pairingOpt, protocolOpt, formatOpt, keyTimestampOpt, outputOpt, namingOpt,
                 parallelOpt, yesOpt, jsonOpt, dryRunOpt, verboseOpt,
                 overwriteOpt, recursiveOpt, preserveSubdirsOpt, afterOpt,
-                allVariantsOpt
+                allVariantsOpt, keepEdgesOpt
             };
 
             cmd.SetAction(async (parseResult, cancellationToken) =>
@@ -241,7 +243,7 @@ namespace LivePhotoBox.Cli.Commands
                     singlePath, dir, pairingName, protocolName, formatName, output, naming, namingExplicit,
                     parallel, yes, json, dryRun, verbose,
                     overwrite, recursive, preserveSubdirs, after, allVariants, keyTimestampUs,
-                    cancellationToken, companionPath);
+                    cancellationToken, companionPath, parseResult.GetValue(keepEdgesOpt));
             });
 
             return cmd;
@@ -252,14 +254,14 @@ namespace LivePhotoBox.Cli.Commands
             string pairingName, string protocolName, string? formatName, DirectoryInfo? output,
             string naming, bool namingExplicit, int parallel, bool yes, bool json, bool dryRun, bool verbose,
             bool overwrite, bool recursive, bool preserveSubdirs, string after, bool allVariants, long? keyTimestampUs,
-            CancellationToken ct, string? companionPath)
+            CancellationToken ct, string? companionPath, bool keepVideoStabilizationEdges)
         {
             try
             {
                 return await ProcessingPipelineRouter.RunAsync("split", () => RunSplitAsync(
                     singlePath, dir, pairingName, protocolName, formatName, output, naming, namingExplicit,
                     parallel, yes, json, dryRun, verbose, overwrite, recursive, preserveSubdirs,
-                    after, allVariants, keyTimestampUs, ct, companionPath));
+                    after, allVariants, keyTimestampUs, ct, companionPath, keepVideoStabilizationEdges));
             }
             catch (OperationCanceledException)
             {
@@ -288,7 +290,7 @@ namespace LivePhotoBox.Cli.Commands
             string pairingName, string protocolName, string? formatName, DirectoryInfo? output,
             string naming, bool namingExplicit, int parallel, bool yes, bool json, bool dryRun, bool verbose,
             bool overwrite, bool recursive, bool preserveSubdirs, string after, bool allVariants, long? keyTimestampUs,
-            CancellationToken ct, string? companionPath)
+            CancellationToken ct, string? companionPath, bool keepVideoStabilizationEdges)
         {
             bool isSingle = singlePath != null;
             bool isBatch = dir != null;
@@ -356,8 +358,8 @@ namespace LivePhotoBox.Cli.Commands
 
                 // Default output to the source file's directory (not cwd)
                 string outputDir = output?.FullName ?? Path.GetDirectoryName(Path.GetFullPath(singlePath))!;
-                Directory.CreateDirectory(outputDir);
-                return await RunSplitAllVariantsAsync(singlePath, outputDir, parallel, dryRun, verbose, json, isRebuilt, ct, companionPath);
+                if (!CliOutputDirectory.TryEnsure(outputDir, json, "split")) return 1;
+                return await RunSplitAllVariantsAsync(singlePath, outputDir, parallel, dryRun, verbose, json, isRebuilt, ct, companionPath, keepVideoStabilizationEdges);
             }
 
             // Resolve split protocol
@@ -549,17 +551,17 @@ namespace LivePhotoBox.Cli.Commands
                         }
                     }
 
-                    Directory.CreateDirectory(outputDir);
+                    if (!CliOutputDirectory.TryEnsure(outputDir, json, "split")) return 1;
                     return await SplitSingleAsync(
                         singlePath!, outputDir, protocolIndex, formatIndex, customPattern,
-                        overwrite, verbose, json, afterMoveDir, afterRecycle, keyTimestampUs, ct, companionPath);
+                        overwrite, verbose, json, afterMoveDir, afterRecycle, keyTimestampUs, ct, companionPath, keepVideoStabilizationEdges);
                 }
                 else
                 {
                     return await SplitBatchAsync(
                         dir!.FullName, outputDir, pairingProtocol, protocolIndex, formatIndex, customPattern,
                         parallel, yes, json, dryRun, verbose,
-                        overwrite, preserveSubdirs, afterMoveDir, afterRecycle, ct);
+                        overwrite, preserveSubdirs, afterMoveDir, afterRecycle, ct, keepVideoStabilizationEdges);
                 }
             }
             finally
@@ -617,7 +619,7 @@ namespace LivePhotoBox.Cli.Commands
         private static async Task<int> SplitSingleAsync(
             string sourcePath, string outputDir, int protocolIndex, int formatIndex,
             string? customPattern, bool overwrite, bool verbose, bool json,
-            string? afterMoveDir, bool afterRecycle, long? keyTimestampUs, CancellationToken ct, string? companionPath)
+            string? afterMoveDir, bool afterRecycle, long? keyTimestampUs, CancellationToken ct, string? companionPath, bool keepVideoStabilizationEdges)
         {
             string baseName = Path.GetFileNameWithoutExtension(sourcePath);
             try
@@ -630,7 +632,7 @@ namespace LivePhotoBox.Cli.Commands
                 if (!json) Console.WriteLine($"Preparation capability: {capability.Diagnostic}");
                 var outcome = await LivePhotoSplitService.SplitWithOutcomeAsync(
                     sourcePath, outputDir, ProductSelectionAdapter.Split(protocolIndex, formatIndex), ct,
-                    inputDirectory: null, outputBaseName: outputBaseName, overwriteExisting: overwrite, secondaryPath: companionPath, keyTimestampUs: keyTimestampUs);
+                    inputDirectory: null, outputBaseName: outputBaseName, overwriteExisting: overwrite, secondaryPath: companionPath, keyTimestampUs: keyTimestampUs, keepVideoStabilizationEdges: keepVideoStabilizationEdges);
                 var afterAction = outcome.IsSuccess && (afterMoveDir is not null || afterRecycle)
                     ? MergeCommand.ApplySourceAction(sourcePath, companionPath ?? "", outcome, afterMoveDir, ct) : null;
                 if (json) PrintJson(ProjectSingleOutcome(sourcePath, outcome, capability, afterAction));
@@ -668,11 +670,11 @@ namespace LivePhotoBox.Cli.Commands
         // ══════════════════════════════════════════════════════════════
 
         private static async Task<int> RunSplitAllVariantsAsync(
-            string sourcePath, string outputDir, int parallel, bool dryRun, bool verbose, bool json, bool rebuiltOnly, CancellationToken ct, string? companionPath)
+            string sourcePath, string outputDir, int parallel, bool dryRun, bool verbose, bool json, bool rebuiltOnly, CancellationToken ct, string? companionPath, bool keepVideoStabilizationEdges)
         {
             string originalBaseName = Path.GetFileNameWithoutExtension(sourcePath);
             string variantsDir = Path.Combine(outputDir, $"split_{originalBaseName}_All_Variants");
-            Directory.CreateDirectory(variantsDir);
+            if (!CliOutputDirectory.TryEnsure(variantsDir, json, "split")) return 1;
             var variants = new (int Proto, int Fmt, string BaseName, string Label)[]
             {
                 (0, 0, "none_keep", "No protocol (keep original)"),
@@ -690,21 +692,23 @@ namespace LivePhotoBox.Cli.Commands
             }
             int ok = 0, fail = 0, completed = 0;
             using var semaphore = new SemaphoreSlim(Math.Max(1, parallel));
+            int cancelledOutcome = 0;
             var tasks = variants.Select(async (v, index) =>
             {
-                await semaphore.WaitAsync(ct).ConfigureAwait(false);
+                await semaphore.WaitAsync().ConfigureAwait(false);
                 try
                 {
+                    if (ct.IsCancellationRequested) { Interlocked.Exchange(ref cancelledOutcome, 1); entries[index].Status = "unprocessed"; return; }
                     entries[index].Capability = ProductCapabilityQuery.Query(ProductSelectionAdapter.Split(v.Proto, v.Fmt));
                     if (!json) Console.WriteLine($"Preparation capability: {entries[index].Capability!.Diagnostic}");
                     var outcome = await LivePhotoSplitService.SplitWithOutcomeAsync(
                         sourcePath, variantsDir, ProductSelectionAdapter.Split(v.Proto, v.Fmt), ct,
-                        inputDirectory: null, outputBaseName: v.BaseName, overwriteExisting: true, secondaryPath: companionPath);
+                        inputDirectory: null, outputBaseName: v.BaseName, overwriteExisting: true, secondaryPath: companionPath, keepVideoStabilizationEdges: keepVideoStabilizationEdges);
                     var entry = entries[index];
                     entry.Outcome = outcome; entry.Status = OutcomeStatus(outcome);
                     entry.ImageOutput = CommittedPath(outcome, "PrimaryImage"); entry.VideoOutput = CommittedPath(outcome, "MotionVideo");
                     entry.Reason = outcome.IsSuccess ? "" : outcome.Details; entry.HistoryWarning = outcome.HistoryWarning;
-                    if (outcome.Status == ProductOperationStatus.Cancelled) throw new OperationCanceledException(ct);
+                    if (outcome.Status == ProductOperationStatus.Cancelled) { Interlocked.Exchange(ref cancelledOutcome, 1); return; }
                     if (outcome.IsSuccess) Interlocked.Increment(ref ok); else if (outcome.Status != ProductOperationStatus.Warning) Interlocked.Increment(ref fail);
                     int count = Interlocked.Increment(ref completed);
                     if (!json) { Console.WriteLine($"[{count}/{variants.Length}] {entry.Status}  {v.Label}  {entry.Reason}"); PrintOutcome(outcome); }
@@ -720,6 +724,7 @@ namespace LivePhotoBox.Cli.Commands
             });
             bool cancelled = false;
             try { await Task.WhenAll(tasks); } catch (OperationCanceledException) { cancelled = true; }
+            cancelled |= cancelledOutcome != 0;
             if (json) PrintJson(new { command = "split", mode = "all-variants", output = variantsDir,
                 status = cancelled ? "cancelled" : "completed", scanned = variants.Length, split = ok, failed = fail, warnings = entries.Count(e => e.Status == "warning"), files = entries });
             else Console.WriteLine($"{(cancelled ? "Cancelled" : "Done")}: {ok} SUCCESS, {fail} FAIL, {variants.Length} total");
@@ -731,7 +736,7 @@ namespace LivePhotoBox.Cli.Commands
             LivePhotoProtocolType? pairingProtocol, int protocolIndex, int formatIndex, string? customPattern,
             int parallel, bool yes, bool json, bool dryRun, bool verbose,
             bool overwrite, bool preserveSubdirs,
-            string? afterMoveDir, bool afterRecycle, CancellationToken ct)
+            string? afterMoveDir, bool afterRecycle, CancellationToken ct, bool keepVideoStabilizationEdges)
         {
             // 1. Scan — single-file live photos only (mirrors the GUI SplitViewModel scan).
             if (!json)
@@ -922,7 +927,7 @@ namespace LivePhotoBox.Cli.Commands
             }
 
             // 5. Run batch（实际处理前才创建输出目录，dry-run / 取消不产生副作用）
-            Directory.CreateDirectory(outputDir);
+            if (!CliOutputDirectory.TryEnsure(outputDir, json, "split")) return 1;
             if (!json)
             {
                 Console.Write("\nProcessing ");
@@ -938,13 +943,18 @@ namespace LivePhotoBox.Cli.Commands
             if (!json) Console.WriteLine($"Preparation capability: {capability.Diagnostic}");
             foreach (var entry in jsonFiles) entry.Capability = capability;
             using var originals = new SourceInputProtection(tasks.SelectMany(t => new[] { t.SourcePath, t.SecondaryPath }));
+            if (!originals.IsComplete)
+            {
+                CliConsole.WriteErrorLine(originals.Diagnostic ?? "Source protection failed; no outputs created.");
+                return 1;
+            }
             using var semaphore = new SemaphoreSlim(Math.Max(1, parallel));
             var running = tasks.Select(async task =>
             {
-                await semaphore.WaitAsync(ct).ConfigureAwait(false);
+                await semaphore.WaitAsync().ConfigureAwait(false);
                 try
                 {
-                    ct.ThrowIfCancellationRequested();
+                    if (ct.IsCancellationRequested) return;
                     if (verbose && !json)
                         Console.WriteLine($"[{task.Index}/{tasks.Count}] {Path.GetFileName(task.SourcePath)} ...");
 
@@ -957,7 +967,7 @@ namespace LivePhotoBox.Cli.Commands
                             task.SourcePath, outputDir, ProductSelectionAdapter.Split(protocolIndex, formatIndex), ct,
                             inputDirectory: preserveSubdirs ? inputDir : null,
                             outputBaseName: outputBaseName,
-                            overwriteExisting: overwrite, secondaryPath: task.SecondaryPath);
+                            overwriteExisting: overwrite, secondaryPath: task.SecondaryPath, keepVideoStabilizationEdges: keepVideoStabilizationEdges);
 
                         task.Outcome = outcome;
                         if (task.Json != null) { task.Json.Outcome = outcome; task.Json.Status = OutcomeStatus(outcome);
@@ -967,7 +977,7 @@ namespace LivePhotoBox.Cli.Commands
                         if (outcome.Status == ProductOperationStatus.Cancelled)
                         {
                             task.Status = ProcessStatus.Cancelled;
-                            throw new OperationCanceledException(ct);
+                            return;
                         }
                         if (outcome.Status == ProductOperationStatus.Warning)
                         {
@@ -1048,6 +1058,15 @@ namespace LivePhotoBox.Cli.Commands
                 return 130;
             }
 
+            if (ct.IsCancellationRequested || tasks.Any(task => task.Status == ProcessStatus.Cancelled))
+            {
+                foreach (var task in tasks.Where(task => task.Status == ProcessStatus.Pending))
+                    if (task.Json != null) task.Json.Status = "unprocessed";
+                if (json) PrintBatchJson(inputDir, outputDir, tasks.Count, ok, fail, tasks.Count(task => task.Status == ProcessStatus.Pending), jsonFiles,
+                    scanDiagnostics, scanSummary, "cancelled");
+                else CliConsole.WriteErrorLine($"Cancelled: {ok} succeeded, {fail} failed.");
+                return 130;
+            }
             originals.Dispose();
 
             int afterFailed = 0;

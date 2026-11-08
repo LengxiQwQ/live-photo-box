@@ -750,7 +750,7 @@ bool inspect_timeline_moov(std::span<const uint8_t> data,
                     int64_t previous_visible_time = -1;
                     for (size_t index = 0; index < entries.size(); ++index) {
                         const auto& entry = entries[index];
-                        const uint64_t duration = presentation_durations[index];
+                        uint64_t duration = presentation_durations[index];
                         if (duration == 0 || duration > static_cast<uint64_t>(std::numeric_limits<int64_t>::max()) ||
                             entry.presentation_time > std::numeric_limits<int64_t>::max() - static_cast<int64_t>(duration)) return false;
                         const int64_t presentation_end = entry.presentation_time + static_cast<int64_t>(duration);
@@ -769,8 +769,18 @@ bool inspect_timeline_moov(std::span<const uint8_t> data,
                                     uint64_t end_delta = 0;
                                     uint64_t end_numerator = 0;
                                     if (!checked_add_u64(elapsed_media_ticks, duration, end_delta) ||
-                                        !checked_multiply_u64(end_delta, parsed.movie_timescale, end_numerator) ||
-                                        end_numerator > edit_end_numerator) return unsupported();
+                                        !checked_multiply_u64(end_delta, parsed.movie_timescale, end_numerator)) return false;
+                                    if (end_numerator > edit_end_numerator) {
+                                        // An edit may end inside the final coded frame.
+                                        // Keep that visible picture and model its clipped
+                                        // display interval rather than rejecting the movie.
+                                        // Fractional media ticks still require a rational
+                                        // interval representation; never round one silently.
+                                        const uint64_t remaining = edit_end_numerator - start_numerator;
+                                        if (remaining % parsed.movie_timescale != 0) return unsupported();
+                                        duration = remaining / parsed.movie_timescale;
+                                        if (duration == 0) return false;
+                                    }
                                 }
                             }
                         } else {

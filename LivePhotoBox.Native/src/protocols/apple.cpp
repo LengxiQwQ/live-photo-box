@@ -1119,6 +1119,8 @@ static lpb_result inject_makernote_jpeg_impl(
             if (!cleaned.empty()) {
                 work_tiff = cleaned.data();
                 work_tiff_size = cleaned.size();
+                ifd0=big_endian?read_be32u(work_tiff+4):
+                    (uint32_t(work_tiff[4])|(uint32_t(work_tiff[5])<<8)|(uint32_t(work_tiff[6])<<16)|(uint32_t(work_tiff[7])<<24));
             }
             uint32_t exif_ptr = lpb_tiff_find_exif_ptr(work_tiff, work_tiff_size, ifd0, big_endian);
             std::vector<uint8_t> grown = lpb_tiff_insert_makernote(work_tiff, work_tiff_size, ifd0, exif_ptr, makernote, makernote_size, big_endian);
@@ -1257,6 +1259,8 @@ static lpb_result inject_makernote_heic_impl(
     if (!cleaned.empty()) {
         work_tiff = cleaned.data();
         work_tiff_size = cleaned.size();
+        ifd0=big_endian?read_be32u(work_tiff+4):
+            (uint32_t(work_tiff[4])|(uint32_t(work_tiff[5])<<8)|(uint32_t(work_tiff[6])<<16)|(uint32_t(work_tiff[7])<<24));
     }
     
     uint32_t exif_ptr = lpb_tiff_find_exif_ptr(work_tiff, work_tiff_size, ifd0, big_endian);

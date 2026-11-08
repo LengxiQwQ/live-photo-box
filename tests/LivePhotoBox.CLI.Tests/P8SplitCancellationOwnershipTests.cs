@@ -212,7 +212,7 @@ public sealed class P8SplitCancellationOwnershipTests
         string after = "none", bool preserveSubdirs = false)
     {
         object?[] args = [null, new DirectoryInfo(inputRoot), "all", "none", "keep", new DirectoryInfo(output),
-            "keep", false, 1, true, true, false, false, false, false, preserveSubdirs, after, false, null, token, null];
+            "keep", false, 1, true, true, false, false, false, false, preserveSubdirs, after, false, null, token, null, false];
         return CaptureInvocation(typeof(SplitCommand), args);
     }
 

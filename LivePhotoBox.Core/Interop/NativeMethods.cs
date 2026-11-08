@@ -1,4 +1,4 @@
-namespace LivePhotoBox.Interop
+﻿namespace LivePhotoBox.Interop
 {
     using System;
     using System.Runtime.CompilerServices;
@@ -20,6 +20,12 @@ namespace LivePhotoBox.Interop
 
     internal enum NativeInspectionFailureCategory { None = 0, Unsupported = 1, Ambiguous = 2, Malformed = 3, InvalidArgument = 4, Io = 5 }
     internal enum NativeInspectionStage { None = 0, Read = 1, Container = 2, Metadata = 3, Protocol = 4, Pairing = 5 }
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct NativeFailureDiagnosticV1
+    {
+        public uint StructSize, Version, Reason, OriginalReason, SystemError, Reserved;
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct NativeInspectionStatus
@@ -57,7 +63,31 @@ namespace LivePhotoBox.Interop
         internal const string LibraryName = "LivePhotoBox.Native";
         // ABI v14 adds a read-only random-access Target Validator. Existing POD layouts remain unchanged.
         // Codec and platform implementation types remain entirely Native-private.
-        internal const uint RequiredAbiVersion = 17;
+        internal const uint RequiredAbiVersion = 19;
+
+        [LibraryImport(LibraryName, EntryPoint = "lpb_get_failure_diagnostic_v1")]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+        [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+        internal static partial NativeResult GetFailureDiagnosticV1(nint context, ref NativeFailureDiagnosticV1 diagnostic);
+
+        [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+        private delegate NativeResult FailureDiagnosticReader(nint context, ref NativeFailureDiagnosticV1 diagnostic);
+
+        // This endpoint is additive within ABI19. Older ABI19 libraries can
+        // still report their result code without an EntryPointNotFound event.
+        internal static NativeResult TryGetFailureDiagnosticV1(nint context, ref NativeFailureDiagnosticV1 diagnostic)
+        {
+            if (!NativeLibrary.TryLoad(LibraryName, typeof(NativeMethods).Assembly,
+                DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32, out nint library))
+                return NativeResult.Unsupported;
+            try
+            {
+                if (!NativeLibrary.TryGetExport(library, "lpb_get_failure_diagnostic_v1", out nint address))
+                    return NativeResult.Unsupported;
+                return Marshal.GetDelegateForFunctionPointer<FailureDiagnosticReader>(address)(context, ref diagnostic);
+            }
+            finally { NativeLibrary.Free(library); }
+        }
 
         [LibraryImport(LibraryName, EntryPoint = "lpb_get_abi_version")]
         [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]

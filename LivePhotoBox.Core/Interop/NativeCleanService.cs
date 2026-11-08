@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
@@ -321,7 +321,28 @@ internal static class NativeCleanService
     /// passes the plan token, generation, and input/output paths.  A plan on a
     /// harness context is dispatched to the test-harness Native build.
     /// </summary>
-    internal static Task<IReadOnlyList<RemovedProtocolFact>> CleanSourceProtocolWithCleanupPlanAsync(
+    internal sealed record CleanAttempt(IReadOnlyList<RemovedProtocolFact>? Facts, CleanerException? Failure)
+    {
+        internal NativeResult ResultCode { get; init; } = NativeResult.Ok;
+    }
+
+    internal static async Task<IReadOnlyList<RemovedProtocolFact>> CleanSourceProtocolWithCleanupPlanAsync(
+        CleanupPlanAttempt attempt,
+        string inputImagePath,
+        string? inputVideoPath,
+        string? cleanupSourcePath,
+        string outputImagePath,
+        string? outputVideoPath,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await TryCleanSourceProtocolWithCleanupPlanAsync(attempt,inputImagePath,inputVideoPath,
+            cleanupSourcePath,outputImagePath,outputVideoPath,cancellationToken).ConfigureAwait(false);
+        if (result.ResultCode == NativeResult.Cancelled) throw new OperationCanceledException(cancellationToken);
+        if (result.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return result.Facts!;
+    }
+
+    internal static Task<CleanAttempt> TryCleanSourceProtocolWithCleanupPlanAsync(
         CleanupPlanAttempt attempt,
         string inputImagePath,
         string? inputVideoPath,
@@ -335,7 +356,7 @@ internal static class NativeCleanService
         ArgumentNullException.ThrowIfNull(outputImagePath);
         cancellationToken.ThrowIfCancellationRequested();
 
-        return Task.Run(() =>
+        return Task.Run<CleanAttempt>(() =>
         {
             if (TestPostSnapshotHook != null)
             {
@@ -385,43 +406,23 @@ internal static class NativeCleanService
                     if (res != NativeResult.Ok)
                     {
                         string? msg = ReadLastError(attempt.ContextLease.Handle, attempt.UseHarnessLibrary);
-                        CleanerFailureCategory? ioFailure = msg?.StartsWith("[DiskFull]", StringComparison.Ordinal) == true ? CleanerFailureCategory.DiskFull
+                        // These bracketed tokens are the existing machine error
+                        // codes, not human-readable prose used for a retry.
+                        CleanerFailureCategory? io = msg?.StartsWith("[DiskFull]", StringComparison.Ordinal) == true ? CleanerFailureCategory.DiskFull
                             : msg?.StartsWith("[AccessDenied]", StringComparison.Ordinal) == true ? CleanerFailureCategory.AccessDenied
                             : msg?.StartsWith("[LockedFile]", StringComparison.Ordinal) == true ? CleanerFailureCategory.LockedFile
                             : msg?.StartsWith("[OutputCreateFailed]", StringComparison.Ordinal) == true ? CleanerFailureCategory.OutputCreateFailed : null;
-                        if (ioFailure.HasValue)
-                            throw new CleanerException(ioFailure.Value, CleanerFailureStage.Staging, SourceProtocol.Unknown, msg!);
-                        if (msg != null &&
-                            (msg.Contains("ObjectIdentity", StringComparison.OrdinalIgnoreCase) ||
-                             msg.Contains("TOCTOU", StringComparison.OrdinalIgnoreCase) ||
-                             msg.Contains("SourceChanged", StringComparison.OrdinalIgnoreCase)))
-                        {
-                            throw new CleanerException(
-                                CleanerFailureCategory.ArtifactChangedSinceExtraction,
-                                CleanerFailureStage.ArtifactVerification,
-                                SourceProtocol.Unknown,
-                                msg);
-                        }
-                        if (res == NativeResult.AuthorityViolation)
-                        {
-                            throw new CleanerException(
-                                CleanerFailureCategory.NativeAuthorityViolation,
-                                CleanerFailureStage.Authorization,
-                                SourceProtocol.Unknown,
-                                msg ?? "Native rejected the cleanup-plan authority.");
-                        }
-                        if (res == NativeResult.PlanReplayed)
-                        {
-                            throw new CleanerException(
-                                CleanerFailureCategory.CleanupAuthorizationMissing,
-                                CleanerFailureStage.Authorization,
-                                SourceProtocol.Unknown,
-                                msg ?? "The Native cleanup plan was replayed, consumed, or released.");
-                        }
-                        throw new InvalidOperationException(
-                            string.IsNullOrWhiteSpace(msg)
-                                ? $"Native cleanup failed with result: {res}"
-                                : $"Native cleanup failed ({res}): {msg}");
+                        var category = io ?? (res switch {
+                            NativeResult.SourceChanged => CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                            NativeResult.AuthorityViolation => CleanerFailureCategory.NativeAuthorityViolation,
+                            NativeResult.PlanReplayed => CleanerFailureCategory.CleanupAuthorizationMissing,
+                            _ => CleanerFailureCategory.StructureChanged
+                        });
+                        var stage = res == NativeResult.SourceChanged ? CleanerFailureStage.ArtifactVerification
+                            : res is NativeResult.AuthorityViolation or NativeResult.PlanReplayed ? CleanerFailureStage.Authorization
+                            : CleanerFailureStage.Staging;
+                        return new CleanAttempt(null, new CleanerException(category,stage,
+                            SourceProtocol.Unknown,msg ?? $"Native cleanup failed ({res}).")) { ResultCode = res };
                     }
 
                     var factsList = new List<RemovedProtocolFact>();
@@ -450,7 +451,7 @@ internal static class NativeCleanService
                         });
                     }
 
-                    return (IReadOnlyList<RemovedProtocolFact>)factsList;
+                    return new CleanAttempt(factsList, null);
                 }
             }
         }, cancellationToken);

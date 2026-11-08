@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers;
 using System.Buffers.Binary;
 using System.Collections.Generic;
@@ -54,6 +54,7 @@ internal sealed record SplitPublicationTraceEvent(
 /// </summary>
 internal static partial class WindowsSplitOutputPublisher
 {
+    internal sealed record PublicationAttempt(PublishedOwnedFile? Receipt, Exception? Failure);
     private const int BufferSize = 128 * 1024;
     private const int FileRenameInfoClass = 3;
     private const int FileDispositionInfoClass = 4;
@@ -75,7 +76,14 @@ internal static partial class WindowsSplitOutputPublisher
 
     internal static AsyncLocal<Func<SplitPublicationTraceEvent, CancellationToken, Task>?> TestHook { get; } = new();
 
-    internal static async Task PublishAsync(
+    internal static async Task PublishAsync(string imageSourcePath,string videoSourcePath,string imageFinalPath,string videoFinalPath,
+        bool overwriteExisting,Func<SplitPublicationTraceEvent,CancellationToken,Task>? testHook,CancellationToken token)
+    {
+        var attempt=await TryPublishAsync(imageSourcePath,videoSourcePath,imageFinalPath,videoFinalPath,overwriteExisting,testHook,token).ConfigureAwait(false);
+        if(attempt.Failure is { } failure)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    internal static async Task<PublicationAttempt> TryPublishAsync(
         string imageSourcePath,
         string videoSourcePath,
         string imageFinalPath,
@@ -92,10 +100,12 @@ internal static partial class WindowsSplitOutputPublisher
 
         try
         {
-            await transaction.PrepareAsync(imageSourcePath, videoSourcePath, token).ConfigureAwait(false);
-            await transaction.CommitAsync(token).ConfigureAwait(false);
+            if(await transaction.PrepareAsync(imageSourcePath,videoSourcePath,token).ConfigureAwait(false) is { } refusal)return await Failed(refusal).ConfigureAwait(false);
+            if(await transaction.CommitAsync(token).ConfigureAwait(false) is { } commitFailure)return await Failed(commitFailure).ConfigureAwait(false);
+            return new(null,null);
         }
-        catch (Exception publicationFailure)
+        catch(Exception publicationFailure) {return await Failed(publicationFailure).ConfigureAwait(false);}
+        async Task<PublicationAttempt> Failed(Exception publicationFailure)
         {
             Exception? rollbackFailure = transaction.Rollback();
             Exception? evidenceFailure = await transaction.EmitRollbackEvidenceAsync().ConfigureAwait(false);
@@ -106,12 +116,11 @@ internal static partial class WindowsSplitOutputPublisher
                     failures.Add(rollbackFailure);
                 if (evidenceFailure != null)
                     failures.Add(evidenceFailure);
-                throw new AggregateException(
-                    "Split output publication failed and exact-object rollback/evidence could not fully close the transaction.",
-                    failures);
+                return new(null,new AggregateException(
+                    "Split output publication failed and exact-object rollback/evidence could not fully close the transaction.",failures));
             }
 
-            throw;
+            return new(null,publicationFailure);
         }
     }
 
@@ -123,26 +132,41 @@ internal static partial class WindowsSplitOutputPublisher
         CancellationToken token) =>
         PublishSingleCoreAsync(finalPath, overwriteExisting, writeStageAsync, null, testHook, token);
 
-    internal static async Task PublishPairTargetAsync(string imagePath, string videoPath, bool overwrite,
-        Func<Stream, CancellationToken, Task> writeImage, Func<Stream, CancellationToken, Task> writeVideo,
-        NativeTargetPairProof expected, Action completeTransport, CancellationToken token)
+    internal static Task<PublicationAttempt> TryPublishSingleAsync(string finalPath,bool overwriteExisting,
+        Func<Stream,CancellationToken,Task<Exception?>> writeStageAsync,
+        Func<SplitPublicationTraceEvent,CancellationToken,Task>? testHook,CancellationToken token)
+        => TryPublishSingleCoreAsync(finalPath,overwriteExisting,writeStageAsync,null,testHook,token);
+
+    internal static async Task PublishPairTargetAsync(string imagePath,string videoPath,bool overwrite,
+        Func<Stream,CancellationToken,Task<Exception?>> imageWriter,Func<Stream,CancellationToken,Task<Exception?>> videoWriter,
+        NativeTargetPairProof proof,Func<Exception?> completeTransport,CancellationToken token)
+    {
+        var attempt=await TryPublishPairTargetAsync(imagePath,videoPath,overwrite,imageWriter,videoWriter,proof,completeTransport,token).ConfigureAwait(false);
+        if(attempt.Failure is { } failure)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    internal static async Task<PublicationAttempt> TryPublishPairTargetAsync(string imagePath, string videoPath, bool overwrite,
+        Func<Stream, CancellationToken, Task<Exception?>> writeImage, Func<Stream, CancellationToken, Task<Exception?>> writeVideo,
+        NativeTargetPairProof expected, Func<Exception?> completeTransport, CancellationToken token)
     {
         using var transaction = new SplitOutputPublicationTransaction(imagePath, videoPath, overwrite, TestHook.Value);
         try
         {
-            await transaction.PreparePairTargetAsync(writeImage, writeVideo, expected, token).ConfigureAwait(false);
+            if(await transaction.PreparePairTargetAsync(writeImage,writeVideo,expected,token).ConfigureAwait(false) is { } preparationFailure)return await Failed(preparationFailure).ConfigureAwait(false);
             // Both sealed files have passed validation. Retire Native staging before commit.
-            completeTransport();
-            await transaction.CommitAsync(token).ConfigureAwait(false);
+            if(completeTransport() is { } releaseFailure)return await Failed(releaseFailure).ConfigureAwait(false);
+            if(await transaction.CommitAsync(token).ConfigureAwait(false) is { } commitFailure)return await Failed(commitFailure).ConfigureAwait(false);
+            return new(null,null);
         }
-        catch (Exception failure)
+        catch(Exception failure) {return await Failed(failure).ConfigureAwait(false);}
+        async Task<PublicationAttempt> Failed(Exception failure)
         {
             Exception? rollback = transaction.Rollback();
             Exception? evidence = await transaction.EmitRollbackEvidenceAsync().ConfigureAwait(false);
             if (rollback is not null || evidence is not null)
-                throw new AggregateException("Target pair publication/rollback failed.",
-                    new[] { failure, rollback, evidence }.OfType<Exception>());
-            throw;
+                return new(null,new AggregateException("Target pair publication/rollback failed.",
+                    new[] { failure, rollback, evidence }.OfType<Exception>()));
+            return new(null,failure);
         }
     }
 
@@ -166,6 +190,12 @@ internal static partial class WindowsSplitOutputPublisher
             }, TestHook.Value, token);
     }
 
+    internal static Task<PublicationAttempt> TryPublishTargetAsync(string finalPath, bool overwriteExisting,
+        Func<Stream,CancellationToken,Task<Exception?>> writeStageAsync, TargetValidationExpectations expectations, CancellationToken token)
+        => TryPublishSingleCoreAsync(finalPath,overwriteExisting,writeStageAsync,
+            (stage,cancellation)=>Task.FromResult(NativeTargetValidator.TryValidateStage(stage,expectations,cancellation).Failure),
+            TestHook.Value,token);
+
     private static async Task<PublishedOwnedFile> PublishSingleCoreAsync(
         string finalPath,
         bool overwriteExisting,
@@ -173,6 +203,19 @@ internal static partial class WindowsSplitOutputPublisher
         Func<TargetPublicationStage, CancellationToken, Task>? validateStageAsync,
         Func<SplitPublicationTraceEvent, CancellationToken, Task>? testHook,
         CancellationToken token)
+    {
+        Func<TargetPublicationStage,CancellationToken,Task<Exception?>>? validate=validateStageAsync is null?null:
+            async (stage,ct)=> {await validateStageAsync(stage,ct).ConfigureAwait(false);return null;};
+        Func<Stream,CancellationToken,Task<Exception?>> write=async (stream,ct)=> {await writeStageAsync(stream,ct).ConfigureAwait(false);return null;};
+        var attempt=await TryPublishSingleCoreAsync(finalPath,overwriteExisting,write,validate,testHook,token).ConfigureAwait(false);
+        if(attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Receipt!;
+    }
+
+    private static async Task<PublicationAttempt> TryPublishSingleCoreAsync(
+        string finalPath, bool overwriteExisting, Func<Stream,CancellationToken,Task<Exception?>> writeStageAsync,
+        Func<TargetPublicationStage,CancellationToken,Task<Exception?>>? validateStageAsync,
+        Func<SplitPublicationTraceEvent,CancellationToken,Task>? testHook, CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(writeStageAsync);
         using var transaction = new SplitOutputPublicationTransaction(
@@ -182,11 +225,17 @@ internal static partial class WindowsSplitOutputPublisher
 
         try
         {
-            await transaction.PrepareSingleAsync(writeStageAsync, validateStageAsync, token).ConfigureAwait(false);
-            await transaction.CommitAsync(token).ConfigureAwait(false);
-            return transaction.SingleReceipt!;
+            if(await transaction.PrepareSingleAsync(writeStageAsync, validateStageAsync, token).ConfigureAwait(false) is { } refusal)
+                return await Failed(refusal).ConfigureAwait(false);
+            if(await transaction.CommitAsync(token).ConfigureAwait(false) is { } commitFailure)return await Failed(commitFailure).ConfigureAwait(false);
+            return new(transaction.SingleReceipt!,null);
         }
         catch (Exception publicationFailure)
+        {
+            return await Failed(publicationFailure).ConfigureAwait(false);
+        }
+
+        async Task<PublicationAttempt> Failed(Exception publicationFailure)
         {
             Exception? rollbackFailure = transaction.Rollback();
             Exception? evidenceFailure = await transaction.EmitRollbackEvidenceAsync().ConfigureAwait(false);
@@ -197,12 +246,12 @@ internal static partial class WindowsSplitOutputPublisher
                     failures.Add(rollbackFailure);
                 if (evidenceFailure != null)
                     failures.Add(evidenceFailure);
-                throw new AggregateException(
+                return new(null,new AggregateException(
                     "Single output publication failed and exact-object rollback/evidence could not fully close the transaction.",
-                    failures);
+                    failures));
             }
 
-            throw;
+            return new(null,publicationFailure);
         }
     }
 
@@ -227,37 +276,45 @@ internal static partial class WindowsSplitOutputPublisher
 
         internal FileStream OpenRead()
         {
+            var attempt = TryOpenRead();
+            if (attempt.Failure is { } failure)
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+            return attempt.Reader!;
+        }
+
+        internal (FileStream? Reader, Exception? Failure) TryOpenRead()
+        {
             lock (_gate)
             {
-                ObjectDisposedException.ThrowIf(_disposed, this);
-                // The creating guard denies new write/delete opens. This reader
-                // shares the guard's existing access, without acquiring write access.
-                SafeFileHandle handle = CreateFileW(Path, GenericRead, 0x7, IntPtr.Zero,
+                if (_disposed) return (null, new ObjectDisposedException(nameof(TargetPublicationStage)));
+                SafeFileHandle handle = CreateFileW(WindowsNativePath.Extended(Path), GenericRead, 0x7, IntPtr.Zero,
                     OpenExisting, FileAttributeNormal | OpenReparsePoint, IntPtr.Zero);
                 if (handle.IsInvalid)
                 {
                     int error = Marshal.GetLastWin32Error();
                     handle.Dispose();
-                    throw BuildIOException("Unable to reopen the guarded target stage for validation.", error);
+                    return (null, BuildIOException("Unable to reopen the guarded target stage for validation.", error));
                 }
-                try
+                var identityAttempt = TryCaptureRegularFile(handle, Path, 1);
+                Exception? failure = identityAttempt.Failure;
+                if (failure == null && !SameObjectAndAttributes(Identity, identityAttempt.Identity!))
+                    failure = new IOException("Reopened target stage no longer matches its sealed object.");
+                long observedLength = 0;
+                if (failure == null && !GetFileSizeEx(handle, out observedLength))
+                    failure = BuildIOException("Cannot inspect reopened stage length.", Marshal.GetLastWin32Error());
+                else if (failure == null)
                 {
-                    WindowsFileIdentity actual = CaptureAndValidateRegularFile(handle, Path, requiredLinkCount: 1);
-                    if (!SameObjectAndAttributes(Identity, actual) || GetLength(handle, Path) != ByteLength ||
-                        !string.Equals(ComputeSha256(handle, ByteLength, Path, CancellationToken.None), Sha256, StringComparison.Ordinal))
-                        throw new IOException("Reopened target stage no longer matches its sealed object and bytes.");
-                    var reader = new FileStream(handle, FileAccess.Read, BufferSize, isAsync: false);
-                    // Handle hashing advances its file pointer. A fresh validation
-                    // stream must start at the beginning of the complete artifact.
-                    reader.Position = 0;
-                    _readers.Add(reader);
-                    return reader;
+                    // The held handle remains the authority throughout validation.
+                    var hash = MediaFileHashAttempt.ComputeHeld(handle, ByteLength, CancellationToken.None);
+                    failure = hash.Failure;
+                    if (failure == null && (observedLength != ByteLength || !string.Equals(hash.Sha256, Sha256, StringComparison.Ordinal)))
+                        failure = new IOException("Reopened target stage no longer matches its sealed bytes.");
                 }
-                catch
-                {
-                    handle.Dispose();
-                    throw;
-                }
+                if (failure != null) { handle.Dispose(); return (null, failure); }
+                var reader = new FileStream(handle, FileAccess.Read, BufferSize, isAsync: false);
+                reader.Position = 0;
+                _readers.Add(reader);
+                return (reader, null);
             }
         }
 
@@ -285,6 +342,7 @@ internal static partial class WindowsSplitOutputPublisher
         private bool _rolledBack;
         private PublicationJournal? _journal;
         public PublishedOwnedFile? SingleReceipt { get; private set; }
+        private Exception? InitializationFailure { get; }
 
         public SplitOutputPublicationTransaction(
             string imageFinalPath,
@@ -325,148 +383,182 @@ internal static partial class WindowsSplitOutputPublisher
             }
 
             _targetDirectory = imageDirectory;
-            RecoverPublications(_targetDirectory);
             _slots = finalPaths.Select(path => new OutputSlot(Path.GetFullPath(path))).ToList();
+            var recoveryIssues = RecoverPublications(_targetDirectory, throwFailures: false);
+            if (recoveryIssues.Count > 0) InitializationFailure = new IOException(string.Join(Environment.NewLine, recoveryIssues));
         }
 
-        public async Task PrepareSingleAsync(
-            Func<Stream, CancellationToken, Task> writeStageAsync,
-            Func<TargetPublicationStage, CancellationToken, Task>? validateStageAsync,
+        public async Task<Exception?> PrepareSingleAsync(
+            Func<Stream, CancellationToken, Task<Exception?>> writeStageAsync,
+            Func<TargetPublicationStage, CancellationToken, Task<Exception?>>? validateStageAsync,
             CancellationToken token)
         {
             if (_slots.Count != 1)
                 throw new InvalidOperationException("Single-output preparation requires exactly one final target.");
 
-            token.ThrowIfCancellationRequested();
+            if(token.IsCancellationRequested) return new OperationCanceledException(token);
+            if (InitializationFailure is { } initialFailure) return initialFailure;
             OutputSlot slot = _slots[0];
-            TransactionFile stage = CreateTransactionFile(_targetDirectory, "stage", deleteOnClose: false,
+            var created = TryCreateTransactionFile(_targetDirectory, "stage", deleteOnClose: false,
                 allowReadOnlyValidation: validateStageAsync != null);
+            if(created.Failure is { } failure) return failure;
+            TransactionFile stage=created.File!;
             slot.Stage = stage;
 
             using (var borrowedHandle = new SafeFileHandle(stage.Handle.DangerousGetHandle(), ownsHandle: false))
             using (var output = new FileStream(borrowedHandle, FileAccess.ReadWrite, BufferSize, isAsync: false))
             {
-                output.SetLength(0);
-                output.Position = 0;
-                await writeStageAsync(output, token).ConfigureAwait(false);
-                token.ThrowIfCancellationRequested();
-                output.Flush(flushToDisk: true);
+                if (SetLengthFailure(stage.Handle, 0, stage.Path) is { } truncateFailure) return truncateFailure;
+                if(await writeStageAsync(output,token).ConfigureAwait(false) is { } writeFailure)return writeFailure;
+                if(token.IsCancellationRequested)return new OperationCanceledException(token);
+                if (FlushFailure(stage.Handle, stage.Path) is { } flushFailure) return flushFailure;
             }
 
-            Flush(stage.Handle, stage.Path);
-            WindowsFileIdentity stageIdentity = CaptureAndValidateRegularFile(
-                stage.Handle,
-                stage.Path,
-                requiredLinkCount: 1);
+            if (FlushFailure(stage.Handle, stage.Path) is { } stageFlushFailure) return stageFlushFailure;
+            var stageIdentityAttempt = TryCaptureRegularFile(stage.Handle, stage.Path, 1);
+            if (stageIdentityAttempt.Failure is { } identityFailure) return identityFailure;
+            WindowsFileIdentity stageIdentity = stageIdentityAttempt.Identity!;
             if (!SameObjectAndAttributes(stage.Identity, stageIdentity))
-                throw new IOException($"Staged output object '{stage.Path}' changed identity or attributes while being written.");
+                return new IOException($"Staged output object '{stage.Path}' changed identity or attributes while being written.");
 
-            stage.Length = GetLength(stage.Handle, stage.Path);
-            stage.Sha256 = ComputeSha256(stage.Handle, stage.Length, stage.Path, token);
+            if (!GetFileSizeEx(stage.Handle, out long stageLength))
+                return BuildIOException("Cannot inspect staged output length.", Marshal.GetLastWin32Error());
+            stage.Length = stageLength;
+            var hashAttempt = MediaFileHashAttempt.ComputeHeld(stage.Handle, stage.Length, token);
+            if (hashAttempt.Failure is { } hashFailure) return hashFailure;
+            stage.Sha256 = hashAttempt.Sha256!;
 
             if (validateStageAsync != null)
             {
                 using (var sealedStage = new TargetPublicationStage(stage.Path, stageIdentity, stage.Length, stage.Sha256))
-                    await validateStageAsync(sealedStage, token).ConfigureAwait(false);
-                token.ThrowIfCancellationRequested();
-                VerifyOwnedFileMatches(stage, stage.Length, stage.Sha256, token);
+                    if(await validateStageAsync(sealedStage,token).ConfigureAwait(false) is { } validationFailure)return validationFailure;
+                if(token.IsCancellationRequested)return new OperationCanceledException(token);
+                if (OwnedFileMismatch(stage, stage.Length, stage.Sha256, token) is { } sealFailure) return sealFailure;
             }
 
             if (!_overwriteExisting)
             {
                 slot.Baseline = TargetBaseline.Missing;
-                return;
+                return null;
             }
 
-            token.ThrowIfCancellationRequested();
-            slot.Baseline = CaptureBaseline(slot, token);
+            if(token.IsCancellationRequested)return new OperationCanceledException(token);
+            var baselineAttempt=TryCaptureBaseline(slot,token);
+            if(baselineAttempt.Failure is { } baselineFailure)return baselineFailure;
+            slot.Baseline=baselineAttempt.Baseline!;
+            return null;
         }
 
-        public async Task PrepareAsync(
+        public async Task<Exception?> PrepareAsync(
             string imageSourcePath,
             string videoSourcePath,
             CancellationToken token)
         {
-            token.ThrowIfCancellationRequested();
+            if(token.IsCancellationRequested)return new OperationCanceledException(token);
+            if (InitializationFailure is { } initialFailure) return initialFailure;
 
-            TransactionFile imageStage = CreateTransactionFile(_targetDirectory, "stage", deleteOnClose: false);
+            var imageCreated=TryCreateTransactionFile(_targetDirectory,"stage",false);
+            if(imageCreated.Failure is { } imageFailure)return imageFailure;
+            var imageStage=imageCreated.File!;
             _slots[0].Stage = imageStage;
 
-            TransactionFile videoStage = CreateTransactionFile(_targetDirectory, "stage", deleteOnClose: false);
+            var videoCreated=TryCreateTransactionFile(_targetDirectory,"stage",false);
+            if(videoCreated.Failure is { } videoFailure)return videoFailure;
+            var videoStage=videoCreated.File!;
             _slots[1].Stage = videoStage;
 
-            await CopySourceToStageAsync(imageSourcePath, imageStage, token).ConfigureAwait(false);
-            await CopySourceToStageAsync(videoSourcePath, videoStage, token).ConfigureAwait(false);
+            if(await CopySourceToStageAsync(imageSourcePath,imageStage,token).ConfigureAwait(false) is { } imageCopyFailure)return imageCopyFailure;
+            if(await CopySourceToStageAsync(videoSourcePath,videoStage,token).ConfigureAwait(false) is { } videoCopyFailure)return videoCopyFailure;
 
             if (!_overwriteExisting)
             {
                 _slots[0].Baseline = TargetBaseline.Missing;
                 _slots[1].Baseline = TargetBaseline.Missing;
-                return;
+                return null;
             }
 
             // Both final-path baselines and rollback backups are established
             // before CommitAsync is allowed to mutate either final object.
             foreach (OutputSlot slot in _slots)
             {
-                token.ThrowIfCancellationRequested();
-                slot.Baseline = CaptureBaseline(slot, token);
+                if(token.IsCancellationRequested)return new OperationCanceledException(token);
+                var baselineAttempt=TryCaptureBaseline(slot,token);
+            if(baselineAttempt.Failure is { } baselineFailure)return baselineFailure;
+            slot.Baseline=baselineAttempt.Baseline!;
             }
+            return null;
         }
 
-        public async Task PreparePairTargetAsync(Func<Stream, CancellationToken, Task> imageWriter,
-            Func<Stream, CancellationToken, Task> videoWriter, NativeTargetPairProof expected,
+        public async Task<Exception?> PreparePairTargetAsync(Func<Stream, CancellationToken, Task<Exception?>> imageWriter,
+            Func<Stream, CancellationToken, Task<Exception?>> videoWriter, NativeTargetPairProof expected,
             CancellationToken token)
         {
+            if (InitializationFailure is { } initialFailure) return initialFailure;
             var writers = new[] { imageWriter, videoWriter };
             var seals = new List<TargetPublicationStage>();
             try
             {
                 for (int i = 0; i < 2; i++)
                 {
-                    token.ThrowIfCancellationRequested();
-                    var stage = CreateTransactionFile(_targetDirectory, "stage", deleteOnClose: false,
-                        allowReadOnlyValidation: true);
+                    if(token.IsCancellationRequested)return new OperationCanceledException(token);
+                    var created=TryCreateTransactionFile(_targetDirectory,"stage",false,true);
+                    if(created.Failure is { } creationFailure)return creationFailure;
+                    var stage=created.File!;
                     _slots[i].Stage = stage;
                     using (var borrowed = new SafeFileHandle(stage.Handle.DangerousGetHandle(), ownsHandle: false))
                     using (var stream = new FileStream(borrowed, FileAccess.ReadWrite, BufferSize, isAsync: false))
                     {
-                        await writers[i](stream, token).ConfigureAwait(false);
-                        stream.Flush(flushToDisk: true);
+                        if(await writers[i](stream,token).ConfigureAwait(false) is { } writeFailure)return writeFailure;
+                        if (FlushFailure(stage.Handle, stage.Path) is { } flushFailure) return flushFailure;
                     }
-                    Flush(stage.Handle, stage.Path);
-                    var identity = CaptureAndValidateRegularFile(stage.Handle, stage.Path, requiredLinkCount: 1);
-                    if (!SameObjectAndAttributes(identity, stage.Identity)) throw new IOException("Target pair stage changed object.");
-                    stage.Length = GetLength(stage.Handle, stage.Path);
-                    stage.Sha256 = ComputeSha256(stage.Handle, stage.Length, stage.Path, token);
+                    if (FlushFailure(stage.Handle, stage.Path) is { } stageFlushFailure) return stageFlushFailure;
+                    var identityAttempt = TryCaptureRegularFile(stage.Handle, stage.Path, 1);
+                    if (identityAttempt.Failure is { } identityFailure) return identityFailure;
+                    var identity = identityAttempt.Identity!;
+                    if (!SameObjectAndAttributes(identity, stage.Identity)) return new IOException("Target pair stage changed object.");
+                    if (!GetFileSizeEx(stage.Handle, out long stageLength))
+                return BuildIOException("Cannot inspect staged output length.", Marshal.GetLastWin32Error());
+            stage.Length = stageLength;
+                    var hashAttempt = MediaFileHashAttempt.ComputeHeld(stage.Handle, stage.Length, token);
+            if (hashAttempt.Failure is { } hashFailure) return hashFailure;
+            stage.Sha256 = hashAttempt.Sha256!;
                     seals.Add(new TargetPublicationStage(stage.Path, identity, stage.Length, stage.Sha256));
                 }
-                await DualFileTargetValidator.ValidateAsync(seals[0], seals[1], expected, token).ConfigureAwait(false);
+                if(DualFileTargetValidator.ValidationFailure(seals[0],seals[1],expected,token) is { } validationFailure)return validationFailure;
                 foreach (var slot in _slots)
                 {
-                    VerifyOwnedFileMatches(slot.Stage!, slot.Stage!.Length, slot.Stage.Sha256!, token);
-                    slot.Baseline = _overwriteExisting ? CaptureBaseline(slot, token) : TargetBaseline.Missing;
+                    if (OwnedFileMismatch(slot.Stage!, slot.Stage!.Length, slot.Stage.Sha256!, token) is { } sealFailure) return sealFailure;
+                    if(_overwriteExisting)
+                    {
+                        var baselineAttempt=TryCaptureBaseline(slot,token);
+                        if(baselineAttempt.Failure is { } baselineFailure)return baselineFailure;
+                        slot.Baseline=baselineAttempt.Baseline!;
+                    }
+                    else slot.Baseline=TargetBaseline.Missing;
                 }
+                return null;
             }
             finally { foreach (var seal in seals) seal.Dispose(); }
         }
 
-        public async Task CommitAsync(CancellationToken token)
+        public async Task<Exception?> CommitAsync(CancellationToken token)
         {
             if (_slots.Count == 0 || _slots.Exists(slot => slot.Stage == null || slot.Baseline == null))
                 throw new InvalidOperationException("Every staged output and target baseline must be ready before commit.");
 
             // Durable before the first rename/truncate. Recovery copies outlive
             // delete-pending rollback handles and abrupt process termination.
-            _journal = PublicationJournal.Create(_slots, _targetDirectory);
+            var journalAttempt = PublicationJournal.TryCreate(_slots, _targetDirectory);
+            if (journalAttempt.Failure is { } journalFailure) return journalFailure;
+            _journal = journalAttempt.Journal!;
 
             foreach (OutputSlot slot in _slots)
             {
-                token.ThrowIfCancellationRequested();
-                if (slot.Baseline!.Exists)
-                    await CommitExistingTargetAsync(slot, token).ConfigureAwait(false);
-                else
-                    await CommitMissingTargetAsync(slot, token).ConfigureAwait(false);
+                if(token.IsCancellationRequested)return new OperationCanceledException(token);
+                var failure=slot.Baseline!.Exists
+                    ? await CommitExistingTargetAsync(slot,token).ConfigureAwait(false)
+                    : await CommitMissingTargetAsync(slot,token).ConfigureAwait(false);
+                if(failure is not null)return failure;
             }
 
             // Existing-target stage objects are no longer needed once both
@@ -475,7 +567,7 @@ internal static partial class WindowsSplitOutputPublisher
             foreach (OutputSlot slot in _slots)
             {
                 if (slot.Baseline!.Exists)
-                    RetireOwnedFile(slot.Stage!, "existing-target stage");
+                    if (RetireOwnedFile(slot.Stage!, "existing-target stage") is { } retireFailure) return retireFailure;
             }
 
             // A retained backup must be readable for rollback, yet already
@@ -483,18 +575,18 @@ internal static partial class WindowsSplitOutputPublisher
             foreach (OutputSlot slot in _slots)
             {
                 if (slot.Baseline!.Exists)
-                    MarkBackupUnlinkedForRollback(slot.Baseline);
+                    if (MarkBackupUnlinkedForRollback(slot.Baseline) is { } unlinkFailure) return unlinkFailure;
             }
 
             foreach (OutputSlot slot in _slots)
             {
-                token.ThrowIfCancellationRequested();
+                if(token.IsCancellationRequested)return new OperationCanceledException(token);
                 await InvokeTestHookAsync(slot, SplitPublicationBoundary.BeforeCommitBarrier, token).ConfigureAwait(false);
             }
 
-            token.ThrowIfCancellationRequested();
+            if(token.IsCancellationRequested)return new OperationCanceledException(token);
             foreach (OutputSlot slot in _slots)
-                VerifyFinalAtCommitBarrier(slot, token);
+                if (FinalCommitBarrierFailure(slot, token) is { } barrierFailure) return barrierFailure;
 
             // Allocate ownership evidence while rollback is still possible.
             // A caller must never acquire a temporary file by reopening its
@@ -511,94 +603,103 @@ internal static partial class WindowsSplitOutputPublisher
 
             // Linearization point. No later filesystem operation can require
             // rollback; only already-flushed handle release remains.
-            _journal.Complete();
+            if (_journal.TryComplete() is { } completionFailure) return completionFailure;
             _committed = true;
+            foreach (OutputSlot slot in _slots)
+                WorkspaceCleanupScope.RegisterPublished(new PublishedOwnedFile(slot.FinalPath,
+                    slot.FinalIdentity!, slot.FinalLength!.Value, slot.FinalSha256!));
+            return null;
         }
 
-        private async Task CommitExistingTargetAsync(OutputSlot slot, CancellationToken token)
+        private async Task<Exception?> CommitExistingTargetAsync(OutputSlot slot, CancellationToken token)
         {
             TargetBaseline baseline = slot.Baseline!;
             TransactionFile stage = slot.Stage!;
 
             await InvokeTestHookAsync(slot, SplitPublicationBoundary.BeforeMutationRevalidation, token).ConfigureAwait(false);
-            token.ThrowIfCancellationRequested();
+            if(token.IsCancellationRequested)return new OperationCanceledException(token);
 
-            SafeFileHandle mutationHandle = OpenMutationTarget(slot.FinalPath);
+            SafeFileHandle mutationHandle = CreateFileW(WindowsNativePath.Extended(slot.FinalPath), GenericRead | GenericWrite | FileReadAttributes,
+                0, IntPtr.Zero, OpenExisting, OpenReparsePoint, IntPtr.Zero);
+            if(mutationHandle.IsInvalid) {int error=Marshal.GetLastWin32Error();mutationHandle.Dispose();return BuildIOException("Cannot retain exact target for overwrite.",error);}
             slot.MutationHandle = mutationHandle;
 
-            WindowsFileIdentity mutationIdentity = CaptureAndValidateRegularFile(
-                mutationHandle,
-                slot.FinalPath,
-                requiredLinkCount: 1);
+            if(!WindowsFileIdentity.TryCapture(mutationHandle,out var before,out int identityError)||before!.IsReparsePoint||before.LinkCount!=1||
+                (before.FileAttributes&FileAttributeDirectory)!=0)return new IOException($"Target mutation identity is invalid (system error {identityError}).");
+            var mutationIdentity=before;
             if (!mutationIdentity.Matches(baseline.Identity!))
-                throw new IOException($"Existing Split target '{slot.FinalPath}' no longer matches the captured object identity and attributes.");
+                return new IOException($"Existing Split target '{slot.FinalPath}' no longer matches the captured object identity and attributes.");
 
-            long mutationLength = GetLength(mutationHandle, slot.FinalPath);
-            string mutationSha = ComputeSha256(mutationHandle, mutationLength, slot.FinalPath, token);
+            if(!GetFileSizeEx(mutationHandle,out long mutationLength))return BuildIOException("Cannot verify mutation target length.",Marshal.GetLastWin32Error());
+            var beforeHash=MediaFileHashAttempt.ComputeHeld(mutationHandle,mutationLength,token);
+            if(beforeHash.Failure is { } beforeHashFailure)return beforeHashFailure;
+            string mutationSha=beforeHash.Sha256!;
             if (mutationLength != baseline.Length || !string.Equals(mutationSha, baseline.Sha256, StringComparison.Ordinal))
-                throw new IOException($"Existing Split target '{slot.FinalPath}' content changed after its baseline was captured.");
+                return new IOException($"Existing Split target '{slot.FinalPath}' content changed after its baseline was captured.");
 
             // A workspace output name is not authority to overwrite an object
             // installed there by someone else. Check the exact held target
             // against its producer receipt before the first byte mutation.
-            WorkspaceOwnershipRegistry.ValidateExistingFileMutation(slot.FinalPath, mutationIdentity);
+            if(WorkspaceOwnershipRegistry.ExistingFileMutationFailure(slot.FinalPath,mutationIdentity) is { } ownershipFailure)return ownershipFailure;
 
             slot.MutationIdentity = mutationIdentity;
             slot.Mutated = true; // Any subsequent write/flush failure may have changed bytes.
-            CopyHandleBytes(stage.Handle, mutationHandle, stage.Length, slot.FinalPath, token);
+            if (CopyHandleBytesFailure(stage.Handle, mutationHandle, stage.Length, slot.FinalPath, token) is { } copyFailure) return copyFailure;
 
-            WindowsFileIdentity afterWrite = CaptureAndValidateRegularFile(
-                mutationHandle,
-                slot.FinalPath,
-                requiredLinkCount: null);
-            long finalLength = GetLength(mutationHandle, slot.FinalPath);
-            string finalSha = ComputeSha256(mutationHandle, finalLength, slot.FinalPath, token);
+            if(!WindowsFileIdentity.TryCapture(mutationHandle,out var after,out identityError)||after!.IsReparsePoint||
+                (after.FileAttributes&FileAttributeDirectory)!=0)return new IOException($"Target mutation output is invalid (system error {identityError}).");
+            var afterWrite=after;
+            if(!GetFileSizeEx(mutationHandle,out long finalLength))return BuildIOException("Cannot verify overwritten target length.",Marshal.GetLastWin32Error());
+            var afterHash=MediaFileHashAttempt.ComputeHeld(mutationHandle,finalLength,token);
+            if(afterHash.Failure is { } afterHashFailure)return afterHashFailure;
+            string finalSha=afterHash.Sha256!;
             if (!SameObjectAndAttributes(baseline.Identity!, afterWrite))
-                throw new IOException($"Existing Split target '{slot.FinalPath}' changed identity or attributes during the in-place update.");
+                return new IOException($"Existing Split target '{slot.FinalPath}' changed identity or attributes during the in-place update.");
             if (afterWrite.LinkCount != 1)
-                throw new IOException($"A concurrent hard-link alias was observed for existing Split target '{slot.FinalPath}'.");
+                return new IOException($"A concurrent hard-link alias was observed for existing Split target '{slot.FinalPath}'.");
             if (finalLength != stage.Length || !string.Equals(finalSha, stage.Sha256, StringComparison.Ordinal))
-                throw new IOException($"In-place Split output verification failed for '{slot.FinalPath}'.");
+                return new IOException($"In-place Split output verification failed for '{slot.FinalPath}'.");
 
             slot.FinalIdentity = afterWrite;
             slot.FinalLength = finalLength;
             slot.FinalSha256 = finalSha;
             await InvokeTestHookAsync(slot, SplitPublicationBoundary.AfterTargetMutation, token).ConfigureAwait(false);
+            return null;
         }
 
-        private async Task CommitMissingTargetAsync(OutputSlot slot, CancellationToken token)
+        private async Task<Exception?> CommitMissingTargetAsync(OutputSlot slot, CancellationToken token)
         {
             TransactionFile stage = slot.Stage!;
             await InvokeTestHookAsync(slot, SplitPublicationBoundary.BeforeMissingTargetPublication, token).ConfigureAwait(false);
-            token.ThrowIfCancellationRequested();
+            if(token.IsCancellationRequested)return new OperationCanceledException(token);
 
-            VerifyOwnedFileMatches(
-                stage,
-                stage.Length,
-                stage.Sha256 ?? throw new IOException($"Staged Split output '{stage.Path}' has no captured hash."),
-                token);
-            RenameNoReplaceThroughHandle(stage.Handle, slot.FinalPath);
+            if (stage.Sha256 is null) return new IOException($"Staged Split output '{stage.Path}' has no captured hash.");
+            if (OwnedFileMismatch(stage, stage.Length, stage.Sha256, token) is { } sealFailure) return sealFailure;
+            if(RenameNoReplaceFailure(stage.Handle,slot.FinalPath) is { } renameFailure)return renameFailure;
             slot.Published = true;
 
-            WindowsFileIdentity publishedIdentity = CaptureAndValidateRegularFile(
-                stage.Handle,
-                slot.FinalPath,
-                requiredLinkCount: 1);
-            long finalLength = GetLength(stage.Handle, slot.FinalPath);
-            string finalSha = ComputeSha256(stage.Handle, finalLength, slot.FinalPath, token);
+            var identityAttempt = TryCaptureRegularFile(stage.Handle, slot.FinalPath, 1);
+            if (identityAttempt.Failure is { } identityFailure) return identityFailure;
+            var publishedIdentity = identityAttempt.Identity!;
+            if (!GetFileSizeEx(stage.Handle, out long finalLength))
+                return BuildIOException("Cannot inspect published output length.", Marshal.GetLastWin32Error());
+            var finalHash = MediaFileHashAttempt.ComputeHeld(stage.Handle, finalLength, token);
+            if (finalHash.Failure is { } hashFailure) return hashFailure;
+            string finalSha = finalHash.Sha256!;
             if (!SameObjectAndAttributes(stage.Identity, publishedIdentity) ||
                 finalLength != stage.Length ||
                 !string.Equals(finalSha, stage.Sha256, StringComparison.Ordinal))
             {
-                throw new IOException($"Published Split output '{slot.FinalPath}' no longer matches its exact staged object and bytes.");
+                return new IOException($"Published Split output '{slot.FinalPath}' no longer matches its exact staged object and bytes.");
             }
 
             slot.FinalIdentity = publishedIdentity;
             slot.FinalLength = finalLength;
             slot.FinalSha256 = finalSha;
+            return null;
         }
 
-        private void VerifyFinalAtCommitBarrier(OutputSlot slot, CancellationToken token)
+        private Exception? FinalCommitBarrierFailure(OutputSlot slot, CancellationToken token)
         {
             TransactionFile stage = slot.Stage!;
             WindowsFileIdentity expectedIdentity = slot.Baseline!.Exists
@@ -608,59 +709,73 @@ internal static partial class WindowsSplitOutputPublisher
                 ? slot.MutationHandle!
                 : stage.Handle;
 
-            WindowsFileIdentity actual = CaptureAndValidateRegularFile(
-                finalHandle,
-                slot.FinalPath,
-                requiredLinkCount: null);
-            long length = GetLength(finalHandle, slot.FinalPath);
-            string sha = ComputeSha256(finalHandle, length, slot.FinalPath, token);
+            if(token.IsCancellationRequested)return new OperationCanceledException(token);
+            if(!WindowsFileIdentity.TryCapture(finalHandle,out var observed,out int error)||observed!.IsReparsePoint||
+                (observed.FileAttributes&FileAttributeDirectory)!=0)return new IOException($"Target final identity is invalid (system error {error}).");
+            var actual=observed;
+            if(!GetFileSizeEx(finalHandle,out long length))return BuildIOException("Cannot verify committed target length.",Marshal.GetLastWin32Error());
+            var hash=MediaFileHashAttempt.ComputeHeld(finalHandle,length,token);
+            if(hash.Failure is { } hashFailure)return hashFailure;
+            string sha=hash.Sha256!;
 
             if (!SameObjectAndAttributes(expectedIdentity, actual))
-                throw new IOException($"Split target '{slot.FinalPath}' changed identity or attributes before the commit barrier.");
+                return new IOException($"Split target '{slot.FinalPath}' changed identity or attributes before the commit barrier.");
             if (actual.LinkCount != 1)
-                throw new IOException($"A pre-commit hard-link alias was observed for Split target '{slot.FinalPath}'.");
+                return new IOException($"A pre-commit hard-link alias was observed for Split target '{slot.FinalPath}'.");
             if (length != stage.Length || !string.Equals(sha, stage.Sha256, StringComparison.Ordinal))
-                throw new IOException($"Split target '{slot.FinalPath}' does not contain its exact staged bytes at the commit barrier.");
+                return new IOException($"Split target '{slot.FinalPath}' does not contain its exact staged bytes at the commit barrier.");
 
             slot.FinalIdentity = actual;
             slot.FinalLength = length;
             slot.FinalSha256 = sha;
+            return null;
         }
 
-        private TargetBaseline CaptureBaseline(OutputSlot slot, CancellationToken token)
+        private (TargetBaseline? Baseline, Exception? Failure) TryCaptureBaseline(OutputSlot slot, CancellationToken token)
         {
-            SafeFileHandle baselineHandle = OpenBaselineTarget(slot.FinalPath);
+            if(token.IsCancellationRequested)return (null,new OperationCanceledException(token));
+            SafeFileHandle baselineHandle = CreateFileW(WindowsNativePath.Extended(slot.FinalPath), GenericRead | FileReadAttributes,
+                FileShareRead, IntPtr.Zero, OpenExisting, OpenReparsePoint, IntPtr.Zero);
             if (baselineHandle.IsInvalid)
-                return TargetBaseline.Missing;
+            {
+                int error=Marshal.GetLastWin32Error(); baselineHandle.Dispose();
+                return error is ErrorFileNotFound or ErrorPathNotFound ? (TargetBaseline.Missing,null)
+                    : (null,BuildIOException("Cannot retain existing target before publication.",error));
+            }
 
             using (baselineHandle)
             {
-                WindowsFileIdentity identity = CaptureAndValidateRegularFile(
-                    baselineHandle,
-                    slot.FinalPath,
-                    requiredLinkCount: 1);
-                long length = GetLength(baselineHandle, slot.FinalPath);
-                string sha = ComputeSha256(baselineHandle, length, slot.FinalPath, token);
+                if (!WindowsFileIdentity.TryCapture(baselineHandle,out var captured,out int error) ||
+                    captured!.LinkCount!=1 || captured.IsReparsePoint || (captured.FileAttributes&FileAttributeDirectory)!=0)
+                    return (null,new IOException($"Cannot verify existing target object (system error {error})."));
+                WindowsFileIdentity identity=captured;
+                if(!GetFileSizeEx(baselineHandle,out long length))return (null,BuildIOException("Cannot read existing target length.",Marshal.GetLastWin32Error()));
+                var hash=MediaFileHashAttempt.ComputeHeld(baselineHandle,length,token);
+                if(hash.Failure is { } hashFailure)return (null,hashFailure);
+                string sha=hash.Sha256!;
                 var baseline = new TargetBaseline(identity, length, sha);
                 slot.Baseline = baseline;
 
-                TransactionFile backup = CreateTransactionFile(_targetDirectory, "backup", deleteOnClose: true);
+                var creation=TryCreateTransactionFile(_targetDirectory,"backup",deleteOnClose:true);
+                if(creation.Failure is { } creationFailure)return (null,creationFailure);
+                TransactionFile backup=creation.File!;
                 baseline.Backup = backup;
-                CopyHandleBytes(baselineHandle, backup.Handle, length, backup.Path, token);
-                WindowsFileIdentity backupAfterCopy = CaptureAndValidateRegularFile(
-                    backup.Handle,
-                    backup.Path,
-                    requiredLinkCount: 1);
-                long backupLength = GetLength(backup.Handle, backup.Path);
-                string backupSha = ComputeSha256(backup.Handle, backupLength, backup.Path, token);
+                if(CopyHandleBytesFailure(baselineHandle,backup.Handle,length,backup.Path,token) is { } copyFailure)return (null,copyFailure);
+                if(!WindowsFileIdentity.TryCapture(backup.Handle,out var copied,out int backupError)||copied!.LinkCount!=1||copied.IsReparsePoint)
+                    return (null,new IOException($"Cannot verify backup object (system error {backupError})."));
+                var backupAfterCopy=copied;
+                if(!GetFileSizeEx(backup.Handle,out long backupLength))return (null,BuildIOException("Cannot read backup length.",Marshal.GetLastWin32Error()));
+                var backupHash=MediaFileHashAttempt.ComputeHeld(backup.Handle,backupLength,token);
+                if(backupHash.Failure is { } backupHashFailure)return (null,backupHashFailure);
+                string backupSha=backupHash.Sha256!;
                 if (!SameObjectAndAttributes(backup.Identity, backupAfterCopy) ||
                     backupLength != length ||
                     !string.Equals(backupSha, sha, StringComparison.Ordinal))
-                    throw new IOException($"Rollback backup for '{slot.FinalPath}' does not match the exact baseline bytes.");
+                    return (null,new IOException($"Rollback backup for '{slot.FinalPath}' does not match the exact baseline bytes."));
 
                 backup.Length = backupLength;
                 backup.Sha256 = backupSha;
-                return baseline;
+                return (baseline,null);
             }
         }
 
@@ -701,23 +816,24 @@ internal static partial class WindowsSplitOutputPublisher
                 slot.FinalSha256);
         }
 
-        private void MarkBackupUnlinkedForRollback(TargetBaseline baseline)
+        private Exception? MarkBackupUnlinkedForRollback(TargetBaseline baseline)
         {
-            TransactionFile backup = baseline.Backup
-                ?? throw new IOException("An existing Split target has no exact rollback backup.");
-            WindowsFileIdentity before = WindowsFileIdentity.Capture(backup.Handle);
-            if (!SameObjectAndAttributes(backup.Identity, before))
-                throw new IOException($"Rollback backup '{backup.Path}' changed identity or attributes before cleanup proof.");
-            if (before.LinkCount == 0)
+            if (baseline.Backup is not { } backup)
+                return new IOException("An existing Split target has no exact rollback backup.");
+            if (!WindowsFileIdentity.TryCapture(backup.Handle, out var before, out int beforeError))
+                return BuildIOException("Cannot verify rollback backup identity.", beforeError);
+            if (!SameObjectAndAttributes(backup.Identity, before!))
+                return new IOException($"Rollback backup '{backup.Path}' changed identity or attributes before cleanup proof.");
+            if (before!.LinkCount == 0)
             {
                 baseline.BackupCleanupProof = OwnedObjectCleanupProof.Unlinked.ToString();
                 baseline.BackupDeletePending = true;
-                return;
+                return null;
             }
-            if (before.LinkCount > 1)
+            if (before!.LinkCount > 1)
             {
                 baseline.BackupCleanupProof = OwnedObjectCleanupProof.AliasAlive.ToString();
-                throw new IOException($"Rollback backup '{backup.Path}' has an unexpected hard-link alias.");
+                return new IOException($"Rollback backup '{backup.Path}' has an unexpected hard-link alias.");
             }
 
             var disposition = new FileDispositionInfo { DeleteFile = 1 };
@@ -729,32 +845,33 @@ internal static partial class WindowsSplitOutputPublisher
             {
                 int error = Marshal.GetLastWin32Error();
                 baseline.BackupCleanupProof = OwnedObjectCleanupProof.Unknown.ToString();
-                throw BuildIOException(
+                return BuildIOException(
                     $"Unable to mark exact rollback backup '{backup.Path}' for deletion.",
                     error);
             }
 
-            WindowsFileIdentity after = WindowsFileIdentity.Capture(backup.Handle);
-            if (!SameObjectAndAttributes(backup.Identity, after))
+            if (!WindowsFileIdentity.TryCapture(backup.Handle, out var after, out int afterError))
+                return BuildIOException("Cannot verify unlinked backup identity.", afterError);
+            if (!SameObjectAndAttributes(backup.Identity, after!))
             {
                 baseline.BackupCleanupProof = OwnedObjectCleanupProof.Unknown.ToString();
-                throw new IOException($"Rollback backup '{backup.Path}' changed identity or attributes after deletion was armed.");
+                return new IOException($"Rollback backup '{backup.Path}' changed identity or attributes after deletion was armed.");
             }
 
-            if (after.LinkCount == 0)
+            if (after!.LinkCount == 0)
             {
                 baseline.BackupCleanupProof = OwnedObjectCleanupProof.Unlinked.ToString();
                 baseline.BackupDeletePending = true;
-                return;
+                return null;
             }
-            if (after.LinkCount > 1)
+            if (after!.LinkCount > 1)
             {
                 baseline.BackupCleanupProof = OwnedObjectCleanupProof.AliasAlive.ToString();
-                throw new IOException($"Rollback backup '{backup.Path}' remains linked through an unexpected alias.");
+                return new IOException($"Rollback backup '{backup.Path}' remains linked through an unexpected alias.");
             }
 
             baseline.BackupCleanupProof = OwnedObjectCleanupProof.Unknown.ToString();
-            throw new IOException($"Rollback backup '{backup.Path}' has no exact Unlinked cleanup proof.");
+            return new IOException($"Rollback backup '{backup.Path}' has no exact Unlinked cleanup proof.");
         }
 
         public Exception? Rollback()
@@ -772,7 +889,8 @@ internal static partial class WindowsSplitOutputPublisher
                 {
                     try
                     {
-                        RestoreExistingTarget(slot);
+                        if (RestoreExistingTarget(slot) is { } restoreFailure)
+                            failures.Add(new IOException($"Unable to restore exact original Split target '{slot.FinalPath}'.", restoreFailure));
                     }
                     catch (Exception exception)
                     {
@@ -786,7 +904,8 @@ internal static partial class WindowsSplitOutputPublisher
                 {
                     try
                     {
-                        RetireOwnedFile(slot.Stage, slot.Published ? "published missing target" : "staged output");
+                        if (RetireOwnedFile(slot.Stage, slot.Published ? "published missing target" : "staged output") is { } cleanupFailure)
+                            failures.Add(cleanupFailure);
                     }
                     catch (Exception exception)
                     {
@@ -805,7 +924,8 @@ internal static partial class WindowsSplitOutputPublisher
 
                 try
                 {
-                    RetireOwnedFile(backup, "rollback backup");
+                    if (RetireOwnedFile(backup, "rollback backup") is { } cleanupFailure)
+                        failures.Add(cleanupFailure);
                     baseline.BackupCleanupProof = backup.CleanupProof;
                 }
                 catch (Exception exception)
@@ -815,7 +935,7 @@ internal static partial class WindowsSplitOutputPublisher
                 }
             }
 
-            if (failures.Count == 0) _journal?.Complete();
+            if (failures.Count == 0 && _journal?.TryComplete() is { } completionFailure) failures.Add(completionFailure);
             return failures.Count switch
             {
                 0 => null,
@@ -853,55 +973,44 @@ internal static partial class WindowsSplitOutputPublisher
             };
         }
 
-        private static void RestoreExistingTarget(OutputSlot slot)
+        private static Exception? RestoreExistingTarget(OutputSlot slot)
         {
             TargetBaseline baseline = slot.Baseline!;
-            TransactionFile backup = baseline.Backup
-                ?? throw new IOException($"Rollback backup for '{slot.FinalPath}' is unavailable.");
-            SafeFileHandle mutation = slot.MutationHandle
-                ?? throw new IOException($"Retained mutation handle for '{slot.FinalPath}' is unavailable.");
-            long baselineLength = baseline.Length
-                ?? throw new IOException($"Rollback backup for '{slot.FinalPath}' has no captured original length.");
-            string baselineSha = baseline.Sha256
-                ?? throw new IOException($"Rollback backup for '{slot.FinalPath}' has no captured original SHA-256.");
-
-            WindowsFileIdentity backupIdentity = WindowsFileIdentity.Capture(backup.Handle);
-            if (!SameObjectAndAttributes(backup.Identity, backupIdentity) ||
-                GetLength(backup.Handle, backup.Path) != baselineLength ||
-                !string.Equals(
-                    ComputeSha256(backup.Handle, baselineLength, backup.Path, CancellationToken.None),
-                    baselineSha,
-                    StringComparison.Ordinal))
-            {
-                throw new IOException($"Rollback backup for '{slot.FinalPath}' no longer matches its verified original bytes.");
-            }
-
-            CopyHandleBytes(backup.Handle, mutation, baselineLength, slot.FinalPath, CancellationToken.None);
-            WindowsFileIdentity restoredIdentity = CaptureAndValidateRegularFile(
-                mutation,
-                slot.FinalPath,
-                requiredLinkCount: null);
-            long restoredLength = GetLength(mutation, slot.FinalPath);
-            string restoredSha = ComputeSha256(mutation, restoredLength, slot.FinalPath, CancellationToken.None);
-
-            if (!SameObjectAndAttributes(baseline.Identity!, restoredIdentity) ||
-                restoredIdentity.LinkCount < 1 ||
-                restoredLength != baselineLength ||
-                !string.Equals(restoredSha, baselineSha, StringComparison.Ordinal))
-            {
-                throw new IOException($"Rollback did not restore the original identity, attributes, length, and SHA-256 for '{slot.FinalPath}'.");
-            }
-
+            if (baseline.Backup is not { } backup || slot.MutationHandle is not { } mutation ||
+                baseline.Length is not { } baselineLength || baseline.Sha256 is not { } baselineSha)
+                return new IOException($"Exact rollback evidence for '{slot.FinalPath}' is unavailable.");
+            if (!WindowsFileIdentity.TryCapture(backup.Handle, out var backupIdentity, out int backupError) ||
+                !SameObjectAndAttributes(backup.Identity, backupIdentity!))
+                return new IOException($"Rollback backup '{backup.Path}' changed identity (system error {backupError}).");
+            if (!GetFileSizeEx(backup.Handle, out long backupLength))
+                return BuildIOException("Cannot inspect rollback backup length.", Marshal.GetLastWin32Error());
+            var backupHash = MediaFileHashAttempt.ComputeHeld(backup.Handle, backupLength, CancellationToken.None);
+            if (backupHash.Failure is { } hashFailure) return hashFailure;
+            if (backupLength != baselineLength || !string.Equals(backupHash.Sha256, baselineSha, StringComparison.Ordinal))
+                return new IOException($"Rollback backup '{backup.Path}' no longer matches its verified original bytes.");
+            if (CopyHandleBytesFailure(backup.Handle, mutation, baselineLength, slot.FinalPath, CancellationToken.None) is { } copyFailure)
+                return copyFailure;
+            if (!WindowsFileIdentity.TryCapture(mutation, out var restoredIdentity, out int restoredError) ||
+                !SameObjectAndAttributes(baseline.Identity!, restoredIdentity!) || restoredIdentity!.IsReparsePoint ||
+                (restoredIdentity.FileAttributes & FileAttributeDirectory) != 0 || restoredIdentity.LinkCount < 1)
+                return new IOException($"Rollback target identity is invalid (system error {restoredError}).");
+            if (!GetFileSizeEx(mutation, out long restoredLength))
+                return BuildIOException("Cannot verify restored target length.", Marshal.GetLastWin32Error());
+            var restoredHash = MediaFileHashAttempt.ComputeHeld(mutation, restoredLength, CancellationToken.None);
+            if (restoredHash.Failure is { } restoredFailure) return restoredFailure;
+            if (restoredLength != baselineLength || !string.Equals(restoredHash.Sha256, baselineSha, StringComparison.Ordinal))
+                return new IOException($"Rollback did not restore the original bytes for '{slot.FinalPath}'.");
             slot.FinalIdentity = restoredIdentity;
             slot.FinalLength = restoredLength;
-            slot.FinalSha256 = restoredSha;
+            slot.FinalSha256 = restoredHash.Sha256;
             slot.Mutated = false;
+            return null;
         }
 
-        private void RetireOwnedFile(TransactionFile file, string role)
+        private Exception? RetireOwnedFile(TransactionFile file, string role)
         {
             if (file.CleanupProven)
-                return;
+                return null;
             OwnedObjectCleanupProof proof = WindowsOwnedFilePublisher.DeleteOwnedObjectWithProof(
                 file.Handle,
                 file.Identity,
@@ -910,12 +1019,13 @@ internal static partial class WindowsSplitOutputPublisher
             file.DeletePendingArmed |= deletePendingArmed;
             file.CleanupProof = proof.ToString();
             if (proof is not (OwnedObjectCleanupProof.Gone or OwnedObjectCleanupProof.Unlinked))
-                throw new IOException($"Exact cleanup of transaction-owned Split {role} '{file.Path}' is unproven ({proof}).");
+                return new IOException($"Exact cleanup of transaction-owned Split {role} '{file.Path}' is unproven ({proof}).");
 
             file.CleanupProven = true;
             if (!file.Handle.IsClosed)
                 CloseHandleNoThrow(file.Handle);
             file.HandleDisposedByProof = file.Handle.IsClosed;
+            return null;
         }
 
         public void Dispose()
@@ -995,7 +1105,14 @@ internal static partial class WindowsSplitOutputPublisher
         public bool HandleDisposedByProof { get; set; }
     }
 
-    private static TransactionFile CreateTransactionFile(string directory, string role, bool deleteOnClose,
+    private static TransactionFile CreateTransactionFile(string directory,string role,bool deleteOnClose,bool allowReadOnlyValidation=false)
+    {
+        var result=TryCreateTransactionFile(directory,role,deleteOnClose,allowReadOnlyValidation);
+        if(result.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return result.File!;
+    }
+
+    private static (TransactionFile? File,Exception? Failure) TryCreateTransactionFile(string directory, string role, bool deleteOnClose,
         bool allowReadOnlyValidation = false)
     {
         for (int attempt = 0; attempt < 32; attempt++)
@@ -1015,16 +1132,13 @@ internal static partial class WindowsSplitOutputPublisher
                 IntPtr.Zero);
             if (!handle.IsInvalid)
             {
-                try
-                {
-                    WindowsFileIdentity identity = CaptureAndValidateRegularFile(handle, path, requiredLinkCount: 1);
-                    return new TransactionFile(path, handle, identity);
-                }
-                catch
-                {
-                    handle.Dispose();
-                    throw;
-                }
+                if(WindowsFileIdentity.TryCapture(handle,out WindowsFileIdentity? identity,out int infoError) &&
+                    identity!.LinkCount==1 && !identity.IsReparsePoint && (identity.FileAttributes&FileAttributeDirectory)==0)
+                    return (new TransactionFile(path,handle,identity),null);
+                var disposition=new FileDispositionInfo { DeleteFile=1 };
+                bool retired=SetFileInformationByHandle(handle,FileDispositionInfoClass,ref disposition,(uint)Marshal.SizeOf<FileDispositionInfo>());
+                handle.Dispose();
+                return (null,new IOException($"Cannot verify transaction-owned stage identity (system error {infoError}); creating-handle cleanup={retired}."));
             }
 
             int error = Marshal.GetLastWin32Error();
@@ -1032,10 +1146,10 @@ internal static partial class WindowsSplitOutputPublisher
             if (error is ErrorFileExists or ErrorAlreadyExists)
                 continue;
 
-            throw BuildIOException($"Unable to create transaction-owned Split {role} '{path}'.", error);
+            return (null,BuildIOException($"Unable to create transaction-owned Split {role} '{path}'.", error));
         }
 
-        throw new IOException($"Unable to allocate a unique transaction-owned Split {role} name in '{directory}'.");
+        return (null,new IOException($"Unable to allocate a unique transaction-owned Split {role} name in '{directory}'."));
     }
 
     private static SafeFileHandle OpenBaselineTarget(string path)
@@ -1077,47 +1191,22 @@ internal static partial class WindowsSplitOutputPublisher
         throw BuildIOException($"Unable to acquire the exclusive Split mutation handle for '{path}'.", error);
     }
 
-    private static async Task CopySourceToStageAsync(
-        string sourcePath,
-        TransactionFile stage,
-        CancellationToken token)
+    private static async Task<Exception?> CopySourceToStageAsync(string sourcePath,TransactionFile stage,CancellationToken token)
     {
-        await using var source = new FileStream(
-            sourcePath,
-            FileMode.Open,
-            FileAccess.Read,
-            FileShare.Read,
-            bufferSize: BufferSize,
-            useAsync: true);
-
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
-        try
+        using(var borrowed=new SafeFileHandle(stage.Handle.DangerousGetHandle(),ownsHandle:false))
+        using(var stream=new FileStream(borrowed,FileAccess.ReadWrite,BufferSize,isAsync:false))
         {
-            long offset = 0;
-            while (true)
-            {
-                token.ThrowIfCancellationRequested();
-                int read = await source.ReadAsync(buffer.AsMemory(0, BufferSize), token).ConfigureAwait(false);
-                if (read == 0)
-                    break;
-                RandomAccess.Write(stage.Handle, buffer.AsSpan(0, read), offset);
-                offset += read;
-            }
-
-            SetLength(stage.Handle, offset, stage.Path);
-            Flush(stage.Handle, stage.Path);
-            WindowsFileIdentity actualIdentity = CaptureAndValidateRegularFile(stage.Handle, stage.Path, requiredLinkCount: 1);
-            if (!SameObjectAndAttributes(stage.Identity, actualIdentity))
-                throw new IOException($"Staged Split object '{stage.Path}' changed identity or attributes while being written.");
-            stage.Length = GetLength(stage.Handle, stage.Path);
-            stage.Sha256 = ComputeSha256(stage.Handle, stage.Length, stage.Path, token);
-            if (stage.Length != offset)
-                throw new IOException($"Staged Split output '{stage.Path}' has an unexpected final length.");
+            if(await MediaFileHashAttempt.CopyToAsync(sourcePath,stream,token).ConfigureAwait(false) is { } failure)return failure;
+            if (FlushFailure(stage.Handle, stage.Path) is { } flushFailure) return flushFailure;
         }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
+        if (FlushFailure(stage.Handle, stage.Path) is { } stageFlushFailure) return stageFlushFailure;
+        if(!WindowsFileIdentity.TryCapture(stage.Handle,out var identity,out int error)||!SameObjectAndAttributes(stage.Identity,identity!))
+            return new IOException($"Staged Split object changed identity or attributes (system error {error}).");
+        stage.Length=GetLength(stage.Handle,stage.Path);
+        var hash = MediaFileHashAttempt.ComputeHeld(stage.Handle, stage.Length, token);
+        if (hash.Failure is { } hashFailure) return hashFailure;
+        stage.Sha256=hash.Sha256!;
+        return null;
     }
 
     private static void CopyHandleBytes(
@@ -1127,76 +1216,69 @@ internal static partial class WindowsSplitOutputPublisher
         string destinationDescription,
         CancellationToken token)
     {
-        SetLength(destination, 0, destinationDescription);
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
-        try
-        {
-            long offset = 0;
-            while (offset < length)
-            {
-                token.ThrowIfCancellationRequested();
-                int requested = (int)Math.Min(buffer.Length, length - offset);
-                int read = RandomAccess.Read(source, buffer.AsSpan(0, requested), offset);
-                if (read <= 0)
-                    throw new IOException($"Short read while copying an exact Split transaction object to '{destinationDescription}'.");
-                RandomAccess.Write(destination, buffer.AsSpan(0, read), offset);
-                offset += read;
-            }
-
-            SetLength(destination, length, destinationDescription);
-            Flush(destination, destinationDescription);
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
+        if (CopyHandleBytesFailure(source, destination, length, destinationDescription, token) is { } failure)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
-    private static void VerifyOwnedFileMatches(
-        TransactionFile file,
-        long expectedLength,
-        string expectedSha256,
-        CancellationToken token)
-    {
-        WindowsFileIdentity actual = CaptureAndValidateRegularFile(file.Handle, file.Path, requiredLinkCount: 1);
-        long length = GetLength(file.Handle, file.Path);
-        string sha = ComputeSha256(file.Handle, length, file.Path, token);
-        if (!SameObjectAndAttributes(file.Identity, actual) ||
-            length != expectedLength ||
-            !string.Equals(sha, expectedSha256, StringComparison.Ordinal))
-        {
-            throw new IOException($"Transaction-owned Split object '{file.Path}' changed identity or content before publication.");
-        }
-    }
-
-    private static string ComputeSha256(
-        SafeFileHandle handle,
+    private static Exception? CopyHandleBytesFailure(
+        SafeFileHandle source,
+        SafeFileHandle destination,
         long length,
-        string description,
+        string destinationDescription,
         CancellationToken token)
     {
-        using IncrementalHash hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        byte[] buffer = ArrayPool<byte>.Shared.Rent(BufferSize);
-        try
-        {
-            long offset = 0;
-            while (offset < length)
-            {
-                token.ThrowIfCancellationRequested();
-                int requested = (int)Math.Min(buffer.Length, length - offset);
-                int read = RandomAccess.Read(handle, buffer.AsSpan(0, requested), offset);
-                if (read <= 0)
-                    throw new IOException($"Short read while hashing exact Split object '{description}'.");
-                hash.AppendData(buffer, 0, read);
-                offset += read;
-            }
+        if (token.IsCancellationRequested) return new OperationCanceledException(token);
+        if (!GetFileSizeEx(source, out long sourceLength) || sourceLength != length)
+            return new IOException("Exact Split source length changed before copying.");
+        if (SetLengthFailure(destination, 0, destinationDescription) is { } truncateFailure) return truncateFailure;
+        using var borrowed = new SafeFileHandle(destination.DangerousGetHandle(), ownsHandle: false);
+        using var stream = new FileStream(borrowed, FileAccess.ReadWrite, BufferSize, isAsync: false);
+        // Rollback backups may already be delete-pending through their retained
+        // exact-object proof; their source handle remains readable until rollback.
+        if (MediaFileHashAttempt.CopyHeldFileTo(source, stream, token, allowUnlinked: true) is { } copyFailure) return copyFailure;
+        if (SetLengthFailure(destination, length, destinationDescription) is { } lengthFailure) return lengthFailure;
+        return FlushFailure(destination, destinationDescription);
+    }
 
-            return Convert.ToHexString(hash.GetHashAndReset());
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
+    private static void VerifyOwnedFileMatches(TransactionFile file, long expectedLength, string expectedSha256, CancellationToken token)
+    {
+        if (OwnedFileMismatch(file, expectedLength, expectedSha256, token) is { } failure)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    private static Exception? OwnedFileMismatch(TransactionFile file, long expectedLength, string expectedSha256, CancellationToken token)
+    {
+        if (token.IsCancellationRequested) return new OperationCanceledException(token);
+        if (!WindowsFileIdentity.TryCapture(file.Handle, out var actual, out int error) ||
+            actual!.LinkCount != 1 || actual.IsReparsePoint || (actual.FileAttributes & FileAttributeDirectory) != 0 ||
+            !SameObjectAndAttributes(file.Identity, actual))
+            return new IOException($"Transaction-owned Split object '{file.Path}' changed identity or attributes (system error {error}).");
+        if (!GetFileSizeEx(file.Handle, out long length))
+            return BuildIOException("Cannot verify transaction-owned Split file length.", Marshal.GetLastWin32Error());
+        var hash = MediaFileHashAttempt.ComputeHeld(file.Handle, length, token);
+        if (hash.Failure is { } failure) return failure;
+        if (length != expectedLength || !string.Equals(hash.Sha256, expectedSha256, StringComparison.Ordinal))
+            return new IOException($"Transaction-owned Split object '{file.Path}' changed content before publication.");
+        return null;
+    }
+
+    private static string ComputeSha256(SafeFileHandle handle, long length, string description, CancellationToken token)
+    {
+        var attempt = MediaFileHashAttempt.ComputeHeld(handle, length, token);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Sha256!;
+    }
+
+    private static (WindowsFileIdentity? Identity, Exception? Failure) TryCaptureRegularFile(
+        SafeFileHandle handle, string path, uint? requiredLinkCount)
+    {
+        if (!WindowsFileIdentity.TryCapture(handle, out var identity, out int error))
+            return (null, BuildIOException($"Cannot inspect transaction object '{path}'.", error));
+        if (identity!.IsReparsePoint || (identity.FileAttributes & FileAttributeDirectory) != 0)
+            return (null, new IOException($"Split transaction object '{path}' is not a regular non-reparse file."));
+        if (requiredLinkCount.HasValue && identity.LinkCount != requiredLinkCount.Value)
+            return (null, new IOException($"Split transaction object '{path}' has link count {identity.LinkCount}; expected {requiredLinkCount.Value}."));
+        return (identity, null);
     }
 
     private static WindowsFileIdentity CaptureAndValidateRegularFile(
@@ -1230,6 +1312,12 @@ internal static partial class WindowsSplitOutputPublisher
 
     private static void SetLength(SafeFileHandle handle, long length, string description)
     {
+        if (SetLengthFailure(handle, length, description) is { } failure)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    private static Exception? SetLengthFailure(SafeFileHandle handle, long length, string description)
+    {
         var endOfFile = new FileEndOfFileInfo { EndOfFile = length };
         if (!SetFileInformationByHandle(
                 handle,
@@ -1238,23 +1326,28 @@ internal static partial class WindowsSplitOutputPublisher
                 (uint)Marshal.SizeOf<FileEndOfFileInfo>()))
         {
             int error = Marshal.GetLastWin32Error();
-            throw BuildIOException($"Unable to set the exact length of Split file object '{description}'.", error);
+            return BuildIOException($"Unable to set the exact length of Split file object '{description}'.", error);
         }
+        return null;
     }
 
     private static void Flush(SafeFileHandle handle, string description)
     {
-        if (!FlushFileBuffers(handle))
-        {
-            int error = Marshal.GetLastWin32Error();
-            throw BuildIOException($"Unable to flush Split file object '{description}' to disk.", error);
-        }
+        if (FlushFailure(handle, description) is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
     }
 
-    private static void RenameNoReplaceThroughHandle(SafeFileHandle handle, string finalPath)
+    private static Exception? FlushFailure(SafeFileHandle handle, string description)
+        => FlushFileBuffers(handle) ? null : BuildIOException($"Unable to flush Split file object '{description}' to disk.", Marshal.GetLastWin32Error());
+
+    private static void RenameNoReplaceThroughHandle(SafeFileHandle handle,string finalPath)
+    {
+        if(RenameNoReplaceFailure(handle,finalPath) is { } failure)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    private static IOException? RenameNoReplaceFailure(SafeFileHandle handle, string finalPath)
     {
         string absolutePath = Path.GetFullPath(finalPath);
-        byte[] nameBytes = System.Text.Encoding.Unicode.GetBytes(absolutePath);
+        byte[] nameBytes = System.Text.Encoding.Unicode.GetBytes(WindowsNativePath.Extended(absolutePath));
         int replaceOffset = checked((int)Marshal.OffsetOf<FileRenameInfoHeader>(nameof(FileRenameInfoHeader.ReplaceIfExists)));
         int rootOffset = checked((int)Marshal.OffsetOf<FileRenameInfoHeader>(nameof(FileRenameInfoHeader.RootDirectory)));
         int lengthOffset = checked((int)Marshal.OffsetOf<FileRenameInfoHeader>(nameof(FileRenameInfoHeader.FileNameLength)));
@@ -1270,14 +1363,17 @@ internal static partial class WindowsSplitOutputPublisher
         nameBytes.CopyTo(bytes.Slice(fileNameOffset));
 
         if (SetFileInformationByHandle(handle, FileRenameInfoClass, buffer, (uint)buffer.Length))
-            return;
+            return null;
 
         int error = Marshal.GetLastWin32Error();
         string reason = error is ErrorFileExists or ErrorAlreadyExists
             ? "The no-replace Split publication refused an occupied foreign destination."
             : "Handle-bound no-replace Split publication failed.";
-        throw BuildIOException($"{reason} Destination '{absolutePath}'.", error);
+        return BuildIOException($"{reason} Destination '{absolutePath}'.", error);
     }
+
+    internal static Exception? MoveAuthorizedSourceNoReplace(SafeFileHandle handle, string destination)
+        => RenameNoReplaceFailure(handle, destination);
 
     private static IOException BuildIOException(string message, int error) =>
         new(message, new Win32Exception(error));
@@ -1317,8 +1413,19 @@ internal static partial class WindowsSplitOutputPublisher
         public long EndOfFile;
     }
 
+    private static SafeFileHandle CreateFileW(
+        string fileName,
+        uint desiredAccess,
+        uint shareMode,
+        IntPtr securityAttributes,
+        uint creationDisposition,
+        uint flagsAndAttributes,
+        IntPtr templateFile) =>
+        NativeCreateFileW(LivePhotoBox.Interop.WindowsNativePath.Extended(fileName), desiredAccess, shareMode,
+            securityAttributes, creationDisposition, flagsAndAttributes, templateFile);
+
     [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
-    private static extern SafeFileHandle CreateFileW(
+    private static extern SafeFileHandle NativeCreateFileW(
         string fileName,
         uint desiredAccess,
         uint shareMode,

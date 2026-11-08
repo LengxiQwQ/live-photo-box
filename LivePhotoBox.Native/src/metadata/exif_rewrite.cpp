@@ -281,6 +281,11 @@ std::vector<uint8_t> lpb_tiff_remove_makernotes(const uint8_t* tiff, size_t tiff
             }
         }
     }
+    for(const auto& removed:merged)
+        if(ifd0_offset>=removed.start && ifd0_offset-removed.start<removed.length)return {};
+    const size_t root=map_abs(ifd0_offset);
+    if(root>UINT32_MAX || root>cleaned.size() || cleaned.size()-root<6 || cleaned.size()<8)return {};
+    write_u32(cleaned.data()+4,static_cast<uint32_t>(root),big_endian);
     
     return cleaned;
 }
@@ -323,7 +328,9 @@ std::vector<uint8_t> lpb_tiff_insert_makernote(const uint8_t* tiff, size_t tiff_
     if (target_ifd > tiff_size || tiff_size - target_ifd < 2) return std::vector<uint8_t>();
     
     uint16_t entry_count = read_u16(tiff + target_ifd, big_endian);
-    if (entry_count == 0 || entry_count > 256) return std::vector<uint8_t>();
+    // Removing the only MakerNote can leave a legal empty ExifIFD. Its
+    // count and next-IFD pointer still authorize insertion into that IFD.
+    if (entry_count > 256) return std::vector<uint8_t>();
     
     if (tiff_size - target_ifd - 2 < static_cast<size_t>(entry_count) * 12) return std::vector<uint8_t>();
     size_t insert_at = target_ifd + 2 + entry_count * 12;
@@ -344,6 +351,7 @@ std::vector<uint8_t> lpb_tiff_insert_makernote(const uint8_t* tiff, size_t tiff_
     for (const auto& fix : fixups) {
         if (fix.value > std::numeric_limits<uint32_t>::max() - 12) return std::vector<uint8_t>();
     }
+    if(ifd0_offset>=insert_at && ifd0_offset>UINT32_MAX-12)return {};
     
     uint8_t entry[12];
     write_u16(entry, 0x927C, big_endian);
@@ -368,6 +376,9 @@ std::vector<uint8_t> lpb_tiff_insert_makernote(const uint8_t* tiff, size_t tiff_
             write_u32(grown.data() + new_pos, fix.value + 12, big_endian);
         }
     }
+    // IFD0 may legally follow ExifIFD in a compact/rebuilt TIFF. The root
+    // header is also an offset owner when the inserted entry precedes it.
+    if(ifd0_offset>=insert_at)write_u32(grown.data()+4,static_cast<uint32_t>(ifd0_offset+12),big_endian);
     
     write_u16(grown.data() + target_ifd, entry_count + 1, big_endian);
     

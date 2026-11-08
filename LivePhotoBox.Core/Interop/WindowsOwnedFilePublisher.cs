@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.IO;
@@ -40,32 +40,37 @@ internal static class WindowsOwnedFilePublisher
     // outside a registered MediaWorkspace. Reparse directories fail closed.
     internal static IDisposable PinDirectoryAncestors(string directory)
     {
-        var paths = new Stack<string>();
-        for (DirectoryInfo? current = new(Path.GetFullPath(directory)); current != null; current = current.Parent)
-            paths.Push(current.FullName);
+        var attempt = TryPinDirectoryAncestors(directory);
+        if (attempt.Failure is { } failure)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Lease!;
+    }
 
+    internal static (IDisposable? Lease, Exception? Failure) TryPinDirectoryAncestors(string directory)
+    {
+        var paths = new Stack<string>();
+        for (string? current = Path.GetFullPath(directory); current != null; current = Path.GetDirectoryName(current))
+            paths.Push(current);
         var lease = new DirectoryAncestorLease();
-        try
+        while (paths.TryPop(out string? path))
         {
-            while (paths.TryPop(out string? path))
+            SafeFileHandle handle = CreateFileForCommit(WindowsNativePath.Extended(path), FileReadAttributes,
+                FileShareRead | FileShareWrite, IntPtr.Zero, OpenExisting,
+                OpenReparsePoint | BackupSemantics, IntPtr.Zero);
+            lease.Handles.Add(handle);
+            if (handle.IsInvalid)
             {
-                SafeFileHandle handle = CreateFileForCommit(path, FileReadAttributes,
-                    FileShareRead | FileShareWrite, IntPtr.Zero, OpenExisting,
-                    OpenReparsePoint | BackupSemantics, IntPtr.Zero);
-                lease.Handles.Add(handle);
-                if (handle.IsInvalid)
-                    throw new IOException($"Cannot pin publication directory '{path}' (Win32 error {Marshal.GetLastWin32Error()}).");
-                WindowsFileIdentity identity = WindowsFileIdentity.Capture(handle);
-                if (identity.IsReparsePoint || (identity.FileAttributes & FileAttributeDirectory) == 0)
-                    throw new IOException($"Publication directory '{path}' is not a regular, non-reparse directory.");
+                int error = Marshal.GetLastWin32Error(); lease.Dispose();
+                return (null, new IOException($"Cannot pin publication directory '{path}' (Win32 error {error})."));
             }
-            return lease;
+            if (!WindowsFileIdentity.TryCapture(handle, out var identity, out int identityError) ||
+                identity!.IsReparsePoint || (identity.FileAttributes & FileAttributeDirectory) == 0)
+            {
+                lease.Dispose();
+                return (null, new IOException($"Publication directory '{path}' is not a regular, non-reparse directory (system error {identityError})."));
+            }
         }
-        catch
-        {
-            lease.Dispose();
-            throw;
-        }
+        return (lease, null);
     }
 
     private sealed class DirectoryAncestorLease : IDisposable
@@ -91,7 +96,7 @@ internal static class WindowsOwnedFilePublisher
     /// writer can modify the object's content between verify and rename.  An
     /// already-incompatible writer causes the open itself to fail closed.
     /// </summary>
-    public static SafeFileHandle OpenOwnedStagedFile(string path, WindowsFileIdentity expected)
+    internal static (SafeFileHandle? Handle, Exception? Failure) TryOpenOwnedStagedFile(string path, WindowsFileIdentity expected)
     {
         SafeFileHandle handle = CreateFileForCommit(
             path,
@@ -104,36 +109,54 @@ internal static class WindowsOwnedFilePublisher
         if (handle.IsInvalid)
         {
             int win32Error = Marshal.GetLastWin32Error();
-            throw new CleanerException(
+            handle.Dispose();
+            return (null, new CleanerException(
                 CleanerFailureCategory.ArtifactChangedSinceExtraction,
                 CleanerFailureStage.Commit,
                 SourceProtocol.Unknown,
-                $"Unable to open staged object '{path}' for exact-object commit (Win32 error {win32Error}).");
+                $"Unable to open staged object '{path}' for exact-object commit (Win32 error {win32Error})."));
         }
 
         try
         {
-            WindowsFileIdentity actual = WindowsFileIdentity.Capture(handle);
-            if (actual.IsReparsePoint ||
+            if (!WindowsFileIdentity.TryCapture(handle, out var actual, out int captureError))
+            {
+                handle.Dispose();
+                return (null, new CleanerException(
+                    CleanerFailureCategory.ArtifactChangedSinceExtraction,
+                    CleanerFailureStage.Commit,
+                    SourceProtocol.Unknown,
+                    $"Unable to capture staged object identity '{path}' (system error {captureError})."));
+            }
+
+            if (actual!.IsReparsePoint ||
                 actual.VolumeSerialNumber != expected.VolumeSerialNumber ||
                 actual.FileIndex != expected.FileIndex ||
                 actual.LinkCount != expected.LinkCount ||
                 expected.LinkCount != 1)
             {
-                throw new CleanerException(
+                handle.Dispose();
+                return (null, new CleanerException(
                     CleanerFailureCategory.ArtifactChangedSinceExtraction,
                     CleanerFailureStage.Commit,
                     SourceProtocol.Unknown,
-                    $"Staged object at '{path}' is not the exact object this transaction registered (volume/file-index/link-count/reparse mismatch); refusing to publish a foreign object.");
+                    $"Staged object at '{path}' is not the exact object this transaction registered (volume/file-index/link-count/reparse mismatch); refusing to publish a foreign object."));
             }
 
-            return handle;
+            return (handle, null);
         }
-        catch
+        catch (Exception ex)
         {
             handle.Dispose();
-            throw;
+            return (null, ex);
         }
+    }
+
+    public static SafeFileHandle OpenOwnedStagedFile(string path, WindowsFileIdentity expected)
+    {
+        var attempt = TryOpenOwnedStagedFile(path, expected);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Handle!;
     }
 
     /// <summary>
@@ -483,6 +506,13 @@ internal static class WindowsOwnedFilePublisher
     /// </summary>
     internal static SafeFileHandle CreateOwnedWorkspaceRoot(string path)
     {
+        var attempt = TryCreateOwnedWorkspaceRoot(path);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Handle!;
+    }
+
+    internal static (SafeFileHandle? Handle, Exception? Failure) TryCreateOwnedWorkspaceRoot(string path)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         string normalizedPath = Path.GetFullPath(path);
         byte[] nameBytes = Encoding.Unicode.GetBytes(@"\??\" + normalizedPath);
@@ -523,19 +553,13 @@ internal static class WindowsOwnedFilePublisher
                     string detail = status == StatusObjectNameCollision
                         ? $"Workspace root '{normalizedPath}' already exists; refusing to claim a directory this transaction did not create."
                         : $"Unable to atomically create workspace root '{normalizedPath}' (NTSTATUS 0x{status:X8}).";
-                    throw new IOException(detail);
+                    handle.Dispose();
+                    return (null, new IOException(detail));
                 }
 
-                try
-                {
-                    ValidateWorkspaceDirectoryHandle(handle, normalizedPath, expected: null);
-                    return handle;
-                }
-                catch
-                {
-                    handle.Dispose();
-                    throw;
-                }
+                var validation = TryValidateWorkspaceDirectoryHandle(handle, normalizedPath, expected: null);
+                if (validation.Failure is { } failure) { handle.Dispose(); return (null, failure); }
+                return (handle, null);
             }
             finally
             {
@@ -554,7 +578,14 @@ internal static class WindowsOwnedFilePublisher
     /// later strict cleanup lease; the root pin itself supplies rename
     /// protection during normal workspace use.
     /// </summary>
-    internal static SafeFileHandle OpenWorkspaceRecoveryHandle(
+    internal static SafeFileHandle OpenWorkspaceRecoveryHandle(string path, WindowsFileIdentity expected)
+    {
+        var attempt = TryOpenWorkspaceRecoveryHandle(path, expected);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Handle!;
+    }
+
+    internal static (SafeFileHandle? Handle, Exception? Failure) TryOpenWorkspaceRecoveryHandle(
         string path,
         WindowsFileIdentity expected)
     {
@@ -573,19 +604,12 @@ internal static class WindowsOwnedFilePublisher
         {
             int error = Marshal.GetLastWin32Error();
             handle.Dispose();
-            throw new IOException($"Unable to open workspace root '{normalizedPath}' for retained identity recovery (Win32 error {error}).");
+            return (null, new IOException($"Unable to open workspace root '{normalizedPath}' for retained identity recovery (Win32 error {error})."));
         }
 
-        try
-        {
-            ValidateWorkspaceDirectoryHandle(handle, normalizedPath, expected);
-            return handle;
-        }
-        catch
-        {
-            handle.Dispose();
-            throw;
-        }
+        var validation = TryValidateWorkspaceDirectoryHandle(handle, normalizedPath, expected);
+        if (validation.Failure is { } failure) { handle.Dispose(); return (null, failure); }
+        return (handle, null);
     }
 
     /// <summary>
@@ -594,7 +618,7 @@ internal static class WindowsOwnedFilePublisher
     /// FILE_SHARE_DELETE prevents new namespace mutations after this lease is
     /// acquired.  Existing incompatible writers/deleters make the open fail.
     /// </summary>
-    internal static SafeFileHandle OpenWorkspaceCleanupLease(
+    internal static (SafeFileHandle? Handle, Exception? Failure) TryOpenWorkspaceCleanupLease(
         string path,
         WindowsFileIdentity expected)
     {
@@ -613,26 +637,40 @@ internal static class WindowsOwnedFilePublisher
         {
             int error = Marshal.GetLastWin32Error();
             handle.Dispose();
-            throw new IOException($"Unable to acquire the strict workspace cleanup lease for '{normalizedPath}' (Win32 error {error}).");
+            return (null, new IOException($"Unable to acquire the strict workspace cleanup lease for '{normalizedPath}' (Win32 error {error})."));
         }
 
-        try
-        {
-            ValidateWorkspaceDirectoryHandle(handle, normalizedPath, expected);
-            return handle;
-        }
-        catch
+        var validation = TryValidateWorkspaceDirectoryHandle(handle, normalizedPath, expected);
+        if (validation.Failure is { } failure)
         {
             handle.Dispose();
-            throw;
+            return (null, failure);
         }
+
+        return (handle, null);
+    }
+
+    internal static SafeFileHandle OpenWorkspaceCleanupLease(
+        string path,
+        WindowsFileIdentity expected)
+    {
+        var attempt = TryOpenWorkspaceCleanupLease(path, expected);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Handle!;
     }
 
     /// <summary>
     /// Revalidates a retained workspace-directory handle without reopening a
     /// pathname as ownership authority.
     /// </summary>
-    internal static WindowsFileIdentity ValidateWorkspaceDirectoryHandle(
+    internal static WindowsFileIdentity ValidateWorkspaceDirectoryHandle(SafeFileHandle handle, string expectedPath, WindowsFileIdentity? expected)
+    {
+        var attempt = TryValidateWorkspaceDirectoryHandle(handle, expectedPath, expected);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Identity!;
+    }
+
+    internal static (WindowsFileIdentity? Identity, Exception? Failure) TryValidateWorkspaceDirectoryHandle(
         SafeFileHandle handle,
         string expectedPath,
         WindowsFileIdentity? expected)
@@ -640,7 +678,9 @@ internal static class WindowsOwnedFilePublisher
         ArgumentNullException.ThrowIfNull(handle);
         ArgumentException.ThrowIfNullOrWhiteSpace(expectedPath);
 
-        WindowsFileIdentity actual = WindowsFileIdentity.Capture(handle);
+        if (!WindowsFileIdentity.TryCapture(handle, out var identity, out int error))
+            return (null, new IOException($"Cannot inspect workspace identity (system error {error})."));
+        WindowsFileIdentity actual = identity!;
         if (actual.IsReparsePoint ||
             (actual.FileAttributes & FileAttributeDirectory) == 0 ||
             (expected is not null &&
@@ -649,17 +689,19 @@ internal static class WindowsOwnedFilePublisher
                  actual.LinkCount != expected.LinkCount ||
                  (actual.FileAttributes & FileAttributeDirectory) == 0)))
         {
-            throw new IOException($"Workspace directory handle for '{expectedPath}' does not refer to its exact non-reparse directory identity.");
+            return (null, new IOException($"Workspace directory handle for '{expectedPath}' does not refer to its exact non-reparse directory identity."));
         }
 
-        string finalPath = GetNormalizedFinalPath(handle);
+        var pathAttempt = TryGetNormalizedFinalPath(handle);
+        if (pathAttempt.Failure is { } pathFailure) return (null, pathFailure);
+        string finalPath = pathAttempt.Path!;
         string normalizedExpectedPath = Path.GetFullPath(expectedPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         if (!string.Equals(finalPath, normalizedExpectedPath, StringComparison.OrdinalIgnoreCase))
         {
-            throw new IOException($"Workspace directory handle resolved to '{finalPath}', not the expected path '{normalizedExpectedPath}'.");
+            return (null, new IOException($"Workspace directory handle resolved to '{finalPath}', not the expected path '{normalizedExpectedPath}'."));
         }
 
-        return actual;
+        return (actual, null);
     }
 
     /// <summary>
@@ -676,15 +718,9 @@ internal static class WindowsOwnedFilePublisher
         ArgumentNullException.ThrowIfNull(expected);
         try
         {
-            WindowsFileIdentity actual;
-            try
-            {
-                actual = WindowsFileIdentity.Capture(cleanupLease);
-            }
-            catch
-            {
+            if (!WindowsFileIdentity.TryCapture(cleanupLease, out var captured, out _))
                 return OwnedObjectCleanupProof.Unknown;
-            }
+            WindowsFileIdentity actual = captured!;
 
             if (actual.IsReparsePoint ||
                 (actual.FileAttributes & FileAttributeDirectory) == 0 ||
@@ -715,11 +751,18 @@ internal static class WindowsOwnedFilePublisher
 
     private static string GetNormalizedFinalPath(SafeFileHandle handle)
     {
+        var attempt = TryGetNormalizedFinalPath(handle);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Path!;
+    }
+
+    private static (string? Path, Exception? Failure) TryGetNormalizedFinalPath(SafeFileHandle handle)
+    {
         var buffer = new StringBuilder(512);
         uint length = GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0);
         if (length == 0)
         {
-            throw new IOException($"Unable to read a retained filesystem handle's final path (Win32 error {Marshal.GetLastWin32Error()}).");
+            return (null, new IOException($"Unable to read a retained filesystem handle's final path (Win32 error {Marshal.GetLastWin32Error()})."));
         }
 
         if (length >= buffer.Capacity)
@@ -728,7 +771,7 @@ internal static class WindowsOwnedFilePublisher
             length = GetFinalPathNameByHandleW(handle, buffer, (uint)buffer.Capacity, 0);
             if (length == 0 || length >= buffer.Capacity)
             {
-                throw new IOException($"Unable to read a retained filesystem handle's complete final path (Win32 error {Marshal.GetLastWin32Error()}).");
+                return (null, new IOException($"Unable to read a retained filesystem handle's complete final path (Win32 error {Marshal.GetLastWin32Error()})."));
             }
         }
 
@@ -742,9 +785,9 @@ internal static class WindowsOwnedFilePublisher
 
         string normalized = Path.GetFullPath(value);
         string volumeRoot = Path.GetPathRoot(normalized) ?? string.Empty;
-        return string.Equals(normalized, volumeRoot, StringComparison.OrdinalIgnoreCase)
+        return (string.Equals(normalized, volumeRoot, StringComparison.OrdinalIgnoreCase)
             ? normalized
-            : normalized.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            : normalized.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar), null);
     }
 
     /// <summary>
@@ -808,7 +851,8 @@ internal static class WindowsOwnedFilePublisher
                 byIdFlags);
             if (!objectHandle.IsInvalid)
             {
-                WindowsFileIdentity actual = WindowsFileIdentity.Capture(objectHandle);
+                if (!WindowsFileIdentity.TryCapture(objectHandle, out var captured, out _)) return ObjectAliveCheck.Unknown;
+                WindowsFileIdentity actual = captured!;
                 return actual.VolumeSerialNumber == identity.VolumeSerialNumber &&
                     actual.FileIndex == identity.FileIndex
                     ? ObjectAliveCheck.Alive : ObjectAliveCheck.Unknown;
@@ -892,15 +936,8 @@ internal static class WindowsOwnedFilePublisher
     {
         deletePendingArmed = false;
 
-        WindowsFileIdentity pre;
-        try
-        {
-            pre = WindowsFileIdentity.Capture(handle);
-        }
-        catch
-        {
-            return OwnedObjectCleanupProof.Unknown;
-        }
+        if (!WindowsFileIdentity.TryCapture(handle, out var before, out _)) return OwnedObjectCleanupProof.Unknown;
+        WindowsFileIdentity pre = before!;
 
         if (pre.VolumeSerialNumber != identity.VolumeSerialNumber ||
             pre.FileIndex != identity.FileIndex ||
@@ -940,9 +977,9 @@ internal static class WindowsOwnedFilePublisher
         // object is freed when this last retained handle closes.  Prefer this
         // same-handle proof so a filesystem/API-specific by-FileId response
         // cannot turn an otherwise proven unlink into an ambiguous result.
-        try
+        if (WindowsFileIdentity.TryCapture(handle, out var after, out _))
         {
-            WindowsFileIdentity postDisposition = WindowsFileIdentity.Capture(handle);
+            WindowsFileIdentity postDisposition = after!;
             if (postDisposition.VolumeSerialNumber != identity.VolumeSerialNumber ||
                 postDisposition.FileIndex != identity.FileIndex ||
                 postDisposition.IsReparsePoint ||
@@ -964,12 +1001,8 @@ internal static class WindowsOwnedFilePublisher
                 return OwnedObjectCleanupProof.AliasAlive;
             }
         }
-        catch
-        {
-            // Continue with the exact FileId probe after releasing the handle;
-            // an inability to read post-disposition identity is not itself a
-            // gone proof.
-        }
+        // An unavailable post-disposition observation is not a gone proof;
+        // continue with the exact FileId probe below.
 
         // The object is now delete-pending: it is only freed when the LAST
         // open handle to it closes (probe H2/E2).  While this handle is still
@@ -1017,7 +1050,7 @@ internal static class WindowsOwnedFilePublisher
             return false;
         }
 
-        byte[] nameBytes = Encoding.Unicode.GetBytes(finalPath);
+        byte[] nameBytes = Encoding.Unicode.GetBytes(WindowsNativePath.Extended(finalPath));
         int replaceOffset = checked((int)Marshal.OffsetOf<FileRenameInfoHeader>("ReplaceIfExists"));
         int rootOffset = checked((int)Marshal.OffsetOf<FileRenameInfoHeader>("RootDirectory"));
         int lengthOffset = checked((int)Marshal.OffsetOf<FileRenameInfoHeader>("FileNameLength"));

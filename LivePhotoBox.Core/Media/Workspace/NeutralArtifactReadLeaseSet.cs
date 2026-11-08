@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
+using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Models;
 using Microsoft.Win32.SafeHandles;
 
@@ -22,67 +23,75 @@ internal sealed class NeutralArtifactReadLeaseSet : IDisposable
 
     internal void Pin(MediaArtifact? artifact)
     {
+        if (TryPin(artifact) is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    internal Exception? TryPin(MediaArtifact? artifact)
+    {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        if (artifact is null) return;
+        if (artifact is null) return null;
         string path = Path.GetFullPath(artifact.Path);
-        if (_files.Contains(path)) return;
+        if (_files.Contains(path)) return null;
 
         // Pin the complete path namespace as well as the leaf. An ancestor
         // rename must not redirect a later path-based Native observation.
-        PinDirectory(Path.GetDirectoryName(path));
-        SafeFileHandle handle = Open(path, 0x80000000, 0x1, 0x00200000);
+        if (TryPinDirectory(Path.GetDirectoryName(path)) is { } directoryFailure) return directoryFailure;
+        SafeFileHandle handle = TryOpen(path, 0x80000000, 0x1, 0x00200000);
+        if (handle.IsInvalid) { int error = Marshal.GetLastWin32Error(); handle.Dispose(); return OpenFailure(path, error); }
+        bool retained = false;
         try
         {
-            WindowsFileIdentity actual = WindowsFileIdentity.Capture(handle);
+            if (!WindowsFileIdentity.TryCapture(handle, out var captured, out int error)) return OpenFailure(path, error);
+            WindowsFileIdentity actual = captured!;
             if (actual.IsReparsePoint || (actual.FileAttributes & 0x10) != 0 ||
                 actual.LinkCount != 1 ||
                 (artifact.FileIdentity is { } expected && !expected.Matches(actual)))
             {
-                throw new InvalidDataException("Final observation artifact is not the producer's exact regular file object.");
+                return new InvalidDataException("Final observation artifact is not the producer's exact regular file object.");
             }
-            long length = RandomAccess.GetLength(handle);
+            if (!GetFileSizeEx(handle, out long length)) return OpenFailure(path, Marshal.GetLastWin32Error());
             if (length <= 0 || (artifact.ByteLength > 0 && length != artifact.ByteLength))
-                throw new InvalidDataException("Final observation artifact length disagrees with its producer evidence.");
+                return new InvalidDataException("Final observation artifact length disagrees with its producer evidence.");
             _handles.Add(handle);
             _files.Add(path);
+            retained = true;
+            return null;
         }
-        catch
-        {
-            handle.Dispose();
-            throw;
-        }
+        finally { if (!retained) handle.Dispose(); }
     }
 
-    private void PinDirectory(string? path)
+    internal Exception? TryPinDirectory(string? path)
     {
-        if (path is null || _directories.Contains(path)) return;
-        PinDirectory(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(path)));
+        if (path is null || _directories.Contains(path)) return null;
+        if (TryPinDirectory(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(path))) is { } parentFailure) return parentFailure;
         // READ_ATTRIBUTES, share READ/WRITE but not DELETE: sibling output
         // creation remains possible, while the directory cannot be replaced.
-        SafeFileHandle handle = Open(path, 0x80, 0x3, 0x02200000);
+        SafeFileHandle handle = TryOpen(path, 0x80, 0x3, 0x02200000);
+        if (handle.IsInvalid) { int error = Marshal.GetLastWin32Error(); handle.Dispose(); return OpenFailure(path, error); }
+        bool retained = false;
         try
         {
-            WindowsFileIdentity identity = WindowsFileIdentity.Capture(handle);
+            if (!WindowsFileIdentity.TryCapture(handle, out var captured, out int error)) return OpenFailure(path, error);
+            WindowsFileIdentity identity = captured!;
             if (identity.IsReparsePoint || (identity.FileAttributes & 0x10) == 0)
-                throw new InvalidDataException("Final observation namespace contains a redirecting or non-directory object.");
+                return new InvalidDataException("Final observation namespace contains a redirecting or non-directory object.");
             _handles.Add(handle);
             _directories.Add(path);
+            retained = true;
+            return null;
         }
-        catch
-        {
-            handle.Dispose();
-            throw;
-        }
+        finally { if (!retained) handle.Dispose(); }
     }
 
-    private static SafeFileHandle Open(string path, uint access, uint share, uint flags)
-    {
-        SafeFileHandle handle = CreateFileW(path, access, share, IntPtr.Zero, 3, flags, IntPtr.Zero);
-        if (!handle.IsInvalid) return handle;
-        int error = Marshal.GetLastWin32Error();
-        handle.Dispose();
-        throw new IOException("Could not retain immutable final observation input: " + path, new Win32Exception(error));
-    }
+    private static SafeFileHandle TryOpen(string path, uint access, uint share, uint flags)
+        => CreateFileW(WindowsNativePath.Extended(path), access, share, IntPtr.Zero, 3, flags, IntPtr.Zero);
+
+    private static Exception OpenFailure(string path, int error)
+        => new IOException("Could not retain immutable final observation input: " + path, new Win32Exception(error));
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool GetFileSizeEx(SafeFileHandle handle, out long size);
 
     public void Dispose()
     {

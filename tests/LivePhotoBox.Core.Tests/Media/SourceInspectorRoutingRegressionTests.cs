@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -40,11 +40,15 @@ public sealed class SourceInspectorRoutingRegressionTests
         string export = ReadProductionSource("LivePhotoBox", "Services", "EditExportService.cs");
         Assert.DoesNotContain("RunExifToolAsync", export, StringComparison.Ordinal);
         Assert.DoesNotContain("CopyExifForExportAsync", export, StringComparison.Ordinal);
-        string batch = ExtractMethod(export, "public async Task ExportAllFramesAsync", "private async Task ExportOneFrameAsync");
-        Assert.True(batch.IndexOf("EditExportMetadataPolicy.ValidateRequest", StringComparison.Ordinal) <
-            batch.IndexOf("Directory.CreateDirectory", StringComparison.Ordinal));
-        Assert.True(batch.IndexOf("EditExportMetadataPolicy.EnsureAllFramesSucceeded", StringComparison.Ordinal) <
-            batch.IndexOf("progress.NotifyComplete", StringComparison.Ordinal));
+        string batchEntry = ExtractMethod(export, "public Task ExportAllFramesAsync", "public Task ExportVideoAsync");
+        Assert.Contains("RunWithCleanupReportingAsync", batchEntry, StringComparison.Ordinal);
+        Assert.Contains("ExportAllFramesAsyncCore", batchEntry, StringComparison.Ordinal);
+        string batch = ExtractMethod(export, "private async Task ExportAllFramesAsyncCore", "private async Task ExportOneFrameAsync");
+        int requestGuard = batch.IndexOf("EditExportMetadataPolicy.RequestFailure", StringComparison.Ordinal);
+        int createDirectory = batch.IndexOf("OutputDirectoryAttempt.Ensure", StringComparison.Ordinal);
+        int incompleteGuard = batch.IndexOf("EditExportMetadataPolicy.IncompleteFailure", StringComparison.Ordinal);
+        Assert.True(requestGuard >= 0 && createDirectory > requestGuard);
+        Assert.True(incompleteGuard >= 0 && batch.IndexOf("progress.NotifyComplete", StringComparison.Ordinal) > incompleteGuard);
     }
 
     [Fact]

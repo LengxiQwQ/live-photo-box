@@ -27,6 +27,7 @@
 #include <fstream>
 #include <filesystem>
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstring>
 #include <string_view>
@@ -221,8 +222,15 @@ static bool scan_xmp_tree(std::string_view xml, std::vector<xmp_node>& nodes, bo
     while ((p = xml.find('<', p)) != std::string_view::npos) {
         if (xml.substr(p, 4) == "<!--") {
             const size_t comment_end = xml.find("-->", p + 4);
-            if (comment_end == std::string_view::npos) return false;
+            if (comment_end == std::string_view::npos || xml.substr(p + 4, comment_end - p - 4).find("--") != std::string_view::npos) return false;
             p = comment_end + 3;
+            continue;
+        }
+        if (xml.substr(p, 9) == "<![CDATA[") {
+            if (open_stack.empty()) return false;
+            const size_t end = xml.find("]]>", p + 9);
+            if (end == std::string_view::npos) return false;
+            p = end + 3;
             continue;
         }
         if (p + 1 < xml.size() && (xml[p + 1] == '!' || xml[p + 1] == '?')) {
@@ -250,6 +258,9 @@ static bool scan_xmp_tree(std::string_view xml, std::vector<xmp_node>& nodes, bo
                 std::string_view value = xml.substr(nodes[top_idx].content_start, p - nodes[top_idx].content_start);
                 while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) value.remove_prefix(1);
                 while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) value.remove_suffix(1);
+                if (value.starts_with("<![CDATA[") && value.ends_with("]]>") &&
+                    value.find("]]>", 9) == value.size() - 3)
+                    value = value.substr(9, value.size() - 12);
                 nodes[top_idx].text_value = value;
             }
             open_stack.pop_back();
@@ -2349,6 +2360,72 @@ static bool apple_keys_box_contains_content_identifier(
     return p == keys_end;
 }
 
+static bool unrelated_udta_metadata(const uint8_t* data,const isobmff_box_header& meta) noexcept {
+    size_t start=meta.start+meta.header_size,end=meta.start+meta.size;
+    if(end-start<8)return false;
+    // ISO meta has a zero FullBox prefix; QuickTime meta is a plain container.
+    if(read_be32u(data+start)==0)start+=4;
+    isobmff_box_header hdlr{},keys{},ilst{};
+    for(size_t p=start;p<end;) {
+        isobmff_box_header box{};if(!try_read_box_header(data,p,end,box))return false;
+        const std::string_view type(reinterpret_cast<const char*>(data+p+4),4);
+        auto* slot=type=="hdlr"?&hdlr:type=="keys"?&keys:type=="ilst"?&ilst:nullptr;
+        if(slot){if(slot->size)return false;*slot=box;}
+        else if(type=="meta"||is_apple_mov_structural_container(type))return false;
+        p+=box.size;
+    }
+    if(!hdlr.size||!ilst.size||hdlr.size<hdlr.header_size+24)return false;
+    const auto* handler=data+hdlr.start+hdlr.header_size;
+    if(read_be32u(handler)!=0||read_be32u(handler+4)!=0)return false;
+    const bool mdta=std::memcmp(handler+8,"mdta",4)==0,mdir=std::memcmp(handler+8,"mdir",4)==0;
+    if(!mdta&&!mdir)return false;
+    uint32_t key_count=0;
+    if(keys.size) {
+        if(keys.size<keys.header_size+8)return false;
+        key_count=read_be32u(data+keys.start+keys.header_size+4);
+        // Cleaning the only vendor binding can leave a legal empty mdta
+        // packet. It contains no key or value that could claim pairing.
+        if(key_count==0) {
+            if(keys.size!=keys.header_size+8||read_be32u(data+keys.start+keys.header_size)!=0||
+                ilst.size!=ilst.header_size)return false;
+        } else {
+        bool has_identifier=false;
+        if(!apple_keys_box_contains_content_identifier(data,keys,keys.start,has_identifier)||has_identifier)return false;
+        }
+    } else if(!mdir)return false;
+    std::array<uint32_t,1024> indices{};
+    size_t index_count=0,item_count=0;
+    for(size_t p=ilst.start+ilst.header_size;p<ilst.start+ilst.size;) {
+        isobmff_box_header item{};if(!try_read_box_header(data,p,ilst.start+ilst.size,item))return false;
+        if(++item_count>4096)return false;
+        const uint32_t index=read_be32u(data+p+4);
+        if(key_count) {
+            if(!index||index>key_count||index_count==indices.size()||
+                std::find(indices.begin(),indices.begin()+index_count,index)!=indices.begin()+index_count)return false;
+            indices[index_count++]=index;
+        } else {
+            const std::string_view type(reinterpret_cast<const char*>(data+p+4),4);
+            if(type=="meta"||type=="keys"||type=="ilst"||type=="hdlr")return false;
+        }
+        size_t values=0;
+        for(size_t q=p+item.header_size;q<p+item.size;) {
+            isobmff_box_header value{};if(!try_read_box_header(data,q,p+item.size,value))return false;
+            const std::string_view type(reinterpret_cast<const char*>(data+q+4),4);
+            if(type!="data"&&type!="mean"&&type!="name")return false;
+            if(type=="data") {if(value.size<value.header_size+8)return false;++values;}
+            else {
+                if(value.size<value.header_size+4||read_be32u(data+q+value.header_size)!=0)return false;
+                const std::string_view text(reinterpret_cast<const char*>(data+q+value.header_size+4),value.size-value.header_size-4);
+                if(text=="com.apple.quicktime.content.identifier")return false;
+            }
+            q+=value.size;
+        }
+        if(!values)return false;
+        p+=item.size;
+    }
+    return true;
+}
+
 // Walk only boxes whose payload is a legal child-box region.  This deliberately
 // does not scan opaque media/sample payloads for FourCC bytes.  The Apple CID
 // authority is moov/meta/{hdlr,keys,ilst}; any second metadata hierarchy or
@@ -2376,6 +2453,12 @@ static bool reject_apple_mov_shadow_hierarchy(
         const bool enters_track_meta = type == "meta" && p != authoritative_meta_start && parent_type == "trak";
         if (type == "meta") {
             if (p != authoritative_meta_start && !enters_track_meta) {
+                // A separately owned ordinary udta packet cannot authorize
+                // pairing. Retain it only after proving it has no CID key or
+                // nested competing metadata graph.
+                if(parent_type=="udta"&&!inside_authoritative_meta&&!inside_track_meta&&unrelated_udta_metadata(data,box)) {
+                    p+=box.size;continue;
+                }
                 set_error(context, "Apple MOV contains a nested or shadow metadata hierarchy.");
                 return false;
             }
@@ -3408,15 +3491,18 @@ lpb_result inspect_source(
         std::string video_content_id;
         bool image_has_conflict = false;
         const bool image_id_ok = extract_apple_cid_from_image(context, primary_data, img_cont, image_content_id, image_has_conflict);
+        const std::string image_identifier_diagnostic=image_id_ok?"":context->last_error;
         if (image_has_conflict) {
             set_error(context, "Apple image contains conflicting ContentIdentifiers in MakerNote.");
             set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS, LPB_INSPECTION_STAGE_PAIRING, LPB_CAPABILITY_APPLE);
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         const bool video_id_ok = extract_apple_cid_from_video(context, sec_data, video_content_id);
+        const std::string video_identifier_diagnostic=video_id_ok?"":context->last_error;
 
         if (image_id_ok && video_id_ok) {
-            if (image_content_id == video_content_id) {
+            if (image_content_id.size()==video_content_id.size() && std::equal(image_content_id.begin(),image_content_id.end(),video_content_id.begin(),
+                [](unsigned char a,unsigned char b){return std::tolower(a)==std::tolower(b);})) {
                 if (img_cont == LPB_IMAGE_CONTAINER_JPEG) {
                     lpb::media::target_primary_observation observed;std::string image_error;
                     if(!lpb::media::observe_target_primary(primary_data,observed,image_error) ||
@@ -3565,12 +3651,12 @@ lpb_result inspect_source(
             }
         }
         if (image_id_ok && !video_id_ok) {
-            set_error(context, "Apple Live Photo dual-file pairing mismatch: missing ContentIdentifier on secondary video.");
+            set_error(context, ("Apple Live Photo dual-file pairing mismatch: missing ContentIdentifier on secondary video. "+video_identifier_diagnostic).c_str());
             set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS, LPB_INSPECTION_STAGE_PAIRING, LPB_CAPABILITY_APPLE);
             return LPB_RESULT_INVALID_ARGUMENT;
         }
         if (!image_id_ok && video_id_ok) {
-            set_error(context, "Apple Live Photo dual-file pairing mismatch: missing ContentIdentifier on primary image.");
+            set_error(context, ("Apple Live Photo dual-file pairing mismatch: missing ContentIdentifier on primary image. "+image_identifier_diagnostic).c_str());
             set_inspection_status(context, LPB_INSPECTION_FAILURE_AMBIGUOUS, LPB_INSPECTION_STAGE_PAIRING, LPB_CAPABILITY_APPLE);
             return LPB_RESULT_INVALID_ARGUMENT;
         }
@@ -3704,12 +3790,19 @@ lpb_result inspect_source(
                 return LPB_RESULT_INVALID_ARGUMENT;
             }
 
-            out_facts->protocol = LPB_SOURCE_PROTOCOL_NON_LIVE;
-            out_facts->primary_image.is_present = 1;
-            out_facts->primary_image.file_range.offset = 0;
-            out_facts->primary_image.file_range.length = primary_size;
-            out_facts->protocol_tail_range.offset = 0;
-            out_facts->protocol_tail_range.length = 0;
+            // An ordinary companion does not erase the primary's independently
+            // owned GainMap/auxiliary graph. Reuse the authoritative single-image
+            // observation, and refuse a hidden embedded-live source here.
+            lpb_source_media_facts primary_facts{};primary_facts.struct_size=sizeof(primary_facts);
+            std::vector<lpb_confirmed_residue> primary_residues;
+            const auto primary_result=inspect_source(context,primary_path,nullptr,&primary_facts,&primary_residues,share_existing_writer);
+            if(primary_result!=LPB_RESULT_OK)return primary_result;
+            if(primary_facts.protocol!=LPB_SOURCE_PROTOCOL_NON_LIVE || !primary_facts.primary_image.is_present ||
+                primary_facts.motion_video.is_present || primary_facts.pairing_identifier[0])return LPB_RESULT_INVALID_ARGUMENT;
+            *out_facts=primary_facts;
+            lpb::crypto::sha256_buffer(sec_data.data(),sec_data.size(),out_facts->secondary_sha256);
+            out_facts->has_secondary_source=1;
+            if(out_residues)*out_residues=std::move(primary_residues);
             return LPB_RESULT_OK;
         }
 
@@ -5488,6 +5581,121 @@ lpb_result inspect_source(
     return LPB_RESULT_INVALID_ARGUMENT;
 }
 
+#include "media/discovery_reader.h"
+
+lpb_result discover_media_candidate(lpb_context* context, const char* path, lpb_media_candidate_v1* out) noexcept {
+    if (!context || !path || !out || out->struct_size != sizeof(*out) || out->api_version != 1)
+        return LPB_RESULT_INVALID_ARGUMENT;
+    *out = {}; out->struct_size = sizeof(*out); out->api_version = 1; out->flags = 1;
+    try {
+        windows_readonly_source source;
+        const fs::path filename{std::u8string(reinterpret_cast<const char8_t*>(path))};
+        if (!source.open(filename)) return LPB_RESULT_INVALID_ARGUMENT;
+        out->file_size = source.size();
+        constexpr uint64_t read_budget = 4ULL * 1024 * 1024;
+        bool cancelled = false;
+        auto read = [&](uint64_t offset, std::span<uint8_t> bytes) {
+            if (lpb_context_check_cancelled(context) != LPB_RESULT_OK) { cancelled = true; return false; }
+            if (bytes.size() > read_budget - out->bytes_read || offset > source.size() || bytes.size() > source.size() - offset)
+                return false;
+            if (!source.read_at(offset, bytes)) return false;
+            out->bytes_read += bytes.size(); return true;
+        };
+        std::vector<uint8_t> header(static_cast<size_t>(std::min<uint64_t>(source.size(), 512 * 1024)));
+        if (!read(0, header)) return cancelled ? LPB_RESULT_CANCELLED : LPB_RESULT_INVALID_ARGUMENT;
+        out->image_container = detect_image_container(header);
+        out->video_container = detect_video_container(header);
+        std::string apple_id, vivo_id;
+        bool ambiguous = false;
+        if (out->image_container == LPB_IMAGE_CONTAINER_JPEG) {
+            // Only actual pre-SOS metadata segments own the Apple MakerNote.
+            // We do not scan compressed pixels or arbitrary strings for an ID.
+            bool reached_scan = false;
+            size_t p = 2;
+            for (size_t steps = 0; steps < 4096 && p + 2 <= header.size(); ++steps) {
+                if (header[p++] != 0xff) break;
+                while (p < header.size() && header[p] == 0xff) ++p;
+                if (p >= header.size()) break;
+                const auto marker = header[p++];
+                if (marker == 0xda) { reached_scan = true; break; }
+                if (marker == 0xd9 || marker == 0 || marker == 0xd8 || (marker >= 0xd0 && marker <= 0xd7)) break;
+                if (marker == 1) continue;
+                if (p + 2 > header.size()) break;
+                const size_t length = (static_cast<size_t>(header[p]) << 8) | header[p + 1];
+                if (length < 2 || length > header.size() - p) break;
+                p += length;
+            }
+            if (reached_scan) {
+                extract_apple_cid_from_image(context, header, LPB_IMAGE_CONTAINER_JPEG, apple_id, ambiguous);
+                // The signed vivo trailer is anchored at EOF. Its own lengths,
+                // JSON ownership and preceding JPEG EOI must agree.
+                const uint64_t tail_size = std::min<uint64_t>(source.size(), 1024 * 1024);
+                const uint64_t tail_offset = source.size() - tail_size;
+                std::vector<uint8_t> tail(static_cast<size_t>(tail_size));
+                size_t tail_start = 0;
+                if (read(tail_offset, tail) && extract_vivo_id_from_image(tail, 0, vivo_id, &tail_start)) {
+                    std::array<uint8_t, 2> end{};
+                    const uint64_t absolute_start = tail_offset + tail_start;
+                    if (absolute_start < 2 || !read(absolute_start - 2, end) || end[0] != 0xff || end[1] != 0xd9)
+                        vivo_id.clear();
+                }
+            }
+            out->role = 1;
+        } else if (out->image_container == LPB_IMAGE_CONTAINER_UNKNOWN && out->video_container != LPB_VIDEO_CONTAINER_UNKNOWN) {
+            // Walk the real top-level graph with 64-bit bounds. mdat bytes are
+            // never materialized; isolated owned moov/uuid boxes can be parsed.
+            uint64_t p = 0; size_t moov_count = 0, vivo_count = 0, steps = 0;
+            bool complete = true;
+            while (p < source.size()) {
+                if (++steps > 4096 || source.size() - p < 8) { complete = false; break; }
+                std::array<uint8_t, 16> box{};
+                if (!read(p, std::span<uint8_t>(box.data(), 8))) { complete = false; break; }
+                uint64_t length = read_be32u(box.data());
+                uint64_t box_header = 8;
+                if (length == 1) {
+                    if (!read(p + 8, std::span<uint8_t>(box.data() + 8, 8))) { complete = false; break; }
+                    length = 0; for (size_t i = 8; i < 16; ++i) length = (length << 8) | box[i];
+                    box_header = 16;
+                } else if (length == 0) length = source.size() - p;
+                if (length < box_header || length > source.size() - p) { complete = false; break; }
+                const bool moov = std::memcmp(box.data() + 4, "moov", 4) == 0;
+                const bool uuid = std::memcmp(box.data() + 4, "uuid", 4) == 0;
+                if (moov || uuid) {
+                    const uint64_t limit = moov ? 2ULL * 1024 * 1024 : 1024ULL * 1024;
+                    if (length > limit) { complete = false; break; }
+                    std::vector<uint8_t> owned(static_cast<size_t>(length));
+                    if (!read(p, owned)) { complete = false; break; }
+                    if (moov) {
+                        if (++moov_count != 1) { complete = false; break; }
+                        extract_apple_cid_from_video(context, owned, apple_id);
+                    } else {
+                        vivo_modern_inventory inventory;
+                        if (!observe_vivo_modern(owned, inventory)) { complete = false; break; }
+                        if (inventory.found) {
+                            if (++vivo_count != 1) { complete = false; break; }
+                            if (inventory.binding) vivo_id = inventory.pairing;
+                        }
+                    }
+                }
+                p += length;
+            }
+            if (!complete) { apple_id.clear(); vivo_id.clear(); }
+            out->role = 2;
+        }
+        if (cancelled || lpb_context_check_cancelled(context) != LPB_RESULT_OK) return LPB_RESULT_CANCELLED;
+        if (!source.capture_identity(out->identity) || !source.verify_same_identity(filename)) return LPB_RESULT_SOURCE_CHANGED;
+        if (!ambiguous && (apple_id.empty() != vivo_id.empty())) {
+            const auto& id = apple_id.empty() ? vivo_id : apple_id;
+            if (id.size() < sizeof(out->identifier)) {
+                out->protocol = apple_id.empty() ? LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL : LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO;
+                std::memcpy(out->identifier, id.data(), id.size()); out->flags |= 2;
+            }
+        }
+        return LPB_RESULT_OK;
+    } catch (const std::bad_alloc&) { return LPB_RESULT_UNSUPPORTED; }
+      catch (...) { return LPB_RESULT_INTERNAL_ERROR; }
+}
+
 lpb_result discover_pairing_hint(lpb_context* context, const char* path, lpb_pairing_hint_v1* out) noexcept {
     if(!context||!path||!out||out->struct_size!=sizeof(*out)||out->api_version!=1)return LPB_RESULT_INVALID_ARGUMENT;
     *out={};out->struct_size=sizeof(*out);out->api_version=1;
@@ -5536,6 +5744,157 @@ lpb_result discover_pairing_hint(lpb_context* context, const char* path, lpb_pai
     }catch(...){return LPB_RESULT_INTERNAL_ERROR;}
 }
 
+
+
+// User composition inspects/authorizes each component independently. It never
+// manufactures a pair or borrows another file's ContentIdentifier authority.
+lpb_result inspect_independent_components(lpb_context* context,const char* primary_path,const char* secondary_path,
+    uint32_t component,lpb_source_media_facts* out_facts,std::vector<lpb_confirmed_residue>* out_residues) {
+    if(!context || !primary_path || !out_facts || out_facts->struct_size < sizeof(*out_facts) ||
+        (component!=1 && component!=2))return LPB_RESULT_INVALID_ARGUMENT;
+    try {
+    auto result=inspect_source(context,primary_path,nullptr,out_facts,out_residues);
+    const auto primary_data=read_file_bytes(primary_path);
+    const auto img_cont=detect_image_container(primary_data);
+    const uint64_t primary_size=primary_data.size();
+    if(component==1) {
+        if(secondary_path || !out_facts->primary_image.is_present)return LPB_RESULT_INVALID_ARGUMENT;
+        if(result==LPB_RESULT_OK && out_facts->protocol!=LPB_SOURCE_PROTOCOL_NON_LIVE)return result;
+        std::string single_vivo_id;uint64_t jpeg_end=0;size_t tail_start=0;
+        if(img_cont==LPB_IMAGE_CONTAINER_JPEG && find_jpeg_end(primary_data,jpeg_end) &&
+            extract_vivo_id_from_image(primary_data,jpeg_end,single_vivo_id,&tail_start)) {
+            lpb_inspection_status status{};status.struct_size=sizeof(status);
+            if(result!=LPB_RESULT_OK && (lpb_get_last_inspection_status(context,&status)!=LPB_RESULT_OK ||
+                status.category!=LPB_INSPECTION_FAILURE_AMBIGUOUS || status.stage!=LPB_INSPECTION_STAGE_PAIRING ||
+                status.capability!=LPB_CAPABILITY_VIVO_LEGACY)) return result;
+            if(tail_start!=jpeg_end)return LPB_RESULT_INVALID_ARGUMENT;
+            std::vector<uint8_t> owned(primary_data.begin(),primary_data.begin()+static_cast<ptrdiff_t>(tail_start));
+            lpb::media::target_primary_observation observed;std::string error;
+            if(!lpb::media::observe_target_primary(owned,observed,error) || observed.has_video ||
+                lpb::media::target_primary_has_live_binding(observed))return LPB_RESULT_INVALID_ARGUMENT;
+            out_facts->protocol=LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL;
+            out_facts->primary_image.file_range.length=tail_start;
+            out_facts->protocol_tail_range={tail_start,primary_size-tail_start};
+            return LPB_RESULT_OK;
+        }
+        if(result!=LPB_RESULT_OK)return result;
+        std::string id;bool conflict=false;
+        if(extract_apple_cid_from_image(context,primary_data,img_cont,id,conflict)) {
+            out_facts->protocol=LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO;
+            if(out_residues) {                    std::string fp_0011, fp_0017, fp_0025, fp_002b;
+                    lpb::protocols::apple::apple_image_get_tag_fingerprint(context, primary_data, img_cont, 0x0011, fp_0011);
+                    add_residue(out_residues, "apple-img-makernote-0011", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                        LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG, "0x0011", "ContentIdentifier", fp_0011.c_str(),
+                        LPB_COORD_STRUCTURED_SELECTOR, LPB_REMOVAL_REBUILD_CONTAINER, 1);
+                    if (apple_image_has_tag(context, primary_data, img_cont, 0x0017)) {
+                        lpb::protocols::apple::apple_image_get_tag_fingerprint(context, primary_data, img_cont, 0x0017, fp_0017);
+                        add_residue(out_residues, "apple-img-makernote-0017", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG, "0x0017", "LivePhotoEntry17", fp_0017.c_str(),
+                            LPB_COORD_STRUCTURED_SELECTOR, LPB_REMOVAL_REBUILD_CONTAINER, 1);
+                    }
+                    if (apple_image_has_tag(context, primary_data, img_cont, 0x0025)) {
+                        lpb::protocols::apple::apple_image_get_tag_fingerprint(context, primary_data, img_cont, 0x0025, fp_0025);
+                        add_residue(out_residues, "apple-img-makernote-0025", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG, "0x0025", "LivePhotoEntry25", fp_0025.c_str(),
+                            LPB_COORD_STRUCTURED_SELECTOR, LPB_REMOVAL_REBUILD_CONTAINER, 1);
+                    }
+                    if (apple_image_has_tag(context, primary_data, img_cont, 0x002b)) {
+                        lpb::protocols::apple::apple_image_get_tag_fingerprint(context, primary_data, img_cont, 0x002b, fp_002b);
+                        add_residue(out_residues, "apple-img-makernote-002b", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_EXIF_MAKERNOTE_TAG, "0x002b", "LivePhotoEntry2B", fp_002b.c_str(),
+                            LPB_COORD_STRUCTURED_SELECTOR, LPB_REMOVAL_REBUILD_CONTAINER, 1);
+                    }
+            }
+        }
+        return conflict?LPB_RESULT_INVALID_ARGUMENT:LPB_RESULT_OK;
+    }
+    if(result!=LPB_RESULT_OK || !secondary_path || out_facts->protocol!=LPB_SOURCE_PROTOCOL_NON_LIVE ||
+        out_facts->pairing_identifier[0] || !out_facts->primary_image.is_present)return LPB_RESULT_INVALID_ARGUMENT;
+    lpb_source_media_facts video{};video.struct_size=sizeof(video);
+    result=inspect_source(context,secondary_path,nullptr,&video);
+    if(result!=LPB_RESULT_OK || video.primary_image.is_present || !video.motion_video.is_present)return LPB_RESULT_INVALID_ARGUMENT;
+    const auto sec_data=read_file_bytes(secondary_path);
+    if(sec_data.empty())return LPB_RESULT_INVALID_ARGUMENT;
+    out_facts->has_secondary_source=1;
+    std::memcpy(out_facts->secondary_sha256,video.primary_sha256,32);
+    out_facts->motion_video=video.motion_video;out_facts->motion_video.source_index=1;
+    out_facts->timing=video.timing;
+    std::string id;
+    if(extract_apple_cid_from_video(context,sec_data,id)) {
+        out_facts->protocol=LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO;
+        if(out_residues) {                    std::vector<isobmff_metadata_key_track> track_keys;
+                    inspect_isobmff_metadata_keys(sec_data,track_keys);
+                    std::string fp_cid, fp_lp;
+                    if (lpb::containers::mp4_get_mdta_key_fingerprint(sec_data, "com.apple.quicktime.content.identifier", fp_cid)) {
+                        add_residue(out_residues, "apple-vid-mdta-cid", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.apple.quicktime.content.identifier", "ContentIdentifier", fp_cid.c_str());
+                    }
+                    if (lpb::containers::mp4_get_mdta_key_fingerprint(sec_data, "com.apple.quicktime.live-photo", fp_lp)) {
+                        add_residue(out_residues, "apple-vid-mdta-livephoto", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.apple.quicktime.live-photo", "LivePhotoKey", fp_lp.c_str());
+                    }
+                    if (has_isobmff_metadata_key(track_keys,"mdta", "com.apple.quicktime.live-photo-info")) {
+                        std::string fp = lpb::crypto::compute_metadata_track_fingerprint("meta", "com.apple.quicktime.live-photo-info");
+                        add_residue(out_residues, "apple-vid-track-livephoto-info", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.apple.quicktime.live-photo-info", "LivePhotoInfoTrack", fp.c_str());
+                    }
+                    if (has_isobmff_metadata_key(track_keys,"mdta", "com.apple.quicktime.still-image-time")) {
+                        std::string fp = lpb::crypto::compute_metadata_track_fingerprint("meta", "com.apple.quicktime.still-image-time");
+                        add_residue(out_residues, "apple-vid-track-still-image-time", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.apple.quicktime.still-image-time", "StillImageTimeTrack", fp.c_str());
+                    }
+                    if (has_isobmff_metadata_key(track_keys,"mdta", "com.apple.quicktime.live-photo-still-image-transform")) {
+                        std::string fp = lpb::crypto::compute_metadata_track_fingerprint("meta", "com.apple.quicktime.live-photo-still-image-transform");
+                        add_residue(out_residues, "apple-vid-track-transform", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.apple.quicktime.live-photo-still-image-transform", "StillImageTransformTrack", fp.c_str());
+                    }
+                    if (has_isobmff_metadata_key(track_keys,"mdta", "com.apple.quicktime.live-photo-still-image-transform-reference-dimensions")) {
+                        std::string fp = lpb::crypto::compute_metadata_track_fingerprint("meta", "com.apple.quicktime.live-photo-still-image-transform-reference-dimensions");
+                        add_residue(out_residues, "apple-vid-track-reference-dimensions", LPB_SOURCE_PROTOCOL_APPLE_LIVE_PHOTO,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_METADATA_TRACK, "com.apple.quicktime.live-photo-still-image-transform-reference-dimensions", "TransformReferenceDimensionsTrack", fp.c_str());
+                    }        }
+    } else if(extract_vivo_id_from_video(sec_data,id)) {
+        out_facts->protocol=LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL;
+        if(out_residues) {                    if (contains_text(sec_data, "vivoMediaExtInfo")) {
+                        std::string fp_uuid;
+                        size_t p_box = 0;
+                        while (p_box < sec_data.size()) {
+                            isobmff_box_header box{};
+                            if (!try_read_box_header(sec_data.data(), p_box, sec_data.size(), box)) break;
+                            if (box.size >= 24 && std::memcmp(sec_data.data() + p_box + 4, "uuid", 4) == 0 &&
+                                std::memcmp(sec_data.data() + p_box + box.header_size, "vivoMediaExtInfo", 16) == 0) {
+                                fp_uuid = lpb::crypto::compute_isobmff_box_fingerprint("uuid", box.size, sec_data.data() + p_box + box.header_size, box.size - box.header_size);
+                                break;
+                            }
+                            p_box += box.size;
+                        }
+                        add_residue(out_residues, "vivo-legacy-vid-uuid", LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_UUID_BOX, "vivoMediaExtInfo", "vivoMediaExtInfo", fp_uuid.c_str());
+                    }
+                    std::string fp_lp, fp_it, fp_gallery;
+                    if (lpb::containers::mp4_get_mdta_key_fingerprint(sec_data, "com.android.camera.livephoto", fp_lp)) {
+                        add_residue(out_residues, "vivo-legacy-vid-mdta-livephoto", LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.android.camera.livephoto", "com.android.camera.livephoto", fp_lp.c_str());
+                    }
+                    if (lpb::containers::mp4_get_mdta_key_fingerprint(sec_data, "com.android.camera.imageTime", fp_it)) {
+                        add_residue(out_residues, "vivo-legacy-vid-mdta-imagetime", LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.android.camera.imageTime", "com.android.camera.imageTime", fp_it.c_str());
+                    }
+                    if (lpb::containers::mp4_get_mdta_key_fingerprint(sec_data, "com.vivo.gallery.livePhoto", fp_gallery)) {
+                        add_residue(out_residues, "vivo-legacy-vid-mdta-gallery", LPB_SOURCE_PROTOCOL_VIVO_LEGACY_DUAL,
+                            LPB_ARTIFACT_MOTION_VIDEO, LPB_RESIDUE_QUICKTIME_MDTA_KEY, "com.vivo.gallery.livePhoto", "com.vivo.gallery.livePhoto", fp_gallery.c_str());
+                    }        }
+    }
+    return LPB_RESULT_OK;
+    } catch(const std::bad_alloc&) {
+        set_error(context,"Independent component inspection exhausted its bounded execution allocation.");
+        set_inspection_status(context,LPB_INSPECTION_FAILURE_UNSUPPORTED,LPB_INSPECTION_STAGE_READ);
+        return LPB_RESULT_UNSUPPORTED;
+    } catch(const std::exception& error) {
+        set_error(context,error.what());return LPB_RESULT_INTERNAL_ERROR;
+    } catch(...) {return LPB_RESULT_INTERNAL_ERROR;}
+}
+
 lpb_result inspect_source_with_plan(
     lpb_context* context,
     const char* primary_path,
@@ -5543,7 +5902,7 @@ lpb_result inspect_source_with_plan(
     lpb_source_media_facts* out_facts,
     lpb_extraction_plan** out_plan,
     std::vector<lpb_confirmed_residue>* out_residues,
-    uint64_t* out_generation) noexcept
+    uint64_t* out_generation, uint32_t component) noexcept
 {
     if (context == nullptr || out_facts == nullptr || out_plan == nullptr)
     {
@@ -5557,7 +5916,7 @@ lpb_result inspect_source_with_plan(
         *out_generation = 0;
     }
     std::vector<lpb_confirmed_residue> residues;
-    const lpb_result inspect_result = inspect_source(
+    const lpb_result inspect_result = component ? inspect_independent_components(context, primary_path, secondary_path, component, out_facts, &residues) : inspect_source(
         context, primary_path, secondary_path, out_facts, &residues);
     if (inspect_result != LPB_RESULT_OK)
     {
@@ -6119,7 +6478,18 @@ bool target_xml_lexical(std::string_view xml) {
         for(unsigned i=0;i<count;++i){const unsigned char next=static_cast<unsigned char>(xml[p++]);if((next&0xc0)!=0x80)return false;value=(value<<6)|(next&63);}
         if(value<minimum||value>0x10ffff||(value>=0xd800&&value<=0xdfff)||value==0xfffe||value==0xffff)return false;
     }
+    for (unsigned char c : xml) if (c < 0x20 && c != 9 && c != 10 && c != 13) return false;
     for(size_t p=0;p<xml.size();++p) {
+        if (xml.substr(p, 4) == "<!--") {
+            const auto end = xml.find("-->", p + 4);
+            if (end == xml.npos || xml.substr(p + 4, end - p - 4).find("--") != xml.npos) return false;
+            p = end + 2; continue;
+        }
+        if (xml.substr(p, 9) == "<![CDATA[") {
+            const auto end = xml.find("]]>", p + 9);
+            if (end == xml.npos) return false;
+            p = end + 2; continue;
+        }
         const unsigned char c=static_cast<unsigned char>(xml[p]);
         if(c<0x20&&c!=9&&c!=10&&c!=13)return false;
         if(c=='<'&&xml.substr(p,2)=="<?") {
@@ -6136,6 +6506,12 @@ bool target_xml_lexical(std::string_view xml) {
     size_t text_start=0;
     for(size_t p=0;(p=xml.find('<',p))!=std::string_view::npos;) {
         if(xml.substr(text_start,p-text_start).find("]]>")!=std::string_view::npos)return false;
+        if (xml.substr(p, 4) == "<!--" || xml.substr(p, 9) == "<![CDATA[") {
+            const bool comment = xml.substr(p, 4) == "<!--";
+            const auto end = xml.find(comment ? "-->" : "]]>", p + (comment ? 4 : 9));
+            if (end == xml.npos) return false;
+            p = end + 3; text_start = p; continue;
+        }
         if(xml.substr(p,2)=="<?") {
             const size_t e=xml.find("?>",p+2);if(e==std::string_view::npos)return false;
             size_t at=p+2;const size_t first=at;
@@ -6256,7 +6632,16 @@ bool observe_target_xmp(std::string_view xml,target_xmp_observation& output,
     xmp_observation_failure& failure) noexcept {
     output={};failure=xmp_observation_failure::malformed;
     try {
-        if(xml.find("<!")!=std::string_view::npos){failure=xmp_observation_failure::unsupported;return false;}
+        // A terminal NUL belongs to APP1 transport, not the XML document.
+        while (!xml.empty() && xml.back() == '\0') xml.remove_suffix(1);
+        for (size_t p = 0; (p = xml.find("<!", p)) != xml.npos;) {
+            const bool comment = xml.substr(p, 4) == "<!--";
+            const bool cdata = xml.substr(p, 9) == "<![CDATA[";
+            if (!comment && !cdata) { failure=xmp_observation_failure::unsupported; return false; }
+            const auto end = xml.find(comment ? "-->" : "]]>", p + (comment ? 4 : 9));
+            if (end == xml.npos) return false;
+            p = end + 3;
+        }
         if(!target_xml_lexical(xml))return false;
         std::vector<xmp_node> nodes;if(!scan_xmp_tree(xml,nodes,true)||nodes.empty())return false;
         size_t root=k_no_parent,root_count=0,rdf_count=0,rdf_index=k_no_parent;
@@ -6306,6 +6691,7 @@ bool observe_target_xmp(std::string_view xml,target_xmp_observation& output,
         const auto outside_ok=[](std::string_view text){
             size_t p=0;while(p<text.size()) {
                 if(std::isspace(static_cast<unsigned char>(text[p]))){++p;continue;}
+                if(text.substr(p,4)=="<!--") {const size_t e=text.find("-->",p+4);if(e==text.npos||text.substr(p+4,e-p-4).find("--")!=text.npos)return false;p=e+3;continue;}
                 if(text.substr(p,2)=="<?") {const size_t e=text.find("?>",p+2);if(e==std::string_view::npos)return false;p=e+2;continue;}
                 return false;
             }return true;

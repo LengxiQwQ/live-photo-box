@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -12,6 +12,17 @@ namespace LivePhotoBox.Services;
 // Shared discovery boundaries. Strict inspection and execution APIs do not use these catches.
 internal static class LivePhotoScanSupport
 {
+    // Only prune former selections whose absence is known. Access/share errors
+    // remain in scope and are reported; they cannot conceal an unknown ID.
+    internal static IEnumerable<string> RetainSelections(IEnumerable<string> paths) =>
+        paths.Where(path =>
+        {
+            try { _ = File.GetAttributes(path); return true; }
+            catch (FileNotFoundException) { return false; }
+            catch (DirectoryNotFoundException) { return false; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { return true; }
+        }).Distinct(StringComparer.OrdinalIgnoreCase);
+
     internal static bool IsImage(string path) => Path.GetExtension(path).ToLowerInvariant() is ".jpg" or ".jpeg" or ".heic" or ".heif";
     internal static bool IsVideo(string path) => Path.GetExtension(path).ToLowerInvariant() is ".mp4" or ".mov";
 
@@ -54,7 +65,7 @@ internal static class LivePhotoScanSupport
     }
 
     internal static bool CanReportOperationFailure(Exception error) =>
-        error is not OutOfMemoryException and not AccessViolationException and not StackOverflowException;
+        error is not OperationCanceledException and not OutOfMemoryException and not AccessViolationException and not StackOverflowException;
 
     internal static ScanDiagnostic Failure(string path, Exception error, string code = "SingleFileInspectionFailed",
         IReadOnlyList<string>? related = null, ScanDiagnosticStage? stage = null)
@@ -111,7 +122,7 @@ internal static class LivePhotoScanSupport
 
         void AddFile(string path)
         {
-            ct.ThrowIfCancellationRequested();
+            if (ct.IsCancellationRequested) return;
             if (!seenFiles.Add(path)) return;
             if (IsImage(path)) images.Add(path);
             else if (IsVideo(path)) videos.Add(path);
@@ -120,15 +131,22 @@ internal static class LivePhotoScanSupport
 
         foreach (string path in options.ExplicitFiles ?? Array.Empty<string>())
         {
-            ct.ThrowIfCancellationRequested();
+            if (ct.IsCancellationRequested) return (images, videos, true, rootFailed);
             try
             {
                 string fullPath = Path.GetFullPath(path);
-                if (!File.Exists(fullPath)) throw new FileNotFoundException("The selected file is unavailable.", fullPath);
+                if (!File.Exists(fullPath))
+                {
+                    diagnostics.Add(Failure(fullPath,new SourceInspectionFailure(SourceInspectionFailureCategory.Io,
+                        SourceInspectionStage.Read,0,"The selected file is unavailable.")));
+                    partial = true;
+                    continue;
+                }
                 AddFile(fullPath);
             }
             catch (Exception ex) when (IsInputFailure(ex) || ex is ArgumentException or NotSupportedException)
             {
+                partial = true;
                 diagnostics.Add(Failure(path, ex, "FileNotFound"));
             }
         }
@@ -137,7 +155,7 @@ internal static class LivePhotoScanSupport
         if (!string.IsNullOrWhiteSpace(options.InputDirectory)) roots.Add(options.InputDirectory);
         foreach (string root in roots)
         {
-            ct.ThrowIfCancellationRequested();
+            if (ct.IsCancellationRequested) return (images, videos, true, rootFailed);
             string fullRoot;
             try { fullRoot = Path.GetFullPath(root); }
             catch (Exception ex) when (ex is ArgumentException or NotSupportedException)
@@ -150,24 +168,47 @@ internal static class LivePhotoScanSupport
             pending.Enqueue(fullRoot);
             while (pending.Count > 0)
             {
-                ct.ThrowIfCancellationRequested();
+                if (ct.IsCancellationRequested) return (images, videos, true, rootFailed);
                 string directory = pending.Dequeue();
                 if (!seenDirectories.Add(directory)) continue;
                 try
                 {
-                    if ((File.GetAttributes(directory) & FileAttributes.ReparsePoint) != 0)
+                    var directoryRead = ScanFileSystem.Read(directory);
+                    if (directoryRead.Failure is { } directoryFailure)
+                    {
+                        partial = true;
+                        if (string.Equals(directory, fullRoot, StringComparison.OrdinalIgnoreCase)) rootFailed = true;
+                        diagnostics.Add(Failure(directory, directoryFailure, "DirectoryEnumerationFailed", stage: ScanDiagnosticStage.Enumeration));
+                        continue;
+                    }
+                    if ((directoryRead.Value!.Attributes & FileAttributes.ReparsePoint) != 0)
                     {
                         diagnostics.Add(Info(directory, "ReparsePointSkipped", "Directory links are not followed during scanning."));
                         continue;
                     }
                     // Do not publish candidates from a partially enumerated directory.
-                    string[] entries = Directory.GetFileSystemEntries(directory);
-                    foreach (string entry in entries)
+                    var enumeration = ScanFileSystem.Enumerate(directory, ct);
+                    if (ct.IsCancellationRequested) return (images, videos, true, rootFailed);
+                    if (enumeration.Failure is { } enumerationFailure)
                     {
-                        ct.ThrowIfCancellationRequested();
+                        partial = true;
+                        if (string.Equals(directory, fullRoot, StringComparison.OrdinalIgnoreCase)) rootFailed = true;
+                        diagnostics.Add(Failure(directory, enumerationFailure, "DirectoryEnumerationFailed", stage: ScanDiagnosticStage.Enumeration));
+                        continue;
+                    }
+                    foreach (string entry in enumeration.Entries!)
+                    {
+                        if (ct.IsCancellationRequested) return (images, videos, true, rootFailed);
                         try
                         {
-                            var attributes = File.GetAttributes(entry);
+                            var entryRead = ScanFileSystem.Read(entry);
+                            if (entryRead.Failure is { } entryFailure)
+                            {
+                                partial = true;
+                                diagnostics.Add(Failure(entry, entryFailure, "FileReadFailed"));
+                                continue;
+                            }
+                            var attributes = entryRead.Value!.Attributes;
                             if ((attributes & FileAttributes.Directory) != 0)
                             {
                                 if (options.Recursive) pending.Enqueue(entry);

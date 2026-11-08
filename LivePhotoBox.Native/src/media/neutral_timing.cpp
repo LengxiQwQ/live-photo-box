@@ -1,4 +1,4 @@
-#include "media/neutral_timing.h"
+﻿#include "media/neutral_timing.h"
 #include "media/huawei_conformance.h"
 #include "media/media_inspector.h"
 #include "media/video_presentation_timing.h"
@@ -292,9 +292,9 @@ bool lpb::media::observe_huawei_source_timing(std::span<const uint8_t> movie,
     }catch(...){return false;}
 }
 
-LPB_API lpb_result LPB_CALL lpb_observe_neutral_timing_v1(lpb_context* context,
+static lpb_result observe_neutral_timing(lpb_context* context,
     const char* primary_path,const char* secondary_path,const char* final_video_path,
-    lpb_neutral_timing_observation_v1* out) {
+    lpb_neutral_timing_observation_v1* out,bool composition) {
     if(!context||!out||out->struct_size!=sizeof(*out)||!primary_path||!final_video_path)return LPB_RESULT_INVALID_ARGUMENT;
     *out={};out->struct_size=sizeof(*out);
     if(lpb_context_check_cancelled(context)==LPB_RESULT_CANCELLED)return LPB_RESULT_CANCELLED;
@@ -325,7 +325,9 @@ LPB_API lpb_result LPB_CALL lpb_observe_neutral_timing_v1(lpb_context* context,
             result.presence_flags|=LPB_NEUTRAL_TIMING_TOTAL_FRAMES_PRESENT|LPB_NEUTRAL_TIMING_DURATION_PRESENT;
         }
         lpb_source_media_facts facts{};facts.struct_size=sizeof(facts);
-        const auto inspected=lpb::media::inspect_source(context,primary_path,secondary_path,&facts);
+        const auto inspected=composition
+            ? lpb::media::inspect_independent_components(context,primary_path,secondary_path,2,&facts,nullptr)
+            : lpb::media::inspect_source(context,primary_path,secondary_path,&facts);
         if(inspected!=LPB_RESULT_OK)return inspected;
         if(std::memcmp(facts.primary_sha256,result.primary_sha256,32)!=0||
             (has_secondary&&std::memcmp(facts.secondary_sha256,result.secondary_sha256,32)!=0)) {
@@ -429,4 +431,27 @@ namespace lpb::media {
 bool observe_vivo_source_positions(std::span<const uint8_t> bytes,bool& has_frame,int64_t& frame,bool& has_cover,int64_t& cover) {
     return vivo_positions(bytes,has_frame,frame,has_cover,cover);
 }
+}
+
+LPB_API lpb_result LPB_CALL lpb_observe_final_first_frame_v1(lpb_context* context,const char* path,
+    int64_t* timestamp_us,uint8_t* sha256) {
+    if(!context||!path||!timestamp_us||!sha256)return LPB_RESULT_INVALID_ARGUMENT;
+    *timestamp_us=-1;std::memset(sha256,0,32);
+    try {
+        fixed_file final;if(!final.open(context,path))return LPB_RESULT_INVALID_ARGUMENT;
+        timeline observed;if(!inspect_isobmff_video_presentation_timeline(final.bytes,observed))return LPB_RESULT_INVALID_ARGUMENT;
+        const auto samples=visible(observed);if(samples.empty()||samples.front()->normalized_time_100ns<0)return LPB_RESULT_INVALID_ARGUMENT;
+        if(lpb_context_check_cancelled(context)!=LPB_RESULT_OK)return LPB_RESULT_CANCELLED;
+        *timestamp_us=ceiling_microseconds(samples.front()->normalized_time_100ns);
+        lpb::crypto::sha256_buffer(final.bytes.data(),final.bytes.size(),sha256);return LPB_RESULT_OK;
+    }catch(...){return LPB_RESULT_INTERNAL_ERROR;}
+}
+
+LPB_API lpb_result LPB_CALL lpb_observe_neutral_timing_v1(lpb_context* context,const char* primary,
+    const char* secondary,const char* final_video,lpb_neutral_timing_observation_v1* out) {
+    return observe_neutral_timing(context,primary,secondary,final_video,out,false);
+}
+LPB_API lpb_result LPB_CALL lpb_observe_composition_timing_v1(lpb_context* context,const char* primary,
+    const char* secondary,const char* final_video,lpb_neutral_timing_observation_v1* out) {
+    return observe_neutral_timing(context,primary,secondary,final_video,out,true);
 }

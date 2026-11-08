@@ -13,8 +13,8 @@ lpb_result vivo_pair(lpb_context*, const std::vector<uint8_t>&, const std::vecto
 
 // Remove only a fully observed, uniquely bound MiCamera pair occupying the
 // complete primary suffix. Never infer a truncation boundary from markers.
-static lpb_result prepare_dual_image(lpb_context* ctx,const std::vector<uint8_t>& input,bool heif,std::vector<uint8_t>& output) {
-    output=input;if(heif)return LPB_RESULT_OK;
+static lpb_result prepare_dual_image(lpb_context* ctx,std::span<const uint8_t> input,bool heif,std::vector<uint8_t>& output) {
+    output.assign(input.begin(),input.end());if(heif)return LPB_RESULT_OK;
     media::target_primary_observation facts;std::string error;
     if(!media::observe_target_primary(input,facts,error)) {set_error(ctx,error.c_str());return LPB_RESULT_INVALID_ARGUMENT;}
     if(facts.singleton_mpf&&!facts.singleton_size_matches) {
@@ -51,7 +51,7 @@ static lpb_result prepare_dual_image(lpb_context* ctx,const std::vector<uint8_t>
 }
 
 lpb_result serialize_dual_file(lpb_context* ctx, uint32_t target,
-    const std::vector<uint8_t>& image, const std::vector<uint8_t>& video,
+    std::span<const uint8_t> image, const std::vector<uint8_t>& video,
     bool heif, int64_t cover_us, uint32_t cover_frame, const std::string& id,
     std::vector<uint8_t>& image_out, std::vector<uint8_t>& video_out) {
     image_out.clear(); video_out.clear();

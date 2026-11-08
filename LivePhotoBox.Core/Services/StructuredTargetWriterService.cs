@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -40,6 +40,11 @@ internal sealed record StructuredTargetWriteReceipt(
 
 internal static class StructuredTargetWriterService
 {
+    internal sealed record WriteAttempt(StructuredTargetWriteReceipt? Receipt, Exception? Failure)
+    {
+        public static implicit operator WriteAttempt(StructuredTargetWriteReceipt receipt) => new(receipt, null);
+    }
+
     internal static async Task<StructuredTargetWriteReceipt> WriteAsync(NeutralMediaBundle bundle,
         OutputProfile profile, string finalPath, string stagingDirectory,
         bool overwriteExisting, CancellationToken token,
@@ -48,8 +53,26 @@ internal static class StructuredTargetWriterService
         OppoInitialCoverPolicy oppoInitialCoverPolicy = OppoInitialCoverPolicy.RequireKnownOriginal,
         PreservationPolicy preservationPolicy = PreservationPolicy.BestEffort)
     {
+        var attempt = await TryWriteAsync(bundle, profile, finalPath, stagingDirectory,
+            overwriteExisting, token, huaweiVariant, samsungVariant, oppoInitialCoverPolicy, preservationPolicy).ConfigureAwait(false);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Receipt!;
+    }
+
+    internal static async Task<WriteAttempt> TryWriteAsync(NeutralMediaBundle bundle,
+        OutputProfile profile, string finalPath, string stagingDirectory,
+        bool overwriteExisting, CancellationToken token,
+        HuaweiTargetVariant huaweiVariant = HuaweiTargetVariant.HuaweiV6,
+        SamsungTargetVariant samsungVariant = SamsungTargetVariant.Mpv3,
+        OppoInitialCoverPolicy oppoInitialCoverPolicy = OppoInitialCoverPolicy.RequireKnownOriginal,
+        PreservationPolicy preservationPolicy = PreservationPolicy.BestEffort,
+        Func<IReadOnlyList<NotCarriedItem>,string,string>? publicationPathResolver = null)
+    {
         ArgumentNullException.ThrowIfNull(bundle);
         ArgumentNullException.ThrowIfNull(profile);
+        if (token.IsCancellationRequested) return new(null,new OperationCanceledException(token));
+        if (!overwriteExisting && File.Exists(finalPath))
+            return new(null,new IOException("The requested target already exists and overwrite was not authorized."));
         uint target = profile.TargetProtocol switch
         {
             TargetProtocol.GoogleMicroVideoV1 => 1,
@@ -60,37 +83,40 @@ internal static class StructuredTargetWriterService
             TargetProtocol.HuaweiMovingPhoto => 6,
             TargetProtocol.AppleLivePhoto => 7,
             TargetProtocol.VivoLegacyDualFile => 8,
-            _ => throw new NotSupportedException("This structured path does not implement the requested target family.")
+            _ => 0
         };
-        MediaArtifact video = bundle.MotionVideo ?? throw new InvalidDataException("A prepared motion video is required.");
+        if(target==0) return new(null,new NotSupportedException("This structured path does not implement the requested target family."));
+        if(bundle.MotionVideo is not { } video) return new(null,new InvalidDataException("A prepared motion video is required."));
         if (!Enum.IsDefined(huaweiVariant) || (target != 6 && huaweiVariant != HuaweiTargetVariant.HuaweiV6))
-            throw new ArgumentException("The explicit Huawei/Honor variant does not apply to this target.", nameof(huaweiVariant));
+            return new(null,new ArgumentException("The explicit Huawei/Honor variant does not apply to this target.", nameof(huaweiVariant)));
         if (!Enum.IsDefined(samsungVariant) || (target != 5 && samsungVariant != SamsungTargetVariant.Mpv3))
-            throw new ArgumentException("Samsung variant does not apply to the selected target.", nameof(samsungVariant));
+            return new(null,new ArgumentException("Samsung variant does not apply to the selected target.", nameof(samsungVariant)));
         if (!Enum.IsDefined(oppoInitialCoverPolicy) || (target != 3 && oppoInitialCoverPolicy != OppoInitialCoverPolicy.RequireKnownOriginal))
-            throw new ArgumentException("OPPO initial cover policy does not apply to the selected target.", nameof(oppoInitialCoverPolicy));
+            return new(null,new ArgumentException("OPPO initial cover policy does not apply to the selected target.", nameof(oppoInitialCoverPolicy)));
         uint targetVersion = target == 6 ? (uint)huaweiVariant : target == 5 ? (uint)samsungVariant : 1u;
         if (target == 6 && profile.Format == OutputMediaFormat.HeicMp4Hevc && video.VideoCodec != VideoCodec.Hevc)
-            throw new NotSupportedException("The explicit Huawei HEVC profile requires prepared HEVC video.");
+            return new(null,new NotSupportedException("The explicit Huawei HEVC profile requires prepared HEVC video."));
         if (bundle.PrimaryImage.Kind != MediaArtifactKind.PrimaryImage || video.Kind != MediaArtifactKind.MotionVideo ||
             bundle.PrimaryImage.ImageContainer != profile.MediaRequirement.ImageContainer ||
             video.VideoContainer != profile.MediaRequirement.VideoContainer ||
             video.VideoCodec is not (VideoCodec.H264 or VideoCodec.Hevc))
-            throw new InvalidDataException("Prepared artifact roles and formats do not match the structured target profile.");
-        RequireManifest(bundle, bundle.PrimaryImage);
-        RequireManifest(bundle, video);
-        RejectSourceAlias(finalPath, bundle.PrimaryImage);
-        RejectSourceAlias(finalPath, video);
+            return new(null,new InvalidDataException("Prepared artifact roles and formats do not match the structured target profile."));
+        if(ManifestFailure(bundle,bundle.PrimaryImage) is { } imageManifestFailure) return new(null,imageManifestFailure);
+        if(ManifestFailure(bundle,video) is { } videoManifestFailure) return new(null,videoManifestFailure);
+        if(SourceAliasFailure(finalPath,bundle.PrimaryImage) is { } imageAliasFailure) return new(null,imageAliasFailure);
+        if(SourceAliasFailure(finalPath,video) is { } videoAliasFailure) return new(null,videoAliasFailure);
         long? cover = bundle.Semantics.Timing.CoverTimestampUs;
         long? primaryTime = target == 3 ? bundle.Semantics.Timing.PrimaryTimestampUs : null;
         if (target == 3 && !primaryTime.HasValue && oppoInitialCoverPolicy == OppoInitialCoverPolicy.InitializeNewTargetAtCurrentCover)
             primaryTime = cover;
         if (target == 3 && !primaryTime.HasValue)
-            throw new NotSupportedException("OPPO original capture time is unknown; current cover cannot invent that history.");
+            return new(null,new NotSupportedException("OPPO original capture time is unknown; current cover cannot invent that history."));
         var notCarried = new List<NotCarriedItem>();
-        OrdinaryBinding[] ordinary = (target is 1 or 2 or 3)
+        var ordinaryAttempt = (target is 1 or 2 or 3)
             ? await BindOrdinaryMetadataAsync(bundle, finalPath, preservationPolicy, notCarried, token).ConfigureAwait(false)
-            : Array.Empty<OrdinaryBinding>();
+            : new OrdinaryBindingAttempt(Array.Empty<OrdinaryBinding>(), null);
+        if (ordinaryAttempt.Failure is { } ordinaryFailure) return new(null, ordinaryFailure);
+        OrdinaryBinding[] ordinary = ordinaryAttempt.Bindings!;
         if (target is not (1 or 2 or 3) && (bundle.Semantics.OrdinaryMetadata.Count > 0 || bundle.Manifest.Any(x => x.Role == "OrdinaryMetadata")))
         {
             notCarried.Add(new NotCarriedItem
@@ -100,11 +126,19 @@ internal static class StructuredTargetWriterService
                 Outcome = PreservationOutcome.DiscardedNotApplicable
             });
         }
-        AuxiliaryBinding[] auxiliaries = await BindAuxiliariesAsync(bundle, finalPath, preservationPolicy, target, notCarried, token).ConfigureAwait(false);
-        NativeCompoundPrimaryObservation? compound = bundle.PrimaryImage.CompoundPrimary?.Inspect(bundle.PrimaryImage.Path, token).Observation;
+        var auxiliaryAttempt = await BindAuxiliariesAsync(bundle, finalPath, preservationPolicy, target, notCarried, token).ConfigureAwait(false);
+        if (auxiliaryAttempt.Failure is { } auxiliaryFailure) return new(null, auxiliaryFailure);
+        AuxiliaryBinding[] auxiliaries = auxiliaryAttempt.Bindings!;
+        NativeCompoundPrimaryObservation? compound = null;
+        if (bundle.PrimaryImage.CompoundPrimary is { } compoundOwner)
+        {
+            var observation = compoundOwner.TryInspect(bundle.PrimaryImage.Path, token);
+            if (observation.Failure is { } compoundFailure) return new(null, compoundFailure);
+            compound = observation.Observation;
+        }
         if (compound.HasValue && preservationPolicy == PreservationPolicy.Strict &&
             (target != 6 || profile.Format != OutputMediaFormat.JpegMp4))
-            throw new NotSupportedException("Opaque compound primary lineage permits this Strict target only after an explicit transport mapping.");
+            return new(null,new NotSupportedException("Opaque compound primary lineage permits this Strict target only after an explicit transport mapping."));
         var expected = new TargetValidationExpectations(target, (uint)profile.Format, (uint)video.VideoCodec, cover)
         {
             UseV2 = true, TargetVersion = targetVersion, Compound = compound, PrimaryTimestampUs = primaryTime,
@@ -119,38 +153,64 @@ internal static class StructuredTargetWriterService
         };
         using var session = new Session(bundle.PrimaryImage, video, profile, target, targetVersion, cover, primaryTime,
             auxiliaries, ordinary, stagingDirectory, token, preservationPolicy);
-        if (target is 7 or 8)
+        if (session.Failure is { } sessionFailure) return new(null, sessionFailure);
+        if(target is 7 or 8)
         {
             foreach (var binding in auxiliaries.Where(x => x.SelectorKind == 3 &&
                 x.Row.Semantic is "MiCameraSubimage" or "MiCameraLensWatermark"))
                 notCarried.Add(new NotCarriedItem { Item = binding.Row.Semantic,
                     Reason = "Optional MiCamera camera record omitted from the new dual-file target after its exact source ownership was validated.",
                     Outcome = PreservationOutcome.DiscardedNotApplicable });
+        }
+        // Optional assets omitted by this target are known before any final
+        // publication. Product orchestration can redirect the sealed output
+        // to isolation without changing any validator or source authority.
+        if(publicationPathResolver is not null)
+        {
+            string requestedPath=finalPath;
+            finalPath=publicationPathResolver(notCarried,finalPath);
+            if(!string.Equals(Path.GetFullPath(requestedPath),Path.GetFullPath(finalPath),StringComparison.OrdinalIgnoreCase))overwriteExisting=false;
+            if(OutputDirectoryAttempt.Ensure(Path.GetDirectoryName(Path.GetFullPath(finalPath))!) is { } directoryFailure)
+                return new(null,directoryFailure);
+            if(SourceAliasFailure(finalPath,bundle.PrimaryImage) is { } primaryAlias)return new(null,primaryAlias);
+            if(SourceAliasFailure(finalPath,video) is { } motionAlias)return new(null,motionAlias);
+        }
+        if (target is 7 or 8)
+        {
             string videoPath = Path.ChangeExtension(finalPath, target == 7 ? ".MOV" : ".MP4");
-            RejectSourceAlias(videoPath, bundle.PrimaryImage);
-            RejectSourceAlias(videoPath, video);
-            await WindowsSplitOutputPublisher.PublishPairTargetAsync(finalPath, videoPath, overwriteExisting,
-                (stream, ct) => session.CopyMemberToAsync(0, stream, ct),
-                (stream, ct) => session.CopyMemberToAsync(1, stream, ct),
-                session.PairProof ?? throw new InvalidDataException("Native did not validate the target pair."),
-                session.CompleteTransport, token).ConfigureAwait(false);
+            if (!overwriteExisting && File.Exists(videoPath))
+                return new(null,new IOException("The requested companion target already exists and overwrite was not authorized."));
+            if(SourceAliasFailure(videoPath,bundle.PrimaryImage) is { } imageAliasFailure2) return new(null,imageAliasFailure2);
+            if(SourceAliasFailure(videoPath,video) is { } videoAliasFailure2) return new(null,videoAliasFailure2);
+            if(session.PairProof is not { } pairProof) return new(null,new InvalidDataException("Native did not validate the target pair."));
+            var pairPublication=await WindowsSplitOutputPublisher.TryPublishPairTargetAsync(finalPath, videoPath, overwriteExisting,
+                (stream, ct) => session.CopyMemberToAttemptAsync(0, stream, ct),
+                (stream, ct) => session.CopyMemberToAttemptAsync(1, stream, ct),
+                pairProof,
+                session.CompleteTransportAttempt, token).ConfigureAwait(false);
+            if(pairPublication.Failure is { } pairFailure)return new(null,pairFailure);
             return new StructuredTargetWriteReceipt(finalPath, WindowsFileIdentity.Capture(finalPath),
                 new FileInfo(finalPath).Length, session.MemberHash(0), notCarried) { VideoPath = videoPath };
         }
-        var published = await WindowsSplitOutputPublisher.PublishTargetAsync(finalPath, overwriteExisting,
-            session.CopyToAsync, expected, token).ConfigureAwait(false);
+        var publication = await WindowsSplitOutputPublisher.TryPublishTargetAsync(finalPath, overwriteExisting,
+            session.CopyToAttemptAsync, expected, token).ConfigureAwait(false);
+        if(publication.Failure is { } publicationFailure) return new(null,publicationFailure);
+        var published=publication.Receipt!;
         return new StructuredTargetWriteReceipt(published.FinalPath, published.FileIdentity, published.ByteLength, published.Sha256, notCarried);
     }
 
     private sealed record AuxiliaryBinding(NeutralArtifactManifest Row, uint Representation,
         uint SelectorKind, uint SelectorId, MediaArtifact? Materialized);
+    private sealed record AuxiliaryBindingAttempt(AuxiliaryBinding[]? Bindings, Exception? Failure);
     private sealed record OrdinaryBinding(NeutralArtifactManifest Row,MediaArtifact Artifact);
+    private sealed record OrdinaryBindingAttempt(OrdinaryBinding[]? Bindings, Exception? Failure);
 
-    private static async Task<OrdinaryBinding[]> BindOrdinaryMetadataAsync(NeutralMediaBundle bundle, string finalPath,
+    private static async Task<OrdinaryBindingAttempt> BindOrdinaryMetadataAsync(NeutralMediaBundle bundle, string finalPath,
         PreservationPolicy policy, List<NotCarriedItem> notCarried, CancellationToken token)
     {
         var semantics = bundle.Semantics.OrdinaryMetadata;
-        if (semantics.Count == 0) return Array.Empty<OrdinaryBinding>();
+        if (token.IsCancellationRequested) return new(null, new OperationCanceledException(token));
+        if (semantics.Count == 0) return new(Array.Empty<OrdinaryBinding>(), null);
         var rows = bundle.Manifest.Where(x => x.Role == "OrdinaryMetadata").ToArray();
         var declared = bundle.PreservationCarriers.Where(x => x.Semantic == OrdinaryMetadataPreservation.Semantic || x.MaterializedArtifact?.Kind == MediaArtifactKind.MetadataCarrier).ToArray();
 
@@ -159,30 +219,32 @@ internal static class StructuredTargetWriterService
         {
             if (semantics.Count > 1 || rows.Length != semantics.Count || declared.Length != semantics.Count ||
                 semantics.Select(x => x.StableIdentity).Distinct(StringComparer.Ordinal).Count() != semantics.Count)
-                throw new NotSupportedException("Every ordinary metadata artifact requires one unique represented semantic owner.");
+                return new(null, new NotSupportedException("Every ordinary metadata artifact requires one unique represented semantic owner."));
             var bindings = new List<OrdinaryBinding>();
             foreach (var semantic in semantics)
             {
                 if (semantic.Semantic != OrdinaryMetadataPreservation.Semantic || semantic.Relationship != OrdinaryMetadataPreservation.Relationship ||
                     semantic.OwnerIdentity != "primary:0" || semantic.Representation != NeutralAuxiliaryRepresentation.Materialized ||
                     semantic.EvidenceState != NeutralEvidenceState.VerifiedPreserved || semantic.PreservationOutcome != PreservationOutcome.Preserved)
-                    throw new NotSupportedException("Ordinary metadata semantics are not verified complete materialized records.");
+                    return new(null, new NotSupportedException("Ordinary metadata semantics are not verified complete materialized records."));
                 var matching = rows.Where(x => x.StableIdentity == semantic.StableIdentity && x.Semantic == semantic.Semantic &&
                     x.OwnerIdentity == semantic.OwnerIdentity && x.Relationship == semantic.Relationship && x.ByteLength == semantic.ByteLength && x.Sha256 == semantic.Sha256 &&
                     x.SemanticRepresentation == semantic.Representation && x.Ownership == AuxiliaryOwnership.Primary && x.SourceOffset == 0 && x.OwnerByteOffset is null &&
                     x.ImageContainer == ImageContainer.Unknown && x.VideoContainer == VideoContainer.Unknown && x.AuxiliaryCodec == AuxiliaryCodec.Copy &&
                     x.PreservationOutcome == PreservationOutcome.Preserved).ToArray();
-                if (matching.Length != 1) throw new InvalidDataException("Ordinary metadata does not match its final Neutral manifest.");
+                if (matching.Length != 1) return new(null, new InvalidDataException("Ordinary metadata does not match its final Neutral manifest."));
                 var row = matching[0];
                 var artifacts = declared.Where(x => x.StableIdentity == semantic.StableIdentity && x.Semantic == semantic.Semantic &&
                     x.OwnerIdentity == semantic.OwnerIdentity && x.Relationship == semantic.Relationship && x.MaterializedArtifact is not null)
                     .Select(x => x.MaterializedArtifact!).Where(x => Path.GetFullPath(x.Path) == Path.GetFullPath(row.Path)).ToArray();
-                if (artifacts.Length != 1) throw new InvalidDataException("Ordinary metadata has no unique actual final artifact.");
-                var artifact = await OrdinaryMetadataPreservation.VerifyArtifactAsync(artifacts[0], row.ByteLength, row.Sha256, token).ConfigureAwait(false);
-                RejectSourceAlias(finalPath, artifact);
+                if (artifacts.Length != 1) return new(null, new InvalidDataException("Ordinary metadata has no unique actual final artifact."));
+                var artifactAttempt = await OrdinaryMetadataPreservation.TryVerifyArtifactAsync(artifacts[0], row.ByteLength, row.Sha256, token).ConfigureAwait(false);
+                if (artifactAttempt.Failure is { } artifactFailure) return new(null, artifactFailure);
+                var artifact = artifactAttempt.Artifact!;
+                if (SourceAliasFailure(finalPath, artifact) is { } aliasFailure) return new(null, aliasFailure);
                 bindings.Add(new(row, artifact));
             }
-            return bindings.ToArray();
+            return new(bindings.ToArray(), null);
         }
     }
 
@@ -196,9 +258,25 @@ internal static class StructuredTargetWriterService
         _ => throw new NotSupportedException("The target cannot represent this auxiliary semantic asset.")
     };
 
-    private static async Task<AuxiliaryBinding[]> BindAuxiliariesAsync(NeutralMediaBundle bundle,
+    private static async Task<(SourceMediaFacts? Facts, Exception? Failure)> ObserveAuxiliaryPrimaryAsync(
+        MediaArtifact primary, CancellationToken token)
+    {
+        if (primary.CompoundPrimary is { } compound)
+        {
+            var observed = compound.TryInspect(primary.Path, token);
+            return (observed.Facts, observed.Failure);
+        }
+        var attempt = await NativeMediaService.TryInspectMediaWithPlanAsync(primary.Path,
+            cancellationToken: token).ConfigureAwait(false);
+        if (attempt.Failure is { } failure) return (null, failure);
+        using var source = attempt.Source!;
+        return (source.Facts, null);
+    }
+
+    private static async Task<AuxiliaryBindingAttempt> BindAuxiliariesAsync(NeutralMediaBundle bundle,
         string finalPath, PreservationPolicy policy, uint target, List<NotCarriedItem> notCarried, CancellationToken token)
     {
+        if (token.IsCancellationRequested) return new(null, new OperationCanceledException(token));
         var semantics = bundle.Semantics.AuxiliaryMedia.ToList();
         if (bundle.Semantics.GainMap is { } gainMap) semantics.Add(gainMap);
         var rows = bundle.Manifest.Where(row => row.Role is not ("PrimaryImage" or "MotionVideo" or "OrdinaryMetadata")).ToArray();
@@ -206,20 +284,20 @@ internal static class StructuredTargetWriterService
         if (policy == PreservationPolicy.Strict)
         {
             if (semantics.Count > 2 || semantics.GroupBy(row => row.Semantic).Any(group => group.Count() != 1))
-                throw new NotSupportedException("The R3 target requires at most two unique supported auxiliary semantic assets.");
+                return new(null, new NotSupportedException("The R3 target requires at most two unique supported auxiliary semantic assets."));
             if (bundle.AuxiliaryMedia.GroupBy(row => row.Semantic).Any(group => group.Count() != 1) ||
                 bundle.AuxiliaryMedia.Any(descriptor => !semantics.Any(semantic =>
                     descriptor.Semantic == semantic.Semantic && descriptor.OwnerIdentity == semantic.OwnerIdentity &&
                     descriptor.Relationship == semantic.Relationship)))
-                throw new InvalidDataException("Auxiliary descriptors do not map uniquely to the final semantic inventory.");
+                return new(null, new InvalidDataException("Auxiliary descriptors do not map uniquely to the final semantic inventory."));
             if (rows.Length != semantics.Count ||
                 (bundle.GainMap is not null && !semantics.Any(row => row.Semantic == "GainMap")) ||
                 (bundle.GainMapRepresentation != GainMapRepresentation.None && !semantics.Any(row => row.Semantic == "GainMap")))
-                throw new NotSupportedException("Unrepresented auxiliary/carrier bytes cannot be silently discarded.");
+                return new(null, new NotSupportedException("Unrepresented auxiliary/carrier bytes cannot be silently discarded."));
             if (semantics.Count == 0)
             {
                 if (bundle.AuxiliaryMedia.Count != 0)
-                    throw new NotSupportedException("Unbound auxiliary/carrier descriptors cannot authorize target writing.");
+                    return new(null, new NotSupportedException("Unbound auxiliary/carrier descriptors cannot authorize target writing."));
             }
         // Only prepared Neutral bytes are re-observed to bind structural selectors.
         // Source provenance never selects a target layout.
@@ -227,19 +305,23 @@ internal static class StructuredTargetWriterService
         if (bundle.PrimaryImage.ImageContainer == ImageContainer.Heic &&
             semantics.Any(row => row.Representation is NeutralAuxiliaryRepresentation.Embedded or NeutralAuxiliaryRepresentation.Both))
         {
-            facts = await new SourceInspector().InspectAsync(bundle.PrimaryImage.Path,
-                cancellationToken: token).ConfigureAwait(false);
+            var observation = await ObserveAuxiliaryPrimaryAsync(bundle.PrimaryImage, token).ConfigureAwait(false);
+            if (observation.Failure is { } observationFailure) return new(null, observationFailure);
+            facts = observation.Facts!;
             if (facts.Protocol != SourceProtocol.NonLive)
-                throw new InvalidDataException("Prepared primary still contains source live binding.");
+                return new(null, new InvalidDataException("Prepared primary still contains source live binding."));
         }
         var embeddedCarriers=bundle.PreservationCarriers.Where(x=>!OrdinaryMetadataPreservation.IsRecordCarrier(x)).ToArray();
         if (embeddedCarriers.Length != 0)
         {
-            facts ??= bundle.PrimaryImage.CompoundPrimary is { } compoundPrimary
-                ? compoundPrimary.Inspect(bundle.PrimaryImage.Path, token).Facts
-                : await new SourceInspector().InspectAsync(bundle.PrimaryImage.Path, cancellationToken: token).ConfigureAwait(false);
+            if (facts is null)
+            {
+                var observation = await ObserveAuxiliaryPrimaryAsync(bundle.PrimaryImage, token).ConfigureAwait(false);
+                if (observation.Failure is { } observationFailure) return new(null, observationFailure);
+                facts = observation.Facts!;
+            }
             if (facts.Protocol != SourceProtocol.NonLive)
-                throw new InvalidDataException("Prepared carrier owner retains a source live binding.");
+                return new(null, new InvalidDataException("Prepared carrier owner retains a source live binding."));
             foreach (var carrier in embeddedCarriers)
             {
                 // Descriptive evidence never authorizes an append. Only an
@@ -257,41 +339,43 @@ internal static class StructuredTargetWriterService
                         actual.Kind == carrier.Kind && (sef || actual.SourceOffset == carrier.SourceOffset) &&
                         (index || (actual.SourceLength == carrier.SourceLength && actual.SourceSha256 == carrier.SourceSha256)) && actual.Semantic == carrier.Semantic &&
                         actual.OwnerIdentity == carrier.OwnerIdentity && actual.Relationship == carrier.Relationship) != 1)
-                    throw new NotSupportedException("Carrier is not the observed embedded ordinary primary camera metadata.");
+                    return new(null, new NotSupportedException("Carrier is not the observed embedded ordinary primary camera metadata."));
             }
         }
         var result = new List<AuxiliaryBinding>();
 
         foreach (var semantic in semantics)
         {
-            _ = AuxiliarySemanticCode(semantic.Semantic);
+            if (semantic.Semantic is not ("GainMap" or "Original" or "MiCameraSubimage" or "MiCameraLensWatermark" or "MpfAuxiliaryImage"))
+                return new(null, new NotSupportedException("The target cannot represent this auxiliary semantic asset."));
             if (
                 semantic.EvidenceState is NeutralEvidenceState.Unknown or NeutralEvidenceState.NotApplicable ||
                 semantic.OwnerIdentity != "primary:0" || semantic.Ownership != AuxiliaryOwnership.Primary)
-                throw new NotSupportedException("Auxiliary semantic identity, owner and evidence must be established.");
+                return new(null, new NotSupportedException("Auxiliary semantic identity, owner and evidence must be established."));
             var matches = rows.Where(row => row.StableIdentity == semantic.StableIdentity &&
                 row.Semantic == semantic.Semantic && row.OwnerIdentity == semantic.OwnerIdentity &&
                 row.Relationship == semantic.Relationship && row.SemanticRepresentation == semantic.Representation &&
                 row.ImageContainer == semantic.ImageContainer && row.Ownership == semantic.Ownership).ToArray();
             if (matches.Length != 1 || matches[0].ByteLength <= 0 || matches[0].Sha256.Length != 64)
-                throw new InvalidDataException("Auxiliary semantic asset does not match its unique final Neutral manifest row.");
+                return new(null, new InvalidDataException("Auxiliary semantic asset does not match its unique final Neutral manifest row."));
             var row = matches[0];
             uint representation = semantic.Representation switch
             {
                 NeutralAuxiliaryRepresentation.Embedded => 1,
                 NeutralAuxiliaryRepresentation.Detached or NeutralAuxiliaryRepresentation.Materialized => 2,
                 NeutralAuxiliaryRepresentation.Both => 3,
-                _ => throw new NotSupportedException("Auxiliary representation is unknown.")
+                _ => 0
             };
+            if (representation == 0) return new(null, new NotSupportedException("Auxiliary representation is unknown."));
             uint selectorKind = 0, selectorId = 0;
             if (representation == 1 && (bundle.AuxiliaryMedia.Any(item => item.Semantic == row.Semantic && item.MaterializedArtifact is not null) ||
                 (row.Semantic == "GainMap" && bundle.GainMap is not null)))
-                throw new InvalidDataException("An embedded asset with a materialized mirror must declare Both representation.");
+                return new(null, new InvalidDataException("An embedded asset with a materialized mirror must declare Both representation."));
             if (representation != 2)
             {
                 if (row.OwnerByteOffset is not long embeddedOffset || embeddedOffset < 0 ||
                     embeddedOffset > bundle.PrimaryImage.ByteLength || row.ByteLength > bundle.PrimaryImage.ByteLength - embeddedOffset)
-                    throw new InvalidDataException("Embedded auxiliary is outside its whole-file primary owner.");
+                    return new(null, new InvalidDataException("Embedded auxiliary is outside its whole-file primary owner."));
                 if (bundle.PrimaryImage.ImageContainer == ImageContainer.Heic)
                 {
                     var observed = facts!.AuxiliaryItems.Where(item => item.IsPresent && item.GraphComplete &&
@@ -300,7 +384,7 @@ internal static class StructuredTargetWriterService
                         item.Container == row.ImageContainer && item.ByteOffset == row.OwnerByteOffset &&
                         item.ByteLength == row.ByteLength && string.Equals(item.Sha256, row.Sha256, StringComparison.OrdinalIgnoreCase)).ToArray();
                     if (observed.Length != 1 || observed[0].ItemId == 0)
-                        throw new InvalidDataException("Embedded auxiliary selector does not match the observed prepared primary graph.");
+                        return new(null, new InvalidDataException("Embedded auxiliary selector does not match the observed prepared primary graph."));
                     selectorKind = 2;
                     selectorId = observed[0].ItemId;
                 }
@@ -320,23 +404,23 @@ internal static class StructuredTargetWriterService
                     item.ByteLength == row.ByteLength && item.ImageContainer == row.ImageContainer &&
                     string.Equals(item.Sha256, row.Sha256, StringComparison.OrdinalIgnoreCase)).ToArray();
                 if (matching.Length == 0 || matching.Length != candidates.Count || matching.Any(item => item.FileIdentity is null))
-                    throw new InvalidDataException("Detached auxiliary is not a uniquely identified complete Neutral artifact.");
+                    return new(null, new InvalidDataException("Detached auxiliary is not a uniquely identified complete Neutral artifact."));
                 MediaArtifact first = matching[0];
                 if (matching.Any(item => item.FileIdentity != first.FileIdentity ||
                     item.Kind != first.Kind || item.ImageContainer != first.ImageContainer ||
                     item.ImageCodec != first.ImageCodec || item.VideoContainer != first.VideoContainer ||
                     item.VideoCodec != first.VideoCodec))
-                    throw new InvalidDataException("Detached auxiliary references disagree on their materialized file identity or media representation.");
+                    return new(null, new InvalidDataException("Detached auxiliary references disagree on their materialized file identity or media representation."));
                 materialized = first;
                 // SourceExtractor retains the original source-range offset on an
                 // independently materialized artifact. That diagnostic offset is
                 // not a slice into this file. Native pins the whole file and checks
                 // its complete identity, actual size and SHA against the final row.
-                RejectSourceAlias(finalPath, materialized);
+                if (SourceAliasFailure(finalPath, materialized) is { } aliasFailure) return new(null, aliasFailure);
             }
             result.Add(new AuxiliaryBinding(row, representation, selectorKind, selectorId, materialized));
         }
-        return result.ToArray();
+        return new(result.ToArray(), null);
     }
     else
     {
@@ -350,29 +434,35 @@ internal static class StructuredTargetWriterService
             if (bundle.PrimaryImage.ImageContainer == ImageContainer.Heic &&
                 semantics.Any(row => row.Representation is NeutralAuxiliaryRepresentation.Embedded or NeutralAuxiliaryRepresentation.Both))
             {
-                facts = await new SourceInspector().InspectAsync(bundle.PrimaryImage.Path, cancellationToken: token).ConfigureAwait(false);
+                var observation = await ObserveAuxiliaryPrimaryAsync(bundle.PrimaryImage, token).ConfigureAwait(false);
+                if (observation.Failure is { } observationFailure) return new(null, observationFailure);
+                facts = observation.Facts!;
             }
             var embeddedCarriers = bundle.PreservationCarriers.Where(x => !OrdinaryMetadataPreservation.IsRecordCarrier(x)).ToArray();
             if (embeddedCarriers.Length != 0)
             {
-                facts ??= bundle.PrimaryImage.CompoundPrimary is { } compoundPrimary
-                    ? compoundPrimary.Inspect(bundle.PrimaryImage.Path, token).Facts
-                    : await new SourceInspector().InspectAsync(bundle.PrimaryImage.Path, cancellationToken: token).ConfigureAwait(false);
+                if (facts is null)
+                {
+                    var observation = await ObserveAuxiliaryPrimaryAsync(bundle.PrimaryImage, token).ConfigureAwait(false);
+                    if (observation.Failure is { } observationFailure) return new(null, observationFailure);
+                    facts = observation.Facts!;
+                }
             }
         }
-        catch (OperationCanceledException) { throw; }
-        catch (Exception ex) { throw new InvalidDataException("Prepared auxiliary observation failed; no loss decision is authorized.", ex); }
+        catch (OperationCanceledException ex) { return new(null, ex); }
+        catch (Exception ex) { return new(null, new InvalidDataException("Prepared auxiliary observation failed; no loss decision is authorized.", ex)); }
 
         foreach (var semantic in semantics)
         {
-            token.ThrowIfCancellationRequested();
+            if (token.IsCancellationRequested) return new(null, new OperationCanceledException(token));
             try
             {
-                _ = AuxiliarySemanticCode(semantic.Semantic);
+                if (semantic.Semantic is not ("GainMap" or "Original" or "MiCameraSubimage" or "MiCameraLensWatermark" or "MpfAuxiliaryImage"))
+                return new(null, new NotSupportedException("The target cannot represent this auxiliary semantic asset."));
                 if (semantic.EvidenceState is NeutralEvidenceState.Unknown or NeutralEvidenceState.NotApplicable ||
                     semantic.OwnerIdentity != "primary:0" || semantic.Ownership != AuxiliaryOwnership.Primary)
                 {
-                    throw new InvalidDataException("Auxiliary evidence/ownership is invalid; omission is not authorized.");
+                    return new(null, new InvalidDataException("Auxiliary evidence/ownership is invalid; omission is not authorized."));
                 }
 
                 var matches = rows.Where(row => row.StableIdentity == semantic.StableIdentity &&
@@ -382,7 +472,7 @@ internal static class StructuredTargetWriterService
 
                 if (matches.Length != 1 || matches[0].ByteLength <= 0 || matches[0].Sha256.Length != 64)
                 {
-                    throw new InvalidDataException("Auxiliary semantic asset does not match its unique final Neutral manifest row.");
+                    return new(null, new InvalidDataException("Auxiliary semantic asset does not match its unique final Neutral manifest row."));
                 }
 
                 var row = matches[0];
@@ -395,7 +485,7 @@ internal static class StructuredTargetWriterService
                 };
                 if (representation == 0)
                 {
-                    throw new InvalidDataException("Auxiliary representation is unknown.");
+                    return new(null, new InvalidDataException("Auxiliary representation is unknown."));
                 }
 
                 uint selectorKind = 0, selectorId = 0;
@@ -404,13 +494,13 @@ internal static class StructuredTargetWriterService
                     if (row.OwnerByteOffset is not long embeddedOffset || embeddedOffset < 0 ||
                         embeddedOffset > bundle.PrimaryImage.ByteLength || row.ByteLength > bundle.PrimaryImage.ByteLength - embeddedOffset)
                     {
-                        throw new InvalidDataException("Embedded auxiliary is outside its whole-file primary owner.");
+                        return new(null, new InvalidDataException("Embedded auxiliary is outside its whole-file primary owner."));
                     }
                     if (bundle.PrimaryImage.ImageContainer == ImageContainer.Heic)
                     {
                         if (facts is null)
                         {
-                            throw new InvalidDataException("Carrier facts unavailable.");
+                            return new(null, new InvalidDataException("Carrier facts unavailable."));
                         }
                         var observed = facts.AuxiliaryItems.Where(item => item.IsPresent && item.GraphComplete &&
                             item.StableIdentity == row.StableIdentity && item.Semantic == row.Semantic &&
@@ -419,7 +509,7 @@ internal static class StructuredTargetWriterService
                             item.ByteLength == row.ByteLength && string.Equals(item.Sha256, row.Sha256, StringComparison.OrdinalIgnoreCase)).ToArray();
                         if (observed.Length != 1 || observed[0].ItemId == 0)
                         {
-                            throw new InvalidDataException("Embedded auxiliary selector does not match the observed prepared primary graph.");
+                            return new(null, new InvalidDataException("Embedded auxiliary selector does not match the observed prepared primary graph."));
                         }
                         selectorKind = 2;
                         selectorId = observed[0].ItemId;
@@ -445,18 +535,18 @@ internal static class StructuredTargetWriterService
                         string.Equals(item.Sha256, row.Sha256, StringComparison.OrdinalIgnoreCase)).ToArray();
                     if (matching.Length == 0 || matching.Length != candidates.Count || matching.Any(item => item.FileIdentity is null))
                     {
-                        throw new InvalidDataException("Detached auxiliary is not a uniquely identified complete Neutral artifact.");
+                        return new(null, new InvalidDataException("Detached auxiliary is not a uniquely identified complete Neutral artifact."));
                     }
                     MediaArtifact first = matching[0];
                     if (matching.Any(item => item.FileIdentity != first.FileIdentity || item.Kind != first.Kind ||
                         item.ImageContainer != first.ImageContainer || item.ImageCodec != first.ImageCodec ||
                         item.VideoContainer != first.VideoContainer || item.VideoCodec != first.VideoCodec))
-                        throw new InvalidDataException("Auxiliary mirrors disagree on their actual file identity or representation.");
+                        return new(null, new InvalidDataException("Auxiliary mirrors disagree on their actual file identity or representation."));
                     // SourceOffset is extraction provenance, not an offset into
                     // this independently materialized file. Bind the complete
                     // file through its manifest length/hash, as Strict does.
                     materialized = first;
-                    RejectSourceAlias(finalPath, materialized);
+                    if (SourceAliasFailure(finalPath, materialized) is { } aliasFailure) return new(null, aliasFailure);
                 }
 
                 bool targetCannotCarry = (target is 7 or 8 && representation == 2 && row.Semantic is "Original" or "MiCameraSubimage" or "MiCameraLensWatermark") || (target == 4 && row.Semantic is not ("GainMap" or "MpfAuxiliaryImage")) ||
@@ -472,15 +562,16 @@ internal static class StructuredTargetWriterService
                         ("MiCameraSubimage", "micamera-xmpmeta-subimage") or
                         ("MiCameraLensWatermark", "micamera-xmpmeta-lenswatermark");
                     if (!optionalPrivateAsset)
-                        throw new NotSupportedException("Auxiliary transport capacity cannot safely omit this semantic asset.");
+                        return new(null, new NotSupportedException("Auxiliary transport capacity cannot safely omit this semantic asset."));
                     if (materialized is not null)
                     {
                         using var leases = new NeutralArtifactReadLeaseSet();
-                        leases.Pin(materialized);
-                        await using var input = File.OpenRead(materialized.Path);
-                        string actualHash = Convert.ToHexString(await SHA256.HashDataAsync(input, token).ConfigureAwait(false));
+                        if (leases.TryPin(materialized) is { } leaseFailure) return new(null, leaseFailure);
+                        var hashAttempt = await MediaFileHashAttempt.ComputeAsync(materialized.Path, token).ConfigureAwait(false);
+                        if (hashAttempt.Failure is { } hashFailure) return new(null, hashFailure);
+                        string actualHash = hashAttempt.Sha256!;
                         if (!string.Equals(actualHash, row.Sha256, StringComparison.OrdinalIgnoreCase))
-                            throw new InvalidDataException("Optional auxiliary bytes changed before the loss decision.");
+                            return new(null, new InvalidDataException("Optional auxiliary bytes changed before the loss decision."));
                     }
                     notCarried.Add(new NotCarriedItem
                     {
@@ -494,37 +585,48 @@ internal static class StructuredTargetWriterService
                 }
                 result.Add(new AuxiliaryBinding(row, representation, selectorKind, selectorId, materialized));
             }
-            catch (OperationCanceledException) { throw; }
-            catch (Exception ex) { throw new InvalidDataException("Auxiliary binding failed; no target was authorized: " + ex.Message, ex); }
+            catch (OperationCanceledException ex) { return new(null, ex); }
+            catch (Exception ex) { return new(null, new InvalidDataException("Auxiliary binding failed; no target was authorized: " + ex.Message, ex)); }
         }
 
-        return result.ToArray();
+        return new(result.ToArray(), null);
     }
 }
 
     private static void RequireManifest(NeutralMediaBundle bundle, MediaArtifact artifact)
     {
+        if(ManifestFailure(bundle,artifact) is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+    private static void RejectSourceAlias(string finalPath, MediaArtifact artifact)
+    {
+        if(SourceAliasFailure(finalPath,artifact) is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+    private static Exception? ManifestFailure(NeutralMediaBundle bundle, MediaArtifact artifact)
+    {
         if (artifact.FileIdentity is null || artifact.ByteLength <= 0 || artifact.SourceOffset != 0 ||
             artifact.Sha256 is null || artifact.Sha256.Length != 64)
-            throw new InvalidDataException("Prepared artifacts require whole-file identity, length and SHA-256 evidence.");
+            return new InvalidDataException("Prepared artifacts require whole-file identity, length and SHA-256 evidence.");
         var matches = bundle.Manifest.Where(row => row.Role == artifact.Kind.ToString() &&
             string.Equals(Path.GetFullPath(row.Path), Path.GetFullPath(artifact.Path), StringComparison.OrdinalIgnoreCase)).ToArray();
         if (matches.Length != 1 || matches[0].ByteLength != artifact.ByteLength ||
             !string.Equals(matches[0].Sha256, artifact.Sha256, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidDataException("Prepared artifact does not match its unique Neutral manifest member.");
+            return new InvalidDataException("Prepared artifact does not match its unique Neutral manifest member.");
+        return null;
     }
 
-    private static void RejectSourceAlias(string finalPath, MediaArtifact artifact)
+    private static Exception? SourceAliasFailure(string finalPath, MediaArtifact artifact)
     {
         if (string.Equals(Path.GetFullPath(finalPath), Path.GetFullPath(artifact.Path), StringComparison.OrdinalIgnoreCase))
-            throw new IOException("Target publication cannot overwrite a prepared input artifact.");
+            return new IOException("Target publication cannot overwrite a prepared input artifact.");
         if (File.Exists(finalPath))
         {
-            WindowsFileIdentity actual = WindowsFileIdentity.Capture(finalPath);
-            if (actual.VolumeSerialNumber == artifact.FileIdentity!.VolumeSerialNumber &&
+            if(!WindowsFileIdentity.TryCapture(finalPath,out WindowsFileIdentity? actual,out int error))
+                return new System.ComponentModel.Win32Exception(error,"Cannot inspect target identity.");
+            if (actual!.VolumeSerialNumber == artifact.FileIdentity!.VolumeSerialNumber &&
                 actual.FileIndex == artifact.FileIdentity.FileIndex)
-                throw new IOException("Target publication resolves to a prepared input object.");
+                return new IOException("Target publication resolves to a prepared input object.");
         }
+        return null;
     }
 
     private static int? KnownRotation(NeutralOrientationTransform? transform)
@@ -603,7 +705,7 @@ internal static class StructuredTargetWriterService
                 _compound = ((target == 6 && profile.Format == OutputMediaFormat.JpegMp4) || preservationPolicy == PreservationPolicy.BestEffort) ? image.CompoundPrimary : null;
                 if(ordinary.Length!=0)
                 {
-                    if(ordinary.Length!=1||_compound is not null)throw new NotSupportedException("Ordinary metadata cannot be combined with an unrepresented compound primary.");
+                    if(ordinary.Length!=1||_compound is not null) { Failure = new NotSupportedException("Ordinary metadata cannot be combined with an unrepresented compound primary."); return; }
                     var binding=ordinary[0];var metadata=new NativeTargetOrdinaryMetadataV1
                     {StructSize=(uint)sizeof(NativeTargetOrdinaryMetadataV1),Version=1,Kind=1,Materialized=Bind(binding.Artifact,5)};
                     EncodeText(binding.Row.StableIdentity,metadata.StableIdentity,128);EncodeText(binding.Row.OwnerIdentity,metadata.OwnerIdentity,128);
@@ -611,26 +713,26 @@ internal static class StructuredTargetWriterService
                     var requestV4=new NativeTargetWriterRequestV4{StructSize=(uint)sizeof(NativeTargetWriterRequestV4),Version=4,
                         Base=new NativeTargetWriterRequestV3{StructSize=(uint)sizeof(NativeTargetWriterRequestV3),Version=3,Base=requestV2},
                         MetadataCount=1,Metadata=(nint)(&metadata)};
-                    Require(NativeMethods.TargetWriterPrepareV4(_operation.Handle,&requestV4,out _plan),"prepare ordinary metadata");
+                    if (!TryRequire(NativeMethods.TargetWriterPrepareV4(_operation.Handle,&requestV4,out _plan),"prepare ordinary metadata")) return;
                 }
                 else if (_compound is not null)
                 {
                     _compound.DangerousAddRef(ref _compoundRetained);
                     var requestV3 = new NativeTargetWriterRequestV3 { StructSize = (uint)sizeof(NativeTargetWriterRequestV3),
                         Version = 3, Base = requestV2, CompoundPrimaryToken = unchecked((ulong)_compound.DangerousGetHandle()) };
-                    Require(NativeMethods.TargetWriterPrepareV3(_operation.Handle, &requestV3, out _plan), "prepare");
+                    if (!TryRequire(NativeMethods.TargetWriterPrepareV3(_operation.Handle, &requestV3, out _plan), "prepare")) return;
                 }
-                else Require(NativeMethods.TargetWriterPrepareV2(_operation.Handle, &requestV2, out _plan), "prepare");
-                if (_plan == 0) throw new IOException("Native Writer did not issue a plan.");
-                Require(NativeMethods.TargetWriterStage(_operation.Handle, _plan), "stage");
+                else if (!TryRequire(NativeMethods.TargetWriterPrepareV2(_operation.Handle, &requestV2, out _plan), "prepare")) return;
+                if (_plan == 0) { Failure = new IOException("Native Writer did not issue a plan."); return; }
+                if (!TryRequire(NativeMethods.TargetWriterStage(_operation.Handle, _plan), "stage")) return;
                 var status = new NativeTargetWriterStatusV1
                 { StructSize = (uint)sizeof(NativeTargetWriterStatusV1), Version = 1 };
                 NativeTargetWriterOutputV1* outputs = stackalloc NativeTargetWriterOutputV1[2];
                 for (int i = 0; i < 2; i++) outputs[i] = new NativeTargetWriterOutputV1
                     { StructSize = (uint)sizeof(NativeTargetWriterOutputV1), Version = 1 };
                 uint members = target is 7 or 8 ? 2u : 1u;
-                Require(NativeMethods.TargetWriterGetOutputs(_operation.Handle, _plan, outputs, members,
-                    out uint count, ref status), "query");
+                if (!TryRequire(NativeMethods.TargetWriterGetOutputs(_operation.Handle, _plan, outputs, members,
+                    out uint count, ref status), "query")) return;
                 var output = outputs[0];
                 if (count != members || status.State != 2 || status.OutputCount != members || status.FailureCategory != 0 ||
                     output.StructSize != sizeof(NativeTargetWriterOutputV1) || output.Version != 1 ||
@@ -638,18 +740,20 @@ internal static class StructuredTargetWriterService
                     output.TargetVersion != request.TargetVersion || output.Generation != status.Generation || output.StageId == 0 ||
                     output.ByteLength == 0 || output.ByteLength > long.MaxValue || output.Identity.LinkCount != 1 ||
                     output.Identity.FileSize != output.ByteLength)
-                    throw new IOException("Native Writer did not provide one complete sealed target artifact.");
+                    { Failure = new IOException("Native Writer did not provide one complete sealed target artifact."); return; }
                 _output = output;
                 if (members == 2)
                 {
-                    PairProof = NativeTargetPairProof.Observe(_operation.Handle, _plan);
+                    var pairObservation = NativeTargetPairProof.TryObserve(_operation.Handle, _plan);
+                    if (pairObservation.Failure is { } pairFailure) { Failure = pairFailure; return; }
+                    PairProof = pairObservation.Proof!;
                     _videoOutput = outputs[1];
                     if (_videoOutput.ArtifactIndex != 1 || _videoOutput.ArtifactRole != 1 ||
                         _videoOutput.Generation != output.Generation || _videoOutput.TargetProfile != target ||
                         _videoOutput.TargetVersion != targetVersion || _videoOutput.StageId == 0 || _videoOutput.StageId == output.StageId ||
                         _videoOutput.ByteLength == 0 || _videoOutput.ByteLength > long.MaxValue ||
                         _videoOutput.Identity.LinkCount != 1 || _videoOutput.Identity.FileSize != _videoOutput.ByteLength)
-                        throw new IOException("Native Writer did not seal both members of the target pair.");
+                        { Failure = new IOException("Native Writer did not seal both members of the target pair."); return; }
                 }
             }
             catch
@@ -659,28 +763,29 @@ internal static class StructuredTargetWriterService
             }
         }
 
-        internal async Task CopyToAsync(Stream writer, CancellationToken token)
+        internal Task<Exception?> CopyToAttemptAsync(Stream writer, CancellationToken token)
+            => Task.Run<Exception?>(() =>
         {
             byte[] buffer = new byte[128 * 1024];
             using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             for (ulong offset = 0; offset < _output.ByteLength;)
             {
-                token.ThrowIfCancellationRequested();
+                if(token.IsCancellationRequested)return new OperationCanceledException(token);
                 int count = checked((int)Math.Min((ulong)buffer.Length, _output.ByteLength - offset));
-                Read(offset, buffer.AsSpan(0, count));
+                if(Read(offset,buffer.AsSpan(0,count)) is { } readFailure)return readFailure;
                 hash.AppendData(buffer.AsSpan(0, count));
-                await writer.WriteAsync(buffer.AsMemory(0, count), token).ConfigureAwait(false);
+                if(TransactionStreamWriteAttempt.Write(writer,buffer.AsSpan(0,count),token,(long)offset) is { } writeFailure)return writeFailure;
                 offset += (uint)count;
             }
             if (!CryptographicOperations.FixedTimeEquals(hash.GetHashAndReset(), OutputHash()))
-                throw new IOException("Transported target bytes do not match the Native sealed artifact.");
+                return new IOException("Transported target bytes do not match the Native sealed artifact.");
             // Retire Native staging before the publisher can commit the target.
             // A cleanup failure must not turn an already committed output into
             // a reported failure with no committed-artifact receipt.
-            ReleasePlan();
-        }
+            return TryReleasePlan();
+        },CancellationToken.None);
 
-        internal void CompleteTransport() => ReleasePlan();
+        internal Exception? CompleteTransportAttempt() => TryReleasePlan();
 
         internal unsafe string MemberHash(int member)
         {
@@ -688,42 +793,46 @@ internal static class StructuredTargetWriterService
             return Convert.ToHexString(new ReadOnlySpan<byte>(output.Sha256, 32));
         }
 
-        internal async Task CopyMemberToAsync(int member, Stream writer, CancellationToken token)
+        internal Task<Exception?> CopyMemberToAttemptAsync(int member, Stream writer, CancellationToken token)
+            => Task.Run<Exception?>(() =>
         {
             var output = member == 0 ? _output : _videoOutput;
             byte[] buffer = new byte[128 * 1024];
             using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
             for (ulong offset = 0; offset < output.ByteLength;)
             {
-                token.ThrowIfCancellationRequested();
+                if(token.IsCancellationRequested)return new OperationCanceledException(token);
                 int count = (int)Math.Min((ulong)buffer.Length, output.ByteLength - offset);
-                ReadMember(output.StageId, offset, buffer.AsSpan(0, count));
+                if(ReadMember(output.StageId,offset,buffer.AsSpan(0,count)) is { } readFailure)return readFailure;
                 hash.AppendData(buffer.AsSpan(0, count));
-                await writer.WriteAsync(buffer.AsMemory(0, count), token).ConfigureAwait(false);
+                if(TransactionStreamWriteAttempt.Write(writer,buffer.AsSpan(0,count),token,(long)offset) is { } writeFailure)return writeFailure;
                 offset += (uint)count;
             }
             if (Convert.ToHexString(hash.GetHashAndReset()) != MemberHash(member))
-                throw new IOException("Target pair transport changed the sealed member bytes.");
-        }
+                return new IOException("Target pair transport changed the sealed member bytes.");
+            return null;
+        },CancellationToken.None);
 
-        private unsafe void ReadMember(ulong stage, ulong offset, Span<byte> buffer)
+        private unsafe Exception? ReadMember(ulong stage, ulong offset, Span<byte> buffer)
         {
             fixed (byte* bytes = buffer)
             {
-                Require(NativeMethods.TargetWriterReadStage(_operation.Handle, _plan, stage,
-                    offset, bytes, (uint)buffer.Length, out uint read), "read pair member");
-                if (read != buffer.Length) throw new EndOfStreamException("Target pair transport was incomplete.");
+                if(!TryRequire(NativeMethods.TargetWriterReadStage(_operation.Handle, _plan, stage,
+                    offset, bytes, (uint)buffer.Length, out uint read), "read pair member"))return Failure;
+                if (read != buffer.Length) return new EndOfStreamException("Target pair transport was incomplete.");
             }
+            return null;
         }
 
-        private unsafe void Read(ulong offset, Span<byte> buffer)
+        private unsafe Exception? Read(ulong offset, Span<byte> buffer)
         {
             fixed (byte* bytes = buffer)
             {
-                Require(NativeMethods.TargetWriterReadStage(_operation.Handle, _plan, _output.StageId,
-                    offset, bytes, (uint)buffer.Length, out uint read), "read");
-                if (read != buffer.Length) throw new EndOfStreamException("Native target stage transport was incomplete.");
+                if(!TryRequire(NativeMethods.TargetWriterReadStage(_operation.Handle, _plan, _output.StageId,
+                    offset, bytes, (uint)buffer.Length, out uint read), "read"))return Failure;
+                if (read != buffer.Length) return new EndOfStreamException("Native target stage transport was incomplete.");
             }
+            return null;
         }
 
         private unsafe byte[] OutputHash()
@@ -731,6 +840,17 @@ internal static class StructuredTargetWriterService
             byte[] hash = new byte[32];
             for (int i = 0; i < hash.Length; i++) hash[i] = _output.Sha256[i];
             return hash;
+        }
+
+        internal Exception? Failure { get; private set; }
+        private bool TryRequire(NativeResult result, string stage)
+        {
+            if (result == NativeResult.Ok) return true;
+            string message = $"Native target Writer {stage}: {result}; {_context.GetLastError()}";
+            Failure = result == NativeResult.Cancelled ? new OperationCanceledException(message)
+                : result == NativeResult.Unsupported ? new NotSupportedException(message)
+                : new IOException(message);
+            return false;
         }
 
         private void Require(NativeResult result, string stage)
@@ -780,14 +900,16 @@ internal static class StructuredTargetWriterService
             bytes.CopyTo(new Span<byte>(output, bytes.Length));
         }
 
+        private Exception? TryReleasePlan()
+        {
+            if(_plan==0)return null;
+            nint plan=_plan;_plan=0;
+            NativeResult release=NativeMethods.TargetWriterRelease(_operation.Handle,plan);
+            return release==NativeResult.Ok?null:new IOException("Native target stage cleanup did not complete: "+release);
+        }
         private void ReleasePlan()
         {
-            if (_plan == 0) return;
-            nint plan = _plan;
-            _plan = 0;
-            NativeResult release = NativeMethods.TargetWriterRelease(_operation.Handle, plan);
-            if (release != NativeResult.Ok)
-                throw new IOException("Native target stage cleanup did not complete: " + release);
+            if(TryReleasePlan() is { } failure)System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
         }
 
         public void Dispose()

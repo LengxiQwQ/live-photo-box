@@ -674,7 +674,14 @@ lpb_result convert_image_file(lpb_context* context, const char* input_image_path
 
 
 
-        if (facts.color.has_nclx || pixels.color.has_nclx ||
+        const auto directly_representable_srgb = [](const pixel_color_facts& color) noexcept {
+            return color.has_nclx && !color.has_icc && color.primaries == 1 && color.transfer == 13 &&
+                (color.matrix == 0 || color.matrix == 1 || color.matrix == 5 || color.matrix == 6);
+        };
+        const bool srgb_nclx = directly_representable_srgb(facts.color) && directly_representable_srgb(pixels.color) &&
+            facts.color.primaries == pixels.color.primaries && facts.color.transfer == pixels.color.transfer &&
+            facts.color.matrix == pixels.color.matrix && facts.color.full_range == pixels.color.full_range;
+        if (((facts.color.has_nclx || pixels.color.has_nclx) && !srgb_nclx) ||
 
 
 

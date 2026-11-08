@@ -1,4 +1,4 @@
-﻿using Microsoft.UI.Dispatching;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using System;
@@ -69,6 +69,7 @@ namespace LivePhotoBox.Services
 
         public static void Initialize(DispatcherQueue dispatcher)
         {
+            if (!ThumbnailService.IsLoadingEnabled) return;
             if (ApplicationShutdown.IsClosing) return;
             _dispatcher = dispatcher;
 
@@ -95,6 +96,7 @@ namespace LivePhotoBox.Services
         /// <summary>每次视图滚动产生新的可见 item 批次时，调用此方法淘汰上一代排队的旧 item。</summary>
         public static int NewGeneration()
         {
+            if (!ThumbnailService.IsLoadingEnabled) return _currentGeneration;
             int gen = Interlocked.Increment(ref _currentGeneration);
             lock (_queueLock)
             {
@@ -117,6 +119,7 @@ namespace LivePhotoBox.Services
 
         public static void Enqueue(int index, string path, int priority, Action<ImageSource?> callback)
         {
+            if (!ThumbnailService.IsLoadingEnabled) return;
             if (ApplicationShutdown.IsClosing || string.IsNullOrWhiteSpace(path)) return;
             int uiGeneration = _uiLifetime.Generation;
             int gen = _currentGeneration;
@@ -156,6 +159,7 @@ namespace LivePhotoBox.Services
 
         public static void TrimQueue(int firstVisible, int lastVisible)
         {
+            if (!ThumbnailService.IsLoadingEnabled) return;
             lock (_queueLock)
             {
                 int removed = _queue.RemoveAll(r =>
@@ -179,6 +183,7 @@ namespace LivePhotoBox.Services
         /// <summary>注册全量列表，用于可见区加载完后后台逐张预热剩余缩略图</summary>
         public static void StartBackgroundFill(System.Collections.IList allItems)
         {
+            if (!ThumbnailService.IsLoadingEnabled) return;
             if (ApplicationShutdown.IsClosing) return;
             var snapshot = new List<BackgroundItem>(allItems.Count);
             for (int i = 0; i < allItems.Count; i++)

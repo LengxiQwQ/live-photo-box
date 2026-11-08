@@ -78,6 +78,8 @@ namespace LivePhotoBox.Models
         Vivo = 2,
     }
 
+    public enum SelectionIntent { SourceRelationship = 0, UserComposition = 1, AppleIdentity = 2, VivoIdentity = 3 }
+
     /// <summary>双文件关系的真实语义种类</summary>
     public enum PairingKind
     {
@@ -87,6 +89,7 @@ namespace LivePhotoBox.Models
         NativeConfirmedSourcePair = 1,
         /// <summary>用户显式指定的 1 图 + 1 视频对</summary>
         ExplicitMediaSelection = 2,
+        IdentityCandidate = 3,
     }
 
     /// <summary>扫描诊断严重度</summary>
@@ -150,7 +153,7 @@ namespace LivePhotoBox.Models
         VivoMatch = 1 << 4,
 
         /// <summary>拆分页面：单文件实况 + 原生确认的 Apple/旧 vivo 双文件（不按同名猜配）</summary>
-        SplitOnly = JpegMarkers | HeicTrack | CidMatch | VivoMatch,
+        SplitOnly = JpegMarkers | HeicTrack,
         /// <summary>合并页面：三个匹配方法（按 UI 选择互斥运行）</summary>
         MergeOnly = FilenamePair | CidMatch | VivoMatch,
         /// <summary>资源浏览：检测 + 匹配全部</summary>
@@ -259,17 +262,14 @@ namespace LivePhotoBox.Models
                     .Where(i => i.LivePhotoType == LivePhotoType.DualFile && i.IsImage)
                     .ToList();
                 var result = new List<(LivePhotoDiscoveryItem, LivePhotoDiscoveryItem)>();
-                var pairedVideos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var byPath = Items.ToDictionary(i => i.FilePath, StringComparer.OrdinalIgnoreCase);
 
                 foreach (var img in imageItems)
                 {
                     if (img.PairedVideoPath == null) continue;
-                    var vid = Items.FirstOrDefault(v =>
-                        string.Equals(v.FilePath, img.PairedVideoPath, StringComparison.OrdinalIgnoreCase));
-                    if (vid != null)
+                    if (byPath.TryGetValue(img.PairedVideoPath, out var vid))
                     {
                         result.Add((img, vid));
-                        pairedVideos.Add(vid.FilePath);
                     }
                 }
 

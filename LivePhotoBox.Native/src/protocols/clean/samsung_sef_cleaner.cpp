@@ -1,6 +1,7 @@
 #include "samsung_sef_cleaner.h"
 #include "xmp_cleaner.h"
 #include "media/media_cleaner.h"
+#include "media/xmp_observation.h"
 #include "foundation/residue_fingerprint.h"
 #include "foundation/internal.h"
 #include "platform/windows_filesystem.h"
@@ -156,6 +157,7 @@ lpb_result clean_samsung_sef_jpeg(
     size_t eoi = input_size;
     bool parsed_sef = false;
     bool had_motion_photo = false;
+    uint64_t removed_video_offset=UINT64_MAX;
 
     std::string fp_0a30_matched;
     if (input_size >= 20 && std::memcmp(data.data() + input_size - 4, "SEFT", 4) == 0) {
@@ -228,6 +230,7 @@ lpb_result clean_samsung_sef_jpeg(
                                 return LPB_RESULT_INVALID_ARGUMENT;
                             }
                             had_motion_photo = true;
+                            removed_video_offset=payload_pos+24;
                             fp_0a30_matched = std::move(fp);
                         } else {
                             SefEntry retained{};
@@ -246,7 +249,8 @@ lpb_result clean_samsung_sef_jpeg(
                             LPB_ARTIFACT_PRIMARY_IMAGE, LPB_RESIDUE_SEF_ENTRY, "0x0A31:MotionPhoto_Version", "MotionPhoto_Version", LPB_REMOVAL_REBUILD_CONTAINER);
                         if (act_0a31) {
                             std::string fp = lpb::crypto::compute_samsung_sef_entry_fingerprint(
-                                0x0A31, "MotionPhoto_Version", size - 8, data.data() + payload_pos + 8, size - 8);
+                                0x0A31, "MotionPhoto_Version", size - 8 - name_size,
+                                data.data() + payload_pos + 8 + name_size, size - 8 - name_size);
                             if (act_0a31->expected_fingerprint[0] == '\0' || fp != act_0a31->expected_fingerprint) {
                                 set_error(context, "Residue fingerprint missing or mismatch for samsung-jpeg-sef-0a31.");
                                 return LPB_RESULT_INVALID_ARGUMENT;
@@ -296,6 +300,32 @@ lpb_result clean_samsung_sef_jpeg(
     if (!xmp_str.empty()) {
         std::string cleaned_xmp;
         if (clean_xmp_metadata_with_plan(xmp_str, LPB_SOURCE_PROTOCOL_SAMSUNG_JPEG, actions, action_count, cleaned_xmp, out_facts)) {
+            // The directory's Primary Padding points across the live SEF
+            // payload header. Once that exact bound payload is removed, it
+            // must describe only the retained non-live SEF suffix.
+            const bool removed_item=std::any_of(out_facts.begin(),out_facts.end(),[](const auto& fact) {
+                return std::strcmp(fact.residue_id,"samsung-jpeg-container-item-motionphoto")==0;
+            });
+            lpb::media::target_xmp_observation before;
+            lpb::media::xmp_observation_failure xmp_failure{};
+            if(removed_item && removed_video_offset>=eoi &&
+                lpb::media::observe_target_xmp(xmp_str,before,xmp_failure) && before.items.size()==2 &&
+                before.items[0].semantic=="Primary" && before.items[1].semantic=="MotionPhoto" &&
+                before.items[0].padding==removed_video_offset-eoi) {
+                uint64_t retained_padding=0;
+                if(!retained_entries.empty()) {
+                    retained_padding=20+12ULL*retained_entries.size();
+                    for(const auto& entry:retained_entries) {
+                        if(entry.payload.size()>UINT64_MAX-retained_padding)return LPB_RESULT_INVALID_ARGUMENT;
+                        retained_padding+=entry.payload.size();
+                    }
+                }
+                std::string rebased;
+                if(!lpb::media::rewrite_target_primary_padding(cleaned_xmp,retained_padding,rebased,xmp_failure)) {
+                    set_error(context,"Cannot rebase the removed Samsung live-header padding.");return LPB_RESULT_UNSUPPORTED;
+                }
+                cleaned_xmp=std::move(rebased);
+            }
             std::vector<uint8_t> out_buf(data.size() + cleaned_xmp.size() + 4096);
             size_t written = 0;
             if (lpb_jpeg_inject_xmp(context, data.data(), data.size(), reinterpret_cast<const uint8_t*>(cleaned_xmp.data()), cleaned_xmp.size(), out_buf.data(), out_buf.size(), &written) == LPB_RESULT_OK && written > 0) {

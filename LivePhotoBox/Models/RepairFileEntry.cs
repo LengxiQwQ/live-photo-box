@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Services;
 using Microsoft.UI.Xaml;
@@ -63,7 +63,7 @@ namespace LivePhotoBox.Models
         // 文件缩略图（支持 UI 线程切换，自动加载缓存）
         public ImageSource? Thumbnail
         {
-            get => _thumbnail;
+            get => ThumbnailService.IsLoadingEnabled ? _thumbnail : null;
             set
             {
                 if (_thumbnail == value) return;
@@ -86,6 +86,7 @@ namespace LivePhotoBox.Models
         // 文件路径变更时重置缩略图，尝试从缓存或异步加载
         partial void OnFilePathChanged(string value)
         {
+            if (!ThumbnailService.IsLoadingEnabled) { Thumbnail = null; return; }
             _isLoadingThumbnail = false;
             Thumbnail = ThumbnailService.GetCached(value);
 
@@ -111,6 +112,7 @@ namespace LivePhotoBox.Models
         // 异步加载缩略图（确保同一时间只有一个加载操作）
         private async Task AutoLoadThumbnailAsync(string path, Microsoft.UI.Dispatching.DispatcherQueue dispatcher)
         {
+            if (!ThumbnailService.IsLoadingEnabled) return;
             if (_isLoadingThumbnail) return;
             _isLoadingThumbnail = true;
             try
@@ -126,6 +128,7 @@ namespace LivePhotoBox.Models
         // 确保缩略图已加载（有缓存则直接使用，否则异步加载）
         public async Task EnsureThumbnailAsync(Microsoft.UI.Dispatching.DispatcherQueue? dispatcher = null)
         {
+            if (!ThumbnailService.IsLoadingEnabled) return;
             if (_thumbnail != null || _isLoadingThumbnail || string.IsNullOrWhiteSpace(FilePath)) return;
 
             if (ThumbnailService.GetCached(FilePath) is { } cachedThumbnail)

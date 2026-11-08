@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -26,11 +26,12 @@ public sealed class P8DiscoveryTests
         var result = await LivePhotoDiscoveryService.ScanAsync(workspace.RootDirectory, DiscoveryScanMode.SplitOnly);
 
         var error = Assert.Single(result.Diagnostics, d => d.PrimaryPath == broken);
-        Assert.Equal(ScanDiagnosticSeverity.Error, error.Severity);
-        Assert.Equal("SingleFileInspectionFailed", error.DiagnosticCode);
-        var pair = Assert.Single(result.DualFilePairs);
-        Assert.Equal(image, pair.Image.FilePath);
-        Assert.Equal(video, pair.Video.FilePath);
+        Assert.Equal("DiscoveryIncomplete",error.DiagnosticCode);
+        Assert.True(result.IsPartial);
+        Assert.Empty(result.DualFilePairs);
+        Assert.Contains(result.Items,item=>item.FilePath==image);
+        Assert.DoesNotContain(result.Items,item=>item.FilePath==video);
+
     }
 
     [Fact]
@@ -220,12 +221,14 @@ public sealed class P8DiscoveryTests
                 Mode = PairingMode.Name
             });
 
-            // Multiple images with the same base name in the same directory match the companion and keep remaining without error
-            Assert.Single(result.Pairs);
-            Assert.Equal("conflict", result.Pairs[0].BaseName);
-            string pairedImg = result.Pairs[0].ImagePath;
-            string remainingImg = Assert.Single(result.StandaloneImagePaths);
-            Assert.True((pairedImg == img1 && remainingImg == img2) || (pairedImg == img2 && remainingImg == img1));
+            // The page matching change forbids choosing an arbitrary member.
+            Assert.Empty(result.Pairs);
+            Assert.Empty(result.StandaloneImagePaths);
+            Assert.Empty(result.StandaloneVideoPaths);
+            var conflict = Assert.Single(result.Diagnostics, d => d.DiagnosticCode == "ConflictMultipleMedia");
+            Assert.Contains(img1, conflict.RelatedPaths);
+            Assert.Contains(img2, conflict.RelatedPaths);
+            Assert.Contains(vid, conflict.RelatedPaths);
             Assert.Equal(ScanOperationStatus.Completed, result.Status);
         }
         finally

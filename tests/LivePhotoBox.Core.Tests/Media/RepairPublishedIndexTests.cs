@@ -1,4 +1,4 @@
-using LivePhotoBox.Core.Tests.Support;
+﻿using LivePhotoBox.Core.Tests.Support;
 using LivePhotoBox.Services;
 using Xunit;
 
@@ -42,7 +42,8 @@ public class RepairPublishedIndexTests
             batch.RecordPublished(after);
             Directory.SetLastWriteTimeUtc(workspace.RootDirectory, DateTime.UtcNow.AddSeconds(2));
             Assert.Equal(source, Assert.Single(await batch.CandidatesAsync(source, default)).Path);
-            Assert.Equal(1, batch.DiscoveryInspections);
+            Assert.Equal(0, batch.DiscoveryInspections);
+            Assert.Equal(2,batch.DirectoryScans);
             Assert.Throws<IOException>(() => File.WriteAllBytes(before, new byte[] { 1 }));
             Assert.Throws<IOException>(() => File.Move(after, after + ".moved"));
         }
@@ -53,7 +54,7 @@ public class RepairPublishedIndexTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task ExternalAdditionOrRenameStillInvalidatesDirectoryWithOwnOutputs(bool rename)
+    public async Task ExternalAdditionOrRenameRefreshesDirectoryWithoutLongSourceLeases(bool rename)
     {
         using var workspace = new TestFixtureWorkspace();
         string source = Path.Combine(workspace.RootDirectory, "source.jpg");
@@ -68,6 +69,9 @@ public class RepairPublishedIndexTests
         if (rename) File.Move(notes, notes + ".renamed");
         else File.Copy(source, Path.Combine(workspace.RootDirectory, "external.jpg"));
         Directory.SetLastWriteTimeUtc(workspace.RootDirectory, DateTime.UtcNow.AddSeconds(2));
-        await Assert.ThrowsAsync<IOException>(() => batch.CandidatesAsync(source, default));
+        var refreshed = await batch.CandidatesAsync(source, default);
+        Assert.DoesNotContain(refreshed,item=>item.Path==own);
+        Assert.Equal(rename?1:2,refreshed.Count);
+        Assert.Equal(0,batch.DiscoveryInspections);
     }
 }

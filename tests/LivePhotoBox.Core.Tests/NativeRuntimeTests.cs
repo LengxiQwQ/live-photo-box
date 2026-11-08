@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 using LivePhotoBox.Interop;
 using LivePhotoBox.Media.Inspection;
 using LivePhotoBox.Media.Models;
@@ -48,9 +48,9 @@ public sealed class NativeRuntimeTests
     }
 
     [Fact]
-    public void SupportedAbiVersion_IsSeventeen()
+    public void SupportedAbiVersion_IsNineteen()
     {
-        Assert.Equal(17u, NativeRuntime.SupportedAbiVersion);
+        Assert.Equal(19u, NativeRuntime.SupportedAbiVersion);
     }
 
     [Fact]

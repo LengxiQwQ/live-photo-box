@@ -31,7 +31,7 @@ lpb_target_validation_request_v2 request(){
  r.base.member_count=1;r.base.expected_video_codec=2;return r;
 }
 lpb_target_validation_result_v2 output(){lpb_target_validation_result_v2 r{};r.struct_size=sizeof(r);r.version=2;return r;}
-lpb_context* create(){lpb_context_options o{};o.struct_size=sizeof(o);o.abi_version=16;lpb_context* c=nullptr;require(lpb_create_context(&o,&c)==LPB_RESULT_OK,"context ABI16");return c;}
+lpb_context* create(){lpb_context_options o{};o.struct_size=sizeof(o);o.abi_version=LPB_NATIVE_ABI_VERSION;lpb_context* c=nullptr;require(lpb_create_context(&o,&c)==LPB_RESULT_OK,"current context ABI");return c;}
 using bytes=std::vector<uint8_t>;
 void add(bytes& a,const bytes& b){a.insert(a.end(),b.begin(),b.end());}
 void marker(bytes& b,uint8_t code,bytes p){b.insert(b.end(),{255,code,uint8_t((p.size()+2)>>8),uint8_t(p.size()+2)});add(b,p);}

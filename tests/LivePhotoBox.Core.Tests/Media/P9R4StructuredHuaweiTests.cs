@@ -312,15 +312,23 @@ public sealed class P9R4StructuredHuaweiTests
     }
 
     [Fact]
-    public async Task HuaweiWithoutAacCannotPublishOrModifyInputs()
+    public async Task HuaweiSilentVideoCanPublishWithoutInventingAudioOrModifyingInputs()
     {
-        using var folder = new P9TargetTestInputs.Folder(nameof(HuaweiWithoutAacCannotPublishOrModifyInputs));
+        using var folder = new P9TargetTestInputs.Folder(nameof(HuaweiSilentVideoCanPublishWithoutInventingAudioOrModifyingInputs));
         var bundle = P9TargetTestInputs.Bundle(folder.Path, 0, audio: false);
         string final = Path.Combine(folder.Path, "target.jpg");
-        await Assert.ThrowsAsync<NotSupportedException>(() => StructuredTargetWriterService.WriteAsync(bundle,
+        var receipt = await StructuredTargetWriterService.WriteAsync(bundle,
             OutputProfile.Create(TargetProtocol.HuaweiMovingPhoto, OutputMediaFormat.JpegMp4),
-            final, folder.Path, false, CancellationToken.None));
-        Assert.False(File.Exists(final)); Assert.Equal(2, Directory.GetFiles(folder.Path).Length);
+            final, folder.Path, false, CancellationToken.None);
+        Assert.True(File.Exists(final)); Assert.Equal(3, Directory.GetFiles(folder.Path).Length);
+        Assert.Equal(receipt.Sha256, Hash(final));
+        using var reader = File.OpenRead(final);
+        var expected = new TargetValidationExpectations(6, 0, (uint)VideoCodec.H264, 0) { UseV2 = true, TargetVersion = (uint)HuaweiTargetVariant.HuaweiV6 };
+        var report = NativeTargetValidator.Observe(reader, expected, CancellationToken.None);
+        NativeTargetValidator.RequirePass(report, expected);
+        var inspected = await NativeMediaService.InspectMediaAsync(final);
+        Assert.NotNull(inspected.MotionVideo);
+        Assert.False(inspected.MotionVideo.HasAudio);
         Assert.Equal(bundle.PrimaryImage.Sha256, Hash(bundle.PrimaryImage.Path));
         Assert.Equal(bundle.MotionVideo!.Sha256, Hash(bundle.MotionVideo.Path));
     }

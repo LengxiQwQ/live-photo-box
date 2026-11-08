@@ -93,3 +93,5 @@ lpb_result repair_image_exif_bytes(lpb_context*, std::vector<uint8_t>&,
     uint32_t actions, uint32_t& changed);
 
 } // namespace lpb::media
+
+namespace lpb::media { lpb_result normalize_jpeg_compatible(lpb_context*, const char*, const char*, int32_t*) noexcept; }

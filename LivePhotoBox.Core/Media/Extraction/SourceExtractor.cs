@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -40,16 +40,31 @@ public sealed class SourceExtractor : ISourceExtractor
         // Claim before any managed argument validation, cancellation check,
         // source preflight, workspace allocation, or SHA computation.
         using ExtractionPlanAttempt attempt = plan.BeginExtractionAttempt(cancellationToken);
-        return await ExtractCoreAsync(
+        var result = await ExtractCoreAsync(
             attempt,
             primaryPath,
             secondaryPath,
             workspace,
             configureContext,
             cancellationToken).ConfigureAwait(false);
+        if (result.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return result.Bundle!;
     }
 
-    private static async Task<ExtractedMediaBundle> ExtractCoreAsync(
+    internal async Task<ExtractionProductAttempt> TryExtractAsync(ExtractionPlan plan,string primaryPath,
+        string? secondaryPath,IMediaWorkspace workspace,CancellationToken token)
+    {
+        if (token.IsCancellationRequested) return new(null,new OperationCanceledException(token));
+        using var attempt = plan.BeginExtractionAttempt(token);
+        return await ExtractCoreAsync(attempt,primaryPath,secondaryPath,workspace,null,token).ConfigureAwait(false);
+    }
+
+    private static async Task<MediaFileHashAttempt> HashProductAsync(IMediaWorkspace workspace,string path,CancellationToken token)
+        => workspace is MediaWorkspace
+            ? await MediaFileHashAttempt.ComputeAsync(path,token).ConfigureAwait(false)
+            : new(await workspace.ComputeFileSha256Async(path,token).ConfigureAwait(false),null);
+
+    private static async Task<ExtractionProductAttempt> ExtractCoreAsync(
         ExtractionPlanAttempt attempt,
         string primaryPath,
         string? secondaryPath,
@@ -61,13 +76,15 @@ public sealed class SourceExtractor : ISourceExtractor
         ArgumentNullException.ThrowIfNull(primaryPath);
         ArgumentNullException.ThrowIfNull(workspace);
 
-        cancellationToken.ThrowIfCancellationRequested();
+        if(cancellationToken.IsCancellationRequested) return new(null,new OperationCanceledException(cancellationToken));
         AuxiliaryFactsValidator.Validate(facts);
 
         if (!File.Exists(primaryPath))
-            throw new FileNotFoundException("Primary media file not found.", primaryPath);
+            return new(null, new FileNotFoundException("Primary media file not found.", primaryPath));
 
-        long primaryFileLength = new FileInfo(primaryPath).Length;
+        using var primaryRead = SourceReadAttempt.Open(primaryPath);
+        if (!primaryRead.Succeeded || !primaryRead.TryGetLength(out long primaryFileLength, out _))
+            return new(null, new IOException($"Cannot retain extraction source (system error {primaryRead.Error})."));
 
         // 1. Validate Primary Image facts & range
         if (!facts.PrimaryImage.IsPresent)
@@ -88,7 +105,8 @@ public sealed class SourceExtractor : ISourceExtractor
                 sourcePath: primaryPath);
         }
 
-        ValidateRange(facts.PrimaryImage.ByteOffset, facts.PrimaryImage.ByteLength, primaryFileLength, "primary image", primaryPath, MediaArtifactKind.PrimaryImage);
+        if (RangeFailure(facts.PrimaryImage.ByteOffset, facts.PrimaryImage.ByteLength, primaryFileLength, "primary image", primaryPath, MediaArtifactKind.PrimaryImage) is { } primaryRangeFailure)
+            return new(null, primaryRangeFailure);
 
         // 2. Validate Motion Video facts & range
         string? videoSource = null;
@@ -126,8 +144,11 @@ public sealed class SourceExtractor : ISourceExtractor
                     artifactKind: MediaArtifactKind.MotionVideo);
             }
 
-            long videoSourceLength = new FileInfo(videoSource).Length;
-            ValidateRange(videoFacts.ByteOffset, videoFacts.ByteLength, videoSourceLength, "motion video", videoSource, MediaArtifactKind.MotionVideo);
+            using var videoRead = SourceReadAttempt.Open(videoSource);
+            if (!videoRead.Succeeded || !videoRead.TryGetLength(out long videoSourceLength, out _))
+                return new(null, new IOException($"Cannot retain extraction video (system error {videoRead.Error})."));
+            if (RangeFailure(videoFacts.ByteOffset, videoFacts.ByteLength, videoSourceLength, "motion video", videoSource, MediaArtifactKind.MotionVideo) is { } videoRangeFailure)
+                return new(null, videoRangeFailure);
         }
 
         // 3. Validate GainMap facts & range
@@ -197,13 +218,15 @@ public sealed class SourceExtractor : ISourceExtractor
                 sourcePath: primaryPath);
         }
 
-        string beforePrimarySha = await workspace.ComputeFileSha256Async(primaryPath, cancellationToken).ConfigureAwait(false);
+        var primaryHash=await HashProductAsync(workspace,primaryPath,cancellationToken).ConfigureAwait(false);
+        if(primaryHash.Failure is { } primaryHashFailure) return new(null,primaryHashFailure);
+        string beforePrimarySha=primaryHash.Sha256!;
         if (!string.Equals(facts.PrimarySha256.Trim(), beforePrimarySha, StringComparison.OrdinalIgnoreCase))
         {
-            throw new ExtractionException(
+            return new(null, new ExtractionException(
                 ExtractionFailureCategory.SourceChanged,
                 $"Source media file '{primaryPath}' was modified after inspection: SHA-256 mismatch.",
-                sourcePath: primaryPath);
+                sourcePath: primaryPath));
         }
 
         string? beforeSecondarySha = null;
@@ -257,13 +280,15 @@ public sealed class SourceExtractor : ISourceExtractor
                     sourcePath: secondaryPath);
             }
 
-            beforeSecondarySha = await workspace.ComputeFileSha256Async(secondaryPath, cancellationToken).ConfigureAwait(false);
+            var secondaryHash1=await HashProductAsync(workspace,secondaryPath,cancellationToken).ConfigureAwait(false);
+            if(secondaryHash1.Failure is { } secondaryHashFailure1) return new(null,secondaryHashFailure1);
+            beforeSecondarySha=secondaryHash1.Sha256!;
             if (!string.Equals(facts.SecondarySha256.Trim(), beforeSecondarySha, StringComparison.OrdinalIgnoreCase))
             {
-                throw new ExtractionException(
+                return new(null, new ExtractionException(
                     ExtractionFailureCategory.SourceChanged,
                     $"Secondary source file '{secondaryPath}' was modified after inspection: SHA-256 mismatch.",
-                    sourcePath: secondaryPath);
+                    sourcePath: secondaryPath));
             }
         }
         else if (auxiliaryUsesSecondary)
@@ -276,7 +301,9 @@ public sealed class SourceExtractor : ISourceExtractor
         }
         else if (!string.IsNullOrWhiteSpace(facts.SecondarySha256) && secondaryPath != null && File.Exists(secondaryPath))
         {
-            beforeSecondarySha = await workspace.ComputeFileSha256Async(secondaryPath, cancellationToken).ConfigureAwait(false);
+            var secondaryHash2=await HashProductAsync(workspace,secondaryPath,cancellationToken).ConfigureAwait(false);
+            if(secondaryHash2.Failure is { } secondaryHashFailure2) return new(null,secondaryHashFailure2);
+            beforeSecondarySha=secondaryHash2.Sha256!;
             if (!string.Equals(facts.SecondarySha256.Trim(), beforeSecondarySha, StringComparison.OrdinalIgnoreCase))
             {
                 throw new ExtractionException(
@@ -320,9 +347,11 @@ public sealed class SourceExtractor : ISourceExtractor
                     $"Auxiliary item {i} specifies invalid SourceIndex {auxiliary.SourceIndex}.",
                     artifactKind: MediaArtifactKind.AuxiliaryItem)
             };
-            ValidateRange(auxiliary.ByteOffset, auxiliary.ByteLength,
-                new FileInfo(auxiliarySource).Length, $"auxiliary item {i}", auxiliarySource,
-                MediaArtifactKind.AuxiliaryItem);
+            using var auxiliaryRead = SourceReadAttempt.Open(auxiliarySource);
+            if (!auxiliaryRead.Succeeded || !auxiliaryRead.TryGetLength(out long auxiliaryLength, out _))
+                return new(null, new IOException($"Cannot retain extraction auxiliary source (system error {auxiliaryRead.Error})."));
+            if (RangeFailure(auxiliary.ByteOffset, auxiliary.ByteLength, auxiliaryLength, $"auxiliary item {i}", auxiliarySource,
+                MediaArtifactKind.AuxiliaryItem) is { } auxiliaryRangeFailure) return new(null, auxiliaryRangeFailure);
             ValidateSha256(auxiliary.Sha256, $"Auxiliary item {i}");
         }
 
@@ -472,11 +501,12 @@ public sealed class SourceExtractor : ISourceExtractor
         IReadOnlyList<NativeMediaService.NativeExtractionOutputEvidence>? extractionOutputReceipts = null;
         try
         {
+            Exception? nativeFailure;
             if(carrierOutputBindings.Count!=0)
-                await NativeMediaService.ExtractMediaWithCarrierOutputsAsync(attempt,primaryPath,secondaryPath,
+                nativeFailure = await NativeMediaService.TryExtractMediaWithCarrierOutputsAsync(attempt,primaryPath,secondaryPath,
                     outputImagePath,outputVideoPath,outputGainmapPath,cleanupSourcePath,auxiliaryOutputBindings,
                     carrierOutputBindings,configureContext,cancellationToken).ConfigureAwait(false);
-            else await NativeMediaService.ExtractMediaAsync(
+            else nativeFailure = await NativeMediaService.TryExtractMediaAsync(
                 attempt,
                 primaryPath,
                 secondaryPath,
@@ -488,13 +518,14 @@ public sealed class SourceExtractor : ISourceExtractor
                 configureContext,
                 cancellationToken).ConfigureAwait(false);
 
+            if (nativeFailure is not null) return Failed(nativeFailure);
             nativeExtractionSucceeded = true;
 
             NativeResult nativeOutputVerification = NativeMethods.VerifyExtractionOutputs(
                 attempt.ContextLease.Handle,
                 attempt.NativeHandle,
                 attempt.Generation);
-            attempt.Context.ThrowIfFailed(nativeOutputVerification);
+            if (nativeOutputVerification != NativeResult.Ok) return Failed(attempt.Context.CreateFailure(nativeOutputVerification));
 
             // Ownership comes from Native's creating-handle extraction record,
             // queried before CommitExtractionOutputs releases its authority.
@@ -514,21 +545,24 @@ public sealed class SourceExtractor : ISourceExtractor
                 expectedOutputs.Add(new(MediaArtifactKind.AuxiliaryItem, auxiliary.AuxiliaryIndex, auxiliary.Path));
             foreach(var carrier in carrierOutputBindings)
                 expectedOutputs.Add(new(MediaArtifactKind.MetadataCarrier,carrier.CarrierIndex,carrier.Path));
-            IReadOnlyList<NativeMediaService.NativeExtractionOutputEvidence> ownedOutputs;
+            var evidenceAttempt = NativeMediaService.TryCaptureExtractionOutputEvidence(attempt, expectedOutputs);
+            if (evidenceAttempt.Failure is { } ownershipFailure)
+                return Failed(new ExtractionException(
+                    ExtractionFailureCategory.OutputPublishFailed,
+                    "Native extraction ownership could not be handed off to the workspace.",
+                    innerException: ownershipFailure));
+            IReadOnlyList<NativeMediaService.NativeExtractionOutputEvidence> ownedOutputs = evidenceAttempt.Evidence!;
+            extractionOutputReceipts = ownedOutputs;
             try
             {
-                ownedOutputs = NativeMediaService.CaptureExtractionOutputEvidence(attempt, expectedOutputs);
-                extractionOutputReceipts = ownedOutputs;
                 foreach (var output in ownedOutputs)
                     WorkspaceOwnershipRegistry.RegisterCreatedFile(output.FinalPath, output.FileIdentity,
                         output.ByteLength, output.Sha256, output.ArtifactRole.ToString());
             }
-            catch (Exception ownershipFailure)
+            catch (Exception registryFailure)
             {
-                throw new ExtractionException(
-                    ExtractionFailureCategory.OutputPublishFailed,
-                    "Native extraction ownership could not be handed off to the workspace.",
-                    innerException: ownershipFailure);
+                return Failed(new ExtractionException(ExtractionFailureCategory.OutputPublishFailed,
+                    "Native extraction ownership could not be handed off to the workspace.", innerException: registryFailure));
             }
             var publishedArtifactIdentities = expectedOutputs.ToDictionary(
                 binding => binding.Path,
@@ -538,41 +572,45 @@ public sealed class SourceExtractor : ISourceExtractor
                 StringComparer.OrdinalIgnoreCase);
 
             if (!File.Exists(outputImagePath))
-                throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, "Native extraction did not produce a primary image artifact.", MediaArtifactKind.PrimaryImage);
+                return Failed(new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, "Native extraction did not produce a primary image artifact.", MediaArtifactKind.PrimaryImage));
             if (outputVideoPath != null && !File.Exists(outputVideoPath))
-                throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, "Native extraction did not produce a motion video artifact.", MediaArtifactKind.MotionVideo);
+                return Failed(new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, "Native extraction did not produce a motion video artifact.", MediaArtifactKind.MotionVideo));
             if (outputGainmapPath != null && !File.Exists(outputGainmapPath))
-                throw new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, "Native extraction did not produce a GainMap artifact.", MediaArtifactKind.GainMap);
+                return Failed(new ExtractionException(ExtractionFailureCategory.OutputWriteFailed, "Native extraction did not produce a GainMap artifact.", MediaArtifactKind.GainMap));
             foreach (string auxiliaryOutputPath in auxiliaryOutputPaths)
             {
                 if (!File.Exists(auxiliaryOutputPath))
                 {
-                    throw new ExtractionException(
+                    return Failed(new ExtractionException(
                         ExtractionFailureCategory.OutputWriteFailed,
                         $"Native extraction did not produce the confirmed auxiliary artifact '{auxiliaryOutputPath}'.",
-                        MediaArtifactKind.AuxiliaryItem);
+                        MediaArtifactKind.AuxiliaryItem));
                 }
             }
 
             // Verify that source files were not modified in-place
-            string afterPrimarySha = await workspace.ComputeFileSha256Async(primaryPath, cancellationToken).ConfigureAwait(false);
+            var primaryAfter=await HashProductAsync(workspace,primaryPath,cancellationToken).ConfigureAwait(false);
+            if(primaryAfter.Failure is { } primaryAfterFailure) return Failed(primaryAfterFailure);
+            string afterPrimarySha=primaryAfter.Sha256!;
             if (!string.Equals(beforePrimarySha, afterPrimarySha, StringComparison.OrdinalIgnoreCase))
             {
-                throw new ExtractionException(
+                return Failed(new ExtractionException(
                     ExtractionFailureCategory.SourceChanged,
                     $"Source file immutability violation: primary source '{primaryPath}' was modified during extraction!",
-                    sourcePath: primaryPath);
+                    sourcePath: primaryPath));
             }
 
             if (secondaryPath != null && beforeSecondarySha != null)
             {
-                string afterSecondarySha = await workspace.ComputeFileSha256Async(secondaryPath, cancellationToken).ConfigureAwait(false);
+                var secondaryAfter=await HashProductAsync(workspace,secondaryPath,cancellationToken).ConfigureAwait(false);
+                if(secondaryAfter.Failure is { } secondaryAfterFailure) return Failed(secondaryAfterFailure);
+                string afterSecondarySha=secondaryAfter.Sha256!;
                 if (!string.Equals(beforeSecondarySha, afterSecondarySha, StringComparison.OrdinalIgnoreCase))
                 {
-                    throw new ExtractionException(
+                    return Failed(new ExtractionException(
                         ExtractionFailureCategory.SourceChanged,
                         $"Source file immutability violation: secondary source '{secondaryPath}' was modified during extraction!",
-                        sourcePath: secondaryPath);
+                        sourcePath: secondaryPath));
                 }
             }
 
@@ -586,11 +624,20 @@ public sealed class SourceExtractor : ISourceExtractor
                     MimeType = facts.PrimaryImage.Container == ImageContainer.Heic ? "image/heic" : "image/jpeg",
                     ImageContainer = facts.PrimaryImage.Container,
                     ImageCodec = facts.PrimaryImage.Container == ImageContainer.Heic ? ImageCodec.Hevc : ImageCodec.Jpeg,
-                    ByteLength = new FileInfo(cleanupSourcePath).Length,
+                    ByteLength = ownedOutputs.Single(output => string.Equals(output.FinalPath, cleanupSourcePath, StringComparison.OrdinalIgnoreCase)).ByteLength,
                     SourceOffset = 0,
                     Sha256 = cleanupSourceSha256,
                     FileIdentity = publishedArtifactIdentities[cleanupSourcePath]
                 };
+            }
+
+            var finalHashes=new Dictionary<string,string>(StringComparer.OrdinalIgnoreCase);
+            foreach(string hashedPath in new[]{outputImagePath,outputVideoPath,outputGainmapPath}.Concat(auxiliaryOutputPaths)
+                .Where(p=>p is not null).Cast<string>().Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                var hashed=await HashProductAsync(workspace,hashedPath,cancellationToken).ConfigureAwait(false);
+                if(hashed.Failure is { } hashFailure) return Failed(hashFailure);
+                finalHashes[hashedPath]=hashed.Sha256!;
             }
 
             var primaryArtifact = new MediaArtifact
@@ -600,10 +647,10 @@ public sealed class SourceExtractor : ISourceExtractor
                 MimeType = facts.PrimaryImage.Container == ImageContainer.Heic ? "image/heic" : "image/jpeg",
                 ImageContainer = facts.PrimaryImage.Container,
                 ImageCodec = facts.PrimaryImage.Container == ImageContainer.Heic ? ImageCodec.Hevc : ImageCodec.Jpeg,
-                ByteLength = new FileInfo(outputImagePath).Length,
+                ByteLength = ownedOutputs.Single(output => string.Equals(output.FinalPath, outputImagePath, StringComparison.OrdinalIgnoreCase)).ByteLength,
                 SourceOffset = facts.PrimaryImage.ByteOffset,
                 FileIdentity = publishedArtifactIdentities[outputImagePath],
-                Sha256 = await workspace.ComputeFileSha256Async(outputImagePath, cancellationToken).ConfigureAwait(false)
+                Sha256 = finalHashes[outputImagePath]
             };
 
             MediaArtifact? videoArtifact = null;
@@ -616,10 +663,10 @@ public sealed class SourceExtractor : ISourceExtractor
                     MimeType = facts.MotionVideo!.Container == VideoContainer.Mov ? "video/quicktime" : "video/mp4",
                     VideoContainer = facts.MotionVideo.Container,
                     VideoCodec = facts.MotionVideo.Codec,
-                    ByteLength = new FileInfo(outputVideoPath).Length,
+                    ByteLength = ownedOutputs.Single(output => string.Equals(output.FinalPath, outputVideoPath, StringComparison.OrdinalIgnoreCase)).ByteLength,
                     SourceOffset = facts.MotionVideo.ByteOffset,
                     FileIdentity = publishedArtifactIdentities[outputVideoPath],
-                    Sha256 = await workspace.ComputeFileSha256Async(outputVideoPath, cancellationToken).ConfigureAwait(false)
+                    Sha256 = finalHashes[outputVideoPath]
                 };
             }
 
@@ -633,10 +680,10 @@ public sealed class SourceExtractor : ISourceExtractor
                     MimeType = facts.GainMap!.Container == ImageContainer.Heic ? "image/heic" : "image/jpeg",
                     ImageContainer = facts.GainMap.Container,
                     ImageCodec = facts.GainMap.Container == ImageContainer.Heic ? ImageCodec.Hevc : ImageCodec.Jpeg,
-                    ByteLength = new FileInfo(outputGainmapPath).Length,
+                    ByteLength = ownedOutputs.Single(output => string.Equals(output.FinalPath, outputGainmapPath, StringComparison.OrdinalIgnoreCase)).ByteLength,
                     SourceOffset = facts.GainMap.ByteOffset,
                     FileIdentity = publishedArtifactIdentities[outputGainmapPath],
-                    Sha256 = await workspace.ComputeFileSha256Async(outputGainmapPath, cancellationToken).ConfigureAwait(false)
+                    Sha256 = finalHashes[outputGainmapPath]
                 };
             }
 
@@ -671,10 +718,10 @@ public sealed class SourceExtractor : ISourceExtractor
                                 AuxiliaryCodec.Hevc => ImageCodec.Hevc,
                                 _ => ImageCodec.Unknown
                              },
-                             ByteLength = new FileInfo(path).Length,
+                             ByteLength = ownedOutputs.Single(output => string.Equals(output.FinalPath, path, StringComparison.OrdinalIgnoreCase)).ByteLength,
                              SourceOffset = auxiliary.ByteOffset,
                              FileIdentity = publishedArtifactIdentities[path],
-                             Sha256 = await workspace.ComputeFileSha256Async(path, cancellationToken).ConfigureAwait(false)
+                             Sha256 = finalHashes[path]
                          };
                     }
 
@@ -781,7 +828,7 @@ public sealed class SourceExtractor : ISourceExtractor
                 attempt.Generation);
             if (commitResult != NativeResult.Ok)
             {
-                attempt.Context.ThrowIfFailed(commitResult);
+                return Failed(attempt.Context.CreateFailure(commitResult));
             }
             nativeExtractionSucceeded = false;
 
@@ -789,6 +836,10 @@ public sealed class SourceExtractor : ISourceExtractor
             return bundle!; // Constructed synchronously before Native issuance.
         }
         catch (Exception ex)
+        {
+            return Failed(ex);
+        }
+        ExtractionProductAttempt Failed(Exception ex)
         {
             // If Native failed, Native already rolled back its staged/published outputs.
             // Under no circumstances should C# delete files if Native failed, because any file
@@ -837,14 +888,14 @@ public sealed class SourceExtractor : ISourceExtractor
                     OperationCanceledException => ExtractionFailureCategory.Cancelled,
                     _ => ExtractionFailureCategory.InternalError
                 };
-                throw new ExtractionException(
+                return new(null,new ExtractionException(
                     ExtractionFailureCategory.CleanupFailed,
                     $"Post-extraction cleanup failed: unable to delete artifact '{cleanupFailedFile}'. Original error: {ex.Message}",
                     innerException: cleanupError,
-                    originalCategory: origCat);
+                    originalCategory: origCat));
             }
 
-            throw;
+            return new(null,ex);
         }
     }
 
@@ -856,9 +907,15 @@ public sealed class SourceExtractor : ISourceExtractor
         string? sourcePath,
         MediaArtifactKind? kind)
     {
+        if (RangeFailure(offset, length, sourceLength, name, sourcePath, kind) is { } failure)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    private static Exception? RangeFailure(long offset, long length, long sourceLength, string name, string? sourcePath, MediaArtifactKind? kind)
+    {
         if (offset < 0 || length <= 0 || offset > sourceLength || length > sourceLength - offset)
         {
-            throw new ExtractionException(
+            return new ExtractionException(
                 ExtractionFailureCategory.InvalidFacts,
                 $"Inspector returned an invalid {name} range: offset={offset}, length={length}, sourceLength={sourceLength}.",
                 artifactKind: kind,
@@ -866,6 +923,7 @@ public sealed class SourceExtractor : ISourceExtractor
                 offset: offset,
                 length: length);
         }
+        return null;
     }
 
     private static void ValidateSha256(string value, string name)

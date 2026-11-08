@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Media.Workspace;
+using LivePhotoBox.Interop;
 
 namespace LivePhotoBox.Media;
 
@@ -18,6 +19,14 @@ internal static class OrdinaryMetadataPreservation
 
     internal static async Task<MediaArtifact> VerifyAsync(PreservationCarrier carrier,CancellationToken token)
     {
+        var attempt = await TryVerifyAsync(carrier, token).ConfigureAwait(false);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Artifact!;
+    }
+
+    internal static async Task<ArtifactAttempt> TryVerifyAsync(PreservationCarrier carrier,CancellationToken token)
+    {
+        if (token.IsCancellationRequested) return new(null, new OperationCanceledException(token));
         var artifact=carrier.MaterializedArtifact;
         if(carrier.Kind!=PreservationCarrierKind.OpaqueFragment||carrier.Semantic!=Semantic||
             carrier.Relationship!=Relationship||carrier.ArtifactRole!=MediaArtifactKind.PrimaryImage||
@@ -29,30 +38,44 @@ internal static class OrdinaryMetadataPreservation
             artifact.ByteLength!=carrier.SourceLength||artifact.Sha256!=carrier.SourceSha256||
             carrier.SourceSha256.Length!=64||artifact.ImageContainer!=ImageContainer.Unknown||
             artifact.VideoContainer!=VideoContainer.Unknown)
-            throw new InvalidDataException("Ordinary metadata has incomplete identity, ownership or actual materialized bytes.");
-        return await VerifyArtifactAsync(artifact,carrier.SourceLength,carrier.SourceSha256,token).ConfigureAwait(false);
+            return new(null, new InvalidDataException("Ordinary metadata has incomplete identity, ownership or actual materialized bytes."));
+        return await TryVerifyArtifactAsync(artifact,carrier.SourceLength,carrier.SourceSha256,token).ConfigureAwait(false);
     }
 
     // Final correctness consumers bind a final artifact and semantic row,
     // independently of source protocol, source offset or provenance.
     internal static async Task<MediaArtifact> VerifyArtifactAsync(MediaArtifact artifact,long expectedLength,string expectedSha256,CancellationToken token)
     {
+        var attempt = await TryVerifyArtifactAsync(artifact, expectedLength, expectedSha256, token).ConfigureAwait(false);
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Artifact!;
+    }
+
+    internal sealed record ArtifactAttempt(MediaArtifact? Artifact, Exception? Failure);
+
+    internal static async Task<ArtifactAttempt> TryVerifyArtifactAsync(MediaArtifact artifact,long expectedLength,string expectedSha256,CancellationToken token)
+    {
+        if (token.IsCancellationRequested) return new(null, new OperationCanceledException(token));
         if(artifact.Kind!=MediaArtifactKind.MetadataCarrier||artifact.FileIdentity is null||artifact.FileIdentity.LinkCount!=1||
             artifact.FileIdentity.IsReparsePoint||expectedLength<=0||artifact.ByteLength!=expectedLength||artifact.Sha256!=expectedSha256||
             expectedSha256.Length!=64||artifact.ImageContainer!=ImageContainer.Unknown||artifact.VideoContainer!=VideoContainer.Unknown)
-            throw new InvalidDataException("Ordinary metadata final artifact differs from its semantic identity.");
+            return new(null, new InvalidDataException("Ordinary metadata final artifact differs from its semantic identity."));
         using var leases=new NeutralArtifactReadLeaseSet();
-        leases.Pin(artifact);
-        using var stream=new FileStream(artifact.Path,FileMode.Open,FileAccess.Read,FileShare.Read,65536,FileOptions.Asynchronous|FileOptions.SequentialScan);
-        var identity=WindowsFileIdentity.Capture(stream.SafeFileHandle);
-        if(identity.IsReparsePoint||identity.LinkCount!=1||identity.VolumeSerialNumber!=artifact.FileIdentity.VolumeSerialNumber||
-            identity.FileIndex!=artifact.FileIdentity.FileIndex||stream.Length!=artifact.ByteLength)
-            throw new InvalidDataException("Ordinary metadata artifact was replaced, linked or resized.");
-        string hash=Convert.ToHexString(await SHA256.HashDataAsync(stream,token).ConfigureAwait(false));
-        var after=WindowsFileIdentity.Capture(stream.SafeFileHandle);
-        if(after.IsReparsePoint||after.LinkCount!=1||after.VolumeSerialNumber!=identity.VolumeSerialNumber||
-            after.FileIndex!=identity.FileIndex||stream.Length!=artifact.ByteLength||hash!=expectedSha256)
-            throw new InvalidDataException("Ordinary metadata bytes no longer match their Native extraction receipt.");
-        return artifact;
+        if (leases.TryPin(artifact) is { } leaseFailure) return new(null, leaseFailure);
+        using var source = SourceReadAttempt.Open(artifact.Path);
+        if (!source.Succeeded) return new(null, new IOException($"Cannot open ordinary metadata (system error {source.Error})."));
+        if (!WindowsFileIdentity.TryCapture(source.Handle, out var identity, out int error))
+            return new(null, new IOException($"Cannot verify ordinary metadata identity (system error {error})."));
+        if(identity!.IsReparsePoint||identity.LinkCount!=1||identity.VolumeSerialNumber!=artifact.FileIdentity.VolumeSerialNumber||
+            identity.FileIndex!=artifact.FileIdentity.FileIndex)
+            return new(null, new InvalidDataException("Ordinary metadata artifact was replaced, linked or resized."));
+        var hash = await MediaFileHashAttempt.ComputeAsync(artifact.Path, token).ConfigureAwait(false);
+        if (hash.Failure is { } hashFailure) return new(null, hashFailure);
+        if (!WindowsFileIdentity.TryCapture(source.Handle, out var after, out error))
+            return new(null, new IOException($"Cannot recheck ordinary metadata identity (system error {error})."));
+        if(after!.IsReparsePoint||after.LinkCount!=1||after.VolumeSerialNumber!=identity.VolumeSerialNumber||
+            after.FileIndex!=identity.FileIndex||hash.Sha256!=expectedSha256)
+            return new(null, new InvalidDataException("Ordinary metadata bytes no longer match their Native extraction receipt."));
+        return new(artifact, null);
     }
 }

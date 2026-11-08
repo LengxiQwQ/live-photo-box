@@ -379,6 +379,20 @@
 
                 <controls:SettingsCard FontFamily="Microsoft YaHei UI">
                     <controls:SettingsCard.Header>
+                        <TextBlock x:Uid="SettingsPage_KeepVideoStabilizationEdges" FontFamily="Microsoft YaHei UI"/>
+                    </controls:SettingsCard.Header>
+                    <controls:SettingsCard.Description>
+                        <TextBlock x:Uid="SettingsPage_KeepVideoStabilizationEdges_Desc" FontSize="12"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                    </controls:SettingsCard.Description>
+                    <controls:SettingsCard.HeaderIcon>
+                        <FontIcon Glyph="&#xE7A8;" FontSize="16"/>
+                    </controls:SettingsCard.HeaderIcon>
+                    <ToggleSwitch IsOn="{x:Bind ViewModel.KeepVideoStabilizationEdges, Mode=TwoWay}" x:Uid="Toggle_OnOff"/>
+                </controls:SettingsCard>
+
+                <controls:SettingsCard FontFamily="Microsoft YaHei UI">
+                    <controls:SettingsCard.Header>
                         <TextBlock x:Uid="SettingsPage_Transcode_Hardware" FontFamily="Microsoft YaHei UI"/>
                     </controls:SettingsCard.Header>
                     <controls:SettingsCard.Description>

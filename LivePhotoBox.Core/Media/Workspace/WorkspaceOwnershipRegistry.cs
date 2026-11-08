@@ -84,21 +84,28 @@ internal static class WorkspaceOwnershipRegistry
         string path,
         WindowsFileIdentity mutationIdentity)
     {
+        if (ExistingFileMutationFailure(path, mutationIdentity) is { } failure)
+            System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    internal static Exception? ExistingFileMutationFailure(string path, WindowsFileIdentity mutationIdentity)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         ArgumentNullException.ThrowIfNull(mutationIdentity);
 
         if (!TryGetWorkspace(path, out MediaWorkspace? workspace))
-            return;
+            return null;
 
-        MediaWorkspace owner = workspace
-            ?? throw new IOException($"A live workspace routing entry for '{NormalizePath(path)}' has no owner.");
+        if (workspace is not { } owner)
+            return new IOException($"A live workspace routing entry for '{NormalizePath(path)}' has no owner.");
 
         if (!owner.HasRegisteredFile(path, mutationIdentity))
         {
             string normalizedPath = NormalizePath(path);
-            throw new IOException(
+            return new IOException(
                 $"Refusing to claim existing workspace target '{normalizedPath}' without a previously registered exact object identity.");
         }
+        return null;
     }
 
     /// <summary>

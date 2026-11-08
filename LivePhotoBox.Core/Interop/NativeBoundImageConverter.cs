@@ -17,25 +17,36 @@ internal sealed record NativeBoundImageAttempt(
 
 internal static class NativeBoundImageConverter
 {
-    internal static Task<NativeBoundImageAttempt> ConvertAsync(MediaArtifact source,string output,int quality,CancellationToken token)=>
-        Task.Run(()=>Convert(source,output,quality,token),token);
+    internal static async Task<NativeBoundImageAttempt> ConvertAsync(MediaArtifact source,string output,int quality,CancellationToken token)
+    {
+        var result=await TryConvertAsync(source,output,quality,token).ConfigureAwait(false);
+        if(result.Attempt.ResultCode!=NativeResult.Ok)
+        {
+            if(result.Attempt.ResultCode==NativeResult.Cancelled)throw new OperationCanceledException(token);
+            if(result.Attempt.ResultCode==NativeResult.Unsupported)throw new NotSupportedException(result.Attempt.Diagnostic);
+            throw new InvalidDataException(result.Attempt.Diagnostic);
+        }
+        return result;
+    }
+    internal static Task<NativeBoundImageAttempt> TryConvertAsync(MediaArtifact source,string output,int quality,CancellationToken token)=>
+        Task.Run(()=>Convert(source,output,quality,token),CancellationToken.None);
 
     private static unsafe NativeBoundImageAttempt Convert(MediaArtifact source,string output,int quality,CancellationToken token)
     {
-        token.ThrowIfCancellationRequested();
+        NativeBoundImageAttempt Refused(NativeResult code,string? message)=>new(new(false,null,null){ResultCode=code,Diagnostic=message},null,null);
+        if(token.IsCancellationRequested)return Refused(NativeResult.Cancelled,"Image conversion cancelled.");
         using var inputLease=new NeutralArtifactReadLeaseSet();inputLease.Pin(source);
         using var input=new FileStream(source.Path,FileMode.Open,FileAccess.Read,FileShare.Read);
         var identity=WindowsFileIdentity.Capture(input.SafeFileHandle);string sourceHash=System.Convert.ToHexString(SHA256.HashData(input));
         if(source.Kind!=MediaArtifactKind.PrimaryImage||source.ImageContainer!=ImageContainer.Jpeg||
             (source.Sha256 is { Length: > 0 } expected&&!string.Equals(expected,sourceHash,StringComparison.OrdinalIgnoreCase)))
-            throw new InvalidDataException("Bound image input bytes differ from the requested artifact.");
+            return Refused(NativeResult.InvalidArgument,"Bound image input bytes differ from the requested artifact.");
         var request=new NativeImageConversionRequestV2{StructSize=96,ApiVersion=2,SourceContainer=1,TargetContainer=2,Quality=quality,OrientationPolicy=1,
             ExpectedIdentity=new NativeFileIdentity{VolumeSerial=identity.VolumeSerialNumber,FileIndex=identity.FileIndex,FileSize=(ulong)input.Length,LinkCount=identity.LinkCount}};
         byte[] hash=System.Convert.FromHexString(sourceHash);for(int i=0;i<32;++i)request.SourceSha256[i]=hash[i];
         using var context=NativeContext.Create(token);var proof=new NativeImageConversionProofV1{StructSize=240,ApiVersion=1};
         var result=NativeMethods.ConvertImageV2(context.Handle,source.Path,output,in request,ref proof);
-        if(result==NativeResult.Unsupported)throw new NotSupportedException(context.GetLastError());
-        context.ThrowIfFailed(result);
+        if(result!=NativeResult.Ok)return Refused(result,context.GetLastError());
         NativeMediaService.NativeRegisteredOutputEvidence? evidence=null;NeutralArtifactReadLeaseSet? outputLease=null;
         try {
             evidence=NativeMediaService.CaptureRegisteredOutputEvidence(context,output,MediaArtifactKind.PrimaryImage);

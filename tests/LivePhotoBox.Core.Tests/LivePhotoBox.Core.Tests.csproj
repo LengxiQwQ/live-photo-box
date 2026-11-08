@@ -12,6 +12,13 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="..\..\LivePhotoBox\Collections\CollectionViewUpdater.cs" Link="Scanning\CollectionViewUpdater.cs" />
+    <Compile Include="..\..\LivePhotoBox\Collections\ScanCompletionSequence.cs" Link="Scanning\ScanCompletionSequence.cs" />
+    <Compile Include="..\..\LivePhotoBox\Collections\ScanRequestQueue.cs" Link="Scanning\ScanRequestQueue.cs" />
+    <Compile Include="..\..\LivePhotoBox\Collections\UiBatchProcessor.cs" Link="Scanning\UiBatchProcessor.cs" />
+    <Compile Include="..\..\LivePhotoBox\Controls\FileNameFitCache.cs" Link="Scanning\FileNameFitCache.cs" />
+    <Compile Include="..\..\LivePhotoBox\Helpers\ScanFollowPolicy.cs" Link="Scanning\ScanFollowPolicy.cs" />
+    <Compile Include="..\..\LivePhotoBox\Collections\BulkObservableCollection.cs" Link="Scanning\BulkObservableCollection.cs" />
     <Compile Include="..\..\LivePhotoBox\Models\RepairQueuePolicy.cs" Link="Repair\RepairQueuePolicy.cs" />
     <PackageReference Include="coverlet.collector" Version="6.0.4">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

@@ -21,12 +21,30 @@ extern "C" {
 #endif
 
 /* ABI14 adds fresh-reader Target Validator; existing PODs are unchanged. */
-#define LPB_NATIVE_ABI_VERSION 17u
+#define LPB_NATIVE_ABI_VERSION 19u
 
 typedef struct lpb_context lpb_context;
 typedef struct lpb_extraction_plan lpb_extraction_plan;
 typedef struct lpb_cleanup_plan lpb_cleanup_plan;
 typedef struct lpb_confirmed_residue lpb_confirmed_residue;
+
+/* Additive diagnostic v1. Existing result values and public POD layouts stay
+ * unchanged. Reasons are machine data; text remains display-only. */
+typedef enum lpb_failure_reason_v1 {
+    LPB_FAILURE_NONE = 0, LPB_FAILURE_AUTHORITY = 1, LPB_FAILURE_REPLAY = 2,
+    LPB_FAILURE_INVALID_FACTS = 3, LPB_FAILURE_SOURCE_RANGE = 4, LPB_FAILURE_SOURCE_CHANGED = 5,
+    LPB_FAILURE_CANCELLED = 6, LPB_FAILURE_DISK_FULL = 7, LPB_FAILURE_OUTPUT_WRITE = 8,
+    LPB_FAILURE_OUTPUT_PUBLISH = 9, LPB_FAILURE_UNSUPPORTED = 10, LPB_FAILURE_ALIAS = 11,
+    LPB_FAILURE_CLEANUP = 12, LPB_FAILURE_INTERNAL = 13
+} lpb_failure_reason_v1;
+
+typedef struct lpb_failure_diagnostic_v1 {
+    uint32_t struct_size, version;
+    lpb_failure_reason_v1 reason, original_reason;
+    uint32_t system_error, reserved;
+} lpb_failure_diagnostic_v1;
+
+LPB_API int32_t LPB_CALL lpb_get_failure_diagnostic_v1(lpb_context*, lpb_failure_diagnostic_v1*);
 
 typedef enum lpb_result
 {
@@ -811,9 +829,9 @@ typedef struct lpb_video_backend_diagnostics
  * Not coded A/V, codec config or whole-file identity. */
 typedef struct lpb_video_preservation_request_v1 {
     uint32_t struct_size;
-    uint32_t api_version; // 1: conversion; 2: same-codec/container orientation repair.
+    uint32_t api_version; // 1: conversion; 2: orientation repair; 3: explicit display-area policy.
     uint32_t policy;
-    uint32_t reserved;
+    uint32_t reserved; // v3 only: bit 0 retains stabilization margins; otherwise apply declared aperture.
 } lpb_video_preservation_request_v1;
 typedef struct lpb_video_preservation_result_v1 {
     uint32_t struct_size;
@@ -982,6 +1000,18 @@ LPB_API lpb_result LPB_CALL lpb_inspect_media(
  */
 LPB_API lpb_result LPB_CALL lpb_inspect_media_with_plan(
     lpb_context* context,
+    const char* primary_path,
+    const char* secondary_path,
+    lpb_source_media_facts* out_facts,
+    lpb_extraction_plan** out_plan,
+    lpb_confirmed_residue* out_residues,
+    size_t residues_capacity,
+    size_t* out_residues_count,
+    uint64_t* out_plan_generation);
+// Independent image (1) or video with already-neutral primary (2). Same opaque authority gates.
+LPB_API lpb_result LPB_CALL lpb_inspect_component_with_plan_v1(
+    lpb_context* context,
+    uint32_t component,
     const char* primary_path,
     const char* secondary_path,
     lpb_source_media_facts* out_facts,
@@ -1250,6 +1280,9 @@ LPB_API lpb_result LPB_CALL lpb_test_sha256_file(
  * to populate format facts (dimensions, duration, fps, rotation, codec, audio).
  */
 // Reflection is 0 for none, 1 for horizontal, or 2 for vertical.
+// Five uint32 values: aperture present, top, bottom, left, right, in coded pixels.
+LPB_API lpb_result LPB_CALL lpb_probe_video_display_geometry_v1(
+    lpb_context* context, const char* path, uint32_t* edges, uint32_t count);
 LPB_API lpb_result LPB_CALL lpb_probe_video_repair(
     lpb_context* context, const char* path, lpb_video_item_facts* facts, uint32_t* reflection);
 
@@ -1303,6 +1336,10 @@ typedef enum lpb_jpeg_transform
 LPB_API lpb_result LPB_CALL lpb_repair_image_exif(
     lpb_context* context, const char* source, const char* output,
     uint32_t actions, uint32_t* changed);
+
+// Compatible JPEG direction repair; may reencode at quality 92 without cropping.
+LPB_API lpb_result LPB_CALL lpb_normalize_jpeg_compatible(
+    lpb_context*, const char* input_path, const char* output_path, int32_t* out_reencoded);
 
 LPB_API lpb_result LPB_CALL lpb_transform_jpeg_losslessly(
     lpb_context* context,
@@ -1440,6 +1477,23 @@ typedef struct lpb_pairing_hint_v1 {
     uint8_t sha256[32];
     char identifier[128];
 } lpb_pairing_hint_v1;
+// Read-only candidate discovery. Always requires complete inspection before any
+// processing; no hash, extraction plan, preservation proof or mutation authority.
+// flags: 1=complete inspection required, 2=pairing candidate available.
+typedef struct lpb_media_candidate_v1 {
+    uint32_t struct_size, api_version, flags, protocol;
+    uint32_t role, image_container, video_container, reserved;
+    lpb_file_identity identity;
+    uint64_t file_size, bytes_read, motion_offset, motion_length;
+    char identifier[128];
+} lpb_media_candidate_v1;
+// v2 request: exactly one capability (1 Apple ID, 2 old vivo ID, 4 single-file marker).
+// Same 224-byte POD; api_version=2; flags 4 marker, 8 incomplete, 16 read failure;
+// reserved reports actual read calls. No fallback or execution authority.
+LPB_API lpb_result LPB_CALL lpb_discover_media_candidate_v2(
+    lpb_context*, const char* source, uint32_t capability, lpb_media_candidate_v1*);
+LPB_API lpb_result LPB_CALL lpb_discover_media_candidate_v1(
+    lpb_context*, const char* source, lpb_media_candidate_v1*);
 LPB_API lpb_result LPB_CALL lpb_discover_pairing_hint_v1(
     lpb_context*, const char* source, lpb_pairing_hint_v1*);
 
@@ -2045,6 +2099,11 @@ typedef struct lpb_neutral_timing_observation_v1 {
     uint8_t final_video_sha256[32];
 } lpb_neutral_timing_observation_v1;
 
+LPB_API lpb_result LPB_CALL lpb_observe_final_first_frame_v1(lpb_context*,const char*,int64_t*,uint8_t* sha256);
+// Independently selected video timing, bound to source and final hashes.
+// Same observation layout; no factory pair is inferred and no authority issued.
+LPB_API lpb_result LPB_CALL lpb_observe_composition_timing_v1(lpb_context*,const char* primary,
+    const char* selected_video,const char* final_video,lpb_neutral_timing_observation_v1*);
 LPB_API lpb_result LPB_CALL lpb_observe_neutral_timing_v1(
     lpb_context* context, const char* primary_path, const char* secondary_path,
     const char* final_video_path, lpb_neutral_timing_observation_v1* out_observation);
@@ -2193,6 +2252,8 @@ LPB_API lpb_result LPB_CALL lpb_inspect_video_inventory_v1(lpb_context* context,
 }
 
 static_assert(sizeof(lpb_pairing_hint_v1) == 208, "pairing hint POD size mismatch");
+static_assert(sizeof(lpb_media_candidate_v1) == 224, "media candidate POD size mismatch");
+static_assert(offsetof(lpb_media_candidate_v1, identifier) == 96, "media candidate identifier offset mismatch");
 static_assert(offsetof(lpb_pairing_hint_v1, identifier) == 80, "pairing hint identifier offset mismatch");
 static_assert(sizeof(lpb_media_range) == 16, "lpb_media_range size mismatch");
 static_assert(sizeof(lpb_image_item_facts) == 40, "lpb_image_item_facts size mismatch");

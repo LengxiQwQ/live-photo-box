@@ -1417,7 +1417,8 @@ bool replace_child_bytes(std::span<const uint8_t> data, const isobmff_box_header
 }
 
 bool preserve_visual_geometry(std::span<const uint8_t> source, const track_record& input,
-    std::span<const uint8_t> stage, const track_record& target, std::vector<uint8_t>& result) {
+    std::span<const uint8_t> stage, const track_record& target, std::vector<uint8_t>& result,
+    bool remove_aperture = false) {
     static_boxes metadata;
     if (!hdr_static_inventory(source, input, metadata)) return false;
     const auto visual_entry = [](std::span<const uint8_t> data, const track_record& track,
@@ -1447,7 +1448,8 @@ bool preserve_visual_geometry(std::span<const uint8_t> source, const track_recor
         if (!geometry_box(stage, p)) entry.insert(entry.end(), stage.begin() + p, stage.begin() + p + child.size);
         p += child.size;
     }
-    for (const auto& box : metadata) if (geometry_box(source, box.start))
+    for (const auto& box : metadata) if (geometry_box(source, box.start) &&
+        !(remove_aperture && box_type(source,box.start,"clap")))
         entry.insert(entry.end(), source.begin() + box.start, source.begin() + box.start + box.size);
     if (te.header_size == 16U) write_u64(entry.data() + 8U, entry.size());
     else { if (entry.size() > UINT32_MAX) return false; write_u32(entry.data(), static_cast<uint32_t>(entry.size())); }
@@ -2297,6 +2299,30 @@ bool supports_isobmff_color_conversion_geometry(std::span<const uint8_t> source)
             return box_type(source, child.start, "tapt");
         });
     } catch (...) { return false; }
+}
+
+bool remove_isobmff_clean_aperture(std::span<const uint8_t> stage, std::vector<uint8_t>& output) noexcept {
+    output.clear();
+    try {
+        file_record target{};
+        if(!parse_file(stage,target)||target.moov_header_size!=8) return false;
+        const auto* video=unique_video(target);
+        if(!video) return false;
+        std::vector<uint8_t> track,movie;
+        if(!preserve_visual_geometry(stage,*video,stage,*video,track,true)||
+            !rewrite_static_parent(stage,{},stage,target.moov_start,target.moov_end,video,&track,movie)) return false;
+        const int64_t delta=int64_t(movie.size())-int64_t(target.moov_end-target.moov_start);
+        if(delta&&!shift_chunk_offsets(movie,0,target.moov_end,delta)) return false;
+        output.insert(output.end(),stage.begin(),stage.begin()+target.moov_start);
+        output.insert(output.end(),movie.begin(),movie.end());
+        output.insert(output.end(),stage.begin()+target.moov_end,stage.end());
+        file_record final{};static_boxes before,after;
+        if(!parse_file(output,final)) return false;
+        const auto* actual=unique_video(final);
+        if(!actual||!hdr_static_inventory(stage,*video,before)||!hdr_static_inventory(output,*actual,after)) return false;
+        before.erase(std::remove_if(before.begin(),before.end(),[&](const auto& b){return box_type(stage,b.start,"clap");}),before.end());
+        return before.size()==after.size() && same_static(stage,before,output,after);
+    }catch(...){output.clear();return false;}
 }
 
 bool preserve_isobmff_copy_display_geometry(std::span<const uint8_t> source,

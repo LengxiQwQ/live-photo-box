@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -11,6 +11,17 @@ namespace LivePhotoBox.Core.Tests.Support;
 internal static unsafe partial class TestNativeMethods
 {
     internal const string LibraryName = "LivePhotoBox.Native.TestHarness";
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_get_failure_diagnostic_v1")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    private static partial NativeResult GetFailureDiagnosticPointerV1(nint context, NativeFailureDiagnosticV1* diagnostic);
+
+    internal static NativeResult GetFailureDiagnosticV1(nint context, ref NativeFailureDiagnosticV1 diagnostic)
+    {
+        fixed (NativeFailureDiagnosticV1* pointer = &diagnostic)
+            return GetFailureDiagnosticPointerV1(context, pointer);
+    }
 
     [LibraryImport(LibraryName, EntryPoint = "lpb_create_context")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
@@ -434,6 +445,17 @@ internal sealed unsafe class TestNativeContext : IDisposable
         if (result == NativeResult.Ok) return;
 
         string message = GetLastError() ?? $"Native test harness failed with result {result}.";
+        var diagnostic = new NativeFailureDiagnosticV1 { StructSize = 24, Version = 1 };
+        if (TestNativeMethods.GetFailureDiagnosticV1(Handle, ref diagnostic) == NativeResult.Ok && diagnostic.Reason is >= 1 and <= 13)
+        {
+            var reason = (ExtractionFailureCategory)(diagnostic.Reason - 1);
+            if (reason == ExtractionFailureCategory.Cancelled) throw new OperationCanceledException(message, _cancellationToken);
+            ExtractionFailureCategory? original = diagnostic.OriginalReason is >= 1 and <= 13
+                ? (ExtractionFailureCategory)(diagnostic.OriginalReason - 1) : null;
+            Exception? originalFailure = original is { } cause ? cause == ExtractionFailureCategory.Cancelled
+                ? new OperationCanceledException(message, _cancellationToken) : new ExtractionException(cause, message) : null;
+            throw new ExtractionException(reason, message, innerException: originalFailure, originalCategory: original);
+        }
         if (result == NativeResult.Cancelled || message.StartsWith("[Cancelled]", StringComparison.OrdinalIgnoreCase))
         {
             throw new OperationCanceledException(message, _cancellationToken);

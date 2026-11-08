@@ -125,6 +125,21 @@ internal static partial class NativeMethods
         out nuint outResiduesCount,
         out ulong planGeneration);
 
+    [LibraryImport(LibraryName, EntryPoint = "lpb_inspect_component_with_plan_v1", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static unsafe partial NativeResult InspectComponentWithPlan(
+        nint context,
+        uint component,
+        string primaryPath,
+        string? secondaryPath,
+        ref NativeSourceMediaFacts outFacts,
+        out nint extractionPlan,
+        NativeConfirmedResidue* outResidues,
+        nuint residuesCapacity,
+        out nuint outResiduesCount,
+        out ulong planGeneration);
+
     [LibraryImport(LibraryName, EntryPoint = "lpb_release_extraction_plan", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -220,6 +235,12 @@ internal static partial class NativeMethods
         nint extractionPlan,
         ulong generation);
 
+    [LibraryImport(LibraryName, EntryPoint = "lpb_probe_video_display_geometry_v1", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static unsafe partial NativeResult ProbeVideoDisplayGeometry(
+        nint context, string path, uint* edges, uint count);
+
     [LibraryImport(LibraryName, EntryPoint = "lpb_probe_video_repair", StringMarshalling = StringMarshalling.Utf8)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
     [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
@@ -262,6 +283,12 @@ internal static partial class NativeMethods
         string inputImagePath,
         string outputImagePath,
         int transform);
+
+    [LibraryImport(LibraryName, EntryPoint = "lpb_normalize_jpeg_compatible", StringMarshalling = StringMarshalling.Utf8)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.AssemblyDirectory | DllImportSearchPath.System32)]
+    [UnmanagedCallConv(CallConvs = [typeof(CallConvCdecl)])]
+    internal static partial NativeResult NormalizeJpegCompatible(nint context, string input,
+        string output, out int reencoded);
 
     [Obsolete("Preserved for P5 legacy transcode verification")]
     [LibraryImport(LibraryName, EntryPoint = "lpb_transcode_video_v2", StringMarshalling = StringMarshalling.Utf8)]
@@ -611,7 +638,29 @@ internal sealed class NativeHdrGainMapConversionTransaction : IDisposable
     internal NativeHdrGainMapConversionResultV1 Result { get; }
     internal string StagingPath { get; }
 
+    internal sealed record StageInspectionAttempt(SourceMediaFacts? Facts, NativeGainMapMetadataV1 Metadata, PreservationObservation? Preservation, Exception? Failure);
+    internal sealed record MappingProofAttempt((string SourceSha256, string OutputSha256, uint Kind)? Proof, Exception? Failure);
+    internal sealed record CompleteProofAttempt(NativeImageConversionProofV1 Proof, Exception? Failure);
     internal (SourceMediaFacts Facts, NativeGainMapMetadataV1 Metadata, PreservationObservation Preservation) Inspect()
+    {
+        var attempt = TryInspect();
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return (attempt.Facts!, attempt.Metadata, attempt.Preservation!);
+    }
+    internal (string SourceSha256, string OutputSha256, uint Kind)? GetOrdinaryXmpProof()
+    {
+        var attempt = TryGetOrdinaryXmpProof();
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Proof;
+    }
+    internal NativeImageConversionProofV1 GetCompleteHdrImageProof()
+    {
+        var attempt = TryGetCompleteHdrImageProof();
+        if (attempt.Failure is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+        return attempt.Proof;
+    }
+
+    internal StageInspectionAttempt TryInspect()
     {
         NativeContext context = _context ?? throw new ObjectDisposedException(nameof(NativeHdrGainMapConversionTransaction));
         if (_completed) throw new InvalidOperationException("HDR/GainMap conversion transaction is already finalized.");
@@ -631,47 +680,52 @@ internal sealed class NativeHdrGainMapConversionTransaction : IDisposable
         using NativeContextLease lease = context.AcquireOperationLease();
         NativeResult result = NativeMethods.InspectHdrGainMapStageV1(
             lease.Handle, Result.TransactionToken, ref facts, ref metadata, ref preservation);
-        context.ThrowIfFailed(result);
-        return (
-            NativeMediaService.MapFromNativeFacts(facts),
-            metadata,
-            PreservationObservation.FromNative(in preservation));
+        if (result != NativeResult.Ok) return new(null, default, null, context.CreateFailure(result));
+        return new(NativeMediaService.MapFromNativeFacts(facts), metadata, PreservationObservation.FromNative(in preservation), null);
     }
 
-    internal unsafe (string SourceSha256,string OutputSha256,uint Kind)? GetOrdinaryXmpProof()
+    internal unsafe MappingProofAttempt TryGetOrdinaryXmpProof()
     {
         NativeContext context=_context??throw new ObjectDisposedException(nameof(NativeHdrGainMapConversionTransaction));
         if(_completed)throw new InvalidOperationException("HDR/GainMap conversion transaction is already finalized.");
         if(sizeof(NativeHdrMetadataProofV2)!=80)throw new InvalidDataException("HDR metadata proof ABI layout mismatch.");
         var proof=new NativeHdrMetadataProofV2{StructSize=80,ApiVersion=2};
         using NativeContextLease lease=context.AcquireOperationLease();
-        context.ThrowIfFailed(NativeMethods.GetHdrMetadataProofV2(lease.Handle,Result.TransactionToken,ref proof));
-        if(proof.StructSize!=80||proof.ApiVersion!=2)throw new InvalidDataException("Unsupported HDR metadata proof version.");
-        if(proof.ProofKind==0&&proof.ProofFlags==0)return null;
-        if(proof.ProofKind is not (2 or 3)||proof.ProofFlags!=1)throw new InvalidDataException("Unsupported HDR metadata proof scope.");
-        return(Convert.ToHexString(new ReadOnlySpan<byte>(proof.SourceFileSha256,32)),
-            Convert.ToHexString(new ReadOnlySpan<byte>(proof.OutputFileSha256,32)),proof.ProofKind);
+        var result=NativeMethods.GetHdrMetadataProofV2(lease.Handle,Result.TransactionToken,ref proof);
+        if(result!=NativeResult.Ok)return new(null, context.CreateFailure(result));
+        if(proof.StructSize!=80||proof.ApiVersion!=2)return new(null, new InvalidDataException("Unsupported HDR metadata proof version."));
+        if(proof.ProofKind==0&&proof.ProofFlags==0)return new(null, null);
+        if(proof.ProofKind is not (2 or 3)||proof.ProofFlags!=1)return new(null, new InvalidDataException("Unsupported HDR metadata proof scope."));
+        return new((Convert.ToHexString(new ReadOnlySpan<byte>(proof.SourceFileSha256,32)),
+            Convert.ToHexString(new ReadOnlySpan<byte>(proof.OutputFileSha256,32)),proof.ProofKind), null);
     }
 
-    internal unsafe NativeImageConversionProofV1 GetCompleteHdrImageProof()
+    internal unsafe CompleteProofAttempt TryGetCompleteHdrImageProof()
     {
         NativeContext context=_context??throw new ObjectDisposedException(nameof(NativeHdrGainMapConversionTransaction));
         if(_completed)throw new InvalidOperationException("HDR/GainMap conversion transaction is already finalized.");
         if(sizeof(NativeImageConversionProofV1)!=240)throw new InvalidDataException("Complete HDR image proof ABI layout mismatch.");
         var proof=new NativeImageConversionProofV1{StructSize=240,ApiVersion=1};
         using NativeContextLease lease=context.AcquireOperationLease();
-        context.ThrowIfFailed(NativeMethods.GetHdrImageConversionProofV1(lease.Handle,Result.TransactionToken,ref proof));
-        return proof;
+        var result=NativeMethods.GetHdrImageConversionProofV1(lease.Handle,Result.TransactionToken,ref proof);
+        if(result!=NativeResult.Ok)return new(default, context.CreateFailure(result));
+        return new(proof, null);
     }
 
     internal void Commit()
+    {
+        if (TryCommit() is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    internal Exception? TryCommit()
     {
         NativeContext context = _context ?? throw new ObjectDisposedException(nameof(NativeHdrGainMapConversionTransaction));
         if (_completed) throw new InvalidOperationException("HDR/GainMap conversion transaction is already finalized.");
         using NativeContextLease lease = context.AcquireOperationLease();
         NativeResult result = NativeMethods.CommitHdrGainMapV1(lease.Handle, Result.TransactionToken);
-        context.ThrowIfFailed(result);
+        if (result != NativeResult.Ok) return context.CreateFailure(result);
         _completed = true;
+        return null;
     }
 
     internal NativeMediaService.NativeRegisteredOutputEvidence CaptureCommittedOutputEvidence(
@@ -689,12 +743,18 @@ internal sealed class NativeHdrGainMapConversionTransaction : IDisposable
 
     internal void Abort()
     {
+        if (TryAbort() is { } failure) System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    internal Exception? TryAbort()
+    {
         NativeContext context = _context ?? throw new ObjectDisposedException(nameof(NativeHdrGainMapConversionTransaction));
-        if (_completed) return;
+        if (_completed) return null;
         using NativeContextLease lease = context.AcquireOperationLease();
         NativeResult result = NativeMethods.AbortHdrGainMapV1(lease.Handle, Result.TransactionToken);
-        context.ThrowIfFailed(result);
+        if (result != NativeResult.Ok) return context.CreateFailure(result);
         _completed = true;
+        return null;
     }
 
     public void Dispose()
@@ -703,7 +763,7 @@ internal sealed class NativeHdrGainMapConversionTransaction : IDisposable
         if (context is null) return;
         try
         {
-            if (!_completed) Abort();
+            if (!_completed) _ = TryAbort();
         }
         catch
         {

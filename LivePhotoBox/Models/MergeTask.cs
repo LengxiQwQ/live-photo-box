@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using LivePhotoBox.Helpers;
 using LivePhotoBox.Media.Models;
 using LivePhotoBox.Services;
@@ -14,6 +14,9 @@ namespace LivePhotoBox.Models
     // 支持 MVVM 属性变更通知和缩略图懒加载。
     public partial class MergeTask : ObservableObject, IMergeTaskInfo
     {
+        public LivePhotoBox.Services.MergeScanOptions? SelectionScope { get; set; }
+        public SelectionIntent SelectionIntent { get; set; } = SelectionIntent.UserComposition;
+
         #region Observable Properties
 
         // 任务在队列中的序号

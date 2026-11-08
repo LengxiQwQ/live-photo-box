@@ -192,20 +192,58 @@ namespace LivePhotoBox.Cli.Commands
             string destination = output?.FullName ?? (dir == null
                 ? root : Path.Combine(root, new DirectoryInfo(root).Name + "_repaired"));
             string destinationPrefix = Path.TrimEndingDirectorySeparator(destination) + Path.DirectorySeparatorChar;
-            var files = singlePath != null
-                ? new[] { Path.GetFullPath(singlePath) }
-                : Directory.EnumerateFiles(root, "*", new EnumerationOptions
+            var files = new List<string>();
+            var scanErrors = new List<object>();
+            if (singlePath != null)
+                files.Add(Path.GetFullPath(singlePath));
+            else
+            {
+                var pending = new Queue<string>();
+                pending.Enqueue(root);
+                while (pending.Count > 0 && !ct.IsCancellationRequested)
                 {
-                    RecurseSubdirectories = recursive,
-                    IgnoreInaccessible = true,
-                    AttributesToSkip = FileAttributes.ReparsePoint
-                }).Where(path =>
-                    (string.Equals(root, destination, StringComparison.OrdinalIgnoreCase) ||
-                     !path.StartsWith(destinationPrefix, StringComparison.OrdinalIgnoreCase)) &&
-                    (ImageExtensions.Contains(Path.GetExtension(path)) || VideoExtensions.Contains(Path.GetExtension(path))))
-                  .ToArray();
+                    string directory = pending.Dequeue();
+                    var directoryRead = ScanFileSystem.Read(directory);
+                    if (directoryRead.Failure is { } readFailure)
+                    {
+                        scanErrors.Add(new { path = directory, error = readFailure.Message });
+                        if (!json) CliConsole.WriteErrorLine($"Cannot scan '{directory}': {readFailure.Message}");
+                        continue;
+                    }
+                    if ((directoryRead.Value!.Attributes & FileAttributes.ReparsePoint) != 0) continue;
+                    var enumeration = ScanFileSystem.Enumerate(directory, ct);
+                    if (ct.IsCancellationRequested) break;
+                    if (enumeration.Failure is { } enumerationFailure)
+                    {
+                        scanErrors.Add(new { path = directory, error = enumerationFailure.Message });
+                        if (!json) CliConsole.WriteErrorLine($"Cannot scan '{directory}': {enumerationFailure.Message}");
+                        continue;
+                    }
+                    foreach (string path in enumeration.Entries!)
+                    {
+                        if (ct.IsCancellationRequested) break;
+                        if (!string.Equals(root, destination, StringComparison.OrdinalIgnoreCase) &&
+                            (string.Equals(path, destination, StringComparison.OrdinalIgnoreCase) || path.StartsWith(destinationPrefix, StringComparison.OrdinalIgnoreCase))) continue;
+                        var entry = ScanFileSystem.Read(path);
+                        if (entry.Failure is { } entryFailure)
+                        {
+                            scanErrors.Add(new { path, error = entryFailure.Message });
+                            if (!json) CliConsole.WriteErrorLine($"Cannot inspect '{path}': {entryFailure.Message}");
+                            continue;
+                        }
+                        var attributes = entry.Value!.Attributes;
+                        if ((attributes & FileAttributes.ReparsePoint) != 0) continue;
+                        if ((attributes & FileAttributes.Directory) != 0)
+                        {
+                            if (recursive) pending.Enqueue(path);
+                        }
+                        else if (ImageExtensions.Contains(Path.GetExtension(path)) || VideoExtensions.Contains(Path.GetExtension(path)))
+                            files.Add(path);
+                    }
+                }
+            }
 
-            if (!yes && !dryRun && !json && !Console.IsInputRedirected)
+            if (!ct.IsCancellationRequested && !yes && !dryRun && !json && !Console.IsInputRedirected)
             {
                 Console.Write("Create repaired image copies? [y/N] ");
                 if (!string.Equals(Console.ReadLine()?.Trim(), "y", StringComparison.OrdinalIgnoreCase))
@@ -222,10 +260,11 @@ namespace LivePhotoBox.Cli.Commands
 
             using var batchContext = new RepairBatchContext();
             var results = new List<object>();
-            int succeeded = 0, failed = 0, skipped = 0, warned = 0, planned = 0, copied = 0, healthy = 0;
+            int succeeded = 0, failed = 0, skipped = 0, warned = 0, planned = 0, copied = 0, healthy = 0, cancelled = 0;
+            bool wasCancelled = ct.IsCancellationRequested;
             foreach (string file in files)
             {
-                ct.ThrowIfCancellationRequested();
+                if (ct.IsCancellationRequested) { wasCancelled = true; break; }
                 string extension = Path.GetExtension(file);
                 LivePhotoRepairService.RepairResult result;
                 string folder = preserveSubdirs && dir != null
@@ -241,6 +280,10 @@ namespace LivePhotoBox.Cli.Commands
                         result = await LivePhotoRepairService.RepairVideoFileAsync(
                             file, folder, allDevices, repairLongVideos, dryRun, dir != null, options, ct, copyPerfect, batchContext);
                 }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    result = new("cancelled", "Operation cancelled.");
+                }
                 catch (Exception ex) when (ex is not OperationCanceledException)
                 {
                     result = new("failed", ex.Message);
@@ -249,6 +292,7 @@ namespace LivePhotoBox.Cli.Commands
                 result = LivePhotoRepairService.EnsureRecorded(file, options, result);
                 switch (result.Status)
                 {
+                    case "cancelled": cancelled++; wasCancelled = true; break;
                     case "success": succeeded++; break;
                     case "healthy": healthy++; break;
                     case "failed": failed++; break;
@@ -267,13 +311,14 @@ namespace LivePhotoBox.Cli.Commands
                 results.Add(new { file, status = result.Status, color, message = result.Message, image = result.Image, video = result.Video, completion = result.Completion, actions = result.Actions, reasons = result.Limitations, publishedOutputs = result.PublishedOutputs, historyRecorded = result.HistoryRecorded });
                 if (!json && (verbose || singlePath != null || result.Status != "skipped"))
                     Console.WriteLine($"[{result.Status}] {file}{Environment.NewLine}{LivePhotoRepairService.DescribeResult(result)}{Environment.NewLine}{result.Message}");
+                if (wasCancelled) break;
             }
 
             if (json)
-                Console.WriteLine(JsonSerializer.Serialize(new { succeeded, failed, skipped, warned, planned, copied, healthy, results }));
+                Console.WriteLine(JsonSerializer.Serialize(new { succeeded, failed, skipped, warned, planned, copied, healthy, cancelled = wasCancelled || ct.IsCancellationRequested, cancelledCount = cancelled, scanErrors, results }));
             else
-                Console.WriteLine($"Repaired: {succeeded}, warning: {warned}, failed: {failed}, skipped: {skipped}, planned: {planned}, copied: {copied}, healthy: {healthy}");
-            return failed == 0 ? 0 : 1;
+                Console.WriteLine($"Repaired: {succeeded}, warning: {warned}, failed: {failed}, skipped: {skipped}, planned: {planned}, copied: {copied}, healthy: {healthy}, cancelled: {cancelled}, scan errors: {scanErrors.Count}");
+            return wasCancelled || ct.IsCancellationRequested ? 130 : failed != 0 || scanErrors.Count != 0 ? 1 : warned != 0 ? 2 : 0;
         }
     }
 }

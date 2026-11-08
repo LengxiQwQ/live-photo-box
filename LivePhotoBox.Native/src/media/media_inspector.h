@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #include "livephotobox_native.h"
 #include "media/gainmap_math.h"
@@ -9,6 +9,8 @@
 namespace lpb::media {
 
 lpb_result discover_pairing_hint(lpb_context*, const char*, lpb_pairing_hint_v1*) noexcept;
+lpb_result discover_media_candidate_v2(lpb_context*, const char*, uint32_t, lpb_media_candidate_v1*) noexcept;
+lpb_result discover_media_candidate(lpb_context*, const char*, lpb_media_candidate_v1*) noexcept;
 
 enum class gainmap_metadata_kind : int32_t { unknown = 0, apple = 1, iso = 2 };
 
@@ -34,6 +36,10 @@ lpb_result inspect_source(
     std::vector<lpb_confirmed_residue>* out_residues = nullptr,
     bool share_existing_writer = false) noexcept;
 
+// Independent read-only component facts; never infers a factory pair.
+lpb_result inspect_independent_components(lpb_context*,const char* primary,const char* secondary,
+    uint32_t component,lpb_source_media_facts*,std::vector<lpb_confirmed_residue>*);
+
 lpb_result inspect_source_with_plan(
     lpb_context* context,
     const char* primary_path,
@@ -41,7 +47,7 @@ lpb_result inspect_source_with_plan(
     lpb_source_media_facts* out_facts,
     lpb_extraction_plan** out_plan,
     std::vector<lpb_confirmed_residue>* out_residues = nullptr,
-    uint64_t* out_generation = nullptr) noexcept;
+    uint64_t* out_generation = nullptr, uint32_t component = 0) noexcept;
 
 lpb_image_container detect_image_container(std::span<const uint8_t> header) noexcept;
 lpb_video_container detect_video_container(std::span<const uint8_t> header) noexcept;

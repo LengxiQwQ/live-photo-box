@@ -11,6 +11,7 @@ using LivePhotoBox.Services;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using System;
 using System.Threading;
@@ -44,6 +45,7 @@ namespace LivePhotoBox.Helpers
 
         private ListView? _listView;
         private ScrollViewer? _scrollViewer;
+        private TaskListScrollTiming? _scrollTiming;
         private bool _isAttached;
 
         private bool _isLoopScheduled;
@@ -53,10 +55,14 @@ namespace LivePhotoBox.Helpers
         private bool _isProgrammatic;
         private bool _pausedByUser;
         private CancellationTokenSource? _idleTimerCts;
+        private readonly ScanFollowPolicy _scanFollow = new();
+        private readonly PointerEventHandler _wheelHandler;
+        private int _viewGeneration;
 
         public TaskListAutoScroller(string ownerName, Func<bool> isActive, Func<int> getTaskCount, Func<int, object> getTaskAt)
         {
             _ownerName = ownerName;
+            _wheelHandler = OnPointerWheelChanged;
             _isActive = isActive;
             _getTaskCount = getTaskCount;
             _getTaskAt = getTaskAt;
@@ -71,22 +77,42 @@ namespace LivePhotoBox.Helpers
         {
             if (_isAttached) return;
             _listView = listView;
-            _scrollViewer = FindDescendant<ScrollViewer>(listView);
-            if (_scrollViewer != null)
-                _scrollViewer.ViewChanged += OnScrollViewerViewChanged;
+            listView.AddHandler(UIElement.PointerWheelChangedEvent, _wheelHandler, true);
+            listView.AddHandler(UIElement.PointerPressedEvent, _wheelHandler, true);
             _isAttached = true;
+            listView.Loaded += OnListViewLoaded;
+            EnsureScrollViewer();
+        }
+
+        private void OnListViewLoaded(object sender, RoutedEventArgs args) => EnsureScrollViewer();
+
+        private void EnsureScrollViewer()
+        {
+            if (!_isAttached || _listView == null || _scrollViewer != null) return;
+            _scrollViewer = FindDescendant<ScrollViewer>(_listView);
+            if (_scrollViewer == null) return;
+            _scrollViewer.ViewChanged += OnScrollViewerViewChanged;
+            _scrollTiming = new(_ownerName, _listView, _scrollViewer, _isActive);
+            _scrollTiming.Attach();
         }
 
         // 卸载，释放资源。
         public void Detach()
         {
             _isAttached = false;
+            Interlocked.Increment(ref _viewGeneration);
+            _scrollTiming?.Detach();
+            _scrollTiming = null;
+            if (_listView != null) _listView.Loaded -= OnListViewLoaded;
             CancelIdleTimer();
             if (_scrollViewer != null)
             {
                 _scrollViewer.ViewChanged -= OnScrollViewerViewChanged;
                 _scrollViewer = null;
             }
+            _listView?.RemoveHandler(UIElement.PointerWheelChangedEvent, _wheelHandler);
+            _listView?.RemoveHandler(UIElement.PointerPressedEvent, _wheelHandler);
+            _scanFollow.End();
             _listView = null;
             _hasPending = false;
             _pendingIndex = -1;
@@ -116,13 +142,14 @@ namespace LivePhotoBox.Helpers
         // 扫描阶段批量刷入项目 — 滚动到最新。
         public void NotifyItemsFlushed()
         {
-            int idx = _getTaskCount() - 1;
-            if (idx >= 0) ScheduleAutoScroll(idx);
+            if (_scanFollow.TryGetTarget(_getTaskCount(), _pausedByUser, out int idx)) ScheduleAutoScroll(idx);
         }
 
         // 新一轮扫描开始 — 重置所有状态。
         public void NotifyScanStarting()
         {
+            Interlocked.Increment(ref _viewGeneration);
+            _scanFollow.Begin(_getTaskCount());
             _pendingIndex = -1;
             _lastScrolledIndex = -1;
             _hasPending = false;
@@ -133,6 +160,8 @@ namespace LivePhotoBox.Helpers
         // 处理阶段开始 — 清除扫描阶段残留的暂停状态。
         public void NotifyProcessingStarting()
         {
+            Interlocked.Increment(ref _viewGeneration);
+            _scanFollow.End();
             _pendingIndex = -1;
             _lastScrolledIndex = -1;
             _hasPending = false;
@@ -152,12 +181,19 @@ namespace LivePhotoBox.Helpers
 
         public void NotifyScanFinished()
         {
-            if (_getTaskCount() > 0)
-                _ = FinalScanScrollAsync();
+            // Finishing is not an instruction to jump to the last row.
+            Interlocked.Increment(ref _viewGeneration);
+            _scanFollow.End();
+            _hasPending = false;
+            _pendingIndex = -1;
+            _isProgrammatic = false;
+            CancelIdleTimer();
         }
 
         public void NotifyPageUnloading()
         {
+            _scanFollow.End();
+            Interlocked.Increment(ref _viewGeneration);
             _hasPending = false;
             _pendingIndex = -1;
             _lastScrolledIndex = -1;
@@ -190,7 +226,9 @@ namespace LivePhotoBox.Helpers
                 while (_hasPending && _isAttached)
                 {
                     _hasPending = false;
+                    int generation = Volatile.Read(ref _viewGeneration);
                     await Task.Delay(AutoFollowDebounce).ConfigureAwait(false);
+                    if (generation != Volatile.Read(ref _viewGeneration)) continue;
 
                     int target = _pendingIndex;
                     if (!_isAttached || !_isActive() || target < 0 || target >= _getTaskCount() || target == _lastScrolledIndex)
@@ -198,10 +236,13 @@ namespace LivePhotoBox.Helpers
 
                     await DispatchAsync(() =>
                     {
-                        if (!_isAttached || !_isActive() || target < 0 || target >= _getTaskCount())
+                        if (generation != Volatile.Read(ref _viewGeneration) || !_isAttached || !_isActive() || _pausedByUser || target < 0 || target >= _getTaskCount())
                             return;
                         _isProgrammatic = true;
-                        _listView!.ScrollIntoView(_getTaskAt(target), ScrollIntoViewAlignment.Default);
+                        EnsureScrollViewer();
+                        if (_scanFollow.IsScanning && target == _getTaskCount() - 1 && _scrollViewer is { ScrollableHeight: > 0 } viewer)
+                            viewer.ChangeView(null, viewer.ScrollableHeight, null, disableAnimation: false);
+                        else _listView!.ScrollIntoView(_getTaskAt(target), ScrollIntoViewAlignment.Default);
                         _lastScrolledIndex = target;
                     }).ConfigureAwait(false);
                 }
@@ -220,32 +261,37 @@ namespace LivePhotoBox.Helpers
         private async Task SafeNudgeToBottomAsync()
         {
             if (!_isAttached) return;
+            int generation = Volatile.Read(ref _viewGeneration);
             await Task.Delay(FinalBottomNudgeDelay).ConfigureAwait(false);
             await DispatchAsync(() =>
             {
-                if (!_isAttached) return;
+                if (generation != Volatile.Read(ref _viewGeneration) || !_isAttached) return;
                 _scrollViewer ??= FindDescendant<ScrollViewer>(_listView!);
                 _scrollViewer?.ChangeView(null, _scrollViewer.ScrollableHeight, null, true);
             }).ConfigureAwait(false);
         }
 
-        private async Task FinalScanScrollAsync()
+        private void OnPointerWheelChanged(object sender, PointerRoutedEventArgs args)
         {
-            if (!_isAttached) return;
-            await Task.Delay(30).ConfigureAwait(false);
-            await DispatchAsync(() =>
-            {
-                if (!_isAttached || _getTaskCount() == 0) return;
-                _isProgrammatic = true;
-                _listView!.ScrollIntoView(_getTaskAt(_getTaskCount() - 1), ScrollIntoViewAlignment.Default);
-            }).ConfigureAwait(false);
+            if (!_isAttached || !_isActive()) return;
+            _isProgrammatic = false;
+            _pausedByUser = true;
+            _hasPending = false;
+            _pendingIndex = -1;
+            StartIdleTimer();
         }
 
         private void OnScrollViewerViewChanged(object? sender, ScrollViewerViewChangedEventArgs e)
         {
-            if (_isProgrammatic)
+            if (!_isActive())
             {
                 _isProgrammatic = false;
+                CancelIdleTimer();
+                return;
+            }
+            if (_isProgrammatic)
+            {
+                if (!e.IsIntermediate) _isProgrammatic = false;
                 return;
             }
             var sv = _scrollViewer;
@@ -257,10 +303,11 @@ namespace LivePhotoBox.Helpers
                 CancelIdleTimer();
                 _pausedByUser = false;
             }
-            else if (!e.IsIntermediate && dist > ResumeThresholdPx)
+            else if (dist > ResumeThresholdPx)
             {
                 _pausedByUser = true;
-                StartIdleTimer();
+                if (e.IsIntermediate) CancelIdleTimer();
+                else StartIdleTimer();
             }
         }
 
@@ -269,15 +316,16 @@ namespace LivePhotoBox.Helpers
             CancelIdleTimer();
             _idleTimerCts = new CancellationTokenSource();
             var token = _idleTimerCts.Token;
+            int generation = Volatile.Read(ref _viewGeneration);
             _ = Task.Run(async () =>
             {
                 try
                 {
                     await Task.Delay(UserIdleTimeout, token).ConfigureAwait(false);
-                    if (token.IsCancellationRequested) return;
+                    if (token.IsCancellationRequested || generation != Volatile.Read(ref _viewGeneration)) return;
                     await DispatchAsync(() =>
                     {
-                        if (!_isAttached || !_pausedByUser) return;
+                        if (token.IsCancellationRequested || generation != Volatile.Read(ref _viewGeneration) || !_isAttached || !_isActive() || !_pausedByUser) return;
                         _pausedByUser = false;
                         // 只解除暂停，不主动滚动。
                         // 如果滚到底部再等下一个任务把它拉回来，会闪一下，体验很差。

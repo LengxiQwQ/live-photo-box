@@ -1,4 +1,4 @@
-<?xml version='1.0' encoding='utf-8'?>
+﻿<?xml version='1.0' encoding='utf-8'?>
 <root xmlns:ns1="urn:schemas-microsoft-com:xml-msdata" xmlns:xs="http://www.w3.org/2001/XMLSchema">
   
   <xs:schema id="root">
@@ -1567,7 +1567,7 @@ Open the output folder when done — your photos are back to normal ~</value>
     <value>Video Size</value>
   </data>
   <data name="MergePage_Sort_Date.Content" xml:space="preserve">
-    <value>Date Taken</value>
+    <value>File modified time</value>
   </data>
   <data name="MergePage_PairingMethodLabel.Text" xml:space="preserve">
     <value>Matching method:</value>
@@ -1576,7 +1576,7 @@ Open the output folder when done — your photos are back to normal ~</value>
     <value>By filename</value>
   </data>
   <data name="MergePage_Pairing_Filename_Hint" xml:space="preserve">
-    <value>Same-directory, same-name candidates; ambiguous pairs are refused and live bindings remain validated</value>
+    <value>Pairs photos and videos with the same filename</value>
   </data>
   <data name="MergePage_Pairing_Apple.Content" xml:space="preserve">
     <value>Apple Live Photo</value>
@@ -4092,7 +4092,7 @@ Then click "Start Split".</value>
     <value>Size</value>
   </data>
   <data name="SplitPage_Sort_Date.Content" xml:space="preserve">
-    <value>Date Taken</value>
+    <value>File modified time</value>
   </data>
   <data name="SplitPage_Filter_All.Text" xml:space="preserve">
     <value>All</value>
@@ -4176,10 +4176,10 @@ Then click "Start Split".</value>
     <value>Matching method:</value>
   </data>
   <data name="SplitPage_Match_All.Content" xml:space="preserve">
-    <value>All Live Photo protocols</value>
+    <value>All single-file live photo protocols</value>
   </data>
   <data name="SplitPage_Match_All_Hint" xml:space="preserve">
-    <value>Identify supported live protocols; no filename fallback</value>
+    <value>All supported single-file Live Photos</value>
   </data>
   <data name="SplitPage_Match_Fusion.Content" xml:space="preserve">
     <value>Fusion - Motion Photo ⚠️</value>
@@ -4525,7 +4525,7 @@ Inputs: {1}
   <data name="SplitDiagnostic_ReadFailed" xml:space="preserve"><value>File read failed.</value></data>
   <data name="ScanDiagnostic_Header.Text" xml:space="preserve"><value>Unselected items</value></data>
   <data name="ScanStatus_NotSelected" xml:space="preserve"><value>Not selected</value></data>
-  <data name="ScanStatus_Partial" xml:space="preserve"><value>Scan partially completed; see diagnostics for unreadable inputs</value></data>
+  <data name="ScanStatus_Partial" xml:space="preserve"><value>Scan complete: {0} items. See details for unselected items.</value></data>
   <data name="ScanDiagnostic_InputFailed" xml:space="preserve"><value>This input or relationship failed a read, format, or identity check. See the reason below.</value></data>
   <data name="ScanDiagnostic_OperationFailed" xml:space="preserve"><value>The scan could not complete. The previous complete queue is preserved; processing was not started. See the reason below.</value></data>
   <data name="ScanDiagnostic_UnresolvedBinding" xml:space="preserve"><value>The live binding is unresolved or ambiguous; it cannot be treated as plain media.</value></data>
@@ -4730,9 +4730,38 @@ Inputs: {1}
     <value>Same-name candidates must also pass Apple or vivo source-pair validation; excludes ordinary composition</value>
   </data>
   <data name="SplitPage_Match_Filename.Content" xml:space="preserve">
-    <value>Match by filename</value>
+    <value>Match dual files by name</value>
   </data>
   <data name="SplitPage_Match_Filename_Hint" xml:space="preserve">
-    <value>Same-directory, same-name dual files only; live protocol proof required. Ordinary photo/video pairs cannot be split as live photos</value>
+    <value>Select same-name dual-file live photos in the same folder and verify their original relationship. Choose a protocol for single-file photos.</value>
   </data>
+  <data name="ScanStatus_PartialDetails" xml:space="preserve"><value>Scan complete; see details for unselected items. {0}</value></data>
+  <data name="ScanStage_Enumerating" xml:space="preserve"><value>Finding files</value></data>
+  <data name="ScanStage_Inspecting" xml:space="preserve"><value>Inspecting files</value></data>
+  <data name="ScanStage_Pairing" xml:space="preserve"><value>Confirming pairs</value></data>
+  <data name="ScanStage_PreparingResults" xml:space="preserve"><value>Preparing the list</value></data>
+  <data name="ScanStage_Diagnosing" xml:space="preserve"><value>Diagnosing repair issues</value></data>
+  <data name="ScanStage_WithProgress" xml:space="preserve"><value>{0} · {1}%</value></data>
+  <data name="ScanStage_Identifying" xml:space="preserve"><value>Identifying candidates</value></data>
+  <data name="ScanStage_PresentingResults" xml:space="preserve">
+    <value>Displaying scan results…</value>
+  </data>
+  <data name="Repair_Action_JpegReencoded" xml:space="preserve"><value> JPEG was re-encoded at quality 92 without cropping; the output is isolated.</value></data>
+  <data name="ProductCompletion_RecoveredMedia" xml:space="preserve"><value>Isolated: recovered media; target conversion incomplete</value></data>
+  <data name="ProductCompletion_OriginalSaved" xml:space="preserve"><value>Isolated: original saved; conversion incomplete</value></data>
+  <data name="ProductCompletion_NoOutput" xml:space="preserve"><value>No output created</value></data>
+  <data name="ProductRecovery_Recovered" xml:space="preserve"><value>Usable media recovered; the requested live photo was not created.</value></data>
+  <data name="ProductRecovery_Original" xml:space="preserve"><value>Originals saved unchanged; conversion is incomplete and the requested live photo was not created.</value></data>
+  <data name="ProductRecovery_NoOutput" xml:space="preserve"><value>No output was created.</value></data>
+  <data name="ProductRecovery_Directory" xml:space="preserve"><value>Isolation directory: </value></data>
+  <data name="SettingsPage_KeepVideoStabilizationEdges.Text" xml:space="preserve"><value>Keep video stabilization edges</value></data>
+  <data name="SettingsPage_KeepVideoStabilizationEdges_Desc.Text" xml:space="preserve"><value>Keep the complete recorded frame, including any blank or uneven stabilization margins. When off, crop to the display area declared by the source, closer to the phone gallery preview, removing part of the edges. No crop is guessed.</value></data>
+  <data name="ProductVideo_KeptEdges" xml:space="preserve"><value>Kept the complete video frame and stabilization edges. Output size: {0}×{1}.</value></data>
+  <data name="ProductVideo_CroppedEdges" xml:space="preserve"><value>Cropped to the source display area, removing the declared stabilization edges. Output size: {0}×{1}.</value></data>
+  <data name="ProductRecovery_UnconvertedPart" xml:space="preserve"><value>Also saved unchanged, without conversion: </value></data>
+  <data name="ProductWarning_UncarriedVideoAssets" xml:space="preserve"><value>Some auxiliary video or other tracks could not be carried. Output isolated; see details.</value></data>
+  <data name="ProductWarning_Color" xml:space="preserve"><value>Color information was degraded or lost. Output isolated; review its appearance.</value></data>
+  <data name="ProductWarning_AudioConverted" xml:space="preserve"><value>Audio was reencoded for target compatibility and may have lossy changes. Output isolated; review its sound.</value></data>
+  <data name="Repair_Outcome_warning_retained" xml:space="preserve"><value>Output was created and retained at the actual paths below. Some work remains incomplete; isolation is not confirmed for every output.</value></data>
+  <data name="EditPage_ExportCleanupWarning" xml:space="preserve"><value>Export cleanup needs attention</value></data>
 </root>

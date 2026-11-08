@@ -392,6 +392,11 @@
                                   Visibility="{x:Bind ViewModel.IsShowingSaveError, Converter={StaticResource VisibilityConverter}, Mode=OneWay}"
                                   HorizontalAlignment="Center" VerticalAlignment="Center"
                                   Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
+                        <FontIcon Glyph="&#xE7BA;" FontSize="14"
+                                  Width="20" Height="20"
+                                  Visibility="{x:Bind ViewModel.IsShowingSaveWarning, Converter={StaticResource VisibilityConverter}, Mode=OneWay}"
+                                  HorizontalAlignment="Center" VerticalAlignment="Center"
+                                  Foreground="{ThemeResource SystemFillColorCautionBrush}"/>
                     </Grid>
                     <TextBlock Text="{x:Bind ViewModel.ProgressPrefixText, Mode=OneWay}"
                                IsHitTestVisible="False"

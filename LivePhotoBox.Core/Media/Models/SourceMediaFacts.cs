@@ -62,6 +62,13 @@ public sealed record VideoFacts
     public uint Width { get; init; }
     public uint Height { get; init; }
     public int RotationDegrees { get; init; }
+    // Reflection after the clockwise rotation: 0 none, 1 horizontal, 2 vertical.
+    public uint Reflection { get; init; }
+    public bool HasDisplayAperture { get; init; }
+    public uint CropTop { get; init; }
+    public uint CropBottom { get; init; }
+    public uint CropLeft { get; init; }
+    public uint CropRight { get; init; }
     public double DurationSeconds { get; init; }
     public double Fps { get; init; }
     public bool HasAudio { get; init; }

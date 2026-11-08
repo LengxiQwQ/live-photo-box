@@ -1,4 +1,4 @@
-/*
+﻿/*
  * EditViewModel.cs
  *
  * 实况照片封面更换页面的 ViewModel。
@@ -770,9 +770,19 @@ namespace LivePhotoBox.ViewModels
         [ObservableProperty]
         private bool _isShowingSaveError;
 
+        [ObservableProperty]
+        private bool _isShowingSaveWarning;
+
+        partial void OnIsShowingSaveWarningChanged(bool value)
+        {
+            OnPropertyChanged(nameof(IsCompletionWithError));
+            OnPropertyChanged(nameof(IsCompletionWithOutputDir));
+            OnPropertyChanged(nameof(IsSpinnerVisible));
+        }
+
         /// <summary>完成或失败 + 有输出目录 → 显示 📂 按钮</summary>
         public bool IsCompletionWithOutputDir =>
-            (IsShowingSaveComplete || IsShowingSaveError) && !string.IsNullOrEmpty(LastExportOutputDir);
+            (IsShowingSaveComplete || IsShowingSaveError || IsShowingSaveWarning) && !string.IsNullOrEmpty(LastExportOutputDir);
 
         partial void OnIsShowingSaveErrorChanged(bool value)
         {
@@ -783,10 +793,10 @@ namespace LivePhotoBox.ViewModels
 
         /// <summary>失败态 + 有错误详情 → 显示 ⚠️ 按钮</summary>
         public bool IsCompletionWithError =>
-            IsShowingSaveError && !string.IsNullOrEmpty(LastExportError);
+            (IsShowingSaveError || IsShowingSaveWarning) && !string.IsNullOrEmpty(LastExportError);
 
         /// <summary>进度圈可见：非完成、非失败</summary>
-        public bool IsSpinnerVisible => IsExporting && !IsShowingSaveComplete && !IsShowingSaveError;
+        public bool IsSpinnerVisible => IsExporting && !IsShowingSaveComplete && !IsShowingSaveError && !IsShowingSaveWarning;
 
         partial void OnIsShowingSaveCompleteChanged(bool value)
         {
@@ -815,6 +825,7 @@ namespace LivePhotoBox.ViewModels
             _completionCts = null;
             IsShowingSaveComplete = false;
             IsShowingSaveError = false;
+            IsShowingSaveWarning = false;
             LastExportOutputDir = null;
             LastExportError = null;
             ExportProgressPercent = 0.0;
@@ -828,6 +839,7 @@ namespace LivePhotoBox.ViewModels
         {
             IsShowingSaveComplete = true;
             IsShowingSaveError = false;
+            IsShowingSaveWarning = false;
             ExportProgressText = completionText;
             ProgressPrefixText = string.Empty;
             LastExportOutputDir = outputDir;
@@ -838,6 +850,7 @@ namespace LivePhotoBox.ViewModels
         {
             LogService.FileOp($"Export failed: {failureText} — {errorMessage}", LogLevel.Error);
             IsShowingSaveError = true;
+            IsShowingSaveWarning = false;
             IsShowingSaveComplete = false;
             IsExporting = true;
             ExportProgressText = failureText;
@@ -851,6 +864,7 @@ namespace LivePhotoBox.ViewModels
         {
             LogService.FileOp($"Export guard: {errorText}", LogLevel.Warning);
             IsShowingSaveError = true;
+            IsShowingSaveWarning = false;
             IsShowingSaveComplete = false;
             IsExporting = true;
             ExportProgressText = errorText;
@@ -862,7 +876,7 @@ namespace LivePhotoBox.ViewModels
         /// <summary>finally 清理：完成态/失败态保持，其他隐藏面板</summary>
         private void FinalizeExportProgress()
         {
-            if (!IsShowingSaveComplete && !IsShowingSaveError)
+            if (!IsShowingSaveComplete && !IsShowingSaveError && !IsShowingSaveWarning)
             {
                 IsExporting = false;
                 ExportProgressText = string.Empty;
@@ -967,6 +981,18 @@ namespace LivePhotoBox.ViewModels
 
         void IEditExportProgressNotifier.NotifyFailure(string failureText, string errorMessage, string? outputDir)
             => FailExportProgress(failureText, errorMessage, outputDir);
+
+        void IEditExportProgressNotifier.NotifyWarning(string message, string? outputDir)
+        {
+            IsShowingSaveComplete = false;
+            IsShowingSaveError = false;
+            IsShowingSaveWarning = true;
+            IsExporting = true;
+            ExportProgressText = ResourceService.GetString("EditPage_ExportCleanupWarning");
+            ProgressPrefixText = string.Empty;
+            LastExportError = message;
+            LastExportOutputDir = outputDir;
+        }
 
         void IEditExportProgressNotifier.NotifyGuardError(string errorText)
             => ShowExportGuardError(errorText);
@@ -2176,7 +2202,11 @@ namespace LivePhotoBox.ViewModels
                     var primaryPath = CurrentDocument?.PrimaryPath ?? SelectedFilePath;
                     if (string.IsNullOrEmpty(primaryPath) || !File.Exists(primaryPath))
                         throw new FileNotFoundException("Original photo source was not found.", primaryPath);
-                    byte[]? origBytes = EditTimingService.ReadOriginalPhotoBytes(primaryPath);
+                    var original = await EditTimingService.TryReadOriginalPhotoBytesAsync(primaryPath, CancellationToken.None);
+                    if (original.Warnings.Count > 0)
+                        ((IEditExportProgressNotifier)this).NotifyWarning(string.Join(Environment.NewLine, original.Warnings), null);
+                    if (original.Failure != null) throw original.Failure;
+                    byte[]? origBytes = original.Bytes;
                     if (origBytes == null || origBytes.Length == 0)
                         throw new InvalidDataException("The requested Original image is absent from the inspected source.");
                     using var prepared = await ExportSourcePreparation.PrepareOriginalBytesAsync(origBytes, CancellationToken.None);
