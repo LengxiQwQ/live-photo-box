@@ -261,7 +261,7 @@ Views: **5,682** ｜ Uniques: **218** (14-day) ｜ Clones: **7,248** ｜ Cloners
 **Top referrers (14-day):** github.com · Google · Bing · exmail.qq.com · claude.ai · developer.huawei.com  
 **Top content (14-day):** releases · releases/tag/v2.2.1 · issues · README.zh-CN.md
 
-> Data since 2026-08-02 · Last updated: 2026-11-15 (UTC+8)
+> Data since 2026-08-02 · Last updated: 2026-11-16 (UTC+8)
 <!-- INSIGHTS:END -->
 
 ---
