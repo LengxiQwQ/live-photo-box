@@ -256,12 +256,12 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
 <!-- INSIGHTS:START -->
 **📊 Repository Traffic**
 
-Views: **5,682** ｜ Uniques: **218** (14-day) ｜ Clones: **7,248** ｜ Cloners: **221** (14-day)
+Views: **5,744** ｜ Uniques: **213** (14-day) ｜ Clones: **7,279** ｜ Cloners: **217** (14-day)
 
-**Top referrers (14-day):** github.com · Google · Bing · exmail.qq.com · claude.ai · developer.huawei.com  
-**Top content (14-day):** releases · releases/tag/v2.2.1 · issues · README.zh-CN.md
+**Top referrers (14-day):** github.com · Google · Bing · doubao.com · exmail.qq.com · claude.ai  
+**Top content (14-day):** releases/tag/v2.2.1 · releases · issues · README.zh-CN.md
 
-> Data since 2026-08-02 · Last updated: 2026-11-16 (UTC+8)
+> Data since 2026-08-02 · Last updated: 2026-11-17 (UTC+8)
 <!-- INSIGHTS:END -->
 
 ---
