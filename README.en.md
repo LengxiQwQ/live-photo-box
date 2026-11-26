@@ -256,12 +256,12 @@ This project is open-source under the **GNU General Public License v3.0 (GPL 3.0
 <!-- INSIGHTS:START -->
 **📊 Repository Traffic**
 
-Views: **5,980** ｜ Uniques: **216** (14-day) ｜ Clones: **8,112** ｜ Cloners: **181** (14-day)
+Views: **5,994** ｜ Uniques: **199** (14-day) ｜ Clones: **8,126** ｜ Cloners: **181** (14-day)
 
 **Top referrers (14-day):** Google · github.com · Bing · noisedaohang.netlify.app · doubao.com · developer.huawei.com  
-**Top content (14-day):** releases/tag/v2.2.1 · releases · issues · tree/master
+**Top content (14-day):** releases/tag/v2.2.1 · releases · tree/master · README.md
 
-> Data since 2026-08-02 · Last updated: 2026-11-25 (UTC+8)
+> Data since 2026-08-02 · Last updated: 2026-11-26 (UTC+8)
 <!-- INSIGHTS:END -->
 
 ---
